@@ -1199,6 +1199,17 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 }
+
+/// Mock mode: a terminal running Claude Code or Codex gets its View Only chat after the short
+/// latency, a mock chat of that session (the `ws-terminal-agent` demo's chat face).
+extension MockWorkspaceCreationBackend: TerminalChatBackend {
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] { [] }
+
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
+        try await settle()
+        return .chat("mock-watch-\(session)")
+    }
+}
 #endif
 
 /// Where the Mac's New Tab rows put the new tab in its pane.
