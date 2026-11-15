@@ -52,10 +52,81 @@ impl Hub {
                 .lock()
                 .unwrap()
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
-            current.harnesses = next.harnesses;
+            // Every field of `Config` is named here, with no `..`: a field added to it does not
+            // build until it is copied below or listed as kept until a restart, with why. A
+            // field in neither is how `remoteDaemon` stayed at its start value, and
+            // `acpmux config --set remote_daemon=...` did nothing until a restart (cmux#43305
+            // review, P1-F1). A binding named here and not copied is an unused variable.
+            let crate::config::Config {
+                harnesses,
+                default_harness,
+                defaults,
+                session,
+                presets,
+                discovered,
+                auto_fallback,
+                auto_default,
+                auto_prefer,
+                unavailable,
+                profile_meta,
+                profile_diagnostics,
+                shadowed_config,
+                pool,
+                web_roots,
+                vm_host,
+                peers,
+                web_asking_modes,
+                agent_start_timeout_ms,
+                uploads_max_age_days,
+                silent_turn_ms,
+                queue_max_prompts,
+                queue_max_bytes,
+                stalled_turn_ms,
+                stalled_turn_end_ms,
+                usage_warnings,
+                default_permission_mode,
+                remote_daemon,
+                notify_command,
+                disk_low_bytes,
+                agent_inbox,
+                hold_agent_starts_to_starter,
+                auto_resume_delays_ms,
+                login_env_allow,
+                coderouter_claude_route,
+                machine_wake,
+                btw,
+                titles,
+                context_overrides,
+                send_relay,
+                artifacts,
+                composer_max_rows,
+                tui,
+                // Kept until a restart: each is read once, when the daemon starts what it
+                // configures (`daemon.rs`), or is this run's own state.
+                acpmux_v2: _,      // the v2 surfaces are registered at start
+                artifacts_sync: _, // its sync task starts with the daemon
+                write_journal: _,  // the replica and journal open at start
+                store: _,          // the open store
+                websocket: _,      // the bound listener
+                transport: _,      // WireGuard and the hub carrier start with the daemon
+                mesh_relay: _,     // started at start, then owned by join and leave
+                // The daemon's default policy is its own setter's (`_acpmux/start_mode`), not
+                // the file's: an agent can write the file.
+                permission_policy: _,
+                path: _,               // where this daemon reads, the same file
+                profile_sources: _,    // the profile sources it reads, the same ones
+                folder_gate: _,        // the folder profile records it reads
+                file_missing: _,       // whether the start found a file (`policy_source.rs`)
+                cloud_host: _,         // a fact of the machine
+                web_unbound: _,        // this run's listener
+                dev_origins: _,        // this run's flags
+                web_token_override: _, // this run's flags
+                saved: _,              // what this process last wrote (`save_merge.rs`)
+            } = next;
+            current.harnesses = harnesses;
             // A profile that is new or changed back is served its disk list, if any.
             self.serve_acp_cache(&current.harnesses);
-            current.default_harness = next.default_harness;
+            current.default_harness = default_harness;
             // A harness's own start mode (`permissionMode`) changing is a start-mode change too.
             let modes_of =
                 |d: &std::collections::BTreeMap<String, crate::config::SessionDefaults>| {
@@ -63,41 +134,61 @@ impl Hub {
                         .filter_map(|(k, v)| Some((k.clone(), v.permission_mode.clone()?)))
                         .collect::<Vec<_>>()
                 };
-            let harness_modes_changed = modes_of(&current.defaults) != modes_of(&next.defaults);
-            current.defaults = next.defaults;
-            current.session = next.session;
-            current.presets = next.presets;
-            current.discovered = next.discovered;
-            current.auto_fallback = next.auto_fallback;
-            current.auto_default = next.auto_default;
-            current.auto_prefer = next.auto_prefer;
-            current.unavailable = next.unavailable;
-            current.profile_meta = next.profile_meta;
-            current.profile_diagnostics = next.profile_diagnostics;
-            current.shadowed_config = next.shadowed_config;
-            current.pool = next.pool;
-            current.web_roots = next.web_roots;
-            current.vm_host = next.vm_host;
+            let harness_modes_changed = modes_of(&current.defaults) != modes_of(&defaults);
+            current.defaults = defaults;
+            current.session = session;
+            current.presets = presets;
+            current.discovered = discovered;
+            current.auto_fallback = auto_fallback;
+            current.auto_default = auto_default;
+            current.auto_prefer = auto_prefer;
+            current.unavailable = unavailable;
+            current.profile_meta = profile_meta;
+            current.profile_diagnostics = profile_diagnostics;
+            current.shadowed_config = shadowed_config;
+            current.pool = pool;
+            current.web_roots = web_roots;
+            current.vm_host = vm_host;
             // The peers stay put, but a saved peer's VM boundary follows the file at once: a
             // `false` there is the caller taking it back (`vm_boundary.rs`).
             // So does whether this Mac lends it GitHub (`github_broker.rs`).
-            self.reload_saved_peers(&mut current, &next.peers, peers_read);
-            current.web_asking_modes = next.web_asking_modes;
+            self.reload_saved_peers(&mut current, &peers, peers_read);
+            current.web_asking_modes = web_asking_modes;
             // The start budget applies from the next start, like a restart would.
-            current.agent_start_timeout_ms = next.agent_start_timeout_ms;
-            current.uploads_max_age_days = next.uploads_max_age_days;
-            current.silent_turn_ms = next.silent_turn_ms;
+            current.agent_start_timeout_ms = agent_start_timeout_ms;
+            current.uploads_max_age_days = uploads_max_age_days;
+            current.silent_turn_ms = silent_turn_ms;
             // The next prompt that would wait is held to the new queue limits.
-            current.queue_max_prompts = next.queue_max_prompts;
-            current.queue_max_bytes = next.queue_max_bytes;
-            current.stalled_turn_ms = next.stalled_turn_ms;
-            current.stalled_turn_end_ms = next.stalled_turn_end_ms;
+            current.queue_max_prompts = queue_max_prompts;
+            current.queue_max_bytes = queue_max_bytes;
+            current.stalled_turn_ms = stalled_turn_ms;
+            current.stalled_turn_end_ms = stalled_turn_end_ms;
+            // The next circuit asking for the cmux-tui remote daemon reads it
+            // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
+            current.remote_daemon = remote_daemon;
+            // Each of these is read where it is used, so the next use follows the file.
+            current.notify_command = notify_command;
+            current.disk_low_bytes = disk_low_bytes;
+            current.agent_inbox = agent_inbox;
+            current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
+            current.auto_resume_delays_ms = auto_resume_delays_ms;
+            current.coderouter_claude_route = coderouter_claude_route;
+            current.machine_wake = machine_wake;
+            current.btw = btw;
+            current.titles = titles;
+            current.context_overrides = context_overrides;
+            current.send_relay = send_relay;
+            current.artifacts = artifacts;
+            current.composer_max_rows = composer_max_rows;
+            current.tui = tui;
+            // The next agent started gets the new login variables (`login_env.rs`).
+            crate::login_env::set_extra_allow(login_env_allow.clone());
+            current.login_env_allow = login_env_allow;
             // The next summary read warns by the new thresholds (`usage_warnings.rs`).
-            *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner()) =
-                next.usage_warnings.limits();
-            current.usage_warnings = next.usage_warnings;
-            let start_changed = current.default_permission_mode != next.default_permission_mode;
-            current.default_permission_mode = next.default_permission_mode;
+            *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner()) = usage_warnings.limits();
+            current.usage_warnings = usage_warnings;
+            let start_changed = current.default_permission_mode != default_permission_mode;
+            current.default_permission_mode = default_permission_mode;
             if start_changed || harness_modes_changed {
                 self.start_mode_changed();
             }
