@@ -2108,16 +2108,29 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
 # exchange's 403: hq#10808) and 'mac-ios-e2e' failed 'Install build prerequisites' (`cameroncooke/axe/axe: undefined
 # method 'run' for an instance of Homebrew::InstallSteps::DSL`: cmux#43820), and cmux#43755's run 43737950292 failed
 # both the same way. With no base verdict, such a red is excused only as a setup red another PR fails the same way:
+# - the PR does not change the workflow file, and its steps are read from the workflow at the merge-base, never the
+#   head's own edit of it (a PR could rename or reorder a step into "setup"); the PR's changed files and commits are
+#   read from one compare with the base, refused when GitHub lists fewer than the PR has (COMPARE_FILES_CAP);
 # - every failed step of the job failed (a cancelled or timed-out step is no verdict; a crash or a cut-short run was
 #   refused by read_head, a cancelled job by judge) and is a workflow step before the job's first test step in its
 #   workflow's own step order (StepNames.specs), and is no test step itself: one whose name says it tests
 #   (TEST_STEP_NAME) or whose script starts a test runner (runs_tests). A job with no test step (the backend) only
 #   sets up another job's tests;
+# - every failed step runs no code the PR can change (runs_no_pr_code): a `uses:` step of an action outside the
+#   repository (not `./...`), or a step SETUP_ONLY_STEPS names, whose scripts the PR does not change. Every other step
+#   before the tests runs the PR's code and its error lines are generic: PR #43876's review (FIX FIRST at b7f6aff6c64,
+#   issuecomment-6899154268): 'Start per-run backend' serves the PR's workers and fails on `backend health: iroh-v2
+#   never answered at ...`, 'Wait for the per-run backend' and 'Sign in and pair simulator' fail on the PR's own
+#   backend or sign-in in words an outage prints too, and 'Install dependencies' fails on a stale lockfile the same
+#   way on any two PRs. Excused by another PR's identical line, a PR that breaks its backend would land, and each later
+#   PR would excuse the next, since iOS E2E never runs on the base;
 # - each of those steps' error lines, masked (step_errors, normalise_error; read whole when step_owners cannot place
 #   the log, only for a job with one failed step), is printed by the step of the same name, failed, in the job of the
 #   same name, failed, of one run of the same workflow for another pull request: another head branch, and PR numbers
 #   none of which is the head's (a run that names no PR is no evidence), completed in the last OTHER_PR_HOURS. A run
-#   of this PR never counts, nor a log that crashed or was cut short;
+#   of this PR never counts, nor a log that crashed or was cut short, nor a run of a commit that shares a commit with
+#   this PR beyond the base (one is the other's ancestor, or their merge-base is one of this PR's commits: a stacked
+#   lane, a reland, two lanes of one change), told by one compare of the two heads (shares_commits);
 # - the match is on step names and error lines alone: a PR's title, body or branch name is never read for one;
 # - the reads are bounded: one list of the workflow's failed pull_request runs (OTHER_PR_LIST, newest first), at most
 #   OTHER_PR_RUNS job lists (base_run_jobs, its disk cache) and OTHER_PR_LOGS logs, each read once per judgement.
@@ -2146,16 +2159,66 @@ def runs_tests(script: str) -> bool:
     return bool(TEST_VERB_TOOLS & set(words)) and bool(TEST_VERBS & set(words))
 
 
+# The steps before a workflow's tests that run a script of the repository and still run no code the PR can change, by
+# workflow file: {step name: the repository paths it runs}. Excused only while the PR changes none of those paths.
+SETUP_ONLY_STEPS = {
+    ".github/workflows/ios-e2e.yml": {
+        # Installs build tools: zig (install-zig-ci.sh), the prebuilt GhosttyKit for the pinned ghostty submodule
+        # (download-prebuilt-ghosttykit.sh, else ensure-ghosttykit.sh) and Homebrew's axe. No app, worker or test code.
+        "Install build prerequisites": ("scripts/install-zig-ci.sh", "scripts/download-prebuilt-ghosttykit.sh",
+                                        "scripts/ensure-ghosttykit.sh", "ghostty"),
+        # Picks the runner's Xcode (toolchain setup).
+        "Select Xcode": ("scripts/select-ci-xcode.sh",),
+        # xcrun and xcodebuild only: the runner's simulator runtime (toolchain setup).
+        "Ensure iOS simulator runtime": (),
+    },
+}
+
+
+def runs_no_pr_code(spec: dict, path: str, title: str, changed: set[str]) -> str | None:
+    """None when workflow step SPEC (TITLE, of workflow PATH, as declared at the merge-base) runs no code a PR with
+    CHANGED paths can change: a `uses:` action outside the repository, or a SETUP_ONLY_STEPS step whose paths are
+    unchanged; else why it runs the PR's code."""
+    uses = spec.get("uses")
+    if isinstance(uses, str):
+        if uses.strip().startswith("./"):
+            return f"its failed step '{title}' runs the PR's code (the local action {uses.strip()})"
+        return None
+    listed = SETUP_ONLY_STEPS.get(path, {})
+    if title not in listed:
+        return (f"its failed step '{title}' runs the PR's code (a `run:` step, and not one {path}'s SETUP_ONLY_STEPS "
+                "names as running none)")
+    if touched := sorted(file for file in changed if any(file == own or file.startswith(own + "/")
+                                                         for own in listed[title])):
+        return f"its failed step '{title}' runs files this PR changes ({', '.join(touched)[:300]})"
+    return None
+
+
+def shares_commits(repo: str, other: str, sha: str, mine: set[str], github) -> bool:
+    """Whether OTHER, another PR's tested commit, shares a commit with SHA beyond the base: one is the other's
+    ancestor, or their merge-base is one of MINE (SHA's commits beyond its own merge-base). One compare read."""
+    if other == sha:
+        return True
+    found = github.json(f"repos/{repo}/compare/{other}...{sha}?per_page=1")
+    if not isinstance(found, dict) or found.get("status") in (None, "identical", "ahead", "behind"):
+        return True  # unread is shared: never evidence
+    return str((found.get("merge_base_commit") or {}).get("sha") or "") in mine
+
+
 def completed(job: dict) -> datetime | None:
+    """JOB's completed_at, or None when it is not a time with its zone (never compared with an aware now)."""
     try:
-        return datetime.fromisoformat(str(job.get("completed_at")).replace("Z", "+00:00"))
+        when = datetime.fromisoformat(str(job.get("completed_at")).replace("Z", "+00:00"))
     except ValueError:
         return None
+    return when if when.tzinfo is not None else None
 
 
-def setup_red_steps(job: dict, names) -> "tuple[list[str], str | None] | str":
+def setup_red_steps(job: dict, names, path: str, changed: set[str]
+                    ) -> "tuple[list[str], str | None] | str":
     """(the names of JOB's failed steps, in order, and its first test step after them or None) when each is a setup
-    step by the rule above, NAMES its job_step_names; else why not."""
+    step that runs no PR code (runs_no_pr_code, PATH its workflow, CHANGED the PR's paths) by the rule above, NAMES
+    the workflow's step names at the merge-base; else why not."""
     specs = getattr(names, "specs", None)
     if not specs:
         return "its steps could not be matched to its workflow's, so no step is known to run before its tests"
@@ -2176,6 +2239,8 @@ def setup_red_steps(job: dict, names) -> "tuple[list[str], str | None] | str":
                 return f"its failed step '{title}' runs tests"
             if first_test is not None:
                 return f"its failed step '{title}' runs after its test step '{first_test}'"
+            if (why := runs_no_pr_code(spec, path, title, changed)) is not None:
+                return why
             failed.append(title)
         if testing and first_test is None:
             first_test = title
@@ -2197,19 +2262,37 @@ def setup_errors(view: "FailedView | Unplaced", whole: "UnplacedSignature | None
 
 
 def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "Head", workflow_info: dict,
-                           workflow: int, github, run_reads: dict) -> str | None:
-    """The audit line for red head JOB (NAME, read as HEAD by read_head), whose workflow (WORKFLOW, its run
+                           workflow: int, github, run_reads: dict, evidence: "Evidence") -> tuple[bool, str]:
+    """(True, the audit line) for red head JOB (NAME, read as HEAD by read_head), whose workflow (WORKFLOW, its run
     WORKFLOW_INFO) has no BASE verdict, when it is a setup red another pull request's run fails the same way (the rule
-    above); None when it is not."""
-    setup = setup_red_steps(job, job_step_names(repo, job, github, run_reads))
+    above); else (False, why not)."""
+    path = str(workflow_info.get("path") or "").split("@", 1)[0]
+    # The head's own step names first (read by read_head already): a red no rule here can excuse costs no read.
+    if isinstance(why := setup_red_steps(job, job_step_names(repo, job, github, run_reads), path, set()), str):
+        return False, why
+    sha = str(job.get("head_sha") or "")
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha}")
+    files, commits = diff.get("files"), diff.get("commits")
+    merge_base = evidence.merge_base(sha, diff)
+    if (not re.fullmatch(r"[0-9a-f]{40}", merge_base) or not isinstance(files, list) or not isinstance(commits, list)
+            or len(files) >= COMPARE_FILES_CAP or diff.get("total_commits", len(commits)) != len(commits)):
+        return False, f"its changed files and commits against {base} could not be read in full"
+    changed = {str(file.get("filename")) for file in files if isinstance(file, dict)}
+    if path in changed:
+        return False, f"this PR changes its workflow ({path}), so no step of it is known to be the base's setup"
+    # The workflow as the base declares it, at the merge-base: its step order and each step's `uses:` or script.
+    setup = setup_red_steps(job, workflow_step_names(repo, dict(job, head_sha=merge_base), path, github, run_reads),
+                            path, changed)
     if isinstance(setup, str):
-        return None
+        return False, setup
     steps, first_test = setup
     mine = setup_errors(head.view, head.unplaced, steps)
     branch = workflow_info.get("head_branch")
     numbers = {pull.get("number") for pull in workflow_info.get("pull_requests") or [] if isinstance(pull, dict)}
     if not mine or not branch:
-        return None
+        return False, "its failed setup steps print no error line to match, or its run names no branch"
+    own_commits = {str(commit.get("sha")) for commit in commits if isinstance(commit, dict)}
+    shared = 0
     listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request&status=failure"
                          f"&per_page={OTHER_PR_LIST}")
     now, window = datetime.now().astimezone(), timedelta(hours=OTHER_PR_HOURS)
@@ -2221,7 +2304,7 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
         if (run.get("event") != "pull_request" or run.get("id") == job.get("run_id")
                 or run.get("head_branch") in (None, branch) or not theirs or theirs & numbers):
             continue  # this PR's own run, or one that names no other PR
-        if reads >= OTHER_PR_RUNS:
+        if reads >= OTHER_PR_RUNS or logs >= OTHER_PR_LOGS:
             break
         reads += 1
         for other in base_run_jobs(repo, run, github):
@@ -2230,7 +2313,7 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
                     or (when := completed(other)) is None or now - when > window):
                 continue
             if logs >= OTHER_PR_LOGS:
-                return None
+                break
             logs += 1
             other = dict(other, run_id=other.get("run_id") or run["id"])
             text = github.log(repo, other)
@@ -2243,15 +2326,22 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
                                  sorted(failed) if view is UNPLACED else steps)
             if found is None or not mine <= found:
                 continue
+            tested = str(run.get("head_sha") or other.get("head_sha") or "")
+            if not re.fullmatch(r"[0-9a-f]{40}", tested) or shares_commits(repo, tested, sha, own_commits, github):
+                shared += 1  # the same change on two PRs never excuses itself
+                continue
             url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
             said = "; ".join(f"'{step}': {error}" for step, error in sorted(mine))
             before = f"its first test step '{first_test}'" if first_test else "any test step (the job runs none)"
-            return (f"excused '{name}': not this PR (a setup red other PRs share): no {base} run of its workflow has "
-                    f"a verdict, and its failed setup step{'s' if len(steps) > 1 else ''} ({'; '.join(steps)}), "
-                    f"before {before}, failed the same way in PR #{', #'.join(str(n) for n in sorted(theirs))}'s "
-                    f"run {run['id']} ({url}), job {other.get('id')}, completed {other.get('completed_at')}: "
-                    f"{said[:500]}")
-    return None
+            return True, (f"excused '{name}': not this PR (a setup red other PRs share): no {base} run of its "
+                          f"workflow has a verdict, and its failed setup step{'s' if len(steps) > 1 else ''} "
+                          f"({'; '.join(steps)}), before {before}, runs no code this PR changes and failed the same "
+                          f"way in PR #{', #'.join(str(n) for n in sorted(theirs))}'s run {run['id']} ({url}), job "
+                          f"{other.get('id')}, completed {other.get('completed_at')}, tested {tested[:12]}, which "
+                          f"shares no commit with this PR: {said[:500]}")
+    return False, ("no other PR's run of its workflow in the last "
+                   f"{OTHER_PR_HOURS} h failed its setup steps ({'; '.join(steps)}) the same way"
+                   + (f" (the {shared} that did share commits with it)" if shared else ""))
 
 
 # A compiler or lint red another base job prints (2026-11-12, cmux#40935 at d2e676e6 and #41633): e0d3bb0ec2f left
@@ -7286,14 +7376,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if base_run is None:
             if (asked := asks_only_rerun(view)) is not None:
                 raise infra(name, job, f"its check could not run and printed only {asked!r}")
-            if (shared := other_pr_setup_verdict(repo, base, name, job, got, workflow_info, workflow, github,
-                                                 run_reads)) is not None:
-                audit.append(shared)  # a setup red other PRs share (other_pr_setup_verdict)
+            shared, why_not = other_pr_setup_verdict(repo, base, name, job, got, workflow_info, workflow, github,
+                                                     run_reads, evidence)
+            if shared:
+                audit.append(why_not)  # a setup red other PRs share (other_pr_setup_verdict)
                 continue
-            dispatch =base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
+            dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
-                          f"and its tip suite runs)" + (f": {dispatch}" if dispatch else ""))
+                          f"and its tip suite runs)" + (f": {dispatch}" if dispatch else "")
+                          + f"; not a setup red other PRs share: {why_not}")
         if name == GUARD_GROUP_JOB:
             audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github))
             continue
