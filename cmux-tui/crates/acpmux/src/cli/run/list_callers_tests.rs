@@ -557,3 +557,63 @@ async fn probe_first_read() {
         }
     }
 }
+
+// PROBE (diagnostic, not for merge): the first read's usage pass. Each part on a new daemon.
+#[ignore = "diagnostic probe of the first JSON read"]
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_first_read_usage() {
+    let us = |at: Instant| at.elapsed().as_micros();
+    let keys: Vec<String> = (0..20).map(|n| format!("live-{n:02}")).collect();
+    let fresh = |closed: usize| async move {
+        list_daemon::serve(Serves::List, |hub| {
+            list_daemon::twenty_live_beside(hub, closed).unwrap()
+        })
+        .await
+        .unwrap()
+    };
+    for closed in [1_100, 11_000, 110_000] {
+        // E: `_acpmux/info` by key over the socket, with `usage: true` and without.
+        for (part, usage) in [("E_usage", true), ("E_no_usage", false)] {
+            let d = fresh(closed).await;
+            let client = Client::connect(&d.path).await.unwrap();
+            let mut t = Vec::new();
+            for _ in 0..2 {
+                let mut params = json!({"sessionIds": keys, "row": true});
+                if usage {
+                    params["usage"] = json!(true);
+                }
+                let at = Instant::now();
+                let reply = client.request(crate::rpc::method::MUX_INFO, params).await.unwrap();
+                t.push(us(at));
+                assert_eq!(reply["rows"].as_array().map(Vec::len), Some(20));
+            }
+            eprintln!("PROBE closed={closed} part={part} first_us={} second_us={}", t[0], t[1]);
+            drop(d);
+        }
+        // F: `Hub::refresh_usage_stats` in process, no socket.
+        let d = fresh(closed).await;
+        let mut t = Vec::new();
+        for _ in 0..2 {
+            let at = Instant::now();
+            d.hub.refresh_usage_stats().await;
+            t.push(us(at));
+        }
+        eprintln!(
+            "PROBE closed={closed} part=F refresh_usage_stats first_us={} second_us={}",
+            t[0], t[1]
+        );
+        drop(d);
+        // G: `ls --json --live` itself, no proxy (the cost as the gate's caller sees it).
+        let d = fresh(closed).await;
+        let mut t = Vec::new();
+        for _ in 0..2 {
+            let client = Client::connect(&d.path).await.unwrap();
+            let via = Via::List(d.path.clone());
+            let at = Instant::now();
+            super::ls::output(ls_args(&["--json", "--live"]), true, &client, via, 0).await.unwrap();
+            t.push(us(at));
+        }
+        eprintln!("PROBE closed={closed} part=G ls_json_live first_us={} second_us={}", t[0], t[1]);
+        drop(d);
+    }
+}
