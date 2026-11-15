@@ -622,9 +622,7 @@ impl Terminal {
         self.ensure_history_anchor();
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
-        let normalized = self.c1_normalizer.normalize(data);
-        let normalized = self.empty_kitty_probe_filter.write(normalized);
-        let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
+        let (normalized, mouse_modes_may_have_changed) = self.prepare_write(data);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();

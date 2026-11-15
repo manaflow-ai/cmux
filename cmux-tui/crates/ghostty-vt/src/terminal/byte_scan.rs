@@ -76,6 +76,18 @@ pub(crate) fn find_high(data: &[u8], from: usize) -> usize {
 /// soft reset and DECRQM (p), DECSCUSR (q), reports and queries (c n t u x).
 const INERT_CSI_FINALS: &[u8] = b"@ABCDEFGHIJKLMPSTXZ`abdefgm";
 
+/// [`INERT_CSI_FINALS`] as a byte-indexed table: one load per CSI, not a
+/// search of the list.
+const INERT_CSI_FINAL: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut index = 0;
+    while index < INERT_CSI_FINALS.len() {
+        table[INERT_CSI_FINALS[index] as usize] = true;
+        index += 1;
+    }
+    table
+};
+
 /// Length of the complete inert CSI sequence at `data[at..]` (`ESC [`,
 /// parameters from `0-9 ; :` only, then a final in [`INERT_CSI_FINALS`]),
 /// or 0 when the bytes there are not one.
@@ -89,7 +101,7 @@ fn inert_csi_len(data: &[u8], at: usize) -> usize {
         end += 1;
     }
     match data.get(end) {
-        Some(fin) if INERT_CSI_FINALS.contains(fin) => end + 1 - at,
+        Some(&fin) if INERT_CSI_FINAL[usize::from(fin)] => end + 1 - at,
         _ => 0,
     }
 }
