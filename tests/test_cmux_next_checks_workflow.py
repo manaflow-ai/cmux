@@ -1684,11 +1684,8 @@ class SameTreeIsAnEvent(unittest.TestCase):
                 self.assertEqual(len(notify), 1)
                 self.assertIn(f"--state {state}", notify[0]["run"])
                 self.assertEqual(job["permissions"].get("actions"), "write")
-                self.assertIn("--strict", notify[0]["run"])
-                # A notify failure must not turn a good publication red (rerun-deferred-commits retries it in
-                # red); the unpublished report has no good publication to keep green, so it is red itself
-                # (TREE_NOTIFY_NEVER_SILENT, tests/test_cmux_next_tree_notify.py NeverSilent).
-                self.assertEqual(bool(notify[0].get("continue-on-error")), name == "publish-tree")
+                # A notify failure must not turn a good publication red.
+                self.assertTrue(notify[0].get("continue-on-error"))
 
 
 

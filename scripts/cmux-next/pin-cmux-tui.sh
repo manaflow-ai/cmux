@@ -1286,7 +1286,7 @@ probe_checkout_tree() {
       fi ;;
     none)
       if [[ -z "$source" && -n "$publisher_unknown" && "${GITHUB_EVENT_NAME:-}" == pull_request ]]; then
-        # TREE_NOTIFY_NEVER_SILENT: this merge tree is neither the base's nor
+        # SAME_TREE_STATUS_NEVER_SILENT: this merge tree is neither the base's nor
         # the head's (both checked above, from git), and no run builds a pull
         # request's merge. A deferral here leaves a wait marker no publish
         # ends, and the PR's required same-tree status never posts

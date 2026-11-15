@@ -791,158 +791,136 @@ class SupersededSameTreeRuns(unittest.TestCase):
         self.assertTrue(any("superseded same-tree" in line for line in messages), messages)
 
 
-ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
-RATE_LIMITED = (403, b'{"message":"API rate limit exceeded for installation."}', {"x-ratelimit-remaining": "0"})
+def pending_zip(key: str = KEY, state: str = "ready") -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("pending.json", json.dumps({"key": key, "state": state, "why": "HTTP 403"}))
+    return buffer.getvalue()
 
 
-class NeverSilent(unittest.TestCase):
-    """TREE_NOTIFY_NEVER_SILENT (2026-11-14, cmux#43241): the publish of tree 88496a2f read HTTP 403 (the
-    workflow token's hourly budget spent) on its first marker lookup, warned in a green job, and no
-    same-tree run started, so the PR's required `cmux-next daemon tests (same-tree)` never posted."""
+class PendingApi(FakeApi):
+    """FakeApi plus the cmux-next-tree-notify-pending records (NOTIFY_NEVER_LOST) and a listing that may refuse."""
 
-    def setUp(self):
-        self.original = notify.deadline_http.request
-        self.calls: list[tuple[str, str]] = []
-        self.answers: dict[str, tuple] = {}
+    def __init__(self, markers, pending: list[tuple[int, bytes, dict | None]], refuse_listing: int = 0, **kw):
+        super().__init__(markers, **kw)
+        self.pending = [{"id": artifact_id, "name": notify.PENDING_ARTIFACT, "expired": False,
+                         "archive_download_url": f"pending/{artifact_id}",
+                         "workflow_run": dict({"id": 77, "repository_id": REPO_ID, "head_repository_id": REPO_ID,
+                                               "head_branch": "lane/x"}, **(run or {}))}
+                        for artifact_id, _, run in pending]
+        self.zips.update({f"pending/{artifact_id}": body for artifact_id, body, _ in pending})
+        self.refuse_listing = refuse_listing
 
-        def request(req, seconds):
-            token = req.unredirected_hdrs.get("Authorization", "")
-            self.calls.append((req.full_url, token))
-            return self.answers.get(token, (200, b'{"artifacts": []}', {}))
+    def get(self, path: str):
+        if path.startswith(f"repos/o/r/actions/artifacts?name={notify.PENDING_ARTIFACT}"):
+            return {"artifacts": self.pending}
+        if path.startswith(f"repos/o/r/actions/artifacts?name=cmux-next-tree-wait-{KEY}") and self.refuse_listing:
+            self.refuse_listing -= 1
+            raise RuntimeError(f"GET {path}: HTTP 403")
+        return super().get(path)
 
-        notify.deadline_http.request = request
 
-    def tearDown(self):
-        notify.deadline_http.request = self.original
+class NotifyNeverLost(unittest.TestCase):
+    """lw#5184 (cmux#43194 at 688722a2): run 43652238618 published tree cfb3790d at 23:41Z on 2026-11-14, its
+    notify's marker read answered HTTP 403 (the installation's spent rate limit), the step only warned, and the
+    pull request's same-tree run was never dispatched; merge_hold held it for hours."""
 
-    def test_rate_limit_answers(self):
-        self.assertTrue(notify.rate_limited(*RATE_LIMITED))
-        self.assertTrue(notify.rate_limited(403, b'{"message":"You have exceeded a secondary rate limit"}', {}))
-        self.assertTrue(notify.rate_limited(429, b"", {}))
-        self.assertFalse(notify.rate_limited(403, b'{"message":"Resource not accessible by integration"}', {}))
-        self.assertFalse(notify.rate_limited(404, b"rate limit", {}))
+    def test_a_rate_limited_call_moves_to_the_spare_token_once_without_sleeping(self):
+        sent = []
 
-    def test_a_rate_limited_call_moves_to_the_spare_token_once(self):
-        self.answers["Bearer workflow"] = RATE_LIMITED
-        lines: list[str] = []
-        api = notify.GitHub("workflow", spare="bot", log=lines.append)
-        self.assertEqual(api.get("repos/o/r/actions/artifacts?name=x"), {"artifacts": []})
-        self.assertEqual([token for _url, token in self.calls], ["Bearer workflow", "Bearer bot"])
-        self.assertTrue(any("GH_TOKEN_SPARE" in line for line in lines), lines)
-        # The switch is for the whole notify: the next call goes straight to the spare.
-        api.get("repos/o/r/actions/artifacts?name=y")
-        self.assertEqual(self.calls[-1][1], "Bearer bot")
+        class Client(notify.GitHub):
+            def _send(self, method, url, body=None):
+                sent.append(self.token)
+                if self.token == "spent":
+                    return 403, b'{"message": "API rate limit exceeded for installation"}', {
+                        "x-ratelimit-remaining": "0"}
+                return 200, b'{"ok": true}', {}
 
-    def test_a_refusal_that_is_not_the_rate_limit_keeps_the_token(self):
-        self.answers["Bearer workflow"] = (403, b'{"message":"Resource not accessible by integration"}', {})
-        api = notify.GitHub("workflow", spare="bot", log=lambda _line: None)
+        client = Client("spent", "https://api.github.com", "bot")
+        self.assertEqual(client.get("repos/o/r"), {"ok": True})
+        self.assertEqual(client.get("repos/o/r"), {"ok": True})
+        self.assertEqual(sent, ["spent", "bot", "bot"])
+        # with no spare, or a refusal that is not a rate limit, nothing is retried
+        sent.clear()
         with self.assertRaises(RuntimeError):
-            api.get("repos/o/r/actions/artifacts?name=x")
-        self.assertEqual([token for _url, token in self.calls], ["Bearer workflow"])
+            Client("spent", "https://api.github.com").get("repos/o/r")
+        self.assertEqual(sent, ["spent"])
+        self.assertFalse(notify.rate_limited(403, {}, b'{"message": "Resource not accessible by integration"}'))
+        self.assertTrue(notify.rate_limited(429, {}, b""))
+        self.assertTrue(notify.rate_limited(403, {"Retry-After": "60"}, b""))
+        self.assertNotIn("time.sleep(", Path(notify.__file__).read_text().split("class GitHub", 1)[1].split("def fetch_completion")[0])
 
-    def run_main(self, *extra: str, spare: str = "") -> tuple[int, str]:
-        self.answers["Bearer workflow"] = RATE_LIMITED
-        env = {"GH_TOKEN": "workflow", "GH_TOKEN_SPARE": spare, "GITHUB_RUN_ID": ""}
-        saved = {name: notify.os.environ.get(name) for name in env}
-        out = io.StringIO()
-        original_stdout = sys.stdout
-        try:
-            notify.os.environ.update(env)
-            sys.stdout = out
-            code = notify.main(["--repo", "o/r", "--key", KEY, "--state", "ready", *extra])
-        finally:
-            sys.stdout = original_stdout
-            for name, value in saved.items():
-                if value is None:
-                    notify.os.environ.pop(name, None)
-                else:
-                    notify.os.environ[name] = value
-        return code, out.getvalue()
+    def test_a_refused_ready_notify_writes_its_pending_record(self):
+        import os
+        import tempfile
+        import unittest.mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "p", "pending.json")
 
-    def test_strict_fails_red_when_github_cannot_be_read(self):
-        code, out = self.run_main("--strict")
-        self.assertEqual(code, 1, out)
-        self.assertIn("::error title=same-tree jobs not started::", out)
+            class Refused(notify.GitHub):
+                def _send(self, method, url, body=None):
+                    return 403, b'{"message": "API rate limit exceeded for installation"}', {}
 
-    def test_without_strict_it_still_only_warns(self):
-        code, out = self.run_main()
-        self.assertEqual(code, 0, out)
-        self.assertIn("::warning::could not start the deferred cmux-next tree jobs", out)
+            env = {"GH_TOKEN": "spent", "GITHUB_RUN_ID": ""}
+            with unittest.mock.patch.object(notify, "GitHub", Refused), unittest.mock.patch.dict(os.environ, env):
+                code = notify.main(["--repo", "o/r", "--key", KEY, "--state", "ready", "--pending-file", path])
+            self.assertEqual(code, 0)  # a notify problem never turns a good publication red
+            with open(path) as handle:
+                record = json.load(handle)
+            self.assertEqual((record["key"], record["state"]), (KEY, "ready"))
+            self.assertIn("HTTP 403", record["why"])
+            # a failed state writes no record: its markers wait for a publication of the key
+            failed = os.path.join(tmp, "f", "pending.json")
+            offline = unittest.mock.patch.object(notify.deadline_http, "request", side_effect=OSError("offline"))
+            with unittest.mock.patch.object(notify, "GitHub", Refused), unittest.mock.patch.dict(os.environ, env), \
+                    offline:
+                notify.main(["--repo", "o/r", "--key", KEY, "--state", "failed", "--pending-file", failed])
+            self.assertFalse(os.path.exists(failed))
 
-    def test_strict_with_a_spare_token_runs_on_it(self):
-        code, out = self.run_main("--strict", spare="bot")
-        self.assertEqual(code, 0, out)
-        self.assertIn("0 marker(s)", out)
+    def test_one_marker_left_by_a_refused_dispatch_is_unstarted(self):
+        api = FakeApi([pr_marker()], refuse_refs=("lane/x", "feat-cmux-next"))
+        unstarted = []
+        notify.notify(api, repo="o/r", key=KEY, state="ready", reason="", log=lambda _l: None, unstarted=unstarted)
+        self.assertEqual(unstarted, [12])
+        self.assertEqual(api.deleted, [])  # the marker stays for the retry
 
-    def test_the_workflow_retries_a_failed_ready_notify_in_red(self):
-        import yaml
-        jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text())["jobs"]
-        # Every notify call in the artifacts workflow is --strict: none ends as a warning only.
-        text = ARTIFACTS_WORKFLOW.read_text()
-        calls = [line for line in text.splitlines() if "scripts/ci/cmux_next_tree_notify.py --repo" in line]
-        self.assertGreaterEqual(len(calls), 3, calls)
-        for line in calls:
-            self.assertIn("--strict", line)
-        # The publish pass: strict, green (its tree is good), its outcome exported.
-        publish = jobs["publish-tree"]
-        step = next(s for s in publish["steps"] if s.get("name") == "Start the cmux-next tree jobs that waited for this tree")
-        self.assertEqual(step.get("id"), "tree-notify")
-        self.assertTrue(step.get("continue-on-error"))
-        self.assertEqual(publish["outputs"]["tree_notify"], "${{ steps.tree-notify.outcome }}")
-        # The red retry: rerun-deferred-commits runs on that outcome, on any event, and is not continue-on-error.
-        rerun = jobs["rerun-deferred-commits"]
-        self.assertIn("needs.publish-tree.outputs.tree_notify == 'failure'", rerun["if"])
-        self.assertIn("publish-tree", rerun["needs"])
-        self.assertEqual(rerun["permissions"].get("pull-requests"), "read")
-        retry = next(s for s in rerun["steps"] if s.get("name") == "Start the cmux-next tree jobs the publish could not")
-        self.assertEqual(retry["if"], "needs.publish-tree.outputs.tree_notify == 'failure'")
-        self.assertNotIn("continue-on-error", retry)
-        self.assertEqual(retry["env"]["GH_TOKEN_SPARE"], "${{ steps.cmux-bot-token.outputs.token }}")
-        self.assertIn("--state ready --strict", retry["run"])
-        # Its spare token exists on a lane branch push too: that push publishes a PR's tree.
-        mint = next(s for s in rerun["steps"] if s.get("id") == "cmux-bot-token")
-        self.assertNotIn("refs/heads/", mint["if"])
-        self.assertLess(rerun["steps"].index(mint), rerun["steps"].index(retry))
-        self.assertEqual(mint["with"].get("permission-pull-requests"), "read")
-        # A failed retry still lets the published hand-off run.
-        handoff = next(s for s in rerun["steps"] if s.get("name") == "Re-run the runs that deferred to this tree")
-        self.assertIn("!cancelled()", handoff["if"])
-        self.assertIn("github.event_name == 'push'", handoff["if"])
-        # The failed report is red too, and a red report does not skip the hand-off after it.
-        unpublished = jobs["notify-unpublished-tree"]
-        report = next(s for s in unpublished["steps"]
-                      if s.get("name") == "Report the unpublished tree to the cmux-next runs that wait for it")
-        self.assertNotIn("continue-on-error", report)
-        handoff = next(s for s in unpublished["steps"] if s.get("name") == "Hand the key to a run that deferred to this one")
-        self.assertIn("!cancelled()", handoff["if"])
+    def test_the_sweep_makes_a_pending_notify_again_and_drops_its_record(self):
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None), (501, pending_zip(), None)])
+        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: completion_json(key))
+        self.assertEqual(left, [])
+        [body] = api.dispatched
+        self.assertEqual((body["ref"], body["inputs"]["same_tree_status_sha"]), ("lane/x", HEAD))
+        self.assertIn("refused", body["inputs"]["same_tree_reason"])
+        # the marker (100) and both records of the key are deleted
+        self.assertEqual(sorted(api.deleted), [100, 500, 501])
 
-    def test_a_same_tree_status_that_cannot_be_posted_is_red(self):
-        """cmux#43335 (2026-11-14): the same-tree daemon tests passed, the status post got HTTP 403, the step
-        warned and passed, and the required status never posted."""
-        import yaml
-        jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next.yml").read_text())["jobs"]
-        posts = [step for job in jobs.values() for step in job.get("steps") or []
-                 if step.get("name") == "Report the same-tree result on the tested commit"]
-        self.assertGreaterEqual(len(posts), 2)
-        for step in posts:
-            self.assertNotIn("continue-on-error", step)
-            self.assertNotIn("::warning::could not post", step["run"])
-            self.assertIn("exit 1", step["run"])
-            self.assertIn("for wait in", step["run"])
+    def test_the_sweep_keeps_a_record_it_could_not_finish_and_ignores_what_a_publish_did_not_write(self):
+        # the marker read refused again: the record stays for the next push
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None)], refuse_listing=1)
+        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: completion_json(key))
+        self.assertEqual((left, api.deleted, api.dispatched), ([KEY], [], []))
+        # a tree with no completion.json: nothing starts, the record stays
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+        self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: None),
+                         [KEY])
+        self.assertEqual(api.dispatched, [])
+        # a fork's record, and a record that is not a ready one: never read as a notify
+        api = PendingApi([pr_marker()], [(500, pending_zip(), FORK_RUN), (501, pending_zip(state="failed"), None)])
+        self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None,
+                                              fetch_completion=lambda key: completion_json(key)), [])
+        self.assertEqual((api.dispatched, api.deleted), ([], []))
 
-    def test_a_pull_request_never_defers_to_a_publisher_it_could_not_find(self):
-        """cmux#43400 and #43027 (2026-11-14): path routing could not compare the active artifacts runs (fetch
-        budget, API) and deferred; no publish ever ended the wait. The probe now reads the head's tree from git
-        (the head's push publishes it), and a pull request's merge tree with no publisher it can find is red."""
-        probe = (ROOT / "scripts" / "cmux-next" / "pin-cmux-tui.sh").read_text().split("probe_checkout_tree() {", 1)[1]
-        probe = probe.split("\n}\n", 1)[0]
-        head_branch = probe.index('rev-parse --verify -q HEAD^2')
-        self.assertLess(probe.index('pull_request_base_key'), head_branch)
-        self.assertLess(head_branch, probe.index('await_outside_publisher "$key"'))
-        self.assertIn('source="commit:$head_sha"', probe)
-        unknown = probe.index('-n "$publisher_unknown" && "${GITHUB_EVENT_NAME:-}" == pull_request')
-        self.assertEqual(probe[unknown:].split("elif", 1)[0].count("state=failed"), 1)
-        self.assertLess(unknown, probe.index('elif [[ -z "$source" && -n "$publisher_unknown" ]]; then'))
+    def test_the_workflow_records_a_refused_notify_and_every_feat_push_sweeps_it(self):
+        text = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
+        publish = text.split("      - name: Start the cmux-next tree jobs that waited for this tree", 1)[1][:900]
+        self.assertIn("GH_TOKEN_SPARE: ${{ steps.notify-spare-token.outputs.token }}", publish)
+        self.assertIn('--pending-file "$pending"', publish)
+        self.assertIn("name: cmux-next-tree-notify-pending", text)
+        sweep = text.split("\n  sweep-commit-manifests:\n", 1)[1].split("\n  point-machine-channel-early:", 1)[0]
+        self.assertIn("cmux_next_tree_notify.py --repo \"$GITHUB_REPOSITORY\" --sweep-pending", sweep)
+        self.assertIn("pull-requests: read", sweep)
+        rerun = text.split("\n  rerun-deferred-commits:\n", 1)[1].split("\n  verify-cdn-publication:", 1)[0]
+        self.assertNotIn("github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') &&", rerun)
 
 
 if __name__ == "__main__":

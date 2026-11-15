@@ -274,6 +274,7 @@ on:
       - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
+      - tests/test_cmux_next_same_tree_status_never_silent.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
       - tests/test_cmux_next_same_tree_failed.py
@@ -603,6 +604,7 @@ on:
       - tests/test_next_batch_groups.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
+      - tests/test_cmux_next_same_tree_status_never_silent.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
       - tests/test_cmux_next_same_tree_failed.py
@@ -1783,6 +1785,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
             python3 tests/test_cmux_next_tree_notify.py
+            python3 tests/test_cmux_next_same_tree_status_never_silent.py
             python3 tests/test_cmux_tui_tree_takeover.py
             python3 tests/test_cmux_next_same_tree_failed.py
             python3 tests/test_idea_ledger.py
@@ -4974,7 +4977,7 @@ jobs:
           [[ "$STATUS_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::warning::not a commit: $STATUS_SHA"; exit 0; }
           case "$JOB_STATUS" in success) state=success ;; cancelled) state=error ;; *) state=failure ;; esac
           body="$(python3 -c 'import json,sys; print(json.dumps({"state": sys.argv[1], "context": sys.argv[2], "target_url": sys.argv[3], "description": "same-tree cmux-tui run: " + sys.argv[4]}))' "$state" "$CONTEXT" "$TARGET_URL" "$JOB_STATUS")"
-          # TREE_NOTIFY_NEVER_SILENT: a status that cannot be posted is this step's red, never a warning
+          # SAME_TREE_STATUS_NEVER_SILENT: a status that cannot be posted is this step's red, never a warning
           # (2026-11-14, cmux#43335: the daemon tests passed, this post got HTTP 403, and the required status
           # never posted). Three tries, then red: a re-run of the failed job posts it.
           for wait in 0 20 60; do
@@ -6565,7 +6568,7 @@ jobs:
           [[ "$STATUS_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::warning::not a commit: $STATUS_SHA"; exit 0; }
           case "$JOB_STATUS" in success) state=success ;; cancelled) state=error ;; *) state=failure ;; esac
           body="$(python3 -c 'import json,sys; print(json.dumps({"state": sys.argv[1], "context": sys.argv[2], "target_url": sys.argv[3], "description": "same-tree cmux-tui run: " + sys.argv[4]}))' "$state" "$CONTEXT" "$TARGET_URL" "$JOB_STATUS")"
-          # TREE_NOTIFY_NEVER_SILENT: a status that cannot be posted is this step's red, never a warning
+          # SAME_TREE_STATUS_NEVER_SILENT: a status that cannot be posted is this step's red, never a warning
           # (2026-11-14, cmux#43335: the daemon tests passed, this post got HTTP 403, and the required status
           # never posted). Three tries, then red: a re-run of the failed job posts it.
           for wait in 0 20 60; do
