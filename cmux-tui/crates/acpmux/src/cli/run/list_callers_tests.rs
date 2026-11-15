@@ -610,7 +610,7 @@ async fn probe_first_read_usage() {
             let client = Client::connect(&d.path).await.unwrap();
             let via = Via::List(d.path.clone());
             let at = Instant::now();
-            super::ls::output(ls_args(&["--json", "--live"]), true, &client, via, 0).await.unwrap();
+            super::ls::output(ls_args(&["--live"]), true, &client, via, 0).await.unwrap();
             t.push(us(at));
         }
         eprintln!("PROBE closed={closed} part=G ls_json_live first_us={} second_us={}", t[0], t[1]);
