@@ -1260,6 +1260,10 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
 }
 
 #[cfg(test)]
+#[path = "hub_carrier_register_log_tests.rs"]
+mod register_log_tests;
+
+#[cfg(test)]
 mod key_lock_tests {
     use super::*;
     use cmux_link::key_holder::KeyHolder;
