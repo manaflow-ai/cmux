@@ -14807,7 +14807,9 @@ class OtherPrSetupRed(unittest.TestCase):
     ios-e2e-status as "a summary red"), though 'backend' failed 'Join tailnet' (hq#10808) and 'mac-ios-e2e' failed
     'Install build prerequisites' (cmux#43820) before any test ran, as cmux#43755's run 43737950292 did 22 minutes
     earlier. The fixtures are those four jobs and logs as GitHub served them, and ios-e2e.yml at d1631b27
-    (other_pr_setup_verdict)."""
+    (other_pr_setup_verdict), but for 'Install build prerequisites'' AXe install: that step then ran the Homebrew tap,
+    and since #43820 runs scripts/install-axe-ci.sh, so its script in the workflow and the logs, and its red, are that
+    script's (#43915): its archive check failing on both PRs."""
 
     HEAD_SHA = "d1631b27a9049fd96e59da717aa1b988f301aaed"
     PATH = ".github/workflows/ios-e2e.yml"
@@ -14816,17 +14818,26 @@ class OtherPrSetupRed(unittest.TestCase):
     HEAD_JOBS = {"backend": 132891012731, "mac-ios-e2e": 132891012539}
     OTHER_JOBS = {"backend": 132884782234, "mac-ios-e2e": 132884782268}
     NOW = "2026-11-15T17:30:00+00:00"
-    AXE = "##[error]cameroncooke/axe/axe: undefined method 'run' for an instance of Homebrew::InstallSteps::DSL"
+    AXE_URL = "https://github.com/cameroncooke/AXe/releases/download/v2.0.4/AXe-macOS-homebrew-v2.0.4.tar.gz"
+    AXE = f"##[error][infra-preflight] the AXe archive has no axe executable ({AXE_URL})"
 
     def fixture(self, job_id):
         job = json.loads((OTHER_PR_SETUP_FIXTURES / f"job-{job_id}.json").read_text())
         return job, (OTHER_PR_SETUP_FIXTURES / f"job-{job_id}.log").read_text()
 
+    def file(self, changed):
+        """The compare entry of CHANGED: a path (a file the PR modifies, as GitHub serves one) or the entry itself."""
+        if isinstance(changed, dict):
+            return changed
+        return {"filename": changed, "status": "modified", "sha": "e" * 40,
+                "blob_url": f"https://github.com/{REPO}/blob/{self.HEAD_SHA}/{changed}",
+                "raw_url": f"https://github.com/{REPO}/raw/{self.HEAD_SHA}/{changed}", "patch": "@@ -1 +1 @@\n-a\n+b"}
+
     def github(self, *, other_pulls=(43755,), other_branch="lane/perf-cmux-571-restore-chat", edit=None,
                changed=(), related="diverged"):
         """A fake serving the head run, the other PR's run (OTHER_PULLS, OTHER_BRANCH) and no base run; EDIT(jobs,
-        logs) changes the recorded jobs and logs first. CHANGED: the paths the PR changes; RELATED: GitHub's compare
-        status of the other run's head with this head."""
+        logs) changes the recorded jobs and logs first. CHANGED: what the PR changes (file); RELATED: GitHub's
+        compare status of the other run's head with this head."""
         case = self
         jobs, logs = {}, {}
         for job_id in (*self.HEAD_JOBS.values(), *self.OTHER_JOBS.values()):
@@ -14859,7 +14870,7 @@ class OtherPrSetupRed(unittest.TestCase):
             def json(self, route, *, paginate=False):
                 self.routes.append(route)
                 if f"/compare/feat-cmux-next...{case.HEAD_SHA}" in route:
-                    return {"merge_base_commit": {"sha": BASE_SHA}, "files": [{"filename": f} for f in changed],
+                    return {"merge_base_commit": {"sha": BASE_SHA}, "files": [case.file(f) for f in changed],
                             "commits": [{"sha": case.HEAD_SHA}], "total_commits": 1}
                 if f"...{case.HEAD_SHA}?per_page=1" in route:  # the other run's head with this one (shares_commits)
                     return {"status": related, "merge_base_commit": {"sha": BASE_SHA}}
@@ -14924,7 +14935,29 @@ class OtherPrSetupRed(unittest.TestCase):
                       "changes and failed the same way "
                       f"in PR #43755's run {self.OTHER_RUN}", said)
         self.assertIn(f"job {self.OTHER_JOBS['mac-ios-e2e']}", said)
-        self.assertIn(self.AXE.removeprefix("##[error]"), said)
+        self.assertIn("'Install build prerequisites': [infra-preflight] the AXe archive has no axe executable (", said)
+
+    def test_the_install_red_is_a_line_install_axe_ci_prints(self):
+        # #43915: the step's AXe install is scripts/install-axe-ci.sh (#43820), in the workflow today and in the
+        # fixtures, and its red is a line that script prints, so the case is the step as it runs now.
+        yaml = excuse.yaml_module()
+
+        def step(text):
+            steps = yaml.safe_load(text)["jobs"]["mac-ios-e2e"]["steps"]
+            return next(spec["run"] for spec in steps if spec.get("name") == "Install build prerequisites")
+        recorded = step((OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text())
+        self.assertEqual(recorded, step((ROOT / self.PATH).read_text()))
+        self.assertIn("./scripts/install-axe-ci.sh", recorded)
+        printed = (ROOT / "scripts/install-axe-ci.sh").read_text()
+        self.assertIn('"::error::' + self.AXE.removeprefix("##[error]").replace(self.AXE_URL, "$AXE_URL") + '"',
+                      printed)
+        self.assertEqual(printed.count("AXe-macOS-homebrew-v2.0.4.tar.gz"), 1)  # the URL the line quotes
+        for job_id in (self.HEAD_JOBS["mac-ios-e2e"], self.OTHER_JOBS["mac-ios-e2e"]):
+            _, log = self.fixture(job_id)
+            with self.subTest(job_id):
+                self.assertIn(self.AXE, log)
+                self.assertIn("./scripts/install-axe-ci.sh || {", log)
+                self.assertNotIn("Homebrew::InstallSteps::DSL", log)
 
     def test_the_aggregate_is_excused_through_its_children(self):
         said = self.judge(self.github(), checks=["ios-e2e-status"])
@@ -15137,6 +15170,52 @@ class OtherPrSetupRed(unittest.TestCase):
                     f"this PR changes \\({pin}\\)"):
                 self.judge(self.github(edit=edit, changed=[pin]), checks=["mac-ios-e2e"])
 
+    # #43915 (the review of #43876): a submodule added without a .gitmodules entry fails Checkout on its own
+    # (`fatal: No url found for submodule path 'vendor/axe' in .gitmodules`). GitHub's compare serves a gitlink with
+    # no blob_url or raw_url and a `Subproject commit` patch (ghostty-next at 35d6a202b436), and no file mode.
+    GITLINK = {"filename": "vendor/axe", "status": "added", "sha": "f" * 40, "blob_url": None, "raw_url": None,
+               "patch": "@@ -0,0 +1 @@\n+Subproject commit " + "f" * 40}
+
+    def test_a_checkout_red_is_the_prs_own_when_it_adds_a_gitlink_gitmodules_does_not_name(self):
+        edit = self.moved("mac-ios-e2e", "Checkout cmux", self.NOT_OUR_REF)
+        no_patch = dict(self.GITLINK, patch=None)  # a compare that leaves the patch out
+        no_urls = {"filename": "vendor/axe", "status": "added"}  # or serves no blob URL: maybe a gitlink
+        moved = dict(self.GITLINK, status="renamed", filename="vendor/ghostty", previous_filename="ghostty",
+                     patch=None)
+        for entry in (self.GITLINK, no_patch, no_urls, moved):
+            with self.subTest(entry), self.assertRaisesRegex(
+                    excuse.Refused, "its failed step 'Checkout cmux' checks out submodules this PR changes \\("
+                    f"[^)]*{re.escape(entry['filename'])}"):
+                self.judge(self.github(edit=edit, changed=[entry]), checks=["mac-ios-e2e"])
+        # An ordinary file the PR adds is no submodule: the shared Checkout red stays excused.
+        added = dict(self.file("vendor/axe.txt"), status="added", patch="@@ -0,0 +1 @@\n+text")
+        self.assertIn("excused 'mac-ios-e2e'", self.judge(self.github(edit=edit, changed=[added]),
+                                                           checks=["mac-ios-e2e"]))
+        self.assertEqual(excuse.compare_gitlinks([self.GITLINK, added, moved, "junk"]),
+                         {"vendor/axe", "vendor/ghostty", "ghostty"})
+
+    def test_a_rename_away_from_a_listed_script_is_refused(self):
+        # #43915: GitHub lists a move at its new path, with the old one in previous_filename; a PR that moves a
+        # script the step runs away changes what the step runs.
+        for listed in ("scripts/install-axe-ci.sh", "scripts/ci/xcode-pins.txt"):
+            moved = dict(self.file("scripts/old/" + listed.rsplit("/", 1)[1]), status="renamed",
+                         previous_filename=listed)
+            with self.subTest(listed), self.assertRaisesRegex(
+                    excuse.Refused, "its failed step 'Install build prerequisites' runs files this PR changes \\("
+                    f"[^)]*{re.escape(listed)}"):
+                self.judge(self.github(changed=[moved]), checks=["mac-ios-e2e"])
+
+    def test_the_same_edit_to_a_listed_script_on_two_prs_is_refused(self):
+        # #43915: two PRs that make the same change to a script the step runs, each under its own commit id (shares
+        # no commit: "diverged"), fail the step the same way. The other PR's run is no evidence for this one, since
+        # this PR changes the script: the changed-files check refuses it before any other run is read. (A guard: it
+        # held before #43915 too.)
+        github = self.github(changed=["scripts/install-axe-ci.sh"], related="diverged")
+        with self.assertRaisesRegex(excuse.Refused, "'Install build prerequisites' runs files this PR changes "
+                                    "\\(scripts/install-axe-ci.sh\\)"):
+            self.judge(github, checks=["mac-ios-e2e"])
+        self.assertFalse([route for route in github.routes if "event=pull_request" in route], github.routes)
+
     LANE, PARENT = "lane/parent", "c" * 40
 
     def stacked(self, github):
@@ -15178,47 +15257,154 @@ class OtherPrSetupRed(unittest.TestCase):
 class SetupOnlyStepsReadNothingUnlisted(unittest.TestCase):
     """Detector (PR #43876's second review, f5c717cd260): each SETUP_ONLY_STEPS step lists every repository path it
     reads. From the step's `run:` in the real workflow, every script it runs is scanned, and every script those name,
-    for the repository paths they source, run or read ($SCRIPT_DIR/..., $REPO_ROOT/..., $PROJECT_DIR/..., a Python
-    `root / "..."`, `git -C <dir>`, `cd <dir>`); a path no listed entry covers fails it. A step after 'Select Xcode' in
-    its job runs under the Xcode the pins select, so it lists them too."""
+    for the repository paths they source, run or read; a path no listed entry covers fails it. A step after 'Select
+    Xcode' in its job runs under the Xcode the pins select, so it lists them too.
+    A script's directory is `$(dirname "$0")`, `$(dirname "${BASH_SOURCE[0]}")`, `${BASH_SOURCE%/*}` or `${0%/*}`
+    (with or without `$(cd ... && pwd)`); `$(cd "<dir>/.." && pwd)`, `$(dirname "<dir>")`, `$(git rev-parse
+    --show-toplevel)` and $GITHUB_WORKSPACE climb to or name the root. A variable assigned one of those, whatever its
+    name ($ROOT, $here, $SELECT_XCODE_REPO_ROOT), is that directory, and a root-sounding name the script never assigns
+    (ROOT_NAMES, SCRIPT_DIR_NAMES) is taken as one. A path under any of them is read, and so is a Python `root /
+    "..."`, `git -C <dir>` and `cd <dir>`. A step and every script it runs start at the repository root (the
+    workspace), and a `cd` to one of those directories moves them there, so a bare relative path (`./scripts/x.sh`,
+    `cat ghostty-next/x`, `.xcode-version`) whose first part is one of the repository's top-level entries is read
+    too, outside an `echo` or `printf` message or a `cat <<EOF` text (#43915, the review of #43876)."""
 
-    SCRIPT_DIR = re.compile(r"\$\{?(?:SCRIPT_DIR|SELECT_XCODE_SCRIPT_DIR)\}?/([\w./$-]+)")
-    ROOT_DIR = re.compile(r"\$\{?(?:REPO_ROOT|PROJECT_DIR|SELECT_XCODE_REPO_ROOT|repo_root)\}?/([\w./$-]+)")
+    AT = "\x00"  # AT + a repository directory + AT stands for that directory
+    HERE = re.compile(r"\$\(\s*dirname\s+\"?\$(?:0|\{0\}|\{?BASH_SOURCE(?:\[0\])?\}?)\"?\s*\)"
+                      r"|\$\{(?:BASH_SOURCE(?:\[0\])?|0)%/\*\}")
+    CD_PWD = re.compile(r"\$\(\s*cd\s+\"?\x00([^\x00]*)\x00((?:/[\w.-]+)*)/?\"?\s*(?:&&|;)\s*pwd(?:\s+-P)?\s*\)")
+    DIRNAME = re.compile(r"\$\(\s*dirname\s+\"?\x00([^\x00]+)\x00\"?\s*\)")
+    TOPLEVEL = re.compile(r"\$\(\s*git\s+rev-parse\s+--show-toplevel\s*\)|\$(?:\{GITHUB_WORKSPACE\}|GITHUB_WORKSPACE\b)")
+    ASSIGN = re.compile(r"^\s*(?:(?:local|export|readonly|declare(?:\s+-\w+)*)\s+)?([A-Za-z_]\w*)=(.*)$")
+    ROOT_NAMES = frozenset({"root", "root_dir", "repo", "repo_root", "repo_dir", "repository_root", "project_dir",
+                            "project_root", "toplevel", "top_dir", "top", "git_root", "workspace"})
+    SCRIPT_DIR_NAMES = frozenset({"script_dir", "scripts_dir", "script_root", "self_dir", "this_dir", "here"})
+    UNDER = re.compile(r"\x00([^\x00]*)\x00/([\w./$-]+)")
     PY_ROOT = re.compile(r"\broot / \"([^\"]+)\"")
-    SUBDIR = re.compile(r"(?:\bgit -C|^\s*cd|[;&|]\s*cd) \"?([A-Za-z][\w.-]*)\"?(?=[\s;)&|]|$)")
-    RUN_SCRIPT = re.compile(r"(?<![\w/$.-])\.?/?(scripts/[\w./-]+\.(?:sh|py))")
+    SUBDIR = re.compile(r"(?:\bgit -C|^\s*cd|[;&|(]\s*cd) \"?([A-Za-z][\w.-]*)\"?(?=[\s;)&|]|$)")
+    CD = re.compile(r"^\s*\(?\s*cd\s+(\S+)")
+    MESSAGE = re.compile(r"^\s*(?:echo|printf)\b")
+    USAGE = re.compile(r"^\s*cat\b.*<<-?\s*['\"]?(\w+)['\"]?")
+    WORD = re.compile(r"[^\s;|&()<>'\"`=:,{}\[\]\x00]+")
+    PATH_WORD = re.compile(r"[\w.@+-]+(?:/[\w.@+-]+)*/?")
     # A path whose first part is a variable: the repository paths it can be.
     DYNAMIC = {"$source/build.zig.zon": ("ghostty/build.zig.zon", "ghostty-next/build.zig.zon")}
+    TOP = None
 
-    def reads(self, text, script=True):
-        found = set()
-        for line in text.splitlines():
-            if line.lstrip().startswith("#"):
+    @classmethod
+    def top_level(cls):
+        """The repository's top-level entries: {name: whether it is a directory or a submodule}."""
+        if cls.TOP is None:
+            try:
+                listed = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-z", "HEAD"], capture_output=True,
+                                        text=True, check=True).stdout
+                cls.TOP = {entry.split("\t", 1)[1]: entry.split()[1] != "blob" for entry in listed.split("\0")
+                           if "\t" in entry}
+            except (OSError, subprocess.CalledProcessError):
+                cls.TOP = {entry.name: entry.is_dir() for entry in ROOT.iterdir()}
+        return cls.TOP
+
+    @staticmethod
+    def inside(base, path):
+        """PATH from repository directory BASE ("" the root), normalised; None when it leaves the repository."""
+        joined = os.path.normpath(os.path.join(base, path) if base else path)
+        if joined == ".":
+            return ""
+        return None if joined == ".." or joined.startswith("../") or os.path.isabs(joined) else joined
+
+    def place(self, line, here, names):
+        """LINE with each expression of a repository directory as AT + the directory + AT: HERE, the script's own
+        directory (None: a step's `run:`), and NAMES, the variables known to hold one."""
+        at = self.AT
+
+        def climb(match):
+            where = self.inside(match[1], match[2].lstrip("/"))
+            return match[0] if where is None else at + where + at
+        while True:
+            was = line
+            if here is not None:
+                line = self.HERE.sub(lambda match: at + here + at, line)
+            line = self.TOPLEVEL.sub(at + at, line)
+            for name, where in names.items():
+                line = re.sub(r"\$(?:\{" + name + r"\}|" + name + r"\b(?!\[))", lambda match, w=where: at + w + at,
+                              line)
+            line = self.CD_PWD.sub(climb, line)
+            line = self.DIRNAME.sub(lambda match: at + os.path.dirname(match[1]) + at, line)
+            if line == was:
+                return line
+
+    def reads(self, text, script=None):
+        """The repository paths TEXT reads: the script at repository path SCRIPT, or a step's `run:` (None)."""
+        here = os.path.dirname(script) if script else None
+        lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+        # The variables that hold a repository directory: each assigned one, then the root-sounding names the
+        # script never assigns.
+        names, assigned = {}, set()
+        for line in lines:
+            if match := self.ASSIGN.match(line):
+                assigned.add(match[1])
+                value = self.place(match[2], here, names).strip().strip("\"'")
+                if re.fullmatch("\x00[^\x00]*\x00", value):
+                    names[match[1]] = value.strip(self.AT)
+        for name in {*self.ROOT_NAMES, *(name.upper() for name in self.ROOT_NAMES)} - assigned:
+            names.setdefault(name, "")
+        if here is not None:
+            for name in {*self.SCRIPT_DIR_NAMES, *(name.upper() for name in self.SCRIPT_DIR_NAMES)} - assigned:
+                names.setdefault(name, here)
+        top = self.top_level()
+        found, cwd, usage = set(), "", None
+        for line in lines:
+            if usage is not None:
+                usage = None if line.strip() == usage else usage
                 continue
-            if not script:
-                found.update(self.RUN_SCRIPT.findall(line))
-                continue
-            found.update(path if path.startswith("..") else "scripts/" + path
-                         for path in self.SCRIPT_DIR.findall(line))
-            for pattern in (self.ROOT_DIR, self.PY_ROOT, self.SUBDIR):
-                found.update(pattern.findall(line))
+            line = self.place(line, here, names)
+            if match := self.USAGE.match(line):
+                usage = match[1]  # a text it prints, no read
+            found.update(self.UNDER.findall(line))
+            found.update(("", path) for path in self.PY_ROOT.findall(line))
+            found.update((cwd or "", path) for path in self.SUBDIR.findall(line))
+            if not self.MESSAGE.match(line):
+                for word in self.WORD.findall(re.sub("\x00[^\x00]*\x00[\\w./$-]*", " ", line)):
+                    if not self.PATH_WORD.fullmatch(word) or "//" in word:
+                        continue
+                    for base in {"", cwd or ""}:
+                        if base and "/" not in word:
+                            continue  # a bare word in a subdirectory: a command or an argument, no path
+                        path = self.inside(base, word) or ""
+                        first = path.split("/", 1)[0]
+                        if first in top and ("/" in path or word.startswith("./") or not top[first]):
+                            found.add(("", path))
+            if match := self.CD.match(line):
+                target = match[1].strip("\"';)&|")
+                if target.startswith(self.AT) and target.endswith(self.AT) and target.count(self.AT) == 2:
+                    cwd = target.strip(self.AT)
+                else:
+                    cwd = None if "$" in target or cwd is None else self.inside(cwd, target)
         out = set()
-        for path in found:
-            if path.startswith(".."):  # the script's own root ($SCRIPT_DIR/..), no file
-                continue
+        for base, path in found:
             path = path.rstrip("/")
             if "$" in path:
                 fixed = path.split("$", 1)[0].rstrip("/")
-                out.update(self.DYNAMIC.get(path, (path,)) if not fixed else (fixed,))
-            else:
-                out.add(path)
+                if not fixed:
+                    if not base:
+                        out.update(self.DYNAMIC.get(path, (path,)))
+                    continue
+                path = fixed
+            if resolved := self.inside(base, path):
+                out.add(resolved)
         return out
 
-    def unlisted(self, workflow, step, listed):
-        """The paths step STEP of WORKFLOW (its job's spec) reads that LISTED does not cover."""
+    def unlisted(self, workflow, step, listed, files=None):
+        """The paths step STEP of WORKFLOW (its job's spec) reads that LISTED does not cover. FILES: {path: text},
+        scripts read in place of the repository's."""
         def covered(path):
             return any(path == own or path.startswith(own + "/") for own in listed)
-        todo = sorted(self.reads(step.get("run") or "", script=False))
+
+        def text(path):
+            if files is not None and path in files:
+                return files[path]
+            return (ROOT / path).read_text() if (ROOT / path).is_file() else None
+        todo = sorted(self.reads(step.get("run") or ""))
         seen, missing = set(), set()
         while todo:
             path = todo.pop()
@@ -15227,8 +15413,8 @@ class SetupOnlyStepsReadNothingUnlisted(unittest.TestCase):
             seen.add(path)
             if not covered(path):
                 missing.add(path)
-            if path.endswith((".sh", ".py")) and (ROOT / path).is_file():
-                todo.extend(sorted(self.reads((ROOT / path).read_text())))
+            if path.endswith((".sh", ".py")) and (script := text(path)) is not None:
+                todo.extend(sorted(self.reads(script, path)))
         return missing
 
     def test_every_allow_listed_step_lists_what_it_reads(self):
@@ -15251,13 +15437,49 @@ class SetupOnlyStepsReadNothingUnlisted(unittest.TestCase):
                           'cat "$REPO_ROOT/.xcode-version"', 'git -C ghostty rev-parse HEAD',
                           'zon = root / "cmux-tui/x.zon"', '# "$REPO_ROOT/commented.txt"',
                           'manifest="$repo_root/$source/build.zig.zon"'])
-        self.assertEqual(self.reads(text), {"scripts/lib.sh", ".xcode-version", "ghostty", "cmux-tui/x.zon",
-                                            "ghostty/build.zig.zon", "ghostty-next/build.zig.zon"})
+        self.assertEqual(self.reads(text, "scripts/x.sh"), {
+            "scripts/lib.sh", ".xcode-version", "ghostty", "cmux-tui/x.zon", "ghostty/build.zig.zon",
+            "ghostty-next/build.zig.zon"})
         # The scripts the first review's list named, without what they read, are found short.
         step = {"run": "./scripts/select-ci-xcode.sh"}
         self.assertEqual(self.unlisted(".github/workflows/ios-e2e.yml", step, ("scripts/select-ci-xcode.sh",)),
                          set(excuse.XCODE_PINS))
 
+    # #43915 (the review of #43876): the forms the first scanner missed, each in a small script of its own.
+    def test_a_relative_path_after_a_cd_to_the_root_is_read(self):
+        for cd in ('cd "$REPO_ROOT"', 'cd "$(dirname "$0")/../.."', 'cd "$(git rev-parse --show-toplevel)"',
+                   'cd "${BASH_SOURCE%/*}/../.."', 'cd "$GITHUB_WORKSPACE"'):
+            text = "\n".join(["set -euo pipefail", "cd /tmp", cd, "./scripts/x.sh --flag", "cat ghostty-next/x",
+                              "bash scripts/y.sh", 'pin="$(cat .xcode-version)"',
+                              'echo "run ./scripts/setup.sh first" >&2'])
+            with self.subTest(cd):
+                self.assertEqual(self.reads(text, "scripts/ci/z.sh"), {
+                    "scripts/x.sh", "ghostty-next/x", "scripts/y.sh", ".xcode-version"})
+        # A step's own `run:` starts at the root, and so does a script it runs; each script it names is followed.
+        files = {"scripts/a.sh": 'cd "$(dirname "$0")/.."\n./scripts/b.sh\n', "scripts/b.sh": "cat ghostty.h\n"}
+        self.assertEqual(self.unlisted(".github/workflows/ios-e2e.yml", {"run": "./scripts/a.sh"},
+                                       ("scripts/a.sh",), files), {"scripts/b.sh", "ghostty.h"})
+        # A usage text a script prints is no read.
+        self.assertEqual(self.reads("cat <<'EOF'\nusage: ./scripts/x.sh\nEOF\n", "scripts/z.sh"), set())
+
+    def test_a_path_through_the_scripts_own_directory_is_read(self):
+        for here in ('$(dirname "$0")', '$(dirname "${BASH_SOURCE[0]}")', "${BASH_SOURCE%/*}", "${0%/*}",
+                     '$(cd "$(dirname "$0")" && pwd)'):
+            text = "\n".join([f'source "{here}/lib.sh"', f'"{here}/../ensure.sh"', f'cat "{here}/../../ghostty.h"'])
+            with self.subTest(here):
+                self.assertEqual(self.reads(text, "scripts/ci/z.sh"), {
+                    "scripts/ci/lib.sh", "scripts/ensure.sh", "ghostty.h"})
+
+    def test_a_root_variable_of_any_name_is_read(self):
+        text = "\n".join(['ROOT="$(cd "$(dirname "$0")/.." && pwd)"', 'cat "$ROOT/.xcode-version"',
+                          'here="${BASH_SOURCE%/*}"', 'top="$(cd "$here/.." && pwd -P)"',
+                          'cat "${top}/config/x.json"', 'base="$(dirname "$here")"', '"$base/scripts/c.sh"',
+                          'cat "$PROJECT_ROOT/ghostty.h"', 'cat "$TOPLEVEL/cmux-tui/y"'])
+        self.assertEqual(self.reads(text, "scripts/z.sh"), {
+            ".xcode-version", "config/x.json", "scripts/c.sh", "ghostty.h", "cmux-tui/y"})
+        # A variable that holds another directory is not the root.
+        self.assertEqual(self.reads('ZIG_WORK_ROOT="$(mktemp -d)"\ncat "$ZIG_WORK_ROOT/zig.tar"\n', "scripts/z.sh"),
+                         set())
 
 if __name__ == "__main__":
     unittest.main()

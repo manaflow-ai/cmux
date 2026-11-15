@@ -54,7 +54,10 @@ ARMS = ("fresh-copy", "same-copy", "warm")
 #   gktool-moved    as gktool, in a staging folder, then renamed into place (Sparkle's install of a scanned update)
 #   prewarm-bins-moved  as prewarm-moved, and the bundled `cmux` and `cmux-tui` (Contents/Resources/bin) run once
 #                   with --version: the launch's other first execs (the CLI's cloud env read, the daemon)
+#   prewarm-helpers-moved  as prewarm-bins-moved, and each Chromium helper app's executable run once with --version
 EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
+# --arms=prewarm: the pre-warms only (the update path's pre-warm and what it could add), beside the base arms.
+PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-home", "gktool-moved")
 PREWARM_BINS = ("cmux", "cmux-tui")
 # The unified log around a fresh copy's launch: who works on a new executable before main.
 FIRST_EXEC_LOG = ('process == "syspolicyd" OR process == "amfid" OR process == "XProtect" OR process == "trustd" '
@@ -262,16 +265,26 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
         app = smoke.copy_app(mount_app, stage)
         before: dict = {}
         with smoke.DefaultsAside(bundle_id, root):
-            if arm in ("prewarm-main", "prewarm-moved", "prewarm-bins-moved"):
+            if arm in ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved"):
                 (root / "w").mkdir()
                 before = prewarm_until_main(smoke, root, app, executable, root / "w")
-                if arm == "prewarm-bins-moved":
+                if arm in ("prewarm-bins-moved", "prewarm-helpers-moved"):
                     for name in PREWARM_BINS:
                         binary = app / "Contents" / "Resources" / "bin" / name
                         if binary.exists():
                             started = time.monotonic()
                             run_text([str(binary), "--version"], timeout=60)
                             before[f"{name}_s"] = round(time.monotonic() - started, 3)
+                if arm == "prewarm-helpers-moved":
+                    # Each Chromium helper with no --type: it loads the CEF framework (LoadInHelper), then
+                    # CefExecuteProcess returns at once for a process that is no subprocess (helper_main.mm).
+                    for helper in sorted((app / "Contents" / "Frameworks").glob("* Helper*.app")):
+                        binary = helper / "Contents" / "MacOS" / helper.stem
+                        if binary.exists():
+                            started = time.monotonic()
+                            out = run_text([str(binary), "--version"], timeout=60)
+                            before[f"{helper.stem}_s"] = round(time.monotonic() - started, 3)
+                            before[f"{helper.stem}_out"] = out[-160:]
             elif arm == "prewarm-home":
                 (root / "w").mkdir()
                 started = time.monotonic()
@@ -285,7 +298,7 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                 started = time.monotonic()
                 before = {"gktool": run_text(["/usr/bin/gktool", "scan", str(app)], timeout=900)[-400:],
                           "seconds": round(time.monotonic() - started, 3)}
-            if arm in ("prewarm-moved", "prewarm-bins-moved", "prewarm-home", "gktool-moved"):
+            if arm in ("prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-home", "gktool-moved"):
                 placed = root / "placed"
                 placed.mkdir()
                 os.rename(app.parent, placed / "app")
@@ -299,7 +312,7 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
 
 
 def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: float, index: int,
-               report: dict, extra: bool = False) -> list[dict]:
+               report: dict, more: tuple = (), log_first_exec: bool = False) -> list[dict]:
     root = Path(tempfile.mkdtemp(prefix="cmux-nfl-", dir="/tmp"))
     rows: list[dict] = []
     try:
@@ -315,7 +328,7 @@ def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds:
         with smoke.DefaultsAside(bundle_id, root):
             since = time.time()
             rows.append({"arm": "fresh-copy", **launch(smoke, root, app, executable, first, seconds, "fresh", sample=index == 1)})
-            if extra:
+            if log_first_exec:
                 log = rows[-1]["first_exec_log"] = first_exec_log(since, since + 6)
                 print("NFL-FIRST-EXEC-LOG", index, json.dumps({k: log[k] for k in ("count", "by_process")}), flush=True)
                 for line in log["lines"][:150]:
@@ -323,8 +336,8 @@ def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds:
         with smoke.DefaultsAside(bundle_id, root):
             rows.append({"arm": "same-copy", **launch(smoke, root, app, executable, second, seconds, "same", sample=index == 1)})
             rows.append({"arm": "warm", **launch(smoke, root, app, executable, second, seconds, "warm")})
-        if extra:
-            for arm in EXTRA_ARMS:
+        if more:
+            for arm in more:
                 rows.append(extra_arm(smoke, mount_app, bundle_id, executable, seconds, arm))
         for row in rows:
             row["round"] = index
@@ -346,9 +359,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--rounds", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--seconds", type=float, default=8.0)
-    parser.add_argument("--arms", choices=("base", "extra"), default="base",
-                        help="extra: also the EXTRA_ARMS, and the unified log around each fresh-copy launch")
+    parser.add_argument("--arms", choices=("base", "extra", "prewarm"), default="base",
+                        help="extra: also the EXTRA_ARMS and the unified log around each fresh-copy launch; prewarm: also the PREWARM_ARMS")
     args = parser.parse_args(argv)
+    more = {"extra": EXTRA_ARMS, "prewarm": PREWARM_ARMS}.get(args.arms, ())
     os.umask(0o022)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -370,7 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         bundle_id, executable = smoke.bundle_info(apps[0])
         report["bundle_id"] = bundle_id
         for index in range(1, args.rounds + 1):
-            rows = round_once(smoke, apps[0], bundle_id, executable, args.seconds, index, report, extra=args.arms == "extra")
+            rows = round_once(smoke, apps[0], bundle_id, executable, args.seconds, index, report, more=more,
+                              log_first_exec=args.arms == "extra")
             report["launches"].extend(rows)
             if any(row["rendered_at"] is None for row in rows):
                 status = 1
@@ -381,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
         smoke.detach(mount)
         shutil.rmtree(mount, ignore_errors=True)
     medians = {}
-    for arm in ARMS + (EXTRA_ARMS if args.arms == "extra" else ()):
+    for arm in ARMS + more:
         rows = [r for r in report["launches"] if r["arm"] == arm and r["rendered_at"] is not None]
         med = {}
         for key in ("pre_main", "to_frame", "to_page", "frame", "page", "harness"):

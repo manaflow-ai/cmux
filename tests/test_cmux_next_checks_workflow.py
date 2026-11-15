@@ -2680,9 +2680,20 @@ class ReservedLaneLabels(unittest.TestCase):
         for placed in ("1", ""):
             self.assertEqual(evaluate(runs_on, context(fast, attempt=2, placed_attempt=placed)),
                              "blacksmith-6vcpu-macos-26")
-        for actor in ("someone", "github-actions[bot]", "cmux-bot[bot]"):
+        # A person's later re-run carries attempt 1's reading: Blacksmith, as above.
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor="someone", placed_attempt="1")),
+                         "blacksmith-6vcpu-macos-26")
+        for actor in ("github-actions[bot]", "cmux-bot[bot]"):
             with self.subTest(actor=actor):
-                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor)),
+                # The bot's later attempts are placed afresh (macos-placement runs on every bot attempt), so the
+                # attempt's own reading decides: its Blacksmith slot, else the side route it placed the job on.
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor,
+                                                           blacksmith_6_jobs=" fast-tier ")),
+                                 "blacksmith-6vcpu-macos-26")
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=5, actor=actor)),
+                                 "glaeda-side-std-xcode-26.6")
+                # A carried reading (placement did not run in this attempt) never takes the owned label.
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor, placed_attempt="1")),
                                  "blacksmith-6vcpu-macos-26")
 
 
