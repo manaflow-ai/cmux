@@ -1144,11 +1144,37 @@ mod key_lock_tests {
         crate::hub::Hub::new(config, store)
     }
 
-    /// With transport.wireguard off, a joined daemon's carrier takes no lock and reads no key, so
-    /// the link can take the lock while the daemon runs.
+    /// The carrier needs only the node key: with transport.wireguard off (no static endpoints, no
+    /// Labs switch) and no cmux link serving the key, a joined daemon's carrier takes the key lock
+    /// itself and comes up, and stopping it frees the lock.
     #[tokio::test]
-    async fn without_the_transports_lock_the_carrier_takes_none() {
+    async fn with_only_the_node_key_the_carrier_comes_up() {
         let home = tempfile::tempdir().unwrap();
+        let hub = joined_hub(home.path());
+        let websocket = Some("127.0.0.1:1".parse().unwrap());
+        let serving = start_configured(&hub, home.path(), websocket, None).await;
+        assert!(serving.is_some(), "the carrier stayed off with only the node key");
+        let carrier = hub.hub_carrier.get().expect("the carrier is on the hub");
+        let public = crate::cli::mesh_node_key::public_key_at(home.path()).expect("a node key");
+        assert_eq!(
+            carrier.public_key(),
+            base64::engine::general_purpose::STANDARD.encode(public),
+            "the carrier runs on the node key"
+        );
+        assert!(carrier.key_current());
+        assert!(KeyHolder::acquire(home.path()).is_err(), "the carrier runs without the key lock");
+        drop(serving);
+        assert!(KeyHolder::acquire(home.path()).is_ok(), "a stopped carrier kept the lock");
+    }
+
+    /// Where the cmux link serves this home's node key, the carrier steps down: it takes no lock
+    /// and reads no key, so the link holds the key while the daemon runs.
+    #[tokio::test]
+    async fn where_the_link_serves_the_node_key_the_carrier_takes_none() {
+        let home = tempfile::tempdir().unwrap();
+        let link_dir = tempfile::tempdir().unwrap();
+        std::fs::write(link_dir.path().join("config.json"), "{}").unwrap();
+        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(home.path())).unwrap();
         let hub = joined_hub(home.path());
         let websocket = Some("127.0.0.1:1".parse().unwrap());
         assert!(start_configured(&hub, home.path(), websocket, None).await.is_none());

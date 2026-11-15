@@ -503,3 +503,40 @@ fn an_unsynced_atomic_write_keeps_the_old_copy_until_rename() {
     assert_eq!(std::fs::read(&path).unwrap(), b"new");
     assert_eq!(syncs.get(), 0);
 }
+
+/// `acpmux config --set transport.wireguard=true` with no `wireguardStatic` block (cmux#43305's
+/// carrier step, 2026-11-15): the daemon then refused to start. What the CLI does (load, set,
+/// save) either refuses and leaves config.json as it was, or writes a config the daemon's own
+/// startup accepts: `Config::load` and the WireGuard transport's start.
+#[tokio::test]
+async fn config_set_never_writes_a_config_the_daemon_refuses() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("config.json");
+    std::fs::write(&path, "{}\n").unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut cfg = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+    match cfg.set("transport.wireguard", "true") {
+        Err(refused) => {
+            let refused = format!("{refused:#}");
+            for field in ["wireguardStatic.listen", "wireguardStatic.address"] {
+                assert!(refused.contains(field), "the refusal names {field}: {refused}");
+            }
+            assert!(!cfg.transport.wireguard, "a refused set left the value in place");
+            assert_eq!(std::fs::read(&path).unwrap(), before, "a refused set wrote config.json");
+        }
+        Ok(()) => {
+            cfg.save().unwrap();
+            let loaded = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+            let started = crate::wireguard::Transport::start_with_link(
+                &loaded,
+                home.path(),
+                None,
+                "127.0.0.1:1".parse().unwrap(),
+            )
+            .await;
+            if let Err(refused) = started {
+                panic!("the daemon refuses what config --set wrote: {refused:#}");
+            }
+        }
+    }
+}
