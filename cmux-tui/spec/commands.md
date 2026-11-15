@@ -9093,9 +9093,50 @@ active area whole and at most that many of the newest history rows above it
 `history_rows_omitted` (uint64): the history rows older than its first row
 that it left out, 0 when the history fit. A viewer that wants older rows
 attaches again without the field (whole history, as before), typically only
-when its reader scrolls up to them. `resized` replays and attaches without
-the field are unchanged; a client must not send the field to a server that
-does not advertise the capability.
+when its reader scrolls up to them. Attaches without the field are
+unchanged; a client must not send the field to a server that does not
+advertise the capability.
+
+Servers advertising `attach-replay-history-window-v1` also accept
+`replay_history_start` (uint64, only with `replay_history_rows`): the Mac
+keeps the scrollback and the viewer holds a window of it. The first
+`vt-state` rebuilds the history rows `[replay_history_start,
+replay_history_start + replay_history_rows)` (row 0 is the oldest row kept;
+at most 10,000 rows), then the active area, and carries
+`history_rows_omitted` (the rows above the window) and `history_rows_skipped`
+(the rows between the window and the active area, left out). A window that
+comes within its own size of the active area, or a terminal with Kitty images,
+an alternate screen or a prompt clear waiting for the shell, gets the rows
+from `replay_history_start` down to the active area instead, with no
+`history_rows_skipped`. A viewer that scrolls attaches again with the window
+moved, so its memory and each replay stay bounded and it still reaches the
+oldest row. A viewer that also declares the capability in `set-client-info`
+and attached with `replay_history_rows` gets its window in every `resized`
+replay (the newest `replay_history_rows` rows; a window's rows are numbered
+again after a reflow), with `history_rows_omitted`, instead of the whole
+history; a viewer that does not declare it gets the whole history there, as
+before.
+
+Servers advertising `attach-output-coalesce-v1` coalesce the `output` events
+of a `mode:"bytes"` PTY attach that gets the replay stream (no snapshot) when
+the connection declared the same capability in `set-client-info` before
+attaching. Such an attach gets at most one `output` event per interval, as a
+browser coalesces a page's work to one frame per display refresh:
+`output_coalesce_ms` (uint32, 1 to 1000; default one 60 Hz frame, 16.667 ms;
+0 turns coalescing off for this attach). The bytes that arrive within one
+interval of the last event go out as one event at the interval's end,
+concatenated in order. The first bytes after an idle interval go out at once
+(a keypress echo is not delayed). An event never holds more than about 1 MiB:
+past that the held bytes go out at once. Any other attach event (`resized`,
+`colors-changed`, an `output` with `colors`, `detached`) first sends the held
+bytes, so stream order is unchanged. A viewer that cannot read that fast
+backs up the connection and gets `overflow` and reattaches, as without the
+capability. The attach's `scroll-changed` events follow the same interval:
+at most one per interval, carrying the newest position, the first after an
+idle interval at once; `notification` events are never held. A connection
+that did not declare the capability gets one `output` per PTY read and every
+`scroll-changed`, as before, and the field changes nothing for it; render
+mode and snapshot attaches ignore the field.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
@@ -9112,6 +9153,8 @@ Params:
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
+| `replay_history_start` | `uint64` | default null (the newest rows) | `attach-replay-history-window-v1`; only with `replay_history_rows` |
+| `output_coalesce_ms` | `uint32` | default null (16.667 ms when coalescing) | `attach-output-coalesce-v1` declared in `set-client-info`; 0 to 1000, 0 is off; bytes mode without `snapshot`; ignored without the capability |
 
 Result:
 
@@ -9127,6 +9170,7 @@ Errors:
 | `browser attach requires client capability browser-pointer-frame-guard-v1; ...` | The client did not advertise guarded pointer support |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
 | `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
+| `invalid: output_coalesce_ms <n> is over 1000` | A connection with `attach-output-coalesce-v1` asked for a longer interval |
 | `render attach requires protocol 7` | Server does not implement render mode |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |

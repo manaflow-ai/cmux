@@ -113,7 +113,7 @@ jobs:
 
       # A PR layer: the PR's head merged onto base, built and published like a push.
       # The build below runs the PR's code with no secret, as it runs a push's.
-      - name: Merge the pull request onto its base
+      - name: Apply the pull request onto its base
         if: inputs.pr
         env:
           GH_TOKEN: ${{ github.token }}
@@ -123,19 +123,25 @@ jobs:
           set -euo pipefail
           [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a number, got $PR"; exit 1; }
           [[ -z "$BASE" || "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::base must be a full commit sha"; exit 1; }
-          info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .title, .state] | @tsv')"
-          IFS=$'\t' read -r head_repo head title state <<<"$info"
+          info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .title, .state] | @tsv')"
+          IFS=$'\t' read -r head_repo head base_ref title state <<<"$info"
           [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo "::error::#$PR comes from $head_repo; only same-repo PRs get a published layer"; exit 1; }
           git fetch -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
           [[ "$(git rev-parse refs/remotes/pr/head)" == "$head" ]] || head="$(git rev-parse refs/remotes/pr/head)"
           base="${BASE:-$(git rev-parse HEAD)}"
           git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$base"
+          # The layer is the PR's own change on the app's commit, nothing else. Merging the head
+          # would also bring every commit between that commit and where the PR branched off, so
+          # the PR's diff from its branch point is applied instead.
+          git fetch -q --filter=blob:none origin "+refs/heads/$base_ref:refs/remotes/pr/base"
+          fork="$(git merge-base refs/remotes/pr/base "$head")"
           git -c advice.detachedHead=false checkout -q --detach "$base"
-          if ! git -c user.name=cmux-ci -c user.email=ci@cmux.invalid -c commit.gpgsign=false merge -q --no-ff --no-edit "$head"; then
-            echo "::error::#$PR (${head:0:12}) does not merge onto ${base:0:12}: it conflicts; rebase it"
+          if ! git diff --binary "$fork" "$head" | git apply -q --3way --index; then
+            echo "::error::#$PR (${head:0:12}) does not apply onto ${base:0:12}: it conflicts with what changed since; rebase it"
             exit 1
           fi
-          classify="$(python3 scripts/cmux-next/live_apply.py --json "$(git merge-base "$base" "$head")" "$head")"
+          git -c user.name=cmux-ci -c user.email=ci@cmux.invalid -c commit.gpgsign=false commit -q --allow-empty -m "#$PR ${head:0:12} on ${base:0:12}"
+          classify="$(python3 scripts/cmux-next/live_apply.py --json "$fork" "$head")"
           mkdir -p "$RUNNER_TEMP/pr-layer"
           python3 - "$RUNNER_TEMP/pr-layer/layer.json" "$PR" "$head" "$base" "$(git rev-parse HEAD)" "$title" "$state" "$classify" <<'PY'
           import json, sys
