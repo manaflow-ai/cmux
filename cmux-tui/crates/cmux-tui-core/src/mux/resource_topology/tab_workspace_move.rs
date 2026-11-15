@@ -595,6 +595,7 @@ impl Mux {
                 let _ = surface_handle.persist_host_workspace(&key);
             }
         }
+        self.refresh_terminal_size_policy(surface);
         self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);
         Ok(())
     }
