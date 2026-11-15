@@ -344,7 +344,9 @@ impl Hub {
                 self.inbox_review(session);
                 json!(resumed)
             }
-            "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
+            "withdraw" => {
+                json!(self.withdraw_steer(session, prompt_id, control, device, editor).await?)
+            }
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";
                 return Err(RpcError::invalid_params(e));
@@ -629,6 +631,7 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
+        device: Option<&str>,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
         let waiting = session
@@ -643,7 +646,7 @@ impl Hub {
         };
         mine?;
         // Who may steer may take one back; taking it back raises no turn's control.
-        self.web_control_check(session, control)?;
+        self.web_control_check(session, control, device)?;
         let child = session.child.lock().await.clone();
         let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
             return Ok(false);

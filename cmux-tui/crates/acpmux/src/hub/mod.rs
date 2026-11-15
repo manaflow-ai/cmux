@@ -83,6 +83,8 @@ mod owned_scope_bench_tests;
 #[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
+mod phone_floor_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
 mod remote_table_bench;
@@ -635,6 +637,11 @@ pub struct TurnInfo {
     /// once every check that can refuse it has passed (`run_prompt`). Only from then on does a
     /// second copy of the prompt hear this turn (`turns.rs` `pending_turn`).
     pub accepted: bool,
+    /// The paired device that sent this Web turn, while every Web prompt and steer in it came
+    /// from that one device (`Hub::owner_phone_full_access` reads it again); None for a Local
+    /// turn, one another client touched and one recovered after a restart. Set with the turn
+    /// and narrowed beside `control`, under the turn lock (review of cmux#43251, P1-F1).
+    pub device: Option<String>,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -720,9 +727,10 @@ pub struct PromptOptions {
     /// Validated display-only metadata from the app's ordered composer. It is persisted in the
     /// mux record and never forwarded to the agent's ACP prompt.
     pub display_parts: Option<Value>,
-    /// The paired machine whose Full-access setting covered the request that sent it
-    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
-    /// (`Hub::full_access_hold`).
+    /// The paired machine that sent it (`server/remote_guard.rs` `sending_device`). It grants
+    /// nothing by itself: each rule reads the pairing store again at dispatch, its Full-access
+    /// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
+    /// `Hub::local_claude_refusal`).
     pub full_access_device: Option<String>,
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
