@@ -86,6 +86,10 @@ const CPU_CLOCK = process.env.CLOCK === "cpu";
 const PAIRED = process.env.PAIRED === "1";
 /// `INVALIDATIONS=1` prints, per burst, what restyled the page and the rows React drew (`invalidations`).
 const INVALIDATIONS = process.env.INVALIDATIONS === "1";
+/// `LAYOUT=1` prints, per burst, the page main thread's self time per record by trace event (style recalc, layout,
+/// pre-paint, paint, layerize...), the layout passes with the layout objects each found dirty and held in all, and
+/// the page's size (`layoutCost`): whether a record's rendering work follows the rows the chat holds or those shown.
+const LAYOUT = process.env.LAYOUT === "1";
 /// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
 /// has settled, right after the heap row is read: what holds the heap that row reports.
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
@@ -359,6 +363,145 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
     .map(([key, count]) => `\n      ${per(count)}/rec ${key}`)
     .join("");
   return `style recalcs ${per(recalcs)}/rec, ${per(styled)} elements/rec; renders ${rows}${top}`;
+}
+
+/// LAYOUT=1: the trace events whose self time `layoutCost` sums (time inside a nested one of them counts for it).
+const RENDER_EVENTS = new Set([
+  "UpdateLayoutTree",
+  "Layout",
+  "PrePaint",
+  "Paint",
+  "Layerize",
+  "Commit",
+  "HitTest",
+  "IntersectionObserverController::computeIntersections",
+  "ResizeObserverController::BroadcastObservations",
+  "UpdateLayer",
+  "FunctionCall",
+  "EventDispatch",
+  "TimerFire",
+  "FireAnimationFrame",
+  "RunMicrotasks",
+  "MajorGC",
+  "MinorGC",
+]);
+type TraceEvent = {
+  name: string;
+  ph: string;
+  ts: number;
+  dur?: number;
+  pid: number;
+  tid: number;
+  args?: {
+    name?: string;
+    elementCount?: number;
+    beginData?: { dirtyObjects?: number; totalObjects?: number; partialLayout?: boolean };
+  };
+};
+/// LAYOUT=1: the rendering work `run` cost the page per record, from a DevTools timeline trace of its main thread
+/// (the CrRendererMain thread that ran the most layout passes): self ms per record of each RENDER_EVENTS event, the
+/// layout passes with their dirty layout objects (summed) and total layout objects (most), the style recalcs with
+/// the elements they touched, and the page's size after.
+async function layoutCost(cdp: CDPSession, run: () => Promise<void>, page: Page, records: number): Promise<string> {
+  const events: TraceEvent[] = [];
+  const onData = (data: { value: object[] }) => events.push(...(data.value as TraceEvent[]));
+  cdp.on("Tracing.dataCollected", onData);
+  await cdp.send("Tracing.start", {
+    traceConfig: {
+      recordMode: "recordAsMuchAsPossible",
+      includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "v8"],
+    },
+    transferMode: "ReportEvents",
+  });
+  await run();
+  await paint(page, 2);
+  const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+  await cdp.send("Tracing.end");
+  await done;
+  cdp.off("Tracing.dataCollected", onData);
+  const thread = (event: TraceEvent) => `${event.pid}:${event.tid}`;
+  const named = new Set(
+    events
+      .filter((event) => event.ph === "M" && event.name === "thread_name" && event.args?.name === "CrRendererMain")
+      .map(thread),
+  );
+  const passes = new Map<string, number>();
+  for (const event of events)
+    if (event.name === "Layout" && (!named.size || named.has(thread(event))))
+      passes.set(thread(event), (passes.get(thread(event)) ?? 0) + 1);
+  const main = [...passes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  // Complete events (ph X) carry their duration; begin/end pairs (B/E) are matched per name.
+  const spans: { name: string; from: number; to: number; event: TraceEvent }[] = [];
+  const begun = new Map<string, TraceEvent[]>();
+  for (const event of events.filter((each) => thread(each) === main).sort((a, b) => a.ts - b.ts)) {
+    if (!RENDER_EVENTS.has(event.name)) continue;
+    if (event.ph === "X") spans.push({ name: event.name, from: event.ts, to: event.ts + (event.dur ?? 0), event });
+    else if (event.ph === "B") begun.set(event.name, [...(begun.get(event.name) ?? []), event]);
+    else if (event.ph === "E") {
+      const begin = begun.get(event.name)?.pop();
+      if (begin) spans.push({ name: event.name, from: begin.ts, to: event.ts, event: begin });
+    }
+  }
+  spans.sort((a, b) => a.from - b.from || b.to - a.to);
+  const self = new Map<string, number>();
+  const stack: { name: string; from: number; to: number; child: number }[] = [];
+  const close = (until: number) => {
+    while (stack.length && stack.at(-1)!.to <= until) {
+      const top = stack.pop()!;
+      self.set(top.name, (self.get(top.name) ?? 0) + (top.to - top.from - top.child));
+      if (stack.length) stack.at(-1)!.child += top.to - top.from;
+    }
+  };
+  for (const span of spans) {
+    close(span.from);
+    stack.push({ name: span.name, from: span.from, to: span.to, child: 0 });
+  }
+  close(Number.POSITIVE_INFINITY);
+  let layouts = 0;
+  let partial = 0;
+  let dirty = 0;
+  let total = 0;
+  let recalcs = 0;
+  let styled = 0;
+  for (const { name, event } of spans) {
+    if (name === "Layout") {
+      layouts += 1;
+      dirty += event.args?.beginData?.dirtyObjects ?? 0;
+      total = Math.max(total, event.args?.beginData?.totalObjects ?? 0);
+      if (event.args?.beginData?.partialLayout) partial += 1;
+    } else if (name === "UpdateLayoutTree") {
+      recalcs += 1;
+      styled += event.args?.elementCount ?? 0;
+    }
+  }
+  const per = (value: number) => Math.round((value / records) * 100) / 100;
+  const ms = [...self.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, us]) => `${name}=${per(us / 1000)}`)
+    .join(" ");
+  const dom = await domSize(page);
+  // Which subtrees hold the page's elements: each element holding over 4% of them, by its tag and classes.
+  const census = await page.evaluate(() => {
+    const all = document.getElementsByTagName("*").length;
+    const big: string[] = [];
+    const count = (node: Element, depth: number): number => {
+      let n = 1;
+      for (const child of node.children) n += count(child, depth + 1);
+      if (n > all * 0.04 && depth < 14 && node.children.length > 1)
+        big.push(
+          `${depth}:${node.tagName.toLowerCase()}.${[...node.classList].slice(0, 2).join(".")}=${n}/${node.children.length}`,
+        );
+      return n;
+    };
+    count(document.body, 0);
+    return big.reverse().slice(0, 14).join(" ");
+  });
+  return (
+    `census ${census}; layout ${per(layouts)}/rec (partial ${per(partial)}) dirty ${per(dirty)}/rec of ${total} objects; ` +
+    `style ${per(recalcs)}/rec ${per(styled)} elements/rec; dom ${dom.elements} elements ${dom.mounted} rows; ` +
+    `self ms/rec ${ms}`
+  );
 }
 
 async function heapMb(cdp: CDPSession): Promise<number> {
@@ -685,9 +828,13 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           layoutObjects: cost.layoutObjectsMax ?? 0,
           styled: cost.styleElementsMax ?? 0,
         };
+      } else if (LAYOUT) {
+        const cost = await layoutCost(cdp, playBurst, page, records);
+        console.log(`  ${log.name} ${burst.kind} at ${burst.rows} rows layout: ${cost}`);
       } else if (INVALIDATIONS) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
-        console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
+        const cost = await invalidations(cdp, playBurst, page, records);
+        console.log(`  ${log.name} ${burst.kind} at ${burst.rows} rows: ${cost}`);
       } else {
         await playBurst();
         await paint(page, 2);
