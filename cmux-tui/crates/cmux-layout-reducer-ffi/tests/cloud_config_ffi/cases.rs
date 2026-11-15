@@ -218,6 +218,30 @@ fn the_agent_key_mint_is_planned_and_read_here() {
 }
 
 #[test]
+fn the_device_identity_items_answer_here() {
+    let (code, found) = call(
+        c"cloud_identity_device_slots",
+        &json!({"accounts": ["device-id.2", "capture-lease", "device-id", "device-signing-key"]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        found,
+        json!({"accounts": ["device-id", "device-signing-key", "device-id.2"],
+               "current": {"id": "device-id.2", "signingKey": "device-signing-key.2",
+                           "agreementKey": "device-agreement-key.2"},
+               "replacement": {"id": "device-id", "signingKey": "device-signing-key",
+                               "agreementKey": "device-agreement-key"}})
+    );
+    let (_, renewed) = call(
+        c"cloud_identity_device_slots",
+        &json!({"deletes": [{"account": "device-id", "status": -25244},
+                            {"account": "device-id.2", "status": 0}]}),
+    );
+    assert_eq!(renewed["current"], Value::Null);
+    assert_eq!(renewed["replacement"]["agreementKey"], "device-agreement-key.2");
+}
+
+#[test]
 fn an_unknown_op_or_a_bad_request_is_refused() {
     assert_eq!(call(c"cloud_config_nope", &json!({})).0, ERR_INVALID);
     assert_eq!(call(c"cloud_config_from_selection", &json!({"isDebugBuild": "no"})).0, ERR_INVALID);

@@ -21,6 +21,9 @@
 // of noise.
 // HIDDEN=0 keeps every chat shown. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
 // windows.
+// GROW_OPEN=1 grows the grown chats as one turn that never ends (a coordinator's: steers, replies and tool calls into a
+// running turn, ten records a grown row pair, no turn_result), which a chat that sheds only at a turn's end never
+// sheds (direct.ts `shedOlderHeld`, `midTurnCut`). For the case cmux#43436 left out.
 // Resize (x1 launches, after the readings above; RESIZE=0 skips it): the shown chat's page takes RESIZE_WIDTHS one at
 // a time, a second apart, as a window snapped or a divider let go does. Each width is new to the page, so the
 // transcript lays out the whole chat at it. `resize ms` is the page's time from the width to the second frame after
@@ -65,6 +68,7 @@ if (!["all", "main", "grown-many"].includes(CASES)) {
   console.error("chat-100k-flat: CASES is all, main or grown-many");
   process.exit(2);
 }
+const GROW_OPEN = process.env.GROW_OPEN === "1";
 if (!Number.isInteger(ROWS) || ROWS < 2 || !Number.isInteger(CHATS) || CHATS < 2) {
   console.error("usage: bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]");
   process.exit(2);
@@ -370,7 +374,40 @@ try {
         // Grown: each chat takes `grow` finished turns live, GROW_BATCH records at a time, a frame apart.
         const began = performance.now();
         for (let turn = 1, batch = 0; turn <= grow; turn++) {
-          for (let index = 0; index < count; index++) {
+          for (let index = 0; index < count && GROW_OPEN; index++) {
+            const id = sessionId(index);
+            const said = (sessionUpdate: string, fields: Record<string, unknown>) =>
+              emit(id, "in", sessionUpdate, {
+                method: "session/update",
+                params: { sessionId: "agent-1", update: { sessionUpdate, ...fields } },
+              });
+            if (turn === 1) {
+              emit(id, "mux", "user_message", { text: "Grown question: coordinate the lanes" });
+              emit(id, "mux", "turn_started", {});
+            }
+            emit(id, "mux", "user_message", { text: `Grown steer ${turn}`, steer: true });
+            for (let chunk = 0; chunk < 7; chunk++)
+              said("agent_message_chunk", {
+                messageId: `grown-${turn}`,
+                content: {
+                  type: "text",
+                  text: chunk === 0 ? `Grown answer ${turn}: ` : `the checks are green ${chunk}. `,
+                },
+              });
+            said("tool_call", {
+              toolCallId: `grown-call-${turn}`,
+              kind: "execute",
+              title: `check ${turn}`,
+              status: "in_progress",
+            });
+            said("tool_call_update", {
+              toolCallId: `grown-call-${turn}`,
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: `ok ${turn}` } }],
+            });
+            batch += 10;
+          }
+          for (let index = 0; index < count && !GROW_OPEN; index++) {
             const id = sessionId(index);
             emit(id, "mux", "user_message", { text: `Grown question ${turn}` });
             emit(id, "mux", "turn_started", {});

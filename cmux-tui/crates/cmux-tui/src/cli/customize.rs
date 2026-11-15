@@ -12,6 +12,7 @@
 
 mod ask;
 mod library;
+mod pr;
 mod render;
 #[cfg(test)]
 mod tests;
@@ -38,6 +39,8 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
   cmux customize revert                       Stop trying it on: put back what was there before
+  cmux customize use pr:N                     Try pull request N on this cmux: on top of your library
+                                              (`library off pr-N` puts back what was under it)
   cmux customize profiles                     The saved profiles
   cmux customize library [VERB]               Everything you applied, kept as layers: list|on|off|order|export|import|remove
 
@@ -209,8 +212,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             }
         }
         "use" => match rest {
-            [source] if !source.starts_with('-') => Ok(Request::Use { source: source.clone() }),
-            _ => Err("customize use needs one profile NAME or FILE".to_owned()),
+            [source] if !source.starts_with('-') || pr::pr_number(source).is_some() => {
+                Ok(Request::Use { source: source.clone() })
+            }
+            _ => Err("customize use needs one profile NAME or FILE, or pr:N".to_owned()),
         },
         "brief" => match wish_of(rest)? {
             (wish, options) if options == AskOptions::default() => Ok(Request::Brief { wish }),
@@ -531,6 +536,10 @@ pub(super) fn execute(
         Request::Generations => Answer::Generations(customize.generations()?),
         Request::Save { name, note } => {
             Answer::Saved(customize.save_profile(&name, &note, now_ms)?)
+        }
+        Request::Use { source } if pr::pr_number(&source).is_some() => {
+            let pr = pr::pr_number(&source).unwrap_or_default();
+            pr::use_pr(customize, pr, origin, now_ms)?
         }
         Request::Use { source } => {
             let profile = customize.load_profile(&source)?;
