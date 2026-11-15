@@ -13,6 +13,11 @@ app, one idle chat per workspace on the acpmux test agent (its first turn answer
 - memory.app_agents.empty.total_footprint_mb: the launch sample (bench_memory's idle-launch, no chat open);
 - memory.app_agents.<N>.total_footprint_mb: N chats open and idle;
 - memory.app_agents.ratio_vs_empty: the highest N's total / the empty total, both from this one run.
+These sample --settle seconds (20) after the launch and after the last open, before hidden chat pages are released
+(60 s) and idle harnesses hibernate (120 s). So the run samples the empty app and each count once more, --settled-at
+seconds (150) after the launch and after the last open (bench_memory's settled-launch and settled-N), and writes the
+same rows for them under memory.app_agents.settled.: what the app holds once its idle work is done. The rows above
+keep what they read.
 A count whose chats did not all open (fewer workspaces than asked, or a pane failure) gets no row and no ratio: a
 partial sample is not that count's cost.
 
@@ -41,19 +46,25 @@ FAKE_AGENT = "cmux-tui/crates/acpmux/tests/fake_agent.py"
 TOTAL_FLOOR_MB = 50.0  # the empty app's launch-to-launch spread was 849-941 MB (ram-baseline, 2026-11-08)
 
 
-def rows_from(report: dict) -> list[dict]:
-    """perf-cron rows from bench_memory.py's report (pure)."""
+# The two samples of each count (bench_memory's labels): `idle` --settle seconds after the open, `settled`
+# --settled-at seconds after it. Each phase's rows go under its own name part ("" for idle: the rows goals read).
+PHASES = {"idle": "", "settled": "settled."}
+
+
+def rows_from(report: dict, phase: str = "idle") -> list[dict]:
+    """perf-cron rows from bench_memory.py's report, for one phase's samples (pure)."""
+    part = PHASES[phase]
     samples = [s for s in report.get("samples") or [] if isinstance(s, dict)]
-    empty = next((s for s in samples if s.get("label") == "idle-launch"), None)
+    empty = next((s for s in samples if s.get("label") == f"{phase}-launch"), None)
     total = (empty or {}).get("total_footprint_mb")
     if not isinstance(total, (int, float)) or total <= 0:
         return []
-    rows = [{"name": "memory.app_agents.empty.total_footprint_mb", "p50": total, "p95": total, "unit": "MB",
+    rows = [{"name": f"memory.app_agents.{part}empty.total_footprint_mb", "p50": total, "p95": total, "unit": "MB",
              "floor": TOTAL_FLOOR_MB}]
     full = []
     for s in samples:
         label = str(s.get("label") or "")
-        if not label.startswith("idle-") or label == "idle-launch":
+        if not label.startswith(f"{phase}-") or label == f"{phase}-launch":
             continue
         try:
             asked = int(label.split("-", 1)[1])
@@ -62,13 +73,13 @@ def rows_from(report: dict) -> list[dict]:
         value = s.get("total_footprint_mb")
         if s.get("workspaces") != asked or s.get("pane_failures") or not isinstance(value, (int, float)):
             continue
-        rows.append({"name": f"memory.app_agents.{asked}.total_footprint_mb", "p50": value, "p95": value, "unit": "MB",
+        rows.append({"name": f"memory.app_agents.{part}{asked}.total_footprint_mb", "p50": value, "p95": value, "unit": "MB",
                      "floor": TOTAL_FLOOR_MB})
         full.append((asked, value))
     if full:
         asked, value = max(full)
         ratio = round(value / total, 3)
-        rows.append({"name": "memory.app_agents.ratio_vs_empty", "p50": ratio, "p95": ratio, "unit": "x", "floor": 0.1,
+        rows.append({"name": f"memory.app_agents.{part}ratio_vs_empty", "p50": ratio, "p95": ratio, "unit": "x", "floor": 0.1,
                      "agents": asked})
     return rows
 
@@ -83,14 +94,15 @@ def row_key(name: str) -> str:
     return out or "unknown"
 
 
-def full_samples(report: dict) -> tuple[dict | None, list[tuple[int, dict]]]:
-    """(the empty sample, [(N, sample)] for each count whose chats all opened), from bench_memory's report (pure)."""
+def full_samples(report: dict, phase: str = "idle") -> tuple[dict | None, list[tuple[int, dict]]]:
+    """(the empty sample, [(N, sample)] for each count whose chats all opened), of one phase, from bench_memory's report
+    (pure)."""
     samples = [s for s in report.get("samples") or [] if isinstance(s, dict)]
-    empty = next((s for s in samples if s.get("label") == "idle-launch"), None)
+    empty = next((s for s in samples if s.get("label") == f"{phase}-launch"), None)
     full = []
     for s in samples:
         label = str(s.get("label") or "")
-        if not label.startswith("idle-") or label == "idle-launch":
+        if not label.startswith(f"{phase}-") or label == f"{phase}-launch":
             continue
         try:
             asked = int(label.split("-", 1)[1])
@@ -130,11 +142,11 @@ def sample_view(sample: dict, keep: set[str], top: int = 8) -> dict:
     return view
 
 
-def breakdown_from(report: dict) -> tuple[dict, list[dict]]:
+def breakdown_from(report: dict, phase: str = "idle") -> tuple[dict, list[dict]]:
     """Where the memory is (pure): report.json's `breakdown` and its report-only rows. Per chat is each kind's growth
     from the empty app to the highest full count over that count's chat workspaces (N - 1: the launch workspace
-    counts in N)."""
-    empty, full = full_samples(report)
+    counts in N). The settled phase's rows go under memory.app_agents.breakdown.settled."""
+    empty, full = full_samples(report, phase)
     if empty is None or not isinstance(empty.get("total_footprint_mb"), (int, float)):
         return {}, []
     samples = [empty] + [s for _, s in full]
@@ -143,7 +155,7 @@ def breakdown_from(report: dict) -> tuple[dict, list[dict]]:
     rows = []
 
     def row(name, value, unit="MB"):
-        rows.append({"name": BREAKDOWN_PREFIX + name, "p50": value, "p95": value, "unit": unit, "floor": TOTAL_FLOOR_MB})
+        rows.append({"name": BREAKDOWN_PREFIX + PHASES[phase] + name, "p50": value, "p95": value, "unit": unit, "floor": TOTAL_FLOOR_MB})
 
     for kind, value in sorted(out["empty"]["kinds"].items()):
         row(f"empty.{kind}.footprint_mb", value)
@@ -186,13 +198,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agents", default="10", help="agent chat counts, e.g. 10 or 10,20")
     parser.add_argument("--settle", default="20")
     parser.add_argument("--measure", default="30")
+    parser.add_argument("--settled-at", default="150",
+                        help="the second sample, seconds after the launch and the last open (0: none)")
     args, _rest = parser.parse_known_args(argv)  # split-spring's own args (--tag) are not this suite's
     out_dir = args.out or os.path.dirname(os.path.abspath(args.json))
     os.makedirs(out_dir, exist_ok=True)
     raw = os.path.join(out_dir, "memory-agents.json")
     cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", args.app, "--workspaces", args.agents,
            "--mix", "terminal+chat", "--fake-agent", os.path.join(ROOT, FAKE_AGENT), "--settle", args.settle,
-           "--measure", args.measure, "--top", "8", "--js-heap", "--out", raw]
+           "--measure", args.measure, "--settled-at", args.settled_at, "--top", "8", "--js-heap", "--out", raw]
     status = subprocess.run(cmd, cwd=ROOT).returncode
     try:
         with open(raw) as f:
@@ -201,9 +215,14 @@ def main(argv: list[str] | None = None) -> int:
         report = {}
     rows = rows_from(report)
     breakdown, breakdown_rows = breakdown_from(report)
-    out = {"rows": rows + breakdown_rows, "agents": args.agents, "bench_status": status}
+    settled_rows = rows_from(report, "settled")
+    settled, settled_breakdown_rows = breakdown_from(report, "settled")
+    out = {"rows": rows + breakdown_rows + settled_rows + settled_breakdown_rows, "agents": args.agents,
+           "bench_status": status}
     if breakdown:
         out["breakdown"] = breakdown
+    if settled:
+        out["settled_breakdown"] = settled
     # perf-cron.py: an incomplete report keeps its rows for diagnostics but is no done part (incomplete_why names it).
     missing = [] if any(r["name"].endswith(".empty.total_footprint_mb") for r in rows) else \
         [f"no empty-app sample (bench_memory.py exit {status})"]
@@ -214,12 +233,13 @@ def main(argv: list[str] | None = None) -> int:
         out["incomplete"] = missing
     with open(args.json, "w") as f:
         json.dump(out, f, indent=1)
-    for r in rows:
+    for r in rows + settled_rows:
         print(f"memory-agents: {r['name']} = {r['p95']} {r['unit']}")
-    per_chat = breakdown.get("per_chat") or {}
-    if per_chat:
-        print(f"memory-agents: per chat workspace ({per_chat['chats']} chats) {per_chat['total_mb']} MB: "
-              + ", ".join(f"{k} {v}" for k, v in per_chat["kinds"].items()))
+    for name, view in (("", breakdown), ("settled ", settled)):
+        per_chat = view.get("per_chat") or {}
+        if per_chat:
+            print(f"memory-agents: {name}per chat workspace ({per_chat['chats']} chats) {per_chat['total_mb']} MB: "
+                  + ", ".join(f"{k} {v}" for k, v in per_chat["kinds"].items()))
     return status or (1 if missing else 0)
 
 

@@ -19,6 +19,11 @@ N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
 page each, so a run is deterministic; `real`: 20 well-known public sites; or a
 comma list). Each count is sampled after --settle seconds.
 
+--settled-at SECONDS adds a second sample of the empty app and of each count, SECONDS after the launch
+and after the count's last open (`settled-launch`, `settled-N`, the same --measure window): what is
+left once the app's idle work is done. With 150, that is past the 60 s release of hidden chat pages
+and the 120 s hibernate of idle harnesses, which the --settle sample (20 s in the cron) comes before.
+
 --purge-hidden also measures, after each count's sample, what Chromium's own
 memory purge gives back with nothing reloaded: every hidden cmux page's renderer
 gets a critical memory-pressure notice (DevTools Memory.simulatePressureNotification
@@ -1181,6 +1186,9 @@ def main():
     parser.add_argument("--workspaces", default="1,10,30")
     parser.add_argument("--mix", default="terminal+chat,terminal+browser,terminal")
     parser.add_argument("--settle", type=float, default=30)
+    parser.add_argument("--settled-at", type=float, default=0, metavar="SECONDS",
+                        help="also sample the empty app and each count SECONDS after the launch and the count's "
+                             "last open (settled-launch, settled-N; 0: no such sample)")
     parser.add_argument("--measure", type=float, default=0,
                         help="seconds of idle CPU and wakeup measurement after each settle (0: memory only)")
     parser.add_argument("--churn-minutes", type=float, default=0)
@@ -1280,8 +1288,8 @@ def main():
     if child_check is not None:
         report["child_time_check"] = child_check
 
-    def settle_and_sample(label, diff_tab=None):
-        time.sleep(args.settle)  # test script: let the app and its helpers go idle
+    def settle_and_sample(label, diff_tab=None, settle=None):
+        time.sleep(args.settle if settle is None else settle)  # test script: let the app and its helpers go idle
         measure, scroller = args.measure, None
         if diff_tab is not None:
             # What the page says now decides the window: its timer is 4 s with the focus and 30 s without it.
@@ -1321,10 +1329,18 @@ def main():
         print_sample(result, args.top)
         return result
 
+    def settled_sample(label, since):
+        """The --settled-at sample: `label`, --settled-at seconds after `since` (time.monotonic())."""
+        if args.settled_at <= 0:
+            return None
+        return settle_and_sample(label, settle=max(0.0, since + args.settled_at - time.monotonic()))
+
     try:
+        launched_at = time.monotonic()
         if args.fake_agent:
             chats = FakeChats(app, bundle, args.fake_agent)
         settle_and_sample("idle-launch")
+        settled_sample("settled-launch", launched_at)
         if args.tabs:
             tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)
             urls = tab_urls(args.urls, max(tab_counts))
@@ -1344,6 +1360,7 @@ def main():
                 if workspace is None:
                     break
                 opened.append(workspace)
+            last_open = time.monotonic()
             diff_tab = None
             if args.diff_tab:
                 # In the launch's scratch; an attached app has none, so in a folder of its own. Both are removed at the end.
@@ -1352,6 +1369,7 @@ def main():
                 diff_tab = {"repository": cells.make_repository(repository, args.diff_tab)}
                 diff_tab["open"] = cells.open_tab(app, repository)
             result = settle_and_sample(f"idle-{count}", diff_tab)
+            settled_sample(f"settled-{count}", last_open)
             if chat_renderer_crash.enabled() and chats:
                 result["chat_renderers"] = chat_renderer_crash.renderers(app)
                 print(f"CHAT-RENDERERS phase=open agents={count} {json.dumps(result['chat_renderers'])}", flush=True)
