@@ -44,7 +44,7 @@ mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
 pub use mirror::{MAX_FRAME_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
-pub use origins::{Source, refused_held_rows};
+pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
 
 pub use crate::wire::{DeltaFrame, Window};
 

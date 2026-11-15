@@ -22,7 +22,7 @@ import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
-import { chatMachine as chatMachineOf, chatOnThisMac, chatPlace } from "./chatMachine";
+import { chatOnThisMac, chatPlace, chatMachine as chatMachineOf } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
 import { sayActionRefusal } from "./actionRefusal";
 import { restoreForkSource } from "./handoff/restoreForkSource";
@@ -73,13 +73,14 @@ import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled, knownRefusalText } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage } from "./NewTabPage";
-import { FOCUS_LOCATION_EVENT, newTabHost, type NewTabChat, type NewTabHost } from "./newTabModel";
+import { FOCUS_LOCATION_EVENT, newTabHost, type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
+import { NewTabAppPage } from "./newtab/NewTabAppPage";
 import { historyPages } from "./queue/historyPages";
 import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -243,6 +244,7 @@ import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
+import { LINK_DOWN_SAID_MS } from "./afterDelay";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
@@ -500,7 +502,7 @@ import {
 } from "./conversation/artifactPin";
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifactsModel";
-import { artifactVersions } from "./conversation/artifactVersions";
+import { artifactVersions, finishedReplyDocuments } from "./conversation/artifactVersions";
 import { artifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -2015,11 +2017,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const scanned = artifactRows
       ? current.path
         ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === current.path))
-        : (renderVersions(pages, current) ??
-          artifactVersions(
-            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-            current,
-          ))
+        : (renderVersions(pages, current) ?? artifactVersions(finishedReplyDocuments(artifactRows), current))
       : undefined;
     // The live source holds the opened fence's streamed slot; versions finished after opening (a
     // later reply's rewrite, a newly paged reply) still join it.
@@ -2120,6 +2118,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
   /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
   const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
+  /// Set when the rows next shaped close that Worked for, the view back at the latest row: the
+  /// transcript folds it in the turn's end motion (VirtualTranscript `heldWorkedClosing`).
+  const heldWorkedClosing = useRef(false);
+  // Let go once the render that hands those rows over has committed: the transcript read it there.
+  useLayoutEffect(() => {
+    heldWorkedClosing.current = false;
+  });
   /// Moves when the view follows again with commands or runs held out, so they go back in.
   const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
   /// A held run the reader asks for (Find's match, a link to a call or to a message) goes back in,
@@ -3066,8 +3071,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const asked = heldRuns.current.asked === true;
       if (heldRuns.current.session !== shownSessionId || asked || (!viewNow && heldRuns.current.keys.size > 0))
         heldRuns.current = { session: shownSessionId, keys: new Set() };
-      if (heldWorked.current.session !== shownSessionId || (!viewNow && heldWorked.current.keys.size > 0))
+      if (heldWorked.current.session !== shownSessionId)
         heldWorked.current = { session: shownSessionId, keys: new Set() };
+      else if (!viewNow && heldWorked.current.keys.size > 0) {
+        // Back at the latest row: the Worked for held open over what the reader read closes, in
+        // the turn's end motion (VirtualTranscript `heldWorkedClosing`), never in one frame.
+        heldWorked.current = { session: shownSessionId, keys: new Set() };
+        heldWorkedClosing.current = true;
+      }
       const shapeFrom = (source: readonly AcpmuxRow[], open: Folds) =>
         turnViewFrom(
           source,
@@ -4593,6 +4604,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
   useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
+  // `tabs.newTabApp` (newtab/NewTabAppPage.tsx): the visit (adoption) whose app page could not show
+  // draws cmux's own; the next Cmd-T tries the app again, also on a spare that keeps its screen.
+  const [newTabAppGone, setNewTabAppGone] = useState<number>();
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -10939,6 +10953,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (newTabStartPage === newTabGeneration ||
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
+  // The extension the person picked to draw the whole page (`tabs.newTabApp`), until it could not show.
+  const newTabApp = showNewTab ? pickedNewTabApp(newTab, newTabAppGone, newTabAdoptions) : undefined;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
@@ -10951,10 +10967,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPicked: sandbox.mode === "cloud",
     started: Boolean(snapshot.sessionId),
   };
-  /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page, nor
-  /// history), so a claim never spends the budget on a hint nobody saw.
+  /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page,
+  /// history, nor an extension's page), so a claim never spends the budget on a hint nobody saw.
   const cloudHintDraws =
-    !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
+    !showNewTab || (newTab !== undefined && !newTab.history && !newTabApp && shownTemplate(newTab) !== "classic");
   const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
   /// Only the page the person looks at asks: a spare in the pool never does.
   useCloudChatHintClaim(cloudHintDue, cloudHint.claim);
@@ -11679,6 +11695,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     }
                                                                     inViewNow={
                                                                       quick || childRows ? undefined : transcriptInView
+                                                                    }
+                                                                    heldWorkedClosing={
+                                                                      quick || childRows ? undefined : heldWorkedClosing
                                                                     }
                                                                     // A prompt goes to the chat, not to the subagent shown in its place.
                                                                     sends={childRows ? undefined : sends}
@@ -13249,7 +13268,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen && showNewTab && !newTab.history && (
+          {!harnessesOpen && showNewTab && !newTab.history && !newTabApp && (
             // The page's dots, under it: Claude Minimal and Codex Minimal (newtab/tabDots.ts, the
             // composer's look), then on every layout but Minimal the page's other styles
             // (newtab/PageDots.tsx); a pick shows in place at once.
@@ -13261,7 +13280,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           )}
           {showNewTab && folderAskView}
-          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+          {newTabApp && !harnessesOpen ? (
+            <NewTabAppPage
+              key={`${newTabGeneration}:${newTabApp}`}
+              app={newTabApp}
+              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
+              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+              inputToken={newTab?.inputToken}
+              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+            />
+          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
@@ -13792,8 +13820,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
                     onReconnect={reconnectPeer}
-                    // Only a Cloud machine pauses on its own: an ssh peer's offline copy says so at once.
-                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? 0 : undefined}
+                    // An ssh peer's offline copy waits out acpmux's own redial (LINK_DOWN_SAID_MS): a
+                    // drop that heals on its own says nothing (Leo, 2026-11-14).
+                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
                   />
                 )}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always

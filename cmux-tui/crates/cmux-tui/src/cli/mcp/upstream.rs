@@ -42,6 +42,11 @@ const START_BACKOFF: Duration = Duration::from_secs(60);
 /// One call, unless the spec says (`callTimeoutSecs`: acpmux gives the
 /// secret card, which waits for the person, an hour).
 const CALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// A server's process ends after this long with no call; its tools stay listed and the next
+/// call starts it again. A harness keeps an idle chat's `cmux mcp serve` running for days (one
+/// Codex app-server held 15 on Leo's Mac, 2026-11-14), and each kept its computer use proxy and
+/// acpmux's servers running under it: 90 processes, about 300 MB, for chats no one used.
+pub(super) const IDLE_STOP: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,6 +176,12 @@ pub(super) struct Upstream {
     /// The legacy computer use proxy's current endpoint, read when a call finds the
     /// helper unreachable (`cua_recovery.rs`); `None` for every other server.
     endpoint: Option<cua_recovery::EndpointSource>,
+    /// What kept the proxy off the current endpoint at the last read
+    /// (`cua_recovery::endpoint_note`), said when recovery gives up.
+    endpoint_note: Option<String>,
+    /// When it last started or answered a call: its process ends [`IDLE_STOP`] after
+    /// ([`stop_idle`]).
+    used: Instant,
 }
 
 /// Why a request has no result.
@@ -357,7 +368,24 @@ impl Upstream {
             failed: None,
             listings,
             endpoint,
+            endpoint_note: None,
+            used: Instant::now(),
         }
+    }
+
+    /// Ends its process when it has had no call for `idle`, keeping its tools listed (the next
+    /// call starts it again). While a process runs, how long until it would be idle; `None`
+    /// when none runs.
+    pub(super) fn stop_if_idle(&mut self, idle: Duration) -> Option<Duration> {
+        self.conn.as_ref()?;
+        let left = idle.saturating_sub(self.used.elapsed());
+        if left.is_zero() {
+            // The child ends with its connection (`Conn::drop`); a shared one once no other
+            // server holds it.
+            self.conn = None;
+            return None;
+        }
+        Some(left)
     }
 
     /// The same server with its stored lists kept in `dir` (none: never stored).
@@ -395,13 +423,28 @@ impl Upstream {
     /// Before a retry: the current endpoint goes in the spec, and the proxy starts again
     /// (it gives up on a helper for good after one failed connection).
     fn reconnect_for_retry(&mut self) {
-        if let Some(socket) = self.endpoint.as_ref().and_then(|source| source())
-            && cua_recovery::apply(&mut self.spec, &socket)
-        {
-            eprintln!("cmux mcp: the {} server moves to the current endpoint", self.spec.name);
+        if let Some(source) = self.endpoint.as_ref() {
+            let read = source();
+            if let Ok(Some(socket)) = &read
+                && cua_recovery::apply(&mut self.spec, socket)
+            {
+                eprintln!("cmux mcp: the {} server moves to the current endpoint", self.spec.name);
+            }
+            let note = cua_recovery::endpoint_note(&read);
+            if let Some(why) = &note
+                && self.endpoint_note.as_ref() != Some(why)
+            {
+                eprintln!("cmux mcp: the {} server keeps its endpoint: {why}", self.spec.name);
+            }
+            self.endpoint_note = note;
         }
         self.conn = None;
         self.failed = None;
+    }
+
+    /// What kept the proxy off the current endpoint at the last read, if anything.
+    fn endpoint_note(&self) -> Option<&str> {
+        self.endpoint_note.as_deref()
     }
 
     /// Whether the server's process runs.
@@ -493,12 +536,15 @@ impl Upstream {
         if !self.conn.as_ref().is_some_and(|conn| conn.alive()) {
             self.start().map_err(|error| (error, "not_run"))?;
         }
+        self.used = Instant::now();
         let mut params = json!({"name": tool, "arguments": arguments});
         if let (Some(meta), Some(fields)) = (meta, params.as_object_mut()) {
             fields.insert("_meta".to_owned(), meta.clone());
         }
         let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
-        match self.request("tools/call", params, timeout) {
+        let answered = self.request("tools/call", params, timeout);
+        self.used = Instant::now();
+        match answered {
             Ok(result) => Ok(result),
             Err(Failure::Refused(error)) => Err((error, "not_run")),
             Err(Failure::Lost(error)) => {
@@ -568,6 +614,7 @@ impl Upstream {
         }
         self.tools = Some(tools);
         self.failed = None;
+        self.used = Instant::now();
         Ok(())
     }
 
@@ -625,6 +672,32 @@ impl Proxied {
     pub(super) fn lists(&self, name: &str) -> bool {
         self.listed.iter().any(|tool| tool["name"] == name)
     }
+}
+
+/// Ends each server's process once it has had no call for `idle` ([`IDLE_STOP`]), on a thread
+/// that sleeps until the next one could be idle and ends once every server is dropped. A server
+/// a call holds is skipped: the call marks it used when it ends.
+pub(super) fn stop_idle(
+    servers: Vec<Weak<Mutex<Upstream>>>,
+    idle: Duration,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new().name("cmux-mcp-upstream-idle".into()).spawn(move || {
+        loop {
+            let mut next = idle;
+            let mut any = false;
+            for server in &servers {
+                let Some(server) = server.upgrade() else { continue };
+                any = true;
+                if let Ok(mut upstream) = server.try_lock() {
+                    next = next.min(upstream.stop_if_idle(idle).unwrap_or(idle));
+                }
+            }
+            if !any {
+                return;
+            }
+            std::thread::sleep(next.max(Duration::from_millis(10)));
+        }
+    })
 }
 
 /// Claude Code's name of the tool call a `tools/call` runs for (`_meta`), which its PreToolUse
@@ -696,7 +769,13 @@ impl ProxiedCall {
                 if !recovers {
                     return failure;
                 }
-                let error = cua_recovery::gave_up(&why, tries, restarted, started.elapsed());
+                let error = cua_recovery::gave_up(
+                    &why,
+                    tries,
+                    restarted,
+                    started.elapsed(),
+                    upstream.endpoint_note(),
+                );
                 return super::tool_error(super::envelope(error, "not_run", None));
             }
             // From the second retry on the helper itself may be down: the app restarts it.
