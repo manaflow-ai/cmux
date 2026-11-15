@@ -779,3 +779,26 @@ describe("the felt time after a send", () => {
     expect(new RegExp(countingTurnScript().match).test(chaos.feltMarker("t-0"))).toBe(false);
   });
 });
+
+describe("the machine at a stall", () => {
+  test("names acpmux's queues and the logs' attachment lines, and runs where journalctl is missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "chaos-stall-"));
+    try {
+      const c = join(dir, "c");
+      writeFileSync(c, `#!/bin/sh\nprintf '{"pid":7,\\n"gauges":{"queues":{"connections":3,"bytes":512,"overruns":0,"largest":[]}}}\\n'\n`);
+      chmodSync(c, 0o755);
+      const log = join(dir, ".acpmux");
+      spawnSync("mkdir", ["-p", log]);
+      writeFileSync(join(log, "daemon.log"), "INFO quiet\nWARN conn 4 lagged dropped 12\n");
+      const r = spawnSync("sh", ["-c", `c=${c}; ${chaos.STALL_FACTS_COMMAND}`], { encoding: "utf8", env: { HOME: dir, PATH: "/usr/bin:/bin" } });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('@@queues "queues":{"connections":3,"bytes":512,"overruns":0');
+      expect(r.stdout).toContain("@@acpmux.service");
+      expect(r.stdout).toContain("@@cmux-host.service");
+      expect(r.stdout).toContain("WARN conn 4 lagged dropped 12");
+      expect(r.stdout).not.toContain("INFO quiet");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
