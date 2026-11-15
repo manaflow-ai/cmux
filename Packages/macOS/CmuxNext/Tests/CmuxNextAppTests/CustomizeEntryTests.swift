@@ -20,7 +20,7 @@ struct CustomizeEntryTests {
     }
 
     @Test func itRunsNewAgentChatsPathWithTheCustomizeDraft() {
-        let registry = ActionRegistry()
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
         var opened: [ActionInvocation] = []
         #expect(registry.bindAgentPane { opened.append($0) })
         #expect(registry.perform(.customizeOpen))
@@ -34,7 +34,7 @@ struct CustomizeEntryTests {
     }
 
     @Test func aCallersOwnDraftIsKept() {
-        let registry = ActionRegistry()
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
         var opened: [ActionInvocation] = []
         #expect(registry.bindAgentPane { opened.append($0) })
         var invocation = ActionInvocation()
@@ -55,7 +55,7 @@ struct CustomizeEntryTests {
 
     @Test func rightClickCustomizeIsHiddenUntilTheSettingIsOn() {
         var on = false
-        let registry = ActionRegistry()
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
         #expect(registry.bindAgentPane(customizeRows: { on }) { _ in })
         #expect(ActionRegistry.locate(.customizeOpen, in: registry.makeContextMenu(for: .tabStrip)) == nil)
         on = true
