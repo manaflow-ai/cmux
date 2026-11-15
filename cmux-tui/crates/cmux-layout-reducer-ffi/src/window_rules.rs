@@ -158,6 +158,9 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
         }
         // Toggle Terminal and Chat's route for the focused tab.
         b"window_tabs_terminal_chat_toggle" => value(&tabs::terminal_chat_toggle(&read(request)?))?,
+        // Where a Toggle Terminal and Chat swap lands in the other view: the same turn.
+        b"window_tabs_terminal_place" => value(&tabs::place::terminal_place(&read(request)?))?,
+        b"window_tabs_chat_place" => value(&tabs::place::chat_place(&read(request)?))?,
         // Duplicate Tab per tab; `actions` null: refused (a page tab opens once).
         b"window_tabs_duplicate" => {
             let request: Tabs = read(request)?;
