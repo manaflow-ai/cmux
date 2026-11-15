@@ -3293,7 +3293,21 @@ jobs:
             echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; native gallery capture did not run."
             exit 127
           fi
-          CMUX_CI_CLIENT="$client" scripts/ci/native-sidebar-gallery.sh "$REF"
+          # This gateway has no checkout; submit the supported worker entrypoint directly.
+          key="native-sidebar-gallery-${REF}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          "$client" run --class light --display --script scripts/ci/package-test-lane.sh \
+            --ref "$REF" --key "$key" --timeout 2400 --env CMUX_TEST_REQUIRE_GUI=1 \
+            --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests/NativeSidebarGalleryTests \
+            --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar
+          job_id="$("$client" status --request-key "$key" | python3 -c '
+          import json, sys
+          job = json.load(sys.stdin)
+          if job.get("ref") != sys.argv[1] or job.get("state") != "done" or job.get("exit_code") != 0:
+              sys.exit("native sidebar capture has no passing receipt at the requested head")
+          print(job["id"])
+          ' "$REF")"
+          mkdir -p artifacts
+          "$client" artifact "$job_id" artifacts/native-sidebar-gallery.tar
 
       - name: Upload native sidebar gallery artifact
         if: always()
