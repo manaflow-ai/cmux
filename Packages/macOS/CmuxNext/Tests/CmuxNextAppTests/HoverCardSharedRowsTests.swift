@@ -96,8 +96,9 @@ import Testing
         let cards = tabs ? TabHoverCardGallery.cards() : WorkspaceHoverCardGallery.cards()
         // The sidebar adds a chat that never left the home folder (no folder line, Leo 2026-10-21),
         // one running-work card per `WorkspaceHoverCardWork.Style` (#30439), and the tab rows' four
-        // line styles, each on this Mac and on another machine, and a Cloud workspace that names its machine once.
-        let count = tabs ? 5 : 10 + WorkspaceHoverCardWork.Style.allCases.count + 8 + 1 + 2
+        // line styles, each on this Mac and on another machine, a Cloud workspace that names its machine once, and four
+        // cards of a workspace whose terminal serves ports (one per port row).
+        let count = tabs ? 5 : 10 + WorkspaceHoverCardWork.Style.allCases.count + 8 + 1 + 4 + 2
         #expect(cards.count == count)
         #expect(Set(cards.map(\.name)).count == count)
     }
