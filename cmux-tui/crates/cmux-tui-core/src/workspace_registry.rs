@@ -13,6 +13,8 @@ mod session_reset;
 pub(crate) use session_guard::session_guard_component;
 #[cfg(unix)]
 pub(crate) use session_guard::session_guard_components;
+#[cfg(all(windows, test))]
+use session_guard::session_guard_coordinator_waiter_dir;
 #[cfg(test)]
 pub(crate) use session_guard::start_session_guard_for_test;
 use session_guard::{
