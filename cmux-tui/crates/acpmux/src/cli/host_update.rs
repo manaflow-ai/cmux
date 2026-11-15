@@ -186,7 +186,7 @@ fn probe_script(if_idle: bool, now: bool) -> String {
         ":"
     };
     format!(
-        "echo \"{UNAME}$(uname -sm)\"\nn={}\n{}if acpmux_window; then echo \"{WINDOW}$acpmux_why\"; fi\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
+        "echo \"{UNAME}$(uname -sm)\"\nacpmux_nw={}\n{}if acpmux_window; then echo \"{WINDOW}$acpmux_why\"; fi\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
         u8::from(now),
         restart_window_check(),
         cloud_vm_check(),
@@ -232,14 +232,14 @@ pub(crate) const RESTART_WINDOW: &str = "restartWindow";
 /// why on stderr as well. The host decides it all, whatever the pusher
 /// checked: the window is the host's ([`RESTART_WINDOW_FILE`], then the
 /// daemon unit's [`RESTART_WINDOW_ENV`] from [`SERVICE_ENV`], then the
-/// shell's, else [`RESTART_WINDOW_SECS`]); `$n` 1 (`--now`) turns the check
+/// shell's, else [`RESTART_WINDOW_SECS`]); `$acpmux_nw` 1 (`--now`) turns the check
 /// off; a stamp from the host's future (its clock went back) never holds it
 /// off for good; and a daemon that does not answer has nothing to wake. A
 /// rollback never runs it: it puts `acpmux.prev` back without an install.
 pub(crate) fn restart_window_check() -> String {
     format!(
         r#"acpmux_window() {{
-  [ "$n" != 1 ] || return 1
+  [ "${{acpmux_nw-}}" != 1 ] || return 1
   acpmux_rs=$(cat {REMOTE_HOME}/{RESTART_STAMP} 2>/dev/null | tr -cd '0-9'); [ -n "$acpmux_rs" ] || return 1
   acpmux_now=$(date +%s); [ "$acpmux_rs" -le "$acpmux_now" ] || return 1
   acpmux_ws=$(cat {REMOTE_HOME}/{RESTART_WINDOW_FILE} 2>/dev/null | tr -cd '0-9')

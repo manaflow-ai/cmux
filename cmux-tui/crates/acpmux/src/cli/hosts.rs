@@ -369,7 +369,7 @@ pub(crate) fn push_binary(
     run(
         r,
         &format!(
-            "d={}; n={}\n{}{}{{ ! acpmux_window_refuses || {{ rm -f {bin}.new; exit 1; }}; }} && {{ ! acpmux_downgrade {bin} {bin}.new || {{ rm -f {bin}.new; exit 1; }}; }} && rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}",
+            "d={}; acpmux_nw={}\n{}{}{{ ! acpmux_window_refuses || {{ rm -f {bin}.new; exit 1; }}; }} && {{ ! acpmux_downgrade {bin} {bin}.new || {{ rm -f {bin}.new; exit 1; }}; }} && rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}",
             u8::from(allow_downgrade),
             u8::from(now),
             downgrade_check(),
@@ -466,7 +466,7 @@ fn push_update(
     r.push(local, "~/.local/bin/.acpmux-new/acpmux")?;
     let running = running.filter(|c| c.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("");
     let script = format!(
-        "c={running}; d={}; n={}\n{}{}{INSTALL_PUSHED}",
+        "c={running}; d={}; acpmux_nw={}\n{}{}{INSTALL_PUSHED}",
         u8::from(allow_downgrade),
         u8::from(now),
         downgrade_check(),
@@ -1006,7 +1006,7 @@ pub(crate) fn setup_locked(
     opts: &SetupOptions,
 ) -> Result<(String, String, Option<String>)> {
     let ask = format!(
-        "n={}\n{}if acpmux_window; then printf '%s\\n' \"$acpmux_why\"; fi",
+        "acpmux_nw={}\n{}if acpmux_window; then printf '%s\\n' \"$acpmux_why\"; fi",
         u8::from(opts.now),
         restart_window_check()
     );
