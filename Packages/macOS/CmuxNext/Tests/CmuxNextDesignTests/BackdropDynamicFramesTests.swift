@@ -147,7 +147,8 @@ import UniformTypeIdentifiers
             (design.animationSpeed, design.animationsEnabled, design.disabledAnimationCategories, design.calmMode) = saved
         }
         #expect(Motion.panes.animatesFades)
-        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40), images: BackdropImageStore(maxPixelSize: 32))
+        let store = BackdropImageStore(maxPixelSize: 32)
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40), images: store)
         view.crossfadesOffScreen = true
         var backdrop = WindowBackdrop(backgroundOpacity: 0.5, backgroundBlur: 0)
         backdrop.selection = .file(path: first.path)
@@ -164,16 +165,22 @@ import UniformTypeIdentifiers
         #expect(layer.contents as? NSImage === shown)
         await view.artLoad?.value
         #expect(try AppleWallpapersTests.red(try #require(layer.contents as? NSImage)) < 50)
+
+        // A decoded picture crossfades in the same turn (read before a commit can end an
+        // off-screen layer's animation).
+        for dark in [false, true] { _ = await store.image(.file(path: third.path), dark: dark) }
+        backdrop.selection = .file(path: third.path)
+        view.apply(backdrop, tint: .black)
         #expect(layer.animation(forKey: "contents") != nil, "the swap crossfades")
+        #expect(try AppleWallpapersTests.red(try #require(layer.contents as? NSImage)) > 200)
         #expect(view.artView.frame == frame && view.artView.bounds == bounds)
         #expect(!view.artView.isHidden)
 
         Motion.reduceMotionOverride = true
         layer.removeAllAnimations()
-        backdrop.selection = .file(path: third.path)
+        backdrop.selection = .file(path: second.path)
         view.apply(backdrop, tint: .black)
-        await view.artLoad?.value
-        #expect(try AppleWallpapersTests.red(try #require(layer.contents as? NSImage)) > 200)
+        #expect(try AppleWallpapersTests.red(try #require(layer.contents as? NSImage)) < 50)
         #expect(layer.animation(forKey: "contents") == nil, "Reduce Motion swaps at once")
     }
 }

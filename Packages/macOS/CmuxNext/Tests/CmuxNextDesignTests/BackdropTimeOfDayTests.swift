@@ -30,11 +30,11 @@ import Testing
     /// PDT; 2026-12-21 sunrise 07:21, noon 12:08, sunset 16:54 PST.
     @Test func sunTimesMatchNOAAWithinTwoMinutes() throws {
         let calendar = try Self.calendar("America/Los_Angeles")
-        let june = Sun.events(on: try Self.date(calendar, 2026, 6, 21), location: Self.sanFrancisco, calendar: calendar)
+        let june = Self.sanFrancisco.sunEvents(on: try Self.date(calendar, 2026, 6, 21), calendar: calendar)
         #expect(try Self.minutesOff(june.sunrise, calendar, 5, 48) <= 2)
         #expect(try Self.minutesOff(june.noon, calendar, 13, 12) <= 2)
         #expect(try Self.minutesOff(june.sunset, calendar, 20, 35) <= 2)
-        let december = Sun.events(on: try Self.date(calendar, 2026, 12, 21), location: Self.sanFrancisco, calendar: calendar)
+        let december = Self.sanFrancisco.sunEvents(on: try Self.date(calendar, 2026, 12, 21), calendar: calendar)
         #expect(try Self.minutesOff(december.sunrise, calendar, 7, 21) <= 2)
         #expect(try Self.minutesOff(december.noon, calendar, 12, 8) <= 2)
         #expect(try Self.minutesOff(december.sunset, calendar, 16, 54) <= 2)
@@ -42,7 +42,7 @@ import Testing
         #expect(try #require(december.dawn) < (try #require(december.sunrise)))
         #expect(try #require(december.dusk) > (try #require(december.sunset)))
         // At solar noon the sun is due south and highest: 90 - 37.77 + 23.44 in June.
-        let high = Sun.position(at: june.noon, location: Self.sanFrancisco)
+        let high = Self.sanFrancisco.sunPosition(at: june.noon)
         #expect(abs(high.altitude - 75.7) < 0.5)
         #expect(abs(high.azimuth - 180) < 1)
     }
@@ -51,10 +51,10 @@ import Testing
     /// midnight sun in June (no sunset, no dusk).
     @Test func polarDaysSkipTheMissingEvents() throws {
         let calendar = try Self.calendar("Europe/Oslo")
-        let winter = Sun.events(on: try Self.date(calendar, 2026, 12, 21), location: Self.tromso, calendar: calendar)
+        let winter = Self.tromso.sunEvents(on: try Self.date(calendar, 2026, 12, 21), calendar: calendar)
         #expect(winter.sunrise == nil && winter.sunset == nil)
         #expect(winter.dawn != nil && winter.dusk != nil)
-        let summer = Sun.events(on: try Self.date(calendar, 2026, 6, 21), location: Self.tromso, calendar: calendar)
+        let summer = Self.tromso.sunEvents(on: try Self.date(calendar, 2026, 6, 21), calendar: calendar)
         #expect(summer.sunrise == nil && summer.sunset == nil && summer.dusk == nil)
 
         // A schedule's sunset entry is skipped that day: the morning picture holds into the night.

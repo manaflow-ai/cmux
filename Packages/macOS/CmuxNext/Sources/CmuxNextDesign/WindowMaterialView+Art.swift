@@ -29,7 +29,7 @@ extension WindowMaterialView {
         var alpha: CGFloat = 0
         rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
         let shifted = (hue + CGFloat(tuning.hue - 0.5)).truncatingRemainder(dividingBy: 1)
-        return NSColor(deviceHue: shifted < 0 ? shifted + 1 : shifted,
+        return NSColor(deviceHue: shifted < 0 ? shifted + 1 : shifted, // colour-allow: the theme tint turned by the tuning's hue, no raw value (moved from WindowMaterialView.swift)
                        saturation: min(max(saturation * CGFloat(tuning.saturation), 0), 1),
                        brightness: brightness,
                        alpha: alpha)

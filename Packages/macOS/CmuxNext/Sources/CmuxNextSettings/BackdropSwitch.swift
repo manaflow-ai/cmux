@@ -77,7 +77,7 @@ public struct BackdropSwitch: Equatable, Sendable {
         } else {
             full = URL(fileURLWithPath: path)
         }
-        let isDark = { (moment: Date) in Sun.position(at: moment, location: location).altitude <= Sun.darkAltitude }
+        let isDark = { (moment: Date) in location.sunPosition(at: moment).isDark }
         guard let full, let frames = read(full) else {
             // Not downloaded yet (or one picture): its light or dark thumbnail by the sun.
             guard full == nil else { return (picture, nil) }

@@ -65,14 +65,14 @@ pub(crate) fn is_when(text: &str) -> bool {
             && hour.parse::<u32>().is_ok_and(|h| h < 24)
             && minute.parse::<u32>().is_ok_and(|m| m < 60);
     }
-    let sign = text.find(['+', '-']).unwrap_or(text.len());
-    if !SUN_EVENTS.contains(&&text[..sign]) {
+    let (event, amount) = match text.split_once(['+', '-']) {
+        Some((event, amount)) => (event, Some(amount)),
+        None => (text, None),
+    };
+    if !SUN_EVENTS.contains(&event) {
         return false;
     }
-    if sign == text.len() {
-        return true;
-    }
-    let amount = &text[sign + 1..];
+    let Some(amount) = amount else { return true };
     let (count, limit) = if let Some(count) = amount.strip_suffix('m') {
         (count, 1_440)
     } else if let Some(count) = amount.strip_suffix('h') {

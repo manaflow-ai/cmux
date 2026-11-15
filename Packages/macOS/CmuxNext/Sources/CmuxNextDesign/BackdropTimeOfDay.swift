@@ -75,7 +75,7 @@ public nonisolated struct BackdropTimeOfDay: Equatable, Sendable {
         for day in -3...3 {
             guard let other = calendar.date(byAdding: .day, value: day, to: date) else { continue }
             let start = calendar.startOfDay(for: other)
-            let sun = usesSun ? location.map { Sun.events(on: start, location: $0, calendar: calendar) } : nil
+            let sun = usesSun ? location.map { $0.sunEvents(on: start, calendar: calendar) } : nil
             for entry in entries {
                 if let time = occurrence(entry.when, dayStart: start, sun: sun, calendar: calendar) {
                     times.append((time, entry.value))

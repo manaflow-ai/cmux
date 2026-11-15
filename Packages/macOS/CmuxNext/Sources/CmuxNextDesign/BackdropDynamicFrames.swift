@@ -32,10 +32,10 @@ public nonisolated struct BackdropDynamicFrames: Equatable, Sendable {
     public let dark: Int
 
     /// The frame of `date`: the sun's nearest position for a solar picture, the latest clock
-    /// frame for an h24 one, else the light frame while the sun is above ``Sun/darkAltitude``.
+    /// frame for an h24 one, else the light frame while the sun is above ``SunPosition/darkAltitude``.
     public func frame(at date: Date, location: BackdropLocation, calendar: Calendar) -> Int {
         if !solar.isEmpty {
-            let sun = Sun.position(at: date, location: location)
+            let sun = location.sunPosition(at: date)
             return solar.min { $0.position.angle(to: sun) < $1.position.angle(to: sun) }?.index ?? light
         }
         if !clock.isEmpty {
@@ -45,7 +45,7 @@ public nonisolated struct BackdropDynamicFrames: Equatable, Sendable {
             // Before the first frame of the day: the last one, from the evening before.
             return (sorted.last { $0.time <= fraction } ?? sorted.last)?.index ?? light
         }
-        return Sun.position(at: date, location: location).altitude > Sun.darkAltitude ? light : dark
+        return location.sunPosition(at: date).isDark ? dark : light
     }
 
     /// The frames of the picture at `url` (its metadata only, no decode); nil for a file without
