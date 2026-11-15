@@ -379,7 +379,7 @@ impl Walk<'_> {
             actions: actions_of(el),
             focused,
             disabled,
-            children: Vec::new(),
+            ..Element::default()
         };
         if depth + 1 >= self.options.max_depth {
             // SAFETY: a COM call on this thread's objects.

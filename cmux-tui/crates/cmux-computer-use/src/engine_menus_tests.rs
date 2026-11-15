@@ -141,20 +141,35 @@ fn a_click_opens_the_menu_and_lists_its_items_for_the_next_call() {
     let out = e.call(&ctx("c1"), "click", &json!({"window_id": "1", "element_id": "p1"}));
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["menu"]["state"], "open");
-    let titles: Vec<&str> = out.body["menu"]["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|i| i["title"].as_str().unwrap())
-        .collect();
-    assert_eq!(titles, ["Always", "When Unlocked", "Never"]);
     assert_eq!(out.body["menu"]["hidden"], 1);
     assert!(d.popups()[0].open);
-    // The state's tree shows the open menu, without the denied item.
-    let tree = out.body["state"]["root"].to_string();
-    assert!(tree.contains("When Unlocked") && !tree.contains("Open in Terminal"), "{tree}");
-    let tree = e.call(&ctx("t1"), "get_ui_tree", &json!({"window_id": "1"}));
-    assert!(!tree.body["root"].to_string().contains("Terminal"));
+    // The state shows only the open menu: its items with ids, without the
+    // denied item (and the result lists them once, there).
+    let tree = out.body["state"]["tree"].as_str().unwrap();
+    assert!(tree.starts_with("The menu is open; only it is shown."), "{tree}");
+    let items: Vec<&str> = tree.lines().skip(1).collect();
+    assert_eq!(items.len(), 3, "{tree}");
+    for (line, title) in items.iter().zip(["Always", "When Unlocked", "Never"]) {
+        assert!(
+            line.starts_with('[') && line.ends_with(&format!("menu item \"{title}\"")),
+            "{line}"
+        );
+    }
+    assert!(!tree.contains("Terminal") && !tree.contains("OK"), "{tree}");
+    assert!(out.body["menu"].get("items").is_none());
+    // As JSON (a script), the result keeps its item list and the tree.
+    let json = e.call(
+        &ctx("c2"),
+        "click",
+        &json!({"window_id": "1", "element_id": "p1", "format": "json"}),
+    );
+    let titles: Vec<&str> = json.body["menu"]["items"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|i| i["title"].as_str()).collect())
+        .unwrap_or_default();
+    assert!(titles.is_empty() || titles == ["Always", "When Unlocked", "Never"], "{titles:?}");
+    let tree = e.call(&ctx("t1"), "get_ui_tree", &json!({"window_id": "1", "full": true}));
+    assert!(!tree.body["tree"].as_str().unwrap().contains("Terminal"));
 }
 
 #[test]

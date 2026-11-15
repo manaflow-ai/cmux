@@ -258,6 +258,16 @@ impl Ax {
         unsafe { AXUIElementSetMessagingTimeout(self.ptr(), seconds) };
     }
 
+    /// The element's hash: equal for two references to the same element
+    /// (CFHash agrees with CFEqual), across tree walks.
+    pub fn identity(&self) -> u64 {
+        unsafe extern "C" {
+            fn CFHash(cf: CFTypeRef) -> usize;
+        }
+        // SAFETY: self is live.
+        unsafe { CFHash(self.ptr()) as u64 }
+    }
+
     pub fn same(&self, other: &Ax) -> bool {
         unsafe extern "C" {
             fn CFEqual(a: CFTypeRef, b: CFTypeRef) -> u8;
@@ -362,7 +372,7 @@ pub fn window_states(pid: i32) -> HashMap<u32, (String, bool)> {
     out
 }
 
-const NODE_ATTRS: [&str; 12] = [
+const NODE_ATTRS: [&str; 17] = [
     "AXRole",
     "AXSubrole",
     "AXTitle",
@@ -375,6 +385,11 @@ const NODE_ATTRS: [&str; 12] = [
     "AXChildren",
     "AXPlaceholderValue",
     "AXHelp",
+    "AXIdentifier",
+    "AXMenuItemCmdChar",
+    "AXMenuItemCmdModifiers",
+    "AXMenuItemMarkChar",
+    "AXSelected",
 ];
 
 struct Walk {
@@ -458,6 +473,14 @@ impl Walk {
             actions,
             focused: v[7].as_ref().and_then(Cf::as_bool).unwrap_or(false),
             disabled: v[8].as_ref().and_then(Cf::as_bool).is_some_and(|enabled| !enabled),
+            identifier: text(&v[12]),
+            shortcut: crate::observe::outline::menu_shortcut(
+                &text(&v[13]),
+                v[14].as_ref().and_then(Cf::as_i64).unwrap_or(0),
+            ),
+            checked: !text(&v[15]).trim().is_empty(),
+            selected: v[16].as_ref().and_then(Cf::as_bool).unwrap_or(false),
+            identity: Some(ax.identity()),
             children: Vec::new(),
         };
         let raw = RawNode {

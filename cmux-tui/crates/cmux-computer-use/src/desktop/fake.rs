@@ -91,6 +91,12 @@ pub struct FakeDesktop {
     /// Installed apps by display name (for menu items that name an app):
     /// (name, bundle id). Running apps count too.
     pub installed: Mutex<Vec<(String, String)>>,
+    /// Set: every window's tree is this one (tests of ids, diffs and guards
+    /// change it between calls). Its menus part is left out when the walk
+    /// asks for no menus (a child with role `menu_bar`).
+    pub tree: Mutex<Option<Element>>,
+    /// Trees walked so far.
+    pub walks: Mutex<u32>,
 }
 
 impl FakeDesktop {
@@ -158,6 +164,8 @@ impl FakeDesktop {
             popups: Mutex::new(vec![]),
             menu_policy: Mutex::new(None),
             installed: Mutex::new(vec![("Terminal".into(), "com.apple.Terminal".into())]),
+            tree: Mutex::new(None),
+            walks: Mutex::new(0),
         }
     }
 
@@ -222,6 +230,7 @@ impl FakeDesktop {
             focused: false,
             disabled: false,
             children,
+            ..Element::default()
         };
         lock(&self.popups)
             .iter()
@@ -446,7 +455,20 @@ impl Desktop for FakeDesktop {
             origin,
         })
     }
-    fn ui_tree(&self, window_id: &str, _options: TreeOptions) -> DResult<UiTree> {
+    fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
+        *lock(&self.walks) += 1;
+        if let Some(mut root) = lock(&self.tree).clone() {
+            self.known(window_id)?;
+            if !options.menus {
+                root.children.retain(|c| c.role != "menu_bar");
+            }
+            fn count(e: &Element) -> usize {
+                1 + e.children.iter().map(count).sum::<usize>()
+            }
+            // Reported cut short past max_nodes (the walk keeps every node).
+            let truncated = count(&root) > options.max_nodes;
+            return Ok(UiTree { window_id: window_id.into(), root, truncated });
+        }
         let w = self
             .windows
             .iter()
@@ -479,10 +501,12 @@ impl Desktop for FakeDesktop {
                     focused: false,
                     disabled: false,
                     children: vec![],
+                    ..Element::default()
                 }]
                 .into_iter()
                 .chain(self.popup_elements(window_id))
                 .collect(),
+                ..Element::default()
             },
         })
     }

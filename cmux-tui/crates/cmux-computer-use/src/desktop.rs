@@ -128,8 +128,10 @@ pub struct RawFrame {
 }
 
 /// One accessibility node. `id` is valid for the window's current tree
-/// generation; a stale id gives [`DesktopError::StaleElement`].
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+/// generation; a stale id gives [`DesktopError::StaleElement`]. The engine
+/// gives agents small ids that stay the same across trees of a window
+/// ([`crate::observe`]) and maps them back to these.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Element {
     pub id: String,
     pub role: String,
@@ -146,6 +148,25 @@ pub struct Element {
     pub focused: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disabled: bool,
+    /// The app's own name for the element (macOS AXIdentifier, Windows
+    /// AutomationId), when it has one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub identifier: String,
+    /// A menu item's keyboard shortcut as press_key takes it (`cmd+shift+s`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shortcut: String,
+    /// A menu item shows a check mark (or another mark).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub checked: bool,
+    /// A row, tab or item is selected.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub selected: bool,
+    /// The platform's identity for the element, equal across two trees of a
+    /// window exactly when it is the same element (macOS: the AXUIElement's
+    /// hash; Linux: its AT-SPI object). The engine matches elements by it to
+    /// keep their ids; never sent.
+    #[serde(skip)]
+    pub identity: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Element>,
 }

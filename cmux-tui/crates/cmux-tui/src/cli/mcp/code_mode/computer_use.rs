@@ -62,6 +62,13 @@ pub(in crate::cli::mcp) fn script_arguments(name: &str, arguments: &mut Map<Stri
     if observing_cu_tool(name) && !arguments.contains_key("observe") {
         arguments.insert("observe".into(), Value::Bool(false));
     }
+    // A script walks trees as JSON (`cu.find(tree, ...)`); the outline is
+    // for a model reading the result itself.
+    if (name == "cu_get_ui_tree" || observing_cu_tool(name) || name == "cu_wait")
+        && !arguments.contains_key("format")
+    {
+        arguments.insert("format".into(), Value::String("json".into()));
+    }
 }
 
 /// Whether the cu_* tools in `tools` are marked second choice (a Codex client).
@@ -352,9 +359,23 @@ mod tests {
             script_arguments(name, &mut args);
             Value::Object(args)
         };
-        assert_eq!(defaulted("cu_click", json!({"x": 1})), json!({"x": 1, "observe": false}));
-        assert_eq!(defaulted("cu_batch", json!({"observe": true})), json!({"observe": true}));
-        for name in ["cu_screenshot", "cu_get_ui_tree", "cu_wait", "pane_split", "video_frames"] {
+        assert_eq!(
+            defaulted("cu_click", json!({"x": 1})),
+            json!({"x": 1, "observe": false, "format": "json"})
+        );
+        assert_eq!(
+            defaulted("cu_batch", json!({"observe": true})),
+            json!({"observe": true, "format": "json"})
+        );
+        // Trees come back as JSON in a script unless it asks for the outline.
+        for name in ["cu_get_ui_tree", "cu_wait"] {
+            assert_eq!(defaulted(name, json!({})), json!({"format": "json"}), "{name}");
+        }
+        assert_eq!(
+            defaulted("cu_get_ui_tree", json!({"format": "outline"})),
+            json!({"format": "outline"})
+        );
+        for name in ["cu_screenshot", "pane_split", "video_frames"] {
             assert_eq!(defaulted(name, json!({})), json!({}), "{name}");
         }
     }

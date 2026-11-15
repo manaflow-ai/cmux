@@ -66,10 +66,12 @@ fn click_maps_screenshot_pixels_to_desktop_points() {
     // Window 1 is 800x600 pt at 2x = 1600x1200 px, downscaled to 1456 long edge.
     assert_eq!(shot.body["width"], 1456);
     let k = 800.0 / 1456.0;
-    let out = e.call(&ctx(Some("c1")), "click", &json!({"window_id": "1", "x": 1456.0, "y": 0.0}));
+    // The far right edge, below the title bar (a click on a bare title bar is refused).
+    let out =
+        e.call(&ctx(Some("c1")), "click", &json!({"window_id": "1", "x": 1456.0, "y": 728.0}));
     assert!(!out.is_error, "{:?}", out.body);
     let Event::Click { point: Some(p), .. } = &d.events()[0] else { panic!("{:?}", d.events()) };
-    assert!((p.x - (100.0 + 1456.0 * k)).abs() < 1e-6 && (p.y - 100.0).abs() < 1e-6);
+    assert!((p.x - (100.0 + 1456.0 * k)).abs() < 1e-6 && (p.y - (100.0 + 728.0 * k)).abs() < 1e-6);
 }
 
 #[test]
@@ -193,7 +195,11 @@ fn an_action_returns_the_window_after_it_in_one_reply() {
     assert_eq!(state["unchanged"], false);
     assert_eq!(state["waited_ms"], 120);
     assert_eq!(state["width"], 1456);
-    assert_eq!(state["root"]["children"][0]["id"], "e1");
+    // The first look at the window: the whole outline, with small ids.
+    assert_eq!(
+        state["tree"],
+        "[1] window \"com.apple.Safari window\"\n  [2] button \"OK\"\nFocus: no element of this window has keyboard focus"
+    );
     assert!(out.png_base64.is_some());
     assert_eq!(*slept.0.lock().unwrap(), vec![Duration::from_millis(120)]);
     // The action is recorded without the state: a retry returns it as it was.
@@ -240,7 +246,7 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     let d = Arc::new(FakeDesktop::standard());
     let (e, _) = settling_engine(d);
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
-    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["state"]["unchanged"], true);
     assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
@@ -257,7 +263,7 @@ fn single_capture_settle_modes_never_claim_no_visible_change() {
     for mode in ["openai", "anthropic"] {
         let (d, e, _) = settled(mode);
         assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
-        let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+        let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
         assert_eq!(out.body["state"]["unchanged"], true, "{mode}: {}", out.body);
         assert_eq!(out.body["evidence"], "delivered", "{mode}: {}", out.body);
         drop(d);
@@ -276,7 +282,7 @@ fn a_new_window_of_the_app_is_a_visible_change() {
     let (e, _) = settling_engine(d.clone());
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
     *d.opens_on_input.lock().unwrap() = Some(sheet);
-    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
     assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
 }
@@ -294,7 +300,7 @@ fn a_window_of_another_process_over_the_target_is_a_visible_change() {
     let (e, _) = settling_engine(d.clone());
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
     *d.opens_on_input.lock().unwrap() = Some(panel);
-    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
     assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
 }
@@ -363,7 +369,7 @@ fn cursor_glides_then_clicks() {
     instant_time(&mut parts);
     parts.cursor = rec.clone();
     let e = Engine::new(parts);
-    e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     let events = rec.0.lock().unwrap();
     assert!(matches!(events[0], CursorEvent::Move { .. }));
     assert!(matches!(events[1], CursorEvent::Click { .. }));
@@ -393,7 +399,7 @@ fn ui_tree_frames_come_back_in_screenshot_pixels() {
     let d = Arc::new(FakeDesktop::standard());
     let e = engine(d, PolicyConfig::default());
     e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
-    let t = e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1"}));
+    let t = e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1", "format": "json"}));
     let f = &t.body["root"]["children"][0]["frame"];
     let k: f64 = 1456.0 / 800.0;
     assert_eq!(f["x"].as_f64().unwrap(), (10.0 * k).round());
@@ -479,7 +485,7 @@ fn labels_shown_to_the_person_are_bounded() {
     let e = Engine::new(parts);
     let mut c = ctx(None);
     c.label = long;
-    e.call(&c, "click", &json!({"window_id": "1", "x": 1, "y": 1}));
+    e.call(&c, "click", &json!({"window_id": "1", "x": 1, "y": 100}));
     let events = rec.0.lock().unwrap();
     let CursorEvent::Move { label, .. } = &events[0] else { panic!() };
     assert_eq!(label.chars().count(), LABEL_MAX_CHARS);
