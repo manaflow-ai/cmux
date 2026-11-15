@@ -232,6 +232,7 @@ fn serve_when_whole(
             if shared.closed.load(Ordering::SeqCst) {
                 return None;
             }
+            drop(lock(&shared.starting).take());
             return say(format!("{program} ended before it answered initialize"));
         };
         let message = serde_json::from_str::<Value>(&line).unwrap_or(Value::Null);
@@ -246,12 +247,16 @@ fn serve_when_whole(
                 }
                 break result.get("capabilities").cloned().unwrap_or(Value::Null);
             }
-            None => return say(format!("{program} refused initialize: {line}")),
+            None => {
+                // A server that refused stays out: its drop ends it now, not when the client leaves.
+                drop(lock(&shared.starting).take());
+                return say(format!("{program} refused initialize: {line}"));
+            }
         }
     };
     // None: the client left, and the server ended with it.
-    let Some(mut child) = lock(&shared.starting).take() else { return None };
-    let Some(mut stdin) = child.stdin.take() else { return None };
+    let mut child = lock(&shared.starting).take()?;
+    let mut stdin = child.stdin.take()?;
     let initialized = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
     if writeln!(stdin, "{initialized}").and_then(|()| stdin.flush()).is_err() {
         return say(format!("{program} ended as it was initialized"));
