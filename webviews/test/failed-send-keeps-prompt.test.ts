@@ -374,8 +374,9 @@ describe("drafts", () => {
       const shown = hydratedDraft({
         current,
         restored: "an older draft",
-        read: true,
         ...draftHistory(chat),
+        // The page read this chat's draft in an earlier mount.
+        read: true,
       });
       expect(shown.text).toBe(current);
     }
@@ -411,9 +412,9 @@ describe("drafts", () => {
       const shown = hydratedDraft({
         current: first,
         restored: newer,
-        read: true,
         ...draftHistory(chat),
       });
+      expect(draftHistory(chat).read).toBe(true);
       expect(shown.text).toBe(newer);
       expect(shown.write).toBe(false);
       // A New session is another chat: this chat's draft is untouched by it.
