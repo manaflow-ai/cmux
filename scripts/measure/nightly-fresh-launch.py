@@ -32,6 +32,7 @@ import json
 import select
 import os
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -41,6 +42,9 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.append(str(HERE.parent / "ci"))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
+
 SMOKE_PATH = HERE.parent / "ci" / "fresh_home_launch_smoke.py"
 ARMS = ("fresh-copy", "same-copy", "warm")
 # --arms=extra: where a new copy's first-exec cost lives and whether a pre-warm of the copy keeps (each its own copy):
@@ -236,8 +240,7 @@ def prewarm_until_main(smoke, root: Path, app: Path, executable: str, home_root:
                         seen = time.monotonic() - started
                         break
         finally:
-            if process.poll() is None:
-                process.kill()
+            kill_group(process, signal.SIGKILL)  # the group, whatever its leader's state
             process.wait(timeout=10)
             smoke.stop(smoke.own_pids(root))
     finally:
