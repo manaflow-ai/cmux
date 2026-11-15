@@ -134,6 +134,8 @@ getrandom.workspace = true
 toml_edit.workspace = true
 glob.workspace = true
 libc.workspace = true
+# glibc arena cap at process start (malloc_arenas.rs).
+cmux-tui-platform.workspace = true
 fs4.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
@@ -162,6 +164,9 @@ cmux-device-kind = { path = "../cmux-device-kind" }
 # (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
 # src/main.rs): one copy of std, serde and QuickJS instead of three.
 cmux-browser-host = { path = "../cmux-browser-host" }
+# The app's acpmux is this binary (bin/acpmux aliases bin/cmux), so it carries acpmux's shipping
+# hub carrier here (scripts/ci/acpmux-build-features.sh); cmux-remote is below already.
+acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
 cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
@@ -235,6 +240,8 @@ cmux-unix-socket = { workspace = true, features = ["test-support"] }
 # `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
+# cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.
+cmux-action-catalog.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).

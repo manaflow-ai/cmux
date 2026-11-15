@@ -25,3 +25,27 @@ struct IconPickerWarmTests {
         #expect(!picker.isWarm, "loading the catalog made the WebKit page")
     }
 }
+
+/// The warm picker is freed after its idle limit with no open (CMUX-571: about 100 MB of WebKit processes held for
+/// good after one menu), and the next sign of intent makes it again.
+@MainActor
+struct IconPickerReleaseTests {
+    @Test func releaseFreesTheWarmPickerAndAPrepareMakesItAgain() async {
+        let picker = IconPickerService(services: nil)
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
+        #expect(picker.isWarm)
+        picker.release()
+        #expect(!picker.isWarm, "release kept the page")
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
+        #expect(picker.isWarm, "a sign of intent after a release made no page")
+    }
+
+    @Test func theIdleLimitFreesAnUnusedPicker() async throws {
+        let picker = IconPickerService(services: nil)
+        picker.idleLimit = .milliseconds(50)
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
+        #expect(picker.isWarm)
+        for _ in 0..<100 where picker.isWarm { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(!picker.isWarm, "an unused picker stayed made past its idle limit")
+    }
+}

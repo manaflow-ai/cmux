@@ -13,6 +13,7 @@
 //! [`TabTitle::terminal`] is the one rule for what a tab shows of it: the
 //! text without the leading status glyphs, and their [`TitleActivity`].
 
+#[cfg(test)]
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -235,7 +236,9 @@ pub(crate) struct TitleTracker {
 
 impl TitleTracker {
     /// `data` with the title sequences libghostty-vt cannot apply rewritten
-    /// into the `OSC 2` that applies them; borrowed when nothing changed.
+    /// into the `OSC 2` that applies them; borrowed when nothing changed. The
+    /// output paths run it inside `terminal_metadata`'s one shared scan.
+    #[cfg(test)]
     // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     pub(crate) fn rewrite<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut out: Option<Vec<u8>> = None;
@@ -273,6 +276,17 @@ impl TitleTracker {
                 Cow::Owned(out)
             }
         }
+    }
+
+    /// Whether the tracker is outside every sequence: only an ESC moves it.
+    pub(crate) fn on_ground(&self) -> bool {
+        self.state == ScanState::Ground
+    }
+
+    /// One byte of the shared output scan (`terminal_metadata`); `Some(title)`
+    /// when the sequence it ends needs an `OSC 2 ; title` right after it.
+    pub(crate) fn step_byte(&mut self, byte: u8) -> Option<Vec<u8>> {
+        self.step(byte)
     }
 
     /// Advances over one byte; `Some(title)` when the sequence it ends needs
@@ -414,7 +428,7 @@ impl TitleTracker {
 /// and intermediate bytes, then a final byte other than `t`), or 0 when
 /// `data` does not start with one. Such a CSI is no title op: stepping over
 /// it ends on the ground with nothing to rewrite, so the scan jumps it.
-fn csi_not_window_op_len(data: &[u8]) -> usize {
+pub(crate) fn csi_not_window_op_len(data: &[u8]) -> usize {
     if data.get(..2) != Some(b"\x1b[".as_slice()) {
         return 0;
     }
