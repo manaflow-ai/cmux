@@ -220,7 +220,13 @@ impl Hub {
         }
         // The remote floor: a Web turn does not go on in a mode that does
         // not ask, whatever the mode was before (`remote_floor.rs`).
-        if !asks && session.turn().is_some_and(|t| t.control == Control::Web) {
+        // The owner's phone with Full access drives the chat in the mode it has, so a report of
+        // that mode (Claude's per-turn `system/init` options) does not end its turn: the floor
+        // decides (`remote_floor_breach`).
+        if !asks
+            && session.turn().is_some_and(|t| t.control == Control::Web)
+            && self.remote_floor_breach(session).is_some()
+        {
             self.remote_floor_cancel(session, "remote.mode_not_asking");
         }
     }

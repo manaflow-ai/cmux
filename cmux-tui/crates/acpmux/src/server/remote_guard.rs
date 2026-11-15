@@ -362,7 +362,7 @@ async fn check_inner(
             .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
     }
     if m == method::SESSION_CANCEL && web {
-        cancel_owner::check(hub, origin, auth, params)?;
+        cancel_owner::check(hub, origin, auth, params, sender)?;
     }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
@@ -1150,6 +1150,11 @@ pub(super) async fn web_starts_asking(
                 "{m}: this mode or option is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
             )))
         };
+    }
+    // The owner's phone with Full access copies a chat in the mode it has, as it drives one
+    // (`Hub::owner_phone_full_access`): the floor holds the copy's turns once that ends.
+    if web && hub.owner_phone_full_access(device) {
+        return Ok(());
     }
     let default = hub.config.read().await.permission_policy;
     let policy = meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);

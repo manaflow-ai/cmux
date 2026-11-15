@@ -40,6 +40,9 @@ fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            // Claude Code that reports system/init every turn (its mode included).
+            "initclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"FAKE_CLAUDE_SKILLS": "1"}},
             "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
             "ftarget": {"argv": ["python3", FAKE], "family": "target"},
             "fother": {"argv": ["python3", FAKE], "family": "other"},
@@ -78,7 +81,13 @@ impl Client {
         Client(in_tx, out_rx, 0, via_web.then_some("web"))
     }
 
-    async fn call(&mut self, m: &str, mut params: Value) -> Value {
+    async fn call(&mut self, m: &str, params: Value) -> Value {
+        let id = self.send(m, params).await;
+        self.reply(id).await
+    }
+
+    /// Send a request without waiting for its answer; its id.
+    async fn send(&mut self, m: &str, mut params: Value) -> i64 {
         self.2 += 1;
         let id = self.2;
         if let Some(via) = self.3 {
@@ -87,6 +96,10 @@ impl Client {
             mux["via"] = json!(via);
         }
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
+        id
+    }
+
+    async fn reply(&mut self, id: i64) -> Value {
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
@@ -345,5 +358,78 @@ async fn the_phones_full_access_setting_off_puts_the_asking_rule_back() {
     hub.pairing.set_full_access(&id, false).unwrap();
     let r = phone.prompt(&s, "off").await;
     assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The phone's Stop ends a running turn of a chat the Mac started, as the Mac's does (Leo's ask:
+/// "chat writable in both directions"). The stand-in's "long-step" runs until the interrupt.
+#[tokio::test]
+async fn the_owners_phone_stops_a_running_turn_of_a_chat_the_mac_started() {
+    let d = dir("phone-stop");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let (_, token) = own_phone(&hub, "phone-iphone");
+    let mut phone = Client::device(&hub, &token, false);
+    let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": "long-step"}]});
+    let turn = phone.send("session/prompt", p).await;
+    while local.call("_acpmux/info", json!({"sessionId": s})).await["result"]["turn"].is_null() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let r = phone.call("session/cancel", json!({"sessionId": s})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = phone.reply(turn).await;
+    assert_eq!(r["result"]["stopReason"], "cancelled", "{r}");
+    // Any other Web client still may not.
+    let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": "long-step"}]});
+    let turn = local.send("session/prompt", p).await;
+    while local.call("_acpmux/info", json!({"sessionId": s})).await["result"]["turn"].is_null() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let r = Client::new(&hub, Origin::Web).call("session/cancel", json!({"sessionId": s})).await;
+    assert!(r.get("error").is_some(), "{r}");
+    assert!(local.call("session/cancel", json!({"sessionId": s})).await.get("error").is_none());
+    let _ = local.reply(turn).await;
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Claude Code reports system/init, its mode in it, on every turn: that report of the mode the
+/// chat already has does not end the phone's turn (review of cmux#43251 at f5ba5381, F2).
+#[tokio::test]
+async fn a_mode_report_does_not_end_the_phones_turn() {
+    let d = dir("phone-init");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "initclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let (_, token) = own_phone(&hub, "phone-iphone");
+    let mut phone = Client::device(&hub, &token, false);
+    for text in ["one", "two"] {
+        let r = phone.prompt(&s, text).await;
+        assert_eq!(r["result"]["stopReason"], "end_turn", "{text}: {r}");
+    }
+    let r = local.call("_acpmux/events", json!({"sessionId": s, "limit": 500})).await;
+    assert!(!r.to_string().contains("remote_floor_cancel"), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The phone copies a chat the Mac started in a mode that does not ask (the stand-in runs
+/// `bypassPermissions`), as it drives one (review of cmux#43251 at f5ba5381, F4); a dashboard
+/// client still may not.
+#[tokio::test]
+async fn the_owners_phone_forks_a_chat_the_mac_started() {
+    let d = dir("phone-fork");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let (_, token) = own_phone(&hub, "phone-iphone");
+    let mut phone = Client::device(&hub, &token, false);
+    let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": []});
+    let r = phone.call("session/fork", p.clone()).await;
+    assert!(r["result"]["sessionId"].is_string(), "{r}");
+    let r = Client::new(&hub, Origin::Web).call("session/fork", p).await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
