@@ -1,3 +1,4 @@
+internal import CCmuxLayoutReducerFFI
 public import CmuxNextCompat
 public import CryptoKit
 public import Foundation
@@ -43,6 +44,8 @@ public struct DeviceIdentity: Sendable {
         case secureEnclaveUnavailable
         case keychain(OSStatus)
         case corruptKeyBlob
+        /// The app's Rust rules (`cloud_identity_device_slots`) did not answer.
+        case rulesUnanswered
     }
 
     public let deviceID: UUID
@@ -113,36 +116,83 @@ extension DeviceIdentity {
         try renew(keychain: DeviceKeychain(service: bundleIdentifier + ".device-hub", loginKeychain: loginKeychain), keys: .enclave)
     }
 
+    /// Deletes every item of the identity it can and adds a new one where Rust says: above every item it could
+    /// not delete (another build's, after an update: errSecInvalidOwnerEdit), so the refused id is never read again.
     static func renew(keychain: any DeviceIdentityKeychain, keys: DeviceKeyBlobs) throws -> DeviceIdentity {
-        for account in [idAccount, signingAccount, agreementAccount] {
-            let status = keychain.deleteStatus(account)
-            guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
-        }
-        return try load(keychain: keychain, keys: keys)
+        let present = try Slots.ask(accounts: try keychain.accountsThrowing()).accounts
+        let deletes = present.map { Slots.Delete(account: $0, status: keychain.deleteStatus($0)) }
+        return try make(at: try Slots.ask(deletes: deletes).replacement, keychain: keychain, keys: keys)
     }
 
+    /// The newest generation's identity (Rust's `current`); a missing or unreadable part of it renews, never
+    /// reading an older generation.
     static func load(keychain: any DeviceIdentityKeychain, keys: DeviceKeyBlobs) throws -> DeviceIdentity {
-        if let idText = try keychain.read(Self.idAccount).flatMap({ String(data: $0, encoding: .utf8) }),
+        if let current = try Slots.ask(accounts: try keychain.accountsThrowing()).current,
+           let idText = try keychain.read(current.id).flatMap({ String(data: $0, encoding: .utf8) }),
            let id = UUID(uuidString: idText),
-           let signingBlob = try keychain.read(Self.signingAccount),
-           let agreementBlob = try keychain.read(Self.agreementAccount),
+           let signingBlob = try keychain.read(current.signingKey),
+           let agreementBlob = try keychain.read(current.agreementKey),
            let material = try keys.open(signingBlob, agreementBlob) {
             return DeviceIdentity(deviceID: id, keys: material)
         }
+        return try renew(keychain: keychain, keys: keys)
+    }
+
+    private static func make(at slot: Slots.Generation, keychain: any DeviceIdentityKeychain,
+                             keys: DeviceKeyBlobs) throws -> DeviceIdentity {
         let made = try keys.make()
         let id = UUID()
-        try keychain.add(made.signing, account: Self.signingAccount)
-        try keychain.add(made.agreement, account: Self.agreementAccount)
-        try keychain.add(Data(id.uuidString.lowercased().utf8), account: Self.idAccount)
+        try keychain.add(made.signing, account: slot.signingKey)
+        try keychain.add(made.agreement, account: slot.agreementKey)
+        try keychain.add(Data(id.uuidString.lowercased().utf8), account: slot.id)
         return DeviceIdentity(deviceID: id, keys: made.keys)
     }
 
-    static let idAccount = "device-id"
-    static let signingAccount = "device-signing-key"
-    static let agreementAccount = "device-agreement-key"
+    /// The identity's items among a service's `accounts`, every generation: the only identity items a protected
+    /// capture may remove.
+    public static func identityAccounts(among accounts: [String]) throws -> [String] {
+        try Slots.ask(accounts: accounts).accounts
+    }
 
-    /// The only identity accounts a protected capture may remove.
-    public static let captureIdentityAccounts = [idAccount, signingAccount, agreementAccount]
+    /// Rust's answer (`cloud_identity_device_slots`, cmux-cloud-config `device_identity_slots`): every item of the
+    /// identity present (oldest generation first), the generation to read, and where a new identity goes from the
+    /// deletes a renewal made. Swift makes the Keychain calls; Rust decides which items.
+    struct Slots: Decodable {
+        struct Generation: Decodable { var id: String, signingKey: String, agreementKey: String }
+        struct Delete: Encodable { var account: String, status: OSStatus }
+        var accounts: [String]
+        var current: Generation?
+        var replacement: Generation
+
+        static func ask(accounts: [String] = [], deletes: [Delete] = []) throws -> Slots {
+            struct Request: Encodable { var accounts: [String], deletes: [Delete] }
+            guard let request = try? JSONEncoder().encode(Request(accounts: accounts, deletes: deletes)),
+                  let reply = call("cloud_identity_device_slots", request),
+                  let slots = try? JSONDecoder().decode(Slots.self, from: reply) else { throw Failure.rulesUnanswered }
+            return slots
+        }
+
+        /// One JSON call of the app FFI (`cmux_layout_reducer_json`); nil when it does not answer.
+        private static func call(_ operation: String, _ request: Data) -> Data? {
+            var capacity = 4096
+            for _ in 0..<2 {
+                var output = [UInt8](repeating: 0, count: capacity)
+                var length = 0
+                let code: Int32 = request.withUnsafeBytes { bytes in
+                    operation.withCString { op in
+                        output.withUnsafeMutableBytes { out in
+                            cmux_layout_reducer_json(bytes.bindMemory(to: UInt8.self).baseAddress, request.count, op,
+                                                     out.bindMemory(to: UInt8.self).baseAddress, out.count, &length)
+                        }
+                    }
+                }
+                if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, length > capacity { capacity = length; continue }
+                guard code == CMUX_LAYOUT_REDUCER_OK, length <= capacity else { return nil }
+                return Data(output.prefix(length))
+            }
+            return nil
+        }
+    }
 }
 
 /// The device keys as the Keychain keeps them: the Secure Enclave's encrypted blobs in the app
