@@ -111,7 +111,10 @@ public actor TerminalAttachment: TerminalByteChannel {
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
@@ -212,7 +215,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
         control.value.withLock { control in
             control.lease = response.lease
@@ -237,7 +243,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
     }
 
