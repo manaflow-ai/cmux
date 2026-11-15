@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43678141376",
+  "recorded_at": "2026-11-15T04:59:27Z",
+  "reason": "cmux-tui d2d0d8e0802f changes the image's cmux-tui (pinned 8d0524328b3c)",
+  "dry_run": false,
+  "cmux_tui": "d2d0d8e0802f412446f583b6fb7ae3c5e2585633",
+  "fixes": [
+    {
+      "sha": "d2d0d8e0802f412446f583b6fb7ae3c5e2585633",
+      "mergedAt": "2026-11-14T20:30:25-08:00",
+      "subject": "fix(next): a late Allow on Share This Mac? still turns sharing on (#43488)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T04:59:27Z",
+    "snapshot_id": "sh-3b132aae16c049f88773d58603e6231e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43678141376): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4cc33c897e0866d82af0e9c485a15cddbfa1548b",
+    "image": "cloud-native-auto-d2d0d8e0-43678141376-1",
+    "revision": "ci-43678141376-1",
+    "at": "2026-11-15T04:59:27Z"
+  },
+  "rolled_back": false
+}
