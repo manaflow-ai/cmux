@@ -34,6 +34,7 @@ pub enum Part {
     Themes,
     Views,
     Styles,
+    Apps,
     Automations,
 }
 
@@ -44,6 +45,7 @@ impl Part {
         Part::Themes,
         Part::Views,
         Part::Styles,
+        Part::Apps,
         Part::Automations,
     ];
 
@@ -54,6 +56,7 @@ impl Part {
             Part::Themes => "themes",
             Part::Views => "views",
             Part::Styles => "styles",
+            Part::Apps => "apps",
             Part::Automations => "automations",
         }
     }
@@ -68,6 +71,9 @@ impl Part {
                 "your own views app (sidebar sections, panes, widgets, commands): cmux-app.json + main.js"
             }
             Part::Styles => "per-surface stylesheets (agent-pane/theme.css and the like)",
+            Part::Apps => {
+                "whole apps of your own, one folder each (apps/NAME/cmux-app.json with id \"local/NAME\", + its scripts); each installs from its card in cmux"
+            }
             Part::Automations => "automations (when X happens, do Y): one automation.json each",
         }
     }
@@ -79,10 +85,39 @@ impl Part {
             "keybindings.json" => Part::Keybindings,
             "themes" => Part::Themes,
             "customize" => Part::Views,
+            "apps" => Part::Apps,
             "automations" => Part::Automations,
             _ => Part::Styles,
         }
     }
+}
+
+/// The app folder name of a path in the apps part (`apps/clock/main.js` is
+/// `clock`): a file inside a folder whose name is an app id's name
+/// (lowercase letters, digits, `-`, `_`; never `customize`, which is the
+/// customize folder's own app). `None` for anything else.
+pub fn app_of(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix("apps/")?;
+    let (name, file) = rest.split_once('/')?;
+    let valid = !name.is_empty()
+        && name.len() <= 64
+        && name != "customize"
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+        && name.as_bytes()[0].is_ascii_alphanumeric();
+    (valid && !file.is_empty()).then_some(name)
+}
+
+/// Whether `path` is an app's manifest (the customize folder's or an app
+/// folder's): written after the scripts it names, so a reload never reads a
+/// manifest whose script is not there yet.
+pub fn is_manifest(path: &str) -> bool {
+    let file = match app_of(path) {
+        Some(name) => path.strip_prefix(&format!("apps/{name}/")),
+        None => path.strip_prefix("customize/"),
+    };
+    file.is_some_and(|file| file.starts_with("cmux-app"))
 }
 
 /// The settings file's logical path, whatever the file is called on disk.
@@ -146,6 +181,7 @@ pub fn locate(roots: &Roots, path: &str) -> Option<PathBuf> {
         ("keybindings.json", "") => Some(cmux_config::keybindings_path(&roots.settings_file)),
         ("customize", rest) if !rest.is_empty() => Some(roots.customize_dir.join(rest)),
         ("themes", rest) if !rest.is_empty() => Some(roots.config_dir.join("themes").join(rest)),
+        ("apps", rest) if app_of(path).is_some() => Some(roots.apps_dir.join(rest)),
         ("automations", rest)
             if rest.ends_with("/automation.json") && rest.matches('/').count() == 1 =>
         {
@@ -218,7 +254,7 @@ pub fn not_kept(files: &BTreeMap<String, Vec<u8>>, live: &Tree) -> Vec<Skipped> 
             });
         }
     }
-    for prefix in ["themes/", "customize/"] {
+    for prefix in ["themes/", "customize/", "apps/"] {
         let kept = live.keys().filter(|path| path.starts_with(prefix)).count();
         let added: Vec<&String> = files
             .keys()
@@ -242,6 +278,7 @@ pub fn absent_dirs(roots: &Roots) -> Vec<PathBuf> {
     let mut leaves = vec![
         roots.config_dir.clone(),
         roots.customize_dir.clone(),
+        roots.apps_dir.clone(),
         roots.config_dir.join("themes"),
         roots.config_dir.join("automations"),
     ];
@@ -294,6 +331,11 @@ pub fn scan(roots: &Roots) -> io::Result<Scan> {
         name.ends_with(".json")
     })?;
     add_dir(&mut scan, "customize", &roots.customize_dir, &|_| true)?;
+    add_dir(&mut scan, "apps", &roots.apps_dir, &|_| true)?;
+    // A file right in the apps folder, or in a folder no app id names, is in
+    // no app the daemon reads.
+    scan.tree.retain(|path, _| !path.starts_with("apps/") || app_of(path).is_some());
+    scan.mtimes.retain(|path, _| !path.starts_with("apps/") || app_of(path).is_some());
     for surface in STYLE_SURFACES {
         add_file(
             &mut scan,

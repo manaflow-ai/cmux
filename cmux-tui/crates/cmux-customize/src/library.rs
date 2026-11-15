@@ -242,7 +242,7 @@ pub struct Listed {
 /// Two or more entries that are on set the same key or file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Conflict {
-    /// `setting`, `file` or `code`.
+    /// `setting`, `file`, `binding` (one keybinding), `app` (an app folder) or `code`.
     pub kind: &'static str,
     pub key: String,
     /// The highest entry that sets it: its value is the one in use.
@@ -269,6 +269,11 @@ pub struct Changed {
     pub by_hand: Option<u32>,
     /// Settings keys and files whose value changed on disk.
     pub changed: Vec<String>,
+    /// Apps this change put on disk (`local/NAME`): each loads as a preview
+    /// until it is installed from its card (`cmux apps install local/NAME`),
+    /// which asks for its scopes, as `cmux ext dev` leaves an app.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub apps: Vec<String>,
 }
 
 /// What an import did.
@@ -950,6 +955,7 @@ impl Customize {
                 generation: None,
                 by_hand: None,
                 changed,
+                apps: Vec::new(),
             });
         }
         // A preview is someone's ask in progress: it is applied or
@@ -1006,13 +1012,14 @@ impl Customize {
                 .n,
             );
         }
-        let manifest_last = |path: &String| path.starts_with("customize/cmux-app");
+        let manifest_last = |path: &String| tree::is_manifest(path);
         let order = writes
             .iter()
             .filter(|(path, _)| !manifest_last(path) && *path != SETTINGS)
             .chain(writes.iter().filter(|(path, _)| manifest_last(path)))
             .chain(writes.iter().filter(|(path, _)| *path == SETTINGS));
         let absent = tree::absent_dirs(self.roots());
+        let apps = apps_written(&writes);
         for (path, bytes) in order {
             match bytes {
                 Some(bytes) => tree::write(self.roots(), path, bytes, false)?,
@@ -1041,6 +1048,7 @@ impl Customize {
             generation: Some(generation),
             by_hand,
             changed,
+            apps,
         })
     }
 
@@ -1135,6 +1143,23 @@ impl Customize {
             base.files.insert(path.clone(), before);
             profile.files.insert(path.clone(), now);
         }
+        // An app is kept whole: an apply that changed one file of
+        // `apps/NAME/` keeps every file the folder has now, so the entry
+        // brings back the whole app and off takes the whole app away.
+        let apps: BTreeSet<String> =
+            profile.files.keys().filter_map(|path| tree::app_of(path).map(str::to_owned)).collect();
+        for name in apps {
+            let prefix = format!("apps/{name}/");
+            for (path, _) in new.iter().filter(|(path, _)| path.starts_with(&prefix)) {
+                if profile.files.contains_key(path) {
+                    continue;
+                }
+                let Some(Ok(now)) = text(new, path)?.map(String::from_utf8) else { continue };
+                let before = text(old, path)?.and_then(|bytes| String::from_utf8(bytes).ok());
+                base.files.insert(path.clone(), before);
+                profile.files.insert(path.clone(), now);
+            }
+        }
         Ok((profile, base))
     }
 }
@@ -1143,6 +1168,17 @@ impl Customize {
 fn setting_value(file: &Value, key: &str) -> Option<Value> {
     let row = Schema::embedded().row(key)?;
     cmux_config::value::value_at(file, &row.path).cloned()
+}
+
+/// The apps (`local/NAME`) whose manifest `writes` puts on disk.
+fn apps_written(writes: &BTreeMap<String, Option<Vec<u8>>>) -> Vec<String> {
+    let mut apps: Vec<String> = writes
+        .iter()
+        .filter(|(path, bytes)| bytes.is_some() && tree::is_manifest(path))
+        .filter_map(|(path, _)| tree::app_of(path).map(|name| format!("local/{name}")))
+        .collect();
+    apps.dedup();
+    apps
 }
 
 /// Settings text after the library took keys out of it: every object the
@@ -1229,6 +1265,24 @@ fn binding_winners(entries: &[Entry]) -> Vec<(String, Value)> {
 
 fn stacked(entries: &[Entry], base: &Base) -> Result<Stacked, Error> {
     let mut stack = stacked_whole(entries, base);
+    // An app stacks whole, by its folder: the highest entry that is on with
+    // any file of `apps/NAME/` gives every file there (one it does not have is
+    // not there); with none on, each file is its base.
+    let folders: BTreeSet<&str> = base.files.keys().filter_map(|path| tree::app_of(path)).collect();
+    for name in folders {
+        let prefix = format!("apps/{name}/");
+        let winner = entries
+            .iter()
+            .filter(|entry| entry.on)
+            .find(|entry| entry.profile.files.keys().any(|path| path.starts_with(&prefix)));
+        if let Some(winner) = winner {
+            for (path, value) in
+                stack.files.iter_mut().filter(|(path, _)| path.starts_with(&prefix))
+            {
+                *value = winner.profile.files.get(path).cloned();
+            }
+        }
+    }
     if let Some(under) = base.files.get(KEYBINDINGS) {
         let file = keys::compose(under.as_deref(), &binding_winners(entries))?;
         stack.files.insert(KEYBINDINGS.to_owned(), file);
@@ -1284,6 +1338,14 @@ fn listing(entries: &[Entry]) -> Listing {
                 for (id, _) in keys::bindings(text) {
                     let key = format!("{KEYBINDINGS} {id}");
                     setters.entry(("binding", key)).or_default().push(entry.name());
+                }
+                continue;
+            }
+            if let Some(name) = tree::app_of(path) {
+                // One app at a time: two entries meet on an app folder.
+                let names = setters.entry(("app", format!("apps/{name}"))).or_default();
+                if names.last() != Some(&entry.name()) {
+                    names.push(entry.name());
                 }
                 continue;
             }

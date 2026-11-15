@@ -323,6 +323,9 @@ fn change_lines(change: &Changed) -> String {
         }
         None => out.push_str("nothing live changed\n"),
     }
+    for app in &change.apps {
+        out.push_str(&super::render::install_line(app.strip_prefix("local/").unwrap_or(app)));
+    }
     out
 }
 

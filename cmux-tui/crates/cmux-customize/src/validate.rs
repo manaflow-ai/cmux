@@ -87,7 +87,7 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
             Part::Themes | Part::Automations => {
                 json_object(path, text, &mut found);
             }
-            Part::Views => view(path, text, files, &mut found),
+            Part::Views | Part::Apps => view(path, text, files, &mut found),
             Part::Styles => {}
         }
     }
@@ -196,8 +196,13 @@ fn json_value(path: &str, text: &str, found: &mut Vec<Problem>) -> Option<Value>
 
 /// The views app: its manifest by the validator the daemon runs, and the
 /// script the manifest names must be there.
+/// An app of your own (`apps/NAME/`) the same way, its id `local/NAME`.
 fn view(path: &str, text: &str, files: &BTreeMap<String, Vec<u8>>, found: &mut Vec<Problem>) {
-    if path != "customize/cmux-app.json" && path != "customize/cmux-app.v2.json" {
+    let (folder, id_wanted) = match crate::tree::app_of(path) {
+        Some(name) => (format!("apps/{name}"), format!("local/{name}")),
+        None => ("customize".to_owned(), "local/customize".to_owned()),
+    };
+    if path != format!("{folder}/cmux-app.json") && path != format!("{folder}/cmux-app.v2.json") {
         return;
     }
     let Some(manifest) = json_object(path, text, found) else { return };
@@ -212,18 +217,18 @@ fn view(path: &str, text: &str, files: &BTreeMap<String, Vec<u8>>, found: &mut V
         found.push(Problem::at(path, line, column, format!("{at}{}", issue.message)));
     }
     if let Some(id) = manifest.get("id").and_then(Value::as_str)
-        && id != "local/customize"
+        && id != id_wanted
     {
         let (line, column) = line_of_key(text, "id").unzip();
         found.push(Problem::at(
             path,
             line,
             column,
-            format!("id is {id:?}; the views app in this folder is \"local/customize\""),
+            format!("id is {id:?}; the app in this folder is {id_wanted:?}"),
         ));
     }
     if let Some(main) = manifest.pointer("/runtime/main").and_then(Value::as_str)
-        && !files.contains_key(&format!("customize/{main}"))
+        && !files.contains_key(&format!("{folder}/{main}"))
     {
         let (line, column) = line_of_key(text, "main").unzip();
         found.push(Problem::at(

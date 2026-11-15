@@ -396,7 +396,7 @@ impl Customize {
             ask.description = Some(description);
             self.store().put_draft(Some(&draft))?;
         }
-        let manifest_last = |path: &String| path.starts_with("customize/cmux-app");
+        let manifest_last = |path: &String| tree::is_manifest(path);
         for (path, bytes) in
             files.iter().filter(|(path, _)| !manifest_last(path) && *path != SETTINGS)
         {

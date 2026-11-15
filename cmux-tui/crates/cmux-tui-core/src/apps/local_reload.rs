@@ -298,7 +298,12 @@ fn watched_dirs(sources: &catalog::Sources) -> Vec<PathBuf> {
 /// The watched folders whose subfolders are app packages. An empty entry
 /// (`CMUX_APPS_DIRS=":~/ext"` splits into "" and "~/ext") names no folder.
 fn package_dirs(sources: &catalog::Sources) -> impl Iterator<Item = &PathBuf> {
-    sources.local.iter().chain(&sources.extra).filter(|dir| !dir.as_os_str().is_empty())
+    sources
+        .local
+        .iter()
+        .chain(&sources.apps)
+        .chain(&sources.extra)
+        .filter(|dir| !dir.as_os_str().is_empty())
 }
 
 /// Whether `dir` (a package folder) is one the watch covers: the

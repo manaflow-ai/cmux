@@ -261,6 +261,13 @@ pub struct Sources {
     pub extra: Vec<PathBuf>,
     /// The local development directory (`<state>/apps/local`).
     pub local: Option<PathBuf>,
+    /// The person's own apps ([`user_apps_dir`]): one `local/NAME` package
+    /// per folder, written by `cmux customize` (a library entry that carries
+    /// an app). Read like the local directory (publisher `local`, reloaded on
+    /// save, installed only from its card, as `cmux ext dev` leaves one), and
+    /// shared by every build and session, as the customize folder is. A local
+    /// directory app with the same id wins.
+    pub apps: Option<PathBuf>,
     /// The user's own customization app (cx-swovq.1): one package folder,
     /// `$CMUX_CUSTOMIZE_DIR`, else `$XDG_CONFIG_HOME/cmux/customize`, else
     /// `~/.config/cmux/customize`. Its id is `local/customize`; it installs
@@ -294,6 +301,7 @@ impl Sources {
             bundled,
             extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
+            apps: user_apps_dir(),
             customize: customize_dir(),
             defaults,
         }
@@ -310,6 +318,20 @@ pub fn customize_dir() -> Option<PathBuf> {
     let config =
         non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
     Some(config.join("cmux").join("customize"))
+}
+
+/// The person's own apps folder (`Sources::apps`): `$CMUX_USER_APPS_DIR`,
+/// else `$XDG_CONFIG_HOME/cmux/apps`, else `~/.config/cmux/apps`, the order
+/// cmux-customize's `Roots::apps_dir` reads it in.
+pub fn user_apps_dir() -> Option<PathBuf> {
+    let non_empty =
+        |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = non_empty("CMUX_USER_APPS_DIR") {
+        return Some(dir);
+    }
+    let config =
+        non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
+    Some(config.join("cmux").join("apps"))
 }
 
 /// The customization app's id: its manifest must use it.
@@ -330,6 +352,7 @@ pub fn load(sources: &Sources) -> Catalog {
     dirs.extend(sources.bundled.iter().map(|d| (d.clone(), DirKind::Bundled)));
     dirs.extend(sources.extra.iter().map(|d| (d.clone(), DirKind::Extra)));
     dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
+    dirs.extend(sources.apps.iter().map(|d| (d.clone(), DirKind::Local)));
     let mut shipped_first_party = Vec::new();
     for (root, kind) in dirs {
         let Ok(entries) = std::fs::read_dir(&root) else { continue };
@@ -530,5 +553,43 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
         assert_eq!(dir, Some(customize));
         assert!(rejected, "the local package claiming {CUSTOMIZE_APP} is rejected");
+    }
+
+    /// The person's apps folder (where `cmux customize` puts a library entry's
+    /// apps) holds `local/` packages like the local directory, and a local
+    /// directory package with the same id wins.
+    #[test]
+    fn the_person_s_apps_folder_holds_local_apps() {
+        let root = std::env::temp_dir().join(format!("cmux-apps-user-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let write = |dir: &Path, id: &str, name: &str| {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("main.js"), "var __cmuxAppExports = {render() {}};").unwrap();
+            let manifest = json!({
+                "manifestVersion": 2, "id": id, "name": name, "version": "1.0.0",
+                "description": "A view", "engines": {"cmux": "^2.0"},
+                "runtime": {"main": "main.js"}, "files": ["main.js"],
+                "implements": {"cmux.section/1": {"export": "render", "title": name}}
+            });
+            std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
+        };
+        write(&root.join("apps/clock"), "local/clock", "Clock");
+        write(&root.join("apps/notes"), "local/notes", "Mine");
+        write(&root.join("local/notes"), "local/notes", "In development");
+        write(&root.join("apps/store"), "acme/store", "Not local");
+        let catalog = load(&Sources {
+            local: Some(root.join("local")),
+            apps: Some(root.join("apps")),
+            defaults: Some(Vec::new()),
+            ..Sources::default()
+        });
+        let clock = catalog.packages.get("local/clock").map(|p| (p.dir.clone(), p.source));
+        let notes = catalog.packages.get("local/notes").map(|p| p.dir.clone());
+        let store_rejected =
+            catalog.rejected.iter().any(|(dir, _)| dir == &root.join("apps/store"));
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(clock, Some((root.join("apps/clock"), Source::Local)));
+        assert_eq!(notes, Some(root.join("local/notes")), "the local directory's wins");
+        assert!(store_rejected, "only local/ apps load from the person's folder");
     }
 }
