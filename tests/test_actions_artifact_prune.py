@@ -235,7 +235,9 @@ class DropJob(unittest.TestCase):
                          "point-machine-channel", "darwin-fallback-plan"} <= readers, readers)
         self.assertTrue(readers <= set(drop["needs"]))
         condition = drop["if"]
-        for clause in ("always()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')"):
+        # notify-unpublished-tree hands the key on and must stay the run's last job (cx-urd.26).
+        for clause in ("always()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
+                       "needs.notify-unpublished-tree.result == 'skipped'"):
             self.assertIn(clause, condition)
         self.assertTrue(drop.get("continue-on-error"))
 

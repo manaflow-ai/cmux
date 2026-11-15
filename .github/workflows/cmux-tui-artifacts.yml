@@ -4656,7 +4656,10 @@ jobs:
   drop-build-artifacts:
     name: drop this run's build artifacts
     needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, notify-unpublished-tree]
-    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && (needs.build.result == 'success' || needs.build-linux.result == 'success' || needs.build-darwin-fallback.result == 'success') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    # Not after notify-unpublished-tree ran: it must stay the run's last job so the
+    # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
+    # their artifacts to the 1-day retention.
+    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && (needs.build.result == 'success' || needs.build-linux.result == 'success' || needs.build-darwin-fallback.result == 'success') && needs.notify-unpublished-tree.result == 'skipped' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # A failed drop leaves the artifacts to their 1-day retention; it never turns the run red.
