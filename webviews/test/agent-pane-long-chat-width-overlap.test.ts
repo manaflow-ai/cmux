@@ -220,17 +220,38 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
     { label: "whole chat, opened wide and narrowed", paged: false, open: 1600 },
     { label: "paged chat, opened narrow", paged: true, open: 620 },
     { label: "paged chat, opened wide and narrowed", paged: true, open: 1600 },
-  ];
+    // A restart: the chat was read to its first turn, then the page loads again with what it kept.
+    { label: "paged chat read to the top, reloaded narrow", paged: true, open: 620, reload: 620 },
+    { label: "paged chat read to the top wide, reloaded narrow", paged: true, open: 1600, reload: 620 },
+  ] as { label: string; paged: boolean; open: number; reload?: number }[];
   for (const [name] of engines)
     for (const scenario of cases)
     test(`${name}: ${scenario.label}: no row draws over another as the reader scrolls`, async () => {
       paged = scenario.paged;
-      const page = await browsers.get(name)!.newPage({ viewport: { width: scenario.open, height: 900 } });
+      const page = await browsers
+        .get(name)!
+        .newPage({ viewport: { width: scenario.open, height: 900 }, deviceScaleFactor: 2 });
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
       await page.getByText(`Closing ${TURNS - 1}.`).waitFor({ timeout: 60_000 });
       await settle(page);
+      if (scenario.reload !== undefined) {
+        // Read to the first turn, page by page, so the chat is held whole.
+        for (let step = 0; step < 80; step++) {
+          if (await page.getByText("Task 0: check the placement").count()) break;
+          await page.evaluate(() => {
+            document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
+          });
+          await settle(page);
+        }
+        // fixed-wait: the chat held whole saves its prompts' places in idle time (PROMPT_TOPS_QUIET_MS).
+        await page.waitForTimeout(2500);
+        await page.setViewportSize({ width: scenario.reload, height: 900 });
+        await page.reload();
+        await page.getByText(`Closing ${TURNS - 1}.`).waitFor({ timeout: 60_000 });
+        await settle(page);
+      }
       const found: Crossing[] = [];
       const check = async (stop: string) => {
         await settle(page);
