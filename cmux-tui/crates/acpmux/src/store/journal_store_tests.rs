@@ -2088,26 +2088,19 @@ fn every_test_wait_on_a_hold_is_bounded() {
         unresolved.join("\n")
     );
     // #41842 review F1: a `}` in a raw string once cut hub/restart_resume.rs's test module
-    // short at line 1143, hiding the tests after it. The scan reads it to its last test.
+    // short at its line 1143 (line 433 of hub/restart_resume_tests.rs, where those tests now
+    // live), hiding the tests after it. The scan reads the file to its last test.
     let resume = files
         .iter()
-        .find(|(path, _)| path == Path::new("hub/restart_resume.rs"))
+        .find(|(path, _)| path == Path::new("hub/restart_resume_tests.rs"))
         .map(|(_, text)| text)
-        .expect("hub/restart_resume.rs is a source of the crate");
+        .expect("hub/restart_resume_tests.rs is a source of the crate");
     let last_fn = resume.rfind("fn ").map_or(0, |at| resume[..at].lines().count());
-    let mut modules = Modules::default();
-    modules_in(lex(resume), Path::new(""), Path::new(""), false, &mut modules);
-    let reached = modules
-        .bodies
-        .iter()
-        .filter_map(|body| body.clone().into_iter().last())
-        .map(|tt| tt.span().end().line)
-        .max()
-        .unwrap_or(0);
+    let reached = lex(resume).into_iter().last().map_or(0, |tt| tt.span().end().line);
     assert!(
-        last_fn > 1143 && reached >= last_fn,
-        "the scan read hub/restart_resume.rs's test module to line {reached}, not its last \
-         test at line {last_fn}"
+        last_fn > 433 && reached >= last_fn,
+        "the scan read hub/restart_resume_tests.rs to line {reached}, not its last test at line \
+         {last_fn}"
     );
     let mut found = Vec::new();
     let mut allowed_seen = vec![false; ALLOWED.len()];

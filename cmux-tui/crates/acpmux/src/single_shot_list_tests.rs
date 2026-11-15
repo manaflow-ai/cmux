@@ -156,7 +156,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("client.rs", "method::MUX_SESSIONS", 1, "`Client::whole_list`, each page after the first"),
     // The peer link's reads: row 8's, which moves them to the list stream on the link.
     ("peer.rs", "method::MUX_SESSIONS", 2, "row 8: the peer link's watch pages"),
-    ("peer.rs", "method::MUX_WATCH", 4, "row 8: the peer link's watch"),
+    ("peer.rs", "method::MUX_WATCH", 3, "row 8: the peer link's watch"),
     ("peer_runtime_io.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
     // `deliver::sessions` has no caller outside its own test.
     ("deliver.rs", "method::MUX_SESSIONS", 3, "`deliver::sessions` and its test; no caller"),
@@ -244,14 +244,14 @@ const TUI_CORE_V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     (
         "cmux-tui-core/src/mux/agent_chat_notices.rs",
         "\"_acpmux/sessions\"",
-        4,
-        "7c (c): the notices watch's pages (2), and its tests (2)",
+        1,
+        "7c (c): the notices watch's pages; its tests are in agent_chat_notices_tests.rs",
     ),
     (
         "cmux-tui-core/src/mux/agent_chat_notices.rs",
         "\"_acpmux/watch\"",
-        5,
-        "7c (c): the notices watch (2), and its tests (3); `permission_pending` stays a rider",
+        1,
+        "7c (c): the notices watch; its tests are in agent_chat_notices_tests.rs; `permission_pending` stays a rider",
     ),
     (
         "cmux-tui-core/src/server/mobile_chat.rs",

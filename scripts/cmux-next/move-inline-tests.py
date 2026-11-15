@@ -13,6 +13,11 @@ Skipped: blocks not at column 0, blocks holding `mod x;`, `#[path`, `file!()`, `
 whose target already exists. Each move is checked: the new file plus the declaration equal the old block with
 only leading indentation removed.
 
+After a run, the checks that count lines per source file see the move (cmux#43353): lower what
+check-no-raw-spawn.py and check-no-process-scan.py name, move tests/fleet-rule-allowlist.json rows to the new
+_tests.rs files, re-count acpmux's single_shot_list_tests tables, and keep a `serialized by NAME` static beside its
+hook (the test-hooks check wants both in one file).
+
 usage: scripts/cmux-next/move-inline-tests.py [--apply] [--min-bytes N] FILE...   (prints one line per move and a total)
 """
 import os

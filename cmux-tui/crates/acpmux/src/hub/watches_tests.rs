@@ -205,9 +205,6 @@ async fn reconcile_uses_a_real_eight_worker_pool_and_dirty_requeues_once() {
     hub.shutdown_all().await;
 }
 
-/// `READ_HOOK` is one per process: the tests that set it run one at a time.
-static HOOK_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 /// A failing source waits out its backoff in the queue, not in a worker: when eight sources
 /// failed at once, each of the eight workers slept out its source's wait, and a healthy
 /// source (another peer's) was not read until one woke, up to minutes later.

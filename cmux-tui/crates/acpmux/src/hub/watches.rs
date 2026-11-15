@@ -53,6 +53,10 @@ type ReadHook = Arc<
 // test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
 #[cfg(test)]
 static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+/// `READ_HOOK` is one per process: the tests that set it run one at a time. It stays beside the
+/// hook, which the test-hooks check wants in one file; the tests are in watches_tests.rs.
+#[cfg(test)]
+static HOOK_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[derive(Default)]
 struct Jobs {
     ready: VecDeque<String>,
