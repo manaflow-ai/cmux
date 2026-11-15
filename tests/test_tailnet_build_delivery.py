@@ -172,16 +172,17 @@ class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
 
     def test_every_shipping_script_builds_acpmux_with_its_features(self):
         scripts = [*sorted((ROOT / "scripts/ci/nightly-steps").glob("*.sh")), ROOT / "scripts/ci/macos-cross.sh"]
-        found = 0
+        found = set()
         for path in scripts:
             lines = path.read_text().splitlines()
             for n, line in enumerate(lines, 1):
                 if not re.search(r"-p acpmux --bin acpmux\b", line):
                     continue
-                found += 1
+                found.add(path.name)
                 text = line + (lines[n] if line.rstrip().endswith("\\") and n < len(lines) else "")
                 self.assertIn("acpmux-build-features.sh", text, f"{path.relative_to(ROOT)}:{n} builds acpmux without its features")
-        self.assertGreaterEqual(found, 3)
+        # The fast nightly's acpmux, the one that once shipped without the carrier, is among those checked.
+        self.assertIn("app-build-fast-cmux-tui.sh", found)
 
 
 class TreeKeyTests(unittest.TestCase):
