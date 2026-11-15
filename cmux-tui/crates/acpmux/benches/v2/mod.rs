@@ -969,6 +969,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_local_row",
+        done_when: "A local row's submit-to-publish p95 while a unit of the largest size (MAX_UNIT_CHANGES, 512 changes; the dialer cuts a peer's frame of up to 5,242 into such units) applies in the same writer turn: within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "9",
         name: "v2.pr09.chat_actor_start",
         done_when: "Listen within 100 ms of exec and a prompt accepted within 50 ms, with 527 chats and a 4 GB store, 1.2x against one small chat.",
