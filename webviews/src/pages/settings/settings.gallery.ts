@@ -14,6 +14,7 @@ import { categories } from "./categories";
 import { PERSONALIZATION_KEYS } from "./personalizationParts";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
+import { mockDevicesControl, mockDevicesJoin, mockGrantorAsk, mockGrantors } from "./mockProvider";
 import { schema } from "./schema";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
@@ -265,6 +266,13 @@ const showEndpoint =
     form.setAttribute("data-gallery-capture", "");
     form.scrollIntoView({ block: "center" });
   };
+/** Settings > Devices: a group or row of the card captured in view once it draws. */
+const showDevicesGroup = (selector: string) => async (ctx: Parameters<NonNullable<SettingsPageVariant["play"]>>[0]) => {
+  await ctx.waitFor(() => ctx.document.querySelector(selector));
+  const element = ctx.find({ selector });
+  element.setAttribute("data-gallery-capture", "");
+  element.scrollIntoView({ block: "center" });
+};
 /** States whose fixture steps change the page's height on purpose (the scope switch drops the
  * All Workspaces tiles; a refused name opens its error line), so the rows below them move. They are
  * measured in pages.settings-motion, whose layout shift is recorded, not held at 0 (#41237: on
@@ -908,6 +916,54 @@ Object.assign(variants, {
       card.setAttribute("data-gallery-capture", "");
       card.scrollIntoView({ block: "center" });
     },
+  }),
+  "devices-control": variant("devices", {
+    host: { ...host, devices_join: mockDevicesJoin, devices_control: mockDevicesControl },
+    note: "Control from this Mac on the owner's Mac: one machine on, one off, one offline, one whose status failed.",
+    play: showDevicesGroup('[data-devices-group="control"]'),
+  }),
+  "devices-control-ask": variant("devices", {
+    host: {
+      ...host,
+      devices_join: mockDevicesJoin,
+      devices_control: {
+        ...mockDevicesControl,
+        rows: mockDevicesControl.rows.map((r) =>
+          r.id === "m_studio"
+            ? {
+                ...r,
+                status: "ask_pending" as const,
+                detail: "Allow once on studio: check that it shows these words",
+                words: mockDevicesControl.this_mac_words,
+              }
+            : r,
+        ),
+      },
+    },
+    note: "A machine that has not trusted this Mac yet: the switch waits for its one-time ask, with the words to compare.",
+    play: showDevicesGroup('[data-devices-control-row="m_studio"]'),
+  }),
+  "devices-grantor-ask": variant("devices", {
+    host: { ...host, devices_join: { ...mockDevicesJoin, grantor_ask: mockGrantorAsk, grantors: mockGrantors } },
+    note: "The target Mac: another Mac asks once to turn Control on here (Allow / Not now), and one trusted Mac with Remove.",
+    play: showDevicesGroup('[data-devices-group="join"]'),
+  }),
+  "devices-control-dense": variant("devices", {
+    host: {
+      ...host,
+      devices_join: mockDevicesJoin,
+      devices_control: {
+        ...mockDevicesControl,
+        this_mac_words: null,
+        rows: Array.from({ length: 9 }, (_, index) => ({
+          ...mockDevicesControl.rows[index % 2]!,
+          id: `m_${index}`,
+          name: `build-mini-${index + 1}`,
+        })),
+      },
+    },
+    note: "Nine owned machines and no words for this Mac yet: one switch column, one text column.",
+    play: showDevicesGroup('[data-devices-group="control"]'),
   }),
   "cloud-environments-row-shape": variant("accounts", {
     environments: rowShapeEnvironments,

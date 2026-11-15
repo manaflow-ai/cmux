@@ -1429,6 +1429,23 @@ mark {
   word-break: normal;
 }
 
+/* Four words a person compares between two Macs: full text color and a size that reads at a glance,
+   on the title's column like any other line under it. */
+.devices-words {
+  margin-top: var(--ds-space-1);
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* A Control from this Mac line (a help, a detail, an ask) wraps on its column instead of clipping. */
+.row-help.devices-line,
+.row-error.devices-line,
+.row-title.devices-line {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* A narrow page (about 1000 pt) keeps every device line: the label wraps and the controls go below it. */
 .devices-device .row-main {
   flex-wrap: wrap;
