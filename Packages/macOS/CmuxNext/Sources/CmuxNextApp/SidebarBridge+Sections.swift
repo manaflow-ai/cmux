@@ -33,6 +33,7 @@ extension SidebarBridge {
         .searchChats: "agentPane.searchChats",
         .chief: ChiefSidebar.openAction,
         .automations: "automations.show",
+        .machines: "machines.show",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a

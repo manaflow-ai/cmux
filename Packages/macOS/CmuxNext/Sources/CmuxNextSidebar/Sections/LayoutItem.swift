@@ -27,6 +27,9 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     /// The Automations page (docs/automations-platonic-ideal.md section 8, option A): scheduled
     /// prompts and commands on this Mac and cmux Cloud. Not in the default layout; Add to Sidebar adds it.
     case automations
+    /// The Machines page (design/machines-section.md): this Mac, Cloud, SSH and server machines and the
+    /// person's joined machines, with New Workspace on each. Not in the default layout; Add to Sidebar adds it.
+    case machines
 }
 
 /// What an item points at: a kind and a string value. Kinds this client
