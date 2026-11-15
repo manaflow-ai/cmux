@@ -349,8 +349,9 @@ impl Store {
 
 /// The app's daemon, as `server status` names it.
 pub(super) trait Daemon {
-    /// The pid and executable of the daemon owner answering for the app; `None` when none answers.
-    fn owner(&self) -> Option<(i32, PathBuf)>;
+    /// The pid and executable of the daemon owner answering for the app; `Ok(None)` when none
+    /// listens, an error when the probe could not tell (a timeout, a wedged or odd answer).
+    fn owner(&self) -> Result<Option<(i32, PathBuf)>, String>;
     /// SIGTERM to `pid`; the app's reconnect starts the next owner from `bin/cmux`.
     fn terminate(&self, pid: i32);
     fn owner_wait(&self) -> Duration {
@@ -365,37 +366,54 @@ pub(super) struct AppDaemon {
 }
 
 impl Daemon for AppDaemon {
-    fn owner(&self) -> Option<(i32, PathBuf)> {
+    fn owner(&self) -> Result<Option<(i32, PathBuf)>, String> {
         let mut command = cmux_process::Command::new(&self.cli);
         if let Some(socket) = &self.socket {
             command.arg("--socket").arg(socket);
         }
+        let probe = format!("{} server status", self.cli.display());
         // Owned by this call: the child ends here (killed past the deadline, reaped either way).
         let mut child = command
             .args(["--json", "server", "status"])
             .stdin(cmux_process::Stdio::null())
             .stdout(cmux_process::Stdio::piped())
-            .stderr(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::piped())
             .spawn()
-            .ok()?;
+            .map_err(|error| format!("{probe}: {error}"))?;
         // timeout: a local status read; past 10 s the owner is unknown, and the hand-off waits again.
-        let Ok(Some(_)) = child.wait_timeout(Duration::from_secs(10)) else {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
+        let status = match child.wait_timeout(Duration::from_secs(10)) {
+            Ok(Some(status)) => status,
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("{probe} gave no answer in 10 s"));
+            }
         };
         let mut out = String::new();
-        child.stdout.take()?.read_to_string(&mut out).ok()?;
-        let pid = status_pid(&out)?;
-        let exe = super::super::super::live_code::process_executable(i64::from(pid))?;
+        let mut err = String::new();
+        if let Some(mut stdout) = child.stdout.take() {
+            let _ = stdout.read_to_string(&mut out);
+        }
+        if let Some(mut stderr) = child.stderr.take() {
+            let _ = stderr.read_to_string(&mut err);
+        }
+        if !status.success() {
+            return match status_error(&err) {
+                Some(code) if code == "server.unavailable" => Ok(None),
+                code => Err(format!("{probe}: {}", code.unwrap_or_else(|| "no answer".to_owned()))),
+            };
+        }
+        let pid = status_pid(&out).ok_or_else(|| format!("{probe}: an answer with no pid"))?;
+        let exe = super::super::super::live_code::process_executable(i64::from(pid))
+            .ok_or_else(|| format!("no executable for the daemon pid {pid}"))?;
         // Linux names a file renamed over since the process started "PATH (deleted)".
         let exe = exe.to_string_lossy().trim_end_matches(" (deleted)").to_owned();
-        Some((pid, PathBuf::from(exe)))
+        Ok(Some((pid, PathBuf::from(exe))))
     }
 
     fn terminate(&self, pid: i32) {
         // Only while it is still the owner: a pid that exited can be another process's by now.
-        if self.owner().is_some_and(|(current, _)| current == pid) {
+        if self.owner().is_ok_and(|owner| owner.is_some_and(|(current, _)| current == pid)) {
             // SAFETY: kill(2) with a pid `server status` just named and SIGTERM.
             unsafe {
                 libc::kill(pid, libc::SIGTERM);
@@ -414,6 +432,13 @@ pub(super) fn status_pid(out: &str) -> Option<i32> {
         .filter(|pid| *pid > 0)
 }
 
+/// The `code` of a `--json` error on stderr (`server.unavailable`: nothing listens).
+pub(super) fn status_error(err: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(err.trim()).ok()?;
+    let code = |value: &Value| value.get("code").and_then(Value::as_str).map(str::to_owned);
+    code(&value).or_else(|| value.get("error").and_then(code))
+}
+
 fn same_file(left: &Path, right: &Path) -> bool {
     left == right || matches!((left.canonicalize(), right.canonicalize()), (Ok(l), Ok(r)) if l == r)
 }
@@ -421,7 +446,8 @@ fn same_file(left: &Path, right: &Path) -> bool {
 fn wait_for_new_owner(daemon: &dyn Daemon, old: i32) -> Option<(i32, PathBuf)> {
     let deadline = Instant::now().checked_add(daemon.owner_wait()).unwrap_or_else(Instant::now);
     loop {
-        if let Some(owner) = daemon.owner().filter(|(pid, _)| *pid != old) {
+        // A probe that cannot tell yet is no new owner; the deadline still bounds the wait.
+        if let Some(owner) = daemon.owner().ok().flatten().filter(|(pid, _)| *pid != old) {
             return Some(owner);
         }
         if Instant::now() >= deadline {
@@ -456,10 +482,12 @@ impl Phases {
 }
 
 /// One file of `bin/` set to `to` (a store file and its sha256), or removed.
+/// With `expect`, the file must hash to it (`None`: be absent) right before the swap.
 #[derive(Clone, Debug)]
 pub(super) struct Change {
     pub file: String,
     pub to: Option<(PathBuf, String)>,
+    pub expect: Option<Option<String>>,
 }
 
 /// What a swap did: the files it replaced (for `undo`: `{"copy","sha256"}` or
@@ -517,7 +545,11 @@ pub(super) fn apply(
     let bin = app.join(BIN);
     let cmux = bin.join("cmux");
     let started = Instant::now();
-    let owner = daemon.owner();
+    // An owner the probe cannot name is not "none running": swapping under it would leave it
+    // on the old files while it starts the new companions.
+    let owner = daemon
+        .owner()
+        .map_err(|error| format!("{error}: the daemon is unknown; nothing changed"))?;
     if let Some((_, exe)) = &owner
         && !same_file(exe, &cmux)
     {
@@ -537,6 +569,14 @@ pub(super) fn apply(
             continue;
         }
         let have = if target.is_file() { Some(sha256_file(&target)?) } else { None };
+        if let Some(expect) = &change.expect
+            && have != *expect
+        {
+            return Err(format!(
+                "{} changed since the try (an update?): nothing was put back",
+                target.display()
+            ));
+        }
         if have.as_deref() != change.to.as_ref().map(|(_, sha)| sha.as_str()) {
             todo.push(change);
         }
@@ -584,7 +624,8 @@ pub(super) fn apply(
             if !answered_here {
                 let left = put_back(&bin, &prior);
                 // A daemon that came up from the new files hands off once more, to the files that are back.
-                if let Some((late, exe)) = daemon.owner().filter(|(pid, _)| *pid != old)
+                if let Some((late, exe)) =
+                    daemon.owner().ok().flatten().filter(|(pid, _)| *pid != old)
                     && same_file(&exe, &cmux)
                 {
                     daemon.terminate(late);
@@ -638,6 +679,18 @@ pub(super) fn undo_changes(app: &Path, receipt: &Value) -> Result<Vec<Change>, S
     // (a new nightly) is never overwritten with the files from before the try.
     let set =
         receipt.pointer("/steps/files").and_then(Value::as_object).cloned().unwrap_or_default();
+    // A live try never changes the app's own commit; a different one is another app (a full
+    // update that may ship the same Rust bytes), and files from before the try may not fit it.
+    let was = receipt.get("app_commit").and_then(Value::as_str);
+    let now = super::app_commit(app);
+    if was != now.as_deref() {
+        return Err(format!(
+            "{} is at {} now, not {} as at the try: nothing was put back",
+            app.display(),
+            now.as_deref().unwrap_or("an unknown commit"),
+            was.unwrap_or("an unknown commit")
+        ));
+    }
     let bin = app.join(BIN);
     for (file, want) in &set {
         let target = bin.join(file);
@@ -669,7 +722,9 @@ pub(super) fn undo_changes(app: &Path, receipt: &Value) -> Result<Vec<Change>, S
                     Some((copy, sha256.to_owned()))
                 }
             };
-            Ok(Change { file: file.clone(), to })
+            // apply checks again under the lock that the file is still as the try left it.
+            let expect = set.get(file).map(|sha| sha.as_str().map(str::to_owned));
+            Ok(Change { file: file.clone(), to, expect })
         })
         .collect()
 }
