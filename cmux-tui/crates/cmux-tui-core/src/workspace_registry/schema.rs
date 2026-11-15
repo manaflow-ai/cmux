@@ -293,10 +293,10 @@ pub(crate) fn state_foreign_key_checks_on_this_thread() -> usize {
 
 /// The first row of a registry state table whose foreign key names a missing
 /// parent: `(table, rowid, parent, foreign key index)`. The open migrates
-/// state tables with foreign keys off and validates the resource topology, so
-/// both check them; an unscoped `PRAGMA foreign_key_check` also walked every
-/// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
-/// socket waited.
+/// the state tables of an existing file with foreign keys off, so it checks
+/// them once, after the migrations, when foreign keys are on again; an
+/// unscoped `PRAGMA foreign_key_check` also walked every receipt ledger
+/// (about 4 s cold on a 41 GB registry) while the daemon's socket waited.
 pub(crate) fn first_state_foreign_key_violation(
     connection: &Connection,
 ) -> anyhow::Result<Option<ForeignKeyViolation>> {

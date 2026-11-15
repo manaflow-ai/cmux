@@ -213,7 +213,7 @@ fn compiled_selects(registry: &WorkspaceRegistry) -> u64 {
 }
 
 fn foreign_key_checks() -> usize {
-    super::schema::state_foreign_key_checks_on_this_thread()
+    schema::state_foreign_key_checks_on_this_thread()
 }
 
 /// The topology checks compile the same number of statements for 10 and for

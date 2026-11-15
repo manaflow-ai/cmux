@@ -4,8 +4,10 @@
 
 use super::*;
 
+/// The open checks the foreign keys of the state tables before it calls this
+/// (`first_state_foreign_key_violation`), with foreign keys on from that check
+/// to this call. These checks do not check the keys again.
 pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    ensure_no_foreign_key_violations(transaction)?;
     validate_concrete_identity_lifecycles(transaction)?;
     validate_contiguous_positions(
         transaction,
