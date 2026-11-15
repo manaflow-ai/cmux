@@ -1,4 +1,4 @@
-//! The rounds of a best-of-rounds gate, compared with each other (cmuxterm-hq#11207).
+//! The rounds of a best-of-rounds gate, compared with each other (the handoff issue).
 //!
 //! A v2 gate that reports "best p95 of five rounds" hides a round that did different work
 //! from the rest: cmux#43438's replay-append gate at `a59587e5` applied the same rows in
@@ -14,19 +14,37 @@
 /// before the gate says so.
 pub const SPREAD_FACTOR: f64 = 2.0;
 
-/// The nearest-rank p95 of `samples` (0 for none).
+/// The nearest-rank p95 of `samples`.
+///
+/// Panics on no samples: any number it answered (0 would make an empty god side pass
+/// `god <= small * 1.2`) would be a measurement of nothing.
 pub fn p95(samples: &[u128]) -> u128 {
-    if samples.is_empty() {
-        return 0;
-    }
+    assert!(!samples.is_empty(), "p95 of no samples: the gate measured nothing");
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
     sorted[((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
 }
 
-/// The lowest round p95 (1 when there are no rounds, so a ratio never divides by zero).
+/// The lowest round p95. Panics on no rounds or an empty round, as [`p95`] does.
 pub fn best_p95(rounds: &[Vec<u128>]) -> u128 {
-    rounds.iter().map(|round| p95(round)).min().unwrap_or(1)
+    assert!(!rounds.is_empty(), "best p95 of no rounds: the gate measured nothing");
+    rounds.iter().map(|round| p95(round)).fold(u128::MAX, u128::min)
+}
+
+/// Panics, naming the row, the side and the round, when a side has no rounds or a round has
+/// no samples: a best-of-rounds gate with either compares nothing.
+fn refuse_empty(row: &str, sides: &[(&str, &[Vec<u128>])]) {
+    assert!(!sides.is_empty(), "gate row {row}: no sides to compare");
+    for (side, rounds) in sides {
+        assert!(!rounds.is_empty(), "gate row {row}: side {side} has no rounds");
+        for (round, samples) in rounds.iter().enumerate() {
+            assert!(
+                !samples.is_empty(),
+                "gate row {row}: side {side} round {} has no samples",
+                round + 1
+            );
+        }
+    }
 }
 
 /// The p95 of every sample of every round.
@@ -66,8 +84,10 @@ pub fn spread_notices(row: &str, side: &str, round_p95s: &[u128], factor: f64) -
 }
 
 /// Every round's p95 line for every side, then the spread notices. Returned as well as
-/// printed so a gate's test can read them.
+/// printed so a gate's test can read them. Panics on an empty side or round
+/// ([`refuse_empty`]).
 pub fn report_lines(row: &str, sides: &[(&str, &[Vec<u128>])]) -> Vec<String> {
+    refuse_empty(row, sides);
     let mut lines = Vec::new();
     let mut notices = Vec::new();
     for (side, rounds) in sides {
@@ -147,5 +167,41 @@ mod tests {
         let notices = spread_notices("row", "god", &[10_000, 10_500, 2_000, 9_800, 10_200], 2.0);
         assert_eq!(notices.len(), 1);
         assert!(notices[0].contains("round=3 p95=2000"), "{notices:?}");
+    }
+
+    #[test]
+    #[should_panic(expected = "gate row row: side god round 2 has no samples")]
+    fn an_empty_round_is_refused_by_name() {
+        let small = [100, 110, 120].map(round).to_vec();
+        let god = vec![round(100), Vec::new(), round(120)];
+        report_lines("row", &[("small", &small), ("god", &god)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "gate row row: side god has no rounds")]
+    fn a_side_with_no_rounds_is_refused_by_name() {
+        let small = [100, 110, 120].map(round).to_vec();
+        report_lines("row", &[("small", &small), ("god", &[])]);
+    }
+
+    #[test]
+    #[should_panic(expected = "p95 of no samples")]
+    fn an_empty_god_side_cannot_pass_a_ratio_gate() {
+        // `god <= small * 1.2` held when p95 answered 0 for no samples.
+        let small = p95(&round(10_000));
+        let god = p95(&[]);
+        assert!(god > small * 12 / 10, "an empty god side passed: {god} vs {small}");
+    }
+
+    #[test]
+    #[should_panic(expected = "p95 of no samples")]
+    fn best_p95_of_an_empty_round_is_refused() {
+        best_p95(&[round(100), Vec::new()]);
+    }
+
+    #[test]
+    #[should_panic(expected = "best p95 of no rounds")]
+    fn best_p95_of_no_rounds_is_refused() {
+        best_p95(&[]);
     }
 }

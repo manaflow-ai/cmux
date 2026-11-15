@@ -210,6 +210,8 @@ impl Peer {
     /// Run the connect loop until `stop`.
     pub async fn run(self: Arc<Self>) {
         let mut backoff = Backoff::default();
+        // Refused ssh logins in a row (`Backoff::login_refused`).
+        let mut login_refusals = 0u32;
         let Some(mut out_rx) = self.out_rx.lock().await.take() else {
             // A second run: the first owns the outbound queue and the link.
             tracing::warn!(peer = %self.name, "peer link already running");
@@ -241,13 +243,25 @@ impl Peer {
             // chats are open on it. Only with no failure counted since its backoff last started
             // over, so a link that drops after each handshake waits its backoff from the second.
             let redial_now = was_ready && backoff.failures() == 0;
+            // The remote refused this computer's ssh login: the next attempt waits minutes, not
+            // the doubling seconds, and no open chat or ask cuts that wait (`wait_backoff`).
+            login_refusals = if self.login_refused.load(Ordering::SeqCst) {
+                login_refusals.saturating_add(1)
+            } else {
+                0
+            };
             // A peer down for a day or more is parked on an hourly retry (`PeerLink::retry_delay`).
             // Scheduled before the notice goes out: the hub saves `next_retry_at` to the peer
             // cache while handling it, so a daemon restart mid-wait keeps the parked deadline.
             let delay = (!restarting).then(|| {
                 self.with_link(|l| {
                     let now = crate::store::now_ms();
-                    let delay = l.schedule_retry(&mut backoff, now, crate::peer_link::jitter());
+                    let mut delay = l.schedule_retry(&mut backoff, now, crate::peer_link::jitter());
+                    if login_refusals > 0 {
+                        let least =
+                            Backoff::login_refused(login_refusals, crate::peer_link::jitter());
+                        delay = delay.max(least);
+                    }
                     // Reported only (`nextRetryAt`): the wait below keeps its own delay.
                     let waits = if redial_now { Duration::ZERO } else { delay };
                     l.retry_at = Some(now.saturating_add(waits.as_millis() as u64));
@@ -500,8 +514,15 @@ impl Peer {
     ) -> Result<LinkEnd, String> {
         use crate::peer_paths::Via;
         self.facts.lock_or_recover().refused = false;
+        self.login_refused.store(false, Ordering::SeqCst);
         #[cfg(test)]
         if test_dial::refused() {
+            if test_dial::login_refused() {
+                let reason =
+                    ssh_errors::reason(b"leo@box: Permission denied (publickey,password).");
+                self.note_ssh_failure(reason);
+                return Err(ssh_errors::describe("ssh to box failed (test)".into(), reason));
+            }
             return Err("refused (test)".into());
         }
         let (via, opened) = self.open_first().await?;
@@ -982,6 +1003,9 @@ impl Peer {
                             } else {
                                 PeerNotice::Sessions(rows)
                             };
+                            if let Some(bytes) = list.list_bytes() {
+                                crate::gauges::peer_lists().queued(bytes);
+                            }
                             for notice in std::iter::once(list).chain(held) {
                                 if self
                                     .notices

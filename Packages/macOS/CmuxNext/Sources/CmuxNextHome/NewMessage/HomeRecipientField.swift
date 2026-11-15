@@ -41,7 +41,7 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
 
     let toLabel = ThemedLabel(labelWithString: HomeConversationStrings.toLabel)
     let text = ThemedTextField()
-    let addButton = NSButton()
+    let addButton = PlusButton(label: HomeConversationStrings.addRecipient)
     let separator = NSView()
     private(set) var chips: [HomeRecipientChip] = []
     /// The + button showed every contact (cleared by the next keystroke).
@@ -71,12 +71,6 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         text.setAccessibilityLabel(HomeConversationStrings.composeSearch)
         text.setAccessibilityIdentifier("cmux.home.newMessage.to")
         addSubview(text)
-        addButton.bezelStyle = .accessoryBarAction
-        addButton.isBordered = false
-        addButton.image = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: HomeConversationStrings.addRecipient)
-        addButton.imagePosition = .imageOnly
-        addButton.contentTintColor = .secondaryLabelColor
-        addButton.setAccessibilityLabel(HomeConversationStrings.addRecipient)
         addButton.setAccessibilityIdentifier("cmux.home.newMessage.add")
         addButton.target = self
         addButton.action = #selector(browse)

@@ -936,6 +936,7 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
             expected_generation: Some(generation),
             expected_terminal_id: Some(terminal),
             replay_history_rows: None,
+            output_coalesce_ms: None,
             replay_history_start: None,
             snapshot: Default::default(),
         };
@@ -950,6 +951,7 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
         expected_generation: Some(mux.registry_identity().1),
         expected_terminal_id: Some(terminal),
         replay_history_rows: None,
+        output_coalesce_ms: None,
         replay_history_start: None,
         snapshot: Default::default(),
     };
@@ -991,6 +993,7 @@ fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
             expected_generation: None,
             expected_terminal_id: None,
             replay_history_rows: None,
+            output_coalesce_ms: None,
             replay_history_start: None,
             snapshot: Default::default(),
         },

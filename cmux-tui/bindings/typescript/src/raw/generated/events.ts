@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294. */
+/* cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5. */
 
 
 import type * as T from "./types.js";
@@ -501,6 +501,12 @@ export type ScreenClosedEvent = { event: "screen-closed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ScreenDeviceChangedEvent = { event: "screen-device-changed" } & {
+  /** The authenticated worker screen UUID, or null when the worker is unavailable. */
+  "screen_device_id": (string) | null;
+};
+
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
 export type ScreenRenamedEvent = { event: "screen-renamed" } & {
   "entity": T.Screen;
@@ -821,6 +827,7 @@ export type KnownCmuxEvent =
   | ScreenAddedEvent
   | ScreenChangedEvent
   | ScreenClosedEvent
+  | ScreenDeviceChangedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
   | SelectionChangedEvent
@@ -908,6 +915,7 @@ export type KnownSubscribeEvent =
   | ScreenAddedEvent
   | ScreenChangedEvent
   | ScreenClosedEvent
+  | ScreenDeviceChangedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
   | SelectionChangedEvent

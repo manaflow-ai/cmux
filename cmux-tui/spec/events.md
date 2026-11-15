@@ -973,6 +973,29 @@ screens also emit `tree-changed` first. It carries no workspace revision.
 object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
 
+### screen-device-changed
+
+| Field | Value |
+| --- | --- |
+| event | `screen-device-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-device-identity-v1` |
+
+Payload:
+
+```text
+object{event:"screen-device-changed",screen_device_id:string|null}
+```
+
+This is the authenticated cmux Remote worker's independently generated screen
+UUID. It is delivered only to the local owner app (Unix or authenticated owner
+WebSocket); page relays, paired clients, and other remote clients do not hear
+it. A client opts in by echoing `screen-device-identity-v1` in `set-client-info`.
+An opted-in subscription receives one current-value replay before live events.
+The replay and removal event use `null` when the worker is unavailable. Clients
+use the UUID as the screen-device identity and must not infer it from a machine
+id, joined id, or display name.
+
 ### selection-changed
 
 | Field | Value |
@@ -1709,6 +1732,8 @@ object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
 ```
 
 Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
+
+Without `attach-output-coalesce-v1`, each PTY read is one `output` event. A connection that declared `attach-output-coalesce-v1` in `set-client-info` before a bytes attach (see `attach-surface`, `output_coalesce_ms`) gets at most one `output` per interval (default 16.667 ms): the bytes of one interval concatenated in order, the first bytes after an idle interval at once, at most about 1 MiB per event, and any held bytes before any other attach event. Its `scroll-changed` events follow the same interval (the newest position). The event's shape is unchanged.
 
 Example:
 

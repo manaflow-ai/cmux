@@ -1862,6 +1862,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "keys",
+        "lead" : [
+          "keys"
+        ],
+        "symbol" : "key",
+        "title" : {
+          "key" : "settings.category.keys",
+          "text" : "Keys"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.mobile",
             "rows" : [
@@ -2217,6 +2240,7 @@
       {
         "categories" : [
           "accounts",
+          "keys",
           "mobile",
           "devices"
         ],
@@ -4308,7 +4332,9 @@
     },
     {
       "accepts" : [
-
+        "local/web-pane",
+        "local/showcase-newtab",
+        "manaflow-ai/launcher"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -4345,11 +4371,20 @@
         "tabs",
         "newTabApp"
       ],
+      "pattern" : "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$",
       "placeholder" : null,
       "refuses" : [
+        "Foo/Bar",
+        "local/Web",
+        "a/b/c",
+        "launcher",
+        "/b",
+        "a/",
+        "-a/b",
+        "a b/c",
+        "",
         1,
-        true,
-        null
+        true
       ],
       "section" : "general",
       "summary" : {
@@ -4445,7 +4480,7 @@
         "key" : "settings.tabs.newTabApp",
         "text" : "New Tab App"
       },
-      "validation" : "portable"
+      "validation" : "domain:app_id"
     },
     {
       "accepts" : [
@@ -4811,7 +4846,7 @@
       },
       "help" : {
         "key" : "settings.tabs.plusButton.help",
-        "text" : "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+        "text" : "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.plusButton",
@@ -60513,7 +60548,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.controlsOnHover.help",
-        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."
+        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.controlsOnHover",
@@ -60793,7 +60828,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.minimal.help",
-        "text" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+        "text" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.minimal",
@@ -60821,7 +60856,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.minimal.summary",
-        "text" : "Rows show only icon, name and unread mark"
+        "text" : "Buttons show on hover; rows show icon, name and unread mark"
       },
       "surfaces" : {
         "cli" : {
@@ -64886,7 +64921,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 400,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -66307,7 +66342,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1500,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",

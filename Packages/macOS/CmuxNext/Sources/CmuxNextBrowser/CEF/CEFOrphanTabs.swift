@@ -13,6 +13,14 @@ final class CEFOrphanTabs {
     /// Tabs Chromium created in no window or in a window cmux does not host,
     /// waiting for the fork to insert them into a pane window (fork API 8).
     var unplaced: [Int32: CEFCreatedBy] = [:]
+    /// The display events (load, address, title, favicon, progress) of browsers Chromium created
+    /// that no tab owns yet, in order. Chromium starts the new tab's load at once, while its
+    /// adoption waits for the fork's insertion and a main-actor turn: dropped, the tab showed no
+    /// address and no loading state until its first response (Chrome shows both from the first
+    /// frame). The adopting tab replays them (``takeEarlyEvents(_:)``).
+    private var earlyEvents: [Int32: [CEFShimEvent]] = [:]
+    /// Per browser; past it the oldest go (a load's start, then a new load's, is what counts).
+    static let maximumEarlyEvents = 64
 
     init(runtime: CEFRuntime) {
         self.runtime = runtime
@@ -30,6 +38,7 @@ final class CEFOrphanTabs {
         // A popup window's tab may already belong to its popup host (fork API 11).
         guard !ledger.isClosed(browser), runtime.tabsByBrowser[browser] == nil else { return }
         guard let disposition = linkDisposition(browser: browser, created: created) else { return }
+        earlyEvents[browser] = []
         if let host = runtime.hosts.values.first(where: { $0.owns(window: window) }) {
             let placement = runtime.takePlacement(window: window, fallback: disposition, created: created)
             host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
@@ -121,6 +130,22 @@ final class CEFOrphanTabs {
     func closedUnregistered(_ browser: Int32) {
         ledger.closedUnregistered(browser)
         unplaced[browser] = nil
+        earlyEvents[browser] = nil
+    }
+
+    /// Keeps `event` of `browser` for its tab when that browser waits for adoption; false
+    /// for any other browser (the spare page, a browser no one will adopt).
+    func keepEarly(_ event: CEFShimEvent, browser: Int32) -> Bool {
+        guard event.isDisplayEvent, var events = earlyEvents[browser] else { return false }
+        if events.count == Self.maximumEarlyEvents { events.removeFirst() }
+        events.append(event)
+        earlyEvents[browser] = events
+        return true
+    }
+
+    /// The events `browser` had before its tab took it, in order; it keeps none after.
+    func takeEarlyEvents(_ browser: Int32) -> [CEFShimEvent] {
+        earlyEvents.removeValue(forKey: browser) ?? []
     }
 
     /// Runs on the next main-actor turn: this is reached from

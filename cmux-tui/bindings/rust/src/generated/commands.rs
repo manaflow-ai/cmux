@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294.
+// cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -76,6 +76,8 @@ pub struct AttachSurfaceRequest {
     pub expected_terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub output_coalesce_ms: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub replay_history_rows: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3935,6 +3937,14 @@ pub struct TerminalClipboardSubscribeRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandContextRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub intent: Option<T::TerminalCommandContextIntent>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TerminalEventsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -4360,6 +4370,9 @@ impl CmuxClient {
         }
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
+        }
+        if !request.output_coalesce_ms.is_missing() {
+            self.require_capability_field("attach-surface", "attach-output-coalesce-v1")?;
         }
         if !request.replay_history_rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-replay-history-rows-v1")?;
@@ -5948,6 +5961,10 @@ impl CmuxClient {
 
     pub fn terminal_clipboard_subscribe(&mut self, request: TerminalClipboardSubscribeRequest) -> Result<CmuxStream> {
         self.execute_stream(&TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn terminal_command_context(&mut self, request: TerminalCommandContextRequest) -> Result<T::TerminalCommandContextResult> {
+        self.execute(&TERMINAL_COMMAND_CONTEXT_METADATA, &request)
     }
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {

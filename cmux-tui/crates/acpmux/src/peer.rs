@@ -168,6 +168,14 @@ pub enum PeerNotice {
     },
 }
 
+impl PeerNotice {
+    /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
+    pub(crate) fn list_bytes(&self) -> Option<u64> {
+        let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
+        Some(rows.iter().map(|row| row.len() as u64).sum())
+    }
+}
+
 #[cfg(any(test, feature = "test-support"))]
 impl PeerNotice {
     /// A list of `rows`, each sent as its text, as a link sends it.
@@ -383,6 +391,10 @@ pub struct Peer {
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
     /// is slow, and its attempts get the long connect deadline (`ssh_connect_secs`).
     slow_banner: AtomicBool,
+    /// The last connect attempt failed because the remote refused this computer's ssh login
+    /// (a key or password it does not take, a host key that does not match): the next attempts
+    /// wait minutes (`Backoff::login_refused`), and no ask or open chat cuts the wait.
+    login_refused: AtomicBool,
     /// From the WebSocket opening until `stale_token` cleared it: callers'
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
@@ -1536,9 +1548,23 @@ pub(crate) mod test_dial {
     pub(crate) type Attempt = (tokio::time::Instant, u64);
 
     thread_local!(static ATTEMPTS: RefCell<Option<Vec<Attempt>>> = const { RefCell::new(None) });
+    thread_local!(static AUTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
 
     pub(crate) fn refuse_all() {
         ATTEMPTS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+        AUTH.with(|a| a.set(false));
+    }
+
+    /// Every dial fails as ssh does when the remote refuses this computer's key or password
+    /// (`Permission denied`), and is recorded.
+    pub(crate) fn refuse_login_all() {
+        refuse_all();
+        AUTH.with(|a| a.set(true));
+    }
+
+    /// Whether the dials fail as a refused login.
+    pub(super) fn login_refused() -> bool {
+        AUTH.with(|a| a.get())
     }
 
     /// The dials so far; dials keep failing.
@@ -1549,6 +1575,7 @@ pub(crate) mod test_dial {
     /// Dials go out for real again.
     pub(crate) fn clear() {
         ATTEMPTS.with(|a| *a.borrow_mut() = None);
+        AUTH.with(|a| a.set(false));
     }
 
     pub(super) fn refused() -> bool {

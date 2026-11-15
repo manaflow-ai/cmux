@@ -325,6 +325,19 @@ impl Pairing {
         self.lock().store.devices.iter().any(|d| d.id == id && d.grants_full_access())
     }
 
+    /// Whether device `id` is the owner's own paired phone now: a live `phone` record. Only the
+    /// person issues one (`_acpmux/pair_issue`), from the Mac app, for a phone its mobile host
+    /// lists under Settings > Mobile > Phones and admits only under the Mac owner's account
+    /// (cmux-mobile-host `host.rs` `admitted`); removing the phone there revokes it. Read from the
+    /// store on every call, as `full_access` is, so a removed phone's very next request is not.
+    pub fn own_phone(&self, id: &str) -> bool {
+        self.lock()
+            .store
+            .devices
+            .iter()
+            .any(|d| d.id == id && d.role == Role::Phone && d.revoked_ms.is_none())
+    }
+
     /// Turn the Full-access setting of a live device (by id or name) on or off.
     pub fn set_full_access(&self, key: &str, on: bool) -> Result<Device, RpcError> {
         self.change(|s| s.set_full_access(key, on))

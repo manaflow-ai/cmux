@@ -2456,7 +2456,7 @@ def _operation_catalog(
             or client_fields.get("transport", {}).get("type")
             != {"kind": "ref", "name": "ClientTransport"}
             or types.get("ClientTransport")
-            != {"kind": "enum", "values": ["unix", "websocket"]}
+            != {"kind": "enum", "values": ["unix", "websocket", "remote"]}
             or client_fields.get("connected_seconds", {}).get("type")
             != {"kind": "primitive", "name": "decimal"}
             or client_fields.get("attached_terminal_ids", {}).get("type", {}).get("items")
