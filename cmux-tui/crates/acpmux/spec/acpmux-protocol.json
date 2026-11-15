@@ -179,6 +179,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/remote.pipe",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -1405,6 +1411,12 @@
     {
       "kind": "request",
       "name": "_acpmux/computer_use_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_endpoint",
       "params": true,
       "result": true
     },

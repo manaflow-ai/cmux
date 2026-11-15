@@ -953,6 +953,7 @@
       "targets": [
         "CCmuxAppFFI",
         "CmuxNextActions",
+        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextProcessEnvironment",
@@ -1561,6 +1562,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -1581,8 +1583,11 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMacScreenTests",
       "targets": [
+        "CmuxNextCompat",
+        "CmuxNextControl",
         "CmuxNextMacScreen",
-        "CmuxNextRemoteView"
+        "CmuxNextRemoteView",
+        "CmuxNextSettings"
       ],
       "packages": [],
       "reads": [

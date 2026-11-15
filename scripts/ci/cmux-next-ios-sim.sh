@@ -243,6 +243,8 @@ energy_table=(
   "idle-chat-400    chat    idle        -     LIST_COUNT=400 LIST_PASSES=0"
   "tabs-10          tabs    idle        -     LIST_COUNT=10 LIST_PASSES=0"
   "hidden-terminals-4 terminals stream -    LIST_COUNT=4 LIST_STREAM=1 LIST_PASSES=0"
+  "idle-terminal     terminals idle   -     LIST_COUNT=1 LIST_PASSES=0 LIST_TERMINAL_VISIBLE=1"
+  "visible-busy-terminal terminals stream - LIST_COUNT=1 LIST_STREAM=1 LIST_PASSES=0 LIST_TERMINAL_VISIBLE=1"
   "scroll-chat-200  chat    scroll      -     LIST_COUNT=200 LIST_PASSES=50 LIST_SETTLE=1"
   "stream-chat      chat    stream      -     LIST_COUNT=40 LIST_STREAM=1 LIST_PASSES=0"
   "background-home  home    background  -     LIST_COUNT=20 LIST_PASSES=0"
@@ -1164,13 +1166,19 @@ if [[ "$mode" == energy ]]; then
     if [[ -f "$d/time.trace.zip" ]]; then bytes=$(wc -c < "$d/time.trace.zip"); fi
     if (( bytes > 536870912 )); then rm -f "$d/time.trace.zip"; echo "$run: trace over 512 MiB zipped, dropped (the summary stays)"; fi
   }
+  # The last `received-bytes total=N` the app logged (0 before the first).
+  energy_received_total() {
+    local n
+    n="$(grep -oE 'FRAMELOG list-stress received-bytes total=[0-9]+' "$1" | tail -n 1 | sed 's/.*total=//')"
+    echo "${n:-0}"
+  }
   note ""
   note "## Battery and memory (Demo build, mock mode, ${device_type##*.} on ${runtime##*.}; cmux-next-ios/verify/energy.md)"
   note ""
   note "Kernel counters for the app's process (proc_pid_rusage, no root): CPU time, interrupt wakeups, ri_energy_nj as mW, phys_footprint."
   note ""
-  note "| Run | Phase | s | CPU % | Wakeups/s | Energy mW | MEM start MB | MEM end MB | MEM max MB |"
-  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+  note "| Run | Phase | s | CPU % | Wakeups/s | Energy mW | Received B/s | MEM start MB | MEM end MB | MEM max MB |"
+  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
   for rep in $(seq 1 "$energy_reps"); do
     for case_name in "${energy_cases[@]}"; do
       line="$(printf '%s\n' "${energy_table[@]}" | awk -v c="$case_name" '$1 == c')"
@@ -1225,8 +1233,15 @@ if [[ "$mode" == energy ]]; then
         top_pid=$!
         # A running chat (LIST_HOLD_TURN=1) logs each redraw of its elapsed time: count those in the sample.
         ticks_before="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
+        # The bytes the app received (ReceivedByteCount.swift: the link's daemon channels, or the mock
+        # shells' output in mock mode): its last logged total before and after the window.
+        received_before="$(energy_received_total "$logf")"
         python3 -I "$rusage" sample "$pid" "$case_seconds" "$en/$run.rusage.jsonl" || echo "$run: rusage sampler exited $?"
         wait "$top_pid" 2>/dev/null || true
+        sleep 1  # the counter logs its total a second after bytes arrive
+        received_per_s=$(( ( $(energy_received_total "$logf") - received_before ) / case_seconds ))
+        # An app without the counter (an older base) logs no total: `-`, not 0.
+        grep -qF -- "FRAMELOG list-stress received-bytes" "$logf" || received_per_s=-
         if [[ " $settings " == *" LIST_HOLD_TURN=1 "* ]]; then
           ticks_after="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
           label_ticks+=("- $run: label ticks $(( ticks_after - ticks_before )) in $case_seconds s (elapsed-time redraws while sampled)")
@@ -1235,7 +1250,7 @@ if [[ "$mode" == energy ]]; then
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
         kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
-        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.rusage.jsonl" "$en/$run.top.txt" "$pid" "$run" "$phase" >"$en/$run.json" ||
+        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.rusage.jsonl" "$en/$run.top.txt" "$pid" "$run" "$phase" "$received_per_s" >"$en/$run.json" ||
           { echo "$run: no samples"; energy_status=1; continue; }
         python3 -I cmux-next-ios/verify/energy_summary.py --row "$en/$run.json" | tee -a "$summary"
       done

@@ -15,7 +15,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
-use acpmux::hub_carrier::{CarrierAnswer, HubCarrier, Tickets, Timings};
+use acpmux::hub_carrier::{CarrierAnswer, CircuitService, HubCarrier, Tickets, Timings};
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
@@ -878,7 +878,7 @@ async fn hub_carrier_a_replayed_or_reordered_record_closes_the_stream() {
 /// What machine B lets a circuit reach of its cmux-tui remote daemon, as its owner's
 /// `remoteDaemon` and consent decide (`cmux_tui_service::ConfiguredGate` in a daemon).
 struct TestGate {
-    daemon: SocketAddr,
+    daemon: std::sync::Mutex<SocketAddr>,
     granted: AtomicBool,
 }
 
@@ -887,7 +887,8 @@ impl acpmux::hub_carrier::CmuxTuiGate for TestGate {
     async fn admit(&self, port: u16) -> Result<SocketAddr, acpmux::hub_carrier::ServiceRefusal> {
         let control = if self.granted.load(Ordering::SeqCst) { "granted" } else { "none" };
         let consent = json!({"consentRequired": true, "consent": {"control": control}});
-        acpmux::cmux_tui_service::admit(Some(self.daemon.to_string().as_str()), &consent, port)
+        let daemon = self.daemon.lock().unwrap().to_string();
+        acpmux::cmux_tui_service::admit(Some(daemon.as_str()), &consent, port)
     }
 }
 
@@ -914,6 +915,8 @@ async fn pipe_fixture() -> PipeFixture {
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
         allow_open: true,
+        // Each remote connection opens a circuit a lane (4); the numbers test connects 20 times.
+        max_allocations_per_second_per_slot: 1_000,
         ..cmux_relay::RelayConfig::default()
     })
     .unwrap();
@@ -947,10 +950,16 @@ async fn pipe_fixture() -> PipeFixture {
         key_b,
         fast,
     );
-    let gate = Arc::new(TestGate { daemon: daemon_address, granted: AtomicBool::new(false) });
+    let gate = Arc::new(TestGate {
+        daemon: std::sync::Mutex::new(daemon_address),
+        granted: AtomicBool::new(false),
+    });
     carrier_b.set_cmux_tui_gate(gate.clone());
-    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
-    let serving = carrier_b.serve(nothing);
+    // B's acpmux listener: a circuit reaches it first, and one naming cmux-tui leaves it unused.
+    let acpmux_b = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let acpmux_b_address = acpmux_b.local_addr().unwrap();
+    tokio::spawn(async move { while acpmux_b.accept().await.is_ok() {} });
+    let serving = carrier_b.serve(acpmux_b_address);
 
     let a = hub();
     let carrier_a = HubCarrier::new(
@@ -968,6 +977,23 @@ async fn pipe_fixture() -> PipeFixture {
     let socket = home.path().join("acpmux.sock");
     let listener = acpmux::server::bind_unix(&socket).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(a, listener));
+    // B serves once its slot is registered; until then a dial finds no one. Its gate's first
+    // answer (no consent yet) is the sign that it serves.
+    let mut last = String::new();
+    let mut serves = false;
+    for _ in 0..80 {
+        let service = CircuitService::CmuxTui { port: daemon_address.port() };
+        match carrier_a.dial_service(&public(&key_b), service).await {
+            Err(e) if e.contains("consent_required") => {
+                serves = true;
+                break;
+            }
+            Err(e) => last = e,
+            Ok(_) => panic!("a circuit reached B before its owner granted control"),
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(serves, "B never served: {last}");
     let dialer = Arc::new(cmux_remote::provider::MachinePipeDialer::new(socket, "mac".into()));
     PipeFixture {
         auth,
@@ -988,6 +1014,16 @@ async fn connect_through_pipe(
     fixture: &PipeFixture,
     identity: &cmux_remote::crypto::StaticIdentity,
     invitation: bool,
+) -> Arc<cmux_remote::connection::ClientConnection> {
+    connect_over(fixture, identity, invitation, fixture.dialer.clone()).await
+}
+
+/// [`connect_through_pipe`] over `dialer`: the pipe, or plain TCP to compare against.
+async fn connect_over(
+    fixture: &PipeFixture,
+    identity: &cmux_remote::crypto::StaticIdentity,
+    invitation: bool,
+    dialer: Arc<dyn cmux_remote::provider::Dialer>,
 ) -> Arc<cmux_remote::connection::ClientConnection> {
     use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
     use cmux_remote::crypto::ClientAuthMode;
@@ -1014,7 +1050,7 @@ async fn connect_through_pipe(
     let mut session = [0u8; 16];
     getrandom::fill(&mut session).unwrap();
     let session = SessionId(session);
-    let group = DirectWebSocketProvider::with_dialer(65_535, fixture.dialer.clone())
+    let group = DirectWebSocketProvider::with_dialer(65_535, dialer)
         .connect(ConnectRequest {
             endpoint,
             session,
@@ -1078,7 +1114,7 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
         .await
         .unwrap();
     assert_eq!(daemon_client.receive().await.unwrap().unwrap().payload, b"keys".as_slice());
-    let screen = vec![0x5a; 200_000];
+    let screen = vec![0x5a; 16_000];
     daemon_client
         .send(Lane::Bulk, 2, bytes::Bytes::from(screen.clone()), FrameFlags::empty())
         .await
@@ -1086,6 +1122,13 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
     assert!(fixture.carrier_b.stats().accepted.load(Ordering::Relaxed) >= 4, "a circuit a lane");
     assert!(fixture.carrier_a.stats().dials.load(Ordering::Relaxed) >= 4);
+}
+
+/// `future`'s output, or a panic naming `what` after 30 s: a stalled numbers run fails, not hangs.
+async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(30), future)
+        .await
+        .unwrap_or_else(|_| panic!("{what} stalled for 30 s"))
 }
 
 fn percentile(samples: &mut [Duration], p: f64) -> Duration {
@@ -1106,18 +1149,18 @@ async fn hub_carrier_pipe_numbers() {
     fixture.gate.granted.store(true, Ordering::SeqCst);
     let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
     let enrolled = connect_through_pipe(&fixture, &identity, true).await;
-    let _ = fixture.accepted.recv().await.unwrap();
+    let _ = within("the enrolling connect", fixture.accepted.recv()).await.unwrap();
     let _ = enrolled.close().await;
     let mut connects = Vec::new();
     for _ in 0..20 {
         let started = std::time::Instant::now();
         let client = connect_through_pipe(&fixture, &identity, false).await;
         connects.push(started.elapsed());
-        let _ = fixture.accepted.recv().await.unwrap();
+        let _ = within("a connect", fixture.accepted.recv()).await.unwrap();
         let _ = client.close().await;
     }
     let client = connect_through_pipe(&fixture, &identity, false).await;
-    let daemon_client = fixture.accepted.recv().await.unwrap();
+    let daemon_client = within("the echo connect", fixture.accepted.recv()).await.unwrap();
     let mut echoes = Vec::new();
     for i in 0..20u64 {
         let started = std::time::Instant::now();
@@ -1125,36 +1168,22 @@ async fn hub_carrier_pipe_numbers() {
             .send(Lane::Interactive, i, bytes::Bytes::from_static(b"k"), FrameFlags::empty())
             .await
             .unwrap();
-        let frame = daemon_client.receive().await.unwrap().unwrap();
+        let frame = within("an echo", daemon_client.receive()).await.unwrap().unwrap();
         daemon_client.send(Lane::Interactive, i, frame.payload, FrameFlags::empty()).await.unwrap();
-        let _ = client.receive().await.unwrap().unwrap();
+        let _ = within("an echo back", client.receive()).await.unwrap().unwrap();
         echoes.push(started.elapsed());
     }
-    let chunk = vec![0xa5u8; 256 * 1024];
-    let total: usize = 64 << 20;
-    let started = std::time::Instant::now();
-    let sender = tokio::spawn(async move {
-        for i in 0..(total / chunk.len()) as u64 {
-            daemon_client
-                .send(Lane::Bulk, i, bytes::Bytes::from(chunk.clone()), FrameFlags::empty())
-                .await
-                .unwrap();
-        }
-        daemon_client
-    });
-    let mut received = 0usize;
-    while received < total {
-        received += client.receive().await.unwrap().unwrap().payload.len();
-    }
-    let elapsed = started.elapsed();
-    let _ = sender.await;
     eprintln!(
-        "PIPE-NUMBERS relayed connect_ms p50={:.1} p95={:.1} n=20; echo_ms p50={:.2} p95={:.2} n=20; \
-         down_mibs={:.1} ({} MiB)",
+        "PIPE-NUMBERS relayed connect_ms p50={:.1} p95={:.1} n=20; echo_ms p50={:.2} p95={:.2} n=20",
         percentile(&mut connects, 0.5).as_secs_f64() * 1e3,
         percentile(&mut connects, 0.95).as_secs_f64() * 1e3,
         percentile(&mut echoes, 0.5).as_secs_f64() * 1e3,
         percentile(&mut echoes, 0.95).as_secs_f64() * 1e3,
+    );
+    let total: usize = 64 << 20;
+    let elapsed = bulk_down(&client, &daemon_client, total, true).await.unwrap();
+    eprintln!(
+        "PIPE-NUMBERS relayed down_mibs={:.1} ({} MiB, every frame checked)",
         (total as f64 / (1 << 20) as f64) / elapsed.as_secs_f64(),
         total >> 20,
     );
@@ -1376,4 +1405,179 @@ async fn hub_carrier_a_session_circuit_to_a_machine_with_no_session_gate_is_refu
             }
         }
     }
+}
+
+/// Frame `i` of a bulk transfer: its index in every byte, so a lost, repeated or reordered frame
+/// shows.
+fn bulk_frame(i: u64, len: usize) -> bytes::Bytes {
+    bytes::Bytes::from(vec![(i % 251) as u8; len])
+}
+
+/// Send `total` bytes in 32 KiB bulk frames from `daemon_client` to `client` on one stream and
+/// check each arrives whole and in order. Ok with the time it took; Err with where it stalled.
+async fn bulk_down(
+    client: &Arc<cmux_remote::connection::ClientConnection>,
+    daemon_client: &Arc<cmux_remote::daemon::ServerConnection>,
+    total: usize,
+    daemon_reads: bool,
+) -> Result<Duration, String> {
+    use cmux_remote_protocol::{FrameFlags, Lane};
+    const FRAME: usize = 32 * 1024;
+    let frames = (total / FRAME) as u64;
+    // The daemon reads while it sends, as a served connection always does (its service
+    // multiplexer): acknowledgements are applied as it reads, and only they open its delivery
+    // window. A sender that never reads stalls at each full window until a reconnect.
+    let reader = {
+        let daemon_client = daemon_client.clone();
+        tokio::spawn(async move {
+            while daemon_reads && matches!(daemon_client.receive().await, Ok(Some(_))) {}
+        })
+    };
+    let started = std::time::Instant::now();
+    let sender = {
+        let daemon_client = daemon_client.clone();
+        tokio::spawn(async move {
+            for i in 0..frames {
+                daemon_client
+                    .send(Lane::Bulk, 2, bulk_frame(i, FRAME), FrameFlags::empty())
+                    .await
+                    .map_err(|e| format!("send {i}: {e}"))?;
+            }
+            Ok::<_, String>(())
+        })
+    };
+    for i in 0..frames {
+        let frame = match tokio::time::timeout(Duration::from_secs(20), client.receive()).await {
+            Ok(Ok(Some(frame))) => frame,
+            Ok(other) => return Err(format!("frame {i} of {frames}: {other:?}")),
+            Err(_) => {
+                return Err(format!(
+                    "frame {i} of {frames} stalled for 20 s ({:?} in)",
+                    started.elapsed()
+                ));
+            }
+        };
+        if frame.payload != bulk_frame(i, FRAME) {
+            return Err(format!(
+                "frame {i} of {frames} is not the one sent: lane {:?} stream {} sequence {} \
+                 generation {} len {} first byte {:?} (expected {})",
+                frame.lane,
+                frame.stream,
+                frame.sequence,
+                frame.generation,
+                frame.payload.len(),
+                frame.payload.first(),
+                i % 251,
+            ));
+        }
+    }
+    let elapsed = started.elapsed();
+    sender.await.map_err(|e| e.to_string())??;
+    reader.abort();
+    Ok(elapsed)
+}
+
+/// A `cp` through the pipe: 16 MiB from the far machine's daemon arrives byte for byte, and in
+/// bounded time (loopback with the relay in process: seconds, not minutes).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_the_pipe_carries_16_mib_whole_and_in_time() {
+    let _ = HERMETIC;
+    let mut fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
+    let client = connect_through_pipe(&fixture, &identity, true).await;
+    let daemon_client = within("the connect", fixture.accepted.recv()).await.unwrap();
+    let elapsed = bulk_down(&client, &daemon_client, 16 << 20, true).await.unwrap();
+    assert!(elapsed < Duration::from_secs(60), "16 MiB took {elapsed:?}");
+}
+
+/// Where a bulk transfer's time goes, layer by layer (run on demand, `--ignored --nocapture`):
+/// the remote protocol over plain TCP, raw bytes through the carrier, raw bytes through the
+/// pipe, and the remote protocol through the pipe.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "diagnosis on demand"]
+async fn hub_carrier_pipe_bulk_layers() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let _ = HERMETIC;
+    const TOTAL: usize = 16 << 20;
+    let mut fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
+
+    let tcp = Arc::new(cmux_remote::provider::OsTcpDialer);
+    let client = connect_over(&fixture, &identity, true, tcp.clone()).await;
+    let daemon_client = within("the tcp connect", fixture.accepted.recv()).await.unwrap();
+    let result = bulk_down(&client, &daemon_client, TOTAL, true).await;
+    eprintln!("LAYER remote-over-tcp {result:?} generation {}", client.snapshot().await.generation);
+    let _ = client.close().await;
+
+    // A server that sends TOTAL bytes and closes.
+    let blast = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let blast_address = blast.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = blast.accept().await {
+            tokio::spawn(async move {
+                let chunk = vec![0x5au8; 64 * 1024];
+                for _ in 0..TOTAL / chunk.len() {
+                    if stream.write_all(&chunk).await.is_err() {
+                        return;
+                    }
+                }
+                let _ = stream.shutdown().await;
+            });
+        }
+    });
+    *fixture.gate.daemon.lock().unwrap() = blast_address;
+    async fn drain(mut stream: impl tokio::io::AsyncRead + Unpin) -> Result<Duration, String> {
+        let started = std::time::Instant::now();
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut got = 0usize;
+        loop {
+            match tokio::time::timeout(Duration::from_secs(20), stream.read(&mut buf)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => got += n,
+                Ok(Err(e)) => return Err(format!("{e} after {got}")),
+                Err(_) => return Err(format!("stalled after {got} bytes")),
+            }
+        }
+        if got != TOTAL {
+            return Err(format!("{got} bytes of {TOTAL}"));
+        }
+        Ok(started.elapsed())
+    }
+    let mac = fixture.carrier_a.route("mac").unwrap();
+    let service = CircuitService::CmuxTui { port: blast_address.port() };
+    let circuit = fixture.carrier_a.dial_service(&mac, service).await.unwrap();
+    eprintln!("LAYER raw-carrier {:?}", drain(circuit).await);
+    {
+        use cmux_remote::provider::Dialer;
+        let piped = fixture.dialer.dial("127.0.0.1", blast_address.port()).await.unwrap();
+        eprintln!("LAYER raw-pipe {:?}", drain(piped).await);
+    }
+    *fixture.gate.daemon.lock().unwrap() = fixture.daemon;
+
+    let client = connect_through_pipe(&fixture, &identity, false).await;
+    let daemon_client = within("the pipe connect", fixture.accepted.recv()).await.unwrap();
+    let result = bulk_down(&client, &daemon_client, TOTAL, true).await;
+    eprintln!(
+        "LAYER remote-over-pipe {result:?} generation {}",
+        client.snapshot().await.generation
+    );
+}
+
+/// A frame sent while the session reconnects is sent, not dropped. A daemon that sends without
+/// reading never applies its acknowledgements, so each full delivery window ends in a liveness
+/// reconnect; the frame a send held across one went missing and the next took its sequence
+/// (frame 7 of 32 arrived as 8 before the fix), here over plain TCP and through the pipe alike.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
+    let _ = HERMETIC;
+    let mut fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
+    let tcp = Arc::new(cmux_remote::provider::OsTcpDialer);
+    let client = connect_over(&fixture, &identity, true, tcp).await;
+    let daemon_client = within("the connect", fixture.accepted.recv()).await.unwrap();
+    bulk_down(&client, &daemon_client, 1 << 20, false).await.unwrap();
+    assert!(client.snapshot().await.generation > 1, "the transfer never crossed a reconnect");
 }

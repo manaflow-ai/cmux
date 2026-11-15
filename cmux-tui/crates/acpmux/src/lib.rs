@@ -168,6 +168,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
+pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod placement;
@@ -227,7 +229,8 @@ pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
-#[cfg(test)]
+// The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
+#[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
@@ -253,6 +256,9 @@ mod test_exec;
 mod test_hooks_tree;
 #[cfg(test)]
 mod test_stack;
+/// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub mod test_support;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
