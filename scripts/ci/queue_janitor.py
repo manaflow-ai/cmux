@@ -4418,21 +4418,48 @@ def main(argv: Sequence[str] | None = None) -> int:
     The App's budget is shared by every cmux-bot caller, and running out of it says nothing about the queue:
     on 2026-10-31 it ran out at about 00:50Z and the sweeps until its reset failed red. The sweep still stops
     at the refusal (it never moves onto the workflow token, GitHub.request()), and the first sweep after the
-    reset reads the whole queue again; what it did before the refusal is in its log."""
-    clients: list[GitHub] = []
+    reset reads the whole queue again; what it did before the refusal is in its log.
+
+    A refusal whose core reset is at most RESET_WAIT_MAX_SECONDS away waits for it and sweeps once more, so
+    the macos-pool-load snapshot is still published: run 43759822026 (2026-11-15) was refused 33 s before the
+    reset and wrote none, and the census and the rescue depth rule lost queue depth for 10-20 min. A sweep
+    that still ends refused says in its warning that it published no snapshot."""
+    first: list[GitHub] = []
+    code, limited, client = _sweep_once(argv, first)
+    reset = int((client.rate_limits.get("core") or {}).get("reset") or 0) if client else 0
+    wait = reset - time.time() + RESET_WAIT_SLACK_SECONDS
+    if limited and reset and 0 < wait <= RESET_WAIT_MAX_SECONDS + RESET_WAIT_SLACK_SECONDS:
+        print(f"queue-janitor: {limited}; waiting {wait:.0f}s for the budget's reset, then sweeping again so "
+              f"the macos-pool-load snapshot is still published")
+        time.sleep(wait)
+        again: list[GitHub] = []
+        code, limited, retried = _sweep_once(argv, again)
+        client = retried or client
+    if not limited:
+        return code
+    print(f"::warning title=queue janitor out of API budget::{limited}. This sweep stopped early and is "
+          f"skipped, and it published no macos-pool-load snapshot: readers keep the last one, stale past "
+          f"{FLEET_GATES_STALE_S // 60} min, until the next sweep after the budget resets reads the queue again. "
+          f"{render_rate_limits(client.rate_limits) if client else ''}")
+    return 0
+
+
+# How long main() waits for a refused sweep's budget to reset before sweeping again, and the slack past the
+# reset it adds (the reset is whole seconds and clocks differ). Well inside the job's 15 minutes.
+RESET_WAIT_MAX_SECONDS = 120
+RESET_WAIT_SLACK_SECONDS = 3
+
+
+def _sweep_once(argv: Sequence[str] | None, clients: list["GitHub"]) -> tuple[int, str, "GitHub | None"]:
+    """One sweep(): its exit code, its rate-limit refusal ("" when none) and its client."""
     try:
         code = sweep(argv, clients)
     except RateLimited as error:
         code = 1
-        if clients:
-            clients[0].rate_limited = clients[0].rate_limited or str(error)
-    limited = clients[0].rate_limited if clients else ""
-    if not limited:
-        return code
-    print(f"::warning title=queue janitor out of API budget::{limited}. This sweep stopped early and is "
-          f"skipped; the next sweep after the budget resets reads the queue again. "
-          f"{render_rate_limits(clients[0].rate_limits)}")
-    return 0
+        if not clients:
+            return code, str(error), None
+        clients[0].rate_limited = clients[0].rate_limited or str(error)
+    return code, (clients[0].rate_limited if clients else ""), (clients[0] if clients else None)
 
 
 def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
