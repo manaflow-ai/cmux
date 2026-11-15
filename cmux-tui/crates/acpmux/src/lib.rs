@@ -67,6 +67,7 @@ pub mod cua_socket;
 pub mod cua_v2;
 pub mod cwd_pin;
 pub mod daemon;
+mod dead_temps;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
