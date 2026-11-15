@@ -10,7 +10,8 @@ import CmuxNextWindowRules
     static func follow(terminal: TabModel, chat: String, services: AppServices) {
         guard let view = services.agentTabs.existingView(chat) else { return }
         (view.model.terminalApprovalWatch as? Watch)?.approving.stop()
-        let face = TerminalApprovalFace(tab: terminal, daemon: services.machines.daemon(forTab: terminal))
+        let daemon = services.machines.daemon(forTab: terminal)
+        let face = TerminalApprovalFace(tab: terminal, connection: { [weak daemon] in daemon?.connection })
         let watch = Watch(face: face, approving: TerminalChatApproving(terminal: face, chat: view))
         view.model.terminalApprovalWatch = watch
         watch.approving.start()
@@ -20,29 +21,6 @@ import CmuxNextWindowRules
     @MainActor private final class Watch {
         let face: TerminalApprovalFace, approving: TerminalChatApproving
         init(face: TerminalApprovalFace, approving: TerminalChatApproving) { (self.face, self.approving) = (face, approving) }
-    }
-}
-
-/// A pair's terminal as its approval reads it: the daemon's agent state, screen and keys (the face may be hidden).
-@MainActor final class TerminalApprovalFace: TerminalApprovalTerminal {
-    private weak var tab: TabModel?
-    private let daemon: DaemonService
-
-    init(tab: TabModel, daemon: DaemonService) {
-        self.tab = tab
-        self.daemon = daemon
-    }
-
-    var approvalBlocked: Bool { tab?.agent?.state == .blocked }
-
-    func approvalScreen() async -> String? {
-        guard let tab, let connection = daemon.connection else { return nil }
-        return try? await connection.request(ReadScreenRequest(surface: tab.surface), timeout: .seconds(2)).text
-    }
-
-    func approvalPress(_ keys: [String]) async -> Bool {
-        guard let tab, let connection = daemon.connection else { return false }
-        return (try? await connection.sendKeys(tab.surface, keys)) != nil
     }
 }
 
