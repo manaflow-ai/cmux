@@ -186,6 +186,10 @@ fn change_lines(change: &Changed) -> String {
             generation.n,
             change.changed.join(", ")
         )),
+        // A code layer moves web-dev.json, which no generation holds.
+        None if change.changed.iter().any(|key| key == cmux_customize::library::WEB_KEY) => {
+            out.push_str("web pages now load from the layer the library says; open pages reload\n");
+        }
         None => out.push_str("nothing live changed\n"),
     }
     out
