@@ -20,4 +20,13 @@ public nonisolated struct HarnessIcons: Equatable, Sendable {
         let harnesses = reply["harnesses"] as? [String: Any] ?? [:]
         self.init(specs: harnesses.compactMapValues { HarnessIconSpec(json: ($0 as? [String: Any])?["iconSpec"]) })
     }
+
+    /// The icons of a raw `_acpmux/harnesses` reply, or nil when it is not a JSON object. Image icons
+    /// carry their bytes inline (base64), so the reply can be megabytes: callers run this on a
+    /// background lane, never on the main actor (hang-watch 8a1dbcadaa, cmuxterm-hq#11534).
+    /// - Parameter data: The reply's JSON bytes.
+    public init?(harnessesReplyData data: Data) {
+        guard let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        self.init(harnessesReply: reply)
+    }
 }
