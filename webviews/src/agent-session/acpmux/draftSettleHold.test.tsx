@@ -14,7 +14,11 @@ const saved = new Map<string, unknown>();
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    // A global the file added (`document`, `IS_REACT_ACT_ENVIRONMENT`) goes away, not left as undefined.
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
   dom?.window.close();
   dom = undefined;
