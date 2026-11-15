@@ -40,7 +40,7 @@ fn fixture(book: &Path, turns: u64) -> ChatConfig {
     fs::write(book.join("source.ndjson"), corpus(turns)).unwrap();
     config_at(book)
 }
-fn catch_up(config: ChatConfig) {
+pub(crate) fn catch_up(config: ChatConfig) {
     let mut state = open_state(config).unwrap();
     while !read_source(&mut state).unwrap() {}
     checkpoint(&mut state).unwrap();
