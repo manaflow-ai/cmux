@@ -66,7 +66,7 @@ impl Fixture {
                 owner: self.owner,
                 phase,
                 host: Some(mock_record()),
-                native_prepared: phase != Phase::Preparing,
+                native_prepared: Some(phase != Phase::Preparing),
             },
         )
         .unwrap();
@@ -99,6 +99,12 @@ struct MockHost {
 
 impl MockHost {
     fn new(proof_override: Option<(&str, Value)>) -> Self {
+        Self::refusing(proof_override, &[])
+    }
+
+    /// `refused` methods answer as the host does for a binding it does not own: no effects.
+    fn refusing(proof_override: Option<(&str, Value)>, refused: &[&'static str]) -> Self {
+        let refused = refused.to_vec();
         let (client, server) = UnixStream::pair().unwrap();
         let reader = BufReader::new(client.try_clone().unwrap());
         let peer = server.try_clone().unwrap();
@@ -157,6 +163,9 @@ impl MockHost {
                         } else {
                             "remote_exit_unverified"
                         });
+                        if refused.iter().any(|refused| *refused == method) {
+                            result = json!({"code": "remote_lease_mismatch", "lease_bound": true});
+                        }
                         result
                     }
                     _ => Value::Null,
@@ -468,7 +477,7 @@ fn capture_failed_ensure_leaves_a_recoverable_durable_fence() {
                     owner: fixture.owner,
                     phase,
                     host: if phase == Phase::Preparing { None } else { Some(mock_record()) },
-                    native_prepared: false,
+                    native_prepared: Some(false),
                 },
             )
             .unwrap();
@@ -527,7 +536,7 @@ fn capture_cleanup_recovers_after_prepare_failed_before_native_marker() {
             owner: fixture.owner,
             phase: Phase::Preparing,
             host: None,
-            native_prepared: false,
+            native_prepared: Some(false),
         },
     )
     .unwrap();
@@ -564,7 +573,7 @@ fn capture_cleanup_after_failed_prepare_with_a_recorded_host_takes_the_unprepare
             owner: fixture.owner,
             phase: Phase::Preparing,
             host: Some(mock_record()),
-            native_prepared: false,
+            native_prepared: Some(false),
         },
     )
     .unwrap();
@@ -712,7 +721,7 @@ fn capture_durable_prepared_record_survives_configure_and_malformed_record_fails
         owner: fixture.owner,
         phase: Phase::Active,
         host: Some(mock_record()),
-        native_prepared: false,
+        native_prepared: Some(false),
     };
     lease.binding.lease_id = "not-a-lease".into();
     persist(&fixture.paths.state, &lease).unwrap();
@@ -863,4 +872,156 @@ fn capture_group_reuse_needs_one_live_differently_stamped_leader() {
     assert!(!capture::group_reused(other, None, recorded));
     assert!(!capture::group_reused(None, other, recorded));
     assert!(!capture::group_reused(other, Some((701, 1)), recorded));
+}
+
+fn native_prepared(fixture: &Fixture) -> Option<bool> {
+    match Admission::load(&fixture.paths.state) {
+        Admission::Held(lease) => lease.native_prepared,
+        _ => panic!("expected a durable capture lease"),
+    }
+}
+
+fn native_methods(host: &MockHost) -> Vec<Value> {
+    lock(&host.requests)
+        .iter()
+        .filter(|request| request["method"] != "app_grant")
+        .map(|request| request["method"].clone())
+        .collect()
+}
+
+#[test]
+fn capture_cleanup_falls_back_when_the_host_disagrees_about_its_marker() {
+    // The host wrote its marker, then the prepare answer was lost (a daemon crash or the call
+    // timeout) before the daemon persisted it. The host refuses the markerless path.
+    let fixture = Fixture::new();
+    persist(
+        &fixture.paths.state,
+        &Lease {
+            binding: fixture.binding.clone(),
+            owner: fixture.owner,
+            phase: Phase::Preparing,
+            host: Some(mock_record()),
+            native_prepared: Some(false),
+        },
+    )
+    .unwrap();
+    let host = MockHost::refusing(None, &["capture.cleanup.unprepared"]);
+    let (result, _, drained) = run_capture(
+        &fixture,
+        &fixture.supervisor(),
+        "capture.cleanup",
+        fixture.binding.clone(),
+        fixture.owner,
+        &host,
+        None,
+    );
+    assert_eq!(result.unwrap()["code"], "remote_cleaned");
+    assert_eq!(drained, 1);
+    assert_eq!(
+        native_methods(&host),
+        [json!("capture.cleanup.unprepared"), json!("capture.cleanup")]
+    );
+    // The host's answer is now durable: a retry goes straight to the marker path.
+    assert_eq!(native_prepared(&fixture), Some(true));
+    let retry = MockHost::refusing(None, &["capture.cleanup.unprepared"]);
+    let (result, _, _) = run_capture(
+        &fixture,
+        &fixture.supervisor(),
+        "capture.cleanup",
+        fixture.binding.clone(),
+        fixture.owner,
+        &retry,
+        None,
+    );
+    assert!(result.is_ok());
+    assert_eq!(native_methods(&retry), [json!("capture.cleanup")]);
+
+    // The other direction: the record says prepared, the host has no marker.
+    let fixture = Fixture::new();
+    persist(
+        &fixture.paths.state,
+        &Lease {
+            binding: fixture.binding.clone(),
+            owner: fixture.owner,
+            phase: Phase::Cleaning,
+            host: Some(mock_record()),
+            native_prepared: Some(true),
+        },
+    )
+    .unwrap();
+    let host = MockHost::refusing(None, &["capture.cleanup"]);
+    let (result, _, _) = run_capture(
+        &fixture,
+        &fixture.supervisor(),
+        "capture.cleanup",
+        fixture.binding.clone(),
+        fixture.owner,
+        &host,
+        None,
+    );
+    assert_eq!(result.unwrap()["code"], "remote_cleaned");
+    assert_eq!(
+        native_methods(&host),
+        [json!("capture.cleanup"), json!("capture.cleanup.unprepared")]
+    );
+    assert_eq!(native_prepared(&fixture), Some(false));
+
+    // Both refused: one fallback only, no exit proof, and the fence stays.
+    let fixture = Fixture::new();
+    let supervisor = fixture.hold(Phase::Active);
+    let host = MockHost::refusing(None, &["capture.cleanup", "capture.cleanup.unprepared"]);
+    let (result, _, drained) = run_capture(
+        &fixture,
+        &supervisor,
+        "capture.cleanup",
+        fixture.binding.clone(),
+        fixture.owner,
+        &host,
+        None,
+    );
+    assert_eq!(result.unwrap_err(), "remote_capture_proof_unverified");
+    assert_eq!(drained, 0);
+    assert_eq!(
+        native_methods(&host),
+        [json!("capture.cleanup"), json!("capture.cleanup.unprepared")]
+    );
+    assert_eq!(phase(&supervisor), Phase::Cleaning);
+    assert_fenced(&fixture.supervisor(), &fixture);
+}
+
+#[test]
+fn capture_record_from_before_native_prepared_keeps_its_recorded_host_choice() {
+    for (host, expected) in
+        [(Some(mock_record()), "capture.cleanup"), (None, "capture.cleanup.unprepared")]
+    {
+        let fixture = Fixture::new();
+        let lease = Lease {
+            binding: fixture.binding.clone(),
+            owner: fixture.owner,
+            phase: Phase::Cleaning,
+            host,
+            native_prepared: None,
+        };
+        // Exactly the bytes an older daemon wrote: no native_prepared key at all.
+        let mut value = serde_json::to_value(&lease).unwrap();
+        value.as_object_mut().unwrap().remove("native_prepared");
+        write_private(
+            &fixture.paths.state.join("capture-supervisor.json"),
+            &serde_json::to_vec(&value).unwrap(),
+        );
+        let restored = fixture.supervisor();
+        assert_eq!(phase(&restored), Phase::Cleaning);
+        let mock = MockHost::new(None);
+        let (result, _, _) = run_capture(
+            &fixture,
+            &restored,
+            "capture.cleanup",
+            fixture.binding.clone(),
+            fixture.owner,
+            &mock,
+            None,
+        );
+        assert_eq!(result.unwrap()["code"], "remote_cleaned");
+        assert_eq!(native_methods(&mock), [json!(expected)]);
+    }
 }

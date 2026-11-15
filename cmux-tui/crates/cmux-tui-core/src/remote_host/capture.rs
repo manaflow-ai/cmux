@@ -129,14 +129,14 @@ impl RemoteHostSupervisor {
                     owner: app,
                     phase: Phase::Preparing,
                     host: None,
-                    native_prepared: false,
+                    native_prepared: Some(false),
                 }
             }
             _ => return Err("remote_lease_mismatch".into()),
         };
         // Keyed by the host's marker, never by a recorded host: grant or prepare can fail after it.
         let unprepared_cleanup = method == "capture.cleanup" && !lease.native_marker();
-        lease.native_prepared = lease.native_marker();
+        lease.native_prepared = Some(lease.native_marker());
         match method {
             "capture.resume" => {
                 if lease.phase != Phase::Prepared || lease.owner == app {
@@ -172,15 +172,28 @@ impl RemoteHostSupervisor {
             std::time::Duration::from_secs(5),
         )?;
         let native_method = if unprepared_cleanup { "capture.cleanup.unprepared" } else { method };
-        let mut result = connection.call(
-            native_method,
-            serde_json::to_value(&lease.binding).map_err(|_| "remote_invalid_binding")?,
-        )?;
+        let params = serde_json::to_value(&lease.binding).map_err(|_| "remote_invalid_binding")?;
+        let mut result = connection.call(native_method, params.clone())?;
+        if false
+            && method == "capture.cleanup"
+            && result.get("code").and_then(Value::as_str) == Some("remote_lease_mismatch")
+        {
+            // Only the host knows whether its marker exists: a prepare answer lost after the
+            // marker was written, or an older record, picks the wrong path. Each host path
+            // checks the binding and marker before any freeze, signal or delete, so the other
+            // path is tried once. A second refusal fails the proof below and keeps the fence.
+            let other = if unprepared_cleanup { method } else { "capture.cleanup.unprepared" };
+            result = connection.call(other, params)?;
+            if result.get("code").and_then(Value::as_str) != Some("remote_lease_mismatch") {
+                lease.native_prepared = Some(other == method);
+                self.persist_lease(paths, lease.clone())?;
+            }
+        }
         if method == "capture.prepare"
             && result.get("lease_bound").and_then(Value::as_bool) == Some(true)
         {
             // The host's marker now exists, whatever later proof fails. Cleanup must take its path.
-            lease.native_prepared = true;
+            lease.native_prepared = Some(true);
             self.persist_lease(paths, lease.clone())?;
         }
         let expected = Stamp::of_record(&connection.record);
