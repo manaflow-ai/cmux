@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43748937535",
+  "recorded_at": "2026-11-15T18:59:23Z",
+  "reason": "cmux-tui 1e86b363fe91 changes the image's cmux-tui (pinned d461abccbb3a)",
+  "dry_run": false,
+  "cmux_tui": "1e86b363fe91fb90549a522c9728a2578d7b9865",
+  "fixes": [
+    {
+      "sha": "1e86b363fe91fb90549a522c9728a2578d7b9865",
+      "mergedAt": "2026-11-15T10:33:49-08:00",
+      "subject": "Terminal holder: move the start code of the service to its own file; the doc of the late thread says what it keeps (#43816)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T18:59:23Z",
+    "snapshot_id": "sh-881794c5b79e46d398d2cd8d2da696e4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43748937535): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a39bb77e0c6a1212c2072651c8c5a2c7312d03f9",
+    "image": "cloud-native-auto-1e86b363-43748937535-1",
+    "revision": "ci-43748937535-1",
+    "at": "2026-11-15T18:59:23Z"
+  },
+  "rolled_back": false
+}
