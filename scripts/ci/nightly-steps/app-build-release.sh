@@ -191,7 +191,11 @@ run_release_build 0 2>&1 | tee "$RUNNER_TEMP/nightly-release-build.log"
 release_status=${PIPESTATUS[0]}
 set -e
 release_retry=""
-if [[ "$release_status" -ne 0 && "$build_cache" == fleet ]]; then
+# Status 124: run-xcodebuild-with-diagnostics.sh ended a build that had stopped. In run 43673773157 the build
+# service deadlocked and held the nightly-next slot for hours. A new build service gets one more try.
+if [[ "$release_status" -eq 124 ]]; then
+  release_retry="the Release build stalled (no output and no CPU use), so the wrapper ended it"
+elif [[ "$release_status" -ne 0 && "$build_cache" == fleet ]]; then
   release_retry="the Release build failed on the managed fleet compilation cache"
 elif [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
   release_retry="the compilation cache failed"
