@@ -1020,7 +1020,7 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "8b",
         name: "v2.pr08b.serve_page",
-        done_when: "A peer's all page on the serving side (decision 266), from the request to the frame: the newest page and the deepest full page of this machine's rows, 20 rows each, with 20 live and 11,000 closed rows of its own against 20 live and 20 closed, both behind a third machine's run of 500 live rows the page skips. p95 within 1.2x for each, best round of ten, rounds alternate.",
+        done_when: "A peer's all page on the serving side (decisions 266 and 285), from the request to the frame: the newest page, the deepest full page, and the deepest full page read from a sorted snapshot, 20 rows of this machine each, with 20 live and 11,000 closed rows of its own against 20 live and 20 closed, a third machine's run of 500 live rows just before the last 20 closed on both sides, which the deep pages skip. p95 within 1.2x for each part, best round of ten, rounds alternate; the line carries the worse part's pair.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,

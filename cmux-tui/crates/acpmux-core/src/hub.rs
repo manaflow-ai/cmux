@@ -1317,8 +1317,11 @@ impl Hub {
         // `read_page` filters its candidates after it takes them, and its flags and keys name
         // candidates of every origin (decision 93). A peer's keys name this machine's rows
         // only: a piece that holds none of them is skipped here, from the key it ends on,
-        // and the reply's keys are its first and last selected rows.
+        // and the reply's keys are its first and last selected rows. At most
+        // PEER_PAGE_PIECES pieces are read (decision 285); past them the page is empty, its
+        // flag stays set, and its key names a position, never another origin's row.
         let mut anchor = key;
+        let mut pieces = 0;
         let page = loop {
             let page = index
                 .read_page(
@@ -1330,14 +1333,17 @@ impl Hub {
                     Some(&filter),
                 )
                 .map_err(|error| self.page_error(error))?;
+            pieces += 1;
+            #[cfg(test)]
+            PEER_PIECES.with(|read| read.set(read.get() + 1));
             let (more, next) = match side {
                 ReadSide::Before => (page.has_before, &page.before_key),
                 _ => (page.has_after, &page.after_key),
             };
-            if !page.rows.is_empty() || !more || next.is_none() {
+            let Some(next) = next.as_ref().filter(|_| more && page.rows.is_empty()) else {
                 break page;
-            }
-            anchor = next.clone();
+            };
+            anchor = Some(next.clone());
         };
         let first = page.rows.first().map(|row| SortKey::of(row.as_ref()));
         let last = page.rows.last().map(|row| SortKey::of(row.as_ref()));
@@ -1576,7 +1582,7 @@ pub(crate) enum PeerPageShape<'a> {
 /// `turns`, `edition` or `fold`, a table filter (`family`, `forks`, `folder`, `cold`), another
 /// origin's filter, key or anchor. It reads nothing, so a refused page reads no row.
 pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageShape<'_>> {
-    use crate::wire::{ListView, PageKey};
+    use crate::wire::{ListFilter, ListView, PageKey};
     if request.stream.as_str() != "list"
         || request.turns
         || request.edition.is_some()
@@ -1594,12 +1600,15 @@ pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageSha
     match (request.view, request.keys.as_deref()) {
         (Some(ListView::Live), None) if request.filter.is_none() => Some(PeerPageShape::Live),
         (Some(ListView::All), None) => {
+            // Every field is named, so a field added to the filter must be decided here.
             let narrow = request.filter.as_ref().is_none_or(|filter| {
-                filter.origin.as_deref().is_none_or(|origin| origin == "local")
-                    && filter.family.is_none()
-                    && filter.forks.is_none()
-                    && filter.folder.is_none()
-                    && !filter.cold
+                let ListFilter { workspace: _, origin, state: _, family, folder, forks, cold } =
+                    filter;
+                origin.as_deref().is_none_or(|origin| origin == "local")
+                    && family.is_none()
+                    && forks.is_none()
+                    && folder.is_none()
+                    && !cold
             });
             (narrow && local_anchor).then_some(PeerPageShape::All)
         }
@@ -1617,6 +1626,16 @@ pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageSha
         }
         _ => None,
     }
+}
+
+/// The pieces of up to MAX_WINDOW_ROWS candidates one peer `all` page reads before it answers
+/// empty (decision 285): 1,600 candidates.
+pub(crate) const PEER_PAGE_PIECES: usize = 4;
+
+#[cfg(test)]
+thread_local! {
+    /// The pieces this thread's peer `all` pages read, for the tests that count them.
+    pub(crate) static PEER_PIECES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 fn book_key(key: &crate::wire::ListKey) -> SortKey {
@@ -2044,6 +2063,8 @@ mod origin_gates;
 mod origin_tests;
 #[cfg(test)]
 mod peer_page_gates;
+#[cfg(test)]
+mod peer_page_tests;
 #[cfg(test)]
 mod rebuild_tests;
 #[cfg(test)]
