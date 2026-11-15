@@ -24,7 +24,8 @@ import Testing
     private func slotCount(of counter: PageInstallCounter) -> Int {
         guard let generations = Mirror(reflecting: counter).children.first(where: { $0.label == "generations" })?.value
                 as? ObservedMap<String, UInt64> else { return -1 }
-        return generations.entries.count
+        guard let slots = Mirror(reflecting: generations).children.first(where: { $0.label == "slots" })?.value else { return -1 }
+        return Mirror(reflecting: slots).children.count
     }
 
     @Test func anotherTabsPageInstallDoesNotInvalidateAnIncognitoRow() {
