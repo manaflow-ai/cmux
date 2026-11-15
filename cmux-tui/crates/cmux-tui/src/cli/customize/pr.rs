@@ -647,11 +647,12 @@ pub(super) fn put_on(
     let words = vec![label.clone()];
     let change = customize.library_use_code(layer.clone(), words, origin, now_ms)?;
     let mut human = if layer.has_web() {
-        format!(
-            "{name} is on: {label} ({} on {}); open pages reload onto it now\n",
-            short(&layer.head),
-            short(&layer.base)
-        )
+        let at = if layer.base.is_empty() || layer.base == layer.head {
+            format!("at {}", short(&layer.head))
+        } else {
+            format!("{} on {}", short(&layer.head), short(&layer.base))
+        };
+        format!("{name} is on: {label} ({at}); open pages reload onto it now\n")
     } else {
         format!("{name} is in your library, off: {label} has nothing a running cmux can take\n")
     };

@@ -105,14 +105,19 @@ fn build_all(dir: &Path, out: &Path) -> Result<(), Failure> {
 fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
     std::fs::create_dir_all(out).map_err(|error| failure(format!("{}: {error}", out.display())))?;
     let mut started = Vec::new();
-    for ((builder, extra), (prefix, _)) in BUILDERS.iter().zip(SURFACES.iter()) {
-        let name = prefix.trim_end_matches('/');
-        let log = out.join(format!(".{name}.log"));
+    for ((builder, extra), (prefix, surface)) in BUILDERS.iter().zip(SURFACES.iter()) {
+        // A surface is a nested path (…/Resources/agent-pane/): its log sits in
+        // `out` itself, and its folder's parents are made first.
+        let target = out.join(prefix.trim_end_matches('/'));
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| failure(format!("{}: {error}", parent.display())))?;
+        }
+        let log = out.join(format!(".{surface}.log"));
         let file = std::fs::File::create(&log)
             .map_err(|error| failure(format!("{}: {error}", log.display())))?;
         let copy =
             file.try_clone().map_err(|error| failure(format!("{}: {error}", log.display())))?;
-        let target = out.join(name);
         let child = cmux_process::Command::new(dir.join(builder))
             .args(extra.iter().copied())
             .arg("--out")
@@ -470,6 +475,52 @@ pub(super) fn refresh_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fake builders at the real paths: each writes one file into its `--out`
+    /// (or fails when asked), so the side-by-side build runs without bun.
+    fn fake_builders(dir: &Path, fail: Option<&str>) {
+        for (builder, _) in BUILDERS {
+            let path = dir.join(builder);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let body = if fail.is_some_and(|name| builder.contains(name)) {
+                "#!/bin/sh\necho building >&2\necho broke here >&2\nexit 3\n".to_owned()
+            } else {
+                "#!/bin/sh\nwhile [ \"$1\" != --out ]; do shift; done\nmkdir -p \"$2\" && echo built > \"$2/index.js\"\n".to_owned()
+            };
+            std::fs::write(&path, body).unwrap();
+            let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
+            std::fs::set_permissions(&path, permissions).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_three_builders_fill_every_nested_surface_and_leave_no_log() {
+        let tmp = tempfile::tempdir().unwrap();
+        fake_builders(tmp.path(), None);
+        let out = tmp.path().join("out");
+        build_surfaces(tmp.path(), &out).unwrap();
+        for (prefix, _) in SURFACES {
+            assert!(out.join(prefix).join("index.js").is_file(), "{prefix}");
+        }
+        let found = files(&out).unwrap();
+        assert_eq!(found.len(), 3, "{found:?}");
+        let logs: Vec<_> = std::fs::read_dir(&out)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".log"))
+            .collect();
+        assert!(logs.is_empty(), "{logs:?}");
+    }
+
+    #[test]
+    fn a_failing_builder_names_itself_and_its_last_lines() {
+        let tmp = tempfile::tempdir().unwrap();
+        fake_builders(tmp.path(), Some("pages"));
+        let error = build_surfaces(tmp.path(), &tmp.path().join("out")).unwrap_err();
+        assert!(error.message.contains("build-pages-web.sh failed"), "{}", error.message);
+        assert!(error.message.contains("broke here"), "{}", error.message);
+    }
 
     fn tree(root: &Path, files: &[(&str, &str)]) {
         for (path, body) in files {
