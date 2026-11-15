@@ -10970,13 +10970,17 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         del github.jobs[2], github.logs[2]
         return github
 
-    def test_identity_with_an_older_red_verdict_of_the_window_is_excused(self):
-        # cmux#41086 at 5d0fb077: the newest base run failed one more test (a flake) than the head.
+    def test_an_older_red_verdict_of_the_window_is_read_when_the_newest_lacks_a_head_red(self):
+        # cmux#41086 at 5d0fb077: the newest base run failed another test (a flake) than the head; an older one in
+        # the window fails the head's.
         head = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue."]
         flake = ["✘ Test aFlakyGateStalls() failed after 9.000 seconds with 1 issue."]
-        said = self.judge(self.window(head, head + flake, head))
+        said = self.judge(self.window(head, flake, head))
         self.assertIn("compared whole", said)
         self.assertIn("run 29", said)
+        # A newest verdict that fails the head's test and the flake besides covers it on its own (cmux#43251).
+        said = self.judge(self.window(head, head + flake, head))
+        self.assertIn("within feat-cmux-next run 30's", said)
 
     def test_the_window_never_mixes_verdicts_and_a_green_one_ends_it(self):
         head = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue.",
@@ -11125,13 +11129,57 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "reports more failing tests than it names"):
                     self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, said, said))
 
-    def test_a_base_that_fails_more_is_not_enough_either(self):
-        # Identity, never a subset: the comparison is the whole log, so what the base fails besides is not proof the
-        # head's failures are only those (a red the base hides could be the PR's).
+    # cmux#43251 at fe4918f2 (2026-11-15): 'cmux-next checks' failed 2 script tests; base run 43676446747 failed those
+    # 2 and 3 more. The head was refused because the whole-log comparison wanted identity, not "within".
+    SCRIPT_TESTS = ("pin-cmux-tui-probe.test.sh", "tree-key-embeds.test.sh", "hybrid-ref-capture.test.sh",
+                    "guard-jobs-follow-the-workflows.test.sh", "outbound-hosts.test.sh")
+
+    @staticmethod
+    def script_reds(*tests):
+        """The checks job's error line for each red script test, as its runner prints one."""
+        return [f"##[error]red check: {test}" for test in tests]
+
+    def test_43251_a_head_whose_reds_are_within_a_base_that_fails_more_is_excused(self):
+        head = self.script_reds(*self.SCRIPT_TESTS[:2])
+        base = self.script_reds(*self.SCRIPT_TESTS)
+        said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, head, base))
+        self.assertIn(f"excused '{UNPLACED_CHECKS}'", said)
+        self.assertIn("within feat-cmux-next run 20's", said)
+        self.assertIn("red check: tree-key-embeds.test.sh", said)
+
+    def test_43251_a_base_that_fails_more_tests_excuses_the_kit_red_it_shares(self):
         head = ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue."]
         base = head + ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
-        with self.assertRaisesRegex(excuse.Refused, "more on the base: .*reconnectsAfterSleep"):
-            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+        said = self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+        self.assertIn("compared whole", said)
+        self.assertIn("silentDropDetectionBenchmark", said)
+
+    def test_43251_one_head_red_the_base_lacks_is_still_the_prs_own(self):
+        # The base failing more never covers a red it does not fail: the head's two shared reds plus one of its own.
+        head = self.script_reds(*self.SCRIPT_TESTS[:2], "a-new-check.test.sh")
+        base = self.script_reds(*self.SCRIPT_TESTS)
+        with self.assertRaisesRegex(excuse.Refused, "compared whole, its error lines are not .*"
+                                    "more on this head: .*a-new-check.test.sh"):
+            self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, head, base))
+        kit_head = ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue.",
+                    "✘ Test aNewKitTest() failed after 1.000 seconds with 1 issue."]
+        kit_base = kit_head[:1] + ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: .*aNewKitTest"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, kit_head, kit_base))
+
+    def test_43251_a_shared_red_more_often_on_the_head_is_still_its_own(self):
+        # Within is counted: a test the base fails once, failing twice at the head, is not within.
+        once = ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
+        base = once + ["✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: .*reconnectsAfterSleep"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, once * 2, base))
+
+    def test_43251_a_base_that_names_none_of_its_failures_still_excuses_nothing(self):
+        # Fail closed as before: when the base's failures cannot be read per test, the head is not within them.
+        head = ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "names none|reports more failed tests than it names|"
+                                    "a failure no parser names"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, head + [" 3 fail"]))
 
     def test_another_failed_step_is_the_prs_own(self):
         github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["##[error]x"], ["##[error]x"])
