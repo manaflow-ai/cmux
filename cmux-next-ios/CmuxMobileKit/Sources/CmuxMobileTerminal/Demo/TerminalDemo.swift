@@ -13,8 +13,14 @@ public struct TerminalDemoRoot: View {
     @State private var host: TerminalTabHost
 
     public init() {
-        let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
-            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
+        let session: any TerminalSession
+        if TerminalWidthCaptureDemo.isRequested {
+            // A Mac pane for the width-mode captures (TerminalWidthModesCaptureTests).
+            session = TerminalWidthCaptureDemo.session()
+        } else {
+            session = TerminalHostGridDemoSession.requestedSpec
+                .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
+        }
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
@@ -45,6 +51,10 @@ public struct TerminalDemoRoot: View {
                 .accessibilityIdentifier("debug.terminal-demo")
         }
         .task {
+            if TerminalWidthCaptureDemo.isRequested {
+                await TerminalWidthCaptureDemo.run(model: model)
+                return
+            }
             // The host grid demo is a still: no scripted phases. Its page's
             // layout goes in the step label, for UI tests.
             guard TerminalHostGridDemoSession.requestedSpec == nil else {
