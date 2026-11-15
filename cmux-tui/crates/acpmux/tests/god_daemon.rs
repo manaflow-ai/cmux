@@ -53,6 +53,14 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_DHAT_TOP",
     // A control artifact for differential runs; the child still uses the hermetic environment.
     "ACPMUX_GOD_DAEMON_BIN",
+    // The churn lab's knobs (`whole_lists_of_a_peer_that_cannot_follow_under_churn`).
+    "ACPMUX_CHURN_ROWS",
+    "ACPMUX_CHURN_SECS",
+    "ACPMUX_CHURN_EVERY_MS",
+    "ACPMUX_CHURN_CPUS",
+    "ACPMUX_CHURN_BUSY",
+    "ACPMUX_CHURN_FOLLOW",
+    "ACPMUX_CHURN_ARENAS",
 ]);
 
 use acpmux::config::{Config, StoreMode};
@@ -442,6 +450,11 @@ impl Daemon {
             .stderr(Stdio::inherit());
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
+        }
+        // glibc malloc's arena count for the daemon (the churn lab's `ACPMUX_CHURN_ARENAS`): RSS
+        // that a cap shrinks is memory the allocator kept, not memory the daemon holds.
+        if let Ok(arenas) = std::env::var("ACPMUX_CHURN_ARENAS") {
+            command.env("MALLOC_ARENA_MAX", arenas);
         }
         let spawned = Instant::now();
         let mut child = command.spawn().unwrap();
@@ -908,6 +921,8 @@ fn attribute(path: &Path) -> Value {
         gbk: u64,
         tb: u64,
         tbk: u64,
+        // Held when the profile was written (the daemon's exit): what a run left behind.
+        eb: u64,
         leaf_gb: u64,
         leaf_gbk: u64,
         inner: BTreeMap<String, u64>,
@@ -928,6 +943,7 @@ fn attribute(path: &Path) -> Value {
         site.gbk += gbk;
         site.tb += pp["tb"].as_u64().unwrap_or(0);
         site.tbk += pp["tbk"].as_u64().unwrap_or(0);
+        site.eb += pp["eb"].as_u64().unwrap_or(0);
         // The library frame that asked (serde_json, imbl, String), below the allocator's own.
         let inner = frames
             .iter()
@@ -944,7 +960,7 @@ fn attribute(path: &Path) -> Value {
     let row = |(name, s): (&String, &Site)| {
         let mut inner: Vec<(&String, &u64)> = s.inner.iter().collect();
         inner.sort_by_key(|(_, b)| std::cmp::Reverse(**b));
-        json!({"site": name, "peakBytes": s.gb, "peakBlocks": s.gbk, "totalBytes": s.tb,
+        json!({"site": name, "peakBytes": s.gb, "peakBlocks": s.gbk, "endBytes": s.eb, "totalBytes": s.tb,
                "totalBlocks": s.tbk, "leafPeakBytes": s.leaf_gb, "leafPeakBlocks": s.leaf_gbk,
                "via": inner.into_iter().take(3).map(|(f, b)| json!([f, b])).collect::<Vec<_>>()})
     };
@@ -954,12 +970,16 @@ fn attribute(path: &Path) -> Value {
     by_total.sort_by_key(|(_, s)| std::cmp::Reverse(s.tb));
     let mut by_leaf: Vec<(&String, &Site)> = sites.iter().filter(|(_, s)| s.leaf_gb > 0).collect();
     by_leaf.sort_by_key(|(_, s)| std::cmp::Reverse(s.leaf_gb));
+    let mut by_end: Vec<(&String, &Site)> = sites.iter().collect();
+    by_end.sort_by_key(|(_, s)| std::cmp::Reverse(s.eb));
     json!({
         "peakBytes": peak,
         "leafPeakBytes": leaves,
         "byPeak": by_peak.into_iter().take(top).map(row).collect::<Vec<_>>(),
         "byTotal": by_total.into_iter().take(top).map(row).collect::<Vec<_>>(),
         "leavesBySite": by_leaf.into_iter().take(top).map(row).collect::<Vec<_>>(),
+        "endBytes": sites.values().map(|s| s.eb).sum::<u64>(),
+        "byEnd": by_end.into_iter().take(top).map(row).collect::<Vec<_>>(),
     })
 }
 
@@ -1149,7 +1169,10 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
                           "peerToken": token.trim()}}),
     );
 
-    let mut daemon = Daemon::start(&scratch, &home, None);
+    let profile = std::env::var("ACPMUX_GOD_DHAT")
+        .is_ok_and(|v| v == "1")
+        .then(|| scratch.join("dhat-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "churn-bench"}}))
         .unwrap();
@@ -1236,6 +1259,8 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
         "drainMs": drain_ms,
         "rssListed": rss_listed, "rssChurned": rss_churned, "rssEnd": rss_end, "peakRss": peak_rss,
         "samples": samples,
+        "arenas": std::env::var("ACPMUX_CHURN_ARENAS").ok(),
+        "heap": profile.as_deref().map(attribute),
     });
     println!("CHURN {result}");
     let _ = std::fs::remove_dir_all(&scratch);
