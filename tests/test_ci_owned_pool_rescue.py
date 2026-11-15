@@ -2384,6 +2384,51 @@ class DeeperDestination(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
 
+    def test_a_job_held_in_its_runner_s_setup_counts_as_a_label_it_leaves(self):
+        # A job glaeda's hook holds in "Set up runner" waits on its label as much as a queued one does.
+        def held(seconds):
+            found = job("cmux-next daemon tests", status="in_progress", labels=[GUI], created=0, runner="mini-1")
+            found.update(started_at=stamp(1), steps=[
+                {"name": "Set up job", "status": "completed", "conclusion": "success"},
+                {"name": "Set up runner", "status": "in_progress", "conclusion": None, "started_at": stamp(1)}])
+            return [found]
+        clock = Clock()
+        api = FakeAPI(clock, held, snapshot=depth_snapshot())
+        code, summary = run_main(api, clock, payload=self.PAYLOAD, env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", summary)
+        clock = Clock()
+        api = FakeAPI(clock, held, snapshot=depth_snapshot(destination=0, destination_oldest=0))
+        run_main(api, clock, payload=self.PAYLOAD, env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertIn("cancel", api.calls)
+
+    def test_a_resumed_failed_jobs_re_run_keeps_the_depth_rule(self):
+        # A rescue stopped between its cancel and its re-run: the successor's re-run of the failed jobs takes the
+        # side label too, so it waits while that queue is deeper than the one the jobs left, and leaves the cancel
+        # unsettled for the next successor if it never clears.
+        target = rescue.target_from_event(self.PAYLOAD, "manaflow-ai/cmux")
+        clock = Clock()
+        api = FakeAPI(clock, gui_daemon_tests, snapshot=depth_snapshot())
+        api.cancel(RUN_ID)
+        lines = []
+        result = rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lines.append,
+                                     every_job=False, side_label=SIDE)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", result)
+        self.assertFalse(any(line.startswith(rescue.CANCEL_SETTLED) for line in lines), lines)
+        self.assertNotIn((RUN_ID, 1), rescue.SETTLED_HERE)
+
+        def clears(seconds):
+            return depth_snapshot(destination=61 if seconds < 900 else 0, destination_oldest=203)(seconds)
+        clock = Clock()
+        api = FakeAPI(clock, gui_daemon_tests, snapshot=clears)
+        api.cancel(RUN_ID)
+        rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None, every_job=False,
+                            side_label=SIDE, deadline=clock.now() + dt.timedelta(hours=1))
+        self.assertIn("rerun-failed", api.calls)
+        self.assertGreaterEqual(clock.seconds, 900)
+
 
 PLACEMENT_ID = 700001
 WAITING_ID = 700002
@@ -5163,6 +5208,22 @@ class Sweeper(unittest.TestCase):
                                     log=lambda text: None, sweep_seconds=ticks * 60, tick_seconds=60,
                                     wait=clock.sleep, running_code=running)
         return clock, watched, outcomes
+
+    def test_a_rescue_s_cancel_past_the_watched_attempts_is_adopted_to_finish_its_re_run(self):
+        # The rerun input cancelled a bot's attempt 4 to re-run it, and its job stopped before the re-run. The
+        # sweeper adopts that attempt for its unsettled mark alone; a settled one stays out.
+        stopped = listed(9, path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=4, status="completed",
+                         conclusion="cancelled", updated_at=stamp(0), triggering_actor={"login": CMUX_BOT})
+        settled = dict(stopped, id=10)
+
+        class API(SweepAPI):
+            def rescue_jobs(self, earliest_end, run_id=0):
+                return [run_id]
+
+            def job_marks(self, job_id):
+                return {(job_id, 4): "sent" if job_id == 9 else "settled"}
+        watched, _ = self.sweep(API([stopped, settled], picker=[9, 10]))
+        self.assertEqual([entry[:2] for entry in watched], [(9, 4)])
 
     def test_light_rescue_starts_once_and_hands_over_even_when_the_app_budget_is_spent(self):
         import hosted_light_rescue
