@@ -229,3 +229,30 @@ fn a_signed_in_machines_grant_names_its_account() {
     a.set_as("signedInMachines", true, Some("user-1".into())).unwrap();
     assert_eq!(b.status()["consent"]["signedInMachinesUser"], "user-1");
 }
+/// After a switch to another account, an earlier account's grant, answer and pending ask read as
+/// never given: nothing is granted, the app shows no old ask, and the next request asks again.
+#[test]
+fn a_switch_to_another_account_reads_signed_in_machines_as_unasked() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    a.refused_by("signedInMachines", Some("studio"), Some("user-1")).unwrap();
+    a.set_as("signedInMachines", true, Some("user-1".into())).unwrap();
+    let mine = for_account(b.status(), Some("user-1"));
+    assert_eq!(mine["consent"]["signedInMachines"], "granted");
+    assert_eq!(mine["lastRefusal"]["user"], "user-1");
+    let other = for_account(b.status(), Some("user-2"));
+    assert_eq!(other["consent"]["signedInMachines"], "none", "another account's grant");
+    assert!(
+        other["consent"]["signedInMachinesAnsweredAt"].is_null(),
+        "and answer, are not this one's"
+    );
+    assert!(other["lastRefusal"].is_null(), "another account's ask is not shown");
+    let none = for_account(b.status(), None);
+    assert_eq!(none["consent"]["signedInMachines"], "none", "no account, nothing granted");
+    // Screen and control, and asks for them, are not the account's.
+    a.set("screen", true).unwrap();
+    a.refused("control").unwrap();
+    let other = for_account(b.status(), Some("user-2"));
+    assert_eq!(other["consent"]["screen"], "granted");
+    assert_eq!(other["lastRefusal"]["surface"], "control");
+}

@@ -308,7 +308,8 @@ fn machine_consent(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
         .ok_or_else(|| RpcError::invalid_params("granted must be true or false"))?;
     let consent = crate::cli::cloud_join::set_consent_for_person(surface, granted)
         .map_err(|_| RpcError::internal("local consent store unavailable"))?;
-    Ok(json!({"consent":consent}))
+    // As the account this machine is joined as now reads it (`for_account`), like the get.
+    Ok(crate::cli::cloud_join::for_this_account(json!({"consent":consent})))
 }
 
 /// `_acpmux/pair_set {id, fullAccess}`: on only from the person, since it

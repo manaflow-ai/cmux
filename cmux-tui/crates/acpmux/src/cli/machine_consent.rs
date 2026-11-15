@@ -226,12 +226,26 @@ impl Authority {
     /// [`Self::refused`], naming the machine that asked (`from`, a host the hub lists) when one
     /// is known, so the app's ask says which of the person's machines wants in.
     pub(super) fn refused_from(&self, surface: &str, from: Option<&str>) -> Result<()> {
+        self.refused_by(surface, from, None)
+    }
+
+    /// [`Self::refused_from`], naming the account (hub user id) the ask was made for, which
+    /// [`for_account`] keeps it to.
+    pub(super) fn refused_by(
+        &self,
+        surface: &str,
+        from: Option<&str>,
+        user: Option<&str>,
+    ) -> Result<()> {
         anyhow::ensure!(super::cloud_join::is_consent_surface(surface), "unknown consent surface");
         self.prepare()?;
         let mut record = json!({"event":"consent_refused","code":"consent_required","surface":surface,"at":crate::store::now_ms()});
         if let Some(from) = from.filter(|from| !from.is_empty()) {
             // A host name from the hub's book, bounded so the record stays small.
             record["from"] = json!(from.chars().take(128).collect::<String>());
+        }
+        if let Some(user) = user {
+            record["user"] = json!(user);
         }
         crate::config::write_atomic(&self.root.join("refusal.json"), &serde_json::to_vec(&record)?)
     }
@@ -252,6 +266,29 @@ impl Authority {
     fn lock(&self) -> Result<HeldLock> {
         anyhow::bail!("consent unavailable")
     }
+}
+
+/// A consent status as it holds for `account`, the account (hub user id) this machine is joined
+/// as now: a `signedInMachines` grant or answer given for another account (or for none) reads as
+/// not given, and a `signedInMachines` ask made for another account is dropped, so after a
+/// switch nothing is granted, the app shows no old ask, and the next request is asked again.
+/// `signedInMachinesUser` is left as written. Screen and control are unchanged.
+pub(crate) fn for_account(mut status: Value, account: Option<&str>) -> Value {
+    let sim = super::cloud_join::SIGNED_IN_MACHINES;
+    let mine = |user: Option<&Value>| account.is_some() && user.and_then(Value::as_str) == account;
+    if let Some(consent) = status.get_mut("consent").and_then(Value::as_object_mut)
+        && !mine(consent.get("signedInMachinesUser"))
+    {
+        consent.insert(sim.into(), json!("none"));
+        consent.insert("signedInMachinesAnsweredAt".into(), Value::Null);
+    }
+    let refusal = status.get("lastRefusal");
+    if refusal.and_then(|r| r.get("surface")).and_then(Value::as_str) == Some(sim)
+        && !mine(refusal.and_then(|r| r.get("user")))
+    {
+        status["lastRefusal"] = Value::Null;
+    }
+    status
 }
 
 /// The enrollment marker; with `by`, only sign-in joins made it.

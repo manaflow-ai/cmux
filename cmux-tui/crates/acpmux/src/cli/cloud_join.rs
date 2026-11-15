@@ -1026,7 +1026,11 @@ pub(crate) fn consent_status() -> Value {
 /// caller gets the requirement as it is.
 pub(crate) fn consent_status_for(params: &Value) -> Value {
     let local = params.get("use").and_then(Value::as_str) == Some("localComputerUse");
-    authority().map(|authority| authority.status_for(local)).unwrap_or_else(|_| consent_status())
+    for_this_account(
+        authority()
+            .map(|authority| authority.status_for(local))
+            .unwrap_or_else(|_| consent_status()),
+    )
 }
 
 pub fn require_consent(surface: &str) -> Result<()> {
@@ -1053,9 +1057,17 @@ pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
     authority()?.refused(surface)
 }
 
-/// [`record_consent_refusal`], naming the machine that asked (a host the hub lists).
+/// A consent status as it holds for the account this machine is joined as now
+/// ([`super::machine_consent::for_account`]): what the app and the session gate read.
+pub(crate) fn for_this_account(status: Value) -> Value {
+    super::machine_consent::for_account(status, machine_user_id().as_deref())
+}
+
+/// [`record_consent_refusal`], naming the machine that asked (a host the hub lists). A
+/// `signedInMachines` ask names the account it was made for.
 pub(crate) fn record_consent_refusal_from(surface: &str, from: Option<&str>) -> Result<()> {
-    authority()?.refused_from(surface, from)
+    let user = (surface == SIGNED_IN_MACHINES).then(machine_user_id).flatten();
+    authority()?.refused_by(surface, from, user.as_deref())
 }
 
 /// The hub's generated client (cmux-cloud-client), as `bearer` when given,
