@@ -8,7 +8,7 @@ import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { filterRows } from "../search";
 import { managedOf, valueOf } from "../store";
-import { ReadOnlyBanner } from "./ReadOnlyBanner";
+import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
 import { TryOnSlot } from "./TryOnBar";
 import { SearchResults } from "./SearchResults";
@@ -152,11 +152,7 @@ export function SettingsApp() {
           <span />
         </div>
         <div className="column">
-          {!state.connected ? (
-            <ReadOnlyBanner />
-          ) : state.loaded && !state.readable ? (
-            <ReadOnlyBanner reason="loadFailed" />
-          ) : null}
+          <ReadOnlyNotice connected={state.connected} loaded={state.loaded} readable={state.readable} />
           <TryOnSlot />
           {searching ? <SearchResults query={shownQuery} /> : <Outlet />}
         </div>
