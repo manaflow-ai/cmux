@@ -3,6 +3,7 @@ import AppKit
 import CmuxAgentCursor
 import CoreGraphics
 import Foundation
+import QuartzCore
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
@@ -257,48 +258,44 @@ import UniformTypeIdentifiers
     }
 
     /// The overlay's frame clock, driven with a test clock: idle long enough to play ahead, then a
-    /// move (the reviewed bug: the first frame after waking had no time step, so the tail never
-    /// registered the glide, went straight back to an idle batch and the glide played unseen).
+    /// move step. On c2b2f4f the move only woke the tail from calm, the first frame after the stir
+    /// had no time step, so the tail stayed "calm" and that very frame started a new batch: the
+    /// glide played with a frozen tail. Frames here never claim the body is gliding, so only the
+    /// stir and the frame rules keep the tail following.
     @Test func aMoveAfterAnIdleBatchIsFollowedFrameByFrame() {
         let scale: CGFloat = 1.3
         var driver = AgentCursorTailDriver(model: AgentCursorTail(session: "driver", animates: true))
         let a = CGPoint(x: 100, y: 300), b = CGPoint(x: 1100, y: 300)
         var t = 0.0
         var batched = false
-        // Idle until the driver plays the idle life ahead.
         for _ in 0..<Int(4 * Self.fps) {
             t += 1 / Self.fps
             if case .batch(let paths) = driver.frame(at: t, pointer: a, gliding: false, scale: scale) {
-                #expect(paths.count == AgentCursorTailDriver.batchFrames)
+                #expect(paths.count == AgentCursorTailDriver.batchFrames + 1)
                 batched = true
                 break
             }
         }
         #expect(batched, "a calm tail plays ahead")
-        #expect(driver.isBatching)
-        // Half a batch later the agent moves the pointer: the batch ends where it is on screen.
-        t += 1.0
-        let shown = driver.stir(at: t, scale: scale) { $0.stir() }
+        // Partway through the batch the agent's move step arrives.
+        t += 0.2
+        let shown = driver.stir(at: t, scale: scale) { $0.note(.move) }
         #expect(shown != nil, "ending a batch shows its current frame")
         #expect(!driver.isBatching)
         var still = driver.model
-        // Every frame of the glide (including the first, with no time step) is drawn, none
-        // played ahead, and the tail follows: it swings well away from an unmoved twin.
         let glide = Self.glide(from: a, to: b)
         var drawn = 0, swing = 0.0
         for (i, p) in glide.enumerated() {
             if i > 0 { t += 1 / Self.fps }
-            switch driver.frame(at: t, pointer: p, gliding: true, scale: scale) {
+            switch driver.frame(at: t, pointer: p, gliding: false, scale: scale) {
             case .path: drawn += 1
-            case .batch: Issue.record("batched mid-glide at frame \(i)")
+            case .batch: Issue.record("frame \(i) after the move was played ahead, not drawn")
             }
-            #expect(driver.model.isLively || i == 0, "lively while it follows (frame \(i))")
             still.step(dt: 1 / Self.fps, pointer: a)
             swing = max(swing, zip(driver.model.angles, still.angles).map { abs($0 - $1) }.max() ?? 0)
         }
-        #expect(drawn == glide.count)
+        #expect(drawn == glide.count, "every frame of the glide is drawn, the first one after the stir included")
         #expect(swing > 0.6, "the tail followed the glide (swing \(swing) rad)")
-        // After the stop it settles at full rate, then goes back to playing ahead.
         var batchedAgain = false
         for _ in 0..<Int(5 * Self.fps) {
             t += 1 / Self.fps
@@ -307,7 +304,7 @@ import UniformTypeIdentifiers
                 break
             }
         }
-        #expect(batchedAgain)
+        #expect(batchedAgain, "after the stop it settles, then plays ahead again")
     }
 
     @Test func theDriverNeverPlaysAheadMidGlideOnAWakingFrameOrWithoutAnimation() {
@@ -316,7 +313,7 @@ import UniformTypeIdentifiers
         var driver = AgentCursorTailDriver(model: AgentCursorTail(session: "rules", animates: true, tuning: tuning))
         var t = 0.0
         let at = CGPoint(x: 50, y: 50)
-        // Calm (2.5 s, no flicks) but the body's glide animation is running: draw every frame.
+        // Calm (2.5 s, no flicks) but the body's glide animation runs: every frame is drawn.
         for _ in 0..<Int(2.5 * Self.fps) {
             t += 1 / Self.fps
             if case .batch = driver.frame(at: t, pointer: at, gliding: true, scale: 1.3) { Issue.record("batched while gliding") }
@@ -325,32 +322,97 @@ import UniformTypeIdentifiers
         driver.stop()
         if case .batch = driver.frame(at: t, pointer: at, gliding: false, scale: 1.3) { Issue.record("batched on a waking frame") }
         t += 1 / Self.fps
-        if case .path = driver.frame(at: t, pointer: at, gliding: false, scale: 1.3) { Issue.record("a calm tail on a real frame should batch") }
+        guard case .batch(let first) = driver.frame(at: t, pointer: at, gliding: false, scale: 1.3) else {
+            Issue.record("a calm tail on a real frame plays ahead")
+            return
+        }
+        // Batches chain: the next one starts from the last frame of this one and steps on.
+        var next = driver.model
+        guard let second = driver.batchEnded(at: t + Double(first.count - 1) / 60, scale: 1.3) else {
+            Issue.record("no next batch")
+            return
+        }
+        #expect(second.first == first.last, "the next batch starts where this one ended")
+        next.step(dt: AgentCursorTailDriver.batchStep, pointer: at, speed: 1, pointScale: 1.3)
+        #expect(second[1] == next.path(scale: 1.3), "and goes on one step at a time")
         // Without animation it never plays ahead.
         var off = AgentCursorTailDriver(model: AgentCursorTail(session: "rules", animates: false))
         for i in 0..<Int(3 * Self.fps) {
             if case .batch = off.frame(at: Double(i) / Self.fps, pointer: at, gliding: false, scale: 1.3) { Issue.record("batched without animation") }
         }
-        // A batch ended later than its last frame shows its last frame, and batches chain.
-        _ = driver.stir(at: t + 10, scale: 1.3) { _ in }
-        #expect(!driver.isBatching)
     }
 
-    /// The real overlay: the tail's frame clock runs while a cursor shows with motion allowed,
-    /// stops without it (Reduce Motion) and goes with the cursor on hide.
+    /// Ending a batch partway shows exactly the keyframe on screen then: keyframe k is the pose
+    /// k steps after the batch's start (keyframe 0 is the start).
+    @Test func endingABatchShowsTheKeyframeOnScreen() {
+        var driver = AgentCursorTailDriver(model: AgentCursorTail(session: "index", animates: true))
+        var t = 0.0
+        var paths: [CGPath] = []
+        while paths.isEmpty, t < 10 {
+            t += 1 / Self.fps
+            if case .batch(let batch) = driver.frame(at: t, pointer: .zero, gliding: false, scale: 1.3) { paths = batch }
+        }
+        #expect(paths.count == AgentCursorTailDriver.batchFrames + 1)
+        for k in [0, 1, 7, AgentCursorTailDriver.batchFrames] {
+            var copy = driver
+            let shown = copy.stir(at: t + Double(k) * AgentCursorTailDriver.batchStep, scale: 1.3) { _ in }
+            #expect(shown == paths[k], "keyframe \(k)")
+        }
+    }
+
+    /// Turning animation off settles the tail: back on, it starts from rest, with no old pose or
+    /// spin carried over.
+    @Test func turningAnimationOffSettlesTheTail() {
+        var tail = AgentCursorTail(session: "settle-off", animates: true)
+        Self.run(&tail, Self.glide(from: .zero, to: CGPoint(x: 900, y: 0)))
+        tail.click()
+        Self.run(&tail, Self.hold(CGPoint(x: 900, y: 0), seconds: 0.05))
+        #expect(zip(tail.angles, AgentCursorTail.rest.absolute).contains { abs($0 - $1) > 0.2 }, "mid-swing")
+        tail.animates = false
+        tail.animates = true
+        // One tiny step from far away: no jump (the pointer was forgotten) and no stored spin.
+        tail.step(dt: 1 / Self.fps, pointer: CGPoint(x: -4000, y: 4000))
+        let moved = zip(tail.angles, AgentCursorTail.rest.absolute).map { abs($0 - $1) }.max() ?? 1
+        #expect(moved < 0.01, "re-enabled \(moved) rad from rest")
+    }
+
+    /// The real overlay on a test screen (no display needed): the tail's link and batch timer
+    /// stop on hide, a batch ending with Reduce Motion turned on (and no step since) stops the
+    /// tail, and the link runs again on the next step.
     @Test func theOverlaysTailClockFollowsShowMotionAndHide() {
         var reduce = false
-        let overlay = AgentCursorOverlay(reduceMotion: { reduce })
+        let screen = AgentCursorScreen(frame: CGRect(x: 0, y: 0, width: 800, height: 600), scale: 2)
+        let overlay = AgentCursorOverlay(reduceMotion: { reduce }, screens: { [screen] })
         overlay.show(AgentCursorEvent(kind: .move, session: "a", label: "Claude", at: CGPoint(x: 200, y: 200)))
-        #expect(overlay.tailState(session: "a")?.running == true)
+        guard let probe = overlay.tailProbe(session: "a") else {
+            Issue.record("no cursor")
+            return
+        }
+        #expect(probe.running)
+        // Calm frames from a test clock until the overlay plays ahead and sleeps.
+        var t = CACurrentMediaTime()
+        for _ in 0..<Int(5 * Self.fps) where !probe.batching {
+            t += 1 / Self.fps
+            probe.frame(at: t)
+        }
+        #expect(probe.batching && probe.timerRunning, "playing ahead with the link asleep")
+        // Reduce Motion turns on with no step: when the batch ends, the tail stops.
         reduce = true
-        overlay.show(AgentCursorEvent(kind: .move, session: "a", label: "Claude", at: CGPoint(x: 220, y: 220)))
-        #expect(overlay.tailState(session: "a")?.running == false, "Reduce Motion stops the tail")
+        probe.endBatch()
+        #expect(!probe.running && !probe.timerRunning, "Reduce Motion stopped the tail")
+        // Back on with the next step; then hide stops the link and the timer.
         reduce = false
-        overlay.show(AgentCursorEvent(kind: .click, session: "a", label: "Claude", at: CGPoint(x: 240, y: 220)))
-        #expect(overlay.tailState(session: "a")?.running == true)
+        // (A click in place: a glide's animation would only end as real time passes.)
+        overlay.show(AgentCursorEvent(kind: .click, session: "a", label: "Claude", at: CGPoint(x: 200, y: 200)))
+        #expect(probe.running)
+        for _ in 0..<Int(5 * Self.fps) where !probe.batching {
+            t += 1 / Self.fps
+            probe.frame(at: t)
+        }
+        #expect(probe.timerRunning)
         overlay.show(AgentCursorEvent(kind: .hide, session: "a", label: "Claude"))
-        #expect(overlay.tailState(session: "a") == nil, "hidden: no cursor, no clock")
+        #expect(overlay.tailProbe(session: "a") == nil)
+        #expect(!probe.running && !probe.timerRunning, "hidden: no link, no timer")
         overlay.hideAll()
     }
 

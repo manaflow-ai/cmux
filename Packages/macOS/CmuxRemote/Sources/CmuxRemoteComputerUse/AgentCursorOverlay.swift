@@ -45,6 +45,8 @@ final class AgentCursorOverlay {
     /// the cursor hid.
     private var lastSeen: [String: (tip: CGPoint, label: String)] = [:]
     private let reduceMotion: () -> Bool
+    /// The screens' frames (AppKit points) and pixel densities: NSScreen's, or a test's.
+    private let screens: @MainActor () -> [AgentCursorScreen]
     /// A real, invisible (alpha 0, 1 x 1 point, click-through) window ordered in from the start: a
     /// panel that was never ordered in has no window-server window, so ScreenCaptureKit would not
     /// list this process. With it, a display capture that leaves out this process's windows
@@ -52,8 +54,10 @@ final class AgentCursorOverlay {
     /// panel that first appears during the capture.
     private let anchor = SessionCursor.makePanel(root: CALayer())
 
-    init(reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
+    init(reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
+         screens: @escaping @MainActor () -> [AgentCursorScreen] = AgentCursorScreen.current) {
         self.reduceMotion = reduceMotion
+        self.screens = screens
         anchor.alphaValue = 0
         anchor.ignoresMouseEvents = true
         anchor.setFrame(CGRect(x: 0, y: 0, width: 1, height: 1), display: false)
@@ -72,7 +76,7 @@ final class AgentCursorOverlay {
         let cursor = cursors[event.session] ?? makeCursor(session: event.session)
         cursors[event.session] = cursor
         cursor.label = event.label
-        let geometry = AgentCursorGeometry(primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
+        let geometry = AgentCursorGeometry(primaryHeight: screens().first?.frame.height ?? 0)
         let animated = animates
         cursor.apply(event, geometry: geometry, animated: animated, speed: motion.speed)
         // The living tail runs while the cursor shows and motion is allowed; every event
@@ -114,13 +118,15 @@ final class AgentCursorOverlay {
     private func makeCursor(session: String) -> SessionCursor {
         let cursor = SessionCursor(session: session)
         cursor.motionAllowed = { [weak self] in self?.animates ?? false }
+        cursor.screens = screens
         return cursor
     }
 
-    /// The session's living tail: whether its frame clock runs and whether it is playing its idle
-    /// life ahead (nil without a shown cursor). For tests.
-    func tailState(session: String) -> (running: Bool, batching: Bool)? {
-        cursors[session].map { ($0.tailIsRunning, $0.tailIsBatching) }
+    /// The session's living tail, for tests: its state, and its frame and batch-end callbacks
+    /// to drive with a test clock (nil without a shown cursor). It keeps the cursor, so its state
+    /// can be read after the cursor hid.
+    func tailProbe(session: String) -> TailProbe? {
+        cursors[session].map(TailProbe.init)
     }
 
     func hideAll() {
@@ -385,6 +391,8 @@ private final class SessionCursor {
     /// Whether motion is still allowed (the overlay's switches and Reduce Motion), asked when an
     /// idle batch ends, so a change with no step after it still stops the tail.
     var motionAllowed: @MainActor () -> Bool = { true }
+    /// The screens (the overlay's provider).
+    var screens: @MainActor () -> [AgentCursorScreen] = AgentCursorScreen.current
     /// Drawn into an image instead of a panel (``AgentCursorOverlay/render``): this frame stands
     /// for the screen.
     private let offscreen: CGRect?
@@ -444,7 +452,7 @@ private final class SessionCursor {
         tailEdge.shadowOpacity = 0.22
         tailEdge.shadowRadius = 2
         tailEdge.shadowOffset = CGSize(width: 0, height: -1)
-        tailEdge.shadowPath = Self.edgeOutline(rest)
+        tailEdge.shadowPath = AgentCursorTail.edgeOutline(rest)
         tailEdge.actions = ["path": NSNull(), "shadowPath": NSNull()]
         shadow.fillColor = NSColor.black.withAlphaComponent(0.001).cgColor
         shadow.shadowColor = NSColor.black.cgColor
@@ -644,20 +652,9 @@ private final class SessionCursor {
         }
     }
 
-    /// What a step means to the living tail: a click flicks it, a key flicks it less, typing
-    /// makes it wiggle, anything else wakes it from calm. (Paused and refused droop it through
-    /// the alert tint.)
+    /// What a step means to the living tail (``AgentCursorTail/note(_:)``).
     func noteTailEvent(_ kind: AgentCursorEvent.Kind) {
-        stirTail { tail in
-            switch kind {
-            case .click: tail.click()
-            case .typing: tail.typing()
-            case .keys: tail.key()
-            // A move or a drag moves the pointer: follow it from the first frame.
-            case .move, .drag: tail.stir()
-            default: tail.activity()
-            }
-        }
+        stirTail { $0.note(kind) }
     }
 
     /// The offscreen frames' version of ``runTail``: no display link, the renderer steps it.
@@ -678,7 +675,7 @@ private final class SessionCursor {
     // MARK: Motion
 
     func glide(to point: CGPoint, animated: Bool, speed: Double) {
-        let screens = NSScreen.screens
+        let screens = self.screens()
         let frame: CGRect
         if let offscreen {
             frame = offscreen
@@ -699,7 +696,7 @@ private final class SessionCursor {
             root.frame = CGRect(origin: .zero, size: frame.size)
             // Hand-made layers in a layer-hosting view are not scaled by AppKit: every layer draws
             // at the screen's pixel density (2 on Retina), not 1.
-            if offscreen == nil { scale = screens.first { $0.frame == frame }?.backingScaleFactor ?? 2 }
+            if offscreen == nil { scale = screens.first { $0.frame == frame }?.scale ?? 2 }
             applyScale(to: root)
             CATransaction.commit()
         }
@@ -833,6 +830,8 @@ private final class SessionCursor {
     var tailIsRunning: Bool { tailLink != nil }
     /// Whether the idle life is being played ahead with the frame clock asleep.
     var tailIsBatching: Bool { tailDriver.isBatching && tailLink?.isPaused == true }
+    /// Whether a batch's end is scheduled.
+    var tailTimerIsRunning: Bool { batchTimer?.isValid == true }
 
     private func stopTail() {
         endBatchAnimation()
@@ -855,9 +854,13 @@ private final class SessionCursor {
     /// One display frame: where the pointer is on screen now (mid-glide too), then the driver
     /// steps the tail and draws it, or hands back a batch of its idle life to play ahead.
     private func tailFrame(_ link: CADisplayLink) {
+        tailFrame(at: link.timestamp)
+    }
+
+    fileprivate func tailFrame(at timestamp: CFTimeInterval) {
         let pointer = (body.presentation() ?? body).position
         let gliding = body.animation(forKey: "glide") != nil
-        switch tailDriver.frame(at: link.timestamp, pointer: pointer, gliding: gliding, scale: Self.k) {
+        switch tailDriver.frame(at: timestamp, pointer: pointer, gliding: gliding, scale: Self.k) {
         case .path(let path): setTailPath(path)
         case .batch(let paths): playBatch(paths)
         }
@@ -867,7 +870,8 @@ private final class SessionCursor {
     /// shadow) and pauses the frame clock until it ends or something stirs the tail.
     private func playBatch(_ paths: [CGPath]) {
         guard let link = tailLink, let last = paths.last else { return }
-        let duration = Double(paths.count) * AgentCursorTailDriver.batchStep
+        // Keyframes `batchStep` apart: the first is the pose now, the last the batch's end.
+        let duration = Double(paths.count - 1) * AgentCursorTailDriver.batchStep
         // motion: allow the idle life played ahead: made only while the tail animates (`runTail`: the app's cursor switches and Reduce Motion, re-checked when each batch ends), its frames stepped at ui.animationSpeed, removed when anything stirs the tail or the cursor hides.
         let play = CAKeyframeAnimation(keyPath: "path")
         play.values = paths
@@ -875,7 +879,7 @@ private final class SessionCursor {
         play.calculationMode = .linear
         // motion: allow the same gated batch: the edge's shadow follows its path.
         let shade = CAKeyframeAnimation(keyPath: "shadowPath")
-        shade.values = paths.map(Self.edgeOutline)
+        shade.values = paths.map(AgentCursorTail.edgeOutline)
         shade.duration = duration
         shade.calculationMode = .linear
         setTailPath(last)
@@ -891,12 +895,13 @@ private final class SessionCursor {
         }
     }
 
-    private func batchDidEnd() {
-        guard tailDriver.isBatching else { return }
+    fileprivate func batchDidEnd() {
+        // Motion may have been turned off (Reduce Motion, the cursor switches) with no step since.
         guard motionAllowed() else {
             runTail(animated: false, speed: tailDriver.speed)
             return
         }
+        guard tailDriver.isBatching else { return }
         guard let paths = tailDriver.batchEnded(at: CACurrentMediaTime(), scale: Self.k) else { return }
         playBatch(paths)
     }
@@ -922,12 +927,7 @@ private final class SessionCursor {
         tailEdge.path = path
         // The edge's shadow from its outline, not from the layer's pixels: no offscreen shadow
         // pass per frame.
-        tailEdge.shadowPath = Self.edgeOutline(path)
-    }
-
-    /// The white edge's outline (its stroke as a filled shape), for its shadow.
-    private static func edgeOutline(_ path: CGPath) -> CGPath {
-        path.copy(strokingWithWidth: 5.6, lineCap: .round, lineJoin: .round, miterLimit: 10)
+        tailEdge.shadowPath = AgentCursorTail.edgeOutline(path)
     }
 
     /// A drag: a trail from `start` to `end` and the pointer gliding along it.
@@ -1404,6 +1404,35 @@ private final class SessionCursor {
         panel.contentView = view
         return panel
     }
+}
+
+/// A screen the overlay can draw on: its frame (AppKit points) and pixel density.
+struct AgentCursorScreen: Equatable {
+    var frame: CGRect
+    var scale: CGFloat
+
+    @MainActor static func current() -> [AgentCursorScreen] {
+        NSScreen.screens.map { AgentCursorScreen(frame: $0.frame, scale: $0.backingScaleFactor) }
+    }
+}
+
+/// A session cursor's living tail as tests see it (``AgentCursorOverlay/tailProbe(session:)``).
+@MainActor
+struct TailProbe {
+    private let cursor: SessionCursor
+
+    fileprivate init(_ cursor: SessionCursor) { self.cursor = cursor }
+
+    /// The display link exists (it runs or sleeps through a batch).
+    var running: Bool { cursor.tailIsRunning }
+    /// The idle life is played ahead with the link asleep.
+    var batching: Bool { cursor.tailIsBatching }
+    /// A batch's end is scheduled.
+    var timerRunning: Bool { cursor.tailTimerIsRunning }
+    /// One display frame at `timestamp` (what the link would call).
+    func frame(at timestamp: CFTimeInterval) { cursor.tailFrame(at: timestamp) }
+    /// The scheduled end of the running batch, now.
+    func endBatch() { cursor.batchDidEnd() }
 }
 
 /// The display link's target: CADisplayLink calls an Objective-C selector, and SessionCursor is

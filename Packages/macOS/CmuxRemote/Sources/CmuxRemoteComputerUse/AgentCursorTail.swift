@@ -90,8 +90,17 @@ struct AgentCursorTail {
     }
 
     let tuning: Tuning
-    /// False: the static rest pose, always (no animation, Reduce Motion).
-    var animates: Bool
+    /// False: the static rest pose, always (no animation, Reduce Motion). Turning it off settles
+    /// the tail at rest with no spin and forgets the pointer, so turning it back on starts from
+    /// rest instead of an old pose.
+    var animates: Bool {
+        didSet {
+            if !animates {
+                settleAtRest()
+                teleport()
+            }
+        }
+    }
 
     /// The rest pose: lengths and absolute and relative angles of each segment.
     static let rest: (points: [CGPoint], lengths: [Double], absolute: [Double], relative: [Double]) = restPose()
@@ -179,6 +188,20 @@ struct AgentCursorTail {
         excitement = 1
         sinceEvent = 0
         sinceStir = 0
+    }
+
+    /// What a step of the agent means to the tail: a click flicks it, a key flicks it less,
+    /// typing makes it wiggle, a move or a drag (the pointer is about to glide) stirs it so it
+    /// follows from the first frame, anything else wakes it from calm. (Paused and refused droop
+    /// it through the alert tint.)
+    mutating func note(_ kind: AgentCursorEvent.Kind) {
+        switch kind {
+        case .click: click()
+        case .typing: typing()
+        case .keys: key()
+        case .move, .drag: stir()
+        default: activity()
+        }
     }
 
     /// Any other step of the agent: wakes it from calm. (It stirs the tail only through the
@@ -543,15 +566,18 @@ struct SplitMix64 {
 /// from outside: a running batch first ends exactly where it is on screen (a copy of the batch's
 /// start, stepped to now: the same frames the animation showed).
 struct AgentCursorTailDriver {
-    /// Frames per played-ahead batch and their spacing: 2 s at 60 keyframes a second (the render
-    /// server interpolates between them at the display's refresh).
-    static let batchFrames = 120
+    /// Frames per played-ahead batch and their spacing: half a second at 60 keyframes a second
+    /// (the render server interpolates between them at the display's refresh). Short, so making
+    /// a batch is a small spike on the main thread (about 0.12 ms on an M4 for the frames and
+    /// their shadow outlines, against 0.48 ms for 2 s; AgentCursorTailBenchTests).
+    static let batchFrames = 30
     static let batchStep = 1.0 / 60
 
     enum Output {
         /// Draw this path now; the link keeps running.
         case path(CGPath)
-        /// Play these paths, `batchStep` apart, and pause the link until the batch ends.
+        /// Play these paths, `batchStep` apart, and pause the link until the batch ends. The first
+        /// is the pose on screen now; the last is where the model is when the batch ends.
         case batch([CGPath])
     }
 
@@ -577,7 +603,8 @@ struct AgentCursorTailDriver {
         return .path(model.path(scale: scale))
     }
 
-    /// The running batch has played out: the next one carries on from its last frame.
+    /// The running batch has played out: the next one starts from its last frame (the model is
+    /// already there).
     mutating func batchEnded(at now: Double, scale: CGFloat) -> [CGPath]? {
         guard let batch else { return nil }
         return startBatch(at: now, pointer: batch.pointer, scale: scale)
@@ -590,7 +617,8 @@ struct AgentCursorTailDriver {
         var shown: CGPath?
         if let batch {
             self.batch = nil
-            let frames = min(Int(max(now - batch.began, 0) / Self.batchStep), Self.batchFrames)
+            // Keyframe k shows the pose k steps after the batch's start (keyframe 0 is the start).
+            let frames = min(Int((max(now - batch.began, 0) / Self.batchStep).rounded()), Self.batchFrames)
             var copy = batch.start
             for _ in 0..<frames {
                 copy.step(dt: Self.batchStep, pointer: batch.pointer, speed: speed, pointScale: Double(scale))
@@ -611,9 +639,17 @@ struct AgentCursorTailDriver {
 
     private mutating func startBatch(at now: Double, pointer: CGPoint, scale: CGFloat) -> [CGPath] {
         let start = model
-        let paths = model.advance(frames: Self.batchFrames, dt: Self.batchStep, pointer: pointer, speed: speed, scale: scale)
+        let now0 = model.path(scale: scale)
+        let ahead = model.advance(frames: Self.batchFrames, dt: Self.batchStep, pointer: pointer, speed: speed, scale: scale)
         batch = (start, now, pointer)
         lastFrame = nil
-        return paths
+        return [now0] + ahead
+    }
+}
+
+extension AgentCursorTail {
+    /// The white edge's outline (its 5.6 pt stroke as a filled shape), for its shadow.
+    static func edgeOutline(_ path: CGPath) -> CGPath {
+        path.copy(strokingWithWidth: 5.6, lineCap: .round, lineJoin: .round, miterLimit: 10)
     }
 }
