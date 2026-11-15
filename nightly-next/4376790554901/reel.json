@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4376790554901",
+  "notes": "notes/4376790554901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43950,
+      "title": "bench(terminal-throughput): --breakdown records CPU per process and a mid-burst sample of each (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43265,
+      "title": "Agent CLI terminal from acpmux records: Claude Code renderer and parity test (77% / 84% of cells, not at parity)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43908,
+      "title": "ci: register the pre-push main-twin test and run it with the pre-push gate suite",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
