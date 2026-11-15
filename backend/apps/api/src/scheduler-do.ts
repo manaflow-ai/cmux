@@ -1,3 +1,4 @@
+import { envForObject, isDevSpace } from "./build-space.ts"
 import { createHash } from "node:crypto"
 import type { OpFrame, OwnerFrame, Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
@@ -7,7 +8,7 @@ import { allAutomations, automationOf, chargedUser, isLegacyHead, openRuns, runB
 import { schedulerRead } from "./scheduler-reads.ts"
 import { codeRefOf, precheckCodeOp } from "./code-check.ts"
 import type { CodeStorageError } from "./code-storage.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import type { DeliverResult } from "./ingress/automation-hook.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 
@@ -23,6 +24,8 @@ export interface AutomationRunParams {
   readonly input?: unknown
   /** The member whose monthly AI limit this run's cost counts against: the automation's owner (created_by; cx-ds09i). */
   readonly charged_user?: string
+  /** The scheduler's build space (build-space.ts), only when it is a dev space: the run reaches that space's objects. */
+  readonly space?: string
 }
 
 export interface RunReport {
@@ -55,7 +58,8 @@ const alreadyExists = (e: unknown) => /already exists|already_exists|duplicate/i
  * a system op with a deterministic key, so a repeated alarm replays.
  */
 export class SchedulerDO extends OwnerDO<SchedulerState> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, schedulerDomain, "scheduler", (p) => ({
       identity: p.kind === "system" || (p.kind === "agent" && p.identity.startsWith("automation:")) ? p.identity : (p.install ?? `user:${p.user}`),
       ...(p.kind ? { kind: p.kind } : {}),
@@ -314,7 +318,8 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
         body: runBody(engine.rows, run),
         ...(stored ? { input: JSON.parse(stored.json) as unknown } : {}),
         // Who started the run (scheduler-runs.ts startRun); a run row from before names none: the automation's creator.
-        ...((run.charged_user ?? chargedUser(engine.rows, run.automation)) ? { charged_user: run.charged_user ?? chargedUser(engine.rows, run.automation) } : {})
+        ...((run.charged_user ?? chargedUser(engine.rows, run.automation)) ? { charged_user: run.charged_user ?? chargedUser(engine.rows, run.automation) } : {}),
+        ...(isDevSpace(this.env.BUILD_SPACE) ? { space: this.env.BUILD_SPACE } : {})
       }
       try {
         await this.env.AUTOMATION_RUN.create({ id: run.id, params })

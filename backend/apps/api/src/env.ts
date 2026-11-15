@@ -23,7 +23,15 @@ import type { UserDO } from "./user-do.ts"
 import type { HandoffDO } from "./handoffs/handoff-do.ts"
 import type { HandoffIndexDO } from "./handoffs/index-do.ts"
 
-export interface Env {
+/** A build space: "" (nightly and stable) or `dev:<slug>` (one tagged dev build; build-space.ts). */
+export type BuildSpace = "" | `dev:${string}`
+
+/**
+ * The Worker's bindings as the runtime hands them over (the fetch and scheduled handlers, a Durable Object's or an
+ * entrypoint's constructor). Code never reaches an object through it: it goes through build-space.ts's spacedEnv or
+ * envForObject first, which gives an Env.
+ */
+export interface WorkerBindings {
   /** production | staging | development | preview | test */
   readonly ENVIRONMENT: string
   readonly API_VERSION: string
@@ -567,4 +575,13 @@ export interface Env {
   readonly PROJECTION_SHADOW?: string
   /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
+}
+
+/** The raw bindings: only entry points hold one (build-space.ts). */
+export type RawEnv = WorkerBindings
+
+/** The bindings of one build space (build-space.ts spacedEnv): what every function that reaches an object takes. */
+export type Env = WorkerBindings & {
+  /** The space every per-build binding of this env names its objects in. */
+  readonly BUILD_SPACE: BuildSpace
 }

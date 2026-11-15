@@ -339,6 +339,20 @@ nightly-only labels). This applies to humans, Leo and every agent:
   that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
   only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
 
+## Dev builds are separate
+
+A tagged dev build (Mac and iPhone) never sees or changes another build's backend data, nor nightly's or stable's,
+even when the same person is signed in to all of them. Every dev build sends `X-Cmux-Build-Space: dev:<slug>` (its
+tag's slug) to the cloud API and to cmux-mobile-api; nightly and stable send nothing. So anything a dev build stores
+in a backend is keyed by its build space: a per-build Durable Object is named `dev:<slug>|<name>` (only through
+`spacedEnv` and `envForObject` in `backend/apps/api/src/build-space.ts`), and a per-build Postgres or MySQL row
+carries the space and is read filtered by it. Production ignores the header (cloud API) or refuses it (cmux-mobile-api).
+Every new Durable Object binding goes in exactly one of `PER_BUILD_BINDINGS` or `ACCOUNT_WIDE_BINDINGS` with the
+reason; account-wide is only for what one person shares across builds (team membership, billing, cloud machines).
+The pre-push gate's "Build spaces" check (`scripts/cmux-next/check-build-spaces.py`) refuses an unlisted binding and an
+object or entry point that reaches objects outside its space. Why: agents dogfood several dev builds at once under the
+person's own account, and a build under test must not change what another build, or the person's own nightly, shows.
+
 ## Settings on every surface
 
 Every new or changed cmux-next setting also works from the command palette (Cmd-Shift-P), the `cmux` CLI and

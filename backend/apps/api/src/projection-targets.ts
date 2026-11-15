@@ -3,6 +3,8 @@ import type { Env } from "./env.ts"
 import { connectMysql } from "./mysql-connect.ts"
 import { applyRows, drainOutbox } from "./projection.ts"
 import { projectionStatementMysql } from "./projection-mysql.ts"
+import { spaceRows } from "./build-space-projection.ts"
+import { spaceOfEnv } from "./build-space.ts"
 
 /**
  * Where projection rows go during the Postgres to MySQL move (plans/cmux-next/state-placement.md 4.5).
@@ -39,12 +41,16 @@ const drainers: Record<ProjectionTarget, (env: Env, stream: string, rows: Readon
 export const projectRows = async (env: Env, stream: string, rows: ReadonlyArray<OutboxRow>, impl: typeof drainers = drainers): Promise<DrainResult> => {
   // A self-hosted chat server (backend/apps/home-server) has no PlanetScale: its rows are done.
   if ((env.PROJECTION_PRIMARY as string | undefined) === "none") return { sent: rows.map((r) => r.id), dead: [] }
+  // Dev build rows (build-space-projection.ts) go to Postgres only, keyed by their space; the rest drain as before.
+  const spaced = spaceRows(spaceOfEnv(env), rows)
   const { primary, shadow } = projectionTargets(env)
-  const result = await impl[primary](env, stream, rows)
-  if (shadow) {
+  const dev = spaced.dev.length === 0 ? { sent: [], dead: [] } : primary === "postgres" ? await impl.postgres(env, stream, spaced.dev) : { sent: spaced.dev.map((r) => r.id), dead: [] }
+  const base = spaced.base.length === 0 ? { sent: [], dead: [] } : await impl[primary](env, stream, spaced.base)
+  const result = { sent: [...base.sent, ...dev.sent, ...spaced.skipped], dead: [...base.dead, ...dev.dead] }
+  if (shadow && spaced.base.length > 0) {
     // Only rows the primary accepted; a row dead on the primary stays out of the shadow too.
-    const sent = new Set(result.sent)
-    const mirrored = rows.filter((r) => sent.has(r.id))
+    const sent = new Set(base.sent)
+    const mirrored = spaced.base.filter((r) => sent.has(r.id))
     try {
       const s = await impl[shadow](env, stream, mirrored)
       if (s.dead.length > 0) console.error(JSON.stringify({ event: "projection.shadow.dead", level: "error", stream, target: shadow, rows: s.dead.map((d) => d.id) }))

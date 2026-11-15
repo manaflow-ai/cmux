@@ -1,5 +1,6 @@
+import { envForObject } from "./build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { PAIRING_TTL_MS } from "./domains/pairing.ts"
 import { InviteOwner, ownerSchema, type OwnerBegin } from "./pair-invite-owner.ts"
 import { InviteStore, inviteSchema, type InviteArrival, type InvitePeek, type InviteRedeem, type InviteVoidReason } from "./pair-invite-store.ts"
@@ -74,7 +75,8 @@ const equal = (a: string, b: string): boolean => {
  * socket must present the collect secret whose hash begin stored.
  */
 export class PairingDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS pairing (id INTEGER PRIMARY KEY CHECK (id = 1), code TEXT NOT NULL, public_jwk TEXT NOT NULL, thumbprint TEXT NOT NULL,
