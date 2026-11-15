@@ -165,6 +165,9 @@ cmux-device-kind = { path = "../cmux-device-kind" }
 # (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
 # src/main.rs): one copy of std, serde and QuickJS instead of three.
 cmux-browser-host = { path = "../cmux-browser-host" }
+# The app's acpmux is this binary (bin/acpmux aliases bin/cmux), so it carries acpmux's shipping
+# hub carrier here (scripts/ci/acpmux-build-features.sh); cmux-remote is below already.
+acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
 cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }

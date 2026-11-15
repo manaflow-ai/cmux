@@ -379,8 +379,11 @@ run_attempt too; a carried reading, whoever re-ran the run, sends it to the movi
 (vars.MACOS_RUNNER_26, else RUNNER_POOLS.macos_26), as a push Release compile's fallback does.
 cmux#38484's run 42728317341 (2026-11-10) kept `cmux app scheme compile (Debug)` on
 glaeda-side-std-xcode-26.6 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
-(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs only on attempt 1 and the
-rescue's attempts 2 and 3, so attempt 4 and later never take an owned label; fast-tier-handback-placement's
+(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs on attempt 1 and on every
+rescue bot attempt, placed afresh (next_macos_cascade.bot_rerun()); a person's re-run past attempt 1 carries
+attempt 1's reading and never takes an owned label. Run 43716323834's attempt 5 (#43733, 2026-11-15) queued
+on glaeda-side-std-xcode-26.6 while glaeda-gui-std-xcode-26.6 had nothing queued, because placement then ran only
+up to the bot's attempt 3; fast-tier-handback-placement's
 reading is gated on its own placed_attempt the same way.
 
 ## note-20
@@ -3548,3 +3551,16 @@ are first compiled here) opens the revert of the one merge since the compile las
 within minutes. Several merges in the range, or a red older than the scanned runs, open
 nothing (push attribution comments on each). The revert is pushed and opened by the
 manaflow-glaeda-route App so its own CI runs; it lands through the normal review path.
+
+## note-385
+
+Above each owned-Mac `Keep Swift package builds on this owned Mac` step in `.github/workflows/cmux-next.yml`
+(swift-canary, fast tier, swift-test, daemon-test, generated-files).
+
+A mini's runner slots run as one user and share one SwiftPM cache (~/Library/Caches/org.swift.swiftpm). Two
+slots that both miss a new binary artifact (a Sentry bump, a new GhosttyNextKit) download it at once, and
+the second fails `swift build` with "failed downloading '<url>' ... artifacts/<name> already exists in file
+system" (cmux#43892 daemon test, job 132938818634, cmux11s-mac-mini-glaeda-8, 2026-11-15). The step then
+seeds that cache for CmuxNext's whole package graph with scripts/ci/swiftpm_prefetch_binary_artifacts.py:
+a checksum-keyed store under one host lock, atomic renames into the cache, so SwiftPM only reads it. The
+cache stays shared and warm. tests/test_ci_swiftpm_prefetch_shared_cache.py is the detector.
