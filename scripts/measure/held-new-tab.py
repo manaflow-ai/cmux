@@ -3,9 +3,10 @@
 
 Launches a tagged Debug or bench `cmux DEV <tag>.app`, makes a session of --workspaces workspaces with the
 repository's one session maker (scripts/perf-bench/session_real.py make): each workspace has 2 tabs, a terminal
-tab and a page tab that is not loaded; --live-shells of the terminals keep their shell, each other one is parked
-(the tab stays, with no pty). Then it plays 3 rows in a new workspace whose pane has --neighbours more terminal
-tabs, --rounds times:
+tab and a page tab at --page-url (a blank page is no row of the new tab page's list; the default address is this
+host's discard port, so nothing loads from a network); --live-shells of the terminals keep their shell, each other
+one is parked (the tab stays, with no pty). Then it plays 3 rows in a new workspace whose pane has --neighbours
+more terminal tabs, --rounds times:
 
   mixed  Command down for --hold-ms; Cmd-T held, and at each --every-ms the T goes up, one Cmd-W, T again
   hold   Cmd-T held for --hold-ms, no Cmd-W
@@ -225,14 +226,14 @@ def daemon_of(app):
     return None, []
 
 
-def seed(app, count, live, deadline, out):
+def seed(app, count, live, url, deadline, out):
     """`count` workspaces by session_real.py `make` on the app's daemon, each with a terminal tab (parked, so no
-    pty, but for `live` of them) and a page tab: (its result or {}, its exit code or why it has none, the count of
+    pty, but for `live` of them) and a page tab at `url`: (its result or {}, its exit code or why it has none, the count of
     workspaces that it said it made, its last lines). Its output goes to this script's output."""
     result = os.path.join(out, "session.json")
     command = [sys.executable, MAKER, "make", "--app-socket", app.socket, "--workspaces", str(count), "--terminals", str(count),
                "--agents", "0", "--no-agents", "--settle", "0", "--tabs", str(2 * count), "--panes", str(count),
-               "--browser-tabs", str(count), "--live-shells", str(live), "--out", result]
+               "--browser-tabs", str(count), "--browser-url", url, "--live-shells", str(live), "--out", result]
     try:
         done = subprocess.run(command, check=False, timeout=deadline, capture_output=True, text=True)
         code, said = done.returncode, done.stdout + done.stderr
@@ -294,7 +295,7 @@ def run(opts, app, signposts, report):
         return
     began, have = time.monotonic(), len(builder.workspaces())
     asked = max(1, opts.workspaces - have - 1)
-    made, code, count, tail = seed(app, asked, opts.live_shells, opts.seed_deadline, opts.out)
+    made, code, count, tail = seed(app, asked, opts.live_shells, opts.page_url, opts.seed_deadline, opts.out)
     # The made workspaces are in the app's list before the rows' workspace is made: it is found as the new one.
     listed = STRESS.wait(lambda: len(builder.workspaces()) >= have + count, 120, step=1.0)
     workspace = builder.new_workspace()
@@ -350,6 +351,7 @@ def main():
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/held-new-tab")
     parser.add_argument("--workspaces", type=int, default=60, help="the size of the session")
     parser.add_argument("--live-shells", type=int, default=8, help="terminals of the session that keep a shell; each other one is parked")
+    parser.add_argument("--page-url", default="http://127.0.0.1:9/", help="the address of each page tab of the session")
     parser.add_argument("--neighbours", type=int, default=2, help="terminal tabs beside the first one in the rows' pane")
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--hold-ms", type=float, default=3000)
