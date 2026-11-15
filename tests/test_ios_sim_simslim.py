@@ -49,9 +49,16 @@ class Harness:
         self.fake.chmod(0o755)
         self.log = self.tmp / "calls.log"
         self.log.touch()
+        # xcrun: records `simctl ...` calls into the same log, prefixed.
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        xcrun = bindir / "xcrun"
+        xcrun.write_text('#!/bin/bash\nprintf \'xcrun %s\\n\' "$*" >> "$FAKE_LOG"\n')
+        xcrun.chmod(0o755)
+        self.bindir = bindir
 
     def run(self, body, **env):
-        full = {"PATH": os.environ["PATH"], "HOME": str(self.tmp), "FAKE_LOG": str(self.log),
+        full = {"PATH": f"{self.bindir}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_LOG": str(self.log),
                 "CMUX_SIMSLIM_BIN": str(self.fake)}
         full.update(env)
         script = f"""
@@ -172,7 +179,47 @@ class HelperTest(unittest.TestCase):
         h = Harness(self)
         r = h.run(self.LIFECYCLE, CMUX_SIMSLIM_BIN=str(h.tmp / "missing"))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("WARNING stock, simslim 0.14.0 unavailable", h.summary())
+        self.assertIn("WARNING stock, simslim 0.14.0 unavailable (no executable at", h.summary())
+        self.assertEqual(h.calls(), [])
+
+    def test_slim_boots_and_gates_before_xcodebuild(self):
+        h = Harness(self)
+        r = h.run("cmux_simslim_boot_and_gate U /sims")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = h.calls()
+        self.assertEqual(calls[0], "xcrun simctl --set /sims boot U")
+        self.assertEqual(calls[1], "xcrun simctl --set /sims bootstatus U -b")
+        self.assertTrue(calls[2].startswith("--set /sims doctor U"))
+
+    def test_stock_leaves_the_boot_to_xcodebuild(self):
+        # Before SimSlim, a test iPhone was booted by xcodebuild after it compiled; a stock run
+        # (CMUX_SIM_FULL=1 or no simslim) keeps that, so no idle stock simulator waits on a build.
+        for env in ({"CMUX_SIM_FULL": "1"}, {"CMUX_SIMSLIM_BIN": "/nonexistent"}):
+            h = Harness(self)
+            r = h.run("cmux_simslim_prepare U; cmux_simslim_boot_and_gate U", **env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(h.calls(), [], env)
+
+    def test_parallel_testing_clones_are_reported(self):
+        h = Harness(self)
+        log = h.tmp / "ui-test.log"
+        log.write_text("Testing started\nClone 1 of iPhone 17 Pro (ABC)\n")
+        r = h.run(f"cmux_simslim_check_clones {log}; cmux_simslim_check_clones {h.tmp}/none.log")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("ui-test.log ran on parallel-testing clones", h.summary())
+        quiet = Harness(self)
+        log2 = quiet.tmp / "t.log"
+        log2.write_text("Testing started\n")
+        quiet.run(f"cmux_simslim_check_clones {log2}")
+        self.assertNotIn("clones", quiet.summary())
+
+    def test_a_doctor_that_cannot_check_says_so(self):
+        h = Harness(self)
+        fake = h.fake.read_text().replace('echo "  BROKEN push"; ', '')
+        h.fake.write_text(fake)
+        r = h.run("cmux_simslim_gate U", FAKE_DOCTOR_FAIL="1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("doctor could not check it", h.summary())
 
     def test_another_simslim_version_is_not_used(self):
         h = Harness(self)
@@ -183,12 +230,21 @@ class HelperTest(unittest.TestCase):
 
 
 class StepWiringTest(unittest.TestCase):
-    def test_every_simulator_the_step_creates_is_prepared_and_gated(self):
-        text = SCRIPT.read_text()
-        creates = text.count("simctl create")
-        self.assertGreaterEqual(creates, 4)
-        self.assertEqual(text.count("cmux_simslim_prepare "), creates)
-        self.assertEqual(text.count("cmux_simslim_gate "), creates)
+    def test_every_simulator_the_step_creates_is_prepared_before_it_boots(self):
+        import re
+        lines = SCRIPT.read_text().splitlines()
+        creates = [i for i, l in enumerate(lines) if re.search(r"simctl.* create ", l) and "=" in l]
+        self.assertGreaterEqual(len(creates), 4)
+        for i in creates:
+            var = re.match(r"\s*([a-z_]+)=", lines[i]).group(1)
+            window = lines[i + 1:i + 6]
+            prep = [j for j, l in enumerate(window) if f'cmux_simslim_prepare "${var}"' in l]
+            boots = [j for j, l in enumerate(lines[i + 1:i + 40]) if re.search(rf'simctl.* boot "\${var}"', l)]
+            self.assertTrue(prep, f"line {i + 1}: {var} is not prepared right after create")
+            self.assertTrue(not boots or prep[0] < boots[0], f"line {i + 1}: {var} boots before it is prepared")
+            rest = "\n".join(lines[i + 1:i + 40])
+            self.assertTrue(f'cmux_simslim_gate "${var}"' in rest or f'cmux_simslim_boot_and_gate "${var}"' in rest,
+                            f"line {i + 1}: {var} is never gated")
 
 
 if __name__ == "__main__":

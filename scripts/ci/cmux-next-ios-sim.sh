@@ -667,17 +667,17 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   # xcodebuild sees only the default device set: the tests get their own new
   # iPhone there, deleted by its UDID afterwards (never another step's device).
   test_udid="$(xcrun simctl create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
-  # Booted here so its slim state is gated before the tests; xcodebuild uses the booted device.
+  # A slim one is booted and gated before the tests (xcodebuild uses the booted device); a
+  # stock one is left for xcodebuild to boot after it compiles, as before.
   cmux_simslim_prepare "$test_udid"
-  xcrun simctl boot "$test_udid"
-  xcrun simctl bootstatus "$test_udid" -b >/dev/null
-  cmux_simslim_gate "$test_udid"
+  cmux_simslim_boot_and_gate "$test_udid"
   set +e
   (cd cmux-next-ios/CmuxMobileKit && env ${kit_env[@]+"${kit_env[@]}"} xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
     -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${kit_only[@]+"${kit_only[@]}"}) >"$work/test.log" 2>&1
   test_status=$?
   set -e
+  cmux_simslim_check_clones "$work/test.log"
   xcrun simctl shutdown "$test_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$test_udid" >/dev/null 2>&1 || true
   test_udid=""
@@ -844,12 +844,15 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   recorder=""
-  # Booted first so its slim state is gated and a recording covers the whole run; the test
-  # run uses the booted device.
   cmux_simslim_prepare "$ui_udid"
-  xcrun simctl boot "$ui_udid"
-  xcrun simctl bootstatus "$ui_udid" -b >/dev/null
-  cmux_simslim_gate "$ui_udid"
+  if [[ $ui_video -eq 1 || $ui_profile -eq 1 ]]; then
+    # Booted first so the recording covers the whole run; the test run uses the booted device.
+    xcrun simctl boot "$ui_udid"
+    xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+    cmux_simslim_gate "$ui_udid"
+  else
+    cmux_simslim_boot_and_gate "$ui_udid"
+  fi
   ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui"
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
@@ -884,6 +887,7 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     ui_status=$?
   fi
   ui_seconds=$((SECONDS - ui_t0))
+  cmux_simslim_check_clones "$work/ui-test.log"
   if [[ -n "$recorder" ]]; then
     # recordVideo finishes the file on SIGINT.
     kill -INT "$recorder" 2>/dev/null
@@ -907,14 +911,13 @@ fi
 if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
   perf_udid="$(xcrun simctl create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   cmux_simslim_prepare "$perf_udid"
-  xcrun simctl boot "$perf_udid"
-  xcrun simctl bootstatus "$perf_udid" -b >/dev/null
-  cmux_simslim_gate "$perf_udid"
+  cmux_simslim_boot_and_gate "$perf_udid"
   perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited)')
   if [[ "$mode" == chief-live-perf-baseline ]]; then
     perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CHIEF_LIVE_BASELINE')
   fi
-  note "## Chief live layout ($mode): three runs, one warm-up + three samples per run"
+  # Compare only receipts with the same simulators line: a slim and a stock simulator differ.
+  note "## Chief live layout ($mode): three runs, one warm-up + three samples per run; simulators: $cmux_simslim_mode"
   note "- harness sha256: $(shasum -a 256 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/ChiefLiveLayoutPerformanceTests.swift | awk '{print $1}')"
   perf_status=0
   for run in 1 2 3; do

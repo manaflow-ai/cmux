@@ -4,11 +4,14 @@
 # A stock iOS 26.5 simulator runs ~280 processes and ~4.5 GB phys_footprint; slimmed with
 # fleet.json it runs ~80 and ~1.1 GB (aws-m4pro-8, 2026-11-15). Sourced by the scripts that
 # create simulators. Every simulator a run creates is slimmed before its first boot and gated
-# after it; nothing here touches a simulator the run did not create, or the host.
+# after it; nothing here touches a simulator the run did not create. On the host, simslim
+# writes only that simulator's overrides file (/private/var/tmp/com.apple.CoreSimulator.SimDevice.UDID).
 #
 #   cmux_simslim_init WORK_DIR OUT_DIR     once, before any simulator: fetch the pinned simslim
 #   cmux_simslim_prepare UDID [SET]        after `simctl create`, before the first boot
 #   cmux_simslim_gate UDID [SET]           once booted: doctor + verify; non-zero fails the run
+#   cmux_simslim_boot_and_gate UDID [SET]  slim: boot now and gate; stock: nothing (xcodebuild boots)
+#   cmux_simslim_check_clones LOG          warn when an xcodebuild run cloned its simulator
 #   cmux_simslim_measure UDID LABEL [SET]  booted: phys_footprint into OUT_DIR/simslim/LABEL.json
 #
 # Per run (env):
@@ -58,7 +61,7 @@ cmux_simslim_init() {
     cmux_simslim_bin="$CMUX_SIMSLIM_BIN"
   else
     local tgz="$work/simslim/simslim.tgz" got
-    if curl -fsSL --retry 3 --retry-delay 2 -o "$tgz" \
+    if curl -fsSL --connect-timeout 10 --max-time 120 --retry 3 --retry-delay 2 -o "$tgz" \
       "https://github.com/MobAI-App/simslim/releases/download/v$cmux_simslim_version/simslim-v$cmux_simslim_version-macos-arm64.tar.gz"; then
       got="$(shasum -a 256 "$tgz" | awk '{ print $1 }')"
       if [[ "$got" == "$cmux_simslim_sha256" ]] && tar -xzf "$tgz" -C "$work/simslim" simslim; then
@@ -68,13 +71,20 @@ cmux_simslim_init() {
       fi
     fi
   fi
-  if [[ -z "$cmux_simslim_bin" || ! -x "$cmux_simslim_bin" ]] ||
-     [[ "$("$cmux_simslim_bin" --version 2>/dev/null)" != "simslim $cmux_simslim_version" ]]; then
+  local why=""
+  if [[ -z "$cmux_simslim_bin" ]]; then
+    why="download or checksum failed"
+  elif [[ ! -x "$cmux_simslim_bin" ]]; then
+    why="no executable at $cmux_simslim_bin"
+  elif [[ "$("$cmux_simslim_bin" --version 2>/dev/null)" != "simslim $cmux_simslim_version" ]]; then
+    why="$cmux_simslim_bin is not simslim $cmux_simslim_version"
+  fi
+  if [[ -n "$why" ]]; then
     cmux_simslim_bin=""
     if [[ "${CMUX_SIM_FULL:-0}" == 1 ]]; then
-      _cmux_simslim_note "- simulators: stock (CMUX_SIM_FULL=1); simslim $cmux_simslim_version unavailable, no memory receipt"
+      _cmux_simslim_note "- simulators: stock (CMUX_SIM_FULL=1); simslim $cmux_simslim_version unavailable ($why), no memory receipt"
     else
-      _cmux_simslim_note "- simulators: WARNING stock, simslim $cmux_simslim_version unavailable (download or checksum failed)"
+      _cmux_simslim_note "- simulators: WARNING stock, simslim $cmux_simslim_version unavailable ($why)"
     fi
     cmux_simslim_mode=unavailable
     return 0
@@ -111,7 +121,13 @@ cmux_simslim_gate() {
   if ! _cmux_simslim --set "$set" doctor "$udid" --requires "$cmux_simslim_requires" \
       >"$cmux_simslim_out/doctor-$udid.txt" 2>&1; then
     cat "$cmux_simslim_out/doctor-$udid.txt" >&2
-    _cmux_simslim_note "- simslim gate FAILED on $udid: $(grep -c BROKEN "$cmux_simslim_out/doctor-$udid.txt") required feature(s) broken (simslim/doctor-$udid.txt)"
+    local broken
+    broken="$(grep -c BROKEN "$cmux_simslim_out/doctor-$udid.txt" || true)"
+    if [[ "$broken" -gt 0 ]]; then
+      _cmux_simslim_note "- simslim gate FAILED on $udid: $broken required feature(s) broken (simslim/doctor-$udid.txt)"
+    else
+      _cmux_simslim_note "- simslim gate FAILED on $udid: doctor could not check it (simslim/doctor-$udid.txt)"
+    fi
     return 1
   fi
   if ! _cmux_simslim --set "$set" verify "$udid" --profile "$cmux_simslim_profile" \
@@ -133,4 +149,25 @@ import json, sys
 d = json.loads(sys.argv[1])
 print("%d processes, %.2f GB phys_footprint" % (d["processes"], d["bytes"] / 1e9))
 ' "$json")"
+}
+
+cmux_simslim_boot_and_gate() {
+  local udid=$1 set=${2:-} set_args=()
+  [[ "$cmux_simslim_mode" == slim ]] || return 0
+  [[ -n "$set" ]] && set_args=(--set "$set")
+  xcrun simctl ${set_args[@]+"${set_args[@]}"} boot "$udid"
+  xcrun simctl ${set_args[@]+"${set_args[@]}"} bootstatus "$udid" -b >/dev/null
+  cmux_simslim_gate "$udid" "$set"
+}
+
+# Parallel testing clones its simulator per worker, and a clone starts stock (overrides do not
+# survive `simctl clone`), so a run that cloned did not test on the slim simulator it gated.
+# The step's schemes do not parallelize today; this says so if one starts to.
+cmux_simslim_check_clones() {
+  local log=$1
+  [[ "$cmux_simslim_mode" == slim && -f "$log" ]] || return 0
+  if grep -q -E "Clone [0-9]+ of " "$log"; then
+    _cmux_simslim_note "- WARNING: $(basename "$log") ran on parallel-testing clones, which start stock and ungated"
+  fi
+  return 0
 }
