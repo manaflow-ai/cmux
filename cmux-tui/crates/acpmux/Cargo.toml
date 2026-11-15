@@ -71,6 +71,7 @@ cmux-netwatch.workspace = true
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
+cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).
 cmux-journal.workspace = true
@@ -193,6 +194,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+cmux-build-space = { workspace = true, features = ["testing"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
 proptest = { version = "1", default-features = false, features = ["std"] }
 # The NEXT Cloud network list (`vm.networks`), whose id the tunnel tests attach with.

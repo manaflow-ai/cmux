@@ -38,6 +38,7 @@ serde_json.workspace = true
 syn = { version = "=3.0.6", features = ["full"] }
 
 [dev-dependencies]
+cmux-build-space = { workspace = true, features = ["testing"] }
 cmux-cloud-config.workspace = true
 rustls.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }

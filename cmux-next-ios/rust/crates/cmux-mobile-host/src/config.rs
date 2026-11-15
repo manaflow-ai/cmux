@@ -116,6 +116,13 @@ pub struct HostConfig {
     pub services: ServiceConfig,
 }
 
+/// The build space `var` (an environment lookup) names, by the one rule every
+/// Rust cloud client shares (`cmux_build_space::resolve`: `CMUX_BUILD_SPACE`,
+/// or the older `CMUX_MOBILE_BUILD_SPACE`).
+pub fn build_space_in(var: impl Fn(&str) -> Option<String>) -> Result<Option<BuildSpace>> {
+    Ok(build_space_from(var("CMUX_MOBILE_BUILD_SPACE").as_deref()))
+}
+
 /// `CMUX_MOBILE_BUILD_SPACE`'s build space; a malformed value is dropped
 /// (the backend would refuse it) with a warning, never sent.
 pub fn build_space_from(value: Option<&str>) -> Option<BuildSpace> {

@@ -15,6 +15,9 @@ use crate::error::{Error, Result};
 pub struct Network {
     http: reqwest::blocking::Client,
     client_version: String,
+    /// This build's space: a dev build's joining machine pairs in its own space (its own
+    /// PairingDO), never in nightly's.
+    space: Option<cmux_build_space::BuildSpace>,
 }
 
 impl Network {
@@ -23,6 +26,12 @@ impl Network {
     }
 
     pub fn with_client_version(version: &str) -> Result<Self> {
+        Self::in_space(version, cmux_build_space::process().map(|space| space.cloned()))
+    }
+
+    /// [`Self::with_client_version`] in `space`; an unusable space pairs nothing.
+    pub fn in_space(version: &str, _space: cmux_build_space::Resolved) -> Result<Self> {
+        let space = None;
         version.parse::<reqwest::header::HeaderValue>().map_err(|_| invalid())?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::blocking::Client::builder()
@@ -33,7 +42,7 @@ impl Network {
             .user_agent(concat!("cmux-server/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| unavailable())?;
-        Ok(Self { http, client_version: version.into() })
+        Ok(Self { http, client_version: version.into(), space })
     }
 
     fn json(&self, request: reqwest::blocking::RequestBuilder) -> Result<Value> {
@@ -156,7 +165,8 @@ impl super::Transport for Network {
             .enable_all()
             .build()
             .map_err(|_| unavailable())?;
-        let result = runtime.block_on(wait(api, begun, Duration::from_millis(left)));
+        let result =
+            runtime.block_on(wait(api, begun, self.space.as_ref(), Duration::from_millis(left)));
         runtime.shutdown_timeout(Duration::from_secs(1));
         result
     }
@@ -172,8 +182,13 @@ fn wait_budget(expires_at: u64, now_ms: u64) -> u64 {
         .min(MAX_WAIT_MS + MAX_CLOCK_SKEW_MS)
 }
 
-async fn wait(api: &str, begun: &Begun, remaining: Duration) -> Result<Waited> {
-    let request = request(api, begun)?;
+async fn wait(
+    api: &str,
+    begun: &Begun,
+    space: Option<&cmux_build_space::BuildSpace>,
+    remaining: Duration,
+) -> Result<Waited> {
+    let request = request(api, begun, space)?;
     let config = socket_config();
     let deadline = tokio::time::Instant::now() + remaining;
     let (socket, response) = match tokio::time::timeout_at(
@@ -212,6 +227,7 @@ fn handshake_refused(error: tokio_tungstenite::tungstenite::Error) -> Result<Wai
 fn request(
     api: &str,
     begun: &Begun,
+    _space: Option<&cmux_build_space::BuildSpace>,
 ) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request> {
     let mut url = url::Url::parse(api).map_err(|_| invalid())?;
     url.set_scheme("wss").map_err(|_| invalid())?;
