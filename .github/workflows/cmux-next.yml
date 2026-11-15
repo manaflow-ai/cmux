@@ -87,9 +87,7 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - docs/configuration.md
-      # cmux-tui's help-contract tests include_str! this one (acpmux and
-      # cmux-tui both check their help against it), so it is in the tree key
-      # and a change to it has to rebuild and re-run them.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-353
       - docs/remote-agents-and-cloud.md
       - webviews/test/fixtures/**
       # The web bundles' sources (build output since cx-vn5; the package tests
@@ -134,6 +132,7 @@ on:
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
       - tests/test_cmux_next_base_tier.py
+      - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
       - scripts/ci/deadline_http.py
@@ -295,9 +294,7 @@ on:
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
-      # Keep the workflow eligible for every cmux-next product and CI input.
-      # The router still selects the exact tier; this list only decides whether
-      # the workflow starts at all.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-354
       - Packages/macOS/**
       - scripts/cmux-next/**
       - scripts/whats-new/**
@@ -476,6 +473,7 @@ on:
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
       - tests/test_cmux_next_base_tier.py
+      - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
       - scripts/ci/deadline_http.py
@@ -699,11 +697,15 @@ on:
         required: false
         default: false
         type: boolean
-      # The safety net under CI_NEXT_JOB_REUSE: a dispatch with no_reuse runs every job
-      # in full, reusing no recorded pass (it still records its own). A nightly one on
-      # feat-cmux-next re-checks what the day's reused results stood on.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-355
       no_reuse:
         description: "Run every job in full: reuse no pass recorded on the same inputs (CI_NEXT_JOB_REUSE)"
+        required: false
+        default: false
+        type: boolean
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-365
+      full:
+        description: "On a working-branch dispatch, also run the scheme compile and the Release compile"
         required: false
         default: false
         type: boolean
@@ -718,16 +720,9 @@ env:
   # HQ's public cache edge serves read-only restores from every runner; writes
   # use the controller-owned R2 credentials in the seed steps below.
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
-  # Structural, style, size and drift guards (god files, size caps, package
-  # conventions, motion tokens, type scale, scrollbars, icons, copy lints,
-  # generated-doc drift) still run and print their findings, but only warn
-  # (Leo, 2026-10-19: they failed pull requests for reasons unrelated to the
-  # change). Correctness and safety checks still fail. Set to `fail` to make
-  # the style guards block again.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-356
   CMUX_NEXT_STYLE_GUARDS: warn
-  # The label attempt 1's macOS jobs take when macos-placement finds an idle
-  # owned runner for them: a glaeda-* label means a mini. Each macOS job's
-  # runs-on, and its own CMUX_NEXT_RUNNER, restate it with the placement.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-357
   CMUX_NEXT_SIDE_ROUTE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26')) }}
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
@@ -860,9 +855,7 @@ jobs:
     needs: [portable-placement]
     if: ${{ always() && !cancelled() && inputs.same_tree_sha == '' }}
     name: cmux-next path routing
-    # The run's router: a declared light job (.github/runners.json hosted_light_jobs), 30-50 s of work
-    # (a depth-2 checkout, the path classifier, a read-only tree probe). A fresh placement observation
-    # takes fleet Linux or an idle mini first; a hosted/paid route remains the fail-open fallback.
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-358
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' path_route ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' path_route ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-88
     timeout-minutes: 8
@@ -923,6 +916,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-96
           DEV_LANDING_COMPILE: ${{ format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
+          FULL_DISPATCH: ${{ inputs.full || false }}
           GH_TOKEN: ${{ github.token }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-97
           EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
@@ -1121,6 +1115,12 @@ jobs:
               python3 scripts/ci/cmux_next_base_tier.py defer "$routed" "${keep[@]}" >> "$GITHUB_OUTPUT"
               echo '- base tier (daemon tests, generated files, scheme compile): left to the cmux-next base tier run on the tip, at most 15 minutes away (cmux-next-base-tier-kick.yml).' >> "$GITHUB_STEP_SUMMARY"
             fi
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-365
+            if [[ "$EVENT_NAME" == workflow_dispatch && -z "$SAME_TREE_SHA" && "$FULL_DISPATCH" != true \
+              && "$GITHUB_REF" != refs/heads/feat-cmux-next && "$GITHUB_REF" != refs/heads/next-batch/* ]]; then
+              printf 'scheme=false\nnative=false\n' >> "$GITHUB_OUTPUT"
+              echo '- working-branch dispatch: the scheme and Release compiles are skipped (dispatch with full=true to run them).' >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
           # Whether this pull request changes the cmux-tui it would test against:
           # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
@@ -1146,12 +1146,7 @@ jobs:
             echo "own_tui=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # One look (and one short re-check of a missing run list), no wait.
-      # Fails open: the tiers above are already routed, so a probe that errs or
-      # passes its 2 minutes leaves tree_state empty (the tree jobs skip) and
-      # every other routed job still runs (2026-10-27: per-run fetches of a
-      # lane-branch push burst held this step past the job limit, and the
-      # cancelled job skipped the Release compiles and swift test).
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-359
       - name: Probe the same-tree cmux-tui
         id: tree
         if: (steps.route.outputs.daemon == 'true' || steps.route.outputs.scheme == 'true')
@@ -1717,6 +1712,8 @@ jobs:
             bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
             [concurrency]
             scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+            # Heavy and blocking work on the main actor, ratcheted (plans/cmux-next/main-thread-guarantee-DESIGN.md).
+            python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
             [overlay-glass]
             python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
             [checks-structure]
@@ -1727,6 +1724,7 @@ jobs:
             [tier-routing]
             python3 tests/test_cmux_next_route.py
             python3 tests/test_cmux_next_base_tier.py
+            python3 tests/test_cmux_next_dispatch_heavy_compiles.py
             python3 tests/test_ci_target_graph.py
             python3 tests/test_ci_swiftpm_build_metrics.py
             python3 tests/test_cmux_next_route_replay.py
@@ -1845,6 +1843,7 @@ jobs:
             bash scripts/cmux-next/tests/fast-tier.test.sh
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
             bash scripts/cmux-next/tests/check-button-radius.test.sh
+            bash scripts/cmux-next/tests/check-pressed-state.test.sh
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-single-omnibar.test.sh
@@ -1961,10 +1960,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           FULL_CI: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           BEFORE: ${{ github.event.before }}
-        # A pull request or push that does not grow the App's source passes even
-        # over the cap: a pull request compares with its merge commit's first
-        # parent, a push with the commit before it (fetched: checkout is depth 2).
-        # A push with no before commit (a new branch) keeps the plain cap.
+        # Why: docs/ci/cmux-next-workflow-notes.md#note-360
         run: |
           if [[ "$FULL_CI" != true ]]; then
             echo "Size cap is a batch cadence check; ordinary PRs receive the fast tier only."
@@ -2104,6 +2100,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-button-radius.py "$GITHUB_WORKSPACE"
 
+      # A held button changes its background and nothing else (Lawrence 2026-11-15): no bold, size, scale,
+      # offset, dimming or icon change on :active, a held frame or a SwiftUI press (design/pressed-state.md).
+      - name: Buttons change only their fill when pressed
+        id: pressed-state
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-pressed-state.py "$GITHUB_WORKSPACE"
+
       # Animation timing comes from the Motion tokens (plans/cmux-next/motion.md),
       # Why: docs/ci/cmux-next-workflow-notes.md#note-143
       - name: Motion tokens
@@ -2216,9 +2219,7 @@ jobs:
         continue-on-error: true
         run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests
 
-      # The app's Ghostty shell integration comes from ghostty-next (the
-      # Ghostty of GhosttyNextKit and libghostty-vt): the bundle phase output
-      # must equal its source tree.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-361
       - name: Ghostty resources bundle
         id: ghostty-resources-bundle
         continue-on-error: true
@@ -2499,6 +2500,7 @@ jobs:
             No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             Scrollbars thin, one style
             Buttons round as tabs
+            Buttons change only their fill when pressed
             Motion tokens
             Overlays are glass, never solid
             Type scale
@@ -2538,6 +2540,7 @@ jobs:
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.button-radius.outcome }}|Buttons round as tabs
+            ${{ steps.pressed-state.outcome }}|Buttons change only their fill when pressed
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.type-scale.outcome }}|Type scale
@@ -3651,7 +3654,7 @@ jobs:
         run: |
           selected=()
           if [[ "$FFI_REPIN" == true ]]; then selected=(--only "app handler coverage"); fi
-          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift "${selected[@]}" --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift ${selected[@]+"${selected[@]}"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-204
       - name: Stop this job's acpmux daemons and remove its home
@@ -4239,14 +4242,7 @@ jobs:
         timeout-minutes: 40
         working-directory: Packages/macOS/CmuxNext
         env:
-          # Whole-run limit per pass. The hang guard is the stall rule (no test
-          # finished in CMUX_NEXT_TEST_STUCK_SECONDS, default 300), so a real
-          # hang ends in ~5 min; this only caps a slow healthy pass (~860 s).
-          # Both passes share one deadline below the step's 40 minutes. On a
-          # 6-vCPU overflow Mac the shards run one at a time (width 1): the
-          # broad pass took 1,266-1,371 s over four runs and 1,725 s in run
-          # 41372093339, where the last shard (CmuxNextAppTests.Cloud, ~90 s
-          # alone) started with 33 s left and was cut at its 60 s floor.
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-362
           CMUX_NEXT_TEST_HANG_SECONDS: "1500"
           # Why: docs/ci/cmux-next-workflow-notes.md#note-52
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
@@ -5924,9 +5920,7 @@ jobs:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-294
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme')))) }}
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
-    # A push's Mac fallback waits only when the fleet compile check gives no verdict.
-    # It is never cancelled once it runs; a newer push is filtered by the head
-    # preflight before it can take a runner.
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-363
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-cmux-scheme-compile', github.ref) || format('cmux-next-run-{0}-cmux-scheme-compile', github.run_id) }}
       cancel-in-progress: false
@@ -5939,11 +5933,7 @@ jobs:
       statuses: write
     # Why: docs/ci/cmux-next-workflow-notes.md#note-72
     timeout-minutes: 60
-    # The crash gate step's outcome, for the crash-ends-app job (that job is the red check, so a
-    # crash freeze never fails the app-producing job the dogfood and daily publishers read).
-    # No perf step runs here (Lawrence 2026-10-23: nothing perf-related blocks or slows a push or a
-    # pull request): the launch-time budget and the perf counter gate run in the perf cron,
-    # .github/workflows/cmux-next-perf-budgets.yml, on the bench host.
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-364
     outputs:
       crash_gate: ${{ steps.crash-gate.outcome }}
     env:
@@ -6539,7 +6529,7 @@ jobs:
     name: same-tree status (daemon)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       actions: read
       checks: read
@@ -6589,7 +6579,7 @@ jobs:
     name: same-tree status (scheme)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       actions: read
       checks: read
