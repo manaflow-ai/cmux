@@ -21,7 +21,7 @@
 
 use serde_json::Value;
 
-use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
+use crate::terminal_host_protocol::{HostLaunchFailureKind, TerminalExit, TerminalExitOutcome};
 
 /// The end of one terminal incarnation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,10 +62,34 @@ pub(crate) const EXIT_OWNER_GONE: &str = "owner-gone";
 
 /// The detail prefix of a respawn whose launch failed (cx-6so.49): the
 /// terminal stays ended as `restart_failed` and never respawns again.
-pub(crate) const RESPAWN_FAILED_DETAIL: &str = "respawn-failed";
+const RESPAWN_FAILED_DETAIL: &str = "respawn-failed";
 /// The detail prefix of a terminal that used every respawn attempt of the
 /// supervisor's window (cx-6so.49): `restart_exhausted`, never respawned.
 pub(crate) const RESPAWN_EXHAUSTED_DETAIL: &str = "restart-exhausted";
+/// The code word directly after [`RESPAWN_FAILED_DETAIL`] in the detail of a
+/// respawn whose launch found no free PTY. The tab's `end` gives it as
+/// `launch_failure`, so a client can say what the person can do.
+const RESPAWN_NO_PTY_CODE: &str = HostLaunchFailureKind::PtyCapacityExhausted.reason_code();
+
+/// The detail of a respawn whose launch failed with `error`: the prefix, the
+/// code word of the cause when the launch found no free PTY (`no_pty`), then
+/// the error. It is stored in the exit receipt, so a later owner reads the
+/// same cause.
+pub(crate) fn respawn_failed_detail(error: &anyhow::Error, no_pty: bool) -> String {
+    if no_pty {
+        format!("{RESPAWN_FAILED_DETAIL}: {RESPAWN_NO_PTY_CODE}: {error:#}")
+    } else {
+        format!("{RESPAWN_FAILED_DETAIL}: {error:#}")
+    }
+}
+
+/// The launch failure that a `restart_failed` detail names: its code word
+/// stands directly after the prefix. A detail stored before the code word
+/// names none; the text of an error is never matched.
+fn respawn_launch_failure(detail: &str) -> Option<&'static str> {
+    let cause = detail.strip_prefix(RESPAWN_FAILED_DETAIL)?.strip_prefix(": ")?;
+    cause.strip_prefix(RESPAWN_NO_PTY_CODE)?.starts_with(": ").then_some(RESPAWN_NO_PTY_CODE)
+}
 
 /// Stable reason codes for a host loss, from the free-form reasons the owner
 /// records. Unknown text maps to `other`; the raw text stays in `detail`.
@@ -175,11 +199,19 @@ impl TerminalEnd {
                     TerminalExitOutcome::Unknown { reason } => reason.as_str(),
                     TerminalExitOutcome::Exit { .. } | TerminalExitOutcome::Signal { .. } => "",
                 };
-                serde_json::json!({
+                let mut end = serde_json::json!({
                     "kind": "host_lost",
                     "reason": host_lost_reason(detail),
                     "detail": detail,
-                })
+                });
+                // `launch_failure` (optional): why the respawn launch failed,
+                // when the detail names it.
+                if let (Some(cause), Some(fields)) =
+                    (respawn_launch_failure(detail), end.as_object_mut())
+                {
+                    fields.insert("launch_failure".to_string(), Value::from(cause));
+                }
+                end
             }
             Self::LaunchFailed(exit) => {
                 let detail = match &exit.outcome {
