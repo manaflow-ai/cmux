@@ -41,18 +41,12 @@ public import Foundation
         public var ownsMachine: @MainActor (String) async -> Bool
         /// Whether `machineID` runs now, from the app's record (never a wake).
         public var isLive: @MainActor (String) -> Bool
-        /// The cmux team the machines' exec and file routes act in (`x-cmux-team`): the install token's team,
-        /// as ``CloudAPIClient/workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:installToken:)``
-        /// sends it. Never the scope's Stack team id, which those routes refuse ("x-cmux-team must name a team
-        /// id"): with it every Codex delivery failed and the machine's Codex ran with no key (2026-11-15).
-        public var machineTeam: @Sendable () async -> String?
 
         public init(credential: @escaping @Sendable () async -> String?, acpmux: @escaping @Sendable () async -> URL?,
                     currentScope: @escaping @MainActor () -> CloudCodexBrokerScope?,
-                    ownsMachine: @escaping @MainActor (String) async -> Bool, isLive: @escaping @MainActor (String) -> Bool,
-                    machineTeam: @escaping @Sendable () async -> String?) {
+                    ownsMachine: @escaping @MainActor (String) async -> Bool, isLive: @escaping @MainActor (String) -> Bool) {
             self.credential = credential; self.acpmux = acpmux; self.currentScope = currentScope
-            self.ownsMachine = ownsMachine; self.isLive = isLive; self.machineTeam = machineTeam
+            self.ownsMachine = ownsMachine; self.isLive = isLive
         }
     }
 
@@ -344,7 +338,6 @@ public import Foundation
         let run = fields["run"].flatMap { Int($0) }.flatMap { runs[$0] }
         switch kind {
         case "credential": return await answers.credential().map(Answer.text) ?? .null
-        case "team": return await answers.machineTeam().map(Answer.text) ?? .null
         case "owner": return .flag(await answers.ownsMachine(machine))
         case "live": return .flag(answers.isLive(machine))
         case "consent": return .flag(consent?() ?? false)

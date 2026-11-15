@@ -95,14 +95,6 @@ pub trait Questions: Send + Sync {
     async fn owns(&self, machine: &str) -> Result<bool, Error>;
     /// The app's record of the machine says it runs.
     async fn live(&self, machine: &str) -> Result<bool, Error>;
-    /// The cmux team the machine routes act in (`x-cmux-team`): the app's install token's team, as
-    /// its own Worker machines client sends (`CloudAPIClient.workerMachines`). The scope's team is
-    /// the app's Stack team id, which those routes refuse ("x-cmux-team must name a team id"), so
-    /// every delivery failed before this (Leo's NIGHTLY, 2026-11-15). None: an app that does not
-    /// answer, which keeps the scope's team as before.
-    async fn machine_team(&self) -> Option<String> {
-        None
-    }
 }
 
 /// The running bridge's status, as the machine's work user.
@@ -172,16 +164,6 @@ fn other(error: VmError) -> Error {
     Error::Other(error.message)
 }
 
-impl MachineTarget {
-    /// The team every route of this machine is called in: the app's answer, else the scope's.
-    async fn route_team(&self) -> Option<String> {
-        match self.questions.machine_team().await.filter(|team| !team.trim().is_empty()) {
-            Some(team) => Some(team),
-            None => self.team.clone(),
-        }
-    }
-}
-
 #[async_trait]
 impl Target for MachineTarget {
     fn machine_id(&self) -> &str {
@@ -202,7 +184,7 @@ impl Target for MachineTarget {
         }
         let result = self
             .machines
-            .exec(self.route_team().await.as_deref(), &self.machine, STATUS_COMMAND, 8_000)
+            .exec(self.team.as_deref(), &self.machine, STATUS_COMMAND, 8_000)
             .await
             .map_err(other)?;
         let ready = result.exit_code == 0 && supports_external_access(&result.stdout);
@@ -214,13 +196,11 @@ impl Target for MachineTarget {
     }
 
     async fn make_directory(&self, path: &str) -> Result<(), Error> {
-        let team = self.route_team().await;
-        self.machines.mkdir(team.as_deref(), &self.machine, path).await.map_err(other)
+        self.machines.mkdir(self.team.as_deref(), &self.machine, path).await.map_err(other)
     }
 
     async fn read_file(&self, path: &str) -> Result<Option<Vec<u8>>, Error> {
-        let team = self.route_team().await;
-        match self.machines.read(team.as_deref(), &self.machine, path).await {
+        match self.machines.read(self.team.as_deref(), &self.machine, path).await {
             Ok(data) => Ok(Some(data)),
             Err(error) if error.not_found() => Ok(None),
             Err(error) => Err(other(error)),
@@ -229,7 +209,7 @@ impl Target for MachineTarget {
 
     async fn write_file(&self, path: &str, data: &[u8], mode: u32) -> Result<(), Error> {
         self.machines
-            .write(self.route_team().await.as_deref(), &self.machine, path, data, Some(mode))
+            .write(self.team.as_deref(), &self.machine, path, data, Some(mode))
             .await
             .map_err(other)
     }
@@ -238,7 +218,7 @@ impl Target for MachineTarget {
         let command = commit_command(a, b, c, d);
         let result = self
             .machines
-            .exec(self.route_team().await.as_deref(), &self.machine, &command, 8_000)
+            .exec(self.team.as_deref(), &self.machine, &command, 8_000)
             .await
             .map_err(other)?;
         if result.exit_code != 0 {
@@ -248,8 +228,7 @@ impl Target for MachineTarget {
     }
 
     async fn remove_file(&self, path: &str) -> Result<(), Error> {
-        let team = self.route_team().await;
-        match self.machines.remove(team.as_deref(), &self.machine, path).await {
+        match self.machines.remove(self.team.as_deref(), &self.machine, path).await {
             Err(error) if !error.not_found() => Err(other(error)),
             _ => Ok(()),
         }

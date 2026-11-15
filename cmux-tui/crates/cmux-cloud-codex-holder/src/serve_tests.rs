@@ -5,17 +5,9 @@ use super::*;
 use crate::target::{ACCESS_PATH, ExecResult, MODE_PATH, VmError};
 use crate::test_support::{Gate, holder_script};
 
-/// A machine's files; a read waits at the gate when one is set. The third field is the team every
-/// route must be called in (None: the scope's `team-1`).
+/// A machine's files; a read waits at the gate when one is set.
 #[derive(Default)]
-struct Files(Mutex<HashMap<String, Vec<u8>>>, Mutex<Option<Arc<Gate>>>, Mutex<Option<String>>);
-
-impl Files {
-    fn expect_team(&self, team: Option<&str>) {
-        let expected = lock(&self.2).clone().unwrap_or_else(|| "team-1".to_owned());
-        assert_eq!(team, Some(expected.as_str()), "the machine routes' team");
-    }
-}
+struct Files(Mutex<HashMap<String, Vec<u8>>>, Mutex<Option<Arc<Gate>>>);
 
 #[async_trait]
 impl Machines for Files {
@@ -26,7 +18,7 @@ impl Machines for Files {
         command: &str,
         _: u64,
     ) -> Result<ExecResult, VmError> {
-        self.expect_team(team);
+        assert_eq!(team, Some("team-1"), "the scope's team is pinned");
         if command.starts_with("if [") {
             let mut files = lock(&self.0);
             let staged: Vec<(String, Vec<u8>)> =
@@ -45,8 +37,7 @@ impl Machines for Files {
             stdout: r#"{"capabilities":["codex-external-access-v1"]}"#.into(),
         })
     }
-    async fn read(&self, team: Option<&str>, _: &str, path: &str) -> Result<Vec<u8>, VmError> {
-        self.expect_team(team);
+    async fn read(&self, _: Option<&str>, _: &str, path: &str) -> Result<Vec<u8>, VmError> {
         let gate = lock(&self.1).clone();
         if let Some(gate) = gate {
             gate.pause().await;
@@ -59,13 +50,12 @@ impl Machines for Files {
     }
     async fn write(
         &self,
-        team: Option<&str>,
+        _: Option<&str>,
         _: &str,
         path: &str,
         data: &[u8],
         _: Option<u32>,
     ) -> Result<(), VmError> {
-        self.expect_team(team);
         lock(&self.0).insert(path.into(), data.to_vec());
         Ok(())
     }
@@ -141,8 +131,6 @@ async fn a_run_over_the_pipe_asks_the_app_and_leaves_access_at_the_end_of_input(
         let value = match kind.as_str() {
             "owner" | "live" => json!(true),
             "consent" | "local_sign_in" => json!(false),
-            // An app that names no cmux team keeps the scope's.
-            "team" => Value::Null,
             "device_code" => {
                 assert_eq!(line["code"], "TEST-CODE");
                 assert_eq!(line["run"], 1);
@@ -467,67 +455,4 @@ async fn an_off_switch_fences_at_once_while_a_restore_is_blocked() {
     holder.take(&json!({"op": "pending_cleanup", "id": 2, "current": scope()}).to_string());
     assert_eq!(replied.recv().await.unwrap()["ok"], true);
     assert!(!world.delivered(), "the off switch still erased it");
-}
-
-/// The app's Stack team id is the scope's team, but the machine routes act in the cmux team (the
-/// install token's, `x-cmux-team`), which the app answers: Leo's NIGHTLY sent the Stack id and the
-/// route refused every delivery with "x-cmux-team must name a team id", so Codex ran with no key.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_machine_routes_act_in_the_team_the_app_names_not_the_stack_team() {
-    let root = tempfile::tempdir().unwrap();
-    let home = root.path().join("home");
-    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
-    let codex = home.join(".local/bin/codex");
-    std::fs::write(&codex, "#!/bin/sh\n").unwrap();
-    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let acpmux = holder_script(root.path(), HOLDER);
-    let files = Arc::new(Files::default());
-    *lock(&files.2) = Some("team_0123456789abcdef0123".to_owned());
-
-    let (mut app_in, holder_in) = tokio::io::duplex(64 * 1024);
-    let (holder_out, app_out) = tokio::io::duplex(64 * 1024);
-    let machines = files.clone();
-    let served =
-        tokio::spawn(async move { serve(holder_in, holder_out, move |_, _| machines).await });
-    let mut replies = tokio::io::BufReader::new(app_out).lines();
-    let scope = json!({"user": "user-1", "team": "cf8ec86c-31b3-4232-b83a-b4a6b0f9adf0"});
-    let send = |value: Value| format!("{value}\n");
-    app_in
-        .write_all(
-            send(json!({"op": "config", "root": root.path().join("cloud"), "user_home": home}))
-                .as_bytes(),
-        )
-        .await
-        .unwrap();
-    app_in
-        .write_all(
-            send(
-                json!({"op": "run", "id": 1, "machine": "vm_1", "scope": scope, "confirmed": true,
-                "ask_local": true, "current": scope, "acpmux": acpmux}),
-            )
-            .as_bytes(),
-        )
-        .await
-        .unwrap();
-    loop {
-        let line: Value =
-            serde_json::from_str(&replies.next_line().await.unwrap().unwrap()).unwrap();
-        if line.get("reply").is_some() {
-            assert_eq!(line["ok"], true, "{line}");
-            break;
-        }
-        let value = match line["ask"].as_str().unwrap() {
-            "owner" | "live" | "device_code" => json!(true),
-            "team" => json!("team_0123456789abcdef0123"),
-            _ => json!(false),
-        };
-        app_in
-            .write_all(send(json!({"op": "answer", "id": line["id"], "value": value})).as_bytes())
-            .await
-            .unwrap();
-    }
-    let delivered = lock(&files.0).get(ACCESS_PATH).cloned().unwrap();
-    assert!(String::from_utf8(delivered).unwrap().contains("holder-access"));
-    drop(app_in);
-    served.await.unwrap().unwrap();
 }
