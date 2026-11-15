@@ -9800,10 +9800,14 @@ class StepLayouts(unittest.TestCase):
                 except excuse.Refused:
                     continue
                 if ambiguous:
-                    # Compared whole (UnplacedSignature): only on identity, counted, with the base's whole log.
+                    # Compared whole (UnplacedSignature): only within the base's whole log, counted (cmux#43251: the
+                    # base may fail more, never the head).
                     self.assertIn("compared whole", "\n".join(said), f"case {n}")
-                    self.assertEqual(excuse.unplaced_signature(github.jobs[1], pair[0]),
-                                     excuse.unplaced_signature(github.jobs[2], pair[1]), f"case {n}: {said}")
+                    mine = excuse.unplaced_signature(github.jobs[1], pair[0])
+                    theirs = excuse.unplaced_signature(github.jobs[2], pair[1])
+                    for field in ("steps", "tests", "errors"):
+                        self.assertFalse(getattr(mine, field) - getattr(theirs, field), f"case {n} {field}: {said}")
+                    self.assertFalse(mine.unnamed or theirs.unnamed, f"case {n}: {said}")
                     seen["excused whole"] = seen.get("excused whole", 0) + 1
                     continue
                 if allowed is not None:
