@@ -494,3 +494,40 @@ fn a_focus_move_counts_in_the_evidence() {
     assert_eq!(look.body["changes"]["changed"], 1, "{}", look.body["changes"]);
     assert_eq!(look.body["changes"]["focus_moved"], true);
 }
+
+#[test]
+fn a_same_looking_element_swapped_in_under_a_kept_id_is_refused_at_use_time() {
+    // The window shows another list whose row has the same name: the row
+    // keeps its id by place and name, and its fingerprint reads the same but
+    // for the platform's identity, which differs. The click is refused.
+    let (d, e) = rig();
+    let with_list = |g: u32, list_seed: u64| {
+        let mut f = form(g, false, false, "");
+        let mut row =
+            framed(el(&format!("{g}.41"), "row", "Report.pdf"), 400.0, 300.0, 200.0, 22.0);
+        row.actions = vec!["press".into()];
+        let mut list = el(&format!("{g}.40"), "list", "Files");
+        list.children = vec![row];
+        identify(&mut list, list_seed);
+        f.children.push(list);
+        f
+    };
+    set_tree(&d, with_list(1, 500));
+    let look = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    let id = tree_text(&look)
+        .lines()
+        .find(|l| l.contains("row \"Report.pdf\""))
+        .and_then(|l| l.trim().strip_prefix('['))
+        .and_then(|l| l.split(']').next())
+        .unwrap()
+        .to_string();
+    set_tree(&d, with_list(2, 900));
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": id}));
+    assert_eq!(out.code.as_deref(), Some("stale_element"), "{}", out.body);
+    assert!(
+        out.body["error"].as_str().unwrap().contains("another element that looks the same"),
+        "{}",
+        out.body
+    );
+    assert!(d.events().is_empty());
+}

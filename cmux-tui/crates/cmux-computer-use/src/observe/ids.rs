@@ -750,6 +750,7 @@ impl WindowIds {
             value_class: value_class(&e.role, &e.value),
             nth: e.nth,
             dups: e.dups,
+            identity: e.identity,
             chain,
         })
     }
@@ -807,6 +808,9 @@ pub struct Fingerprint {
     pub nth: usize,
     /// How many siblings look the same (role and label), it included.
     pub dups: usize,
+    /// The platform's identity for the element (AXUIElement hash, AT-SPI
+    /// object, UIA RuntimeId), when it has one.
+    pub identity: Option<u64>,
     pub chain: Vec<(u32, String, String)>,
 }
 
@@ -831,6 +835,13 @@ impl Fingerprint {
         }
         if self.chain != now.chain {
             return Some("what contains it changed".into());
+        }
+        // Read both times and different: another element that looks the same
+        // (a list swapped for another with a row of the same name).
+        if let (Some(a), Some(b)) = (self.identity, now.identity)
+            && a != b
+        {
+            return Some("it is another element that looks the same".into());
         }
         None
     }
