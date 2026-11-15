@@ -2,8 +2,9 @@
 """Apply a merged feat-cmux-next commit's web and Rust parts to a running cmux NEXT app, no new build.
 
     hot-apply.py plan SHA [--app APP] [--repo DIR]
-    hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
-                       [--restart-acpmux] [--restart-sessions] [--dry-run] [--base COMMIT]
+    hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust,ffi] [--socket P] [--acpmux-home H]...
+                       [--restart-acpmux] [--restart-sessions] [--sign-identity ID | --reseal] [--dry-run]
+                       [--base COMMIT]
     hot-apply.py prefetch SHA [--app APP | --base COMMIT] [--repo DIR]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
@@ -41,12 +42,33 @@ with live_apply.py's rules:
          Chief home, Computer Use socket and policy stay). A daemon a restart would cost its chats
          (a memory store without agent hosts) or whose environment is unreadable is left, and the
          receipt lists every acpmux daemon left on the old build, with why.
-  left   what needs a new app: Swift, resources and manifests, Rust the app links, a web ABI
+  ffi    Rust the app links (its FFI crates) changed, and the app carries that Rust as one library,
+         Contents/Frameworks/libcmux_app_ffi.dylib: the library of SHA's published cmux-app-ffi
+         release replaces it across `cmux app quit --keep-sessions` and a relaunch (a warm swap:
+         the daemon and its terminals stay up), once the release is paired with the app (SHA's FFI
+         only adds to the release the app's commit pins, and the library exports every symbol the
+         app imports). An ad hoc app, or one whose signature disables library validation (a
+         NIGHTLY), takes the ad hoc library as is; another Developer ID app loads only libraries of
+         its team: --sign-identity signs with that team's identity, --reseal signs the app ad hoc
+         too (hot_apply_ffi.py has the rules). The rust part rides with it; without it, both are left.
+  left   what needs a new app: Swift, resources and manifests, Rust the app links (statically), a web ABI
          change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
          keep the app's build while the daemon part still applies)
 
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
+
+Published keys first. CI publishes each feat-cmux-next commit's hot keys (`keys SHA`, written by
+cmux-tui-artifacts.yml to files.cmux.com/cmux-next/hot-keys/SHA.json): its tree key, web source key
+and web ABI, and one digest each over the paths and blobs of the files that need a new app (`shell`:
+Swift, resources and manifests), the Rust the app links (`ffi`), the bundled helpers' inputs
+(`helpers`) and the web the app serves (`web`; the web key also covers web tests, so it only names
+what to fetch), sorted by the same rules as the diff below. When both the app's commit and SHA have
+them, `plan` compares the keys and nothing else (`via: published keys`): no fetch of SHA, no diff,
+no tree or web key computed here, and no checkout needed past resolving a short CMUXCommit. Equal
+`shell` and `ffi` digests mean the two commits differ only in what a hot apply swaps, in either
+direction, so an older SHA with the app's shell takes too. Otherwise (a commit from before the
+keys, a branch) `plan` diffs the two commits as it always has.
 
 --branch takes a branch head instead (try-pr.sh passes a pull request's): one branched before the
 app's commit is sorted from the fork, and its Rust part applies only when the app's cmux-tui tree
@@ -85,6 +107,8 @@ another pauses it), so they add up to the run:
   swap      the files renamed into place; the web overlay installed
   reload    the daemon handoff until a new owner answers; the acpmux daemons restarted. The app's
             own reload of its pages (on the overlay's manifest.json) is not seen from here.
+  quit      ffi: `cmux app quit --keep-sessions` until the app's pid is gone
+  launch    ffi: `open APP` until a new pid answers on the app's control socket, then the stay-up check
   rollback  putting back what was there after a failed check
 
 `apply --dry-run` plans, fetches and verifies every part and stops before `backup`: nothing in the
@@ -131,6 +155,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import live_apply  # noqa: E402
+import hot_apply_ffi as ffi_part  # noqa: E402
 
 TUI_BASE = os.environ.get("CMUX_HOT_APPLY_TUI_BASE") or "https://files.cmux.com/cmux-tui/tree"
 # The commit-addressed builds a tree's source.json names, which publish its companions.
@@ -142,6 +167,10 @@ COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("b
               ("host", "cmux-tui-host"), ("holder", "cmux-holder"),
               ("agent-screen-detection", "cmux-agent-screen-detection"))
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
+# Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
+HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
+HOT_KEYS_SCHEMA = 1
+MISSING_KEYS_SECONDS = 3600
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
 APP_ABI = "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"
@@ -291,10 +320,10 @@ def lists_binary(name: str):
     return check
 
 
-def fetch(url: str) -> bytes:
+def fetch(url: str, timeout: float = 300) -> bytes:
     # files.cmux.com answers Python's default user agent (Python-urllib/...) with 403.
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
-    with PHASES("fetch"), urllib.request.urlopen(request, timeout=300) as answer:
+    with PHASES("fetch"), urllib.request.urlopen(request, timeout=timeout) as answer:
         return answer.read()
 
 
@@ -352,6 +381,13 @@ def linked_rust(repo: Path, paths: list[str]) -> list[str]:
             and not any(p.startswith(d + "/") for d in excluded)]
 
 
+def ffi_input(repo: Path, path: str) -> bool:
+    """PATH is a source of the app FFI library (cmux_next_route.app_ffi_inputs, less what Cargo never builds)."""
+    inputs, excluded = ffi_part.ffi_paths(repo)
+    return (any(path == i or path.startswith(i.rstrip("/") + "/") for i in inputs)
+            and not any(path.startswith(d + "/") for d in excluded))
+
+
 def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     """The changed Rust paths the app's other bundled helpers build from (the mobile host, the diff
     sidecar): those helpers keep the app's build."""
@@ -360,8 +396,105 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
+def set_digest(blobs: dict[str, str], paths: list[str]) -> str:
+    """One sha256 over PATHS and their blobs: equal for two commits exactly when none of them changed."""
+    return hashlib.sha256("".join(f"{p}\0{blobs[p]}\n" for p in sorted(set(paths))).encode()).hexdigest()
+
+
+def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
+    """SHA's hot keys: what `plan` compares instead of diffing two commits. Each key covers one bucket's files
+    (live_apply.py's rules applied to every path of SHA's tree, as _plan applies them to a diff), so two commits
+    whose `shell` and `ffi` keys are equal differ only in parts a hot apply swaps. The FFI and helper inputs are
+    read from REPO's working tree (cmux_next_route.py), so CI runs this on SHA's own checkout."""
+    listing = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", "--full-tree", sha],
+                             capture_output=True, check=True).stdout.decode("utf-8", "replace")
+    blobs = {}
+    for entry in filter(None, listing.split("\0")):
+        meta, path = entry.split("\t", 1)
+        blobs[path] = meta.split()[2]
+    files = live_apply.classify([("M", p) for p in blobs], {})["files"]
+    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
+    shell = [p for p in files.get("rebuild", []) if p not in native] + files.get("swift-live", [])
+    daemon = files.get("daemon", []) + native
+    abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
+    return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
+            # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
+            "web": set_digest(blobs, files.get("web-live", [])),
+            "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
+            "ffi": set_digest(blobs, linked_rust(repo, daemon)), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
+
+
+def valid_keys(keys, sha: str) -> bool:
+    """KEYS is a whole hot-keys record of SHA: every field `keys_plan` reads, well formed."""
+    return (isinstance(keys, dict) and keys.get("schema") == HOT_KEYS_SCHEMA and keys.get("commit") == sha
+            and type(keys.get("web_abi")) is int
+            and all(HEX.fullmatch(str(keys.get(k))) for k in ("tree_key", "web", "web_key", "shell", "ffi", "helpers")))
+
+
+def published_keys(sha: str) -> dict | None:
+    """SHA's hot keys as CI published them (cmux-tui-artifacts.yml, mark-tree-commits), kept under
+    state/keys/hot; None when CI has not (a commit before the step, a run that failed) or the record is not
+    whole: `plan` then diffs the two commits."""
+    path = state_dir() / "keys" / "hot" / f"{sha}.json"
+    with contextlib.suppress(OSError, ValueError):
+        kept = json.loads(path.read_text())
+        if valid_keys(kept, sha):
+            return kept
+    # A miss is kept for an hour, so the apply after a prefetch (or a commit from before the keys) asks no
+    # second time; CI may still publish a new commit's keys after that.
+    missing = path.with_suffix(".missing")
+    with contextlib.suppress(OSError):
+        if time.time() - missing.stat().st_mtime < MISSING_KEYS_SECONDS:
+            return None
+    keys = None
+    with PHASES("key"), contextlib.suppress(urllib.error.URLError, OSError, ValueError):
+        keys = json.loads(fetch(f"{HOT_KEYS_BASE}/{sha}.json", timeout=10))  # the diff is the fallback: wait little
+    if not valid_keys(keys, sha):
+        write_atomic(missing, b"")
+        return None
+    write_atomic(path, json.dumps(keys).encode())
+    return keys
+
+
+def keys_plan(app: Path, sha: str, base: str, given_base: bool) -> dict | None:
+    """The plan from both commits' published keys, with no checkout of either: None when one is missing."""
+    have, want = published_keys(base), published_keys(sha)
+    if not have or not want:
+        return None
+    out = {"sha": sha, "base": base, "app": str(app), "parts": [], "left": {}, "notes": [], "via": "published keys"}
+    if want["shell"] != have["shell"]:
+        out["left"]["Swift, resources and manifests"] = [f"shell key {have['shell'][:12]} -> {want['shell'][:12]}"]
+    if want["web"] != have["web"]:
+        abi = have["web_abi"] if given_base else app_abi(app)
+        if abi == want["web_abi"]:
+            out["parts"].append("web")
+            # Kept where web_unchanged() looks a commit's key up.
+            out["web_key"] = remembered("web", sha, lambda: want["web_key"])
+        else:
+            out["left"]["web ABI"] = [f"SHA's web needs ABI {want['web_abi']}, the app has {abi}"]
+    if want["tree_key"] != have["tree_key"]:
+        out["tree_key"], out["base_tree_key"] = want["tree_key"], have["tree_key"]
+        if want["ffi"] != have["ffi"]:
+            # The app FFI may swap warm (cmux#43548): which files changed decides it (the Swift build's own Rust
+            # inputs still need an app), and only the diff knows them, so the diff plans this pair.
+            return None
+        else:
+            out["parts"].append("rust")
+            out["published"] = published(want["tree_key"])
+            if want["helpers"] != have["helpers"]:
+                out["left"]["bundled helpers (cmux-mobile-host, ...)"] = [
+                    f"helpers key {have['helpers'][:12]} -> {want['helpers'][:12]}"]
+    if not out["parts"] and not out["left"]:
+        out["notes"].append("the app already runs SHA's parts")
+    return out
+
+
 def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None = None) -> dict:
     with PHASES("plan"):
+        if not branch:
+            planned = keys_plan(app, sha, base or app_commit(app, repo), bool(base))
+            if planned:
+                return planned
         return _plan(repo, app, sha, branch, base)
 
 
@@ -456,6 +589,21 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None)
     if rust:
         linked = linked_rust(repo, rust)
         out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, since)
+        if linked:
+            # The app FFI library, when the app carries it as one (Contents/Frameworks/libcmux_app_ffi.dylib), swaps
+            # warm (hot_apply_ffi.py): SHA's published release, paired with the app's pin. The daemon part then
+            # goes with it. Rust the Swift build itself reads (the swift test job's inputs) still needs an app.
+            swift_read = [p for p in linked if not ffi_input(repo, p)]
+            try:
+                if swift_read:
+                    raise ffi_part.Left("the Swift build reads " + ", ".join(swift_read[:3]))
+                if branch:
+                    raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
+                out["ffi"] = {**ffi_part.plan(repo, None if given_base else app, sha, base), "files": linked}
+                out["parts"].append("ffi")
+                linked = []
+            except ffi_part.Left as why:
+                out["notes"].append(f"ffi: {why}")
         if linked:
             out["left"]["Rust the app links (FFI)"] = linked
         elif out["tree_key"] != out["base_tree_key"]:
@@ -676,11 +824,28 @@ def find_sockets(app: Path, cli: Path) -> list[str]:
     answers `server status` with that process's pid, the app's own session (`cmux-app...`) first;
     the app also runs other sessions' daemons from the same file (its chief's). A socket that never
     answered means a daemon may run there, and raises rather than pass for none."""
+    # One lsof for every process and every process's asks at once: a process at a time cost 0.03 s of lsof
+    # each, and Leo's NIGHTLY runs 52 from its bin (find took 4.6 to 8.8 s there at cmux 3ca1a16e3).
     hung, found = [], []
-    for pid in app_pids(app, DAEMON_NAMES):
-        lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
-        names = sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")})
-        name, unanswered = first_status(cli, names, pid)
+    pids = app_pids(app, DAEMON_NAMES)
+    by_pid: dict[str, set[str]] = {pid: set() for pid in pids}
+    if pids:
+        lsof = subprocess.run(["lsof", "-a", "-p", ",".join(pids), "-U", "-Fpn"], capture_output=True,
+                              text=True).stdout
+        current = None
+        for entry in lsof.splitlines():
+            if entry.startswith("p"):
+                current = entry[1:]
+            elif entry.startswith("n/") and current in by_pid:
+                by_pid[current].add(entry[1:])
+    import concurrent.futures
+    asked = {pid: sorted(names) for pid, names in by_pid.items() if names}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(16, len(asked)))) as pool:
+        answers = {pid: pool.submit(first_status, cli, names, pid) for pid, names in asked.items()}
+    for pid in pids:
+        if pid not in answers:
+            continue
+        name, unanswered = answers[pid].result()
         if name:
             found.append(name)
         else:
@@ -735,12 +900,29 @@ def find_socket(app: Path, cli: Path) -> str | None:
     return found[0] if found else None
 
 
+def owner_state_dir(pid) -> str | None:
+    """The CMUX_TUI_STATE_DIR daemon PID was started with (`ps eww`, this user's processes), or None."""
+    try:
+        out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    # The environment follows the argv, space-separated: the value runs to the next ` KEY=`.
+    found = re.search(r"(?:^|\s)CMUX_TUI_STATE_DIR=(.*?)(?=\s[A-Za-z_][A-Za-z0-9_]*=|$)", out.strip())
+    return found.group(1) if found and found.group(1) else None
+
+
 def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict]:
     """Each other session's daemon running from the app's bin (a Chief's) restarted onto `target`, the build
     now in place: `server restart` by its socket stops the owner the way an update hands it off (its
     terminal hosts live on) and starts one from `target` with the stopped owner's session, launch flags and
-    environment, which adopts them. Checked: a new owner answers on the socket, running `target`. The first
-    that fails raises, and the caller puts every part back."""
+    environment, which adopts them. Checked: a new owner answers on the socket, running `target`.
+
+    A daemon that refuses the restart and still serves, the same owner answering as before, is left on the
+    build it mapped, and its step names the refusal (`left`): it lost nothing, and the others still move.
+    A Chief whose owner serves another state directory refuses this way (`server.different_state`, cmux
+    bf0d3da on a fleet Mac). A daemon gone with no new owner, or a new owner on another file, raises, and
+    the caller puts every part back."""
     swapper_cls = load("rust_live", "rust-live.py").Swapper
     done = []
     for name in sockets:
@@ -752,12 +934,23 @@ def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict
             # The cmux-tui surface keeps `server` for the daemon's lifecycle in every build (the nightly's too, for
             # the rollback); on `cmux`, `server` is the machine server and refuses --socket (cmux 7a6e6fb, a Chief's).
             surface = target.with_name("cmux-tui") if target.with_name("cmux-tui").exists() else target
+            # The restart's own ensure checks the owner against the CLI's state root; a Chief's daemon keeps
+            # its session in its own (CMUX_TUI_STATE_DIR, which the restart does not carry), so without it
+            # the check read the default root and refused (server.different_state, Leo's NIGHTLY 8568ebc).
+            env = dict(os.environ)
+            state_dir = owner_state_dir(before[0]) if before else None
+            if state_dir:
+                env["CMUX_TUI_STATE_DIR"] = state_dir
             ran = subprocess.run([str(surface), "--socket", name, "--json", "server", "restart"],
-                                 capture_output=True, text=True, timeout=180)
+                                 capture_output=True, text=True, timeout=180, env=env)
             now = swapper.owner(target, timeout=30)
         step = {"socket": name, "old_pid": before[0] if before else None, "new_pid": now[0] if now else None,
                 "seconds": round(time.monotonic() - t0, 3)}
         done.append(step)
+        if ran.returncode != 0 and before and now and now[0] == before[0]:
+            step["left"] = f"refused (exit {ran.returncode}), still served by its owner: " \
+                           f"{(ran.stderr or ran.stdout).strip()[-300:]}"
+            continue
         if ran.returncode != 0 or not now or (before and now[0] == before[0]):
             raise RuntimeError(f"`server restart` on {name} left no new owner (exit {ran.returncode}): "
                                f"{(ran.stderr or ran.stdout).strip()[-300:]}")
@@ -822,6 +1015,10 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, 
         raise RuntimeError(f"{target} hashes to {have}, not {want}")
     if others and sessions and not ssh:
         step["sessions"] = restart_sessions(target, others, state)
+        refused = [one["socket"] for one in step["sessions"] if "left" in one]
+        if refused:
+            step["left_on_old_build"] = refused
+            step["left_on_old_build_why"] = "refused the restart and still served by its owner (each session's `left`)"
     return step
 
 
@@ -1093,8 +1290,7 @@ def web_unchanged(live, key: str) -> bool:
         return False
 
 
-def apply_web(repo: Path, sha: str, live) -> dict:
-    key = web_key(repo, sha)
+def apply_web(key: str, sha: str, live) -> dict:
     bundles = web_bundles(key, state_dir())
     with PHASES("swap"):
         installed = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "install", str(bundles),
@@ -1158,6 +1354,26 @@ def command_apply(args) -> int:
     target = (app / BIN / "cmux").resolve()
     undo: dict = {}
     receipt["unchanged"] = []
+    ffi_how = ffi_new = ffi_checksum = None
+    if "ffi" in parts and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]:
+        # Before any part changes: the daemon part rides with the library, so one the app cannot take keeps both.
+        try:
+            ffi_how = ffi_part.how_to_sign(app, args.sign_identity, args.reseal)
+            ffi_new, ffi_checksum = ffi_part.fetch_library(planned["ffi"]["source"], state, fetch, fetch_kept)
+            with PHASES("verify"):
+                missing = sorted(ffi_part.imports(app) - ffi_part.exports(ffi_new))
+            if missing:
+                raise ffi_part.Left(f"the library lacks {len(missing)} symbol(s) the app imports: "
+                                    + ", ".join(missing[:5]))
+        except ffi_part.Left as why:
+            ffi_new = None
+            receipt["left"]["ffi"] = [str(why)]
+            receipt["left"]["Rust the app links (FFI)"] = planned["ffi"]["files"]
+            parts = [p for p in parts if p not in ("ffi", "rust")]
+            if not parts:
+                receipt["seconds"] = round(time.monotonic() - t0, 3)
+                record(state, receipt, last=False)
+                return 3
     try:
         if "rust" in parts:
             # --binary: a cmux binary built for SHA elsewhere (try-pr.sh: the PR's fleet dev build).
@@ -1205,14 +1421,30 @@ def command_apply(args) -> int:
             if left:  # they keep the build they mapped
                 receipt["steps"]["rust"]["acpmux_left_on_old_build"] = left
         if "web" in parts:
-            key = web_key(repo, args.sha)
+            key = planned.get("web_key") or web_key(repo, args.sha)
             if web_unchanged(live, key):
                 receipt["unchanged"].append("web")
                 receipt["steps"]["web"] = {"key": key, "commit": overlay_commit(live), "unchanged": True}
             else:
                 undo["web"] = overlay_snapshot(live)
-                receipt["steps"]["web"] = apply_web(repo, args.sha, live)
+                receipt["steps"]["web"] = apply_web(key, args.sha, live)
                 receipt["applied"].append("web")
+        if "ffi" in parts:
+            # Last: the app quits (sessions kept) and opens again on the new library, and its pages with it.
+            source = planned["ffi"]["source"]
+            if ffi_new is None:  # the app was built with SHA's FFI sources
+                receipt["unchanged"].append("ffi")
+                receipt["steps"]["ffi"] = {"source": source, "unchanged": True}
+            else:
+                try:
+                    step, undo["ffi"] = ffi_part.swap(app, ffi_new, state, ffi_how, args.sign_identity, PHASES)
+                except Exception as error:
+                    if getattr(error, "undo", None):
+                        undo["ffi"] = error.undo  # quit and swapped: put the old library back
+                    raise
+                receipt["steps"]["ffi"] = {"source": source, "release": planned["ffi"]["release"],
+                                           "archive_sha256": ffi_checksum, **step}
+                receipt["applied"].append("ffi")
     except Exception as error:  # noqa: BLE001 - any failed step puts back what ran before
         receipt["error"] = str(error)
         receipt["rolled_back"] = True
@@ -1238,8 +1470,19 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
             receipt["steps"]["rust"] = {"to": want, "copy": str(new)}
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:
-            key = web_key(repo, args.sha)
+            key = planned.get("web_key") or web_key(repo, args.sha)
             receipt["steps"]["web"] = {"key": key, "commit": args.sha, "bundles": str(web_bundles(key, state))}
+        if "ffi" in parts and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]:
+            try:
+                new, checksum = ffi_part.fetch_library(planned["ffi"]["source"], state, fetch, fetch_kept)
+                receipt["steps"]["ffi"] = {"source": planned["ffi"]["source"], "archive_sha256": checksum,
+                                           "copy": str(new)}
+                if not args.base:  # an app to pair with: its imports, and how it would be signed
+                    missing = sorted(ffi_part.imports(app) - ffi_part.exports(new))
+                    receipt["steps"]["ffi"]["missing_symbols"] = missing
+                    receipt["steps"]["ffi"]["signed"] = ffi_part.how_to_sign(app, args.sign_identity, args.reseal)
+            except ffi_part.Left as why:
+                receipt["left"]["ffi"] = [str(why)]
     except Exception as error:  # noqa: BLE001 - the receipt says what failed; nothing to put back
         receipt["error"] = str(error)
         receipt["seconds"] = round(time.monotonic() - t0, 3)
@@ -1253,6 +1496,11 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
 def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> dict:
     """Restores each part in `undo` and checks it; returns what happened to each."""
     out: dict = {}
+    if "ffi" in undo:  # first: the app quits and opens again on the library it had
+        try:
+            out["ffi"] = ffi_part.put_back(app, undo["ffi"])
+        except Exception as error:  # noqa: BLE001
+            out["ffi"] = {"ok": False, "error": str(error)}
     if "web" in undo:
         try:
             overlay_restore(live, undo["web"])
@@ -1313,9 +1561,15 @@ def command_rollback(args) -> int:
 
 def command_prefetch(args) -> int:
     """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
-    args.dry_run, args.parts, args.binary = True, "web,rust", None
+    args.dry_run, args.parts, args.binary = True, "web,rust,ffi", None
+    args.sign_identity, args.reseal = None, False
     args.socket, args.acpmux_home, args.restart_acpmux, args.restart_sessions = None, [], False, False
     return command_apply(args)
+
+
+def command_keys(args) -> int:
+    print(json.dumps(hot_keys(Path(args.repo), args.sha, args.web_key), indent=1, sort_keys=True))
+    return 0
 
 
 def command_status(_args) -> int:
@@ -1338,7 +1592,12 @@ def main(argv=None) -> int:
                        help="SHA is a branch head (a pull request) that may predate the app's commit")
         p.add_argument("--base", help="stand in for the app's commit (plan, apply --dry-run): no app needed")
         if name == "apply":
-            p.add_argument("--parts", default="web,rust")
+            p.add_argument("--parts", default="web,rust,ffi")
+            p.add_argument("--sign-identity",
+                           help="ffi: sign the app FFI library with this keychain identity (a Developer ID app's team)")
+            p.add_argument("--reseal", action="store_true",
+                           help="ffi: a Developer ID app takes an ad hoc library by being signed ad hoc too "
+                                "(it starts signed out of its Keychain items; rollback puts the signature back)")
             p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
@@ -1349,6 +1608,10 @@ def main(argv=None) -> int:
                                 "to the new build with `server restart` (terminals kept)")
             p.add_argument("--dry-run", action="store_true",
                            help="plan, fetch and verify every part; change nothing in the app (receipt: history.jsonl)")
+    p = sub.add_parser("keys")
+    p.add_argument("sha")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--web-key", help="SHA's web source key, when the caller has it (else computed here)")
     p = sub.add_parser("live-from", help="the app commits that can take SHA's daemon build live (JSON)")
     p.add_argument("sha")
     p.add_argument("--repo", default=str(ROOT))
@@ -1364,8 +1627,9 @@ def main(argv=None) -> int:
             print(f"hot-apply: {args.sha!r} is not a commit here", file=sys.stderr)
             return 2
     try:
-        return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "rollback": command_rollback,
-                "status": command_status, "live-from": command_live_from}[args.command](args)
+        return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "keys": command_keys,
+                "rollback": command_rollback, "status": command_status,
+                "live-from": command_live_from}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)
         return 3

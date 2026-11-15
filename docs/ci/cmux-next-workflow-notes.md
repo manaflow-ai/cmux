@@ -3257,3 +3257,18 @@ crash freeze never fails the app-producing job the dogfood and daily publishers 
 No perf step runs here (Lawrence 2026-10-23: nothing perf-related blocks or slows a push or a
 pull request): the launch-time budget and the perf counter gate run in the perf cron,
 .github/workflows/cmux-next-perf-budgets.yml, on the bench host.
+
+## note-365
+
+Above `full:` (workflow_dispatch inputs) and in `path_route: Classify pull request paths` in
+`.github/workflows/cmux-next.yml`.
+
+A plain dispatch on a working branch (not feat-cmux-next or `next-batch/*`, not same-tree, not
+the DEV daily, base tier or tip suites) skips the two heavy Mac compiles: `cmux app scheme
+compile (Debug)` (scheme=false) and `cmux-next Release compile (Xcode 26)` (native=false). On a
+dispatch, native drives only the Release compile: the build fleet's app compile runs on pull
+requests only. Dispatch with `full=true` to run both. On 2026-11-15 about 14 lanes dispatched
+the workflow on their branches, and each dispatch put a 5-unit scheme compile on
+glaeda-side-std-xcode-26.6: 24 jobs queued there, the oldest 81 minutes (macos-pool-load,
+10:35Z), and the NOW runner-starve alarm fired. Pushes, pull requests, nightly, DEV daily and
+base tier runs are unchanged (tests/test_cmux_next_dispatch_heavy_compiles.py).
