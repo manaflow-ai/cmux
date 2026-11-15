@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43680538746",
+  "recorded_at": "2026-11-15T05:27:27Z",
+  "reason": "cmux-tui 9e154548dd5e changes the image's cmux-tui (pinned 45ad74a874d8)",
+  "dry_run": false,
+  "cmux_tui": "9e154548dd5efa8628502bf3bb9ae2bae1daf76c",
+  "fixes": [
+    {
+      "sha": "9e154548dd5efa8628502bf3bb9ae2bae1daf76c",
+      "mergedAt": "2026-11-14T21:04:44-08:00",
+      "subject": "acpmux: test that a peer prompt runs once across random link drops (#43478)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T05:27:27Z",
+    "snapshot_id": "sh-765c65fdbbf145acb04ddb1cb999faab",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43680538746): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bfa54e5809f2c6aea9f4459c413ed0f6fa77aeca",
+    "image": "cloud-native-auto-9e154548-43680538746-1",
+    "revision": "ci-43680538746-1",
+    "at": "2026-11-15T05:27:27Z"
+  },
+  "rolled_back": false
+}
