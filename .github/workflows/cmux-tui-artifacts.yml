@@ -4424,6 +4424,10 @@ jobs:
   # such a commit exists (only point-machine-channel-early uploads one, from this run's build-linux).
   # 93d73d7b (run 43479235288) adopted its manifest at 18:07:54Z and, before this, the channel waited
   # for the next built commit at 18:22Z. The channel still never moves back (web-ota-pointer.py newer).
+  # It never moves for identical code either (cmux-machine-channel-point.sh --same-tree): a channel on
+  # a commit with this commit's tree key stays, so an adopted tree does not swap a machine's thin
+  # build for the fat build of the same source, and the fat build of the commit the early job pointed
+  # at is kept out by its same commit.
   point-machine-channel:
     # R2 credentials. Only a base branch's publish (which moves the channels) records a
     # deployment; a lane branch's commit-addressed upload logs none on its PR.
@@ -4462,7 +4466,9 @@ jobs:
           python3 scripts/ci/cmux-machine-channel.py payload --manifest "$dir/manifest.json" --commit "$GITHUB_SHA" \
             --committed-at "$(git show -s --format=%ct HEAD)" --download-dir "$dir/binaries" --out "$dir/payload.json"
           rm -rf "$dir/binaries"
-          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+          # --same-tree: a channel on a commit of this commit's tree key (the adopted tree, or this
+          # commit's own thin build from point-machine-channel-early) is the same code and stays.
+          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree
           # Then the signed Linux release files (cmuxterm-hq docs/design/linux-signed-packages.md):
           # cmux-tui/<sha>/release.json (written once) and cmux-tui/channels/linux-feat-cmux-next.json
           # (forward only), the same envelope and key with purpose cmux-linux-release, so neither file
