@@ -25,17 +25,21 @@ pub(crate) enum ScreenDetection {
     Unreadable,
     /// The platform cannot run the plugin.
     Unsupported,
+    /// The daemon hosts no terminals (a Chief owner), so the bundled plugin
+    /// does not run there (`agent_plugin_config::hosts_terminals`).
+    NoTerminals,
     /// The daemon did not say where its executable is.
     Unknown,
 }
 
-/// The `screen_detection` object of `daemon status` for the daemon whose
-/// `identify` reply is `identity`: its own executable (`cli_path`), under
-/// this user's config.
-pub(crate) fn of_daemon(identity: &Value) -> Value {
+/// The `screen_detection` object of `daemon status` for the daemon of
+/// `session` whose `identify` reply is `identity`: its own executable
+/// (`cli_path`), under this user's config.
+pub(crate) fn of_daemon(identity: &Value, session: Option<&str>) -> Value {
     crate::agent_plugin_config::screen_detection_status(
         crate::config::load_raw_agents(),
         identity.get("cli_path").and_then(Value::as_str).map(std::path::Path::new),
+        session,
     )
     .wire()
 }
@@ -72,6 +76,9 @@ impl ScreenDetection {
             }
             Self::Unsupported => {
                 json!({"state": "unsupported", "message": text.screen_detection_unsupported})
+            }
+            Self::NoTerminals => {
+                json!({"state": "no-terminals", "message": text.screen_detection_no_terminals})
             }
             Self::Unknown => json!({"state": "unknown", "message": text.screen_detection_unknown}),
         }

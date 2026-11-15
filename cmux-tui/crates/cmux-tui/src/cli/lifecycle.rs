@@ -353,7 +353,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 "pid":pid,
                 "generation":generation,
                 "message":crate::localization::catalog().local_server.running,
-                "screen_detection":crate::screen_detection_status::of_daemon(&identity),
+                "screen_detection":crate::screen_detection_status::of_daemon(
+                    &identity,
+                    Some(actual_session).filter(|session| !session.is_empty()),
+                ),
             }),
             global.output,
         ),
