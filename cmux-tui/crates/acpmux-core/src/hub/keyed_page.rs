@@ -20,6 +20,10 @@ impl Hub {
             .iter()
             .map(|key| {
                 let PageKey::Summary(key) = key else { return Err(HubError::InvalidPage) };
+                // A `past` key is a position, not a row (decision 290): no keyed page takes one.
+                if key.past {
+                    return Err(HubError::InvalidPage);
+                }
                 Ok(key)
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -60,7 +64,7 @@ impl Hub {
             if peer && key.origin != "local" {
                 return Err(HubError::InvalidPage);
             }
-            let row_key = book_key(key).row;
+            let row_key = book_key(key)?.row;
             let row = match index.get_row(&row_key) {
                 Some(row) => Some(row),
                 None => {

@@ -51,6 +51,7 @@ fn fixture(closed: u64) -> Side {
         last_activity: at,
         chat_id: format!("b-{n:06}"),
         origin: "local".into(),
+        past: false,
     };
     let mut last_local = None;
     for n in 0..LIVE {

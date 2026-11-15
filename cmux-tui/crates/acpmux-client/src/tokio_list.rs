@@ -307,7 +307,7 @@ where
             .filter_map(|row| row.parent.as_ref())
             .map(|parent| row_identity(&parent.origin, &parent.chat_id))
             .filter(|id| !given.contains_key(id) && asked.insert(id.clone()))
-            .map(|(origin, chat_id)| ListKey { last_activity: 0, chat_id, origin })
+            .map(|(origin, chat_id)| ListKey { last_activity: 0, chat_id, origin, past: false })
             .collect();
         let mut parents = HashMap::new();
         if !wanted.is_empty() {

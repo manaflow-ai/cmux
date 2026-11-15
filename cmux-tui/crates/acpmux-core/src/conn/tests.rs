@@ -67,7 +67,12 @@ fn peer_request_allowlist_names_every_refused_shape() {
 
     let mut anchored = live_sub;
     anchored.anchor = Some(Anchor::List {
-        key: ListKey { last_activity: 1, chat_id: "chat".into(), origin: "local".into() },
+        key: ListKey {
+            last_activity: 1,
+            chat_id: "chat".into(),
+            origin: "local".into(),
+            past: false,
+        },
         side: AnchorSide::After,
     });
     assert!(validate_peer_request(&Request::Sub(anchored)).is_err());
@@ -78,6 +83,7 @@ fn peer_request_allowlist_names_every_refused_shape() {
         last_activity: 1,
         chat_id: "chat".into(),
         origin: "local".into(),
+        past: false,
     })]);
     assert!(validate_peer_request(&Request::Page(keyed.clone())).is_err());
     assert!(
@@ -103,7 +109,8 @@ fn peer_request_allowlist_names_every_refused_shape() {
     }
 
     // Decision 266: `all` and `keys` of this machine's rows, without a sub.
-    let local_key = ListKey { last_activity: 1, chat_id: "chat".into(), origin: "local".into() };
+    let local_key =
+        ListKey { last_activity: 1, chat_id: "chat".into(), origin: "local".into(), past: false };
     let other_key = ListKey { origin: "c-machine".into(), ..local_key.clone() };
     let mut all = Page::new("s", "list", PageSide::After, 0);
     all.after = None;
@@ -1667,6 +1674,7 @@ async fn a_peer_link_pages_all_and_keys_of_this_machine_only() {
         last_activity: at,
         chat_id: id.into(),
         origin: origin.into(),
+        past: false,
     };
     let mut keys = all.clone();
     keys.view = None;
