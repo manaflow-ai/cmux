@@ -90,3 +90,10 @@ pub(crate) fn option_errors(interface: &str, options: &Value) -> Vec<(String, St
         None => vec![(String::new(), format!("{interface} takes no options"))],
     }
 }
+
+/// Each known interface with its file as embedded (`name`, `docs`, `props`, `methods`,
+/// `options`), in [`KNOWN_INTERFACES`] order: what `cmux customize schema` lists as the
+/// extension points and view slots.
+pub fn interface_files() -> &'static [(&'static str, &'static str)] {
+    FILES
+}

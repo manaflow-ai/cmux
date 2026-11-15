@@ -55,7 +55,7 @@ public final class SidebarPlaceholderGrace {
         ended.remove(section)
     }
 
-    /// `sections` with each other machine whose link has been coming up, dropped or out of reach for
+    /// `sections` with each machine (This Mac too) whose link has been coming up, dropped or out of reach for
     /// less than this grace's wait marked `holdsStatusLabel`: neither its header (`SectionHeaderRowView`)
     /// nor one list names "Connecting…", "Reconnecting…", "Unreachable" or "Offline" until it lasts
     /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"), since the link
@@ -65,7 +65,7 @@ public final class SidebarPlaceholderGrace {
     public func holdingConnectingLabels(_ sections: [SidebarSection]) -> [SidebarSection] {
         keep(Set(sections.map(\.id)))
         return sections.map { section in
-            guard var machine = section.machine, machine.kind != .local else { return section }
+            guard var machine = section.machine else { return section }
             guard Self.healsOnItsOwn(machine.status) else {
                 reset(section.id)
                 return section

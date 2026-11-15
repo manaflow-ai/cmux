@@ -208,7 +208,11 @@ def main(argv: list[str], api: notify.Api | None = None, sleep: Callable[[float]
     except ValueError:
         needs = {}
     if api is None:
-        api = notify.GitHub(os.environ.get("GH_TOKEN", ""), os.environ.get("GITHUB_API_URL", "https://api.github.com"))
+        # SAME_TREE_STATUS_SPARE_TOKEN (hq#11150): github.token shares one hourly budget with every run in the
+        # repository; a spent one refused run 43660624788's post with HTTP 403. A rate-limited call moves to the
+        # cmux-bot App token (its own budget) at once, through the tree notify client's SPARE_TOKEN_SWITCH.
+        api = notify.GitHub(os.environ.get("GH_TOKEN", ""), os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+                            os.environ.get("GH_TOKEN_SPARE", ""))
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
     target_url = f"{server}/{args.repo}/actions/runs/{args.run_id}" if args.run_id else ""
     jobs = Jobs(api, args.repo, args.run_id, args.attempt) if args.run_id else None
