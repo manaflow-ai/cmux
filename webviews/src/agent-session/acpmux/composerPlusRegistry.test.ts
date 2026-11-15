@@ -300,6 +300,17 @@ test("the shipped arm draws recents, then the row; the other arms move or drop t
   expect(group()).toEqual(["commands.recent.review", "commands.recent.deploy", "add.commands"]);
   expect(group("row-then-recents")).toEqual(["add.commands", "commands.recent.review", "commands.recent.deploy"]);
   expect(group("row-only")).toEqual(["add.commands"]);
+  // The titled arms split the recents into a "Recent" group of their own, the row in the group after.
+  for (const arm of ["recent-header", "recent-compact"] as const) {
+    const commandGroups = composerPlusMenuSections(rows, false, arm).filter(
+      (section) => section.section === "commands",
+    );
+    expect(commandGroups.map((section) => [section.title, section.choices.map((choice) => choice.id)])).toEqual([
+      ["picker.recent", ["commands.recent.review", "commands.recent.deploy"]],
+      [undefined, ["add.commands"]],
+    ]);
+    expect(commandGroups[0]!.choices.some((choice) => choice.description)).toBe(arm === "recent-header");
+  }
 });
 
 test("recent commands are kept most recent first, without repeats", () => {

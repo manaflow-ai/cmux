@@ -30,3 +30,20 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
+
+/* The icon-tile look (sendMenuLook arm `tiles`): each icon on a small tinted tile in the theme's
+   accent, the label in a heavier weight, the keys as caps: an action panel (Raycast's, ChatGPT's
+   + menu) more than a plain list. Rows keep the house menu's height and grid (popupSurface.css). */
+.ui-popup.ui-context-menu.acpmux-send-menu-popup.acpmux-send-menu-tiles .ui-menu-item {
+  gap: 8px;
+}
+.ui-popup.ui-context-menu.acpmux-send-menu-popup.acpmux-send-menu-tiles .ui-menu-item > .ui-menu-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--cmux-accent, currentColor) 22%, transparent);
+  color: var(--cmux-accent, currentColor);
+}
+.ui-popup.acpmux-send-menu-tiles .ui-menu-label {
+  font-weight: 500;
+}
