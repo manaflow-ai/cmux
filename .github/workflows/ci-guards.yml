@@ -1065,7 +1065,7 @@ jobs:
 
       - name: Validate every upload-artifact step sets retention-days
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_upload_artifact_requires_retention.py
+        run: python3 tests/test_ci_upload_artifact_requires_retention.py
 
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}

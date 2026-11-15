@@ -2308,5 +2308,5 @@ path = "tests/test_ci_paid_queue_pin.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_upload_artifact_requires_retention.py"
+path = "tests/test_ci_upload_artifact_requires_retention.py"
 lane = "linux-guard"
