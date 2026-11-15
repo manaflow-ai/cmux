@@ -488,6 +488,8 @@ async fn v2_pr07b_usage_first_read() {
         for _ in 0..20 {
             for (side, walls) in [(&small, &mut sw), (&god, &mut gw)] {
                 side.hub.usage_pass_due_for_test();
+                // One row told before each pass: every timed sample pays a patch of the order.
+                side.hub.tell_row_for_test("today-00");
                 let (passes, _) = side.hub.usage_passes_for_test();
                 let started = Instant::now();
                 side.hub.refresh_usage_stats().await;
@@ -507,4 +509,89 @@ async fn v2_pr07b_usage_first_read() {
     );
     // The row's line last, with no assert after it: the home judges the ratio.
     emit("v2.pr07b.usage_first_read", &small_wall, &god_wall, "ns");
+}
+
+/// One in-process daemon for [`probe_order_at_start`]: `aged` is the usage gate's fixture
+/// ([`list_daemon::usage_beside`]), `recent` is [`list_daemon::twenty_live_beside`] (every closed
+/// chat a minute old). Its kept list order is put back unsorted, as a deferred start holds it
+/// before its start task runs.
+async fn order_probe_daemon(fixture: &str, closed: usize) -> (ListDaemon, tempfile::TempDir) {
+    let store = tempfile::tempdir().unwrap();
+    let path = store.path().to_path_buf();
+    let daemon = list_daemon::serve(Serves::NoV2, |hub| match fixture {
+        "aged" => list_daemon::usage_beside(hub, closed, &path).unwrap(),
+        _ => list_daemon::twenty_live_beside(hub, closed).unwrap(),
+    })
+    .await
+    .unwrap();
+    daemon.hub.unsort_list_order_for_test();
+    (daemon, store)
+}
+
+/// The first reader in a deferred start's window (the daemon answers, its logs are not read
+/// yet), at 1,100 and 110,000 closed chats, in µs. `before`: nothing has sorted the kept list
+/// order, so the reader sorts every chat (as before the start task sorted it). `after`: the start
+/// task's first step (`Hub::sort_list_order`, `daemon.rs`) ran, timed as `window`, then the
+/// reader. Readers: `_acpmux/info {usage:true}` and a first `_acpmux/sessions` page of 20. Then
+/// `recent_F`: a first usage pass with the order sorted, every closed chat a minute old (all
+/// candidates), and its candidates read as #43807 deduped them and as now (`recent_candidates`).
+/// One daemon alive at a time. Prints `PROBE` lines, asserts nothing of the times.
+#[ignore = "probe: the first reader in a deferred start's window at 1,100 and 110,000 closed chats"]
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_order_at_start() {
+    let us = |at: Instant| at.elapsed().as_micros();
+    let keys: Vec<String> = (0..list_daemon::USAGE_LIVE).map(|n| format!("live-{n:02}")).collect();
+    for closed in [1_100, 110_000] {
+        for reader in ["info_usage", "page"] {
+            for case in ["before", "after"] {
+                let (d, store) = order_probe_daemon("aged", closed).await;
+                let window = if case == "after" {
+                    let at = Instant::now();
+                    d.hub.sort_list_order();
+                    us(at)
+                } else {
+                    0
+                };
+                let client = Client::connect(&d.path).await.unwrap();
+                let (method, params) = match reader {
+                    "info_usage" => (
+                        crate::rpc::method::MUX_INFO,
+                        json!({"sessionIds": keys, "row": true, "usage": true}),
+                    ),
+                    _ => (crate::rpc::method::MUX_SESSIONS, json!({"limit": 20})),
+                };
+                let at = Instant::now();
+                let reply = client.request(method, params).await.unwrap();
+                let first = us(at);
+                assert!(reply.is_object(), "{reply}");
+                eprintln!(
+                    "PROBE closed={closed} reader={reader} case={case} window_us={window} \
+                     first_reader_us={first} rebuilds={}",
+                    d.hub.list_order_rebuilds_for_test()
+                );
+                drop(client);
+                drop(d);
+                drop(store);
+            }
+        }
+    }
+    let (d, store) = order_probe_daemon("recent", 110_000).await;
+    d.hub.sort_list_order();
+    let at = Instant::now();
+    d.hub.refresh_usage_stats().await;
+    let pass = us(at);
+    // Candidates both ways, each read three times on the same patched order.
+    for round in 1..=3 {
+        let (copied, live, count) = d.hub.usage_candidates_both_for_test();
+        eprintln!(
+            "PROBE closed=110000 part=recent_candidates round={round} copied_ids_us={copied} \
+             live_set_us={live} candidates={count}"
+        );
+    }
+    eprintln!(
+        "PROBE closed=110000 part=recent_F first_us={pass} passes={:?}",
+        d.hub.usage_passes_for_test()
+    );
+    drop(d);
+    drop(store);
 }
