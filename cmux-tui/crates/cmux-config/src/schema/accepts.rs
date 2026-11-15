@@ -80,6 +80,8 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an array of preset names and rule objects, each with a label and a program or match",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
+        Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else {
         accepted(&row.kind, domains)
     };
@@ -127,6 +129,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::CommandLabels) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_command_label));
+        }
+        super::Validation::Domain(DomainKind::AppId) => {
+            return value.as_str().is_some_and(super::app_id::is_valid_app_id);
         }
         _ => {}
     }
@@ -381,5 +386,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
+        DomainKind::AppId => "app_id",
     }
 }

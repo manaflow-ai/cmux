@@ -429,6 +429,26 @@
         true
       ]
     },
+    "domain:app_id": {
+      "accept": [
+        "local/web-pane",
+        "local/showcase-newtab",
+        "manaflow-ai/launcher"
+      ],
+      "refuse": [
+        "Foo/Bar",
+        "local/Web",
+        "a/b/c",
+        "launcher",
+        "/b",
+        "a/",
+        "-a/b",
+        "a b/c",
+        "",
+        1,
+        true
+      ]
+    },
     "domain:search_template": {
       "accept": [
         "",

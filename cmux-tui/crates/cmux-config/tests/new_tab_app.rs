@@ -1,6 +1,6 @@
 //! `tabs.newTabApp` names an app by id: the owner accepts exactly the ids an
 //! app manifest may have (cmux-app.schema.json `properties.id.pattern`, read
-//! by `cmux_app_manifest::is_valid_app_id`), so `cmux settings set` refuses an
+//! from that schema by the owner), so `cmux settings set` refuses an
 //! id no app can carry, such as `Foo/Bar`.
 
 use cmux_config::Domains;
