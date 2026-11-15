@@ -121,7 +121,7 @@ class ShippingFeatureTests(unittest.TestCase):
 
 class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
     """The Linux package's acpmux is acpmux-standalone (#42682), built with no features until this test: the published
-    x86_64-unknown-linux-musl acpmux had no hub carrier at all (gcp-agent-lane-6, 2026-11-15)."""
+    x86_64-unknown-linux-musl acpmux had no hub carrier at all (a Linux machine on c10f26a1a, 2026-11-15)."""
     STANDALONE = ROOT / "cmux-tui/crates/acpmux-standalone/Cargo.toml"
     WORKFLOW = ROOT / ".github/workflows/cmux-tui-build-package.yml"
 
