@@ -52,10 +52,11 @@ export function putToggleDraft(
 
 const late = (until: number | undefined, now: number) => until !== undefined && now > until;
 
-/// Reports to the host whether the composer holds anything (`pane.composerFilled`), only when that
-/// changes: the host reads it without a page call, so a swap with an empty composer waits on nothing.
+/// Reports to the host whether the composer holds anything (`pane.composerFilled`): its first value,
+/// then each change. The host reads it without a page call, so a swap with an empty composer waits
+/// on nothing; the first value resets what a page before a reload left there.
 export function composerFilledReporter(post: (filled: boolean) => void): (filled: boolean) => void {
-  let reported = false;
+  let reported: boolean | undefined;
   return (filled) => {
     if (filled === reported) return;
     reported = filled;

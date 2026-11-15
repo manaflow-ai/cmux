@@ -92,8 +92,8 @@ pub fn to_chat(facts: &ToChat) -> ChatDraft {
     if text.trim().is_empty() || shown_input(&facts.screen) != Some(squeeze(&text)) {
         return ChatDraft::None;
     }
-    // One DEL a character, and no more: a key typed just before the swap may still be on its way,
-    // and a spare DEL would take it.
+    // One DEL a character, and no more: a spare one would take what the input holds after the
+    // draft. The app sends them only if nothing was typed since these bytes were read.
     let erase = text.chars().count();
     ChatDraft::Carry { text, erase }
 }

@@ -71,14 +71,14 @@ describe("Toggle Terminal and Chat's draft (the unsent draft goes with the swap)
     expect(empty.held.text).toBe("from the terminal");
   });
 
-  test("the host hears whether the composer holds anything only when that changes", () => {
+  test("the host hears whether the composer holds anything first, then only when that changes", () => {
     const posts: boolean[] = [];
     const report = composerFilledReporter((filled) => posts.push(filled));
-    // An empty composer at mount says nothing: the host starts at empty.
+    // The first value goes even when empty: a reloaded page resets what the page before it left.
     report(false);
     report(true);
     report(true);
     report(false);
-    expect(posts).toEqual([true, false]);
+    expect(posts).toEqual([false, true, false]);
   });
 });

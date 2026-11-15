@@ -62,6 +62,8 @@ struct TerminalChatDraftTests {
         /// The page answers a write in time (false: it answers too late, or the person typed first).
         var answers = true
         var reads = 0
+        /// What happens while the page answers: the person typing in the still shown terminal.
+        var whileAnswering: (() -> Void)?
 
         init(_ log: Log, text: String = "") {
             self.log = log
@@ -85,6 +87,7 @@ struct TerminalChatDraftTests {
         func toggleDraftPut(_ put: String, by deadline: ContinuousClock.Instant) async -> Bool {
             guard answers, text.isEmpty, !chips else { return false }
             log.events.append("put")
+            whileAnswering?()
             text = put
             return true
         }
@@ -156,6 +159,22 @@ struct TerminalChatDraftTests {
         chips.chips = true
         await TerminalChatPlacing(chat: chips, terminal: Terminal(log)).swap(toTerminal: true)
         #expect(chips.text == "see this" && log.events.isEmpty)
+    }
+
+    @Test func aKeyTypedWhileThePageAnswersIsNeverErased() async {
+        // The terminal still shows during the swap: an `x` typed then lands after the draft, where DELs would take it.
+        let log = Log(), chat = Chat(log), terminal = Terminal(log, typed: "ship it", shows: "ship it")
+        chat.whileAnswering = { terminal.typed += Array("x".utf8) }
+        await TerminalChatPlacing(chat: chat, terminal: terminal).swap(toTerminal: false)
+        #expect(chat.text == "ship it" && terminal.sends.isEmpty)
+        #expect(log.events == ["put"])
+    }
+
+    @Test func noPasteWithoutTimeForTheTake() async {
+        // The page's read answered with too little of the budget left for the take: the draft stays in the chat alone.
+        let log = Log(), chat = Chat(log, text: "ship it"), terminal = Terminal(log)
+        await TerminalChatPlacing(chat: chat, terminal: terminal).carryToTerminal(by: .now + .milliseconds(5))
+        #expect(terminal.pastes.isEmpty && chat.text == "ship it" && log.events.isEmpty)
     }
 
     @Test func wordsTheBytesNeverSawStayPut() async {
