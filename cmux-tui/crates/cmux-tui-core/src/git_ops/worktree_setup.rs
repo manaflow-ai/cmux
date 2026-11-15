@@ -712,6 +712,12 @@ fn open_own(path: &Path) -> Option<File> {
 /// nothing (a named pipe has no other end to wait for), and only a regular
 /// file is used (the open file is looked at, not its name).
 fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
+    try_open_as_own(options, path).ok()
+}
+
+/// [`open_as_own`], with the error of an open that fails. A thing at the
+/// name that is not a regular file gives `InvalidInput`.
+fn try_open_as_own(options: &mut OpenOptions, path: &Path) -> std::io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
@@ -721,11 +727,11 @@ fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
     #[cfg(not(unix))]
     {
         if fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_file()) {
-            return None;
+            return Err(std::io::ErrorKind::InvalidInput.into());
         }
     }
-    let file = options.open(path).ok()?;
-    file.metadata().ok()?.is_file().then_some(file)
+    let file = options.open(path)?;
+    if file.metadata()?.is_file() { Ok(file) } else { Err(std::io::ErrorKind::InvalidInput.into()) }
 }
 
 /// Opens the log of the worktree whose git folder is `git_dir`, for a read
@@ -792,8 +798,7 @@ fn write_own(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let partial = path.with_extension("json.partial");
     let _ = fs::remove_file(&partial);
     let mut options = OpenOptions::new();
-    let mut file = open_as_own(options.write(true).create_new(true), &partial)
-        .ok_or(std::io::ErrorKind::AlreadyExists)?;
+    let mut file = try_open_as_own(options.write(true).create_new(true), &partial)?;
     file.write_all(bytes)?;
     fs::rename(partial, path)
 }
