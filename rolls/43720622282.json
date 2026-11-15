@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43720622282",
+  "recorded_at": "2026-11-15T13:54:04Z",
+  "reason": "cmux-tui 70e5c08f8b72 changes the image's cmux-tui (pinned 1581e11e4e4c)",
+  "dry_run": false,
+  "cmux_tui": "70e5c08f8b72156ad732bf96c593a067fc010b39",
+  "fixes": [
+    {
+      "sha": "d9a56ac7178a4765de9ff99609e1c2f96795ed26",
+      "mergedAt": "2026-11-15T05:28:11-08:00",
+      "subject": "feat(hover-cards): every hover card waits Chrome's delay, from one source"
+    },
+    {
+      "sha": "9e51d4067cf8b9293b354c42b6e5ecca4f322550",
+      "mergedAt": "2026-11-15T05:25:26-08:00",
+      "subject": "Terminal sizing: never narrower than a showing phone; an agent's split waits for the person (#43498)"
+    },
+    {
+      "sha": "eca5a3b63683744575a087cbc10dc2f54c0e79b8",
+      "mergedAt": "2026-11-15T05:25:22-08:00",
+      "subject": "cmux-host: a test drives restart_after_flip itself (#43586)"
+    },
+    {
+      "sha": "f7187a6792b40de1981e2c1baa88d98edcab6288",
+      "mergedAt": "2026-11-15T05:20:44-08:00",
+      "subject": "Agent chat: the row parity test draws both paths through the view, and lists what the corpus does not show (v2 row 6c, 3 of 3) (#43545)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T13:54:04Z",
+    "snapshot_id": "sh-3a92909f6beb476b848cd2a2f29c656a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43720622282): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6232d391b2a82cf681e914107b739b00cc038e74",
+    "image": "cloud-native-auto-70e5c08f-43720622282-1",
+    "revision": "ci-43720622282-1",
+    "at": "2026-11-15T13:54:04Z"
+  },
+  "rolled_back": false
+}
