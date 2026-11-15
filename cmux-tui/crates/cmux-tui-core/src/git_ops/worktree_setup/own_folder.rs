@@ -46,8 +46,9 @@ enum Open {
 /// the repository's ports).
 pub(super) struct OwnFolder {
     path: PathBuf,
-    /// The real path of the folder at its open; `None` with no open folder.
-    real: Option<PathBuf>,
+    /// The real path of the folder at its open, or why there is no open
+    /// folder: the kind of the error that the open kept.
+    real: Result<PathBuf, io::ErrorKind>,
     folder: system::Folder,
 }
 
@@ -62,6 +63,12 @@ impl OwnFolder {
     /// The path that the folder was opened by.
     pub(super) fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Why there is no open folder: the kind of the error that the open
+    /// kept. `None` for an open folder.
+    pub(super) fn not_opened(&self) -> Option<io::ErrorKind> {
+        self.real.as_ref().err().copied()
     }
 
     /// Whether this folder is the git folder that the repository whose git
@@ -79,7 +86,7 @@ impl OwnFolder {
     pub(super) fn is_of(&self, root: &Path, common_dir: &Path) -> bool {
         let real = |path: &Path| std::fs::canonicalize(path).ok();
         let (Some(own), Some(worktrees)) =
-            (self.real.as_deref(), real(&common_dir.join("worktrees")))
+            (self.real.as_deref().ok(), real(&common_dir.join("worktrees")))
         else {
             return false;
         };
@@ -230,14 +237,14 @@ mod system {
         /// one time, and each folder of the path that this gives is then
         /// opened through its parent and refuses a link: the real path is
         /// the path of the folder that is open.
-        pub(super) fn open(path: &Path) -> (Option<PathBuf>, Self) {
+        pub(super) fn open(path: &Path) -> (Result<PathBuf, io::ErrorKind>, Self) {
             let real = match std::fs::canonicalize(path) {
                 Ok(real) => real,
-                Err(error) => return (None, Self(Err(error.kind()))),
+                Err(error) => return (Err(error.kind()), Self(Err(error.kind()))),
             };
             match Tree::open(&real).map(Tree::into_top) {
-                Some(top) => (Some(real), Self(Ok(top))),
-                None => (None, Self(Err(io::ErrorKind::NotFound))),
+                Some(top) => (Ok(real), Self(Ok(top))),
+                None => (Err(io::ErrorKind::NotFound), Self(Err(io::ErrorKind::NotFound))),
             }
         }
 
@@ -323,8 +330,8 @@ mod system {
     impl Folder {
         /// The folder at `path`, with its real path at this time. Each
         /// later call is by `path`.
-        pub(super) fn open(path: &Path) -> (Option<PathBuf>, Self) {
-            (fs::canonicalize(path).ok(), Self(path.to_path_buf()))
+        pub(super) fn open(path: &Path) -> (Result<PathBuf, io::ErrorKind>, Self) {
+            (fs::canonicalize(path).map_err(|error| error.kind()), Self(path.to_path_buf()))
         }
 
         pub(super) fn open_file(&self, name: &str, open: Open) -> io::Result<File> {

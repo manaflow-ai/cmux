@@ -74,7 +74,7 @@ pub(super) fn dispatch(
                 attempt
             }
         };
-        match create(repository, &git, &attempt) {
+        match create(repository, &git, &attempt, target.common_dir()) {
             Ok(()) => {
                 let mut value = described(&attempt, target.common_dir());
                 value.set("setup", setup(mux, &attempt, target.common_dir()));
@@ -161,13 +161,14 @@ fn plan(
 }
 
 /// Makes the attempt's worktree and records its base, unless a lost
-/// reply's run already made it.
+/// reply's run already made it. `common_dir` is the repository's git folder.
 fn create(
     repository: &Repository,
     git: &UserGit<'_>,
     attempt: &Attempt,
+    common_dir: &Path,
 ) -> Result<(), ResourceError> {
-    if !made(attempt) {
+    if !made(attempt, common_dir) {
         if attempt.root.exists() {
             let message = format!(
                 "{} exists and is not a finished worktree on {}",
@@ -193,7 +194,7 @@ fn create(
             vec!["worktree", "add", "-b", branch, root.as_ref(), attempt.base_commit.as_str()]
         };
         let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
-        if !run.success && !made(attempt) {
+        if !run.success && !made(attempt, common_dir) {
             let message = "git worktree add failed";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
@@ -249,7 +250,7 @@ pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
 /// The attempt's worktree exists on its branch and git finished making it:
 /// its administrative folder is no longer locked (`git worktree add` locks
 /// it while it checks the files out).
-fn made(attempt: &Attempt) -> bool {
+fn made(attempt: &Attempt, _common_dir: &Path) -> bool {
     let Some(admin) = admin_dir(&attempt.root) else { return false };
     if admin.join("locked").exists() {
         return false;

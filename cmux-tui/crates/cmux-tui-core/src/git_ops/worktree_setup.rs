@@ -131,6 +131,12 @@ impl Place {
         self.own.is_of(&self.root, common_dir)
     }
 
+    /// Why the worktree's own git folder is not open in this place
+    /// ([`OwnFolder::not_opened`]); `None` when it is open.
+    pub(super) fn not_opened(&self) -> Option<std::io::ErrorKind> {
+        self.own.not_opened()
+    }
+
     fn name(&self) -> String {
         self.root.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
     }
