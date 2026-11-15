@@ -380,7 +380,9 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     elif planned.get("tree_key") and planned.get("tree_key") == planned.get("base_tree_key"):
         out["notes"].append("Rust changed outside the cmux-tui tree build's inputs: no daemon to swap")
     if helpers:
-        out["notes"].append(f"bundled helpers keep the app's build: {', '.join(helpers[:5])}")
+        # hot-apply leaves these for a new app (`left`): the bundled helpers (the diff sidecar, transport, ...) keep
+        # the app's build, so a look that swaps only the daemon would show the change without them.
+        out["build"]["Rust only bundled helpers use"] = list(helpers)
     out["needs_build"] = bool(out["build"])
     return out
 
