@@ -178,7 +178,9 @@ test("following stopping and starting is reported at once apart from the settled
       expect(following.length).toBe(1);
       expect(rows.some((row) => row.id === following[0]?.rowId)).toBe(true);
     });
-    await scrollAndRest(scroller(), latest, anchors, () => expect(following.at(-1)).toBeNull());
+    // Back at the latest message: following starts again, and that reaches the host as no place.
+    await scrollAndRest(scroller(), latest, anchors);
+    expect(following.at(-1)).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
