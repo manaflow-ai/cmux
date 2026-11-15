@@ -8,7 +8,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const DIGIT = new Map([...B64].map((char, index) => [char, index]));
+const DIGIT = new Map(B64.split("").map((char, index) => [char, index]));
 
 /** One mapping segment's base64 VLQ values. */
 function decodeSegment(text) {
