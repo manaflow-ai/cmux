@@ -216,6 +216,7 @@ jobs:
           STALL_POOLS: ${{ vars.RUNNER_POOLS }}
           # Not `on` (unset): cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER, so the stall move would only
           # re-queue a job at the back of the owned side lane; it moves nothing (owned_pool_rescue.STALL_SWITCH_OFF).
+          # `pr-rescue`: a pull request run's re-run takes Blacksmith, so the move acts on pull request runs only.
           STALL_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
           # The side label a cmux-next bot re-run takes while that switch is off: a rescue never sends a job there
           # while its queue is deeper than the one the job leaves (owned_pool_rescue.rerun_side_label()).

@@ -9756,6 +9756,58 @@ class StallMove(unittest.TestCase):
         self.assertIsNone(rescue.stall_destinations_from_env(env))
         self.assertEqual(rescue.stall_destinations_from_env({**env, "STALL_BLACKSMITH_MACOS": "on"}), (six,))
 
+    def test_pr_rescue_moves_a_bot_s_final_owned_attempt_of_a_pull_request_run(self):
+        # cmuxterm-hq#11566, 2026-11-15: vars.CI_BLACKSMITH_MACOS was `pr-rescue`, so the stall move had no
+        # destination, and PR #43388's run 43738810586 attempt 3 (cmux-bot's, refusals only) queued its generated
+        # files on the saturated glaeda-side-std-xcode-26.6 from 18:14Z with nothing to move it. Under `pr-rescue`
+        # cmux-next.yml sends a pull_request run's bot attempt 4 to RUNNER_POOLS' macos_26.
+        six = rescue.STALL_DESTINATION
+        self.assertEqual(rescue.stall_destinations("", "", "pr-rescue"), (six,))
+        self.assertEqual(rescue.stall_destinations_from_env({"STALL_BLACKSMITH_MACOS": "pr-rescue"}), (six,))
+        self.assertTrue(rescue.stall_pull_only("pr-rescue"))
+        self.assertTrue(rescue.stall_pull_only(" pr-rescue\n"))
+        for other in ("on", "", None, "off"):
+            self.assertFalse(rescue.stall_pull_only(other), other)
+        # Every cmux-next.yml Mac fallback that reads the switch sends a pull_request run's attempt 2 and later off
+        # the side label under `pr-rescue`: none reads `!= 'on' && vars.CI_SIDE_LANE_RUNNER` without that clause.
+        workflow = ROOT / ".github/workflows/cmux-next.yml"
+        if workflow.exists():
+            text = workflow.read_text()
+            fallback = "vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER"
+            clause = ("(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' || "
+                      "github.run_attempt < 2) && ")
+            self.assertEqual(text.count(fallback), text.count(clause + fallback))
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            return [stall_job("cmux-next generated files", job_id=attempt * 10 + 1)]
+        api = StallAPI(clock, jobs, attempt=3, actor=CMUX_BOT)
+        clock.advance(rescue.STALL_QUEUE_SECONDS + 1)
+        starts = []
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
+                                           moved=set(), moves=[], start=lambda *args: starts.append(args),
+                                           destination=(six,), pull_only=True), 1)
+        target, stalls = starts[0][:2]
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            result = rescue.stall_move(api, target, stalls, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                       deadline=clock.now() + dt.timedelta(hours=2))
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:3", "rerun-failed:4"])
+        self.assertIn("attempt 4", result)
+        # A same-tree dispatch's re-run still takes CI_SIDE_LANE_RUNNER under `pr-rescue`: it is left.
+        dispatch = StallAPI(clock, jobs, attempt=3, actor=CMUX_BOT)
+        record = dispatch.record
+
+        def as_dispatch():
+            return {**record(), "event": "workflow_dispatch", "display_title": f"cmux-next · {HEAD}"}
+        dispatch.record = as_dispatch
+        self.assertEqual(rescue.stall_scan(dispatch, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
+                                           moved=set(), moves=[], start=lambda *args: None,
+                                           destination=(six,), pull_only=True), 0)
+        self.assertEqual(rescue.stall_scan(dispatch, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
+                                           moved=set(), moves=[], start=lambda *args: None,
+                                           destination=(six,)), 1)
+
     def test_a_handover_ends_a_pass_through_between_rounds(self):
         clock = Clock()
 

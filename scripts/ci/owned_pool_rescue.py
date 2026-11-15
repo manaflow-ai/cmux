@@ -5399,7 +5399,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             light_rescue = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                          now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
-                         stall_destination=stall_destinations_from_env(env), side_label=rerun_side_label(env))
+                         stall_destination=stall_destinations_from_env(env), side_label=rerun_side_label(env),
+                         stall_pull=stall_pull_only(env.get("STALL_BLACKSMITH_MACOS")))
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -6010,6 +6011,24 @@ STALL_MIN_AGE_SECONDS = min(SETUP_WAIT_SECONDS, STALL_CHECKOUT_SECONDS, STALL_QU
 STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
 
 
+# vars.CI_BLACKSMITH_MACOS values under which a bot's re-run of a cmux-next pull request run's failed jobs leaves the
+# minis past REFUSAL_RESCUE_ATTEMPT. `on` sends every run's Mac fallback to Blacksmith; `pr-rescue` sends only a
+# pull_request run's attempt 2 and later there (cmux-next.yml's `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' ||
+# github.event_name != 'pull_request' || github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on' &&
+# vars.CI_SIDE_LANE_RUNNER || ...macos_26` fallback), so under it the stall move moves pull_request runs only
+# (stall_pull_only()). Before 2026-11-15 only `on` counted: with the switch at `pr-rescue`, PR #43388's run
+# 43738810586 attempt 3 (cmux-bot's, refusals only) queued its generated files on the saturated
+# glaeda-side-std-xcode-26.6 from 18:14Z with the stall move off (STALL_SWITCH_OFF), though its attempt 4 would
+# have taken Blacksmith; nothing else moves a bot's last owned attempt at an open head (cmuxterm-hq#11566).
+STALL_SWITCH_VALUES = frozenset({"on", "pr-rescue"})
+
+
+def stall_pull_only(switch: str | None) -> bool:
+    """Whether the stall move may move pull_request runs only: vars.CI_BLACKSMITH_MACOS is `pr-rescue`, under which a
+    same-tree dispatch's re-run still takes CI_SIDE_LANE_RUNNER (its event is not pull_request)."""
+    return (switch or "").strip() == "pr-rescue"
+
+
 def stall_destinations(runner: str | None, pools: str | None, switch: str | None = "on") -> tuple[str, ...] | None:
     """The Blacksmith labels the stall move's re-runs may take, from vars.MACOS_RUNNER_26 (`runner`) and
     vars.RUNNER_POOLS (`pools`, JSON; its macos_26, or STALL_DESTINATION while it is unset). Every one must be a
@@ -6017,8 +6036,9 @@ def stall_destinations(runner: str | None, pools: str | None, switch: str | None
     pool during a failover, where a re-run would only rejoin an owned queue, and an unknown label's room cannot be
     judged. None too while vars.CI_BLACKSMITH_MACOS (`switch`) is not `on`: cmux-next.yml's Mac fallbacks then read
     `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER` (PR #43255), so the move's re-run rejoins the owned
-    side lane at the back of its queue (STALL_SWITCH_OFF)."""
-    if (switch or "").strip() != "on":
+    side lane at the back of its queue (STALL_SWITCH_OFF). `pr-rescue` counts as on (STALL_SWITCH_VALUES): a
+    pull_request run's re-run then leaves the minis too, and the scan moves pull_request runs only (stall_pull_only())."""
+    if (switch or "").strip() not in STALL_SWITCH_VALUES:
         return None
     base = STALL_DESTINATION
     if (pools or "").strip():
@@ -6041,7 +6061,7 @@ def stall_destinations_from_env(env: Mapping[str, str]) -> tuple[str, ...] | Non
 
 
 # Why the stall move has no destination, logged once a sweeper (sweep()).
-STALL_SWITCH_OFF = ("vars.CI_BLACKSMITH_MACOS is not on, or vars.MACOS_RUNNER_26 or RUNNER_POOLS names no Blacksmith "
+STALL_SWITCH_OFF = ("vars.CI_BLACKSMITH_MACOS is neither on nor pr-rescue, or vars.MACOS_RUNNER_26 or RUNNER_POOLS names no Blacksmith "
                     "label: a re-run would rejoin an owned queue at its back, so nothing is moved")
 # The janitor writes its snapshot every 10 minutes; a move made within two of them may not be counted in it yet.
 STALL_ROOM_WINDOW_SECONDS = 20 * 60
@@ -6342,14 +6362,15 @@ def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
 def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime], log: Callable[[str], None],
                moved: set[tuple[int, int]], moves: list[tuple[dt.datetime, int]],
                start: Callable[..., None],
-               destination: tuple[str, ...] | None = (STALL_DESTINATION,)) -> int:
+               destination: tuple[str, ...] | None = (STALL_DESTINATION,), pull_only: bool = False) -> int:
     """One scan of the unfinished cmux-next pull request runs for a stall (see STALL_MOVE). Starts at most
     STALL_MOVES_PER_SCAN moves through `start`, never two for one attempt of a run nor more than STALL_MOVES_PER_RUN
     for one run (`moved`: the run id and attempt each move started on), none past
     STALL_MOVES_PER_SWEEP, and none at all without Blacksmith `destination` labels (stall_destinations()), each of
     which must have room for every job the move sends (a job may take either)
     (`moves`: when each move started and how many owned jobs it sends). Returns how many it started. Raises
-    READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run."""
+    READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run. `pull_only`
+    (stall_pull_only()) leaves every run but a pull_request one: its re-run would rejoin the owned side label."""
     if len(moves) >= STALL_MOVES_PER_SWEEP or destination is None:
         return 0
     started = 0
@@ -6366,7 +6387,7 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
         if began is None or (at - began).total_seconds() < STALL_MIN_AGE_SECONDS:
             continue
         target = stall_target(run, repository)
-        if isinstance(target, str):
+        if isinstance(target, str) or pull_only and run.get("event") != "pull_request":
             continue
         try:
             jobs = client.jobs(run_id, target.attempt)
@@ -6609,7 +6630,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           side_seconds: int | None = None, running_code: Mapping[str, str] | None = None,
           light_rescue: Callable[[], None] | None = None,
           stall_destination: tuple[str, ...] | None = (STALL_DESTINATION,),
-          side_label: str = "") -> dict[str, int]:
+          side_label: str = "", stall_pull: bool = False) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -6863,7 +6884,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                     if stall_destination is None and looks == 1:
                         log(f"{STALL_MOVE}: {STALL_SWITCH_OFF}")
                     stall_scan(client, repository, now=now, log=log, moved=stall_moved, moves=stall_moves,
-                               start=start_move, destination=stall_destination)
+                               start=start_move, destination=stall_destination, pull_only=stall_pull)
                 except READ_ERRORS as error:
                     log(f"could not list cmux-next pull request runs for the stall scan ({error}); next scan")
         ticks += 1
