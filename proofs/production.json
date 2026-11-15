@@ -299,5 +299,12 @@
     "at": "2026-11-15T21:16:35Z",
     "run": 43762350296,
     "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/43762350296"
+  },
+  {
+    "commit": "08dece8cf2302467553e6ab58382a8cb0634d430",
+    "result": "pass",
+    "at": "2026-11-15T21:37:24Z",
+    "run": 43764265377,
+    "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/43764265377"
   }
 ]
