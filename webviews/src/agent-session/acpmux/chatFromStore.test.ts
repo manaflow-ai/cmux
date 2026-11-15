@@ -31,6 +31,7 @@ afterAll(async () => {
 });
 
 const settle = async (done: () => boolean) => {
+  // timeout: a mock daemon and host answer in microtasks; past 2 s a wait names what it waited on, not a hang.
   const deadline = performance.now() + 2_000;
   while (!done()) {
     if (performance.now() > deadline) throw new Error(`timed out waiting for ${done.toString()}`);
