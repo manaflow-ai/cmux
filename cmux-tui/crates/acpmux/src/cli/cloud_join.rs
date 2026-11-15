@@ -1128,6 +1128,34 @@ mod tests {
         std::fs::remove_file(&leave).unwrap();
         assert!(super::joined_device_at(home.path()).is_some());
 
+        // A revoke an earlier join's sign-out still owes (its row, and its credential) is not this
+        // join's: the sign-in since enrolled this one, so the tunnel runs (cmuxterm-hq probe
+        // cloud-carrier-ssh-failover: a shared runner home kept ssh `no_tunnel` for every run).
+        let earlier = super::MachineCredential {
+            credential: "cmm_earlier".into(),
+            machine_id: "machine_earlier".into(),
+            hub_origin: "https://other.example.com".into(),
+            ..Default::default()
+        };
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&earlier, false)).unwrap();
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&earlier, true)).unwrap();
+        assert!(super::to_revoke::any_queued(home.path()));
+        assert!(super::joined_device_at(home.path()).is_some(), "an earlier join's revoke");
+        // One owed for this join itself stops it, by its row or by its credential.
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&record, false)).unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "this join's row is queued");
+        let own_credential =
+            super::MachineCredential { machine_id: String::new(), ..record.clone() };
+        let other = tempfile::tempdir().unwrap();
+        joined_on(other.path(), current.as_deref());
+        super::to_revoke::queue(other.path(), &super::to_revoke::Row::of(&own_credential, true))
+            .unwrap();
+        assert_eq!(super::joined_device_at(other.path()), None, "this join's credential is queued");
+        for path in std::fs::read_dir(home.path().join("machine-join.to-revoke")).unwrap() {
+            std::fs::remove_file(path.unwrap().path()).unwrap();
+        }
+        assert!(super::joined_device_at(home.path()).is_some());
+
         record.revoked = true;
         super::save_at(home.path(), &record).unwrap();
         assert_eq!(super::joined_device_at(home.path()), None, "revoked");
