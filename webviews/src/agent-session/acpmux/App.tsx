@@ -235,6 +235,8 @@ import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { uploadForSend } from "./sendUploads";
 import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
+import { TerminalApprovalAsk } from "./terminalApproval/TerminalApprovalAsk";
+import { useTerminalApproval } from "./terminalApproval/terminalApproval";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
   useComputerUsePreview,
@@ -2654,6 +2656,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const individualPermission =
     heldOnCard(draftAsk, snapshot.permission, snapshot.permissionGroups) ??
     (askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined);
+  // The terminal's own dialog while it drives this chat's session (terminalApproval/): acpmux sends none then.
+  const terminalApproval = useTerminalApproval();
+  const terminalAsk = individualPermission ? null : terminalApproval;
   // The asks of the sub-sessions below this chat (subagents/childAsks.ts): the oldest shows here,
   // answered through this chat, while the chat has no ask of its own.
   const belowAsks = useMemo(
@@ -11823,6 +11828,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     hasPermissionGroups ||
     individualPermission ||
+    terminalAsk ||
     childAsk ||
     secret ||
     toolCards.length > 0,
@@ -11948,7 +11954,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }}
         />
       )}
-      {(individualPermission || childAsk || secret || toolCards.length > 0) && (
+      {(individualPermission || terminalAsk || childAsk || secret || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
@@ -11971,6 +11977,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               shownChat={shownChat}
               alwaysAtSource={chatOnPeer(snapshot)}
               onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
+            />
+          )}
+          {terminalAsk && (
+            <TerminalApprovalAsk
+              approval={terminalAsk}
+              shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
+              focusComposer={() => composerHandle.current?.focus()}
             />
           )}
           {childAsk && (
