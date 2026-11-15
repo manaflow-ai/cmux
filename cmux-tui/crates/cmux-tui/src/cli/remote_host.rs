@@ -14,8 +14,12 @@ use super::{GlobalArgs, parse_globals, raw};
 
 const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|grants|access|stop>\n\ncmux Remote holds the macOS grants (Accessibility, Screen Recording) for Computer Use and Screen Sharing. Grant them once, to \"cmux Remote\"; cmux never needs a relaunch.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant restarts)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux)\n  cmux remote-host share on --device DEVICE     Share another Mac of yours: you confirm here, in this device's cmux, and that Mac admits it only from a machine its owner granted\n  cmux remote-host grants [--device DEVICE] [--open]\n                                                Which macOS grant cmux Remote lacks on a Mac (--open opens its System Settings pane there), and whether an agent can click it over screen sharing\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
 
-/// How long the person may take to answer cmux's confirmation sheet.
-const CONFIRM_TIMEOUT: Duration = Duration::from_secs(130);
+/// How long the person may take to answer cmux's confirmation sheet: the CLI and the
+/// `remote_*` MCP tools wait this long for the click. The app's `remote.confirm` deadline
+/// (`CmuxRemoteActionEnvironment.confirmationTimeout`) is the same 600 s. It was 130 s on
+/// both sides, and the CLI's clock starts before the app gets the request, so a late
+/// Allow was cancelled with the dialog while the CLI reported a timeout.
+pub(super) const CONFIRM_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Handles `cmux remote-host` before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -209,4 +213,18 @@ fn acpmux_peers() -> Value {
         .filter(|output| output.status.success())
         .and_then(|output| serde_json::from_slice(&output.stdout).ok())
         .unwrap_or(Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::CONFIRM_TIMEOUT;
+
+    /// The person gets minutes, not the old 130 s, to answer; the app's deadline matches.
+    #[test]
+    fn share_confirmation_waits_for_the_person_past_the_old_timeout() {
+        assert_eq!(CONFIRM_TIMEOUT, Duration::from_secs(600));
+        assert!(CONFIRM_TIMEOUT > Duration::from_secs(130));
+    }
 }

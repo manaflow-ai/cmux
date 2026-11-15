@@ -50,6 +50,12 @@ import Testing
         changed.target = "another-mac"
         #expect(!DeviceIdentity.verify(signature: changed.signature, of: Data(changed.canonical.utf8), signingKey: identity.signingKey))
     }
+
+    /// The dialog waits as long as `cmux remote-host`'s `CONFIRM_TIMEOUT` (600 s), not the old 130 s.
+    @Test func theConfirmDialogWaitsForThePersonPastTheOldTimeout() {
+        #expect(CmuxRemoteActionEnvironment.confirmationTimeout == .seconds(600))
+        #expect(CmuxRemoteActionEnvironment.confirmationTimeout > .seconds(130))
+    }
 }
 
 /// A software signing key: tests only. The app signs with its Secure Enclave key.

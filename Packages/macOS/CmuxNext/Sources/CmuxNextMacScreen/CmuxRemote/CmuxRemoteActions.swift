@@ -28,6 +28,11 @@ public struct CmuxRemoteActionEnvironment {
 /// confirms it on a cmux dialog, then this app's hub session (the full one) makes it.
 @MainActor
 extension CmuxRemoteActionEnvironment {
+    /// How long `remote.confirm` keeps its dialog open for the person. It is the same budget
+    /// as `cmux remote-host`'s `CONFIRM_TIMEOUT`, so a late Allow still reaches the waiting
+    /// CLI or MCP call and is not cancelled at the old 130 s.
+    nonisolated static let confirmationTimeout: Duration = .seconds(600)
+
     public func bind(into registry: ActionRegistry) {
         let environment = self
         let remote = environment.remote
@@ -115,7 +120,7 @@ extension CmuxRemoteActionEnvironment {
                     try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote)
                     return ["ok": true]
                 }
-            }.withDeadline(.fixed(.seconds(130))),
+            }.withDeadline(.fixed(Self.confirmationTimeout)),
         ]
     }
 

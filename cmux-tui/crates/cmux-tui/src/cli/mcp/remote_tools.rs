@@ -4,10 +4,10 @@
 //! (they work with the app quit); turning sharing on and raising a device's
 //! access go to the cmux app, which asks the person first.
 
-use std::time::Duration;
-
 use serde_json::{Map, Value, json};
 
+// One person-confirmation budget with `cmux remote-host`.
+use super::super::remote_host::CONFIRM_TIMEOUT;
 use super::transport::{CallFailure, FailureKind};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
@@ -89,9 +89,6 @@ pub(super) const TOOLS: &[RemoteTool] = &[
         schema: no_arguments,
     },
 ];
-
-/// How long the person may take to answer cmux's confirmation.
-const CONFIRM_TIMEOUT: Duration = Duration::from_secs(130);
 
 pub(super) fn find(name: &str) -> Option<&'static RemoteTool> {
     TOOLS.iter().find(|tool| tool.name == name)
