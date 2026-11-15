@@ -634,20 +634,31 @@ mod tests {
     }
 
     /// A gate line goes in the file of the prefix whose row its test writes, so a PR that adds a
-    /// gate edits only its own row's file.
+    /// gate edits only its own row's file. A gate that writes no row (one that prints what it
+    /// observes) goes in the file of the prefix its filter spells.
     #[test]
     fn a_gate_line_runs_a_test_that_writes_a_row_of_its_files_prefix() {
         let texts = gate_sources();
         let sources: Vec<(&Path, Source<'_>)> =
             texts.iter().map(|(file, text)| (file.as_path(), Source::read(text))).collect();
+        let spelled = |filter: &str, prefix: &str| {
+            regex::Regex::new(&format!(r"(^|[^a-z0-9]){prefix}($|[^a-z0-9])"))
+                .unwrap()
+                .is_match(filter)
+        };
         for (prefix, target, filter) in gate_lines() {
             let rows = rows::GROUPS
                 .iter()
                 .find(|(group, _)| *group == prefix)
                 .unwrap_or_else(|| panic!("{prefix}.gates names no row file in rows/mod.rs"))
                 .1;
+            if rows.iter().any(|row| runs_row(&sources, row.name, &target, &filter)) {
+                continue;
+            }
+            let writes_a_row =
+                GATE_ROWS.iter().any(|row| runs_row(&sources, row.name, &target, &filter));
             assert!(
-                rows.iter().any(|row| runs_row(&sources, row.name, &target, &filter)),
+                !writes_a_row && spelled(&filter, &prefix),
                 "v2-gates.d/{prefix}.gates runs {filter} on {target:?}, and no test it starts \
                  writes a v2.{prefix}.* row: move the line to the file of the row it writes"
             );
