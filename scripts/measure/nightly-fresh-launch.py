@@ -52,7 +52,10 @@ ARMS = ("fresh-copy", "same-copy", "warm")
 #   gktool          `gktool scan` on the copy (what Sparkle 2 runs on a staged update when its Autoupdate has the
 #                   update's team), then the launch
 #   gktool-moved    as gktool, in a staging folder, then renamed into place (Sparkle's install of a scanned update)
-EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
+#   prewarm-bins-moved  as prewarm-moved, and the bundled `cmux` and `cmux-tui` (Contents/Resources/bin) run once
+#                   with --version: the launch's other first execs (the CLI's cloud env read, the daemon)
+EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
+PREWARM_BINS = ("cmux", "cmux-tui")
 # The unified log around a fresh copy's launch: who works on a new executable before main.
 FIRST_EXEC_LOG = ('process == "syspolicyd" OR process == "amfid" OR process == "XProtect" OR process == "trustd" '
                   'OR process == "kernel" OR subsystem == "com.apple.dyld" OR subsystem BEGINSWITH "com.apple.syspolicy" '
@@ -259,9 +262,16 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
         app = smoke.copy_app(mount_app, stage)
         before: dict = {}
         with smoke.DefaultsAside(bundle_id, root):
-            if arm in ("prewarm-main", "prewarm-moved"):
+            if arm in ("prewarm-main", "prewarm-moved", "prewarm-bins-moved"):
                 (root / "w").mkdir()
                 before = prewarm_until_main(smoke, root, app, executable, root / "w")
+                if arm == "prewarm-bins-moved":
+                    for name in PREWARM_BINS:
+                        binary = app / "Contents" / "Resources" / "bin" / name
+                        if binary.exists():
+                            started = time.monotonic()
+                            run_text([str(binary), "--version"], timeout=60)
+                            before[f"{name}_s"] = round(time.monotonic() - started, 3)
             elif arm == "prewarm-home":
                 (root / "w").mkdir()
                 started = time.monotonic()
@@ -275,7 +285,7 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                 started = time.monotonic()
                 before = {"gktool": run_text(["/usr/bin/gktool", "scan", str(app)], timeout=900)[-400:],
                           "seconds": round(time.monotonic() - started, 3)}
-            if arm in ("prewarm-moved", "prewarm-home", "gktool-moved"):
+            if arm in ("prewarm-moved", "prewarm-bins-moved", "prewarm-home", "gktool-moved"):
                 placed = root / "placed"
                 placed.mkdir()
                 os.rename(app.parent, placed / "app")
