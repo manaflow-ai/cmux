@@ -1790,6 +1790,7 @@ export function mockDevicesState(): DevicesState {
         body: "This Mac leaves your devices. You can sign in again later.",
         confirm: "Remove",
       },
+      kind: "mac-studio",
     },
     others: [
       {
@@ -1804,6 +1805,7 @@ export function mockDevicesState(): DevicesState {
         sharesText: null,
         access: "full",
         removeConfirm: removeConfirm("Aziz's iPhone"),
+        kind: "iphone",
       },
       {
         id: "dev-macbook",
@@ -1817,6 +1819,7 @@ export function mockDevicesState(): DevicesState {
         sharesText: "Shares Mac Screen",
         access: "ask",
         removeConfirm: removeConfirm("MacBook Pro"),
+        kind: "macbook",
       },
     ],
     sharing: {

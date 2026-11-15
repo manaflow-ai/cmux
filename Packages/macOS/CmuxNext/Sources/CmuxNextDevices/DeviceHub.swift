@@ -47,6 +47,12 @@ public final class DeviceHub {
     @ObservationIgnored public var onSessionPush: ((DeviceHubPush) -> Void)?
     /// The name this device registers with.
     @ObservationIgnored public var deviceName: String
+    /// What kind of device this is (PROTOCOL.md, Device kind: `macbook`, `mac-mini`), sent with each
+    /// registration; nil sends none and the hub keeps what it has. Set it before ``start()``, or
+    /// with ``reportKind(_:)`` once the daemon says it.
+    @ObservationIgnored public var deviceKind: String?
+    /// The kind the last successful registration sent.
+    @ObservationIgnored private var registeredKind: String?
 
     @ObservationIgnored public let client: DeviceHubClient
     @ObservationIgnored let socket: DeviceHubSocket
@@ -101,6 +107,44 @@ public final class DeviceHub {
         permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .ask
     }
 
+    // MARK: Device kind
+
+    /// This Mac's kind became known (its daemon's `identify` said it after the hub started): it
+    /// registers again with it once registered, so the other devices draw what it is. A nil or
+    /// unchanged kind does nothing. Returns the registration it started, if any.
+    @discardableResult
+    public func reportKind(_ kind: String?) -> Task<Void, Never>? {
+        guard let kind, kind != deviceKind else { return nil }
+        deviceKind = kind
+        // Still starting: the start sends it once its own registration is done.
+        guard status == .ready, kind != registeredKind else { return nil }
+        return sendKind()
+    }
+
+    /// One registration with ``deviceKind``; a failure leaves it for the next start.
+    @discardableResult
+    private func sendKind() -> Task<Void, Never> {
+        let client = client, name = deviceName, platform = platform, kind = deviceKind, run = generation
+        // task-owner: one re-registration; an answer from an older run is dropped
+        return Task { [weak self] in
+            guard (try? await client.registerDevice(name: name, platform: platform, kind: kind)) != nil else { return }
+            guard let self, run == generation else { return }
+            registeredKind = kind
+        }
+    }
+
+    #if DEBUG
+    /// A fixture hub's device list (``fixture(devices:)``): ready, with these devices, never started.
+    func showFixture(_ list: [HubDevice]) {
+        devices = list
+        status = .ready
+        isFixture = true
+    }
+
+    /// Made by ``fixture(devices:)``: it talks to no server.
+    @ObservationIgnored public private(set) var isFixture = false
+    #endif
+
     // MARK: Lifecycle
 
     /// Signed in: registers this device, then keeps the socket open (each
@@ -110,9 +154,10 @@ public final class DeviceHub {
         generation += 1
         let run = generation
         status = .starting
+        let kind = deviceKind
         do {
             do {
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                _ = try await client.registerDevice(name: deviceName, platform: platform, kind: kind)
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -120,10 +165,13 @@ public final class DeviceHub {
                 do { fresh = try await Self.loadIdentity(renewIdentity) } catch { throw DeviceHubError.identity("\(error)") }
                 guard run == generation else { return }
                 client.setIdentity(fresh)
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                _ = try await client.registerDevice(name: deviceName, platform: platform, kind: kind)
             }
             guard run == generation else { return }
+            registeredKind = kind
             status = .ready
+            // The daemon said this Mac's kind while that registration was in flight.
+            if deviceKind != registeredKind { sendKind() }
         } catch {
             guard run == generation else { return }
             fail(error)

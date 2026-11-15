@@ -37,6 +37,8 @@ interface DeviceRow {
   last_seen_at: number;
   removed_at: number | null;
   mac_screen_shared: number;
+  /** What kind of device it is (`macbook`, `mac-mini`, `iphone`: cmux-device-kind's wire names); null when it never said. */
+  kind: string | null;
 }
 
 interface SessionRow {
@@ -107,7 +109,8 @@ CREATE TABLE IF NOT EXISTS devices(
   created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
   removed_at INTEGER, mac_screen_shared INTEGER NOT NULL DEFAULT 0,
   name_pinned INTEGER NOT NULL DEFAULT 0,
-  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '');
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '',
+  kind TEXT);
 CREATE TABLE IF NOT EXISTS permissions(
   host_id TEXT NOT NULL, viewer_id TEXT NOT NULL, scope TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -151,7 +154,23 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "device_id", "TEXT"],
   ["audit", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  // What kind of device it is (PROTOCOL.md, Devices). Nullable: a row from before it, and a device
+  // whose app never sent one, read as unknown, and the apps draw their old icon.
+  ["devices", "kind", "TEXT"],
 ];
+
+/** A device kind's wire name (`mac-mini`, `linux-server`): lowercase words joined by `-`. Any such
+ * name is kept, so a newer app's kind needs no hub change; an app that does not know it draws its
+ * old icon. */
+const DEVICE_KIND = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+/** The register body's `kind`: absent or null is none, and so is a string that is not a wire name of
+ * at most 32 characters (an icon is never worth a failed registration); any other type is refused. */
+function deviceKind(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "string") throw badRequest("kind must be a string");
+  return v.length <= 32 && DEVICE_KIND.test(v) ? v : null;
+}
 const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
 
 /** What a User DO socket carries across hibernation. */
@@ -178,6 +197,7 @@ function publicDevice(d: DeviceRow, online: boolean) {
     createdAt: d.created_at,
     lastSeenAt: d.last_seen_at,
     macScreenShared: d.mac_screen_shared === 1,
+    kind: d.kind ?? null,
     online,
   };
 }
@@ -397,6 +417,7 @@ export class UserDO extends DurableObject<Env> {
     if (body.id !== h.id) throw badRequest("id must equal X-Device-Id");
     const name = str(body.name, "name", 100);
     if (body.platform !== "macos" && body.platform !== "ios") throw badRequest("platform must be macos or ios");
+    const kind = deviceKind(body.kind);
     if (!(await isValidDeviceKey(body.signingKey))) throw badRequest("signingKey must be a base64 X9.63 P-256 key");
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
@@ -408,16 +429,18 @@ export class UserDO extends DurableObject<Env> {
     this.burnSignature(h.id, h.ts, h.sig, now);
     if (existing) {
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ? WHERE id = ?",
+        // A register without a kind (an older app, a helper that does not know it) keeps the stored one.
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, kind = COALESCE(?, kind) WHERE id = ?",
         name,
         body.platform,
         agreementKey,
         now,
+        kind,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, kind) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?)",
         h.id,
         name,
         body.platform,
@@ -426,6 +449,7 @@ export class UserDO extends DurableObject<Env> {
         now,
         now,
         this.ownerId,
+        kind,
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }

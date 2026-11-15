@@ -51,6 +51,10 @@ public final class DeviceHub {
     @ObservationIgnored public var onSessionPush: ((DeviceHubPush) -> Void)?
     /// The name this device registers with.
     @ObservationIgnored public var deviceName: String
+    /// What kind of device this is (PROTOCOL.md, Device kind: `iphone`, `ipad`), sent with each
+    /// registration; nil sends none and the hub keeps what it has (the Mac's screen-sharing helper
+    /// registers without one, after the app sent it).
+    @ObservationIgnored public var deviceKind: String?
 
     @ObservationIgnored public let client: DeviceHubClient
     @ObservationIgnored let socket: DeviceHubSocket
@@ -117,7 +121,7 @@ public final class DeviceHub {
         devicesListError = nil
         do {
             do {
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                _ = try await client.registerDevice(name: deviceName, platform: platform, kind: deviceKind)
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -125,7 +129,7 @@ public final class DeviceHub {
                 do { fresh = try await Self.loadIdentity(renewIdentity) } catch { throw DeviceHubError.identity("\(error)") }
                 guard run == generation else { return }
                 client.setIdentity(fresh)
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                _ = try await client.registerDevice(name: deviceName, platform: platform, kind: deviceKind)
             }
             guard run == generation else { return }
             status = .ready

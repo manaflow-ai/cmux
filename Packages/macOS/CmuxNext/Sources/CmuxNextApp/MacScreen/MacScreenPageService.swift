@@ -237,7 +237,7 @@ extension AppServices {
     func startDeviceHub(_ settings: SettingsController) {
         // cmux Remote first: the hub it serves is made with its device identity.
         startCmuxRemote(settings)
-        deviceHub.start(settings: settings)
+        deviceHub.start(settings: settings, deviceKind: { [weak daemon = self.daemon] in daemon?.identity?.machineDevice })
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
     }
 

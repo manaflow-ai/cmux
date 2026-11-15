@@ -28,6 +28,26 @@ struct MacScreenHomeSnapshot: Equatable {
         var online: Bool
         /// This Mac's access to it.
         var access: MacScreenAccess
+        /// The SF Symbol of the kind of device it is (a MacBook, a Mac mini), from its hub record;
+        /// nil when it never said, and the row draws the iPhone or desktop icon it drew before.
+        var symbol: String?
+
+        /// The row's glyph: its kind's symbol when this macOS has it, else the icon of its platform.
+        var glyph: String {
+            if let symbol, NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil { return symbol }
+            return isPhone ? "iphone" : "desktopcomputer"
+        }
+
+        /// The row of `device`, one of the user's devices, with this Mac's access to it.
+        init(_ device: HubDevice, access: MacScreenAccess) {
+            self.init(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
+                      access: access, symbol: DeviceGlyphKind(name: device.kind)?.symbol)
+        }
+
+        init(id: String, name: String, isPhone: Bool, online: Bool, access: MacScreenAccess, symbol: String? = nil) {
+            self.id = id; self.name = name; self.isPhone = isPhone; self.online = online
+            self.access = access; self.symbol = symbol
+        }
     }
 
     /// Your Devices: a note (signed out, loading, none shared) or the list.
@@ -95,8 +115,7 @@ struct MacScreenHomeSnapshot: Equatable {
                         : L.t("macScreen.home.devicesLoading", "Loading your devices…"))
                 } else {
                     devices = .list(shared.map { device in
-                        Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
-                               access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)))
+                        Device(device, access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)))
                     })
                 }
                 if hub.thisDevice != nil {
@@ -167,7 +186,7 @@ extension MacScreenHomeView {
     }
 
     private func deviceRow(_ device: MacScreenHomeSnapshot.Device) -> NSView {
-        let glyph = MacScreenGlyph(device.isPhone ? "iphone" : "desktopcomputer", font: MacScreenType.glyph, width: 26)
+        let glyph = MacScreenGlyph(device.glyph, font: MacScreenType.glyph, width: 26)
         let status = MacScreenStack.make(.horizontal, spacing: 6, alignment: .centerY, [
             MacScreenFill.dot(device.online ? \.success : \.tertiary, side: 7),
             MacScreenText(device.online ? L.t("macScreen.home.online", "Online") : L.t("macScreen.home.offline", "Offline"),

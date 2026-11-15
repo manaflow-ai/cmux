@@ -61,7 +61,7 @@ host-signed allow lists are later work.
 ```
 devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
-        name_pinned INT 0/1, owner_kind, owner_id)
+        name_pinned INT 0/1, owner_kind, owner_id, kind NULL)
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
         PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
@@ -91,11 +91,26 @@ digest, expires_at)` table (digest = ts and low-S signature) for the 120 s
 replay cache.
 
 JSON shapes: a device is `{id, name, platform, signingKey, agreementKey,
-createdAt, lastSeenAt, macScreenShared, online}`; an ICE server is
+createdAt, lastSeenAt, macScreenShared, kind, online}` (`kind` is null when the
+device never said it; see Device kind below); an ICE server is
 `{urls:[…], username?, credential?}`; an audit entry is `{id, ts, event,
 viewerId, hostId, deviceId, viewerName, hostName, deviceName, scope, sessionId,
 detail, durationS}` (`detail` carries the
 end reason, the decision, or `old->new` for a permission change).
+
+### Device kind
+
+`kind` says what the device is, so the apps draw its icon: one of the wire
+names of `cmux-tui/crates/cmux-device-kind` (`macbook`, `mac-mini`, `imac`,
+`mac-studio`, `mac-pro`, `linux-desktop`, `linux-server`, `cloud`, `iphone`,
+`ipad`, `generic`). A Mac sends what its cmux-tui daemon reads of its hardware
+model; an iPhone or iPad sends its own. The hub keeps any lowercase
+`word(-word)*` name of at most 32 characters, so a newer app's kind needs no hub
+change; any other string is no kind (the registration still succeeds), and a
+`kind` that is not a string is 400 `bad_request`. A registration without a kind
+keeps the stored one, so nothing clears a kind once set. An app that does not
+know a kind, and every device with no kind (an older app, a row from before the
+column), draws the icon it drew before.
 
 ## HTTP API (all JSON)
 
@@ -104,7 +119,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, kind?}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `kind` (see Device kind) is stored when given; a registration without it keeps the stored kind. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
