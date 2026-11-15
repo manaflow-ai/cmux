@@ -36,7 +36,12 @@ import UIKit
         // the main queue (its page comes from disk).
         chat.controller.view.layoutIfNeeded()
         let reading = try #require(chat.onScreen().first, "a row on screen")
-        let readingTop = try #require(chat.span(reading)).top
+        // Where it sits in the scroll view's own frame, from the model (the presentation layer still
+        // has the offset before the scroll until the next frame).
+        func top(_ id: String) -> CGFloat? {
+            chat.list.cell(for: id).map { $0.frame.minY - chat.scroll.contentOffset.y }
+        }
+        let readingTop = try #require(top(reading))
         for _ in 0 ..< 300 where store.turnsOnDisk > 0 || store.turns.count < turns { await chat.frame() }
         try #require(store.turns.count == turns, "the spilled turns came back: \(store.turns.count) of \(turns)")
         await chat.frames(20)
@@ -45,8 +50,8 @@ import UIKit
         #expect(!chat.surface.following, "following came back on while the reader was scrolled up")
         #expect(bottom - chat.scroll.contentOffset.y > chat.scroll.bounds.height,
                 "the chat moved to its newest turn: offset \(chat.scroll.contentOffset.y), bottom \(bottom)")
-        let span = try #require(chat.span(reading), "the row the reader was on left the screen")
-        #expect(abs(span.top - readingTop) <= 1, "the row the reader was on moved from \(readingTop) to \(span.top)")
+        let readingNow = try #require(top(reading), "the row the reader was on left the screen")
+        #expect(abs(readingNow - readingTop) <= 1, "the row the reader was on moved from \(readingTop) to \(readingNow)")
     }
 }
 #endif
