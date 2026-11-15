@@ -55,7 +55,9 @@ pub struct StartupTimings {
 }
 
 /// One lap: its name, how long it took and, for a lap over table rows, how
-/// many rows it changed.
+/// many rows it changed. The parked trim of the output store
+/// (`mux.build.output_store.parked_trim`) has no table: its count is the
+/// rewrites of a snapshot file that the pass ran.
 #[derive(Debug, Clone)]
 struct Step {
     name: Cow<'static, str>,
@@ -108,6 +110,12 @@ impl StartupTimings {
     /// [`absorb`](Self::absorb)s it, which names the rest of the phase.
     pub fn record_rows(&mut self, step: String, took: Duration, rows: u64) {
         self.steps.push(Step { name: Cow::Owned(step), took, rows: Some(rows) });
+    }
+
+    /// Records a step timed by its caller, with no count. As
+    /// [`record_rows`](Self::record_rows), it does not move the lap mark.
+    pub fn record(&mut self, step: &'static str, took: Duration) {
+        self.steps.push(Step { name: Cow::Borrowed(step), took, rows: None });
     }
 
     /// Takes `inner`'s laps, which ran since this clock's previous lap, and
