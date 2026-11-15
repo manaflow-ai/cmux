@@ -20,9 +20,11 @@
 mod brief;
 mod diff;
 mod engine;
+pub mod library;
 mod paths;
 pub mod profile;
 pub mod redact;
+pub mod schema;
 mod store;
 mod tree;
 mod validate;
@@ -140,6 +142,9 @@ pub struct Applied {
     /// False when the live tree already was the current generation.
     pub recorded: bool,
     pub changes: Vec<Change>,
+    /// The library entry this apply was saved as (`cmux customize library`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -178,6 +183,9 @@ pub enum Error {
     /// An agent's restore would change settings only the person may change
     /// (the keys); nothing was changed.
     Protected(Vec<String>),
+    /// A library verb that cannot run (no such entry, a preview is open, a
+    /// collection that does not read); nothing was changed.
+    Library(String),
 }
 
 impl Error {
@@ -192,6 +200,7 @@ impl Error {
             Error::Profile(_) => "customize.profile",
             Error::Untracked(_) => "customize.untracked",
             Error::Protected(_) => "customize.protected",
+            Error::Library(_) => "customize.library",
         }
     }
 }
@@ -216,7 +225,7 @@ impl std::fmt::Display for Error {
                 write!(f, "there is no generation {n}; `cmux customize generations` lists them")
             }
             Error::NothingEarlier => f.write_str("there is no earlier generation to roll back to"),
-            Error::Profile(why) => f.write_str(why),
+            Error::Profile(why) | Error::Library(why) => f.write_str(why),
             Error::Protected(keys) => write!(
                 f,
                 "nothing was changed: putting that setup back would also change {} that only the person can change ({}). They can run the same `cmux customize` command themselves in a terminal",
