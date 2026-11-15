@@ -110,4 +110,17 @@ out="$(CARGO_BUILD_JOBS=3 "$script" "$td" "$t" \
   "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" || fail "caller jobs run failed: $out"
 [[ "$(grep -c ' jobs=3$' "$FAKE_LOG")" == 2 ]] || fail "a caller's CARGO_BUILD_JOBS did not reach every group: $(cat "$FAKE_LOG")"
 
+# 6. A group CARGO_GROUPS_EVERY_CORE names (by its first binary) gets every
+#    core too, wherever it stands, and keeps its own target directory.
+rm -rf "$td"; : > "$FAKE_LOG"
+out="$(env -u CARGO_BUILD_JOBS CARGO_GROUPS_EVERY_CORE=acpmux-standalone "$script" "$td" "$t" \
+  "cmux-tui" "cargo build --bin cmux-tui --target $t" \
+  "cmux-relay" "cargo build --bin cmux-relay --target $t" \
+  "acpmux-standalone" "cargo build --bin acpmux-standalone --target $t" 2>&1)" || fail "every-core run failed: $out"
+grep -qx "started acpmux-standalone jobs=$lead" "$FAKE_LOG" \
+  || fail "the group CARGO_GROUPS_EVERY_CORE names did not get $lead jobs: $(cat "$FAKE_LOG")"
+grep -qx "started cmux-relay jobs=$share" "$FAKE_LOG" || fail "an unnamed group did not keep $share jobs: $(cat "$FAKE_LOG")"
+grep -q "acpmux-standalone from $td/groups/3\$" "$td/$t/release/acpmux-standalone" \
+  || fail "the named group lost its own target directory"
+
 echo "PASS: cargo-groups.sh"
