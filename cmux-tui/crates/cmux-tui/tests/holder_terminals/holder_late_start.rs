@@ -96,6 +96,103 @@ fn a_restart_keeps_the_terminal_of_a_stopped_holder_and_reattaches_it_when_the_h
     screen_contains(&daemon.socket, surface, "typed-after-the-holder-ran");
 }
 
+/// Two restarts of the daemon while the holder is stopped. The first restarted daemon sent
+/// its greeting to the holder and is gone before the holder reads it; the second daemon
+/// waits on a connect of its own. The holder finds both connects when it runs again. The
+/// daemon that runs must then get the terminal back with its shell and its screen, and it
+/// must be able to start a new terminal.
+#[test]
+fn a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal() {
+    let mut daemon = Daemon::start();
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+            "name": "two-restarts", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(surface);
+    send(&daemon.socket, surface, "kept-before-the-stop");
+    screen_contains(&daemon.socket, surface, "kept-before-the-stop");
+    let before =
+        request(&daemon.socket, json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
+    let shell = shell_pid(&daemon.socket, surface);
+
+    // Only this test's own holder gets a signal (see the test above).
+    let holder = parent_of(shell);
+    let daemon_pid = daemon.child.as_ref().map(Child::id).unwrap();
+    let holder_args = command_line(holder);
+    assert!(
+        holder > 1
+            && holder != std::process::id() as i32
+            && holder_args.contains(" --owner ")
+            && holder_args.contains(&format!("@{daemon_pid}")),
+        "process {holder} is not the holder of this test's daemon {daemon_pid}: {holder_args}"
+    );
+
+    daemon.sigkill();
+    let stopped = Stopped::stop(holder);
+    // The first restart: this daemon answers only after its start asked the holder, so its
+    // greeting waits at the holder when the daemon is killed.
+    daemon.restart();
+    let kept_by = |socket: &Path, which: &str| {
+        let kept = request(socket, json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
+        assert_eq!(
+            (&kept["exit"], &kept["surface"], &kept["terminal_incarnation"], &kept["lifecycle"]),
+            (&Value::Null, &Value::Null, &before["terminal_incarnation"], &json!("running")),
+            "(end, runtime, incarnation, lifecycle) after the {which} restart, while the \
+             holder is stopped: the terminal is kept, with no new shell"
+        );
+    };
+    kept_by(&daemon.socket, "first");
+    daemon.sigkill();
+    // The second restart: this daemon waits on its own connect.
+    let log = daemon.dir.join("second-restart.log");
+    daemon.restart_with_stderr(Stdio::from(fs::File::create(&log).unwrap()));
+    kept_by(&daemon.socket, "second");
+    assert!(alive(shell), "the shell died while its holder was stopped");
+
+    // The holder runs again: the same shell re-attaches to the daemon that runs.
+    drop(stopped);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let surface = loop {
+        let resolved =
+            request(&daemon.socket, json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the terminal did not re-attach after the holder ran again: {resolved}\nthe \
+             daemon's log:\n{}",
+            fs::read_to_string(&log).unwrap_or_default()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(shell_pid(&daemon.socket, surface), shell, "the terminal got a new shell");
+    screen_contains(&daemon.socket, surface, "kept-before-the-stop");
+    send(&daemon.socket, surface, "typed-after-the-holder-ran");
+    screen_contains(&daemon.socket, surface, "typed-after-the-holder-ran");
+
+    // A new terminal starts on the same holder.
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+            "name": "after-two-restarts", "cols": 80, "rows": 24}),
+    );
+    let new_surface = created["surface"].as_u64().unwrap();
+    daemon.track(new_surface);
+    assert_eq!(
+        parent_of(shell_pid(&daemon.socket, new_surface)),
+        holder,
+        "the new terminal does not run on the holder that ran before"
+    );
+    send(&daemon.socket, new_surface, "typed-in-the-new-terminal");
+    screen_contains(&daemon.socket, new_surface, "typed-in-the-new-terminal");
+}
+
 /// A start gives the holder one wait for all its terminals together, and the terminals whose
 /// turn comes after it re-attach after the start. In a large session every terminal must
 /// run again with its own shell either way. Prints how many had their turn inside the wait,
