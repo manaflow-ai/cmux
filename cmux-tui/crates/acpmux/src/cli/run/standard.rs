@@ -819,7 +819,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                 }
                 if let Some(want) = &auto_register {
-                    crate::cli::reply_address::start(&client, want).await;
+                    crate::cli::reply_address::start(&client, want, deadline).await;
                 }
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).

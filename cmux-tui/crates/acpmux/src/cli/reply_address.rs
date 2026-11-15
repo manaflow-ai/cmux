@@ -74,41 +74,85 @@ pub fn of_this_process(named: bool) -> Option<AutoRegister> {
     auto_register_in(|key| std::env::var(key).ok(), named)
 }
 
-/// Starts `want` on `client` and says on stderr what the chat must do; at most [`WAIT`].
-pub async fn start(client: &crate::client::Client, want: &AutoRegister) {
+/// How long a send waits for the first step: none when the daemon does not take `auto` (an
+/// older one delivers a code on every send), and never past the send's own `--timeout`.
+fn wait_for(
+    lists_auto: bool,
+    deadline: Option<tokio::time::Instant>,
+    now: tokio::time::Instant,
+) -> Option<Duration> {
+    if !lists_auto {
+        return None;
+    }
+    let left = deadline.map_or(WAIT, |d| d.saturating_duration_since(now));
+    Some(left.min(WAIT)).filter(|w| !w.is_zero())
+}
+
+/// Starts `want` on `client` and says on stderr what the chat must do, within [`wait_for`].
+pub async fn start(
+    client: &crate::client::Client,
+    want: &AutoRegister,
+    deadline: Option<tokio::time::Instant>,
+) {
+    let lists = client.daemon_lists(crate::hub::register::AUTO_FEATURE);
+    let Some(wait) = wait_for(lists, deadline, tokio::time::Instant::now()) else { return };
     let params = json!({
         "name": want.name, "socket": want.socket, "token": want.token, "auto": true,
     });
     let answer =
-        tokio::time::timeout(WAIT, client.request(crate::rpc::method::MUX_REGISTER, params));
-    let answer = match answer.await {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => Err(format!("the daemon did not answer within {}s", WAIT.as_secs())),
+        tokio::time::timeout(wait, client.request(crate::rpc::method::MUX_REGISTER, params));
+    let outcome = match answer.await {
+        Ok(Ok(v)) => Outcome::Answer(v),
+        Ok(Err(e)) => Outcome::Refused(e.to_string()),
+        Err(_) => Outcome::NoAnswer,
     };
-    if let Some(line) = line(&want.name, &crate::host_pressure::host_name(), answer) {
+    if let Some(line) = line(&want.name, &crate::host_pressure::host_name(), outcome) {
         eprintln!("{line}");
     }
 }
 
-/// The line a send prints for the daemon's `answer`: none once the chat is registered.
-fn line(name: &str, host: &str, answer: Result<Value, String>) -> Option<String> {
-    let v = match answer {
-        Ok(v) => v,
-        Err(why) => {
+/// What the daemon did with the first step.
+#[derive(Debug)]
+enum Outcome {
+    Answer(Value),
+    /// It refused it, saying why: no code went.
+    Refused(String),
+    /// No answer in time: the daemon may still deliver the code.
+    NoAnswer,
+}
+
+/// The line a send prints for `outcome`: none once the chat has an address, or for a failure
+/// the daemon already reported to an earlier send (`repeat`).
+fn line(name: &str, host: &str, outcome: Outcome) -> Option<String> {
+    let v = match outcome {
+        Outcome::Answer(v) => v,
+        Outcome::Refused(why) => {
             return Some(format!(
                 "the receiver cannot reply to this chat: it has no acpmux address, and registering it did not start ({why}); run `acpmux register {name}` in this shell, then the `--code` line it delivers"
             ));
         }
+        // A manual `register` now would send a second code, which replaces the first.
+        Outcome::NoAnswer => {
+            return Some(format!(
+                "the receiver cannot reply to this chat until it is registered; registering it did not answer within {}s, and a one-time code may still arrive in this chat's inbox (a message from acpmux): run the `acpmux register ... --code ...` line it gives",
+                WAIT.as_secs()
+            ));
+        }
     };
-    if v.get("registered").and_then(Value::as_bool) == Some(true) {
+    let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+    if flag("registered") || flag("reachable") || flag("repeat") {
         return None;
     }
-    // A code another `register` asked for, under its own name, is the one to finish.
-    let name = v.get("name").and_then(Value::as_str).unwrap_or(name);
-    Some(format!(
-        "the receiver cannot reply to this chat until it is registered: a one-time code is in this chat's inbox (a message from acpmux); run the `acpmux register {name} --code ...` it gives, and replies then reach {host}/{name}"
-    ))
+    // The daemon's name wins: a chat that has one keeps it, and a code another `register` asked
+    // for is the one to finish. A step another send started has none yet.
+    match v.get("name").and_then(Value::as_str) {
+        Some(name) => Some(format!(
+            "the receiver cannot reply to this chat until it is registered: a one-time code is in this chat's inbox (a message from acpmux); run the `acpmux register {name} --code ...` it gives, and replies then reach {host}/{name}"
+        )),
+        None => Some(
+            "the receiver cannot reply to this chat until it is registered: a one-time code is coming to this chat's inbox (a message from acpmux); run the `acpmux register ... --code ...` line it gives, and replies then reach the name it names on this machine".to_owned()
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -175,26 +219,65 @@ mod tests {
         assert_eq!(auto_register_in(env(&[]), false), None, "the person's terminal");
     }
 
+    fn said(v: Value) -> Option<String> {
+        line("claude-desktop-03214b87", "cosmic-gray", Outcome::Answer(v))
+    }
+
     #[test]
     fn the_send_says_what_the_chat_must_do_until_it_is_registered() {
-        let pending = json!({"pending": true, "name": "claude-desktop-03214b87"});
-        let shown = line("claude-desktop-03214b87", "cosmic-gray", Ok(pending)).unwrap();
+        let shown = said(json!({"pending": true, "name": "claude-desktop-03214b87"})).unwrap();
         assert_eq!(
             shown,
             "the receiver cannot reply to this chat until it is registered: a one-time code is in this chat's inbox (a message from acpmux); run the `acpmux register claude-desktop-03214b87 --code ...` it gives, and replies then reach cosmic-gray/claude-desktop-03214b87"
         );
-        // A code `acpmux register desktop-zoe` asked for still waits: that name is the one.
-        let other = json!({"pending": true, "resent": false, "name": "desktop-zoe"});
-        let shown = line("claude-desktop-03214b87", "cosmic-gray", Ok(other)).unwrap();
+        // A chat registered before as desktop-zoe (or a code `register desktop-zoe` asked
+        // for): the daemon's name is the one.
+        let shown = said(json!({"pending": true, "resent": false, "name": "desktop-zoe"})).unwrap();
         assert!(shown.ends_with("reach cosmic-gray/desktop-zoe"), "{shown}");
-        let done = json!({"registered": true, "name": "desktop-zoe"});
-        assert_eq!(line("claude-desktop-03214b87", "cosmic-gray", Ok(done)), None);
-        let failed = line("claude-desktop-03214b87", "h", Err("register.unproven: x".into()));
+        // Another send's step is running: a code is coming, its name not known yet.
+        let shown = said(json!({"pending": true, "resent": false})).unwrap();
+        assert!(shown.contains("a one-time code is coming"), "{shown}");
+        assert!(!shown.contains("claude-desktop-03214b87"), "{shown}");
+        let failed =
+            line("claude-desktop-03214b87", "h", Outcome::Refused("register.unproven: x".into()));
         assert_eq!(
             failed.as_deref(),
             Some(
                 "the receiver cannot reply to this chat: it has no acpmux address, and registering it did not start (register.unproven: x); run `acpmux register claude-desktop-03214b87` in this shell, then the `--code` line it delivers"
             )
         );
+    }
+
+    /// Nothing to say once the chat has an address (registered, or reached by the bridge), or
+    /// for a failure an earlier send already reported.
+    #[test]
+    fn a_chat_with_an_address_or_a_failure_already_told_prints_nothing() {
+        assert_eq!(said(json!({"registered": true, "name": "desktop-zoe"})), None);
+        assert_eq!(said(json!({"reachable": true, "name": null})), None);
+        assert_eq!(said(json!({"failed": "register.unproven: x", "repeat": true})), None);
+    }
+
+    /// Repro: the 3 s wait ran out and the send said registering "did not start" and to run
+    /// `acpmux register NAME`, while the daemon went on and delivered the code; that manual
+    /// register would send a second code, which replaces the first.
+    #[test]
+    fn no_answer_in_time_says_a_code_may_still_come_and_asks_for_no_second() {
+        let shown = line("claude-desktop-03214b87", "h", Outcome::NoAnswer).unwrap();
+        assert!(shown.contains("a one-time code may still arrive"), "{shown}");
+        assert!(!shown.contains("did not start"), "{shown}");
+        assert!(!shown.contains("run `acpmux register claude-desktop-03214b87`"), "{shown}");
+    }
+
+    /// Repro: an older daemon ignores `auto` and delivers a code on every send. A daemon that
+    /// does not list the feature is not asked; the wait never runs past the send's deadline.
+    #[test]
+    fn only_a_daemon_that_takes_auto_is_asked_and_never_past_the_deadline() {
+        let now = tokio::time::Instant::now();
+        assert_eq!(wait_for(false, None, now), None, "an older daemon");
+        assert_eq!(wait_for(true, None, now), Some(WAIT));
+        let soon = now + Duration::from_millis(500);
+        assert_eq!(wait_for(true, Some(soon), now), Some(Duration::from_millis(500)));
+        assert_eq!(wait_for(true, Some(now + Duration::from_secs(60)), now), Some(WAIT));
+        assert_eq!(wait_for(true, Some(now), now), None, "the deadline passed");
     }
 }

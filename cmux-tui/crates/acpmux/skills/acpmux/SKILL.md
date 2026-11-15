@@ -253,7 +253,8 @@ prints on stderr that the receiver cannot reply yet. Run the
 `acpmux register NAME --code ...` line the message gives; replies then reach
 `HOST/NAME`, and your later sends carry that address. Send again what still
 needs an answer. The message itself is sent either way; no second code goes
-while one waits.
+while one waits. A chat registered before (say `desktop-zoe`) that restarted
+gets its code under that name and keeps its address.
 
 The daemon checks who runs the shell by the kernel's process tree, never by
 what you type. A Claude Code session's message opens with its own

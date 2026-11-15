@@ -27,8 +27,15 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[path = "register_auto.rs"]
+mod auto;
+
 /// The tag a registered chat carries.
 pub const REGISTERED_TAG: &str = "bridge.registered";
+
+/// The daemon takes `auto` on `_acpmux/register` (`register_auto.rs`): a CLI asks for it only
+/// when the daemon lists this, since an older one ignores `auto` and delivers a code each time.
+pub const AUTO_FEATURE: &str = "registerAuto";
 
 /// The chats `acpmux register` registered, kept by the daemon alone (`bridge-registered.json` in
 /// its home, owner-only): the tag shows it, but a client can set tags (`_acpmux/tag`), so the tag
@@ -148,17 +155,37 @@ fn below_daemon(mut ancestry: Vec<u32>) -> Vec<u32> {
 }
 
 impl Hub {
-    /// Registers the conversation the process `peer_pid` runs in under `req.name`.
+    /// Registers the conversation the process `peer_pid` runs in under `req.name`. An automatic
+    /// first step (`req.auto`) is answered first from what the daemon already holds, with no
+    /// proof and no change (`register_auto.rs`), and proves the caller only when that holds
+    /// nothing for its inbox and token.
     pub async fn register_caller(
         self: &Arc<Self>,
         peer_pid: u32,
         req: RegisterRequest,
     ) -> Result<Value, RpcError> {
-        if req.auto
-            && let Some(answer) = self.auto_answer(req.socket.as_deref(), req.token.as_deref())
-        {
-            return Ok(answer);
+        let (Some(socket), Some(token)) = (req.socket.clone(), req.token.clone()) else {
+            return self.register_proven(peer_pid, req).await;
+        };
+        if !req.auto {
+            return self.register_proven(peer_pid, req).await;
         }
+        let reserved = match self.auto_answer(&crate::config::home(), &socket, &token) {
+            auto::Step::Answer(answer) => return Ok(answer),
+            auto::Step::Go(reserved) => reserved,
+        };
+        let out = self.register_proven(peer_pid, req).await;
+        if let Err(e) = &out {
+            reserved.failed(&e.message);
+        }
+        out
+    }
+
+    async fn register_proven(
+        self: &Arc<Self>,
+        peer_pid: u32,
+        req: RegisterRequest,
+    ) -> Result<Value, RpcError> {
         let homes = self.harness_homes();
         let socket = req.socket.clone();
         let found = tokio::task::spawn_blocking(move || {
@@ -190,27 +217,24 @@ impl Hub {
         let token = req.token.clone().unwrap_or_default();
         let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
         let Some(code) = req.code.as_deref() else {
-            let why = if req.auto {
-                // Checked now, so the code never asks for a name the second step refuses.
-                let stores = super::adoption::store_families(&*self.config.read().await);
-                let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-                let own =
-                    super::adoption::adopted_in(&sessions, &stores, "claude", &claimed.session_id);
-                let taken = sessions.values().any(|s| {
-                    s.read_meta(|m| m.name == req.name) && own.as_ref().is_none_or(|o| o.id != s.id)
-                });
-                if taken {
-                    return Err(RpcError::invalid_params(format!(
-                        "session name {:?} is taken: run `acpmux register NAME` with another name",
-                        req.name
-                    ))
-                    .with_data(json!({"reason": "register.name_taken"})));
+            let (name, why) = if req.auto {
+                match self.auto_plan(claimed, &req.name).await {
+                    auto::Plan::Reachable(name) => {
+                        return Ok(json!({"reachable": true, "name": name}));
+                    }
+                    auto::Plan::Taken => {
+                        return Err(RpcError::invalid_params(format!(
+                            "session name {:?} is taken: run `acpmux register NAME` with another name",
+                            req.name
+                        ))
+                        .with_data(json!({"reason": "register.name_taken"})));
+                    }
+                    auto::Plan::Code(name) => (name, Why::Send(crate::host_pressure::host_name())),
                 }
-                Why::Send(crate::host_pressure::host_name())
             } else {
-                Why::Asked
+                (req.name.clone(), Why::Asked)
             };
-            return send_code(claimed, &claude_home, &token, &req.name, started, why).await;
+            return send_code(claimed, &claude_home, &token, &name, started, why).await;
         };
         take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
         let (family, agent_session_id, cwd, tags, pid) = match &found {
@@ -344,46 +368,6 @@ impl Hub {
             "token": if token_kept { "registered" } else { "none" },
         }))
     }
-}
-
-impl Hub {
-    /// What an automatic first step answers with no proof and no change: the chat already
-    /// registered with the caller's own inbox and token (`claude_peers::save_token` kept them),
-    /// or the name of a code still waiting for its echo there. Only the session's own shell
-    /// holds that token, and nothing is delivered or registered here.
-    fn auto_answer(&self, socket: Option<&std::path::Path>, token: Option<&str>) -> Option<Value> {
-        let (socket, token) = (socket?, token?);
-        let registered: Vec<(String, String)> = {
-            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            sessions
-                .values()
-                .filter(|s| is_registered(s))
-                .map(|s| (s.id.clone(), s.read_meta(|m| m.name.clone())))
-                .collect()
-        };
-        let home = crate::config::home();
-        if let Some((_, name)) = registered.into_iter().find(|(id, _)| {
-            crate::claude_peers::kept_token(&home, id)
-                .is_some_and(|k| k.socket == socket && k.token == token)
-        }) {
-            return Some(json!({"registered": true, "name": name}));
-        }
-        let pending = PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        pending_name(&pending, socket, token)
-            .map(|name| json!({"pending": true, "resent": false, "name": name}))
-    }
-}
-
-/// The name of a code in `pending` still waiting for its echo from `socket` with `token`.
-fn pending_name(
-    pending: &std::collections::HashMap<u32, Pending>,
-    socket: &std::path::Path,
-    token: &str,
-) -> Option<String> {
-    pending
-        .values()
-        .find(|p| p.socket == socket && p.token == token && p.at.elapsed() < CODE_TTL)
-        .map(|p| p.name.clone())
 }
 
 /// Why a code goes to a session: `acpmux register NAME` asked, or `acpmux send` from the chat's
@@ -625,34 +609,6 @@ mod tests {
         assert!(take_code(900_005, "c0de", 7, sock, "tok", "other-name").is_err());
         put(900_006);
         assert!(take_code(900_006, "c0de", 7, sock, "other", "desktop-zoe").is_err());
-    }
-
-    /// A send from an unregistered chat asks for the first step on every send; a code still
-    /// waiting for its echo there is found, so no second one is delivered (ask-828b64b532).
-    #[test]
-    fn a_waiting_code_is_found_by_its_inbox_and_token_until_it_expires() {
-        let at = |age: u64| {
-            std::time::Instant::now()
-                .checked_sub(std::time::Duration::from_secs(age))
-                .unwrap_or_else(std::time::Instant::now)
-        };
-        let code = |name: &str, age: u64| Pending {
-            code: "c0de".into(),
-            started: 7,
-            socket: PathBuf::from("/tmp/cc-socks/1.sock"),
-            token: "tok".into(),
-            name: name.into(),
-            at: at(age),
-        };
-        let sock = std::path::Path::new("/tmp/cc-socks/1.sock");
-        let mut pending = std::collections::HashMap::new();
-        pending.insert(1, code("claude-desktop-03214b87", 5));
-        assert_eq!(pending_name(&pending, sock, "tok").as_deref(), Some("claude-desktop-03214b87"));
-        assert_eq!(pending_name(&pending, sock, "other"), None, "another token");
-        let other = std::path::Path::new("/tmp/cc-socks/2.sock");
-        assert_eq!(pending_name(&pending, other, "tok"), None, "another inbox");
-        pending.insert(1, code("claude-desktop-03214b87", CODE_TTL.as_secs() + 1));
-        assert_eq!(pending_name(&pending, sock, "tok"), None, "expired: a new code goes");
     }
 
     #[test]
