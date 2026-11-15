@@ -84,7 +84,7 @@ pub fn socket_for(daemon_socket: &Path, key: &str) -> PathBuf {
     input.push(0);
     input.extend_from_slice(key.as_bytes());
     let digest = crate::sha256::sha256_hex(&input);
-    let name = format!("acpmux-m-{}.sock", &digest[..12]);
+    let name = format!("acpmux-m-{}.sock", digest.get(..12).unwrap_or(&digest));
     daemon_socket.with_file_name(name)
 }
 
