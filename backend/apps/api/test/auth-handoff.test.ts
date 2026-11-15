@@ -169,13 +169,18 @@ describe("sign-in hand-off (workerd)", { timeout: 30_000 }, () => {
 
   it("never mints with an install token, an agent's token, no token or a bad one", async () => {
     const p = await person()
-    const install = await mintAccessToken(testEnv, { user: p.user, team: p.team, install: "inst_test", grant: "grant_test" })
-    const agent = await mintAccessToken(testEnv, { user: p.user, team: p.team, install: "inst_test", grant: "grant_test", agent: "agent_x" })
-    for (const bearer of [install, agent]) {
-      const res = await mint(bearer)
-      expect(res.status).toBe(403)
-      expect(((await res.json()) as any).error.code).toBe("auth_handoff.human_session_required")
-    }
+    // A real install of this person (install.register), so its token authenticates and reaches the human-session check.
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const reg = await op(p.token, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: "cli", device_name: "laptop", platform: "macos" })
+    expect(reg.ok, JSON.stringify(reg)).toBe(true)
+    const install = (await mintAccessToken(testEnv, { user: p.user, team: p.team, install: reg.value.id, grant: reg.value.grant })).token
+    const installRes = await mint(install)
+    expect(installRes.status).toBe(403)
+    expect(((await installRes.json()) as any).error.code).toBe("auth_handoff.human_session_required")
+    // An agent's token on that install: refused either at the grant (401) or as not human (403), never minted.
+    const agent = (await mintAccessToken(testEnv, { user: p.user, team: p.team, install: reg.value.id, grant: reg.value.grant, agent: "agent_x" })).token
+    expect([401, 403]).toContain((await mint(agent)).status)
     expect((await mint(undefined)).status).toBe(401)
     expect((await mint("not-a-token")).status).toBe(401)
     expect(p.audits.filter((a) => a.op === "auth.handoff.minted")).toHaveLength(0)
