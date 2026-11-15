@@ -23,6 +23,12 @@ const TUI_CORE_V1_LIST_USES: &[Named<'static>] = &[
         "`call_whole_list`, the v1 fallbacks' pager: each page after the first, and its check",
     ),
     ("cmux-tui-core/src/server/agent_session_children.rs", "\"_acpmux/sessions\"", 1, "7c (b)"),
+    (
+        "cmux-tui-core/src/server/agent_session_side_known.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the side chats a team list hides after a restart: every session's persisted `tags.side`",
+    ),
     ("cmux-tui-core/src/server/agent_session_stream.rs", "\"_acpmux/sessions\"", 1, "7c (b)"),
     (
         "cmux-tui-core/src/server/agent_session_stream.rs",

@@ -259,7 +259,7 @@ pub(super) fn read_existing(
     after: u64,
     limit: usize,
 ) -> i32 {
-    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    let mut runner = SelfRunner::new(global);
     match read_on(&mut runner, machine_id, session, after, limit) {
         Outcome::Done(page) => super::wire::print_local_success(&page, global.output),
         Outcome::Failed { error, exit } => {
@@ -318,7 +318,7 @@ pub(super) fn wait_existing(
     session: &str,
     timeout: Duration,
 ) -> i32 {
-    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    let mut runner = SelfRunner::new(global);
     report(&wait_on(&mut runner, machine_id, session, timeout), global.output)
 }
 
@@ -340,6 +340,8 @@ pub(super) fn wait_on(
         wait: true,
         timeout: timeout.min(MAX_TIMEOUT),
         make_room: false,
+        account: None,
+        until: None,
         allow_large: false,
     };
     let answer = json!({
@@ -1859,10 +1861,7 @@ fn wait_turn(
                 // `acp last` reads the session's newest reply, not this turn's: a turn that failed
                 // before it said anything (the agent's usage limit) would answer the turn before's
                 // reply as its own. It answers its own error instead, as the pushed route does.
-                let message = at(&turn.value, "error")
-                    .as_str()
-                    .filter(|error| !error.is_empty())
-                    .map_or_else(|| format!("the turn ended {}", turn.status), str::to_owned);
+                let message = turn_failure_message(turn);
                 return Outcome::Failed {
                     error: json!({"code": "chat.turn_failed", "message": message,
                                   "details": answer, "retryable": false}),
@@ -1871,19 +1870,6 @@ fn wait_turn(
             }
             let read = polled.get("lastexit").map(|code| code.trim()) == Some("0");
             let text = reply(polled.get("last")).filter(|_| read);
-            // A failed turn is `chat.turn_failed` with its own reason, whether or not a reply was
-            // written before it failed (a failed turn often has none to read).
-            if turn.failed() {
-                if let Some(text) = text {
-                    answer.set("reply", json!(text));
-                }
-                return Outcome::Failed {
-                    error: json!({"code": "chat.turn_failed",
-                                  "message": turn_failure_message(turn),
-                                  "details": answer, "retryable": false}),
-                    exit: 1,
-                };
-            }
             let Some(text) = text else {
                 return failed(
                     "chat.read_failed",
@@ -2078,9 +2064,7 @@ fn turn_failure_message(turn: &Turn) -> String {
         .and_then(Value::as_str)
         .or_else(|| error.and_then(|error| error.get("message")).and_then(Value::as_str));
     match said.map(str::trim).filter(|said| !said.is_empty()) {
-        Some(said) => {
-            format!("the turn ended {}: {}", turn.status, super::wire::sanitize_remote_text(said))
-        }
+        Some(said) => super::wire::sanitize_remote_text(said),
         None => format!("the turn ended {}", turn.status),
     }
 }

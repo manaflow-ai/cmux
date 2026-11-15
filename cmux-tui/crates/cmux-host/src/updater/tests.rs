@@ -2649,6 +2649,7 @@ fn restart_after_flip_sends_the_stopping_report_before_the_restart() {
         [format!("stopping {}", paths.at("/").display()), format!("restart {}", old.display())],
         "restart_after_flip must report stopping, then restart"
     );
+}
 
 /// The app's own pinned build (`cmux host update install`): installed over another
 /// build, left alone when the profile already links it, never older than the last build

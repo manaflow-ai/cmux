@@ -98,7 +98,9 @@ pub(crate) fn error_of(value: &Value) -> Option<LinkError> {
         "invalid_answer" => LinkError::InvalidAnswer(text("detail")),
         "not_up" => LinkError::NotUp { state: text("state") },
         "failed" => LinkError::Failed { code: text("code"), message: text("message") },
-        "helper_refused" => LinkError::HelperRefused { code: text("code"), message: text("message") },
+        "helper_refused" => {
+            LinkError::HelperRefused { code: text("code"), message: text("message") }
+        }
         "unsupported" => LinkError::Unsupported,
         _ => return None,
     })

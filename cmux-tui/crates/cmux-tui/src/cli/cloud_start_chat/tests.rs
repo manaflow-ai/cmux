@@ -1147,7 +1147,7 @@ fn a_failed_turn_without_a_reply_is_a_turn_failure_with_its_reason() {
     };
     assert_eq!(exit, 1);
     assert_eq!(error["code"], "chat.turn_failed", "{error}");
-    assert_eq!(error["message"], "the turn ended failed: model provider refused the request");
+    assert_eq!(error["message"], "model provider refused the request");
     assert!(error["details"].get("reply").is_none(), "{error}");
 }
 

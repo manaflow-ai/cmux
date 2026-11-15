@@ -57,9 +57,6 @@ pub(crate) enum LinkError {
     InvalidAnswer(String),
     NotUp { state: String },
     Failed { code: String, message: String },
-    /// This Mac's helper refused to start (`handshake`, exit 5: no device
-    /// key): every new serve reads the same key the same way, so the app's
-    /// wait ends on it instead of starting serve again.
     HelperRefused { code: String, message: String },
     Unsupported,
 }
