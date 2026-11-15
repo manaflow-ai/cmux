@@ -27,7 +27,13 @@ mapfile -t generated < <(cd "$here" && git ls-files -oi --exclude-standard -- sr
 prepare() { # sha dir
   local sha="$1" dir="$2"
   mkdir -p "$dir"
-  git archive "$sha" webviews ':(glob)Packages/**/*.xcstrings' 2>/dev/null | tar -x -C "$dir" || return 1
+  # webviews plus what the pane imports from outside it (repo-root schemas, model catalog, icons, specs, fixtures).
+  local paths=(webviews)
+  for p in schemas web/data design/icons clients/ts cmux-tui/spec; do
+    git cat-file -e "$sha:$p" 2>/dev/null && paths+=("$p")
+  done
+  git archive "$sha" "${paths[@]}" ':(glob)Packages/**/*.xcstrings' ':(glob)Packages/**/*.json' \
+    ':(glob)cmux-tui/crates/**/*.json' | tar -x -C "$dir" || return 1
   local w="$dir/webviews"
   rm -rf "$w/bench" "$w/test/support"
   cp -a "$here/bench" "$w/bench"
