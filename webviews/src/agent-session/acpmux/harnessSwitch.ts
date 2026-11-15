@@ -8,6 +8,7 @@ import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
 import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
+import { SIGN_IN_REASON, SIGN_IN_REQUIRED } from "./startRefusal";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 // A harness or model switch as an intent. The pick changes the
@@ -125,6 +126,8 @@ export type SwitchView = {
     error?: string;
     /// The refusal's code (`agent_session.team_vm_blocked`, ...): the failed card's way out.
     code?: string;
+    /// A sign-in refusal (`agent_session.sign_in_required`) for a sign-in that expired, not one never made.
+    signInExpired?: true;
     queued: readonly QueuedSwitchPrompt[];
     config: SwitchConfig;
     cwd?: string;
@@ -163,6 +166,7 @@ type Intent = {
   reused?: boolean;
   error?: string;
   code?: string;
+  signInExpired?: true;
   queued: Queued[];
   config: { model?: string; mode?: string; options: Record<string, string> };
   /// Each held mode or config pick's gesture ticket (`mode`, `config:<id>`), the newest pick's.
@@ -816,6 +820,7 @@ export class HarnessSwitch {
       intent.phase = "trust";
       intent.error = undefined;
       intent.code = undefined;
+      intent.signInExpired = undefined;
       // The Trust click's gesture goes to the answer; the prompt keeps its own send's gesture.
       const first = intent.queued[0];
       if (first && !first.ticket) this.handlers.holdPrompt?.(first.id);
@@ -832,6 +837,13 @@ export class HarnessSwitch {
     intent.error = [errorText(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
     const code = (error as { code?: unknown } | undefined)?.code;
     intent.code = typeof code === "string" ? code : undefined;
+    // An agent that is not signed in: cmux-tui codes it for another machine; acpmux on this Mac
+    // names it in `data.reason` only. Either is the one sign-in code the card reads (hq#11225).
+    const signIn = error as { reason?: unknown; errorKind?: unknown } | undefined;
+    if (intent.code === SIGN_IN_REQUIRED || signIn?.reason === SIGN_IN_REASON) {
+      intent.code = SIGN_IN_REQUIRED;
+      intent.signInExpired = signIn?.errorKind === "auth.expired" ? true : undefined;
+    } else intent.signInExpired = undefined;
     if (intent.queued.length) {
       this.handBack(intent.queued);
       // The prompts are back in the composer (`handedBack`); acpmux's refusal reason rides along.
@@ -869,6 +881,7 @@ export class HarnessSwitch {
           sessionId: intent.sessionId,
           error: intent.error,
           code: intent.code,
+          ...(intent.signInExpired && { signInExpired: true as const }),
           queued: intent.queued.map(({ id, text, at }) => ({ id, text, at })),
           config: intent.config,
           cwd: intent.cwd,
@@ -994,6 +1007,7 @@ export function applySwitch(
     phase: intent.phase === "failed" ? "failed" : intent.shown ? "starting" : "deferred",
     ...(intent.error && { error: intent.error }),
     ...(intent.code && { code: intent.code }),
+    ...(intent.signInExpired && { signInExpired: true as const }),
   };
   // A held prompt reads as sent: no start status on it (the Thinking line under it covers the
   // start, conversation/turns.ts), and its footer keeps the room the sent prompt's has.

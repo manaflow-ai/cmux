@@ -27003,6 +27003,400 @@
         }
       }
     },
+    "handlers.refusal.agentRemoteStart.signInRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ isn't signed in on %2$@. Sign it in there, then start the chat again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ では %1$@ にサインインしていません。そこでサインインしてから、チャットをもう一度開始してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ist auf %2$@ nicht angemeldet. Melde ihn dort an und starte den Chat dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ n'est pas connecté sur %2$@. Connectez-le là-bas, puis relancez la discussion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no tiene la sesión iniciada en %2$@. Inicia su sesión allí y vuelve a iniciar el chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ غير مسجّل الدخول على %2$@. سجّل دخوله هناك، ثم ابدأ المحادثة مرة أخرى."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@에서 %1$@에 로그인되어 있지 않습니다. 그곳에서 로그인한 다음 채팅을 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 尚未在 %2$@ 上登录。请在那里登录，然后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 尚未在 %2$@ 上登入。請在那裡登入，然後重新開始聊天。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nije prijavljen na %2$@. Prijavite ga tamo, pa ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er ikke logget ind på %2$@. Log den ind der, og start chatten igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non ha eseguito l'accesso su %2$@. Esegui l'accesso lì, poi avvia di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនទាន់បានចូលគណនីនៅលើ %2$@ ទេ។ ចូលគណនីនៅទីនោះ រួចចាប់ផ្ដើមការជជែកម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er ikke logget på %2$@. Logg den på der, og start chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nie jest zalogowany na %2$@. Zaloguj go tam, a potem uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não está conectado em %2$@. Conecte-o lá e inicie o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не выполнил вход на %2$@. Выполните вход там, затем снова начните чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ยังไม่ได้ลงชื่อเข้าใช้บน %2$@ ลงชื่อเข้าใช้ที่นั่น แล้วเริ่มแชตอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@, %2$@ üzerinde oturum açmamış. Orada oturum açın, ardından sohbeti yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не ввійшов на %2$@. Увійдіть там, потім знову почніть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ chưa đăng nhập trên %2$@. Đăng nhập ở đó, rồi bắt đầu lại cuộc trò chuyện."
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.signInExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@'s sign-in expired on %2$@. Sign it in again there, then start the chat again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ での %1$@ のサインインが期限切れです。そこでもう一度サインインしてから、チャットをもう一度開始してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Anmeldung von %1$@ ist auf %2$@ abgelaufen. Melde ihn dort erneut an und starte den Chat dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connexion de %1$@ a expiré sur %2$@. Reconnectez-le là-bas, puis relancez la discussion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sesión de %1$@ caducó en %2$@. Vuelve a iniciarla allí y vuelve a iniciar el chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتهت صلاحية تسجيل دخول %1$@ على %2$@. سجّل دخوله مرة أخرى هناك، ثم ابدأ المحادثة مرة أخرى."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@에서 %1$@ 로그인이 만료되었습니다. 그곳에서 다시 로그인한 다음 채팅을 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 在 %2$@ 上的登录已过期。请在那里重新登录，然后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 在 %2$@ 上的登入已過期。請在那裡重新登入，然後重新開始聊天。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijava za %1$@ je istekla na %2$@. Ponovo ga prijavite tamo, pa ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login for %1$@ er udløbet på %2$@. Log den ind igen der, og start chatten igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'accesso di %1$@ è scaduto su %2$@. Esegui di nuovo l'accesso lì, poi avvia di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចូលគណនី %1$@ បានផុតកំណត់នៅលើ %2$@។ ចូលគណនីម្ដងទៀតនៅទីនោះ រួចចាប់ផ្ដើមការជជែកម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Påloggingen for %1$@ er utløpt på %2$@. Logg den på igjen der, og start chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logowanie %1$@ wygasło na %2$@. Zaloguj go tam ponownie, a potem uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O login do %1$@ expirou em %2$@. Conecte-o novamente lá e inicie o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Срок входа %1$@ на %2$@ истёк. Снова выполните вход там, затем снова начните чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การลงชื่อเข้าใช้ %1$@ บน %2$@ หมดอายุแล้ว ลงชื่อเข้าใช้อีกครั้งที่นั่น แล้วเริ่มแชตอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ oturumunun %2$@ üzerindeki süresi doldu. Orada yeniden oturum açın, ardından sohbeti yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термін входу %1$@ на %2$@ сплив. Увійдіть там знову, потім знову почніть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên đăng nhập %1$@ trên %2$@ đã hết hạn. Đăng nhập lại ở đó, rồi bắt đầu lại cuộc trò chuyện."
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.thisAgent": {
+      "comment": "Stands for an agent whose name is unknown, as the subject of 'isn't signed in on <machine>'.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェント"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الوكيل"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 에이전트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារនេះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agenten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten agent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот агент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей агент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử này"
+          }
+        }
+      }
+    },
     "handlers.refusal.agentRemoteStart.timeout": {
       "extractionState": "manual",
       "localizations": {

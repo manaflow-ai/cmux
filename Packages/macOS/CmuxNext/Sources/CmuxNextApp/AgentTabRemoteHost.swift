@@ -108,7 +108,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                                                                   updateMachine: updateMachine)
                             .keyedStart(cwd, harness, model, proceed: Self.proceedAlways, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
-                        throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
+                        throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder, facts: refusal.pageFacts)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)

@@ -110,6 +110,14 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.agentFailed", defaultValue: "Machine `%1$@` started but its agent didn't (%4$@). Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent, reason)
     }
 
+    /// The machine is up and its agent is not signed in there (`agent_session.sign_in_required`,
+    /// hq#11225); `agentName` is the agent as a person reads it (Cursor). `expired`: its sign-in there expired.
+    public static func agentSignedOut(_ name: String, id: String, agent: String, agentName: String, expired: Bool) -> String {
+        expired
+            ? String(format: String(localized: "cloud.startSession.agentSignInExpired", defaultValue: "Machine `%1$@` started, but %4$@'s sign-in expired on that machine. Sign it in again there, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent, agentName)
+            : String(format: String(localized: "cloud.startSession.agentSignedOut", defaultValue: "Machine `%1$@` started, but %4$@ isn't signed in on that machine. Sign it in there, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent, agentName)
+    }
+
     /// The start found no folder it may use (none in the workspace, or the home folder).
     public static func needsFolder(_ name: String, id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd FOLDER` again with a folder that exists there.", table: "CloudSessions", bundle: .module), name, id, agent)

@@ -537,8 +537,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 let refused = error as? AgentSessionRemoteError
                 // An untrusted folder is the page's folder trust question (`trust.pending` and the
                 // folder, as acpmux's own gate names it), answered here when the wire can.
+                // A refusal's typed facts (an agent not signed in: its `reason` and `errorKind`) go
+                // along, so the page names the cause and offers its sign-in (hq#11225).
                 let question: [String: Any] = refused?.code == "agent_session.untrusted_folder" && self?.trust != nil
-                    ? ["reason": "trust.pending", "cwd": refused?.folder ?? cwd ?? ""] : [:]
+                    ? ["reason": "trust.pending", "cwd": refused?.folder ?? cwd ?? ""] : refused?.facts ?? [:]
                 self?.fail(id, code: refused?.code ?? Self.unsupported, message: refused?.message ?? String(describing: error), data: question)
             }
         }
@@ -784,10 +786,14 @@ public nonisolated struct AgentSessionRemoteError: Error, Sendable, Equatable {
     public var message: String
     /// The folder a refused start named (`agent_session.untrusted_folder`).
     public var folder: String?
+    /// A refused start's typed facts for the page's `data` (`agent_session.sign_in_required`'s
+    /// `reason` and `errorKind`, hq#11225), never words.
+    public var facts: [String: String]
 
-    public init(code: String, message: String, folder: String? = nil) {
+    public init(code: String, message: String, folder: String? = nil, facts: [String: String] = [:]) {
         self.code = code
         self.message = message
         self.folder = folder
+        self.facts = facts
     }
 }

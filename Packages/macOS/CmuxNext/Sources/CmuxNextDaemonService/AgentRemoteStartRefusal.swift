@@ -1,5 +1,5 @@
 public import CmuxNextAgentPane
-import CmuxNextDaemon
+public import CmuxNextDaemon
 public import Foundation
 
 /// Why a chat could not start on another machine, in the user's language. ONE table maps every
@@ -12,9 +12,39 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// `agent_session.needs_keyed_start`: the machine's daemon says a keyed restart of its acpmux
     /// loses nothing (cx-0w0jj); nil for any other refusal.
     public var keyedRestartSafe: Bool?
+    /// `agent_session.sign_in_required`: the agent's name as a person reads it (Cursor), when the
+    /// refusal named its harness, and whether its sign-in expired rather than was never made (hq#11225).
+    public var agentName: String?
+    public var signInExpired = false
 
-    public init(code: String, machine: String, folder: String? = nil, detail: String? = nil, keyedRestartSafe: Bool? = nil) {
+    public init(code: String, machine: String, folder: String? = nil, detail: String? = nil, keyedRestartSafe: Bool? = nil,
+                agentName: String? = nil, signInExpired: Bool = false) {
         (self.code, self.machine, self.folder, self.detail, self.keyedRestartSafe) = (code, machine, folder, detail, keyedRestartSafe)
+        (self.agentName, self.signInExpired) = (agentName, signInExpired)
+    }
+
+    /// A start refused because its agent is not signed in on the machine (cmux-tui
+    /// `StartRefused::of_session_new`, hq#11225): its `data` names the harness and `errorKind`.
+    public static let signInRequiredCode = "agent_session.sign_in_required"
+
+    /// `agent-session-start`'s refusal `error` on `machine`, coded `code` (the card's code, AgentSessionAttachError.classified):
+    /// its folder, words and keyed-restart answer, and for an agent not signed in its name (`name` of the refusal's
+    /// harness, else `harness`, the one asked for) and whether its sign-in expired (hq#11225).
+    public static func refused(_ error: AgentSessionAttachError, code: String, machine: String, folder: String?, harness: String?,
+                               name: (String) -> String) -> Self {
+        let signIn = code == signInRequiredCode
+        let refusedHarness = signIn ? error.details?["harness"]?.stringValue ?? harness : nil
+        return Self(code: code, machine: machine, folder: folder, detail: error.message, keyedRestartSafe: error.keyedRestartSafe,
+                    agentName: refusedHarness.flatMap { $0.isEmpty ? nil : name($0) },
+                    signInExpired: signIn && error.details?["errorKind"]?.stringValue == "auth.expired")
+    }
+
+    /// The refusal's typed facts for the page (`data` of its JSON-RPC error): an agent not signed in
+    /// says so in acpmux's own words (`reason` `agent.sign_in_required`, `errorKind`), so the page
+    /// names the cause and offers the agent's sign-in. Never the refusal's text.
+    public var pageFacts: [String: String] {
+        guard code == Self.signInRequiredCode else { return [:] }
+        return ["reason": "agent.sign_in_required", "errorKind": signInExpired ? "auth.expired" : "auth.signed_out"]
     }
 
     /// No folder to start in (no seed folder, no folder in the workspace). The App names it
@@ -83,6 +113,14 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         case "agent_session.timeout":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.timeout",
                                   "%@ did not start the agent in time. Try again.", machine)
+        case Self.signInRequiredCode where signInExpired:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.signInExpired",
+                                  "%1$@'s sign-in expired on %2$@. Sign it in again there, then start the chat again.",
+                                  agentName ?? RefusalStrings.text("handlers.refusal.agentRemoteStart.thisAgent", "This agent"), machine)
+        case Self.signInRequiredCode:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.signInRequired",
+                                  "%1$@ isn't signed in on %2$@. Sign it in there, then start the chat again.",
+                                  agentName ?? RefusalStrings.text("handlers.refusal.agentRemoteStart.thisAgent", "This agent"), machine)
         case "agent_session.home_unconfirmed": RefusalStrings.format("handlers.refusal.agentRemoteStart.homeUnconfirmed", "Choose the home folder on %@ with Use Home Folder first.", machine)
         case "agent_session.above_home": RefusalStrings.format("handlers.refusal.agentRemoteStart.aboveHome", "A chat on %@ never runs in a folder above its home folder.", machine)
         case "app.trust_update":
