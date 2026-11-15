@@ -352,7 +352,7 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_capabilities?:array<string>,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
+object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_device?:string,machine_symbol?:string,machine_capabilities?:array<string>,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
 `machine_id` is the opaque owner ID returned by `machine.list`, persisted with the
@@ -362,7 +362,11 @@ must leave the machine owner unknown rather than derive an ID from other fields.
 `machine_platform` and `machine_capabilities` describe that owner using the same
 source as its native `machine.list` snapshot. Machine capabilities are separate
 from protocol features in `capabilities`. Older owners may omit the new fields;
-clients retain unknown platform and an empty capability list.
+clients retain unknown platform and an empty capability list. `machine_device` is the
+kind of device the owner runs on (`macbook`, `mac-mini`, `linux-server`, `generic`; the
+`cmux-device-kind` crate's list, from `sysctl hw.model` on a Mac and the desktop, DMI and
+virtualization facts on Linux) and `machine_symbol` the SF Symbol that kind draws; clients draw
+the symbol by that name and treat an unknown or absent kind as `generic`.
 
 With `revisions: true` the reply also carries `build_time`: unix seconds of the
 source commit the daemon was built from, or null when unknown. A client that
@@ -10222,6 +10226,20 @@ another agent, another `op` or any other param is `agent_session.bad_request`.
 An observation attachment gets `agent_session.read_only`, and a teammate's or
 link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
 its agent in. The code and key are never logged.
+
+`agent-session-login-machine-v1` (advertised with `agent-session-login-v1`): a
+new chat that has no session yet (its start was refused
+`agent_session.sign_in_required`) signs its agent in on this machine. A step for
+a tab with no attachment that is an unbound agent tab of this store (the tab
+`agent-session-start` would start) takes the same fields plus an optional
+`vm_kind`, and sends acpmux's `_acpmux/agent_login/<op>` with no `sessionId`:
+the sign-in is this machine's own and no chat restarts. It is gated exactly as
+`agent-session-start`: a trusted carrier only (a teammate's or link guest's
+link is refused), the same host check (on a Cloud VM only the caller's
+`vm_kind:"owner"` lets it run, else `agent_session.host_unverified`; a team VM
+`agent_session.team_vm_blocked`). Any other tab with no attachment (one with a
+session, one of another store) is still `agent_session.not_attached`. The step
+runs on a worker; answers and refusals are as above.
 
 ### agent-session-btw
 

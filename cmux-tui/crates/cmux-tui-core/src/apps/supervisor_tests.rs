@@ -358,7 +358,8 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
             sources: Sources {
                 first_party: None,
                 bundled: vec![bundled],
-                extra: vec![],
+                // `CMUX_APPS_DIRS`; empty until a test writes an app there.
+                extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
                 customize: None,
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),

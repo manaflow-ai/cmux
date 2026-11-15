@@ -48,6 +48,13 @@ pub(in crate::cli) enum Answer {
         json: Value,
         human: String,
     },
+    /// `library off --code`, `off --all`, `reset`: exits 1 when something
+    /// could not be put back as the library had it (`notes` says what).
+    Recovery {
+        json: Value,
+        human: String,
+        complete: bool,
+    },
 }
 
 fn value(of: &impl serde::Serialize) -> Value {
@@ -66,7 +73,10 @@ fn status_json(status: &Status) -> Value {
 
 impl Answer {
     pub(in crate::cli) fn exit(&self) -> i32 {
-        0
+        match self {
+            Answer::Recovery { complete: false, .. } => 1,
+            _ => 0,
+        }
     }
 
     pub(in crate::cli) fn json(&self) -> Value {
@@ -105,7 +115,7 @@ impl Answer {
                 "language": "rust",
                 "source": cmux_customize::schema::rust(schema),
             }),
-            Answer::Library { json, .. } => json.clone(),
+            Answer::Library { json, .. } | Answer::Recovery { json, .. } => json.clone(),
             Answer::Paths(roots) => json!({
                 "settings": roots.settings_file,
                 "keybindings": cmux_config::keybindings_path(&roots.settings_file),
@@ -282,7 +292,7 @@ impl Answer {
             Answer::Schema(schema, section, super::SchemaFormat::Schema) => {
                 schema_lines(&mut out, schema, *section);
             }
-            Answer::Library { human, .. } => out.push_str(human),
+            Answer::Library { human, .. } | Answer::Recovery { human, .. } => out.push_str(human),
             Answer::Paths(_) => {
                 if let Some(paths) = self.json().as_object() {
                     for (name, path) in paths {
