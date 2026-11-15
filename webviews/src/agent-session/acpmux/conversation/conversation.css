@@ -3838,9 +3838,10 @@ button.cv-video-frames__frame:focus-visible {
   pointer-events: none;
 }
 
+/* No height cap here: a call's output is a 24-line scroll box (outputScrollBox.css), and a cap of
+   the same weight here outranked it whenever this sheet loaded later, stopping the box at 240px. */
 .cv-tool-output {
   margin: 4px 0 8px;
-  max-height: 240px;
   overflow: auto;
   padding: 8px 12px;
   border-radius: 12px;
@@ -4744,6 +4745,7 @@ a.cv-sha:focus-visible {
 }
 .cv-received__details .cv-tool-output {
   margin: 2px 0 0;
+  max-height: 240px;
 }
 .cv-rotor.is-flipped {
   transform: rotate(180deg);

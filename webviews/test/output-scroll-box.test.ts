@@ -94,3 +94,23 @@ test("every output and code card draws its body in the shared scroll box", () =>
   ])
     expect([file, readFileSync(path.join(PANE, file), "utf8").includes("OUTPUT_SCROLL_BOX")]).toEqual([file, true]);
 });
+
+/// A bare rule on a box's own class that sets a height cap weighs what `.cv-scroll-box` weighs, so
+/// whichever sheet loads later wins: `.cv-tool-output { max-height: 240px }` stopped a call's output
+/// at 240px, under eight lines at large text (transcript-content-font.test.ts).
+test("no bare rule on a scroll box's own class caps its height", () => {
+  const boxes = sources(PANE)
+    .filter((file) => file.endsWith(".tsx"))
+    .flatMap((file) =>
+      [...readFileSync(file, "utf8").matchAll(/["`]([\w-]+) \$\{OUTPUT_SCROLL_BOX\}/g)].map((match) => match[1]!),
+    );
+  expect(boxes).toContain("cv-tool-output");
+  const found = sources(PANE)
+    .filter((file) => file.endsWith(".css"))
+    .flatMap((file) =>
+      [...readFileSync(file, "utf8").matchAll(/(^|\})\s*\.([\w-]+)\s*\{([^}]*)\}/g)]
+        .filter((match) => boxes.includes(match[2]!) && /(^|[\s;])max-height:/.test(match[3]!))
+        .map((match) => `${path.relative(PANE, file)}: .${match[2]}`),
+    );
+  expect(found).toEqual([]);
+});
