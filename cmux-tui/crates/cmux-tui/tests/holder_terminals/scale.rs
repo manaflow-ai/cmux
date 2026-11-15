@@ -16,51 +16,13 @@ const CRASH_LINES: usize = 3000;
 #[test]
 fn a_holder_killed_mid_output_under_fifty_tabs_loses_no_shell_or_line() {
     let mut daemon = Daemon::start();
-    let script = daemon.dir.join("print.sh");
-    fs::write(
-        &script,
-        format!(
-            r#"stty -echo
-tab=$1
-printf 'ready %s\n' "$tab"
-read go
-i=0
-while [ $i -lt {CRASH_LINES} ]; do
-  printf 'tab %02d line %06d\n' "$tab" "$i"
-  i=$((i + 1))
-  [ $((i % 25)) -eq 0 ] && sleep 0.02
-done
-printf 'done %s\n' "$tab"
-while read line; do printf 'got %s\n' "$line"; done
-"#
-        ),
-    )
-    .unwrap();
-    let mut tabs = Vec::new();
-    for tab in 0..CRASH_TABS {
-        let created = request(
-            &daemon.socket,
-            json!({"cmd": "run", "argv": ["/bin/sh", script.to_str().unwrap(), tab.to_string()],
-                "new_workspace": true, "name": format!("crash-{tab}"), "cols": 80, "rows": 24}),
-        );
-        let surface = created["surface"].as_u64().unwrap();
-        daemon.track(surface);
-        tabs.push(surface);
-    }
-    for (tab, surface) in tabs.iter().enumerate() {
-        screen_contains(&daemon.socket, *surface, &format!("ready {tab}"));
-    }
+    let (tabs, _terminal_ids) = printing_tabs(&mut daemon);
     let shells: Vec<i32> = tabs.iter().map(|surface| shell_pid(&daemon.socket, *surface)).collect();
     let holder = parent_of(shells[0]);
     assert!(holder > 1 && shells.iter().all(|shell| parent_of(*shell) == holder));
 
     // Every tab starts printing; the holder dies once each has printed some of its lines.
-    for surface in &tabs {
-        request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "go\n"}));
-    }
-    for (tab, surface) in tabs.iter().enumerate() {
-        screen_contains(&daemon.socket, *surface, &format!("tab {tab:02} line 0001"));
-    }
+    start_printing(&daemon.socket, &tabs);
     let killed = Instant::now();
     // SAFETY: SIGKILL of the holder this test's daemon started (its own pid, read above).
     unsafe { libc::kill(holder, libc::SIGKILL) };
@@ -97,28 +59,7 @@ while read line; do printf 'got %s\n' "$line"; done
     }
     let recovered = killed.elapsed();
 
-    let mut lost_lines = 0usize;
-    let mut kept_min = usize::MAX;
-    let mut worst = String::new();
-    for (tab, surface) in tabs.iter().enumerate() {
-        let mut rows: Vec<String> =
-            history(&daemon.socket, *surface).iter().map(row_text).collect();
-        rows.extend(screen_lines(&daemon.socket, *surface));
-        let prefix = format!("tab {tab:02} line ");
-        let mut seen: Vec<usize> =
-            rows.iter().filter_map(|row| row.strip_prefix(&prefix)?.trim().parse().ok()).collect();
-        seen.sort_unstable();
-        seen.dedup();
-        // The oldest lines may scroll out of the retained history; none after the first kept
-        // one may be missing.
-        let first = seen.first().copied().unwrap_or(CRASH_LINES);
-        let missing = (first..CRASH_LINES).filter(|line| seen.binary_search(line).is_err()).count();
-        if missing > 0 && worst.is_empty() {
-            worst = format!("tab {tab}: {missing} lines missing after line {first}");
-        }
-        lost_lines += missing;
-        kept_min = kept_min.min(seen.len());
-    }
+    let (lost_lines, kept_min, worst) = lines_lost(&daemon.socket, &tabs);
     eprintln!(
         "HOLDER-CRASH tabs={CRASH_TABS} lines_per_tab={CRASH_LINES} shells_lost={lost_shells} \
          lines_lost={lost_lines} kept_lines_min={kept_min} output_resumed_ms={} all_done_and_echoing_ms={}",
@@ -127,6 +68,141 @@ while read line; do printf 'got %s\n' "$line"; done
     );
     assert_eq!(lost_shells, 0, "shells died with the holder");
     assert_eq!(lost_lines, 0, "lines were lost at the holder crash: {worst}");
+}
+
+/// The parser side of the split (CMUX-571, Leo 2026-11-14: "separate the health of the overall
+/// process from the falliability of crash prone bits"): the daemon parses every holder
+/// terminal's output, so it is the crash-prone part, and the holder that keeps the PTYs must
+/// make its death cost nothing. 50 tabs print numbered lines and the daemon is SIGKILLed while
+/// they all print; a new daemon starts on the same state. No shell may die, every tab comes back
+/// with every line in order (the holder's ring replays what the dead parser never saw), and
+/// every tab takes input again. Printed as a `DAEMON-CRASH` line.
+#[test]
+fn a_daemon_killed_mid_output_under_fifty_tabs_loses_no_shell_or_line() {
+    let mut daemon = Daemon::start();
+    let (tabs, terminal_ids) = printing_tabs(&mut daemon);
+    let shells: Vec<i32> = tabs.iter().map(|surface| shell_pid(&daemon.socket, *surface)).collect();
+    let holder = parent_of(shells[0]);
+    assert!(holder > 1 && shells.iter().all(|shell| parent_of(*shell) == holder));
+
+    start_printing(&daemon.socket, &tabs);
+    let killed = Instant::now();
+    daemon.sigkill();
+    let lost_shells = shells.iter().filter(|shell| !alive(**shell)).count();
+    let holder_lived = alive(holder);
+
+    daemon.restart();
+    let surfaces: Vec<u64> = terminal_ids
+        .iter()
+        .map(|terminal_id| running_surface(&daemon.socket, terminal_id))
+        .collect();
+    let reattached = killed.elapsed();
+    for (tab, surface) in surfaces.iter().enumerate() {
+        screen_contains_within(
+            &daemon.socket,
+            *surface,
+            &format!("done {tab}"),
+            Duration::from_secs(120),
+        );
+        send(&daemon.socket, *surface, &format!("ping-{tab}"));
+    }
+    for (tab, surface) in surfaces.iter().enumerate() {
+        screen_contains(&daemon.socket, *surface, &format!("got ping-{tab}"));
+    }
+    let recovered = killed.elapsed();
+    let still_on_holder = shells.iter().filter(|shell| parent_of(**shell) == holder).count();
+
+    let (lost_lines, kept_min, worst) = lines_lost(&daemon.socket, &surfaces);
+    eprintln!(
+        "DAEMON-CRASH tabs={CRASH_TABS} lines_per_tab={CRASH_LINES} shells_lost={lost_shells} \
+         lines_lost={lost_lines} kept_lines_min={kept_min} holder_lived={holder_lived} \
+         shells_on_the_same_holder={still_on_holder} all_reattached_ms={} all_done_and_echoing_ms={}",
+        reattached.as_millis(),
+        recovered.as_millis()
+    );
+    assert_eq!(lost_shells, 0, "shells died with the daemon");
+    assert!(holder_lived, "the holder died with the daemon");
+    assert_eq!(still_on_holder, CRASH_TABS, "a shell left the holder");
+    assert_eq!(lost_lines, 0, "lines were lost at the daemon crash: {worst}");
+}
+
+/// [`CRASH_TABS`] tabs, each in a workspace of its own, running a script that waits for `go`,
+/// prints [`CRASH_LINES`] numbered lines a few at a time, then echoes input. Each shows
+/// `ready N` before this returns. Returns their surfaces and terminal ids.
+fn printing_tabs(daemon: &mut Daemon) -> (Vec<u64>, Vec<String>) {
+    let script = daemon.dir.join("print.sh");
+    fs::write(
+        &script,
+        format!(
+            r#"stty -echo
+tab=$1
+printf 'ready %s\n' "$tab"
+read go
+i=0
+while [ $i -lt {CRASH_LINES} ]; do
+  printf 'tab %02d line %06d\n' "$tab" "$i"
+  i=$((i + 1))
+  [ $((i % 25)) -eq 0 ] && sleep 0.02
+done
+printf 'done %s\n' "$tab"
+while read line; do printf 'got %s\n' "$line"; done
+"#
+        ),
+    )
+    .unwrap();
+    let mut tabs = Vec::new();
+    let mut terminal_ids = Vec::new();
+    for tab in 0..CRASH_TABS {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/sh", script.to_str().unwrap(), tab.to_string()],
+                "new_workspace": true, "name": format!("crash-{tab}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        tabs.push(surface);
+        terminal_ids.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    for (tab, surface) in tabs.iter().enumerate() {
+        screen_contains(&daemon.socket, *surface, &format!("ready {tab}"));
+    }
+    (tabs, terminal_ids)
+}
+
+/// Send every tab `go` and wait until each has shown some of its lines.
+fn start_printing(socket: &Path, tabs: &[u64]) {
+    for surface in tabs {
+        request(socket, json!({"cmd": "send", "surface": surface, "text": "go\n"}));
+    }
+    for (tab, surface) in tabs.iter().enumerate() {
+        screen_contains(socket, *surface, &format!("tab {tab:02} line 0001"));
+    }
+}
+
+/// Over every tab: the lines missing after the first one kept (the oldest may scroll out of the
+/// retained history; none after it may be missing), the fewest lines any tab kept, and the first
+/// tab that lost any.
+fn lines_lost(socket: &Path, tabs: &[u64]) -> (usize, usize, String) {
+    let mut lost_lines = 0usize;
+    let mut kept_min = usize::MAX;
+    let mut worst = String::new();
+    for (tab, surface) in tabs.iter().enumerate() {
+        let mut rows: Vec<String> = history(socket, *surface).iter().map(row_text).collect();
+        rows.extend(screen_lines(socket, *surface));
+        let prefix = format!("tab {tab:02} line ");
+        let mut seen: Vec<usize> =
+            rows.iter().filter_map(|row| row.strip_prefix(&prefix)?.trim().parse().ok()).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        let first = seen.first().copied().unwrap_or(CRASH_LINES);
+        let missing = (first..CRASH_LINES).filter(|line| seen.binary_search(line).is_err()).count();
+        if missing > 0 && worst.is_empty() {
+            worst = format!("tab {tab}: {missing} lines missing after line {first}");
+        }
+        lost_lines += missing;
+        kept_min = kept_min.min(seen.len());
+    }
+    (lost_lines, kept_min, worst)
 }
 
 /// The newest `tab NN line N` number on `surface`'s screen (0 when none shows).
