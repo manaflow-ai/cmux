@@ -1617,12 +1617,16 @@ export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
 /// `foldsBackground`): `prev`, the drawn row above, is neither its line nor one of its rows. O(1).
 /// Right under "Worked for" it opens nothing: that line is the turn's header and keeps its own room
 /// under its rule (transcriptGrid.ts MARK_WORKED), so a turn gap there doubled it (Leo, 2026-11-10:
-/// "too much space in between here").
+/// "too much space in between here"). Right under a subagent's start line it opens nothing either:
+/// that line says the agent started it, so nothing under it reads as the subagent's words, and the
+/// reply keeps the run gap a reply has under any status line, whichever turn it came in (Leo,
+/// 2026-11-14: "the spacing after the subagent starting is inconsistent? it grows too big").
 export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
   row.inBackground !== undefined &&
   (row.kind === "activity" || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
   prev !== undefined &&
   prev.kind !== WORKED &&
+  prev.kind !== SUBAGENT_STARTED &&
   prev.inBackground !== row.inBackground &&
   !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
 /// A turn's "Worked for" line, or the running turn's "Working for" over its work (turns.ts
@@ -2192,10 +2196,7 @@ export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
 }
 /// turns.ts isEmptyFooter, which this module cannot import.
 const isBlankFooter = (row: AcpmuxRow) =>
-  row.status !== "failed" &&
-  row.status !== "error" &&
-  !row.text &&
-  !(row.retryable === true && (row.turnCopy?.length ?? 0) > 0);
+  row.status !== "failed" && row.status !== "error" && !row.text && !((row.turnCopy?.length ?? 0) > 0);
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||
   row.kind === "activity" ||

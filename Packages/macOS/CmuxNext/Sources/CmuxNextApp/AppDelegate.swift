@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // unavailable. Never fall back to classic or pass a stale NEXT
                 // backend to a daemon started from this launch.
                 environment.cloudConfiguration = .unavailable
-                for key in ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND", "CMUX_PLATFORM_ORIGIN"] {
+                for key in LaunchIdentity.cloudSelectionKnobs + ["CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
                 finishLaunching(snapshot)
