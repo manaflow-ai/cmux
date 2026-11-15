@@ -53,17 +53,29 @@ import UIKit
             return last
         }
 
+        /// The newest delivery each way: each waits for the one before it, so
+        /// packets held behind a loss (one arrival time) keep their order, as
+        /// one TCP stream does. Tasks sleeping to one deadline resume in any order.
+        private var upChain: Task<Void, Never>?
+        private var downChain: Task<Void, Never>?
+
         /// One write Ghostty encoded (one key).
         func receive(_ bytes: Data) {
             let index = sentKeys
             sentKeys += 1
             let up = arrival(after: &lastUp)
-            Task { @MainActor in
+            let previousUp = upChain
+            upChain = Task { @MainActor in
+                await previousUp?.value
                 try? await Task.sleep(until: up, clock: .continuous) // test: the emulated link
                 let echo = self.answer(Array(bytes))
                 let down = self.arrival(after: &self.lastDown)
-                try? await Task.sleep(until: down, clock: .continuous) // test: the emulated link
-                self.surface.feed(Data(echo), completion: { [weak self] in self?.echoParsed[index] = .now })
+                let previousDown = self.downChain
+                self.downChain = Task { @MainActor in
+                    await previousDown?.value
+                    try? await Task.sleep(until: down, clock: .continuous) // test: the emulated link
+                    self.surface.feed(Data(echo), completion: { [weak self] in self?.echoParsed[index] = .now })
+                }
             }
         }
 
@@ -213,13 +225,19 @@ import UIKit
                 + "first-key-at-prompt \(firstOff.map(fmt).joined(separator: ","))->\(firstOn.map(fmt).joined(separator: ",")) ms")
             print(report.last ?? "")
             let seen = Comment(rawValue: report.suffix(4).joined(separator: " | "))
-            // Prediction never makes a key slower (5 % and one 120 Hz frame cover
-            // run-to-run jitter where it does not engage, as at 0 ms). Where it engages, the
-            // glyph is on screen within a frame or two of the key, whatever
-            // the round trip; how many keys it engages for is the shared
-            // engine's policy (the prediction latency harness reports it).
-            #expect(Self.percentile(after, 0.5) <= Self.percentile(before, 0.5) * 1.05 + 8.4, seen)
-            #expect(Self.percentile(after, 0.95) <= Self.percentile(before, 0.95) * 1.05 + 8.4, seen)
+            // On a link with no lag to hide (0 ms) nothing is drawn, so the two
+            // runs differ only by simulator noise. Elsewhere prediction never
+            // makes a key slower (5 % and one 120 Hz frame cover run-to-run
+            // jitter). Where it engages, the glyph is on screen within a frame
+            // or two of the key, whatever the round trip; how many keys it
+            // engages for is the shared engine's policy (the Rust latency
+            // harness reports it).
+            if roundTripMs == 0 {
+                #expect(predicted.isEmpty, seen)
+            } else {
+                #expect(Self.percentile(after, 0.5) <= Self.percentile(before, 0.5) * 1.05 + 8.4, seen)
+                #expect(Self.percentile(after, 0.95) <= Self.percentile(before, 0.95) * 1.05 + 8.4, seen)
+            }
             if roundTripMs >= 100, loss == 0 {
                 #expect(!predicted.isEmpty, seen)
                 if !predicted.isEmpty { #expect(Self.percentile(predicted, 0.95) < 34, seen) }
