@@ -24,9 +24,8 @@ private func recordedSteps(_ data: Data) throws -> [RecordedStep] {
         let object = try #require(JSONSerialization.jsonObject(with: Data(line)) as? [String: Any])
         if object["step"] != nil {
             steps.append(RecordedStep())
-        } else if let call = object["call"] as? String {
+        } else if object["call"] is String {
             try #require(!steps.isEmpty)
-            _ = call
             steps[steps.index(before: steps.endIndex)].calls.append(object)
         } else if let feed = object["feed"] as? [Int], feed.count == 2 {
             try #require(!steps.isEmpty)
@@ -49,17 +48,17 @@ private func requestData(_ call: [String: Any]) throws -> Data {
 private func apply(_ call: [String: Any], to client: AcpmuxClient) throws {
     switch try #require(call["call"] as? String) {
     case "subscribe_mirror":
-        _ = client.subscribeMirror(try requestData(call))
-    case "subscribe":
-        _ = client.subscribe(try requestData(call))
+        let result = try #require(client.subscribeMirror(try requestData(call)))
+        let sid = try #require(JSONSerialization.jsonObject(with: result) as? [String: String])
+        try #require(sid == ["sid": "sidebar"])
     case "want":
-        _ = client.want(try requestData(call))
+        try #require(client.want(try requestData(call)) == 0)
     case "unwant":
-        _ = client.unwant(try requestData(call))
+        try #require(client.unwant(try requestData(call)) == 0)
     case "connected":
-        _ = client.connected()
+        try #require(client.connected() == 0)
     case "disconnected":
-        _ = client.disconnected()
+        try #require(client.disconnected() == 0)
     default:
         Issue.record("unknown recorded call")
     }
@@ -72,7 +71,7 @@ private func drain(_ client: AcpmuxClient) -> [Data] {
 }
 
 private func feed(_ bytes: Data, range: Range<Int>, to client: AcpmuxClient, chunkSize: Int) throws -> [Data] {
-    var changes: [Data] = []
+    var changes = drain(client)
     var carry = Data()
     var offset = range.lowerBound
     while offset < range.upperBound {
@@ -84,7 +83,8 @@ private func feed(_ bytes: Data, range: Range<Int>, to client: AcpmuxClient, chu
             let result = client.received(carry)
             try #require(result.isSuccess)
             if result.consumed == 0 { break }
-            let consumed = min(result.consumed, carry.count)
+            try #require(result.consumed <= carry.count)
+            let consumed = result.consumed
             carry.removeSubrange(carry.startIndex..<carry.index(carry.startIndex, offsetBy: consumed))
             changes.append(contentsOf: drain(client))
         }
@@ -100,7 +100,10 @@ private func replay(_ bytes: Data, steps: [RecordedStep], chunkSize: Int) throws
     var actual: [[Data]] = []
     for step in steps {
         for call in step.calls { try apply(call, to: client) }
-        actual.append(try feed(bytes, range: step.range, to: client, chunkSize: chunkSize))
+        let changes = try feed(bytes, range: step.range, to: client, chunkSize: chunkSize)
+        #expect(changes == step.changes)
+        actual.append(changes)
+        while client.takeSend() != nil {}
     }
     return actual
 }
@@ -148,16 +151,22 @@ struct AcpmuxClientTests {
         for call in steps[0].calls { try apply(call, to: client) }
         let actual = try feed(bytes, range: steps[0].range, to: client, chunkSize: 90)
         #expect(actual == steps[0].changes)
-        #expect(actual.count == 1)
+        try #require(actual.count == 1)
         #expect(actual[0] == Data("{\"bytes\":[],\"kind\":\"fallback\"}".utf8))
     }
 
-    @Test("the C change take/free path remains callable under repeated reads")
-    func repeatedChangeReadsStayBalanced() {
-        let client = AcpmuxClient()
-        guard client.isAvailable else { return }
-        _ = client.connected()
-        for _ in 0..<10_000 { _ = client.nextChange() }
-        #expect(client.nextChange() == nil)
+    @Test("10,000 returned changes are copied and freed")
+    func repeatedChangeReadsStayBalanced() throws {
+        let bytes = Data(try fixture("fallback.bytes").prefix(90))
+        let expected = Data("{\"bytes\":[],\"kind\":\"fallback\"}".utf8)
+        for _ in 0..<10_000 {
+            let client = AcpmuxClient()
+            try #require(client.isAvailable)
+            try #require(client.connected() == 0)
+            let received = client.received(bytes)
+            try #require(received.isSuccess && received.consumed == bytes.count)
+            try #require(client.nextChange() == expected)
+            try #require(client.nextChange() == nil)
+        }
     }
 }

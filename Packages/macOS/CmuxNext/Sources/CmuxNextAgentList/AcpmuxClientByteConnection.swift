@@ -12,8 +12,6 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private var input = Data()
     private var pending = Data()
     private var deferredChange: Data?
-    private var fallbackBytes: Data?
-    private var deliveredBytes = 0
     private var pendingDelivery = false
     private var connection: AgentActivityLineConnection?
     private var onChange: (@Sendable (Data) -> Void)?
@@ -69,11 +67,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
 
     public func acknowledgeBatch() {
         queue.async { [self] in
-            let delivered = min(deliveredBytes, pending.count)
-            if delivered > 0 {
-                pending.removeSubrange(pending.startIndex..<pending.index(pending.startIndex, offsetBy: delivered))
-            }
-            deliveredBytes = 0
+            pending.removeAll(keepingCapacity: true)
             pendingDelivery = false
             processInput()
         }
@@ -90,8 +84,6 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
             input.removeAll()
             pending.removeAll()
             deferredChange = nil
-            fallbackBytes = nil
-            deliveredBytes = 0
             onChange = nil
             onClose = nil
         }
@@ -103,9 +95,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
                                 onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
             guard !closed, let connection else { return }
-            var prefix = fallbackBytes ?? Data()
-            prefix.append(input)
-            fallbackBytes = nil
+            let prefix = input
             input.removeAll()
             closed = true
             client.setSendHandler(nil)
@@ -152,11 +142,6 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private func drainChanges() {
         while pending.count < Self.maxUndeliveredBytes {
             guard let change = deferredChange ?? client.nextChange() else { return }
-            if let object = try? JSONSerialization.jsonObject(with: change) as? [String: Any],
-               object["kind"] as? String == "fallback",
-               let bytes = object["bytes"] as? [Int] {
-                fallbackBytes = Data(bytes.compactMap(UInt8.init))
-            }
             let separator = pending.isEmpty ? 0 : 1
             let fits = pending.count + separator + change.count <= Self.maxUndeliveredBytes
             // A single change is allowed to exceed the cap; combining it with
@@ -174,7 +159,6 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private func drain() {
         guard !pendingDelivery, !pending.isEmpty, let onChange else { return }
         pendingDelivery = true
-        deliveredBytes = pending.count
         let batch = pending
         onChange(batch)
     }
@@ -189,8 +173,6 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         input.removeAll()
         pending.removeAll()
         deferredChange = nil
-        fallbackBytes = nil
-        deliveredBytes = 0
         let callback = onClose
         onChange = nil
         onClose = nil

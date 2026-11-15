@@ -1466,7 +1466,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentList",
                 "CmuxNextTestSupport",
             ],
-            swiftSettings: uiSwiftSettings
+            // C calls use checked blocking waits on a utility queue.
+            swiftSettings: daemonSwiftSettings
         ),
         // The thumbnail grid: tiles, the thumbnail cache, drag out, drop reading, Quick Look and the
         // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.

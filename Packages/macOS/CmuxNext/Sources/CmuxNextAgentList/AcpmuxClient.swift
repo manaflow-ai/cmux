@@ -11,7 +11,7 @@ public nonisolated final class AcpmuxClient: @unchecked Sendable {
         public var isSuccess: Bool { code == 0 }
     }
 
-    public static let expectedABIVersion: UInt32 = 3
+    public static let expectedABIVersion = UInt32(ACPMUX_CLIENT_ABI_VERSION)
     private let queue = DispatchQueue(label: "cmux.acpmux-client", qos: .utility) // qos-allow: serialized C calls are background transport work
     private var handle: UnsafeMutableRawPointer?
     private var sendHandler: (@Sendable (Data) -> Void)?
