@@ -23,6 +23,14 @@ struct MachinesEntryTests {
         #expect(SidebarBuiltIn.machines.icon == .machine)
     }
 
+    /// The item opens its page through its route, so it draws as an item, not dimmed as missing, in a
+    /// build whose catalog has no `machines.show` yet (before the re-pin; a capture showed it dimmed).
+    @Test func theItemIsNotDrawnMissingWithoutItsAction() {
+        let item = LayoutItem(id: LayoutItemID("itm_machines"), ref: .builtIn(.machines))
+        let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [item])])
+        #expect(SidebarBridge.itemInfo(for: layout, registered: { _ in false })[item.id]?.isMissing == false)
+    }
+
     /// The setting: the App Store's sidebar card, listed with the other sidebar items (its on state is
     /// whether the sidebar holds the item, so the default sidebar stays as it is). `machines.show` in
     /// Cmd+Shift+P and Add to Sidebar's "Machines" come from the Rust catalog with the next app FFI
