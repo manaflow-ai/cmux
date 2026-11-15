@@ -205,7 +205,8 @@ if [ -n "$CMUX" ]; then
   answer on
   CLI=$(cd "$(dirname "$CMUX")" && pwd -P)/$(basename "$CMUX")
   shim_env=(CMUX_TUI_SOCKET="$sock" CMUX_TUI_TERMINAL_ID=term_1 CMUX_NEXT_CONFIG_FILE="$settings")
-  base_path="$(dirname "$CLAUDE"):$(dirname "$CODEX"):$(dirname "$NODE"):/usr/bin:/bin"
+  # Codex's folder first: another codex beside claude would run in its place.
+  base_path="$(dirname "$CODEX"):$(dirname "$CLAUDE"):$(dirname "$NODE"):/usr/bin:/bin"
 
   # 4. Claude
   : > "$L"
@@ -432,8 +433,9 @@ PY
     tm new-session -d -x 160 -y 45 -s trust -c "$N" \
       "env ${shim_env[*]} PATH='$base_path' TERM=xterm-256color CMUX_TUI_MCP_RESOLVE_TRACE=1 '$CMUX' agent codex-wrapper"
     tm set-option -t trust remain-on-exit on >/dev/null
-    for _ in $(seq 1 60); do screen | grep -q "Trust and continue" && break; perl -e 'select(undef,undef,undef,0.5)'; done
-    prompt=$(screen | grep -c "Trust and continue")
+    for _ in $(seq 1 60); do screen | grep -qE "Trust and continue|Yes, continue" && break; perl -e 'select(undef,undef,undef,0.5)'; done
+    screen > "$D/trust.dialog"
+    prompt=$(grep -cE "Trust and continue|Yes, continue" "$D/trust.dialog")
     tm send-keys -t trust Enter
     # Codex either loads the folder's config and runs on, or refuses it and ends.
     for _ in $(seq 1 30); do
@@ -453,7 +455,7 @@ PY
     trusted=$(grep -c "\"$N\"" "$CODEX_HOME/config.toml" 2>/dev/null)
     entry=$(sed -n 's/.*cmux-tui: codex mcp get cmux: [0-9]* ms (\([A-Za-z]*\).*/\1/p' "$D/trust.after" | head -1)
     [ "${prompt:-0}" -ge 1 ] && [ "$dead" = 0 ] && [ "$refused" = 0 ] && [ "${trusted:-0}" -ge 1 ] \
-      && grep -q "Ask Codex to do anything" "$D/trust.screen" && [ "$entry" = Doubt ]
+      && grep -q "for shortcuts" "$D/trust.screen" && [ "$entry" = Doubt ]
     rc=$?; check "doubt [trust prompt]: a new folder with an HTTP project cmux entry, trusted at Codex's prompt (prompt shown: ${prompt:-0}, saved: ${trusted:-0}): answer ${entry:-?}, Codex runs on (ended: $dead, refused: $refused)" $rc
   else
     check "doubt [trust prompt]: tmux is missing" 1
