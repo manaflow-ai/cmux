@@ -220,9 +220,11 @@ pub fn apply_team(env: &mut BTreeMap<String, String>, team: Vec<(String, String)
 }
 
 /// The longest a start waits for the probe, DNS included.
+// timeout: a Gemini or Grok start waits at most this for the gateway probe, then starts without it
 pub const PROBE_DEADLINE: Duration = Duration::from_secs(1);
 /// How long an answer is reused, and a failure.
 const PROBE_TTL: Duration = Duration::from_secs(60);
+// timeout: not a wait; a failed probe is retried after this cache age
 const PROBE_FAILED_TTL: Duration = Duration::from_secs(10);
 
 type ProbeCache = Mutex<HashMap<String, (Instant, Option<Providers>)>>;
