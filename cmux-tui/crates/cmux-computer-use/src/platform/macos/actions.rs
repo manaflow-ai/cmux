@@ -886,10 +886,21 @@ fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     }
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
     let before = el.value_text().unwrap_or_default();
+    // A secure field hides its value; its length reads back the typing.
+    let count_before = el.number("AXNumberOfCharacters");
+    let typed = text.encode_utf16().count() as f64;
+    let length_grew = |el: &Ax| {
+        count_before.zip(el.number("AXNumberOfCharacters")).is_some_and(|(b, a)| a - b == typed)
+    };
     let Some(cf) = Cf::string(text) else { return Ok(None) };
     if el.settable("AXSelectedText") && el.set("AXSelectedText", &cf).is_ok() {
         if secure {
-            return Ok(Some(ActionOutcome::delivered("ax_insert_text").showing("text")));
+            let out = if length_grew(el) {
+                ActionOutcome::confirmed("ax_insert_text")
+            } else {
+                ActionOutcome::delivered("ax_insert_text")
+            };
+            return Ok(Some(out.showing("text")));
         }
         let after = el.value_text().unwrap_or_default();
         if after != before && after.contains(text) {
@@ -904,7 +915,12 @@ fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     let wanted = format!("{before}{text}");
     let Some(value) = Cf::string(&wanted) else { return Ok(None) };
     el.set("AXValue", &value).map_err(|e| ax_error(e, "setting the value"))?;
-    let mut out = if !secure && el.value_text().as_deref() == Some(wanted.as_str()) {
+    let reads_back = if secure {
+        el.number("AXNumberOfCharacters") == Some(wanted.encode_utf16().count() as f64)
+    } else {
+        el.value_text().as_deref() == Some(wanted.as_str())
+    };
+    let mut out = if reads_back {
         ActionOutcome::confirmed("ax_set_value")
     } else {
         ActionOutcome::delivered("ax_set_value").showing("text")
