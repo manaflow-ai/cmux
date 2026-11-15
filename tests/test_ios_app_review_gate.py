@@ -11,6 +11,7 @@ import os
 import plistlib
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1095,6 +1096,7 @@ class DevicePlanTests(unittest.TestCase):
         pins_path = self.root / "pins.txt"
         pins_path.write_text(pins)
         out = self.root / "planned"
+        shutil.rmtree(out, ignore_errors=True)
         proc = self.script("plan", "--devices", str(devices_path), "--pins", str(pins_path), "--trust", trust,
                            "--out-dir", str(out))
         outputs = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
