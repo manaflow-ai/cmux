@@ -119,3 +119,28 @@ fn an_agent_chat_gets_cmux_tools_only_with_the_persons_yes_and_the_chief_always(
         serve_with(r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#, &chat);
     assert!(instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
 }
+
+/// A chat cmux-next started on another machine (a peer link, a Cloud VM, a headless daemon)
+/// follows the answer of the Mac that started it: that Mac's daemon sends its `agents.cmuxMcp`
+/// answer with the session, the peer runs the chat's harness with it as
+/// `CMUX_AGENT_TOOLS_ANSWER`, and a `cmux mcp serve` the chat starts uses it over the peer's own
+/// settings file. Without it (a chat started there) the peer's own answer applies.
+#[test]
+fn a_chat_started_from_another_mac_follows_that_macs_answer() {
+    let off_here = r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#;
+    let on_here = r#"{"agents": {"cmuxMcp": "on"}}"#;
+    let chat = |answer: &'static str| {
+        [("CMUX_AGENT_SESSION", "chat-1"), ("CMUX_AGENT_TOOLS_ANSWER", answer)]
+    };
+    let (instructions, _) = serve_with(off_here, &chat("on"));
+    assert!(!instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
+    let (instructions, tools) = serve_with(on_here, &chat("off"));
+    assert!(instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
+    assert_eq!(tools, 1, "the off server's one tool");
+    // A chat started on this machine: its own file.
+    let (instructions, _) = serve_with(off_here, &[("CMUX_AGENT_SESSION", "chat-1")]);
+    assert!(instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
+    // `"mcp": {"enabled": false}` still turns it off for everyone.
+    let (instructions, _) = serve_with(r#"{"mcp": {"enabled": false}}"#, &chat("on"));
+    assert!(!instructions.is_empty() && instructions.contains("false"), "{instructions}");
+}

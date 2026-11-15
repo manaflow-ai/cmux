@@ -1351,6 +1351,98 @@ fn cmux_setup_mcp_names_a_leftover_cmux_entry_and_removes_it_only_on_request() {
     assert!(world.take_mcp_calls().is_empty());
 }
 
+/// What `--remove` may print and take out. An entry with an env key cmux would not put back (a
+/// token, a proxy) is kept: `needs_user`, the key named, its value never printed, in the report
+/// or the remove result. The manual line the person added on purpose (this build's own
+/// `cmux mcp serve`) is not listed at all. Any other entry is listed in neutral words. And
+/// `--remove … --dry-run` only plans: it names the line and runs nothing.
+#[test]
+fn cmux_setup_mcp_remove_keeps_secrets_skips_the_manual_line_and_dry_run_only_plans() {
+    let world = World::new("mcpremovesafe").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let claude_json = world.home.join(".claude.json");
+    let codex_toml = world.home.join(".codex").join("config.toml");
+    std::fs::create_dir_all(codex_toml.parent().unwrap()).unwrap();
+    // 1. A token in env: named by key, never printed, never removed.
+    let secret = "sk-live-do-not-print-4f2a";
+    std::fs::write(
+        &claude_json,
+        json!({"mcpServers": {"cmux": {"type": "stdio", "command": "/Applications/cmux.app/Contents/Resources/bin/cmux",
+            "args": ["mcp", "serve"], "env": {"CMUX_TAG": "nightly", "API_TOKEN": secret}}}})
+        .to_string(),
+    )
+    .unwrap();
+    let listed = world.run(&["setup", "mcp"]);
+    let shown = format!(
+        "{}{}",
+        String::from_utf8_lossy(&listed.stdout),
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    assert!(!shown.contains(secret), "the report printed a secret: {shown}");
+    let report: Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(report["clients"][0]["leftover"]["remove"], "claude mcp remove --scope user cmux");
+    let removing = world.run(&["setup", "mcp", "--remove", "claude"]);
+    let shown = format!(
+        "{}{}",
+        String::from_utf8_lossy(&removing.stdout),
+        String::from_utf8_lossy(&removing.stderr)
+    );
+    assert!(!shown.contains(secret), "--remove printed a secret: {shown}");
+    let kept: Value = serde_json::from_slice(&removing.stdout).unwrap();
+    assert_eq!(kept["state"], "needs_user", "{kept}");
+    assert!(kept["user_action"]["text"].as_str().unwrap().contains("API_TOKEN"), "{kept}");
+    assert_eq!(kept["undo"], Value::Null, "{kept}");
+    assert!(world.take_mcp_calls().is_empty(), "an entry with a token was removed");
+    // Only cmux's own env keys: removed, and put back with them.
+    std::fs::write(
+        &claude_json,
+        json!({"mcpServers": {"cmux": {"type": "stdio", "command": "/Applications/cmux.app/Contents/Resources/bin/cmux",
+            "args": ["mcp", "serve"], "env": {"CMUX_TAG": "nightly"}}}})
+        .to_string(),
+    )
+    .unwrap();
+    // 4. A dry run plans: the line, nothing run.
+    let planned = world.json(&["setup", "mcp", "--remove", "claude", "--dry-run"]);
+    assert_eq!(planned["state"], "ok", "{planned}");
+    assert_eq!(planned["dry_run"], true, "{planned}");
+    assert_eq!(planned["plan"], "claude mcp remove --scope user cmux", "{planned}");
+    assert_eq!(planned["undo"], Value::Null, "{planned}");
+    assert!(world.take_mcp_calls().is_empty(), "a dry run ran the agent's CLI");
+    let removed = world.json(&["setup", "mcp", "--remove", "claude"]);
+    assert_eq!(removed["state"], "changed", "{removed}");
+    assert_eq!(
+        removed["undo"],
+        "claude mcp add --env CMUX_TAG=nightly --scope user cmux -- /Applications/cmux.app/Contents/Resources/bin/cmux mcp serve"
+    );
+    assert_eq!(world.take_mcp_calls(), ["claude mcp remove --scope user cmux"]);
+    // 2. The manual line this build names, added on purpose: not listed, not removable.
+    let cli = std::fs::canonicalize(world.cli()).unwrap().to_string_lossy().into_owned();
+    std::fs::write(
+        &claude_json,
+        json!({"mcpServers": {"cmux": {"type": "stdio", "command": cli, "args": ["mcp", "serve"], "env": {}}}})
+            .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        &codex_toml,
+        format!("[mcp_servers.cmux]\ncommand = {}\nargs = [\"mcp\", \"serve\"]\n", json!(cli)),
+    )
+    .unwrap();
+    let report = world.json(&["setup", "mcp"]);
+    assert_eq!(report["clients"][0]["leftover"], Value::Null, "{report}");
+    assert_eq!(report["clients"][1]["leftover"], Value::Null, "{report}");
+    assert_eq!(world.json(&["setup", "mcp", "--remove", "codex"])["state"], "ok");
+    assert!(world.take_mcp_calls().is_empty(), "the person's own manual line was removed");
+    // Another cmux's line: listed, removable on request, in neutral words.
+    std::fs::write(
+        &codex_toml,
+        "[mcp_servers.cmux]\ncommand = \"/opt/other/cmux\"\nargs = [\"mcp\", \"serve\"]\n",
+    )
+    .unwrap();
+    let report = world.json(&["setup", "mcp"]);
+    assert_eq!(report["clients"][1]["leftover"]["remove"], "codex mcp remove cmux", "{report}");
+}
+
 /// The report the app reads (the fixture CmuxNext's tests read too): each installed agent and
 /// whether it gets cmux's server in cmux.
 #[test]
