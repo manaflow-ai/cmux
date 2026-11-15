@@ -17,22 +17,26 @@ enum SuperviseBinary {
         return nil
     }()
 
-    /// Whether this session can read the carrier key the way the supervisor does (cmux-tui
-    /// `carrier/noise_key.rs`: login Keychain, service `com.cmuxterm.app.next.carrier-noise-key`). A headless
-    /// worker's session refuses it (-60008), so the supervisor fails its handshake there whatever the app answers.
-    /// Asked with no UI: a probe never prompts.
-    static let keychainReadable: Bool = {
+    /// Whether this session can store a key the way the supervisor stores its carrier key (cmux-tui
+    /// `carrier/noise_key.rs`: `SecItemAdd` of a generic password in the login Keychain). A headless worker's
+    /// session refuses the add (-60008), so the supervisor fails its handshake there whatever the app answers.
+    /// The probe adds and deletes a throwaway item of its own, with no UI.
+    static let keychainWritable: Bool = {
         let context = LAContext()
         context.interactionNotAllowed = true
-        let query: [String: Any] = [
+        let item: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.cmuxterm.app.next.carrier-noise-key",
-            kSecAttrAccount as String: "device",
-            kSecReturnData as String: true,
+            kSecAttrService as String: "com.cmuxterm.app.next.tests.keychain-probe",
+            kSecAttrAccount as String: UUID().uuidString,
+            kSecAttrSynchronizable as String: false,
             kSecUseAuthenticationContext as String: context,
         ]
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        return status == errSecSuccess || status == errSecItemNotFound
+        var add = item
+        add[kSecValueData as String] = Data(count: 32)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard SecItemAdd(add as CFDictionary, nil) == errSecSuccess else { return false }
+        SecItemDelete(item as CFDictionary)
+        return true
     }()
 }
 
@@ -43,7 +47,7 @@ enum SuperviseBinary {
 /// answer reaches the real supervisor (2026-11-15: every Cloud chat start of the NIGHTLY waited 180 s with the
 /// supervisor holding its lease and no `carrier serve` child).
 @Suite(.enabled(if: SuperviseBinary.url != nil, "needs the same-tree cmux-tui"),
-       .enabled(if: SuperviseBinary.keychainReadable, "needs a GUI session: the supervisor keeps its carrier key in the login Keychain"),
+       .enabled(if: SuperviseBinary.keychainWritable, "needs a GUI session: the supervisor keeps its carrier key in the login Keychain"),
        .serialized, .timeLimit(.minutes(2)))
 struct CloudCarrierSuperviseRealTests {
     /// A `cmux-link-<12 hex>.sock` in this user's private temporary folder, as ``CloudPaths/linkSocket(machineID:)``.
