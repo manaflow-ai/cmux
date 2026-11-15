@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4376293627401",
+  "notes": "notes/4376293627401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43420,
+      "title": "tabs.newTabApp accepts only ids an app manifest may have",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43733,
+      "title": "fix(webviews): green rowSummary and dom-teardown-lint at feat-cmux-next tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43880,
+      "title": "acpmux: a joined daemon's start always says whether its hub carrier runs, and why not",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43659,
+      "title": "Agent chat: chat perf names the page code that asks for frames, by file (the 120 fps idle readback was the capture's own loop)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43890,
+      "title": "updater: a staged update's first launch is pre-warmed while it waits; Home 1.3 s, not 4, after an update (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43848,
+      "title": "acpmux: a churn lab for one peer's session list, and a gauge of the lists waiting for the hub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43931,
+      "title": "hot-verify CI: read the look's packed inputs without mapfile (bash 3.2 on fleet Macs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43919,
+      "title": "Session Info: a process list read caps its pages, keeps a process once, passes on omitted",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
