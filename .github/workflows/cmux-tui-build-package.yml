@@ -444,9 +444,11 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})"
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
+          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
             ${acpmux_features:+"$acpmux_features"}
+          # As the Linux legs: the build id only in this binary, staged as acpmux.
+          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
 
       # Warm start for the shipped fat-LTO legs on feat-cmux-next pushes (both musl targets and
       # the macOS targets built on Linux): the previous build's whole target dir and cargo
@@ -656,9 +658,11 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})"
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
+          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
             ${acpmux_features:+"$acpmux_features"}
+          # As the Linux legs: the build id only in this binary, staged as acpmux.
+          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
