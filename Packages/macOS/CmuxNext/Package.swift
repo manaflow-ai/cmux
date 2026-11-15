@@ -123,7 +123,7 @@ import PackageDescription
 //   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, CmuxScreenKit (Mac Screen tabs: another
 //     Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
 //     host approval prompt, Settings > Devices state; CmuxScreenKit links WebRTC.framework)
-//   CmuxNextDevices -> Compat, Wakeups (the device hub: Secure Enclave device identity, the signed
+//   CmuxNextDevices -> Compat, Wakeups, CCmuxAppFFI (the device hub: Secure Enclave device identity, the signed
 //     HTTP client, the User DO socket, relay sealing and the @Observable DeviceHub; no UI; the App
 //     supplies the account token and the hub URL; docs/device-hub/PROTOCOL.md)
 //   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; CmuxNextRemoteViewSessions adapts it to the pane
@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 9a3a2c0449eb00219fcfeeb7039711f3024e5f1bf99f64858389c29316a40771
+// app-ffi-pin-checksum: db104d85476a00c042f5199730d3e69a491fdcc3fd39263e9d201159592cdcbe
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1674,6 +1674,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextDevices",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],

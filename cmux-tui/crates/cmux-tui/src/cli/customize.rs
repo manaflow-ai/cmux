@@ -66,6 +66,11 @@ Ask options:
 Every verb takes --json. Exit codes: 0 ok, 1 refused (the error's code says why), 2 bad arguments.
 Nothing here needs the app but an ask: generations are files, so rollback works with cmux
 quit and in safe mode.
+
+If a layer breaks the window itself, quit cmux and open it once on its built-in web UI:
+  open -a \"cmux NIGHTLY\" --args --no-customizations
+(or CMUX_NO_CUSTOMIZATIONS=1, or hold Option and Shift as it starts). It edits no file. A page that
+does not start from a layer falls back on its own and turns the layer off, saying why.
 ";
 
 /// Every verb, for \"did you mean\".
@@ -377,6 +382,15 @@ pub(super) fn child_globals(global: &super::GlobalArgs) -> Vec<String> {
 /// terminal sees their own settings, credentials still masked.
 fn reader(origin: &str) -> cmux_customize::Reader {
     if origin == "mcp" { cmux_customize::Reader::Agent } else { cmux_customize::Reader::Person }
+}
+
+/// The web ABI an app's own pages need: `bundle`'s, else the app this CLI is
+/// in (or `CMUX_CUSTOMIZE_APP`). What a web-dev overlay is judged against.
+pub(super) fn app_web_abi(bundle: Option<&std::path::Path>) -> Option<u32> {
+    match bundle {
+        Some(bundle) => pr::web_abi_of(bundle),
+        None => pr::App::find().abi,
+    }
 }
 
 pub(super) fn now_ms() -> u64 {
