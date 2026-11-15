@@ -30,8 +30,8 @@ impl Network {
     }
 
     /// [`Self::with_client_version`] in `space`; an unusable space pairs nothing.
-    pub fn in_space(version: &str, _space: cmux_build_space::Resolved) -> Result<Self> {
-        let space = None;
+    pub fn in_space(version: &str, space: cmux_build_space::Resolved) -> Result<Self> {
+        let space = space.map_err(|error| Error::rejected(error.to_string()))?;
         version.parse::<reqwest::header::HeaderValue>().map_err(|_| invalid())?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::blocking::Client::builder()
@@ -43,6 +43,11 @@ impl Network {
             .build()
             .map_err(|_| unavailable())?;
         Ok(Self { http, client_version: version.into(), space })
+    }
+
+    /// A request to the selected backend, with this build's space.
+    fn backend(&self, method: reqwest::Method, url: String) -> reqwest::blocking::RequestBuilder {
+        self.http.request(method, url).headers(cmux_build_space::headers_for(self.space.as_ref()))
     }
 
     fn json(&self, request: reqwest::blocking::RequestBuilder) -> Result<Value> {
@@ -109,8 +114,7 @@ impl super::Transport for Network {
         bearer: Option<&str>,
     ) -> Result<Value> {
         let mut request = self
-            .http
-            .post(format!("{api}{path}"))
+            .backend(reqwest::Method::POST, format!("{api}{path}"))
             .header("x-cmux-client-version", &self.client_version)
             .json(body);
         if let Some(token) = bearer {
@@ -145,11 +149,12 @@ impl super::Transport for Network {
         serde_json::from_slice(&bytes).map(Some).map_err(|_| invalid())
     }
     fn health(&self, api: &str) -> Result<Value> {
-        self.json(self.http.get(format!("{api}/v1/health")))
+        self.json(self.backend(reqwest::Method::GET, format!("{api}/v1/health")))
     }
 
     fn begin(&self, api: &str, body: &Value) -> Result<Value> {
-        let request = self.http.post(format!("{api}/v1/pair/begin")).json(body);
+        let request =
+            self.backend(reqwest::Method::POST, format!("{api}/v1/pair/begin")).json(body);
         if body.get("invite").is_none() {
             return self.json(request);
         }
@@ -227,7 +232,7 @@ fn handshake_refused(error: tokio_tungstenite::tungstenite::Error) -> Result<Wai
 fn request(
     api: &str,
     begun: &Begun,
-    _space: Option<&cmux_build_space::BuildSpace>,
+    space: Option<&cmux_build_space::BuildSpace>,
 ) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request> {
     let mut url = url::Url::parse(api).map_err(|_| invalid())?;
     url.set_scheme("wss").map_err(|_| invalid())?;
@@ -240,6 +245,7 @@ fn request(
             .map_err(|_| invalid())?;
     protocol.set_sensitive(true);
     request.headers_mut().insert("Sec-WebSocket-Protocol", protocol);
+    cmux_build_space::insert_space(request.headers_mut(), space);
     Ok(request)
 }
 
