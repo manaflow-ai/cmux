@@ -7702,6 +7702,79 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                 else:
                     assert_left_at_open_head(self, api, result, number=27797)
 
+    # cmux-next.yml's fast tier as feat-cmux-next has it: its runs-on reads the placement's light_jobs on the attempt
+    # the placement ran (a re-run's light move lands on the light label, #18147).
+    LIGHT_FIXTURE = CMUX_NEXT_FIXTURE.replace(
+        "    needs: [macos-placement, path_route, push-head-preflight]\n    runs-on: macos-26\n",
+        "    needs: [macos-placement, path_route, push-head-preflight]\n    runs-on: ${{ "
+        "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+        "contains(needs.macos-placement.outputs.light_jobs, ' fast-tier ') && needs.macos-placement.outputs.light_runner "
+        "|| 'macos-26' }}\n", 1)
+
+    def test_a_std_queued_light_fit_job_moves_once_a_light_runner_listens(self):
+        """Leo, 2026-11-15: "you can decide on best routing for stuff". 32 jobs stayed queued on the std side label
+        at 01:10Z after light side runners freed (the light spill placed attempt 1 only). A light-fit job that has
+        waited LIGHT_MOVE_SECONDS on a busy std side label is placed again once a light side runner listens: its
+        run's placement re-runs, so the job takes the light label, long before OWNED_REPLACE_SECONDS."""
+        self.assertNotEqual(self.LIGHT_FIXTURE, CMUX_NEXT_FIXTURE)
+        light = "glaeda-side-light-xcode-26.6"
+
+        def gates(listening=1, queued=0, age=30):
+            return lambda seconds: {"as_of": stamp(seconds - age), "labels": {light: {
+                "as_of": stamp(seconds - age), "listening": listening, "queued": queued, "busy": 4}}}
+        cases = {
+            "a light runner listens": (self.LIGHT_FIXTURE, gates(), {}, {}, True),
+            "the head's fast tier reads no re-run light placement": (CMUX_NEXT_FIXTURE, gates(), {}, {}, False),
+            "no light runner listens": (self.LIGHT_FIXTURE, gates(listening=0), {}, {}, False),
+            "the light queue takes the listening runner": (self.LIGHT_FIXTURE, gates(listening=2, queued=2), {}, {},
+                                                            False),
+            "a stale gates reading": (self.LIGHT_FIXTURE, gates(age=360), {}, {},
+                                      False),
+            "a nightly waits on the light family": (self.LIGHT_FIXTURE, gates(),
+                                                    {"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}}, {},
+                                                    False),
+            "attempt 3 is the last placed attempt": (self.LIGHT_FIXTURE, gates(), {}, {"attempt": 3}, False),
+        }
+        for why, (workflow, gate, extra_pools, extra, moved) in cases.items():
+            with self.subTest(why=why):
+                clock, api, target = self.world(self.shape(), running=11, workflow=workflow, extra=extra)
+                rows = self.shape()(0)
+                rows[-1] = job("cmux-next fast tier", labels=[SIDE_STD], created=-(rescue.UNSTARTED_STALL_SECONDS + 60))
+                api.jobs_at = api.rerun_jobs = lambda seconds, rows=rows: [dict(row) for row in rows]
+                api.attempt = extra.get("attempt", 1)
+
+                def snapshot(seconds, gate=gate, extra_pools=extra_pools):
+                    # Busy, not dark: the std side label started a job 30 s before every look.
+                    return {"generated_at": stamp(seconds), rescue.LABEL_STARTED_KEY: {SIDE_STD: stamp(seconds - 30)},
+                            "gates": gate(seconds),
+                            "pools": {SIDE_STD: {"queued": 33, "running": 11, "oldest_queued_minutes": 49},
+                                      **extra_pools}}
+                api.snapshot = snapshot
+                result, lines = self.run_rescue(api, clock, target)
+                if moved:
+                    self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (result, api.calls))
+                    self.assertNotIn("rerun", api.calls)
+                    self.assertTrue(any(f"while `{light}` has a runner listening (light move)" in line
+                                        for line in lines), lines)
+                else:
+                    assert_left_at_open_head(self, api, result, number=27797)
+
+    def test_light_wait_is_only_for_a_pull_requests_std_side_queue(self):
+        light = "glaeda-side-light-xcode-26.6"
+        target = rescue.Target(run_id=RUN_ID, attempt=1, head_sha=HEAD, pr_number=27797, side=True,
+                               path=rescue.CMUX_NEXT_WORKFLOW_PATH)
+        snap = {"pools": {}, "gates": {"labels": {light: {"as_of": stamp(-30), "listening": 1, "queued": 0}}}}
+        old = job("cmux-next generated files", labels=[SIDE_STD], created=-rescue.LIGHT_MOVE_SECONDS)
+        self.assertEqual(rescue.light_wait(target, old, SIDE_STD, snap, START), light)
+        self.assertEqual(rescue.light_wait(target, old, light, snap, START), "", "already on light")
+        self.assertEqual(rescue.light_wait(target, old, "glaeda-std-xcode-26.6", snap, START), "")
+        self.assertEqual(rescue.light_wait(dataclasses.replace(target, pr_number=None), old, SIDE_STD, snap, START), "",
+                         "a push run (feat-cmux-next's promote compile) is never moved")
+        self.assertEqual(rescue.light_wait(dataclasses.replace(target, path=rescue.CI_WORKFLOW_PATH), old, SIDE_STD,
+                                           snap, START), "")
+        young = job("cmux-next generated files", labels=[SIDE_STD], created=-(rescue.LIGHT_MOVE_SECONDS - 1))
+        self.assertEqual(rescue.light_wait(target, young, SIDE_STD, snap, START), "")
+
     def test_long_owned_wait_is_only_for_owned_labels_on_placed_attempts(self):
         _, _, target = self.world(self.shape())
         old = job("cmux-next fast tier", labels=[SIDE_STD], created=-rescue.OWNED_REPLACE_SECONDS)
