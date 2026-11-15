@@ -36,17 +36,33 @@ fn process_help(args: &[String]) -> Option<i32> {
     }
 }
 
-fn text(args: &[String]) -> Option<String> {
+/// The help words of `args`: the words before `--`, without options or a leading `help`.
+fn help_words(args: &[String]) -> Vec<&str> {
     let words = args
         .iter()
         .take_while(|arg| arg.as_str() != "--")
         .filter(|arg| !arg.starts_with('-'))
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let words = match words.as_slice() {
-        ["help", rest @ ..] => rest,
-        all => all,
-    };
+    match words.as_slice() {
+        ["help", rest @ ..] => rest.to_vec(),
+        all => all.to_vec(),
+    }
+}
+
+/// A scope's whole help (`cmux <scope> --help`) ends with the catalog's app
+/// verbs for it (cli/app_action_help.rs); a verb's or a page's help does not.
+pub(in crate::cli) fn text(args: &[String]) -> Option<String> {
+    let text = scope_text(args)?;
+    match help_words(args).as_slice() {
+        [scope] => Some(super::super::app_action_help::append(scope, &text).unwrap_or(text)),
+        _ => Some(text),
+    }
+}
+
+fn scope_text(args: &[String]) -> Option<String> {
+    let words = help_words(args);
+    let words = words.as_slice();
     let messages = &crate::localization::catalog().app_control;
     let usage = match words {
         ["browser", target, ..]
