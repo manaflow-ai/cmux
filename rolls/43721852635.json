@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43721852635",
+  "recorded_at": "2026-11-15T14:11:04Z",
+  "reason": "cmux-tui 68f5e7b9cb5d changes the image's cmux-tui (pinned f385a1926e91)",
+  "dry_run": false,
+  "cmux_tui": "68f5e7b9cb5d69c1285bad6b901c252433159c50",
+  "fixes": [
+    {
+      "sha": "68f5e7b9cb5d69c1285bad6b901c252433159c50",
+      "mergedAt": "2026-11-15T05:42:45-08:00",
+      "subject": "Actions: Customize… in the palette and the app menu (step A, Rust catalog) (#43274)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T14:11:04Z",
+    "snapshot_id": "sh-37432b17c067472aba328e7057185eb2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43721852635): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "127d58dde9cce21b6713b83ccc28affed66d8c09",
+    "image": "cloud-native-auto-68f5e7b9-43721852635-1",
+    "revision": "ci-43721852635-1",
+    "at": "2026-11-15T14:11:04Z"
+  },
+  "rolled_back": false
+}
