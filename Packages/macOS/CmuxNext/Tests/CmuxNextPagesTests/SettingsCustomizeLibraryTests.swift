@@ -88,9 +88,9 @@ import Testing
     }
 }
 
-/// What the fake CLI saw and answers. At file scope so it isn't main-actor isolated: the runner
+/// What the fake CLI saw and answers. `nonisolated` against the target's MainActor default: the runner
 /// closure is `@Sendable` and runs off the main actor. Each test runs its calls one at a time.
-final class SettingsCustomizeLibraryRuns: @unchecked Sendable {
+nonisolated final class SettingsCustomizeLibraryRuns: @unchecked Sendable {
     var arguments: [[String]] = []
     var configFiles: [String?] = []
     var answer: (Int32, Data, Data) = (0, Data(#"{"library":{"entries":[],"conflicts":[]}}"#.utf8), Data())
