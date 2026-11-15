@@ -58,12 +58,20 @@ enum Op {
     Quiet {
         seq: u64,
     },
+    /// A row and a gone that name another origin than the peer's own.
+    Forged {
+        seq: u64,
+        id: String,
+    },
 }
 
 impl Op {
     fn seq(&self) -> u64 {
         match self {
-            Self::Row { seq, .. } | Self::Gone { seq, .. } | Self::Quiet { seq } => *seq,
+            Self::Row { seq, .. }
+            | Self::Gone { seq, .. }
+            | Self::Quiet { seq }
+            | Self::Forged { seq, .. } => *seq,
         }
     }
 
@@ -87,6 +95,19 @@ impl Op {
             Self::Quiet { seq } => {
                 Change::ResumeEnd { sid, cursor: acpmux_client::wire::Cursor(*seq) }
             }
+            Self::Forged { seq, id } if seq % 2 == 0 => {
+                let mut summary = peer_row(id, "forged", *seq);
+                summary.origin = "machine-z".to_owned();
+                Change::Summary { sid, seq: *seq, summary, replay: false }
+            }
+            Self::Forged { seq, id } => Change::Gone {
+                sid,
+                seq: *seq,
+                origin: "machine-z".to_owned(),
+                chat_id: id.clone(),
+                why: None,
+                replay: false,
+            },
         }
     }
 }
@@ -102,7 +123,7 @@ fn folded(ops: &[Op]) -> BTreeMap<String, String> {
             Op::Gone { id, .. } => {
                 rows.remove(id);
             }
-            Op::Quiet { .. } => {}
+            Op::Quiet { .. } | Op::Forged { .. } => {}
         }
     }
     rows
@@ -432,8 +453,7 @@ async fn a_forged_origin_and_a_key_naming_local_stay_off_this_daemons_rows() {
     until("the walk ended whole", || local.mirror_mark(ORIGIN).is_some_and(|mark| mark.whole))
         .await;
     assert_eq!(titles(&local, ORIGIN), BTreeMap::from([("mine".into(), "the peer's".into())]));
-    assert!(titles(&local, "machine-z").is_empty(), "a forged origin is not mirrored");
-    assert!(link.counters.foreign_rows.load(Ordering::Relaxed) >= 1);
+    assert!(titles(&local, "machine-z").is_empty(), "a third machine's row is not mirrored");
     peer.remove(PEER_LOCAL, "mine").unwrap();
     until("the peer's row went", || titles(&local, ORIGIN).is_empty()).await;
     assert_eq!(
@@ -442,6 +462,32 @@ async fn a_forged_origin_and_a_key_naming_local_stay_off_this_daemons_rows() {
         "this daemon's own row is untouched"
     );
     link.end();
+}
+
+/// (d) A forged origin: a peer that sends a row or a gone under another
+/// origin than its own (the serving side above never does). The dialer
+/// mirrors neither and counts both; the peer's own rows around them land.
+#[tokio::test]
+async fn a_frame_with_a_forged_origin_mirrors_only_the_peers_own_rows() {
+    let ops = vec![
+        Op::Row { seq: 1, id: "a".into(), title: "the peer's".into() },
+        Op::Forged { seq: 2, id: "mine".into() },
+        Op::Forged { seq: 3, id: "a".into() },
+        Op::Row { seq: 4, id: "b".into(), title: "the peer's".into() },
+    ];
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let hub = Arc::new(hub);
+    let mut own = peer_row("mine", "this daemon's", 1);
+    own.origin = "local".to_owned();
+    hub.submit(own).unwrap();
+    writer.turn();
+    let counters = DialCounters::default();
+    cut(&mut dialer(&hub, &counters, 2), &mut writer, &ops, None).await;
+    assert_eq!(titles(&hub, ORIGIN), folded(&ops));
+    assert!(titles(&hub, "machine-z").is_empty());
+    assert_eq!(titles(&hub, "local"), BTreeMap::from([("mine".into(), "this daemon's".into())]));
+    assert_eq!(counters.foreign_rows.load(Ordering::Relaxed), 2);
+    assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), Some(4));
 }
 
 /// A serving side of an older build: any `sub` that names an anchor is
