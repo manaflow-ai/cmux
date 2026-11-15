@@ -1139,7 +1139,7 @@ fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
-/// Pins `pid` (0: the calling thread) to the first `cpus` CPUs.
+/// Pins thread `pid` (0: the calling thread) to the first `cpus` CPUs.
 #[cfg(target_os = "linux")]
 fn pin(pid: i32, cpus: usize) {
     // SAFETY: a zeroed cpu_set_t is an empty set; CPU_SET writes within it.
@@ -1149,6 +1149,19 @@ fn pin(pid: i32, cpus: usize) {
             libc::CPU_SET(cpu, &mut set);
         }
         libc::sched_setaffinity(pid, std::mem::size_of::<libc::cpu_set_t>(), &set);
+    }
+}
+
+/// Pins every thread of process `pid` to the first `cpus` CPUs: `sched_setaffinity` on a pid
+/// sets only its main thread, and a thread started later inherits from the thread that starts it,
+/// so each running thread is set (`/proc/PID/task`), twice in case one started during the first.
+#[cfg(target_os = "linux")]
+fn pin_process(pid: u32, cpus: usize) {
+    for _ in 0..2 {
+        let tasks = std::fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten();
+        for tid in tasks.filter_map(|t| t.file_name().to_str()?.parse::<i32>().ok()) {
+            pin(tid, cpus);
+        }
     }
 }
 
@@ -1204,7 +1217,7 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
     let cpu_listed = daemon.cpu_seconds();
 
     // The daemon starved: pinned with busy threads on its CPUs.
-    pin(daemon.child.id() as i32, cpus);
+    pin_process(daemon.child.id(), cpus);
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let spinners: Vec<_> = (0..busy)
         .map(|_| {
