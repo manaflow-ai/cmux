@@ -282,6 +282,10 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // A remote-origin chat with no answer of its own (a phone or Web client started it; one
+        // another Mac's daemon started carries that Mac's, `cmux_tools_answer.rs`) gets none of
+        // cmux's servers (`agent_tools::left_out`), and its person's own `cmux` entry gets `off`.
+        crate::agent_tools::remote_origin_answer(&mut p.env, meta.remote_origin);
         // A Claude Code cut off from cmux's tools passes the answer `off` to its own stdio servers
         // (a person's `cmux` entry), as a Codex one does (`agent_tools::person_entry_env`).
         if crate::agent_tools::is_claude_code(&meta.harness, &p)

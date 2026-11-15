@@ -295,6 +295,11 @@ impl Hub {
                             }),
                         // The target sees what the source saw (`additional_dirs.rs`).
                         additional_directories: sm.additional_directories.clone(),
+                        // The answer of the Mac that started the source (`cmux_tools_answer.rs`).
+                        env: crate::hub::cmux_tools_answer::inherited(
+                            Default::default(),
+                            &sm.session_env,
+                        ),
                         ..Default::default()
                     })
                     .await?;

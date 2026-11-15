@@ -562,7 +562,9 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     }
     if removing {
         // A person's act only: at a terminal, or Settings' Remove button (`--confirm`). An agent
-        // (the Chief, a script) never runs it on its own; `--dry-run` only plans.
+        // (the Chief, a script) never runs it on its own; `--dry-run` only plans. This is a
+        // consent speed bump, not a security boundary: anything that runs as the person can pass
+        // `--confirm`, or run the agent's own `mcp remove` itself.
         use std::io::IsTerminal as _;
         let person = request.confirm || std::io::stdin().is_terminal();
         if !person && !request.dry_run {
@@ -594,7 +596,10 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
 /// header with credentials (`Authorization: Bearer …`, `X-Api-Key: …`, `Cookie: …`, or any
 /// `Name: Bearer|Basic|Token …`, alone or after `--header=`); and a bare positional token (24 or
 /// more characters of letters and digits, both present, and nothing but `-_+`, so no path,
-/// package or version).
+/// package or version); a bare JWT (three base64url segments); a URL query parameter that
+/// names a secret (`?token=`, `?api_key=`, `?access_token=`, `&sig=`, ...); and a header split
+/// across arguments (`Authorization:` then `Bearer x`, or `Authorization: Bearer` then `x`, or
+/// `Bearer` then `x`): the part after the name is redacted.
 fn redact_secrets(args: &[String]) -> Vec<String> {
     const SECRET_WORDS: [&str; 7] =
         ["token", "key", "secret", "password", "passwd", "auth", "credential"];
@@ -628,6 +633,31 @@ fn redact_secrets(args: &[String]) -> Vec<String> {
             && value.chars().any(|c| c.is_ascii_digit())
             && value.chars().any(|c| c.is_ascii_alphabetic())
     };
+    let jwt = |value: &str| {
+        let parts: Vec<&str> = value.split('.').collect();
+        parts.len() == 3
+            && parts.iter().all(|part| {
+                part.len() >= 8
+                    && part.chars().all(|c| c.is_ascii_alphanumeric() || "-_".contains(c))
+            })
+    };
+    const SCHEMES: [&str; 4] = ["bearer", "basic", "token", "digest"];
+    // An argument that leaves a header's credential to the next one: `Name:` (a secret-shaped
+    // header name, no value), `Name: Scheme` (no credential), or a bare `Scheme`.
+    let header_continues = |text: &str| {
+        let trimmed = text.trim();
+        if SCHEMES.contains(&trimmed.to_ascii_lowercase().as_str()) {
+            return true;
+        }
+        let Some((name, value)) = trimmed.split_once(':') else { return false };
+        let lower = name.trim().to_ascii_lowercase();
+        let value = value.trim().to_ascii_lowercase();
+        let secret_name = SECRET_WORDS.iter().any(|word| lower.contains(word))
+            || matches!(lower.as_str(), "cookie" | "proxy-authorization");
+        !lower.is_empty()
+            && lower.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && ((value.is_empty() && secret_name) || SCHEMES.contains(&value.as_str()))
+    };
     let mut out = Vec::with_capacity(args.len());
     let mut next_is_secret = false;
     for arg in args {
@@ -635,9 +665,22 @@ fn redact_secrets(args: &[String]) -> Vec<String> {
             out.push("<redacted>".to_owned());
             continue;
         }
-        let arg = redact_url_credentials(arg);
+        let arg = redact_query_secrets(&redact_url_credentials(arg));
+        if header_continues(&arg) {
+            next_is_secret = true;
+            out.push(if arg.contains(':') {
+                format!("{}: <redacted>", arg.split_once(':').map_or("", |(n, _)| n.trim()))
+            } else {
+                arg
+            });
+            continue;
+        }
         if let Some(shown) = header(&arg) {
             out.push(shown);
+            continue;
+        }
+        if jwt(&arg) {
+            out.push("<redacted>".to_owned());
             continue;
         }
         if let Some((flag, value)) = arg.split_once('=')
@@ -669,6 +712,33 @@ fn redact_secrets(args: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+/// `value` with each URL query parameter that names a secret (`auth`, `sig`, `signature`,
+/// `code`, or any name with `token`, `secret`, `password` or `key` in it: `access_token`,
+/// `api_key`, `apikey`) given `<redacted>` as its value.
+fn redact_query_secrets(value: &str) -> String {
+    let Some(start) = value.find('?') else { return value.to_owned() };
+    let (head, query) = value.split_at(start + 1);
+    let secret_name = |name: &str| {
+        let name = name.to_ascii_lowercase();
+        matches!(name.as_str(), "auth" | "sig" | "signature" | "code")
+            || ["token", "secret", "password", "key"].iter().any(|word| name.contains(word))
+    };
+    let (query, fragment) = match query.find('#') {
+        Some(at) => query.split_at(at),
+        None => (query, ""),
+    };
+    let params: Vec<String> = query
+        .split('&')
+        .map(|pair| match pair.split_once('=') {
+            Some((name, value)) if secret_name(name) && !value.is_empty() => {
+                format!("{name}=<redacted>")
+            }
+            _ => pair.to_owned(),
+        })
+        .collect();
+    format!("{head}{}{fragment}", params.join("&"))
 }
 
 /// `value` with the credentials of each URL in it (`scheme://user:pass@host`) replaced by
@@ -775,6 +845,28 @@ mod tests {
         );
         assert_eq!(r(&["X-Custom: Token t0k3n"]), ["X-Custom: <redacted>"]);
         assert_eq!(r(&["mcp", "ghp1a2b3c4d5e6f7g8h9i0j1k2l3m4n"]), ["mcp", "<redacted>"]);
+        assert_eq!(
+            r(&[
+                "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+            ]),
+            ["<redacted>"]
+        );
+        assert_eq!(
+            r(&["--url=https://h.example/mcp?access_token=abc&v=2", "https://h/x?api_key=k#top"]),
+            [
+                "--url=https://h.example/mcp?access_token=<redacted>&v=2",
+                "https://h/x?api_key=<redacted>#top"
+            ]
+        );
+        assert_eq!(
+            r(&["-H", "Authorization:", "Bearer xyz", "mcp"]),
+            ["-H", "Authorization: <redacted>", "<redacted>", "mcp"]
+        );
+        assert_eq!(
+            r(&["-H", "Authorization: Bearer", "xyz"]),
+            ["-H", "Authorization: <redacted>", "<redacted>"]
+        );
+        assert_eq!(r(&["Bearer", "xyz", "mcp"]), ["Bearer", "<redacted>", "mcp"]);
         for plain in [
             &["npx", "-y", "cmux", "mcp", "serve"][..],
             &["/Applications/cmux.app/Contents/Resources/bin/cmux", "mcp", "serve", "--all-tools"],
@@ -786,6 +878,7 @@ mod tests {
                 "Content-Type: application/json",
                 "abcdefghijklmnopqrstuvwxyzab",
             ],
+            &["https://npm.example/cmux?v=2&tag=next", "node_modules.cache.dir", "a.b.c"],
         ] {
             assert_eq!(r(plain), strings(plain), "{plain:?}");
         }

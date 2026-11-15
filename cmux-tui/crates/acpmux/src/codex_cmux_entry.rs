@@ -262,31 +262,43 @@ pub fn stdio_cmux_entry(
         files.push(codex_home.join(name));
     }
     let folder = launch_folder(cwd, config.cd.as_deref(), home.as_deref());
-    files.extend(trusted_project_files(&user, &folder));
+    files.extend(trusted_project_files(&user, &folder, config.cd.is_some()));
     files.iter().any(|file| names_stdio_cmux(file))
 }
 
 /// The `.codex/config.toml` files Codex loads for a launch in `folder`: those in
 /// `folder` and each folder above it up to the project root (the nearest one
-/// with a `.git`, else `folder`), when the user config `user` marks that root
-/// trusted (`[projects."<root>"] trust_level = "trusted"`), keyed by the root's
-/// resolved path, as Codex looks it up: a key with the path as written (a
-/// link, `..`) is one Codex ignores, so it does not count. None for a project
-/// it does not mark trusted, or `untrusted`.
-fn trusted_project_files(user: &Path, folder: &Path) -> Vec<PathBuf> {
+/// with a `.git`, else `folder`), when the user config `user` marks the project
+/// trusted (`[projects."<path>"] trust_level = "trusted"`), as Codex 0.169 looks
+/// it up (checked live): the key is the resolved path of the root, of the
+/// launch folder itself, or, for a git worktree, of its main repository's root;
+/// and, for a launch with `-C` (`lexical`), the same paths as written. A key
+/// Codex ignores (a linked path without `-C`, a folder above the root, another
+/// project) does not count. None for a project it does not mark trusted, or
+/// `untrusted`.
+fn trusted_project_files(user: &Path, folder: &Path, lexical: bool) -> Vec<PathBuf> {
     let Ok(text) = std::fs::read_to_string(user) else { return Vec::new() };
     let Ok(config) = text.parse::<toml::Table>() else { return Vec::new() };
-    let trusted = |root: &Path| {
-        let Ok(resolved) = root.canonicalize() else { return false };
-        config.get("projects").and_then(toml::Value::as_table).is_some_and(|projects| {
-            projects.iter().any(|(path, entry)| {
-                Path::new(path) == resolved
-                    && entry.get("trust_level").and_then(toml::Value::as_str) == Some("trusted")
-            })
+    let keys: Vec<PathBuf> = config
+        .get("projects")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flatten()
+        .filter(|(_, entry)| {
+            entry.get("trust_level").and_then(toml::Value::as_str) == Some("trusted")
         })
-    };
+        .map(|(path, _)| PathBuf::from(path))
+        .collect();
     let root = folder.ancestors().find(|dir| dir.join(".git").exists()).unwrap_or(folder);
-    if !trusted(root) {
+    let mut candidates: Vec<PathBuf> =
+        [root, folder].iter().filter_map(|dir| dir.canonicalize().ok()).collect();
+    if let Some(main) = main_repository(root) {
+        candidates.push(main);
+    }
+    if lexical {
+        candidates.extend([root.to_path_buf(), folder.to_path_buf()]);
+    }
+    if !keys.iter().any(|key| candidates.contains(key)) {
         return Vec::new();
     }
     folder
@@ -294,6 +306,20 @@ fn trusted_project_files(user: &Path, folder: &Path) -> Vec<PathBuf> {
         .take_while(|dir| dir.starts_with(root))
         .map(|dir| dir.join(".codex/config.toml"))
         .collect()
+}
+
+/// The main repository's root (resolved) of the git worktree at `root`: its `.git` is a file
+/// `gitdir: <main>/.git/worktrees/<name>`. None for a main repository or no repository.
+fn main_repository(root: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(root.join(".git")).ok()?;
+    let gitdir = text.lines().find_map(|line| line.strip_prefix("gitdir:"))?.trim();
+    let gitdir = root.join(gitdir);
+    // `<main>/.git/worktrees/<name>`: two up is `<main>/.git`, whose parent is the root.
+    let dot_git = gitdir.parent()?.parent()?;
+    if dot_git.file_name()? != ".git" {
+        return None;
+    }
+    dot_git.parent()?.canonicalize().ok()
 }
 
 #[cfg(all(test, unix))]
@@ -475,6 +501,9 @@ mod tests {
             !stdio_cmux_entry(&[], &work, &getenv),
             "a key with the linked path, from the real folder"
         );
+        // A launch with `-C <link>`: Codex looks the key up as written.
+        let with_cd = os(&["-C", link.to_str().unwrap()]);
+        assert!(stdio_cmux_entry(&with_cd, &root, &getenv), "-C <link> with the key as written");
         // In a git repository, the root is the repository: a file above it never loads.
         let (repo, sub) = (root.join("repo"), root.join("repo/sub"));
         std::fs::create_dir_all(repo.join(".git")).unwrap();
@@ -486,6 +515,36 @@ mod tests {
         )
         .unwrap();
         assert!(stdio_cmux_entry(&[], &sub, &getenv), "a trusted repository's file below the root");
+        // The trust key on the launch folder itself, below the repository root: it loads.
+        std::fs::write(
+            &user,
+            format!("[projects.{:?}]\ntrust_level = \"trusted\"\n", sub.to_str().unwrap()),
+        )
+        .unwrap();
+        assert!(stdio_cmux_entry(&[], &sub, &getenv), "the launch folder's own trust key");
+        // A git worktree of a trusted main repository: the main repository's trust counts.
+        let (main, tree) = (root.join("main"), root.join("tree"));
+        std::fs::create_dir_all(main.join(".git/worktrees/tree")).unwrap();
+        std::fs::create_dir_all(tree.join(".codex")).unwrap();
+        std::fs::write(
+            tree.join(".git"),
+            format!("gitdir: {}\n", main.join(".git/worktrees/tree").to_str().unwrap()),
+        )
+        .unwrap();
+        std::fs::write(tree.join(".codex/config.toml"), stdio).unwrap();
+        assert!(!stdio_cmux_entry(&[], &tree, &getenv), "the main repository is not trusted yet");
+        std::fs::write(
+            &user,
+            format!("[projects.{:?}]\ntrust_level = \"trusted\"\n", main.to_str().unwrap()),
+        )
+        .unwrap();
+        assert!(stdio_cmux_entry(&[], &tree, &getenv), "a worktree of the trusted main repository");
+        std::fs::remove_file(tree.join(".codex/config.toml")).unwrap();
+        std::fs::write(
+            &user,
+            format!("[projects.{:?}]\ntrust_level = \"trusted\"\n", repo.to_str().unwrap()),
+        )
+        .unwrap();
         std::fs::remove_file(sub.join(".codex/config.toml")).unwrap();
         std::fs::create_dir_all(root.join(".codex")).unwrap();
         std::fs::write(root.join(".codex/config.toml"), stdio).unwrap();

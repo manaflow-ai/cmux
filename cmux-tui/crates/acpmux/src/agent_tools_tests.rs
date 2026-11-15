@@ -765,3 +765,19 @@ fn a_persons_own_stdio_cmux_entry_learns_which_chat_starts_it() {
     super::send_person_entry_env(&mut bare, None);
     assert!(bare.get("_meta").is_none());
 }
+
+/// A remote-origin chat with no answer of its own (a phone or Web client started it) gets `off`;
+/// one another Mac's daemon started keeps that Mac's answer; a local chat is untouched.
+#[test]
+fn a_remote_origin_chat_without_its_own_answer_gets_off() {
+    let mut phone = std::collections::BTreeMap::new();
+    super::remote_origin_answer(&mut phone, true);
+    assert_eq!(phone.get(super::TOOLS_ANSWER_ENV).map(String::as_str), Some("off"));
+    let mut peer =
+        std::collections::BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "on".to_owned())]);
+    super::remote_origin_answer(&mut peer, true);
+    assert_eq!(peer.get(super::TOOLS_ANSWER_ENV).map(String::as_str), Some("on"));
+    let mut local = std::collections::BTreeMap::new();
+    super::remote_origin_answer(&mut local, false);
+    assert!(local.is_empty());
+}

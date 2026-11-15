@@ -110,9 +110,11 @@ confirm an invite's address before you send it.
   the settings file the text names; hand them that line, do not edit the
   file. With neither installed it is `ok`.
   A client row's `leftover` is a `cmux` entry in that agent's own settings,
-  used outside cmux. Never run `cmux setup mcp --remove` (it refuses without
-  a person at a terminal or Settings' Remove button): tell the person it is
-  there and that Settings > Agents has a Remove button for it.
+  used outside cmux. Never run `cmux setup mcp --remove`, and never pass it
+  `--confirm`: it refuses without a person at a terminal or Settings' Remove
+  button. That check is a consent step, not a lock, so it relies on you not
+  bypassing it. Tell the person the entry is there and that Settings > Agents
+  has a Remove button for it.
 - Computer Use: `cmux setup computer-use` turns it on: cmux shows the user
   a sheet to allow it (tell them to click Allow), then each missing macOS
   grant comes back as `user_action` kind `grant`; run its `command` to

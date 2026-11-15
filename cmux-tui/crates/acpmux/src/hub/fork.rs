@@ -364,8 +364,9 @@ impl Hub {
             );
             // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
             // With the parent's answer, for a chat another Mac started (`cmux_tools_answer.rs`).
-            let answer_env =
+            let mut answer_env =
                 super::cmux_tools_answer::inherited(fork_env.clone(), &parent_meta.session_env);
+            crate::agent_tools::remote_origin_answer(&mut answer_env, parent_meta.remote_origin);
             let entry_env = codex.and_then(|launch| {
                 crate::agent_tools::person_entry_env(&servers, launch, &answer_env, &id)
             });

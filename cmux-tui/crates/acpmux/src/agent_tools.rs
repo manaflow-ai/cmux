@@ -587,6 +587,17 @@ pub fn cut_off(env: &BTreeMap<String, String>) -> bool {
         || kept.is_some_and(|keep| !keep.split(',').any(|name| name.trim() == CMUX_SERVER))
 }
 
+/// A remote-origin session's answer when it has none of its own: `off` ([`TOOLS_ANSWER_ENV`] in
+/// `env`). A chat a phone or a Web client started gets none of cmux's servers ([`left_out`]), so
+/// its person's own `cmux` entry is the off server too, for Codex (`person_entry_env`) and Claude
+/// Code (the harness env) alike. A chat another Mac's daemon started has that Mac's answer
+/// (`hub/cmux_tools_answer.rs`), which stays.
+pub fn remote_origin_answer(env: &mut BTreeMap<String, String>, remote_origin: bool) {
+    if remote_origin {
+        env.entry(TOOLS_ANSWER_ENV.to_owned()).or_insert_with(|| "off".to_owned());
+    }
+}
+
 /// Puts [`person_entry_env`]'s keys on ACP session params as `_meta.cmux.mcpServerEnv`.
 pub fn send_person_entry_env(params: &mut Value, entry_env: Option<Value>) {
     let Some(entry_env) = entry_env else { return };

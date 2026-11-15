@@ -34,8 +34,8 @@ fn dir(tag: &str) -> PathBuf {
 fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fakeacp": {"argv": ["python3", FAKE_AGENT], "family": "sample"},
-            "other": {"argv": ["python3", FAKE_AGENT], "family": "other"}
+            "fakeacp": {"argv": ["python3", FAKE_AGENT], "family": "sample", "env": {"FAKE_ASK_MODE": "1"}},
+            "other": {"argv": ["python3", FAKE_AGENT], "family": "other", "env": {"FAKE_ASK_MODE": "1"}}
         },
         "defaultHarness": "fakeacp",
         "permissionPolicy": "ask",

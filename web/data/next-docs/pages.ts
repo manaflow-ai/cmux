@@ -420,7 +420,7 @@ export const nextDocPages: NextDocPage[] = [
       { h2: "Turn it on" },
       { p: "Agents you start in cmux get it once you turn on cmux Tools for Agents in cmux in Settings > Agents: Claude Code and Codex in cmux's terminals and its agent chats. cmux gives it to them when it starts them and never changes their own settings. Or run:" },
       { code: "cmux settings set agents.cmuxMcp on --confirm\ncmux setup mcp", lang: "bash" },
-      { p: "A chat cmux starts on another machine (a linked Mac, a Cloud VM, a headless cmux) follows the answer of the Mac that started it. That machine's own setting applies only to chats started there." },
+      { p: "A chat cmux starts on another machine (a linked Mac, a Cloud VM, a headless cmux) follows the answer of the Mac that started it. That machine's own setting applies only to chats started there. A chat started from your phone or the web gets none of cmux's tools, and a cmux server in that agent's own settings answers as if the setting were off." },
       { p: "This setting is your consent for the agents cmux starts, not a security boundary: a program that runs as you can still run the cmux CLI itself." },
       { h2: "Outside cmux (manual)" },
       { p: "To use it in an agent you start somewhere else, add it to that agent's own settings yourself. cmux never does this for you; cmux setup mcp prints these lines with the path of your cmux." },
