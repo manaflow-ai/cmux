@@ -17,6 +17,8 @@ in real time (the journal batches by time, so a time-compressed run would batch 
            model's token stream) and tool calls with cumulative tool_call_update output, for STREAM
            seconds, with a client attached and shown that reads the events, says what it saw
            (`_acpmux/seen`) once a second and lists the chats every 2 s, as the app does;
+  typing   one chat whose composer a person types into: a `_acpmux/draft_set` (a kept change) every
+           --key-ms (150 ms), each answered before the next, for TYPING seconds;
   terminal no case: terminal output never reaches this journal (its only writer is acpmux's store,
            `cmux-tui/crates/acpmux/src/store/journal_store.rs`: chat event lines and chat metadata).
 
@@ -35,7 +37,7 @@ rest); on Apple silicon the first are the same bytes and each of the second is a
 Output: JWRITES lines per case, PERF_ROW lines journal_writes.<case>.{payload,dirtied,macos_est}_mb_per_hour
 and journal_writes.<case>.amplification, and --out JSON.
 
-  journal-writes.py --acpmux BIN [--cases idle,stream] [--idle 300] [--stream 300] [--out result.json]
+  journal-writes.py --acpmux BIN [--cases idle,stream,typing] [--idle 300] [--stream 300] [--typing 120] [--out result.json]
 """
 
 import argparse
@@ -366,6 +368,32 @@ def case_stream(args, Daemon):
         d.stop()
 
 
+def case_typing(args, Daemon):
+    """A person types into one chat's composer: a `_acpmux/draft_set` per key, --key-ms apart."""
+    d = Daemon(args, "typing")
+    d.start()
+    try:
+        c = Client(d.sock)
+        sid = new_chat(c, d, "typing")
+        c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "hello"}]})
+        time.sleep(2)  # bench: the setup settles
+        probe = Probe(d)
+        a = probe.snap()
+        deadline = time.monotonic() + args.typing
+        text, keys = "", 0
+        while time.monotonic() < deadline:
+            keys += 1
+            text = (text + WORDS[keys % len(WORDS)][keys % 3])[-400:]
+            c.call("_acpmux/draft_set", {"sessionId": sid, "text": text})
+            time.sleep(args.key_ms / 1000.0)  # bench: a person's typing pace
+        b = probe.snap()
+        log(f"typing: {keys} keys")
+        c.close()
+        return probe.diff(a, b)
+    finally:
+        d.stop()
+
+
 # ------------------------------------------------------------------ main
 
 
@@ -386,6 +414,8 @@ def main():
     p.add_argument("--chats", type=int, default=3)
     p.add_argument("--idle", type=float, default=300.0)
     p.add_argument("--stream", type=float, default=300.0)
+    p.add_argument("--typing", type=float, default=120.0)
+    p.add_argument("--key-ms", type=int, default=150)
     p.add_argument("--chunk-ms", type=int, default=30)
     p.add_argument("--root-dir", default=None, help="a folder on a real disk (default: the checkout's parent)")
     p.add_argument("--out")
@@ -403,7 +433,7 @@ def main():
     mb = 1048576.0
     for case in args.cases.split(","):
         log(f"case {case}")
-        secs, acc, w, proc = {"idle": case_idle, "stream": case_stream}[case](args, Daemon)
+        secs, acc, w, proc = {"idle": case_idle, "stream": case_stream, "typing": case_typing}[case](args, Daemon)
         per_h = 3600.0 / secs
         amp = w["write_bytes"] / acc["payload"] if acc["payload"] else float("inf") if w["write_bytes"] else 0.0
         redirtied = max(0, w["write_bytes"] // PAGE - -(-w["wchar"] // PAGE))
