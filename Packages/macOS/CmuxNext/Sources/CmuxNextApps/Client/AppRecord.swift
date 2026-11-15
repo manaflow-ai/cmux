@@ -67,6 +67,18 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
             self.title = title
             self.when = when
         }
+
+        /// `name` names this command: the full op (`coderouter.app.connect_account`),
+        /// or the last segment in either case style (`connect_account`, `connectAccount`).
+        public func matches(_ name: String) -> Bool {
+            if op == name { return true }
+            let last = op.split(separator: ".").last.map(String.init) ?? op
+            let snake = name.reduce(into: "") { out, character in
+                if character.isUppercase, !out.isEmpty { out.append("_") }
+                out.append(Character(character.lowercased()))
+            }
+            return last == name || last == snake
+        }
     }
 
     public init(manifest: AppManifest, tier: AppStoreTier, installed: Bool, enabled: Bool = true, hidden: Bool = false,

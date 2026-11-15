@@ -80,6 +80,9 @@ public final class ActionRegistry {
     @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
+    /// The rows apps add to a whole right-click menu on `target` (`contributes.menus`): drawn
+    /// after the built-in rows, before Customize Menu…, and read again at each open. The App installs it.
+    @ObservationIgnored public var contributedMenuItems: (@MainActor (ActionMenuContext, ActionTargetRef) -> [NSMenuItem])?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
