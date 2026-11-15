@@ -736,6 +736,16 @@ fn input_yields_to_a_waiting_scope_entry() {
     waiter.join().unwrap();
 }
 
+/// An NSTabView's tabs are AXRadioButtons with the AXTabButton subrole and
+/// their own AXTitle (read live in the truth fixture: "General",
+/// "Advanced"): the tree calls them `tab_button` and keeps the title as the
+/// name, in the JSON tree and the outline alike.
+#[test]
+fn tabs_are_tab_buttons_named_by_their_title() {
+    assert_eq!(roles::role_name("AXRadioButton", Some("AXTabButton")), "tab_button");
+    assert_eq!(roles::role_name("AXRadioButton", None), "radio");
+}
+
 #[test]
 fn modifier_flags() {
     assert_eq!(keymap::flags(&[]), 0);
