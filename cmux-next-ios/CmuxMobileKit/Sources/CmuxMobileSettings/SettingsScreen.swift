@@ -67,6 +67,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             ScrollViewReader { proxy in
             List {
                 accountSection.id("top")
+                // GATE PROOF, reverted in the next commit: a control that does nothing.
+                Section { Button("Gate planted dead control") {}.accessibilityIdentifier("settings.gatePlantedDead") }
                 // Plan: the current plan and the App Store plans screen; nothing
                 // when the root injected no billing model (mock, DEBUG, staging).
                 MobileSettingsPlanSection()
