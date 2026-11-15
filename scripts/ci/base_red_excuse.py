@@ -2009,7 +2009,7 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
     if besides:
         return (f"excused '{name}': {said_why}, so it was compared whole: its failed steps "
                 f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, each as often or less, are "
-                f"within {where}'s, which fails {besides} more besides: {'; '.join(said)[:400]}")
+                f"within those of {where}, which fails {besides} more besides: {'; '.join(said)[:400]}")
     return (f"excused '{name}': {said_why}, so it was compared whole: the same failed steps "
             f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, as often each, as {where}: "
             f"{'; '.join(said)[:400]}")

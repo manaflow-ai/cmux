@@ -10980,7 +10980,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         self.assertIn("run 29", said)
         # A newest verdict that fails the head's test and the flake besides covers it on its own (cmux#43251).
         said = self.judge(self.window(head, head + flake, head))
-        self.assertIn("within feat-cmux-next run 30's", said)
+        self.assertIn("within those of feat-cmux-next run 30 ", said)
 
     def test_the_window_never_mixes_verdicts_and_a_green_one_ends_it(self):
         head = ["✘ Test reconnectsAfterSleep() failed after 1.000 seconds with 1 issue.",
@@ -11144,7 +11144,7 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         base = self.script_reds(*self.SCRIPT_TESTS)
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, head, base))
         self.assertIn(f"excused '{UNPLACED_CHECKS}'", said)
-        self.assertIn("within feat-cmux-next run 20's", said)
+        self.assertIn("within those of feat-cmux-next run 20 ", said)
         self.assertIn("red check: tree-key-embeds.test.sh", said)
 
     def test_43251_a_base_that_fails_more_tests_excuses_the_kit_red_it_shares(self):
