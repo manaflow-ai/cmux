@@ -136,6 +136,17 @@ impl Fixture {
 
     /// The chat's proxy, spawned with `token` (its chat's spawn env).
     fn server(&self, fake: Fake, token: &str) -> Server<Fake> {
+        let endpoint = self.endpoint.clone();
+        self.server_reading(fake, token, Arc::new(move || Ok(endpoint.lock().unwrap().clone())))
+    }
+
+    /// The chat's proxy, recovered with endpoints from `source`.
+    fn server_reading(
+        &self,
+        fake: Fake,
+        token: &str,
+        source: cua_recovery::EndpointSource,
+    ) -> Server<Fake> {
         let specs = upstream::specs(Some(
             json!([{"name": "cmux-cua", "command": "python3",
                     "args": [self.dir.join("proxy.py"), "--socket", self.socket],
@@ -143,9 +154,6 @@ impl Fixture {
             .to_string()
             .into(),
         ));
-        let endpoint = self.endpoint.clone();
-        let source: cua_recovery::EndpointSource =
-            Arc::new(move || endpoint.lock().unwrap().clone());
         let upstream = upstream::Upstream::new(specs.into_iter().next().unwrap())
             .with_listings(None)
             .with_endpoint(source);
@@ -233,4 +241,25 @@ fn a_helper_that_stays_down_is_restarted_and_never_asks_for_a_toggle() {
         .map(|c| c["params"]["action"].clone())
         .collect();
     assert_eq!(restarts, [json!(cua_recovery::RESTART_ACTION_CLI)], "{restarts:?}");
+}
+
+/// 2026-11-14: the app relaunched for an update mid-turn and its
+/// helper came back with the new launch's token, but every read of the current endpoint from
+/// acpmux failed. The proxy kept the old token through all five tries, and the final error
+/// said it had used "the current endpoint". It now says the read failed and why.
+#[test]
+fn an_endpoint_read_that_fails_is_named_when_recovery_gives_up() {
+    cua_recovery::reset_restart_throttle();
+    let fixture = Fixture::new("launch-1");
+    let _helper = Helper::start(&fixture.helper, &fixture.socket, "launch-2");
+    let source: cua_recovery::EndpointSource =
+        Arc::new(|| Err("acpmux refused: only a proven acpmux session may ask".to_owned()));
+    let mut server = fixture.server_reading(Fake::default(), "launch-1", source);
+    let result = call(&mut server, "cua_health_report", json!({}));
+    assert_eq!(result["isError"], true, "{result}");
+    let message = result["structuredContent"]["error"]["message"]
+        .as_str()
+        .map_or_else(|| text(&result), str::to_owned);
+    assert!(!message.contains("with the current endpoint"), "{message}");
+    assert!(message.contains("only a proven acpmux session may ask"), "{message}");
 }
