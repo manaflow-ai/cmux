@@ -109,6 +109,8 @@ PHASES = [
     ("handshake: relaunch wake", "app", "agent_pane.handshake_wake"),
     ("handshake answered", "page", "handshakeReady"),
     ("page connect start", "page", "connectStart"),
+    ("transport open asked", "app", "agent_pane.transport_open_asked"),
+    ("transport open start", "app", "agent_pane.transport_open_start"),
     ("transport open", "app", "agent_pane.transport_open"),
     ("page connected", "page", "connected"),
     ("pane painted", "app", "agent_pane.painted"),
