@@ -1751,6 +1751,9 @@ fn write_atomic_with(
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    // A writer stopped between its copy's open and its rename (a daemon stopped mid-write)
+    // never removed its copy: the next write of the file does.
+    crate::dead_temps::remove_beside(path);
     written
 }
 
