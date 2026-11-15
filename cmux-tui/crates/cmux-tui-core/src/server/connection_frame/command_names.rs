@@ -25,6 +25,7 @@ impl Command {
             Self::RemoteHostCall { .. } => "remote-host-call",
             Self::RemoteHostConfig { .. } => "remote-host-config",
             Self::RemoteHostApp => "remote-host-app",
+            Self::DeviceSetup { .. } => "device-setup",
             Self::SubscribeActivity => "subscribe-activity",
             Self::UrlOpenSubscribe { .. } => "url-open-subscribe",
             Self::UrlOpen { .. } => "url-open",

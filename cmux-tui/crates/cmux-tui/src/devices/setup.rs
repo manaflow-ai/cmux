@@ -3,7 +3,7 @@
 //! running and start cmux NIGHTLY on a Mac that is already the person's, over the ssh route
 //! its acpmux peer (or ssh config Host) gives, with acpmux's [`Remote`].
 //!
-//! Steps, in order: `reach`, `app`, `login-item`, `start`, `sign-in`, `share`. Every remote
+//! Steps, in order: `reach`, `app`, `login-item`, `start`, `sign-in`, `share`, `agents`. Every remote
 //! script is a fixed string; data goes on stdin. Nothing here quits, kills, relaunches or
 //! replaces a running app, uses sudo, or turns sharing on: Share This Mac and device access
 //! stay a person's click (hq#11046). A credential goes only over the ssh channel's stdin.
@@ -327,21 +327,72 @@ pub(crate) enum Mode {
     Start,
 }
 
-/// Why the sign-in handoff could not be minted on the asking side.
+/// Why a verb of this cmux on the asking side did not answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MintError {
-    /// This cmux has no `auth handoff` verb yet.
+pub(crate) enum AskError {
+    /// This cmux has no such verb yet (`auth handoff`, `remote-host agents`).
     Unsupported,
     Failed(String),
 }
 
-/// What the asking side does: read the feed, read its own app's Team ID, mint a sign-in code.
+/// What the asking side does: read the feed, read its own app's Team ID, mint a sign-in code,
+/// and read or turn on the account's agents permission.
 pub(crate) trait Asking {
     fn feed(&self) -> Result<String, String>;
     /// The Team ID of this machine's installed NIGHTLY, when there is one.
     fn team_id(&self) -> Option<String>;
     /// `cmux auth handoff mint --json`'s code. It never reaches a line or argv.
-    fn mint_handoff(&self) -> Result<String, MintError>;
+    fn mint_handoff(&self) -> Result<String, AskError>;
+    /// Whether "My agents can turn screen sharing and control on my machines" is on
+    /// (`cmux remote-host agents status --json`).
+    fn agents_allowed(&self) -> Result<bool, AskError>;
+    /// Turns it on (`cmux remote-host agents allow`): only for `--allow-agents`.
+    fn allow_agents(&self) -> Result<(), AskError>;
+}
+
+/// The account's standing permission, in the words the share helper's setting uses.
+pub(crate) const AGENTS_POLICY: &str =
+    "My agents can turn screen sharing and control on my machines";
+
+/// The `agents` step: reports the agents permission, and turns it on only with `allow`
+/// (`--allow-agents`, or the app's `allow_agents`).
+pub(crate) fn share_policy_step(asking: &dyn Asking, allow: bool, dry_run: bool) -> Line {
+    let line = |state, detail: String, fix: &str| Line {
+        step: "agents",
+        state,
+        detail,
+        fix: fix.to_owned(),
+    };
+    if allow && dry_run {
+        return line(StepState::Skip, format!("dry run: would turn on \"{AGENTS_POLICY}\""), "");
+    }
+    if allow {
+        return match asking.allow_agents() {
+            Ok(()) => line(StepState::Changed, format!("\"{AGENTS_POLICY}\" is on"), ""),
+            Err(AskError::Unsupported) => line(
+                StepState::Warn,
+                format!("turning on \"{AGENTS_POLICY}\" needs a newer cmux"),
+                "cmux remote-host agents allow",
+            ),
+            Err(AskError::Failed(why)) => {
+                line(StepState::Warn, format!("cannot turn on \"{AGENTS_POLICY}\": {why}"), "")
+            }
+        };
+    }
+    match asking.agents_allowed() {
+        Ok(true) => line(StepState::Ok, format!("\"{AGENTS_POLICY}\" is on"), ""),
+        Ok(false) => line(
+            StepState::Ok,
+            format!("\"{AGENTS_POLICY}\" is off"),
+            "cmux device setup DEVICE --allow-agents",
+        ),
+        Err(AskError::Unsupported) => {
+            line(StepState::Skip, format!("\"{AGENTS_POLICY}\" needs a newer cmux"), "")
+        }
+        Err(AskError::Failed(why)) => {
+            line(StepState::Warn, format!("cannot read \"{AGENTS_POLICY}\": {why}"), "")
+        }
+    }
 }
 
 /// The target's facts, as [`PROBE`] printed them.
@@ -698,8 +749,8 @@ pub(crate) fn sign_in_step(
     }
     let code = match asking.mint_handoff() {
         Ok(code) => code,
-        Err(MintError::Unsupported) => return newer(),
-        Err(MintError::Failed(why)) => {
+        Err(AskError::Unsupported) => return newer(),
+        Err(AskError::Failed(why)) => {
             return (
                 StepState::Warn,
                 format!("sign in on {name}: {why}"),
@@ -852,9 +903,9 @@ fn is_mac(os: &str) -> bool {
 // The verbs
 
 /// This machine as the asking side.
-struct Here;
+struct ThisMachine;
 
-impl Asking for Here {
+impl Asking for ThisMachine {
     fn feed(&self) -> Result<String, String> {
         http_get(FEED).and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()))
     }
@@ -875,13 +926,13 @@ impl Asking for Here {
             .filter(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphanumeric()))
     }
 
-    fn mint_handoff(&self) -> Result<String, MintError> {
+    fn mint_handoff(&self) -> Result<String, AskError> {
         let out = super::cmux()
-            .map_err(|e| MintError::Failed(e.to_string()))?
+            .map_err(|e| AskError::Failed(e.to_string()))?
             .args(["auth", "handoff", "mint", "--json"])
             .stdin(Stdio::null())
             .output()
-            .map_err(|e| MintError::Failed(e.to_string()))?;
+            .map_err(|e| AskError::Failed(e.to_string()))?;
         let text = format!(
             "{}\n{}",
             String::from_utf8_lossy(&out.stdout),
@@ -889,20 +940,59 @@ impl Asking for Here {
         );
         if !out.status.success() {
             return Err(if out.status.code() == Some(2) || unknown_verb(&text) {
-                MintError::Unsupported
+                AskError::Unsupported
             } else {
-                MintError::Failed(last_line(&String::from_utf8_lossy(&out.stderr)))
+                AskError::Failed(last_line(&String::from_utf8_lossy(&out.stderr)))
             });
         }
         serde_json::from_slice::<Value>(&out.stdout)
             .ok()
             .and_then(|v| v["code"].as_str().map(str::to_owned))
             .filter(|code| !code.is_empty() && !code.contains(['\n', '\r']))
-            .ok_or_else(|| MintError::Failed("the sign-in handoff printed no code".into()))
+            .ok_or_else(|| AskError::Failed("the sign-in handoff printed no code".into()))
+    }
+
+    fn agents_allowed(&self) -> Result<bool, AskError> {
+        let value = local_json(&["remote-host", "agents", "status", "--json"])?;
+        let value = if value["data"].is_object() { &value["data"] } else { &value };
+        ["allowed", "on", "enabled"].iter().find_map(|key| value[*key].as_bool()).ok_or_else(|| {
+            AskError::Failed("`cmux remote-host agents status` said no state".into())
+        })
+    }
+
+    fn allow_agents(&self) -> Result<(), AskError> {
+        local_json(&["remote-host", "agents", "allow", "--json"]).map(|_| ())
     }
 }
 
+/// `cmux <args>` on this machine as JSON (stdout may be empty); an unknown verb (exit 2, or a
+/// usage or unknown-command answer) is [`AskError::Unsupported`].
+fn local_json(args: &[&str]) -> Result<Value, AskError> {
+    let out = super::cmux()
+        .map_err(|e| AskError::Failed(e.to_string()))?
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| AskError::Failed(e.to_string()))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() {
+        let text = format!("{stdout}\n{stderr}");
+        let unknown = out.status.code() == Some(2)
+            || unknown_verb(&text)
+            || text.to_ascii_lowercase().contains("usage: cmux remote-host");
+        return Err(if unknown {
+            AskError::Unsupported
+        } else {
+            let why = last_line(&stderr);
+            AskError::Failed(if why.is_empty() { last_line(&stdout) } else { why })
+        });
+    }
+    Ok(serde_json::from_str(stdout.trim()).unwrap_or(Value::Null))
+}
+
 /// One GET with a 30 s timeout.
+#[cfg(unix)]
 fn http_get(url: &str) -> Result<Vec<u8>, String> {
     // reqwest's rustls-no-provider build needs the workspace's ring provider.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -924,23 +1014,158 @@ fn http_get(url: &str) -> Result<Vec<u8>, String> {
     })
 }
 
-fn print_line(device: &str, line: &Line, json_out: bool) {
-    if json_out {
-        println!("{}", line.json(device));
-    } else {
-        println!("{}", line.human());
+#[cfg(not(unix))]
+fn http_get(_url: &str) -> Result<Vec<u8>, String> {
+    Err("reading the NIGHTLY feed needs macOS or Linux".into())
+}
+
+/// A run's switches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Options {
+    pub dry_run: bool,
+    /// `--allow-agents`: turn the agents permission on (never on without it).
+    pub allow_agents: bool,
+}
+
+/// Where a run finds its devices, its Macs and its asking side: this machine's, or a test's.
+pub(crate) trait World {
+    /// The device's name and ssh route, or why there is none.
+    fn lookup(&self, target: &str) -> Result<(String, String), String>;
+    fn remote<'a>(&'a self, route: &'a str) -> Box<dyn Remote + 'a>;
+    fn asking(&self) -> &dyn Asking;
+    /// Appends to the device audit.
+    fn record(&self, event: &str, fields: Value);
+}
+
+/// One device's run: what `cmux device setup|start DEVICE`, the MCP tools (through the CLI) and
+/// the daemon's `device-setup` all run. `emit` sees each step line, with its device, as it is
+/// made.
+pub(crate) fn run_one(
+    world: &dyn World,
+    target: &str,
+    mode: Mode,
+    options: Options,
+    emit: &mut dyn FnMut(&str, &Line),
+) -> Run {
+    let mut run = match world.lookup(target) {
+        Ok((name, route)) => {
+            let remote = world.remote(&route);
+            run_device(&name, remote.as_ref(), world.asking(), mode, options.dry_run, &mut |line| {
+                emit(&name, line);
+            })
+        }
+        Err(why) => {
+            let line = Line {
+                step: "reach",
+                state: StepState::Fail,
+                detail: why,
+                fix: format!("cmux device add {}", super::shell_word(target)),
+            };
+            emit(target, &line);
+            Run { device: target.to_owned(), lines: vec![line], changed: Vec::new() }
+        }
+    };
+    if mode == Mode::Setup {
+        let line = share_policy_step(world.asking(), options.allow_agents, options.dry_run);
+        if line.state == StepState::Changed {
+            run.changed.push("agents allowed".into());
+        }
+        emit(&run.device, &line);
+        run.lines.push(line);
+    }
+    if !options.dry_run {
+        let event = if mode == Mode::Setup { "device.setup" } else { "device.start" };
+        world.record(
+            event,
+            json!({"device": run.device, "changed": run.changed, "failed": run.failed()}),
+        );
+    }
+    run
+}
+
+/// The line the CLI prints for a step: its `--json` line, else one human line.
+pub(crate) fn cli_line(device: &str, line: &Line, json_out: bool) -> String {
+    if json_out { line.json(device).to_string() } else { line.human() }
+}
+
+/// The daemon's `device-setup`: each step line goes to `step` (the server sends it as a
+/// `device-setup-step` event); the answer is the summary line.
+pub(crate) fn serve(
+    world: &dyn World,
+    request: &cmux_tui_core::device_setup::DeviceSetupRequest,
+    step: &mut dyn FnMut(Value),
+) -> Value {
+    let mode = if request.start_only { Mode::Start } else { Mode::Setup };
+    let options = Options { dry_run: request.dry_run, allow_agents: request.allow_agents };
+    let run = run_one(world, &request.device, mode, options, &mut |device, line| {
+        step(line.json(device));
+    });
+    run.summary_json()
+}
+
+/// What the daemon installs (`cmux_tui_core::device_setup::on_device_setup`).
+pub(crate) fn daemon_run(
+    request: &cmux_tui_core::device_setup::DeviceSetupRequest,
+    step: &mut dyn FnMut(Value),
+) -> Result<Value, String> {
+    let flags = super::Flags::parse(&[], &[], &[]).map_err(|e| e.to_string())?;
+    let here = Here::read(&flags).map_err(|e| format!("{e:#}"))?;
+    Ok(serve(&here, request, step))
+}
+
+/// This machine's devices and routes, as `cmux device list` reads them.
+struct Here {
+    listing: Listing,
+    sources: Sources,
+}
+
+impl Here {
+    fn read(flags: &super::Flags) -> anyhow::Result<Self> {
+        let auth = super::JoinAuth::read(flags)?;
+        let net = super::network::pick(
+            super::choice(flags)?,
+            Box::new(super::network::WeftNetwork),
+            || Box::new(super::network::TailscaleNetwork::read()),
+        );
+        let mut notes = Vec::new();
+        let sources = super::read_sources(&auth, &mut notes);
+        let listing = model::merge(&sources, net.status(), &net.nodes());
+        Ok(Self { listing, sources })
     }
 }
 
-/// `cmux device setup DEVICE|--all [--json] [--dry-run]` and `cmux device start DEVICE [--json]`.
+impl World for Here {
+    fn lookup(&self, target: &str) -> Result<(String, String), String> {
+        match model::find(&self.listing, target) {
+            Some(device) => route(device, &self.sources).map(|r| (device.name.clone(), r)),
+            None => Err(format!("no device named {target}")),
+        }
+    }
+
+    fn remote<'a>(&'a self, route: &'a str) -> Box<dyn Remote + 'a> {
+        Box::new(SshRemote(route))
+    }
+
+    fn asking(&self) -> &dyn Asking {
+        &ThisMachine
+    }
+
+    fn record(&self, event: &str, fields: Value) {
+        super::record(event, fields);
+    }
+}
+
+/// `cmux device setup DEVICE|--all [--json] [--dry-run] [--allow-agents]` and
+/// `cmux device start DEVICE [--json]`.
 pub(super) fn verb(args: &[String], mode: Mode) -> anyhow::Result<()> {
     let booleans: &[&str] = match mode {
-        Mode::Setup => &["json", "dry-run", "all"],
+        Mode::Setup => &["json", "dry-run", "all", "allow-agents"],
         Mode::Start => &["json"],
     };
     let flags = super::Flags::parse(args, &["network"], booleans)?;
     let json_out = flags.has("json");
-    let dry_run = flags.has("dry-run");
+    let options =
+        Options { dry_run: flags.has("dry-run"), allow_agents: flags.has("allow-agents") };
     let all = flags.has("all");
     let target = match (flags.positional.as_slice(), all) {
         ([], true) => None,
@@ -953,65 +1178,36 @@ pub(super) fn verb(args: &[String], mode: Mode) -> anyhow::Result<()> {
             }));
         }
     };
-    let auth = super::JoinAuth::read(&flags)?;
-    let net =
-        super::network::pick(super::choice(&flags)?, Box::new(super::network::WeftNetwork), || {
-            Box::new(super::network::TailscaleNetwork::read())
-        });
-    let mut notes = Vec::new();
-    let sources = super::read_sources(&auth, &mut notes);
-    let listing = model::merge(&sources, net.status(), &net.nodes());
-    let event = if mode == Mode::Setup { "device.setup" } else { "device.start" };
-
-    let one = |name: &str, route: &str, quiet: bool| -> Run {
-        let remote = SshRemote(route);
-        let mut emit = |line: &Line| {
-            if !quiet {
-                print_line(name, line, json_out);
-            }
-        };
-        let run = run_device(name, &remote, &Here, mode, dry_run, &mut emit);
-        if !dry_run {
-            super::record(
-                event,
-                json!({"device": name, "changed": run.changed, "failed": run.failed()}),
-            );
+    let here = Here::read(&flags)?;
+    let print_summary = |run: &Run| {
+        if json_out {
+            println!("{}", run.summary_json());
+        } else {
+            println!("{}", run.summary());
         }
-        run
     };
 
     let Some(target) = target else {
         let (mut done, mut skipped, mut failed) = (0, 0, 0);
-        for (name, pick) in select(&listing, &sources) {
-            match pick {
-                Err(why) => {
-                    skipped += 1;
-                    let line = Line {
-                        step: "reach",
-                        state: StepState::Skip,
-                        detail: why,
-                        fix: String::new(),
-                    };
-                    if json_out {
-                        println!("{}", line.json(&name));
-                    } else {
-                        println!("{name}: skipped, {}", line.detail);
-                    }
+        for (name, pick) in select(&here.listing, &here.sources) {
+            if let Err(why) = pick {
+                skipped += 1;
+                let line =
+                    Line { step: "reach", state: StepState::Skip, detail: why, fix: String::new() };
+                if json_out {
+                    println!("{}", line.json(&name));
+                } else {
+                    println!("{name}: skipped, {}", line.detail);
                 }
-                Ok(route) => {
-                    let run = one(&name, &route, true);
-                    if run.failed().is_empty() {
-                        done += 1;
-                    } else {
-                        failed += 1;
-                    }
-                    if json_out {
-                        println!("{}", run.summary_json());
-                    } else {
-                        println!("{}", run.summary());
-                    }
-                }
+                continue;
             }
+            let run = run_one(&here, &name, mode, options, &mut |_, _| {});
+            if run.failed().is_empty() {
+                done += 1;
+            } else {
+                failed += 1;
+            }
+            print_summary(&run);
         }
         let summary = format!("{done} set up, {failed} failed, {skipped} skipped");
         if json_out {
@@ -1028,36 +1224,12 @@ pub(super) fn verb(args: &[String], mode: Mode) -> anyhow::Result<()> {
         return Ok(());
     };
 
-    let route = match model::find(&listing, &target) {
-        Some(device) => route(device, &sources).map(|r| (device.name.clone(), r)),
-        None => Err(format!("no device named {target}")),
-    };
-    let (name, route) = match route {
-        Ok(found) => found,
-        Err(why) => {
-            let line = Line {
-                step: "reach",
-                state: StepState::Fail,
-                detail: why,
-                fix: format!("cmux device add {}", super::shell_word(&target)),
-            };
-            print_line(&target, &line, json_out);
-            let run = Run { device: target.clone(), lines: vec![line], changed: Vec::new() };
-            if json_out {
-                println!("{}", run.summary_json());
-            }
-            super::record(event, json!({"device": target, "changed": [], "failed": ["reach"]}));
-            anyhow::bail!("{target} has no ssh route");
-        }
-    };
-    let run = one(&name, &route, false);
-    if json_out {
-        println!("{}", run.summary_json());
-    } else {
-        println!("{}", run.summary());
-    }
+    let run = run_one(&here, &target, mode, options, &mut |device, line| {
+        println!("{}", cli_line(device, line, json_out));
+    });
+    print_summary(&run);
     if !run.failed().is_empty() {
-        anyhow::bail!("a step failed on {name}; its line says why");
+        anyhow::bail!("a step failed on {}; its line says why", run.device);
     }
     Ok(())
 }

@@ -35,7 +35,7 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
-       cmux device setup DEVICE|--all [--json] [--dry-run]   (install, keep running and start cmux NIGHTLY on a Mac of yours)
+       cmux device setup DEVICE|--all [--json] [--dry-run] [--allow-agents]   (install, keep running and start cmux NIGHTLY on a Mac of yours)
        cmux device start DEVICE [--json]                       (start cmux NIGHTLY on a Mac of yours)
        cmux device SELECTOR show [--catalog]   (one device of the machine catalog, `cmux machine ls`)
        cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)

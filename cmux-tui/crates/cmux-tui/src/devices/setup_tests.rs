@@ -157,13 +157,23 @@ impl Remote for FakeMac {
 /// The asking side, with a fixed feed.
 struct Asker {
     feed: String,
-    mint: Result<String, MintError>,
+    mint: Result<String, AskError>,
     team: Option<String>,
+    /// The agents permission; `None`: this cmux has no `remote-host agents` verb.
+    agents: RefCell<Option<bool>>,
+    /// How many times the setter ran.
+    allow_calls: RefCell<u32>,
 }
 
 impl Default for Asker {
     fn default() -> Self {
-        Self { feed: feed(2100), mint: Ok("code-123".into()), team: Some("7WLXT3NR37".into()) }
+        Self {
+            feed: feed(2100),
+            mint: Ok("code-123".into()),
+            team: Some("7WLXT3NR37".into()),
+            agents: RefCell::new(Some(false)),
+            allow_calls: RefCell::new(0),
+        }
     }
 }
 
@@ -174,8 +184,72 @@ impl Asking for Asker {
     fn team_id(&self) -> Option<String> {
         self.team.clone()
     }
-    fn mint_handoff(&self) -> Result<String, MintError> {
+    fn mint_handoff(&self) -> Result<String, AskError> {
         self.mint.clone()
+    }
+    fn agents_allowed(&self) -> Result<bool, AskError> {
+        (*self.agents.borrow()).ok_or(AskError::Unsupported)
+    }
+    fn allow_agents(&self) -> Result<(), AskError> {
+        *self.allow_calls.borrow_mut() += 1;
+        let mut agents = self.agents.borrow_mut();
+        match *agents {
+            Some(_) => {
+                *agents = Some(true);
+                Ok(())
+            }
+            None => Err(AskError::Unsupported),
+        }
+    }
+}
+
+/// A world of one Mac (`air-blue`) and this asking side, recording its audit lines.
+struct FakeWorld {
+    mac: FakeMac,
+    asker: Asker,
+    audit: RefCell<Vec<(String, serde_json::Value)>>,
+}
+
+impl FakeWorld {
+    fn new(mac: Mac) -> Self {
+        Self { mac: FakeMac::new(mac), asker: Asker::default(), audit: RefCell::default() }
+    }
+}
+
+/// A [`Remote`] borrowed from the world, so every run talks to the same fake Mac.
+struct Borrowed<'a>(&'a FakeMac);
+
+impl Remote for Borrowed<'_> {
+    fn host(&self) -> &str {
+        self.0.host()
+    }
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> anyhow::Result<RemoteOut> {
+        self.0.exec(script, stdin)
+    }
+    fn push(&self, local: &Path, remote: &str) -> anyhow::Result<()> {
+        self.0.push(local, remote)
+    }
+    fn spawn(&self, script: &str) -> anyhow::Result<Child> {
+        self.0.spawn(script)
+    }
+}
+
+impl World for FakeWorld {
+    fn lookup(&self, target: &str) -> Result<(String, String), String> {
+        if target == "air-blue" {
+            Ok(("air-blue".into(), "leo@air-blue".into()))
+        } else {
+            Err(format!("no device named {target}"))
+        }
+    }
+    fn remote<'a>(&'a self, _route: &'a str) -> Box<dyn Remote + 'a> {
+        Box::new(Borrowed(&self.mac))
+    }
+    fn asking(&self) -> &dyn Asking {
+        &self.asker
+    }
+    fn record(&self, event: &str, fields: serde_json::Value) {
+        self.audit.borrow_mut().push((event.to_owned(), fields));
     }
 }
 
@@ -380,7 +454,7 @@ fn sign_in_without_the_handoff_verb_asks_for_a_newer_cmux() {
         signed_in: false,
         ..Mac::default()
     });
-    let asker = Asker { mint: Err(MintError::Unsupported), ..Asker::default() };
+    let asker = Asker { mint: Err(AskError::Unsupported), ..Asker::default() };
     let run = setup(&mac, &asker);
     assert_eq!(state(&run, "sign-in"), StepState::Warn);
     assert_eq!(detail(&run, "sign-in"), "sign in on air-blue: sign-in handoff needs a newer cmux");
@@ -573,7 +647,7 @@ fn scripts_carry_no_data_and_no_sudo() {
         OPEN_SETTINGS,
     ] {
         assert!(!script.contains("sudo"), "{script}");
-        assert!(!script.contains("pkill") && !script.contains("killall"), "{script}");
+        assert!(!script.contains("kill"), "{script}");
     }
     // Whether NIGHTLY runs is its control socket answering the bundled CLI, never a process list.
     let plist = keepalive_plist();
@@ -583,4 +657,86 @@ fn scripts_carry_no_data_and_no_sudo() {
         assert!(!script.contains("pgrep") && !script.contains(" ps "), "{script}");
     }
     assert!(INSTALL.contains("mktemp -d") && INSTALL.contains("trap cleanup EXIT"));
+}
+
+#[test]
+fn the_daemon_op_and_the_cli_print_the_same_step_lines() {
+    let request = cmux_tui_core::device_setup::DeviceSetupRequest {
+        device: "air-blue".into(),
+        start_only: false,
+        allow_agents: false,
+        dry_run: false,
+    };
+    let mac =
+        Mac { version: "2000".into(), signed_in: false, grants: (true, false), ..Mac::default() };
+
+    let cli_world = FakeWorld::new(mac.clone());
+    let mut cli = Vec::new();
+    let run =
+        run_one(&cli_world, "air-blue", Mode::Setup, Options::default(), &mut |device, line| {
+            cli.push(
+                serde_json::from_str::<serde_json::Value>(&cli_line(device, line, true)).unwrap(),
+            );
+        });
+    let cli_summary = run.summary_json();
+
+    let daemon_world = FakeWorld::new(mac);
+    let mut events = Vec::new();
+    let daemon_summary = serve(&daemon_world, &request, &mut |line| events.push(line));
+
+    assert!(cli.len() >= 7, "{cli:?}");
+    assert_eq!(events, cli, "the daemon's step lines are the CLI's --json lines");
+    assert_eq!(daemon_summary, cli_summary);
+    assert_eq!(*cli_world.audit.borrow(), *daemon_world.audit.borrow());
+    assert_eq!(cli_world.audit.borrow()[0].0, "device.setup");
+    // `verb: "start"` runs start's steps.
+    let start_world = FakeWorld::new(Mac::default());
+    let mut steps = Vec::new();
+    serve(
+        &start_world,
+        &cmux_tui_core::device_setup::DeviceSetupRequest { start_only: true, ..request },
+        &mut |line| steps.push(line["step"].as_str().unwrap().to_owned()),
+    );
+    assert_eq!(steps, ["reach", "login-item", "start"]);
+}
+
+#[test]
+fn a_device_with_no_route_fails_reach_in_the_shared_run() {
+    let world = FakeWorld::new(Mac::default());
+    let run = run_one(&world, "studio", Mode::Start, Options::default(), &mut |_, _| {});
+    assert_eq!(run.failed(), ["reach"]);
+    assert_eq!(run.lines[0].fix, "cmux device add studio");
+    assert_eq!(world.audit.borrow()[0].1["failed"], json!(["reach"]));
+}
+
+#[test]
+fn allow_agents_turns_the_permission_on_and_without_it_setup_only_reports() {
+    let world = FakeWorld::new(Mac { version: "2100".into(), running: true, ..Mac::default() });
+    let run = run_one(&world, "air-blue", Mode::Setup, Options::default(), &mut |_, _| {});
+    let agents = run.lines.iter().find(|l| l.step == "agents").unwrap();
+    assert_eq!(agents.state, StepState::Ok);
+    assert!(agents.detail.ends_with("is off"), "{agents:?}");
+    assert_eq!(*world.asker.allow_calls.borrow(), 0, "never on without --allow-agents");
+
+    let options = Options { allow_agents: true, ..Options::default() };
+    let run = run_one(&world, "air-blue", Mode::Setup, options, &mut |_, _| {});
+    let agents = run.lines.iter().find(|l| l.step == "agents").unwrap();
+    assert_eq!(agents.state, StepState::Changed);
+    assert_eq!(*world.asker.allow_calls.borrow(), 1);
+    assert!(run.changed.contains(&"agents allowed".to_owned()));
+
+    // A cmux with no `remote-host agents` verb: the flag warns, no flag skips.
+    let old = FakeWorld::new(Mac { version: "2100".into(), running: true, ..Mac::default() });
+    *old.asker.agents.borrow_mut() = None;
+    let line = share_policy_step(&old.asker, true, false);
+    assert_eq!(line.state, StepState::Warn);
+    assert!(line.detail.ends_with("needs a newer cmux"), "{line:?}");
+    assert_eq!(share_policy_step(&old.asker, false, false).state, StepState::Skip);
+    // A dry run never calls the setter.
+    let fresh = Asker::default();
+    assert_eq!(share_policy_step(&fresh, true, true).state, StepState::Skip);
+    assert_eq!(*fresh.allow_calls.borrow(), 0);
+    // `start` never touches the permission.
+    let run = run_one(&world, "air-blue", Mode::Start, options, &mut |_, _| {});
+    assert!(run.lines.iter().all(|l| l.step != "agents"));
 }
