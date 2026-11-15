@@ -770,7 +770,7 @@ impl PersistentSessionStateResetter {
             ensure_reset_dir_fingerprint(&reset_dir.path, "pending", expected_fingerprint)?;
         }
         if let Some(lease) = &lease {
-            validate_session_lock_file(&lease.path, &lease.file)?;
+            validate_session_lock_file(&lease.path, lease.file())?;
         }
         let session_reset_dir = if session_dir_exists {
             Some(rename_session_dir_for_reset(
