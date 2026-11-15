@@ -17,7 +17,7 @@
   };
   var exports_main = {};
   __export(exports_main, {
-    renderSection: () => renderSection
+    renderSessionInfo: () => renderSessionInfo
   });
   var events_default = {
     $comment: "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again. The daemon delivers a stream only to an app that may call its `reads` op (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
@@ -2349,16 +2349,15 @@
     return render;
   }
   var EVENT_STREAMS = Object.keys(events_default.events);
-  var [count, setCount] = signal(0);
-  var renderSection = section(() => VStack([
-    Panel({ title: "Hello" }, [
-      Text(() => `Clicked ${count()} times`),
-      HStack([
-        Button("Click", () => setCount((n) => n + 1)),
-        Spacer(),
-        Button("Say hi", () => cmux.toast({ title: "Hi from my extension", tone: "success" }))
+  var renderSessionInfo = section((context) => {
+    const session = context;
+    return VStack([
+      Panel({ title: "Hello from {{TITLE}}" }, [
+        Row({ title: session.cwd ?? "no folder", symbol: "folder" }),
+        Row({ title: session.branch ?? "no branch", symbol: "arrow.triangle.branch" }),
+        Row({ title: session.harness ?? "agent", symbol: "sparkles" })
       ])
-    ])
-  ]));
+    ]);
+  });
   globalThis.__cmuxAppExports = { ...exports_main };
 })();
