@@ -53,6 +53,9 @@ LAB_APP = "CU Eval Fixture"
 ACTING = {"click", "type_text", "press_key", "hotkey", "scroll", "drag", "set_value", "perform_action",
           "invoke_menu", "repl"}
 LATE_DEFAULT = 3.5
+# An NSTabView's tab: cmux CU calls it `tab_button` (AXRadioButton with the AXTabButton subrole; adapters normalize
+# roles by dropping "_", so also `tabbutton`), cua-driver and Aside a radio button or tab.
+TAB_ROLES = ["tab_button", "tabbutton", "tab", "radio", "radiobutton", "button"]
 # Aside has one tool (repl); its observation calls (titles set by aside_arm.py) are not actions
 ASIDE_OBSERVE = {"Read window", "Screenshot", "List windows", "List apps", "Read Python windows", "Escape menu"}
 
@@ -236,7 +239,7 @@ def find(nodes, name=None, roles=None, pred=None, contains=False):
             continue
         return n
     seen = [f"{n['role']}:{(n.get('name') or str(n.get('value') or ''))[:20]}" for n in nodes
-            if not roles or n["role"] in roles or n["role"] in ("tab", "tabgroup", "radio", "unknown")][:40]
+            if not roles or n["role"] in roles or n["role"] in ("tab", "tabbutton", "tabgroup", "radio", "unknown")][:40]
     raise bm.ToolError(f"element name={name!r} roles={roles} not in the arm's tree ({len(nodes)} nodes; {seen})")
 
 
@@ -448,7 +451,7 @@ def lab_cells():
     add("stepper_click_px", lambda a, w, c: px(a, w, c, "copies", 0.5, 0.25),
         lab_judge(FORM, [(FORM, "copies")], lambda s: F(s).get("copies") == 1, "copies==1"),
         done=lambda s, c: (F(s).get("copies") or 0) >= 1)
-    add("tab_click_el", lambda a, w, c: a.click_el(w, el(a, w, "Advanced", ["radio", "radiobutton", "tab", "button"])),
+    add("tab_click_el", lambda a, w, c: a.click_el(w, el(a, w, "Advanced", TAB_ROLES)),
         lab_judge(FORM, [(FORM, "tabs")], lambda s: F(s).get("tab") == "Advanced", "tab==Advanced"),
         done=lambda s, c: F(s).get("tab") == "Advanced")
     add("sheet_open", lambda a, w, c: a.click_el(w, el(a, w, "Show Sheet", ["button"])),

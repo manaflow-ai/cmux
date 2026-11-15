@@ -30,7 +30,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import truthmatrix_claims as tc  # noqa: E402
 
-KEYS = ("TP", "FP", "FN", "TN", "SIDE")
+KEYS = ("TP", "FP", "FN", "TN", "SIDE", "UNC")  # UNC: cmux said `uncertain` (neither success nor failure)
 
 
 def load(path):
@@ -43,16 +43,20 @@ def load(path):
 
 
 def conf(rows):
+    """Counts and rates for scored rows. UNC (an `uncertain` claim) is scored but is neither a success claim nor a
+    failure claim, so it is left out of both rates; the effect rate counts every intended effect, whatever the claim."""
     c = Counter(r["outcome"] for r in rows)
     scored = sum(c[k] for k in KEYS)
     pos = c["TP"] + c["FP"]
     neg = c["FN"] + c["TN"]
+    effect = sum(1 for r in rows if r["outcome"] in KEYS and r.get("truth") in ("correct", "extra"))
     return {**{k: c[k] for k in KEYS}, "scored": scored,
             "no_action": c["no_action"] + c["harness_aim"] + c["harness_state"] + c["not_scored"] + c["judge_error"] + c["?"],
             "unsupported": c["unsupported"],
             "fp_rate": c["FP"] / pos if pos else None, "fn_rate": c["FN"] / neg if neg else None,
+            "unc_rate": c["UNC"] / scored if scored else None,
             "side_rate": c["SIDE"] / scored if scored else None,
-            "effect_rate": (c["TP"] + c["FN"] + c["SIDE"]) / scored if scored else None}
+            "effect_rate": effect / scored if scored else None}
 
 
 def pct(x):
@@ -66,12 +70,12 @@ def md_table(head, rows):
 
 
 def conf_row(label, c):
-    return [label, c["scored"], c["TP"], c["FP"], c["FN"], c["TN"], c["SIDE"], pct(c["fp_rate"]), pct(c["fn_rate"]),
-            pct(c["side_rate"]), pct(c["effect_rate"]), c["no_action"]]
+    return [label, c["scored"], c["TP"], c["FP"], c["FN"], c["TN"], c["SIDE"], c["UNC"], pct(c["fp_rate"]),
+            pct(c["fn_rate"]), pct(c["unc_rate"]), pct(c["side_rate"]), pct(c["effect_rate"]), c["no_action"]]
 
 
-CONF_HEAD = ["", "scored", "TP", "FP", "FN", "TN", "SIDE", "false-success rate", "false-failure rate", "side-effect rate",
-             "effect rate", "not scored"]
+CONF_HEAD = ["", "scored", "TP", "FP", "FN", "TN", "SIDE", "UNC", "false-success rate", "false-failure rate",
+             "uncertain rate", "side-effect rate", "effect rate", "not scored"]
 
 
 def build(arms, agent_dirs, out, videos):
@@ -242,7 +246,7 @@ def repros(rows, outcomes=("FP", "FN", "SIDE")):
         obs = [c["tool"] for c in r.get("calls", []) if c is not sc and c.get("t0", 0) < sc.get("t0", 0)]
         raw = sc.get("result") or ""
         import re
-        keep = {k: m.group(1) for k in ("evidence", "route", "note", "code", "error")
+        keep = {k: m.group(1) for k in ("outcome", "evidence", "route", "note", "code", "error")
                 for m in [re.search(r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)"' % k, raw)] if m}
         res = json.dumps(keep) if keep else raw[:300]
         evs = [e for e in r.get("events", []) if e.get("kind") == "state"]
@@ -444,7 +448,8 @@ def cards_html(summary):
                    f"<span class=mut>({c['FP']} of {c['TP'] + c['FP']} success claims)</span></div>"
                    f"<div><span class='big {'bad' if (fn or 0) > 0.05 else 'ok'}'>{pct(fn)}</span> false failure "
                    f"<span class=mut>({c['FN']} of {c['FN'] + c['TN']} failure claims)</span></div>"
-                   f"<div class=mut>side effects {c['SIDE']}; scored {c['scored']}; not scored {c['no_action']}</div></div>")
+                   f"<div class=mut>uncertain {c['UNC']}; side effects {c['SIDE']}; scored {c['scored']}; "
+                   f"not scored {c['no_action']}</div></div>")
     out.append("</div>")
     return "".join(out)
 

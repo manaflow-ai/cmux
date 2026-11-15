@@ -145,8 +145,9 @@ class Arm:
         t0 = time.monotonic()
         try:
             r = self.client.call(name, args, timeout=timeout)
+            full = r.text()
             rec = {"tool": name, "args": args, "is_error": r.is_error, "s": round(time.monotonic() - t0, 3),
-                   "result": r.text()[:1500], "images": len(r.images)}
+                   "result": full[:1500], "images": len(r.images), "claim_fields": _claim_fields(full)}
         except Exception as e:
             rec = {"tool": name, "args": args, "is_error": True, "s": round(time.monotonic() - t0, 3),
                    "result": f"EXC {type(e).__name__}: {e}"[:1500], "images": 0}
@@ -161,6 +162,17 @@ class Arm:
 
 class ToolError(RuntimeError):
     pass
+
+
+def _claim_fields(text):
+    """outcome / evidence / route / note from the full result, before it is truncated for the record."""
+    try:
+        d = json.loads(text)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(d, dict):
+        return {}
+    return {k: d[k][:300] for k in ("outcome", "evidence", "route", "note") if isinstance(d.get(k), str)}
 
 
 def walk_dicts(o):
