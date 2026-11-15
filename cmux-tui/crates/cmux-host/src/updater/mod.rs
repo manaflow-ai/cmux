@@ -51,6 +51,9 @@ pub mod first_ready;
 #[cfg(unix)]
 pub mod gate;
 pub mod look;
+mod resolve;
+#[cfg(all(test, unix))]
+mod resolve_tests;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;

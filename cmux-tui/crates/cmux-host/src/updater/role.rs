@@ -19,6 +19,9 @@ use serde_json::{Value, json};
 use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
 use super::gate::{Gate, HoldKind, Honor};
+use super::resolve::{
+    GuardStep, Resolved, guard_rollback_waits, resolve_with, timeout_rollback_waits,
+};
 use super::store::{self, STORE_DIR};
 use super::{
     DOWNLOAD_DIR, Decision, Pending, Plan, clear_pending, decide, load_pending, load_state,
@@ -43,7 +46,7 @@ const INTERVAL: Duration = Duration::from_secs(15);
 /// again this soon, so it goes within about 20 s of the machine going idle,
 /// not up to a minute after. The busy look is local (acpmux and the session
 /// host's admin channel) and runs only while an update waits.
-const BUSY_RETRY: Duration = Duration::from_secs(15);
+pub(super) const BUSY_RETRY: Duration = Duration::from_secs(15);
 /// At most this much is added to each wait, a fresh draw each time
 /// ([`next_look`]), so machines that started together (spares restored from
 /// one snapshot, a fleet that restarted into one update) do not look in step.
@@ -77,7 +80,7 @@ const ACPMUX_UNIT: &str = "acpmux.service";
 const ACPMUX_UNIT_FILE: &str = "/home/cmux/.config/systemd/user/acpmux.service";
 const CURRENT_ACPMUX: &str = "/opt/cmux/current/bin/acpmux";
 
-fn log(line: &str) {
+pub(super) fn log(line: &str) {
     eprintln!("cmux-host: updater: {line}");
 }
 
@@ -582,7 +585,7 @@ pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
 }
 
 /// Waits `d` or until a message: false when the role stops.
-fn wait(rx: &Receiver<Msg>, d: Duration) -> bool {
+pub(super) fn wait(rx: &Receiver<Msg>, d: Duration) -> bool {
     match rx.recv_timeout(d) {
         Ok(Msg::Check) | Err(RecvTimeoutError::Timeout) => true,
         Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => false,
@@ -1511,49 +1514,6 @@ pub(crate) fn exe_of(pid: &str) -> Option<PathBuf> {
     fs::read_link(format!("/proc/{pid}/exe")).ok()
 }
 
-/// Before a rollback's restart: waits while `carrier` says carrier sessions
-/// hold it (the flip's own rule, [`carrier_busy`], with its
-/// [`CARRIER_MAX_HOLD`] bound), looking again every [`BUSY_RETRY`] through
-/// `wait`. False when `wait` says the waiter stopped.
-pub(super) fn rollback_waits(
-    carrier: &mut impl FnMut() -> Option<String>,
-    mut wait: impl FnMut(Duration) -> bool,
-) -> bool {
-    let mut logged = false;
-    while let Some(why) = carrier() {
-        if !logged {
-            log(&format!("the rollback waits: {why}"));
-            logged = true;
-        }
-        if !wait(BUSY_RETRY) {
-            return false;
-        }
-    }
-    true
-}
-
-/// The health timeout's rollback waits for carrier sessions, waking on the
-/// role's messages; false when the role stops (the guard still covers it).
-pub(super) fn timeout_rollback_waits(
-    carrier: &mut impl FnMut() -> Option<String>,
-    rx: &Receiver<Msg>,
-) -> bool {
-    rollback_waits(carrier, |d| wait(rx, d))
-}
-
-/// The guard's rollback (`cmux host update guard`, a oneshot unit with no
-/// start timeout) waits for carrier sessions by sleeping; `sleep` is
-/// injected for the tests.
-pub(super) fn guard_rollback_waits(
-    carrier: &mut impl FnMut() -> Option<String>,
-    mut sleep: impl FnMut(Duration),
-) {
-    rollback_waits(carrier, |d| {
-        sleep(d);
-        true
-    });
-}
-
 /// The new `cmux host run` proves the pending update or rolls it back.
 /// False when the role stopped meanwhile (the guard still covers it).
 fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
@@ -1567,10 +1527,7 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
         || healthy(paths, pending),
         || paths.at(crate::config::HOST_DEFERRED_FILE).exists(),
         || start.elapsed(),
-        |d| match rx.recv_timeout(d) {
-            Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => false,
-            _ => true,
-        },
+        |d| wait(rx, d),
         |step| match step {
             GuardStep::Disarm => disarm_guard(),
             GuardStep::Rearm => {
@@ -1597,89 +1554,6 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
                 true,
             );
             true
-        }
-    }
-}
-
-/// How long [`resolve_with`] lets a deferred session host replacement hold
-/// back the health deadline: the supervisor replaces it within
-/// [`crate::machine::HOST_MAX_DEFER_MS`], so a mark older than that and a
-/// health timeout more is not one it still keeps, and the deadline runs.
-pub(super) const DEFER_EXCUSE: Duration =
-    Duration::from_millis(crate::machine::HOST_MAX_DEFER_MS).saturating_add(HEALTH_TIMEOUT);
-
-/// What [`resolve_with`] found.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum Resolved {
-    /// The new build serves.
-    Healthy,
-    /// It did not within [`HEALTH_TIMEOUT`] of its session host's replacement.
-    TimedOut,
-    /// The role stopped meanwhile.
-    Stopped,
-}
-
-/// The guard steps [`resolve_with`] takes around a deferred replacement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum GuardStep {
-    /// The new build runs and waits on its session host: the previous
-    /// build's guard, which knows no deferral, must not roll it back.
-    Disarm,
-    /// The session host was replaced: the guard covers the new one again.
-    Rearm,
-}
-
-/// The health wait of [`resolve`], pure over its seams: `healthy` (the new
-/// build serves), `deferred` (the supervisor's [`crate::config::HOST_DEFERRED_FILE`]:
-/// the old-build session host still serves a person's session and is not
-/// replaced yet), `elapsed` (a monotonic clock from the role's start), `wait`
-/// (false when the role stops) and `guard`.
-///
-/// The [`HEALTH_TIMEOUT`] runs from the replacement, not from the role's
-/// start: while the replacement is deferred, the deadline keeps moving (up
-/// to [`DEFER_EXCUSE`]), and when the mark goes the deadline is that moment
-/// plus the timeout. Without a deferral it is the role's start plus the
-/// timeout, as before.
-pub(super) fn resolve_with(
-    mut healthy: impl FnMut() -> bool,
-    mut deferred: impl FnMut() -> bool,
-    mut elapsed: impl FnMut() -> Duration,
-    mut wait: impl FnMut(Duration) -> bool,
-    mut guard: impl FnMut(GuardStep),
-) -> Resolved {
-    let mut deadline = HEALTH_TIMEOUT;
-    let mut deferred_since: Option<Duration> = None;
-    let mut past_excuse = false;
-    loop {
-        if healthy() {
-            return Resolved::Healthy;
-        }
-        let now = elapsed();
-        if deferred() {
-            let since = *deferred_since.get_or_insert_with(|| {
-                log("the old-build session host still serves a session: the health deadline starts at its replacement");
-                guard(GuardStep::Disarm);
-                now
-            });
-            if now.saturating_sub(since) <= DEFER_EXCUSE {
-                deadline = now + HEALTH_TIMEOUT;
-            } else if !past_excuse {
-                past_excuse = true;
-                log(&format!(
-                    "the session host's replacement is still deferred after {} h: the health deadline runs",
-                    DEFER_EXCUSE.as_secs() / 3600
-                ));
-            }
-        } else if deferred_since.take().is_some() {
-            log("the old-build session host was replaced: the health deadline starts now");
-            deadline = now + HEALTH_TIMEOUT;
-            guard(GuardStep::Rearm);
-        }
-        if now >= deadline {
-            return Resolved::TimedOut;
-        }
-        if !wait(Duration::from_secs(5)) {
-            return Resolved::Stopped;
         }
     }
 }

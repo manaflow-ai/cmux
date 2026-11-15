@@ -15,6 +15,7 @@
 
 pub mod fds;
 pub mod identity;
+mod old_host;
 pub mod procs;
 pub mod spawn;
 
@@ -32,8 +33,8 @@ use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, p
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
-    DRIVER_FILE_NAME, ETC_DIR, HOST_DEFERRED_FILE, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE,
-    RUN_DIR, STATUS_FILE, STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
+    DRIVER_FILE_NAME, ETC_DIR, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE, RUN_DIR, STATUS_FILE,
+    STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
 };
 use crate::daemon_spec::{DaemonLayout, daemon_spec};
 use crate::machine::{Action, Input, Observation};
@@ -55,11 +56,6 @@ const T_ANNOUNCE: u64 = 10;
 const T_IDENTITY: u64 = 11;
 const T_PAUSE: u64 = 12;
 const T_HOST_LOOK: u64 = 13;
-
-/// The bound of one look at an old-build host's carrier sessions: it runs
-/// on the agent's thread, every [`crate::machine::HOST_LOOK_MS`] while one
-/// waits.
-const HOST_LOOK_READ: std::time::Duration = std::time::Duration::from_secs(5);
 
 struct Daemon {
     pid: u32,
@@ -485,44 +481,6 @@ impl LinuxPlatform {
         eprintln!("cmux-host: session host {} exited after {lived_ms} ms", daemon.pid);
         Some(Exit::Daemon { lived_ms })
     }
-
-    /// Removes the updater's deferral mark (none is fine).
-    fn clear_host_deferred(&mut self) {
-        self.build_changed_at = None;
-        let _ = self.host_look.disarm();
-        match fs::remove_file(self.cfg.paths.at(HOST_DEFERRED_FILE)) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                eprintln!("cmux-host: removing the old-host deferral mark: {e}");
-            }
-            _ => {}
-        }
-    }
-
-    /// Writes the updater's deferral mark: the session host it adopted runs
-    /// an older build and a person's session keeps it.
-    /// It carries when the build change was found (wall seconds), so an
-    /// agent restart during the deferral keeps the 24 h cap's start
-    /// ([`changed_at_in`]).
-    fn mark_host_deferred(&mut self) -> io::Result<Option<Input>> {
-        ensure_agent_dir(&self.cfg.paths)?;
-        let since = self.build_changed_at.map_or(0, |at| at.elapsed().as_secs());
-        let changed_at = crate::updater::role::now().saturating_sub(since);
-        let body =
-            format!("{{\"pid\":{},\"changed_at\":{changed_at}}}\n", self.daemon_pid().unwrap_or(0));
-        identity::write_atomic(&self.cfg.paths.at(HOST_DEFERRED_FILE), body.as_bytes(), 0o644)?;
-        eprintln!(
-            "cmux-host: the old-build session host serves an attached session: kept until it detaches, 10 min without input or 24 h"
-        );
-        Ok(None)
-    }
-}
-
-/// The `changed_at` (wall seconds) of a deferral mark written for the host
-/// `pid`; `None` for another host's mark or an unreadable one.
-fn changed_at_in(text: &str, pid: u32) -> Option<u64> {
-    let v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
-    (v.get("pid")?.as_u64()? == u64::from(pid)).then_some(())?;
-    v.get("changed_at")?.as_u64()
 }
 
 /// The global addresses of the machine's own interfaces.
@@ -842,52 +800,12 @@ impl Platform for LinuxPlatform {
         self.daemon.as_ref().is_some_and(|daemon| daemon.carrier != want)
     }
 
-    /// Whether the adopted host runs another executable than the session
-    /// host link resolves to now (the updater's `healthy` compares the same
-    /// two). Also removes a mark left by an earlier agent run when it does not.
     fn build_changed(&mut self) -> bool {
-        let Some(pid) = self.daemon_pid() else { return false };
-        let Ok(bin) = self.layout().map(|layout| layout.bin.clone()) else { return false };
-        if procs::runs_other_build(pid, &bin) {
-            eprintln!(
-                "cmux-host: the adopted session host {pid} runs {:?}, the installed build is {:?}",
-                crate::updater::role::exe_of(&pid.to_string()),
-                fs::canonicalize(&bin).ok()
-            );
-            // A mark from an earlier agent run for this same host keeps the
-            // time the change was first found.
-            let earlier = fs::read_to_string(self.cfg.paths.at(HOST_DEFERRED_FILE))
-                .ok()
-                .and_then(|text| changed_at_in(&text, pid))
-                .map(|at| crate::updater::role::now().saturating_sub(at));
-            let now = Instant::now();
-            self.build_changed_at = Some(
-                earlier
-                    .and_then(|s| now.checked_sub(std::time::Duration::from_secs(s)))
-                    .unwrap_or(now),
-            );
-            true
-        } else {
-            self.clear_host_deferred();
-            false
-        }
+        self.adopted_build_changed()
     }
 
     fn look_host(&mut self) -> crate::machine::HostLook {
-        let since_changed_ms = self
-            .build_changed_at
-            .map_or(0, |at| at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
-        match crate::updater::role::carrier_input_idle_within(HOST_LOOK_READ) {
-            Ok((attached, input_idle_ms)) => crate::machine::HostLook {
-                attached: Some(attached),
-                input_idle_ms,
-                since_changed_ms,
-            },
-            Err(why) => {
-                eprintln!("cmux-host: the old-build host's carrier sessions are unknown: {why}");
-                crate::machine::HostLook { attached: None, input_idle_ms: None, since_changed_ms }
-            }
-        }
+        self.old_host_look()
     }
 
     fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
@@ -941,15 +859,7 @@ impl Platform for LinuxPlatform {
                 self.host_look.arm_after(std::time::Duration::from_millis(*ms)).map(|()| None)
             }
             Action::MarkHostDeferred => self.mark_host_deferred(),
-            Action::ReplaceOldHost(why) => {
-                let after = self.build_changed_at.map_or(0, |at| at.elapsed().as_secs());
-                eprintln!(
-                    "cmux-host: replacing the old-build session host ({}), {after} s after the build changed",
-                    why.name()
-                );
-                self.clear_host_deferred();
-                Ok(None)
-            }
+            Action::ReplaceOldHost(why) => self.replace_old_host(*why),
             Action::RemoveDriverFile => identity::remove_driver_file(&paths).map(|()| None),
             Action::Ready => {
                 self.notify_ready();
@@ -1093,142 +1003,5 @@ pub(crate) fn trusted_text(
 }
 
 #[cfg(test)]
-mod carrier_file_tests {
-    use std::os::unix::fs::PermissionsExt;
-
-    use super::{carrier_args, trusted_text};
-    use crate::carrier_entry::{CARRIER_FILE, GRANT_CONFIG_FILE};
-    use crate::config::Paths;
-
-    /// With carrier.json, the session host's flags name its grant config,
-    /// written first with only the public fields (0644); without it, no
-    /// flags and no file.
-    fn carrier(kid: &str) -> serde_json::Value {
-        serde_json::json!({
-            "relay": "relay+do://relay.cmux.dev",
-            "machine": "vm_0123456789abcdefghij",
-            "slot": "AAAAAAAAAAAAAAAAAAAAAA",
-            "team": "team_0123456789abcdefghij",
-            "issuer": "cmux:cloud:production",
-            "keyset": {"version": "0123456789abcdef", "keys": {kid: {
-                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": kid,
-                "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            }}},
-        })
-    }
-
-    fn write_carrier(paths: &Paths, carrier: &serde_json::Value) {
-        let file = paths.at(CARRIER_FILE);
-        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(&file, carrier.to_string()).unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
-
-    fn grant_config(paths: &Paths) -> serde_json::Value {
-        serde_json::from_str(&std::fs::read_to_string(paths.at(GRANT_CONFIG_FILE)).unwrap())
-            .unwrap()
-    }
-
-    #[test]
-    fn the_carrier_flags_come_with_a_public_grant_config() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::new(dir.path());
-        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
-        assert!(carrier_args(&paths, bin).is_empty());
-        assert!(!paths.at(GRANT_CONFIG_FILE).exists());
-        let carrier = carrier("k1");
-        write_carrier(&paths, &carrier);
-        let args = carrier_args(&paths, bin);
-        let grant = paths.at(GRANT_CONFIG_FILE);
-        let at = args.iter().position(|arg| arg == "--carrier-grant-config").unwrap();
-        assert_eq!(args[at + 1], grant.display().to_string());
-        assert_eq!(
-            grant_config(&paths),
-            serde_json::json!({
-                "issuer": carrier["issuer"], "machine": carrier["machine"],
-                "team": carrier["team"], "keyset": carrier["keyset"],
-            })
-        );
-        assert_eq!(std::fs::metadata(&grant).unwrap().permissions().mode() & 0o777, 0o644);
-    }
-
-    /// A rotated keyset in carrier.json rewrites the grant config the running
-    /// host's verifier re-reads, with the same flags: no respawn.
-    #[test]
-    fn a_rotated_keyset_rewrites_the_grant_config_with_the_same_flags() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::new(dir.path());
-        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
-        write_carrier(&paths, &carrier("k1"));
-        let before = carrier_args(&paths, bin);
-        let rotated = carrier("k2");
-        write_carrier(&paths, &rotated);
-        assert_eq!(carrier_args(&paths, bin), before);
-        assert_eq!(grant_config(&paths)["keyset"], rotated["keyset"]);
-    }
-
-    /// Removing carrier.json wakes the supervisor's watch (it is a change
-    /// of route, to none) and leaves no carrier flags for the respawn.
-    #[test]
-    fn a_removed_carrier_json_wakes_the_watch_and_drops_the_flags() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::new(dir.path());
-        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
-        write_carrier(&paths, &carrier("k1"));
-        assert!(!carrier_args(&paths, bin).is_empty());
-        let inotify = crate::linux::fds::Inotify::new().unwrap();
-        let state = paths.at(CARRIER_FILE).parent().unwrap().to_path_buf();
-        let wd = inotify.watch_dir_with_removals(&state).unwrap();
-        std::fs::remove_file(paths.at(CARRIER_FILE)).unwrap();
-        let events = inotify.read_events().unwrap();
-        assert!(
-            events.iter().any(|e| e.wd == wd
-                && e.name == crate::carrier_entry::CARRIER_FILE_NAME
-                && e.mask & libc::IN_DELETE != 0),
-            "no removal event"
-        );
-        assert!(carrier_args(&paths, bin).is_empty());
-    }
-
-    /// carrier.json counts only as a regular file owned by the agent's uid
-    /// that neither group nor others may write.
-    #[test]
-    fn carrier_json_is_refused_unless_owner_only_writable() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("carrier.json");
-        // SAFETY: geteuid has no preconditions.
-        let euid = unsafe { libc::geteuid() };
-        assert_eq!(trusted_text(&file, "carrier.json", euid), Ok(None));
-        std::fs::write(&file, "{}").unwrap();
-        for (mode, ok) in [(0o600, true), (0o644, true), (0o620, false), (0o602, false)] {
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
-            let read = trusted_text(&file, "carrier.json", euid);
-            assert_eq!(read.is_ok(), ok, "{mode:o}: {read:?}");
-            if let Err(why) = read {
-                assert!(why.starts_with("carrier.json mode"), "{why}");
-            }
-        }
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let other = trusted_text(&file, "carrier.json", euid.wrapping_add(1)).unwrap_err();
-        assert!(other.starts_with("carrier.json is owned by uid"), "{other}");
-        let link = dir.path().join("link.json");
-        std::os::unix::fs::symlink(&file, &link).unwrap();
-        assert!(trusted_text(&link, "carrier.json", euid).is_err());
-    }
-}
-
-#[cfg(test)]
-mod deferral_mark_tests {
-    use super::changed_at_in;
-
-    /// An agent restart during a deferral reads back when the build change
-    /// was found, only from a mark for the same host.
-    #[test]
-    fn a_mark_for_the_same_host_keeps_its_build_change_time() {
-        let mark = "{\"pid\":4242,\"changed_at\":1794700000}\n";
-        assert_eq!(changed_at_in(mark, 4242), Some(1_794_700_000));
-        assert_eq!(changed_at_in(mark, 4243), None);
-        assert_eq!(changed_at_in("{\"pid\":4242}", 4242), None);
-        assert_eq!(changed_at_in("garbage", 4242), None);
-    }
-}
+#[path = "carrier_file_tests.rs"]
+mod carrier_file_tests;
