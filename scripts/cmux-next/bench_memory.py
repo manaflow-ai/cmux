@@ -1198,7 +1198,7 @@ def app_vm_stacks(pid: int, pattern: str, limit: int = 40) -> dict:
         if m:
             blocks.append((int(m.group(2)), m.group(1), line.strip()[:200]))
     blocks.sort(reverse=True)
-    out = {"rc": proc.returncode, "blocks": [b[2] for b in blocks], "stderr": proc.stderr[-400:], "head": proc.stdout.splitlines()[:40],
+    out = {"rc": proc.returncode, "blocks": [b[2] for b in blocks], "stderr": proc.stderr[-400:], "head": proc.stdout.splitlines()[:120],
            "stacks": {}}
     for size, address, _ in blocks[:limit]:
         try:
@@ -1229,14 +1229,14 @@ def app_vm(pid: int) -> dict:
 
 
 def print_app_vm(label: str, vm: dict) -> None:
-    for tool, entry in ((t, e) for t, e in vm.items() if t != "pages"):
+    for tool, entry in ((t, e) for t, e in vm.items() if t not in ("pages", "stacks")):
         if "error" in entry:
             print(f"APP-VM {label} {tool} error: {entry['error']}", flush=True)
             continue
-        print(f"APP-VM {label} {tool} rc={entry['rc']} lines={entry['total_lines']}", flush=True)
-        for line in entry["lines"]:
+        print(f"APP-VM {label} {tool} rc={entry.get('rc')} lines={entry.get('total_lines')}", flush=True)
+        for line in entry.get("lines") or []:
             print(f"APP-VM {label} {tool}| {line}", flush=True)
-        if entry.get("stderr") and entry["rc"]:
+        if entry.get("stderr") and entry.get("rc"):
             print(f"APP-VM {label} {tool} stderr: {entry['stderr']}", flush=True)
 
 
