@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4375425480701",
+  "notes": "notes/4375425480701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43501,
+      "title": "Shared terminal never narrower than an iPhone while a wider view counts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43876,
+      "title": "base_red_excuse: excuse an iOS E2E setup red another PR's run shares",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43817,
+      "title": "perf(cmux-tui): the terminal host reads titles and OSC metadata in one output scan (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43039,
+      "title": "acpmux: link the list client into the app Rust library (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43884,
+      "title": "Palette coverage: eight CLI verbs map to the palette rows that run them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43888,
+      "title": "cloud journey: one notice per create with the spare claim (fallback, skips, behind)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43862,
+      "title": "CatalogRequestHandlers: bind every catalog row that names a daemon request",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43886,
+      "title": "hot-verify CI: deepen the plan's fetch until the PR head meets the base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43851,
+      "title": "perf(cmux-tui, acpmux): cap glibc malloc arenas at process start (infinite items)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43863,
+      "title": "cmux-tui packaging: ship cmux-tui-host beside the Linux daemon (artifacts, npm, PyPI)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43841,
+      "title": "Sign-in enroll: send a cmux access token, not the sign-in session's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43389,
+      "title": "Settings search takes a wish: no match offers Ask cmux to do this",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43881,
+      "title": "fix(screen-eval): build the scene app inside the main actor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43883,
+      "title": "Chief compactor: build a too-long node once, no titles for throwaway sessions, bounded preview scan",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43877,
+      "title": "test(ci): the fast tier's hand-back clause follows the workflow's pr-rescue text (base red since c7133c3684c0)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43885,
+      "title": "Toggle Terminal and Chat: the place and draft rules in Rust, for the app FFI release (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43882,
+      "title": "ci: guard that pull_request tailnet joins through OIDC are opt-in and same-repo only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43831,
+      "title": "hot-apply: fix the plan for commits from before the FFI pin; cmux-next checks run the unrun script tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43779,
+      "title": "acpmux v2 gates: one row file and one gate-line file per design-doc row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43855,
+      "title": "Machines: New Workspace on a Mac signed in to this account asks it once, waits on the row, and opens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43712,
+      "title": "cmux-tui-core: a new worktree's setup starts only in the git folder that its repository keeps for it, and a setup keeps the folders that it opened",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
