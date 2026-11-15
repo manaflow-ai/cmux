@@ -915,6 +915,7 @@ async fn a_codex_chat_its_terminal_drives_takes_prompts_into_that_terminals_queu
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_terminal_chat_writable(true).await;
     let session = hub
         .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
         .await

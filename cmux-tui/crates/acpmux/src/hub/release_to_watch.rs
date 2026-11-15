@@ -43,6 +43,12 @@ const NEVER: &[&str] = &["unstored", "unadopted_host", "moving"];
 /// How often a release that waits on work no record reports (a background process) looks again.
 const RECHECK: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// The saved `terminalChatWritable` (`chat-settings.json`), off when there is none.
+pub(super) fn saved_setting() -> bool {
+    crate::chats::ChatSettings::load(&crate::config::home().join("chat-settings.json"))
+        .terminal_chat_writable
+}
+
 /// What a prompt gets while the chat waits to hand its conversation to a terminal.
 pub(super) fn releasing_error() -> RpcError {
     RpcError::new(
@@ -84,6 +90,8 @@ impl Hub {
         session: &Arc<Session>,
         terminal: Option<u32>,
     ) -> Result<Value, RpcError> {
+        // Write to a chat a terminal runs is off: the chat is a View Only watch, as before.
+        let terminal = terminal.filter(|_| self.terminal_chat_writable());
         let (family, id) = self.releasable(session).await?;
         if session.meta().watching.is_some() {
             if let Some(live) = self.live_holder(session, &family, &id).await? {
@@ -268,6 +276,12 @@ impl Hub {
     pub(super) fn follow_terminal(self: &Arc<Self>, session: &Arc<Session>) {
         let Some(driver) = session.meta().watching.and_then(|w| w.terminal) else { return };
         let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        // A binding a restarted daemon found while the setting is off: let go of it, never follow.
+        if !self.terminal_chat_writable() {
+            let (hub, session) = (self.clone(), session.clone());
+            runtime.spawn(async move { hub.terminal_ended(&session, &driver).await });
+            return;
+        }
         let (hub, session) = (self.clone(), session.clone());
         let pid = driver.pid;
         let spawned =
@@ -303,6 +317,54 @@ impl Hub {
             match m.watching.as_mut() {
                 Some(w) if w.terminal.as_ref() == Some(gone) => {
                     w.queued.clear();
+                    w.terminal = None;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if cleared {
+            self.save_meta(session);
+            self.unmark_terminal_driven(session);
+        }
+    }
+
+    /// Whether a chat handed to a cmux terminal stays writable (`agents.chats.terminalChatWritable`).
+    pub(crate) fn terminal_chat_writable(&self) -> bool {
+        self.terminal_chat_writable.load(Ordering::SeqCst)
+    }
+
+    /// The app's `agents.chats.terminalChatWritable`. Turned off (at any time, mid-turn too),
+    /// every chat a terminal drives is a View Only watch again at once: its binding and its
+    /// `bridge`/`via` tags go, so the pane draws View Only and a send is refused as
+    /// `watch.read_only`. Nothing is cut: the terminal's turn runs on and the watch keeps
+    /// showing it, and a prompt already delivered into the terminal's harness (its inbox or
+    /// queue: the harness holds it, not acpmux) runs and shows there as sent. What the watch
+    /// showed of the terminal's own queue stays, so none of it shows twice.
+    pub async fn set_terminal_chat_writable(self: &Arc<Self>, on: bool) {
+        self.terminal_chat_writable.store(on, Ordering::SeqCst);
+        if on {
+            return;
+        }
+        for session in self.sessions() {
+            let bound = session.meta().watching.and_then(|w| w.terminal);
+            if let Some(driver) = bound {
+                self.unbind_terminal(&session, &driver).await;
+            }
+        }
+    }
+
+    /// Lets go of the binding `driver` (only that very one) and its tags, keeping the watch.
+    async fn unbind_terminal(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        driver: &crate::store::TerminalDriver,
+    ) {
+        let _turn = session.turn_lock.lock().await;
+        let cleared = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            match m.watching.as_mut() {
+                Some(w) if w.terminal.as_ref() == Some(driver) => {
                     w.terminal = None;
                     true
                 }
