@@ -28,9 +28,16 @@ Type=simple
 ExecStart=%h/.local/bin/cmux-rd linux-host run
 Restart=on-failure
 RestartSec=5
+# 78 (EXIT_NEEDS_SETUP in src/linux_host/mod.rs): the hub removed this desktop or its anchor
+# ended. Restarting cannot fix that; the journal names the command to run.
+RestartPreventExitStatus=78
 # No privileges beyond the desktop user's own.
 NoNewPrivileges=yes
-PrivateTmp=yes
+# No namespace sandboxing (PrivateTmp, PrivateUsers, ProtectSystem, ProtectHome, ReadOnlyPaths
+# and the like): in a user unit each one makes systemd set up a user namespace, which several
+# distributions forbid unprivileged processes, so the unit would not start there. PrivateTmp
+# would also hide an XAUTHORITY file or X socket kept in /tmp. The host needs the session's own
+# view of the screen anyway; test user_unit_needs_no_user_namespace keeps it so.
 
 [Install]
 WantedBy=graphical-session.target

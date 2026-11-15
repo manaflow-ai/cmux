@@ -48,6 +48,139 @@ const USAGE: &str = "usage: cmux-rd linux-host enable --stack-token-file PATH|- 
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
        cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status";
 
+/// The exit code when the host cannot go on until the person acts (the hub removed this
+/// desktop, its device key no longer matches, or its 30-day anchor ended). The user unit lists
+/// it in `RestartPreventExitStatus=`, so systemd stops instead of restarting it forever.
+/// 78 is sysexits' EX_CONFIG.
+pub const EXIT_NEEDS_SETUP: i32 = 78;
+
+/// A hub error restarting cannot fix, with the command that does.
+#[derive(Debug)]
+struct Fatal(String);
+
+impl std::fmt::Display for Fatal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Fatal {}
+
+impl Fatal {
+    const ENABLE: &'static str = "cmux-rd linux-host enable --stack-token-file PATH|-";
+    const SHARE_ON: &'static str = "cmux-rd linux-host share on --stack-token-file PATH|-";
+
+    fn needs(what: &str, command: &str) -> Self {
+        Self(format!(
+            "{what}. The host stopped and will not restart by itself. To share this desktop again, run: {command}, then: systemctl --user restart cmux-screen-host.service"
+        ))
+    }
+
+    /// The fatal form of a hub error, or None for one worth retrying.
+    fn from_hub(e: &(dyn std::error::Error + Send + Sync + 'static)) -> Option<Self> {
+        let h = e.downcast_ref::<HubError>()?;
+        let detail = printable(&h.message);
+        match h.code.as_str() {
+            "device_removed" => Some(Self::needs(
+                &format!("This desktop is no longer on the account ({detail})"),
+                Self::ENABLE,
+            )),
+            "device_key_mismatch" => Some(Self::needs(
+                &format!("The hub no longer knows this desktop's key ({detail})"),
+                Self::ENABLE,
+            )),
+            "not_anchored" => Some(Self::needs(
+                &format!("This desktop's 30-day sign-in ended ({detail})"),
+                Self::SHARE_ON,
+            )),
+            _ => None,
+        }
+    }
+}
+
+/// The exit code for an error `run_cli` reports.
+fn exit_code(e: &(dyn std::error::Error + Send + Sync + 'static)) -> i32 {
+    if e.is::<Fatal>() {
+        EXIT_NEEDS_SETUP
+    } else {
+        1
+    }
+}
+
+/// Bidi formatting characters: they reorder what a terminal shows (U+202E turns a name
+/// around) though `char::is_control` does not count them.
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
+}
+
+/// Text from the hub or a viewer, safe to print to a terminal or the journal: C0 and C1
+/// controls, whole ANSI escape sequences (CSI, OSC and the like) and bidi controls removed.
+pub(crate) fn printable(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => match chars.next() {
+                // CSI: parameters and intermediates, then one final character in @..~.
+                Some('[') => {
+                    for c in chars.by_ref() {
+                        if ('@'..='~').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                // OSC, DCS, SOS, PM, APC: a string ended by BEL or ESC \.
+                Some(']' | 'P' | 'X' | '^' | '_') => {
+                    while let Some(c) = chars.next() {
+                        if c == '\u{7}' {
+                            break;
+                        }
+                        if c == '\u{1b}' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                // A two-character escape (ESC c, ESC 7, ...).
+                _ => {}
+            },
+            c if c.is_control() || is_bidi_control(c) => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// One `requests` line.
+fn request_line(r: &consent::Request) -> String {
+    let what = if r.scope == "full" { "control" } else { "view" };
+    let fp = match r.viewer_key_fingerprint.as_deref().map(printable) {
+        // 16 characters, not bytes: a byte cut panics inside a multi-byte character.
+        Some(f) if !f.is_empty() => f.chars().take(16).collect(),
+        _ => "-".to_owned(),
+    };
+    format!(
+        "{}  {} (key {fp}) asks to {what} this desktop",
+        printable(&r.id),
+        printable(&r.viewer_name)
+    )
+}
+
+/// The journal line for a viewer waiting for the person.
+fn ask_line(r: &consent::Request) -> String {
+    let what = if r.scope == "full" { "control" } else { "view" };
+    let id = printable(&r.id);
+    format!(
+        "linux-host: {} asks to {what} this desktop. Allow: cmux-rd linux-host approve {id} [--always]; refuse: cmux-rd linux-host deny {id}",
+        printable(&r.viewer_name)
+    )
+}
+
 /// Flags that take no value.
 const FLAGS: &[&str] = &["always", "allow-control"];
 
@@ -128,7 +261,7 @@ pub fn run_cli(args: &[String]) -> i32 {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("cmux-rd linux-host: {e}");
-            1
+            exit_code(&*e)
         }
     }
 }
@@ -226,9 +359,7 @@ fn requests() -> Res<()> {
         println!("No viewer is waiting.");
     }
     for r in list {
-        let what = if r.scope == "full" { "control" } else { "view" };
-        let fp = r.viewer_key_fingerprint.as_deref().map(|f| &f[..f.len().min(16)]).unwrap_or("-");
-        println!("{}  {} (key {fp}) asks to {what} this desktop", r.id, r.viewer_name);
+        println!("{}", request_line(&r));
     }
     Ok(())
 }
@@ -249,7 +380,7 @@ fn approve(id: &str, args: &Args) -> Res<()> {
     pending.remove(id, now)?;
     println!(
         "Approved {} to {} this desktop{}.",
-        request.viewer_name,
+        printable(&request.viewer_name),
         if scope == "full" { "control" } else { "view" },
         if decision == "always" { " from now on" } else { " once" }
     );
@@ -311,7 +442,7 @@ fn run(args: &Args) -> Res<()> {
     crate::capture_backend::CaptureBackend::from_env(args.get("capture"))?;
     let serve_args = ServeArgs(serve_args);
     if account.anchored_until != 0 && account.anchored_until <= now_ms() {
-        return Err("the 30-day anchor ended: run `cmux-rd linux-host share on --stack-token-file ...` again".into());
+        return Err(Fatal::needs("This desktop's 30-day sign-in ended", Fatal::SHARE_ON).into());
     }
     let hub = Arc::new(hub);
     let current: Current = Arc::new(Mutex::new(None));
@@ -322,13 +453,8 @@ fn run(args: &Args) -> Res<()> {
         match hold_socket(&hub, &runtime, consent, &serve_args, &current) {
             Ok(()) => {}
             Err(e) => {
-                if let Some(h) = e.downcast_ref::<HubError>() {
-                    if matches!(
-                        h.code.as_str(),
-                        "device_removed" | "not_anchored" | "device_key_mismatch"
-                    ) {
-                        return Err(e);
-                    }
+                if let Some(fatal) = Fatal::from_hub(&*e) {
+                    return Err(fatal.into());
                 }
                 eprintln!("linux-host: hub link: {e}");
             }
@@ -373,7 +499,7 @@ fn hold_socket(
                         message: "this desktop was signed out".into(),
                     }
                     .into()),
-                    _ => Err(format!("socket closed ({code} {reason})").into()),
+                    _ => Err(format!("socket closed ({code} {})", printable(&reason)).into()),
                 };
             }
             Some(Message::Text(text)) => {
@@ -403,11 +529,7 @@ fn handle_push(
             request.received_ms = now_ms();
             match consent::on_request(&request) {
                 consent::OnRequest::AskThePerson => {
-                    let what = if request.scope == "full" { "control" } else { "view" };
-                    eprintln!(
-                        "linux-host: {} asks to {what} this desktop. Allow: cmux-rd linux-host approve {} [--always]; refuse: cmux-rd linux-host deny {}",
-                        request.viewer_name, request.id, request.id
-                    );
+                    eprintln!("{}", ask_line(&request));
                     if let Err(e) = pending.add(request, now_ms()) {
                         eprintln!("linux-host: request not recorded: {e}");
                     }
@@ -425,7 +547,7 @@ fn handle_push(
             let Some(view_only) = consent.serve(&ticket.scope) else {
                 eprintln!(
                     "linux-host: a {} session is not allowed on this desktop; ended",
-                    ticket.scope
+                    printable(&ticket.scope)
                 );
                 end_later(hub, &ticket.session_id, "failed");
                 return;
@@ -470,7 +592,7 @@ fn start_session(
         eprintln!(
             "linux-host: serving a {} session for {}",
             if view_only { "view" } else { "control" },
-            ticket.peer_name
+            printable(&ticket.peer_name)
         );
         let ended = session::serve(&hub, &ticket, view_only, &args, &stop);
         eprintln!("linux-host: session ended: {}", ended.reason);
