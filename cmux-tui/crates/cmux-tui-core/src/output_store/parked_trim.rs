@@ -162,19 +162,20 @@ pub(crate) fn disk_low(available: u64, capacity: u64, min_free: u64) -> bool {
 }
 
 /// Runs the pass over the snapshots of `parked`: terminals whose shell ended while their tab stays. A terminal the
-/// daemon has not placed yet (it starts) is not in it: its file stays whole.
+/// daemon has not placed yet (it starts) is not in it: its file stays whole. Returns how many rewrites of a snapshot
+/// file the pass ran (at most [`MAX_REWRITES_PER_PASS`]).
 pub(super) fn run(
     directory: &Path,
     parked: &HashSet<TerminalPublicId>,
     now_ms: u64,
     max_total_bytes: u64,
     min_free: u64,
-) {
+) -> usize {
     let low = fs4::available_space(directory)
         .ok()
         .zip(fs4::total_space(directory).ok())
         .is_some_and(|(available, capacity)| disk_low(available, capacity, min_free));
-    run_with(directory, parked, now_ms, max_total_bytes, low);
+    run_with(directory, parked, now_ms, max_total_bytes, low)
 }
 
 /// [`run`] with the free-disk guard already read (`disk_low`).
@@ -184,8 +185,8 @@ pub(super) fn run_with(
     now_ms: u64,
     max_total_bytes: u64,
     low: bool,
-) {
-    let Ok(entries) = fs::read_dir(directory) else { return };
+) -> usize {
+    let Ok(entries) = fs::read_dir(directory) else { return 0 };
     let parked: Vec<Parked> = entries
         .flatten()
         .filter_map(|entry| {
@@ -209,7 +210,7 @@ pub(super) fn run_with(
         })
         .collect();
     if parked.is_empty() {
-        return;
+        return 0;
     }
     let (mut trimmed, mut removed, mut rewrites) = (0_usize, 0_usize, 0_usize);
     for (terminal_id, keep) in plan(&parked, now_ms, max_total_bytes, low) {
@@ -239,6 +240,7 @@ pub(super) fn run_with(
             if low { ", low disk" } else { "" }
         );
     }
+    rewrites
 }
 
 /// Rewrites `terminal_id`'s snapshot with its newest `lines` lines, keeping its header (`written_at_ms` included)
