@@ -19,11 +19,15 @@ mkdir -p "$out/ab-src"
 
 # Each side's copy of each file: from git when the commit is here or fetchable, else GitHub's raw file (a CI
 # checkout is shallow and keeps no credential; the repository is public).
+# A depth flag only in a checkout that is already shallow (a CI one): in a full clone it would turn every worktree of
+# it shallow (tests/test_ci_no_shallow_dev_fetch.py).
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 for side in a b; do
   sha=$a_sha
   [[ $side == b ]] && sha=$b_sha
   if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
-    git fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git "$sha" 2>/dev/null || true
+    git fetch -q ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" 2>/dev/null || true
   fi
   for file in $files; do
     dest="$out/ab-src/$side/$file"
