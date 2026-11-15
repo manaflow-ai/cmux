@@ -149,6 +149,23 @@ pub(super) fn daemon_value(global: &GlobalArgs, request: &Value) -> Result<Value
 fn app(global: &GlobalArgs, params: Value) -> i32 {
     match super::mcp::agent_app(global, "remote.confirm", params, CONFIRM_TIMEOUT, None) {
         Ok(value) => super::wire::print_local_success(&value, global.output),
-        Err(error) => super::wire::print_local_error(&error, global.output, 1),
+        Err(error) => super::wire::print_local_error(&still_open(error), global.output, 1),
     }
 }
+
+/// A confirmation past its wait, from the app (`timeout`) or this read: the
+/// dialog stays open in cmux and an Allow there still makes the change, so the
+/// error says that instead of "the cmux app did not answer".
+fn still_open(mut error: Value) -> Value {
+    let timed_out = error.get("code").and_then(Value::as_str) == Some("timeout")
+        || error.pointer("/details/timeout_seconds").is_some();
+    if timed_out && let Some(object) = error.as_object_mut() {
+        let message = crate::localization::catalog().app_control.remote_confirm_still_open;
+        object.insert("message".into(), Value::String(message.into()));
+    }
+    error
+}
+
+#[cfg(test)]
+#[path = "remote_host_tests.rs"]
+mod tests;

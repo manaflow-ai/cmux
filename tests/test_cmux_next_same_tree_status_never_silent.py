@@ -16,6 +16,7 @@ these let the status go missing with nothing red:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import unittest
@@ -98,7 +99,10 @@ class StatusFromOutside(unittest.TestCase):
                 self.assertIn("inputs.same_tree_status_sha != ''", reporter["if"])
                 self.assertEqual(set(reporter["needs"]), {"same-tree-cmux-tui", *tested})
                 self.assertEqual(reporter["permissions"].get("statuses"), "write")
-                self.assertNotIn("continue-on-error", json.dumps(reporter))
+                # Only the spare token's mint may fail soft (SAME_TREE_STATUS_SPARE_TOKEN): the post never does.
+                soft = [s.get("name") for s in reporter["steps"] if "continue-on-error" in s]
+                self.assertEqual(soft, ["Mint the cmux-bot same-tree status token"])
+                self.assertNotIn("continue-on-error", reporter)
                 [post] = [s for s in reporter["steps"] if s.get("name") == "Post the same-tree status"]
                 self.assertIn(f"--tier {tier}", post["run"])
                 self.assertIn("toJSON(needs)", post["env"]["NEEDS"])
@@ -226,6 +230,61 @@ class Verdicts(unittest.TestCase):
     def test_a_bad_status_sha_is_red(self):
         argv = ["--tier", "daemon", "--repo", "o/r", "--status-sha", "nope", "--state", "ready", "--needs", "{}"]
         self.assertEqual(status.main(argv, api=FakeApi(), sleep=lambda _s: None), 1)
+
+
+class SpareToken(unittest.TestCase):
+    """SAME_TREE_STATUS_SPARE_TOKEN (hq#11150): a spent github.token budget never leaves the status unposted."""
+
+    def test_each_reporter_mints_the_app_token_and_passes_it_as_the_spare(self):
+        all_jobs = jobs()
+        for tier in status.TESTED:
+            with self.subTest(tier=tier):
+                reporter = all_jobs[f"same-tree-status-{tier}"]
+                self.assertIn("'ci-routing-agent'", reporter["environment"])
+                self.assertIn("pull_request", reporter["environment"])
+                names = [s.get("name") for s in reporter["steps"]]
+                mint = reporter["steps"][names.index("Mint the cmux-bot same-tree status token")]
+                post = reporter["steps"][names.index("Post the same-tree status")]
+                self.assertLess(names.index(mint["name"]), names.index(post["name"]))
+                self.assertTrue(mint["continue-on-error"])
+                self.assertEqual(mint["with"]["permission-statuses"], "write")
+                self.assertEqual(post["env"]["GH_TOKEN_SPARE"], "${{ steps.%s.outputs.token }}" % mint["id"])
+
+    def test_the_script_hands_the_spare_to_the_client(self):
+        seen = {}
+
+        class Client:
+            def __init__(self, token, api_url="", spare=""):
+                seen.update(token=token, spare=spare)
+
+        argv = ["--tier", "daemon", "--repo", "o/r", "--status-sha", HEAD, "--state", "ready", "--needs", "{}"]
+        original, env = status.notify.GitHub, dict(os.environ)
+        status.notify.GitHub = Client
+        os.environ.update(GH_TOKEN="workflow", GH_TOKEN_SPARE="app")
+        try:
+            status.main(argv, sleep=lambda _s: None)
+        except Exception:  # noqa: BLE001 - the stub has no get/post; only the construction is under test
+            pass
+        finally:
+            status.notify.GitHub = original
+            os.environ.clear()
+            os.environ.update(env)
+        self.assertEqual(seen, {"token": "workflow", "spare": "app"})
+
+    def test_the_client_moves_to_the_spare_on_a_spent_rate_limit(self):
+        client = status.notify.GitHub("workflow", "http://api.invalid", "app")
+        sent = []
+
+        def send(method, url, body=None):
+            sent.append(client.token)
+            if client.token == "workflow":
+                return 403, b'{"message":"API rate limit exceeded for installation."}', {"x-ratelimit-remaining": "0"}
+            return 201, b"{}", {}
+
+        client._send = send
+        code = client.post("repos/o/r/statuses/" + HEAD, {"state": "success"})
+        self.assertEqual(sent, ["workflow", "app"])
+        self.assertEqual(code, 201)
 
 
 if __name__ == "__main__":
