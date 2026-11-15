@@ -250,6 +250,28 @@ impl Hub {
         saved
     }
 
+    /// The person marked the chat read without showing it (`_acpmux/markRead`, cmux's
+    /// `chat.mark_read`): clears `unread` and its count and tells every client, as seeing it
+    /// does, but moves no "where they left off" mark (nobody looked). Answered once the change
+    /// is on disk, also when the chat was read already.
+    pub(crate) fn mark_read_answered(&self, session: &Session) -> Result<(), RpcError> {
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let was_unread = std::mem::replace(&mut meta.unread, false);
+        let turns = std::mem::take(&mut meta.unread_turns);
+        drop(meta);
+        if !was_unread && turns == 0 {
+            return self.meta_barrier(session);
+        }
+        let saved = self.save_meta_answered(session);
+        self.append(
+            session,
+            "mux",
+            "status",
+            json!({"status": session.status().to_string(), "read": true, "since": null, "turns": turns}),
+        );
+        saved
+    }
+
     /// The person saw the chat: clears `unread` and its count, and tells every client where they
     /// left off (`since`, none when no person left it before) and how many turns ended since.
     fn mark_seen(&self, session: &Session) {

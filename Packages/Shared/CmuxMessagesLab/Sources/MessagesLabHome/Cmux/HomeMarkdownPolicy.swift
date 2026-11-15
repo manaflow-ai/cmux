@@ -61,10 +61,16 @@ extension URL {
 
 /// cmux: every app link Home renders and a click hands to the host's `onAppLink` (the app's
 /// `link.open`), never to the system: a Chief subagent's link (``isChiefSubagentLink``), or
-/// `cmux://workspace/ws_<32 hex>`, `pane/pane_<32 hex>`, `tab/tab_<32 hex>`, `settings/background`, `session/<id>`
+/// `cmux://workspace/ws_<32 hex>`, `pane/pane_<32 hex>`, `tab/tab_<32 hex>`, `settings/<path>` (one of
+/// ``homeSettingsLinkPaths``), `session/<id>`
 /// (optional `#turn-<id>`) in the `cmux` scheme or a build's `cmux-…` one, with no user, port or
 /// query other than the app's `machine=machine_…` hint. The app parses it again (DeepLink.parse).
 extension URL {
+    /// The `cmux://settings/…` paths Home draws as links: exactly the app's settings link routes
+    /// (CmuxNextActions `DeepLink.settingsRoutes`, which this package cannot import; HomeCmuxAppLinkTests
+    /// holds the two equal). A route missing here would show as plain text (cmux#42861's welcome link).
+    public static let homeSettingsLinkPaths: Set<String> = ["/background", "/start-agent-from-any-app"]
+
     /// Whether this URL is a cmux app link (Home makes it a link and a click opens it in the app).
     public var isCmuxAppLink: Bool {
         if isChiefSubagentLink { return true }
@@ -89,8 +95,8 @@ extension URL {
         case "workspace": return resource("ws_")
         case "pane": return resource("pane_")
         case "tab": return resource("tab_")
-        // Chief's first-launch welcome: its background offer opens the background picker.
-        case "settings": return id == "background" && c.fragment == nil
+        // Chief's first-launch welcome: its background offer and its Start Agent from Any App link.
+        case "settings": return URL.homeSettingsLinkPaths.contains("/" + id.lowercased()) && c.fragment == nil
         // An agent-message fold's row (HomeAgentMessageRow.toggleLink): a click expands or collapses it.
         case "agent-messages":
             return c.fragment == nil && id.utf8.count == 16 && id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }

@@ -37,6 +37,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -468,9 +469,10 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             subprocess.run(["rm", "-rf", str(root)], check=False)
         self.assertTrue(app.exists())
 
-    def seeded(self, mode: str, *extra: str) -> tuple[int, str, dict, Path]:
+    def seeded(self, mode: str, *extra: str, setup: str = "") -> tuple[int, str, dict, Path]:
         status, output, report = self.run_smoke(mode, "--seconds", "0", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "0", *extra)
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", *extra,
+                                                setup=setup)
         return status, output, report, self.dir / f"out-{mode}-{self.runs}"
 
     def test_the_seed_tool_makes_a_home_with_cookie_sync_on_and_a_store_with_rows(self):
@@ -566,6 +568,109 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertFalse(smoke.alive(arm["pid"]), "the seeded launch outlived the run")
         self.assertFalse(smoke.alive(int(self.host_pid_path.read_text())), "the seeded launch's terminal host outlived the run")
         self.assert_cleaned_up(report)
+
+    def test_the_report_keeps_the_hosts_load_for_each_arm_and_the_seeded_launchs_marks(self):
+        # One build was slow on one fleet Mac (daemon.ensure 24.5 s in the seeded launch) and not on another (Home
+        # at 5.5 s). The report could not tell a loaded host from a slow app: it had no load of the host, and a
+        # seeded launch that passed kept none of its launch marks.
+        status, output, report, _out = self.seeded("healthy")
+        self.assertEqual(status, smoke.PASS, output)
+        empty, seeded = report["arms"]["empty"], report["arms"]["seeded"]
+        for host in (report["host"], empty["host"], seeded["host"]):
+            self.assertEqual(host["cpus"], os.cpu_count())
+            self.assertIsInstance(host["load_at_launch"], float)
+            self.assertIsInstance(host["load_at_home"], float)
+        self.assertEqual(empty["host"], report["host"])
+        self.assertIn(smoke.RENDER_MARK, report["marks"])
+        self.assertIn(smoke.RENDER_MARK, seeded["marks"])
+        self.assertEqual(seeded["verdict"], "pass", output)
+
+    def test_each_arms_host_is_of_its_own_launch(self):
+        # The real load cannot say which launch a number is of (2 launches seconds apart read nearly the same
+        # load). Here the validator's host_load is a counter, so each value names its read: 1 and 2 are the first
+        # launch's start and Home, 3 and 4 the seeded launch's.
+        ticks = "import itertools\nticks = itertools.count(1)\nsmoke.host_load = lambda: float(next(ticks))"
+        args = ("--seconds", "0", "--startup-timeout", "10", "--arms", "empty,seeded", "--seeded-seconds", "0")
+        cpus = os.cpu_count()
+        first = {"cpus": cpus, "load_at_launch": 1.0, "load_at_home": 2.0}
+        status, output, report = self.run_smoke("healthy", *args, setup=ticks)
+        self.assertEqual(status, smoke.PASS, output)
+        # A seeded launch that passed: the report still describes the first launch.
+        self.assertEqual(report["arms"]["empty"]["host"], first)
+        self.assertEqual(report["host"], first)
+        self.assertEqual(report["arms"]["seeded"]["host"], {"cpus": cpus, "load_at_launch": 3.0, "load_at_home": 4.0})
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "pass", output)
+        # A seeded launch that ran and gave no verdict (the app never read the store): as one that passed.
+        status, output, report = self.run_smoke("no-sync", *args, setup=ticks)
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "not-run", output)
+        self.assertEqual((report["arm"], report["host"]), ("empty", first))
+        self.assertEqual(report["arms"]["seeded"]["host"], {"cpus": cpus, "load_at_launch": 3.0, "load_at_home": 4.0})
+        status, output, report = self.run_smoke("sync-crash", *args, setup=ticks)
+        self.assertEqual(status, smoke.FAIL, output)
+        # A seeded launch that failed with no Home: the report describes it, and the first arm keeps its own.
+        died = {"cpus": cpus, "load_at_launch": 3.0, "load_at_home": None}
+        self.assertEqual(report["arms"]["empty"]["host"], first)
+        self.assertEqual(report["arms"]["seeded"]["host"], died)
+        self.assertEqual((report["arm"], report["host"]), ("seeded", died))
+        self.assertEqual(report["arms"]["seeded"]["marks"], report["marks"])
+
+    def test_the_load_at_home_is_read_when_home_rendered_not_when_the_watch_ends(self):
+        # The validator's load is the count of its own poll waits so far, and each "Home rendered" line prints
+        # that count. Each watch polls until 2 s after its launch, so a read at its end is a larger count when
+        # Home rendered before that. (On a host where Home takes longer than 2 s the 2 counts are equal and this
+        # test proves nothing.) Both launches: a read at the end in the seeded launch alone is a wrong form too.
+        polls = ("import time\ncount, nap, say = [0], time.sleep, smoke.log\n"
+                 "def counted(seconds):\n    count[0] += 1\n    nap(seconds)\n"
+                 "def said(message):\n"
+                 "    say(message)\n"
+                 "    if 'Home rendered' in message:\n        say(f'polls at Home: {count[0]}')\n"
+                 "time.sleep, smoke.log, smoke.host_load = counted, said, lambda: float(count[0])")
+        status, output, report, _out = self.seeded("healthy", "--seconds", "2", "--seeded-seconds", "2", setup=polls)
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "pass", output)
+        first, seeded = [float(line.split(": ")[1]) for line in output.splitlines()
+                         if line.startswith("polls at Home: ")]
+        self.assertEqual(report["host"]["load_at_home"], first)
+        self.assertEqual(report["arms"]["seeded"]["host"]["load_at_home"], seeded)
+
+    # The stub writes the same marks in each launch. With this hook each read of a marks file adds one key that
+    # names the launch of that file (the seeded launch's is in the folder SEEDED), so the marks say whose they are.
+    MARKS_NAME_THEIR_LAUNCH = ("read = smoke.read_marks\n"
+                               "smoke.read_marks = lambda path: {**read(path), 'launch: ' + "
+                               "('seeded' if path.parent.name == smoke.SEEDED else 'first'): 1.0}")
+
+    def test_a_passed_seeded_launch_keeps_its_own_marks_not_the_first_launchs(self):
+        status, output, report, _out = self.seeded("healthy", setup=self.MARKS_NAME_THEIR_LAUNCH)
+        self.assertEqual(status, smoke.PASS, output)
+        seeded = report["arms"]["seeded"]
+        self.assertEqual(seeded["verdict"], "pass", output)
+        self.assertEqual([key for key in seeded["marks"] if key.startswith("launch: ")], ["launch: seeded"])
+        self.assertIn(smoke.RENDER_MARK, seeded["marks"])
+        # The report of a run that passed describes the first launch.
+        self.assertEqual([key for key in report["marks"] if key.startswith("launch: ")], ["launch: first"])
+
+    def test_a_seeded_launch_with_no_verdict_keeps_its_own_marks_not_the_first_launchs(self):
+        # The seeded launch ran with Home and gave no verdict (the app never read the store): as one that passed.
+        status, output, report, _out = self.seeded("no-sync", setup=self.MARKS_NAME_THEIR_LAUNCH)
+        self.assertEqual(status, smoke.PASS, output)
+        seeded = report["arms"]["seeded"]
+        self.assertEqual(seeded["verdict"], "not-run", output)
+        self.assertEqual([key for key in seeded["marks"] if key.startswith("launch: ")], ["launch: seeded"])
+        self.assertIn(smoke.RENDER_MARK, seeded["marks"])
+        self.assertEqual(report["arm"], "empty")
+        self.assertEqual([key for key in report["marks"] if key.startswith("launch: ")], ["launch: first"])
+
+    def test_the_hosts_load_is_the_one_minute_number_with_two_decimals(self):
+        with mock.patch.object(os, "getloadavg", return_value=(1.234, 9.0, 9.0)):
+            self.assertEqual(smoke.host_load(), 1.23)
+
+    def test_a_host_that_cannot_say_its_load_leaves_it_empty(self):
+        with mock.patch.object(os, "getloadavg", side_effect=OSError("no load here")):
+            self.assertIsNone(smoke.host_load())
+        # A platform with no getloadavg at all.
+        with mock.patch.object(os, "getloadavg", side_effect=AttributeError("no getloadavg")):
+            self.assertIsNone(smoke.host_load())
 
     def test_a_crash_from_the_seeded_home_fails_the_run_as_that_arms_crash(self):
         status, output, report, out = self.seeded("sync-crash")
@@ -1576,6 +1681,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         status, output, report = self.run_smoke("no-home", "--seconds", "0", "--startup-timeout", "3")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertIn("Home did not render", report["failures"][0])
+        # The load at Home is of a Home that rendered: none here.
+        self.assertIsInstance(report["host"]["load_at_launch"], float)
+        self.assertIsNone(report["host"]["load_at_home"])
         self.assert_cleaned_up(report)
 
     def test_a_caller_ready_check_replaces_only_the_home_check(self):

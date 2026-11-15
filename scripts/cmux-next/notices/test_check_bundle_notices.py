@@ -227,8 +227,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux-diff-sidecar",
         "Contents/Resources/bin/cmux-mobile-host",
         "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
-        # Release merges Iroh.framework's Rust code (rustc 1.91.0) into the
-        # app binary; Iroh.framework/Iroh is then a stub without Rust code.
+        # The app binary links CCmuxAppFFI (static Rust, cmux-app-ffi).
         "Contents/MacOS/cmux",
     )
     ZIG_BINARIES = (

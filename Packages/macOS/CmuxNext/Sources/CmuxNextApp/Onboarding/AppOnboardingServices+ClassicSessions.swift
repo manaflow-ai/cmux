@@ -242,16 +242,29 @@ extension AppOnboardingServices {
         }
     }
 
-    /// `scrollback` written for its terminal's shell to print once; nil when
-    /// there is none or it cannot be written (the terminal then starts empty).
+    /// `scrollback` (the daemon's replay text) written for its terminal's shell to print once
+    /// (`CMUX_RESTORE_SCROLLBACK_FILE`); nil when there is none or it cannot be written (the terminal then starts empty).
     private func replayFile(_ scrollback: String?) -> String? {
-        guard let replay = scrollback.flatMap(ClassicScrollbackReplay.init) else { return nil }
+        guard let scrollback, !scrollback.isEmpty else { return nil }
         do {
-            return try replay.write().path
+            return try Self.writeReplay(scrollback).path
         } catch {
             services.daemon.logger.error("classic scrollback not written: \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    /// Writes `text` to a new file only this user can read, in a folder only this user can open,
+    /// under `directory` (the user's temporary folder).
+    nonisolated static func writeReplay(_ text: String, in directory: URL = FileManager.default.temporaryDirectory) throws -> URL {
+        let folder = directory.appendingPathComponent("cmux-next-scrollback", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        let file = folder.appendingPathComponent(UUID().uuidString.lowercased())
+        guard FileManager.default.createFile(atPath: file.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: file.path])
+        }
+        return file
     }
 
     /// Names each tab as classic did and returns where each one landed (read from the store, never the whole tree).

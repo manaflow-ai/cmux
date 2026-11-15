@@ -100,7 +100,9 @@ impl Gauges {
 /// `gauges` in `_acpmux/status`: [`Gauges::status`] with each connection's queue.
 pub fn daemon_status() -> Value {
     let mut status = global().status();
-    status["queues"] = crate::server::queue_gauge::status();
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("queues".into(), crate::server::queue_gauge::status());
+    }
     status
 }
 

@@ -20,13 +20,17 @@ use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
     Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
-    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, flags,
+    REF_NONE, flags,
 };
 
 pub use cmux_rd_core::loss::LossMeter;
 
 /// Frames kept for NACK resends.
 pub const HISTORY_FRAMES: usize = 16;
+/// Keep a short, bounded RTT history so queueing spikes do not set the window,
+/// and an earlier, faster route cannot constrain a slower route forever.
+const ACK_RTT_WINDOW_US: u64 = 1_000_000;
+const ACK_RTT_SAMPLES: usize = 64;
 /// Datagrams resent per feedback, so a hostile feedback cannot amplify.
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
@@ -210,6 +214,10 @@ impl Upstream {
             .last_feedback_us
             .is_none_or(|last| now_us.saturating_sub(last) >= UPSTREAM_FEEDBACK_US);
         self.released_since_feedback
+            || self
+                .reassembler
+                .next_nack_us(UPSTREAM_NACK_AFTER_US, UPSTREAM_FEEDBACK_US)
+                .is_some_and(|deadline| now_us >= deadline)
             || (interval_passed && (!self.arrivals.is_empty() || self.reassembler.need_recovery()))
     }
 
@@ -220,16 +228,8 @@ impl Upstream {
         self.released_since_feedback = false;
         self.last_feedback_us = Some(now_us);
         let take = self.arrivals.len().min(MAX_ARRIVALS);
-        let nacks = self
-            .reassembler
-            .missing(now_us, UPSTREAM_NACK_AFTER_US)
-            .into_iter()
-            .take(MAX_NACK_FRAMES)
-            .map(|(frame, indexes)| Nack {
-                frame,
-                indexes: indexes.into_iter().take(MAX_NACK_INDEXES).collect(),
-            })
-            .collect();
+        let nacks =
+            self.reassembler.take_nacks(now_us, UPSTREAM_NACK_AFTER_US, UPSTREAM_FEEDBACK_US);
         let fb = Feedback {
             acked_frame: self.reassembler.last_released(),
             decode_us: 0,
@@ -259,7 +259,14 @@ impl Upstream {
         }
         let feedback = (!self.arrivals.is_empty() || self.reassembler.need_recovery())
             .then(|| self.last_feedback_us.map_or(0, |l| l.saturating_add(UPSTREAM_FEEDBACK_US)));
-        [feedback, self.reassembler.next_expiry_us()].into_iter().flatten().min()
+        [
+            feedback,
+            self.reassembler.next_expiry_us(),
+            self.reassembler.next_nack_us(UPSTREAM_NACK_AFTER_US, UPSTREAM_FEEDBACK_US),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 }
 
@@ -281,6 +288,10 @@ struct StreamState {
     probe_from_us: Option<u64>,
     /// Tail-loss probes sent for the newest frame.
     probes: u32,
+    /// Host monotonic send time for recent frames, used to measure the
+    /// viewer's cumulative acknowledgement round trip on carriers that do
+    /// not expose a path probe (the development socket/proxy path).
+    sent_at_us: BTreeMap<u32, u64>,
 }
 
 impl StreamState {
@@ -297,6 +308,7 @@ impl StreamState {
             tile_of: None,
             probe_from_us: None,
             probes: 0,
+            sent_at_us: BTreeMap::new(),
         }
     }
 
@@ -321,6 +333,8 @@ pub struct MediaEngine {
     frames: u64,
     keyframes: u64,
     clock: Option<ClockEstimate>,
+    /// Recent cumulative frame-ack round trips: (observation time, round trip).
+    ack_rtts: VecDeque<(u64, u64)>,
     upstreams: BTreeMap<u16, Upstream>,
 }
 
@@ -344,6 +358,7 @@ impl MediaEngine {
             frames: 0,
             keyframes: 0,
             clock: None,
+            ack_rtts: VecDeque::new(),
             upstreams: BTreeMap::new(),
             cfg,
         }
@@ -371,6 +386,15 @@ impl MediaEngine {
         self.cfg.frames_in_flight = frames_in_flight;
         for state in self.streams.values_mut() {
             state.gate.set_max_in_flight(frames_in_flight);
+        }
+    }
+
+    /// Adapts the host's send window to its carrier RTT, or recent frame ACKs
+    /// while the carrier has no RTT measurement. The caller supplies its current
+    /// route's measurement each time, or None after falling back to a socket.
+    pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
+        if let Some(rtt_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) {
+            self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
         }
     }
 
@@ -561,6 +585,10 @@ impl MediaEngine {
             self.loss_meter.on_sent(seq);
         }
         state.history.insert(req.frame, packets.datagrams.clone());
+        state.sent_at_us.insert(req.frame, now_us);
+        while state.sent_at_us.len() > HISTORY_FRAMES {
+            state.sent_at_us.pop_first();
+        }
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
         }
@@ -619,13 +647,28 @@ impl MediaEngine {
     /// Feedback of one stream: arrivals and loss feed the shared controller;
     /// NACKs, acks and recovery requests apply to that stream.
     fn on_feedback(&mut self, stream: u16, fb: &Feedback, now_us: u64, out: &mut Output) {
-        let settled = self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq));
+        let settled =
+            self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq), now_us);
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }
-        self.cc.on_feedback(&fb.arrivals, settled.unwrap_or(0.0), now_us);
+        let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
+        self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
+        if fb.acked_frame > 0
+            && let Some(sent_at_us) = state.sent_at_us.remove(&fb.acked_frame)
+        {
+            let sample = now_us.saturating_sub(sent_at_us);
+            // Sample each cumulative ACK once. Repeated keepalives and reordered
+            // feedback must not turn an old frame's age into a new RTT sample.
+            state.sent_at_us.retain(|frame, _| *frame > fb.acked_frame);
+            self.ack_rtts.retain(|(at, _)| now_us.saturating_sub(*at) <= ACK_RTT_WINDOW_US);
+            self.ack_rtts.push_back((now_us, sample));
+            while self.ack_rtts.len() > ACK_RTT_SAMPLES {
+                self.ack_rtts.pop_front();
+            }
+        }
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
         for nack in &fb.nacks {
             let Some(datagrams) = state.history.get(&nack.frame) else { continue };
@@ -634,6 +677,9 @@ impl MediaEngine {
                     break;
                 }
                 if let Some(d) = datagrams.get(usize::from(i)) {
+                    if let Ok((header, _)) = DatagramHeader::decode(d) {
+                        self.cc.on_retransmitted(header.transport_seq);
+                    }
                     out.datagrams.push(d.clone());
                     budget -= 1;
                 }
@@ -673,7 +719,12 @@ impl MediaEngine {
                 state.probes = state.probes.saturating_add(1);
                 state.probe_from_us = Some(now_us);
                 if let Some(datagrams) = state.history.get(&state.last_frame) {
-                    out.datagrams.extend(datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK).cloned());
+                    for d in datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK) {
+                        if let Ok((header, _)) = DatagramHeader::decode(d) {
+                            self.cc.on_retransmitted(header.transport_seq);
+                        }
+                        out.datagrams.push(d.clone());
+                    }
                 }
                 continue;
             }
@@ -743,6 +794,13 @@ impl MediaEngine {
             loss: self.loss,
             target_bps: self.cc.target_bps(),
         }
+    }
+
+    /// Returns the minimum recent cumulative frame-ack RTT. The history ages
+    /// out when a new ACK advances, so an earlier short route cannot constrain
+    /// a slower route for the rest of the session.
+    pub fn ack_rtt_us(&self) -> Option<u64> {
+        self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
     }
 
     /// Answers a clock ping at once (receive and send time are the same call).

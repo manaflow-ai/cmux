@@ -264,6 +264,22 @@ impl Session {
         self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
 
+    /// The updater's block the first report carries (no report of its own: `start` makes it).
+    pub fn with_updater(mut self, block: Option<Value>) -> Session {
+        let _ = self.reporter.set_updater(block, false, 0);
+        self
+    }
+
+    /// The updater's block as it stands (`updater/look.rs` `report`). A report goes
+    /// when its outcome, reason, run or swap changed; a check that only moved its
+    /// time rides along with the next report.
+    pub fn updater(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        let cur = self.reporter.updater().cloned();
+        let changed =
+            crate::updater::look::report_key(&block) != crate::updater::look::report_key(&cur);
+        self.reporter.set_updater(block, changed, now).into_iter().collect()
+    }
+
     /// The activity stream connected or dropped: `activity` is advertised
     /// only while it is live.
     pub fn activity_stream(&mut self, connected: bool, now: u64) -> Vec<OpRequest> {
@@ -605,6 +621,32 @@ mod tests {
         );
         s.answered(&r[0], &ok(), 40_000, 0.5);
         assert!(s.daemon_identified(&running, 60_000).is_empty(), "reported once");
+    }
+
+    /// The lead (2026-11-13): "machine id and updater outcome (seen, held with reason, busy
+    /// with reason, swapped) in sawBuild, so the slow mode gets read instead of inferred." The
+    /// first report after an update's restart carries the updater's swap; a later check that
+    /// finds the same thing makes no report, a new outcome does.
+    #[test]
+    fn the_report_carries_the_updaters_block_and_goes_when_its_outcome_changes() {
+        let baked = DaemonInfo { version: "0.1.0+bbbbbbbbbbbb".into(), capabilities: vec![] };
+        let swapped = json!({"outcome": "swapped", "at": 1_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let mut s = Session::new("vm_m0000000000000000001", baked, 3_600_000)
+            .with_updater(Some(swapped.clone()));
+        let start = s.start(0);
+        assert_eq!(start.len(), 1);
+        assert_eq!(start[0].params["updater"], swapped);
+        s.answered(&start[0], &ok(), 0, 0.5);
+
+        let mut later = swapped;
+        later["at"] = json!(16_000);
+        assert!(s.updater(Some(later), 20_000).is_empty(), "only its time moved");
+        let current = json!({"outcome": "current", "at": 46_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let r = s.updater(Some(current.clone()), 50_000);
+        assert_eq!(r.len(), 1, "a new outcome is reported");
+        assert_eq!(r[0].params["updater"], current);
     }
 
     fn acp_from(daemon: &str, turns: u64) -> String {

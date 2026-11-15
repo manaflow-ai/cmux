@@ -1,8 +1,10 @@
 name: classic frozen guard
 
 # The files classic cmux customers depend on are frozen until Leo decides the migration
-# (.github/classic-frozen.txt). A pull request into feat-cmux-next or main that changes one fails
-# this check unless it carries the label `classic-migration`, which is Leo's to add. Adding or
+# (.github/classic-frozen.txt). A pull request into main that changes one fails this check unless
+# it carries the label `classic-migration`, which is Leo's to add; one into feat-cmux-next passes
+# (Leo, 2026-11-14: "if it's on the next branch, classic cloud is irrelevant. it's only relevant
+# on main rn"). Adding or
 # removing a label re-runs it. scripts/ci/classic_frozen_guard.py decides, run from the base commit
 # with the base's manifest, never the pull request's code; the head is read only as a list of
 # changed paths. It runs on pull_request_target, so this workflow file is the base's too: a pull

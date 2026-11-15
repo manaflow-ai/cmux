@@ -149,6 +149,9 @@ describe("cloud journey", () => {
     expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");
     expect(JOURNEY_STUB_SCRIPT.steps[0].shell).not.toContain("{{nonce}}-tool");
     expect(JOURNEY_STUB_SCRIPT.steps[1].text).toContain("{{result.0}}");
+    expect(JOURNEY_STUB_SCRIPT.turns).toEqual(expect.arrayContaining([
+      { match: "\\[chaos-felt \\S+\\]", steps: [{ text: "Felt reply {{prompt}}." }] },
+    ]));
   });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);

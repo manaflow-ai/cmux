@@ -340,7 +340,10 @@ def hold(lock: Path, fd: int | None = None) -> subprocess.Popen[str]:
     holder = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               text=True, start_new_session=True, pass_fds=() if fd is None else (fd,))
     if holder.stdout is None or holder.stdout.readline().strip() != HELD:
-        holder.kill()
+        try:
+            os.killpg(holder.pid, signal.SIGKILL)  # its whole group: it leads one (start_new_session)
+        except (ProcessLookupError, PermissionError):
+            pass
         raise OSError(f"could not hold {lock}")
     holder.stdout.close()
     HOLDERS.append(holder)
@@ -777,7 +780,10 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
 
 def release_holders() -> None:
     for holder in HOLDERS:
-        holder.kill()
+        try:
+            os.killpg(holder.pid, signal.SIGKILL)  # its whole group: it leads one (start_new_session)
+        except (ProcessLookupError, PermissionError):
+            pass
         holder.wait()
     HOLDERS.clear()
 
