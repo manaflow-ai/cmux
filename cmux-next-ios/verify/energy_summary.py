@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarize one energy bench run into one JSON line, or a table row.
 
-    energy_summary.py RUSAGE_JSONL TOP_TXT PID RUN PHASE > RUN.json
+    energy_summary.py RUSAGE_JSONL TOP_TXT PID RUN PHASE [RECEIVED_BYTES_PER_S] > RUN.json
     energy_summary.py --row RUN.json                       (the SUMMARY.md row)
 
 RUSAGE_JSONL is `energy_rusage.py sample`'s output: one proc_pid_rusage reading a second. Its
@@ -13,6 +13,8 @@ counters only grow, so every rate is (last - first) / elapsed seconds:
 - energy_mw: the kernel's energy estimate for the process, ri_energy_nj (nJ) per second, in
   milliwatts; ri_billed_energy when ri_energy_nj does not move (energy_source says which).
 - mem_*_mb: ri_phys_footprint (the footprint Xcode and Activity Monitor show), first, last, peak.
+- received_bytes_per_s: RECEIVED_BYTES_PER_S as the bench measured it from the app's
+  `received-bytes total=` log lines (ReceivedByteCount.swift); `-` in the row when not given.
 
 TOP_TXT (`top -l N -s 1 -pid PID -stats pid,cpu,idlew,power,mem`, may be missing) is kept as a
 cross-check in the JSON only: top_cpu_pct should agree with cpu_pct. cmux-next-ios/verify/energy.md
@@ -105,17 +107,21 @@ def main(argv):
     if argv[:1] == ["--row"]:
         r = json.load(open(argv[1]))
         energy = "-" if r["energy_mw"] is None else r["energy_mw"]
+        received = r.get("received_bytes_per_s")
+        received = "-" if received is None else received
         print(f"| {r['run']} | {r['phase']} | {r['seconds']} | {r['cpu_pct']} | {r['wakeups_per_s']} | "
-              f"{energy} | {r['mem_start_mb']} | {r['mem_end_mb']} | {r['mem_max_mb']} |")
+              f"{energy} | {received} | {r['mem_start_mb']} | {r['mem_end_mb']} | {r['mem_max_mb']} |")
         return 0
-    if len(argv) != 5:
+    if len(argv) not in (5, 6):
         print(__doc__, file=sys.stderr)
         return 2
-    rusage_path, top_path, pid, run, phase = argv
+    rusage_path, top_path, pid, run, phase = argv[:5]
     summary = summarize(rusage_path, top_path, pid, run, phase)
     if summary is None:
         print(f"energy_summary.py: fewer than two readings for pid {pid} in {rusage_path}", file=sys.stderr)
         return 1
+    if len(argv) == 6 and argv[5] not in ("", "-"):
+        summary["received_bytes_per_s"] = round(float(argv[5]))
     print(json.dumps(summary))
     return 0
 
