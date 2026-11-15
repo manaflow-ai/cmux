@@ -17,12 +17,12 @@ export const composerFooterControls = defineExperiment({
     chips: {
       label: "Text chips",
       description:
-        "The model and mode as text chips with a chevron on a faint 6 px rect, + and mic as icons, Send a solid accent circle.",
+        "The model and mode as text chips with a chevron on a faint control-cornered rect, + and mic as icons, Send a solid accent circle.",
     },
     segment: {
       label: "Grouped segment",
       description:
-        "+, mic and Send grouped into one 8 px bordered segment with hairline dividers; the model stays text.",
+        "+, mic and Send grouped into one bordered segment at the control corner with hairline dividers; the model stays text.",
     },
     bold: {
       label: "Codex disc",

@@ -61,34 +61,34 @@
 
 /* Floating: no border, a raised surface over a soft wide shadow, a mid corner. */
 :root:root:root .acpmux-composer.acpmux-composer[data-shell-look="floating"] {
-  --climb-shell-fill: light-dark(#fff, color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-solid)));
-  --climb-shell-shadow: 0 1px 3px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.4)),
-    0 10px 30px light-dark(rgb(0 0 0 / 0.1), rgb(0 0 0 / 0.6));
+  --climb-shell-fill: light-dark(var(--cmux-tone-light), color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-solid)));
+  --climb-shell-shadow: 0 1px 3px light-dark(color-mix(in srgb, black 6%, transparent), color-mix(in srgb, black 40%, transparent)),
+    0 10px 30px light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, black 60%, transparent));
   --climb-shell-radius: 16px;
   --acpmux-strip-radius: 14px;
 }
 
 /* ---------- composer-footer-controls: +, the pickers, the mic and Send ---------- */
 
-/* Text chips: the mode and model on a faint 6 px rect with their chevron; Send a solid accent circle. */
+/* Text chips: the mode and model on a faint control-cornered rect with their chevron; Send a solid accent circle. */
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"]
   :is(.acpmux-access-trigger, .acpmux-model .acpmux-picker-button) {
   padding-inline: 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 10%, transparent);
 }
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"] .acpmux-send {
-  border-radius: 50%;
+  border-radius: 50%; /* radius-allow: Send is a true circle (Leo: circles truly round) */
   background: var(--agent-accent);
   color: var(--agent-accent-text, #fff);
 }
 
-/* Grouped segment: +, the mic and Send stand in one 8 px bordered segment with hairline dividers. */
+/* Grouped segment: +, the mic and Send stand in one bordered segment at the control corner with hairline dividers. */
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions {
   gap: 0;
   padding: 2px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-control);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
 }
@@ -96,15 +96,15 @@
   box-shadow: inset 1px 0 0 color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions .acpmux-send {
-  border-radius: 6px;
+  border-radius: calc(var(--ds-radius-control) - 2px);
   background: none;
 }
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-plus .acpmux-picker-button {
-  border-radius: 8px;
+  border-radius: var(--ds-radius-control);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
 }
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-access-trigger {
-  border-radius: 8px;
+  border-radius: var(--ds-radius-control);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
 }
 
@@ -117,7 +117,7 @@
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-composer-plus .acpmux-picker-button {
   width: var(--acpmux-composer-control);
   height: var(--acpmux-composer-control);
-  border-radius: 50%;
+  border-radius: 50%; /* radius-allow: the + disc is a true circle, as Codex draws it (Leo: circles truly round) */
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-text);
 }
@@ -128,7 +128,7 @@
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-send {
   width: var(--acpmux-composer-control);
   height: var(--acpmux-composer-control);
-  border-radius: 50%;
+  border-radius: 50%; /* radius-allow: Send is a true circle (Leo: circles truly round) */
   background: var(--agent-text);
   color: var(--agent-page-bg, var(--acpmux-base));
 }
