@@ -612,9 +612,11 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
 /// `_acpmux/release_to_watch {sessionId, terminalPid?}`: once idle, the chat's harness stops and
 /// the chat watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
 /// `terminalPid` is the process that runs the conversation next (`acpmux resume-here`, which
-/// becomes the harness): the chat's prompts go into it. Over the unix socket it must be the
-/// caller itself, by the pid the kernel gave at accept; an in-process caller (tests, an
-/// embedding) names it. Any other caller binds no terminal.
+/// becomes the harness): the chat's prompts go into it. It binds only when it is the caller itself
+/// over this machine's unix socket, by the pid the kernel gave at accept. Any other `terminalPid`
+/// (a pid the kernel did not give: a Windows pipe, a credential read that failed, an in-process
+/// caller; another process's pid; a remote origin) is refused whole (`watch.terminal_unverified`):
+/// nothing is released and nothing bound, so a caller never hands a chat to a process it only names.
 pub(super) async fn release_to_watch(
     hub: &Arc<Hub>,
     params: &Value,
@@ -623,14 +625,27 @@ pub(super) async fn release_to_watch(
 ) -> Result<Value, RpcError> {
     use crate::sender_harness::SocketPeer;
     let s = hub.resolve(super::session_key(params)?)?;
-    let named =
-        params.get("terminalPid").and_then(Value::as_u64).and_then(|p| u32::try_from(p).ok());
-    let terminal = match (named, origin, socket_peer) {
-        (Some(named), super::Origin::Local, SocketPeer::Pid(pid)) if named == pid => Some(pid),
-        (Some(named), super::Origin::Local, SocketPeer::Unknown) => Some(named),
-        _ => None,
+    let terminal = match params.get("terminalPid").filter(|v| !v.is_null()) {
+        None => None,
+        Some(named) => {
+            let named = named.as_u64().and_then(|p| u32::try_from(p).ok());
+            match (named, origin, socket_peer) {
+                (Some(named), super::Origin::Local, SocketPeer::Pid(pid)) if named == pid => {
+                    Some(pid)
+                }
+                _ => return Err(terminal_unverified()),
+            }
+        }
     };
     hub.release_to_watch(&s, terminal).await
+}
+
+/// A `terminalPid` the daemon cannot prove is its caller's own (`release_to_watch`).
+fn terminal_unverified() -> RpcError {
+    RpcError::invalid_params(
+        "a chat is handed to a terminal only by that terminal's own process over this machine's unix socket",
+    )
+    .with_data(json!({"reason": "watch.terminal_unverified"}))
 }
 
 #[cfg(test)]

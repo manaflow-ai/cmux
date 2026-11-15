@@ -14,37 +14,43 @@ struct Terminal {
 }
 
 impl Terminal {
-    fn start(
+    /// Starts the terminal's Claude Code. `hand_off`: the daemon's unix socket and the chat it asks
+    /// to take over first, from its own process, as `acpmux resume-here` does. `env`: more of the
+    /// fake's settings (`FAKE_NO_INBOX`, `FAKE_NAMED_PID`).
+    async fn start(
         root: &std::path::Path,
         asid: &str,
         transcript: &std::path::Path,
         turn_ms: u64,
+        hand_off: Option<(&std::path::Path, &str)>,
+        env: &[(&str, String)],
     ) -> Self {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude_terminal.py");
         let log = root.join(format!("terminal-{}.log", uuid::Uuid::now_v7()));
-        let child = std::process::Command::new("python3")
-            .arg(fake)
+        let mut cmd = std::process::Command::new("python3");
+        cmd.arg(fake)
             .env("FAKE_CONFIG", root.join("claude"))
             .env("FAKE_SESSION", asid)
             .env("FAKE_TRANSCRIPT", transcript)
             .env("FAKE_LOG", &log)
             .env("FAKE_TURN_MS", turn_ms.to_string())
             .current_dir(root.join("project"))
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stdin(std::process::Stdio::piped());
+        if let Some((sock, chat)) = hand_off {
+            cmd.env("FAKE_DAEMON_SOCK", sock).env("FAKE_CHAT", chat);
+        }
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let child = cmd.spawn().unwrap();
         let t = Terminal { child, log };
-        for _ in 0..400 {
+        for _ in 0..1000 {
             if t.lines("READY").len() == 1 {
                 return t;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
         panic!("the fake terminal Claude Code did not start");
-    }
-
-    fn pid(&self) -> u32 {
-        self.child.id()
     }
 
     /// The person types `text` and presses Enter in the terminal.
@@ -93,6 +99,14 @@ impl Drop for Terminal {
     }
 }
 
+/// `hub` on a unix socket of its own under `root`, as the daemon listens; its path.
+async fn listen(hub: &Arc<Hub>, root: &std::path::Path) -> std::path::PathBuf {
+    let path = root.join("d.sock");
+    let listener = acpmux::server::bind_unix(&path).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
+    path
+}
+
 /// The monotonic clock the fake's log uses, in ns.
 fn mono_ns() -> u64 {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
@@ -113,16 +127,13 @@ async fn handed_to_terminal(
     let project = root.join("project");
     let asid = file.file_stem().unwrap().to_string_lossy().into_owned();
     append(&file, &[claude_answer(&project, &asid, "before-gate after-gate")]);
-    let terminal = Terminal::start(&root, &asid, &file, turn_ms);
-    // `resume-here` asks for the hand-off as the process that then becomes Claude Code.
-    let mut c = connect(&hub).await;
-    let released = c
-        .request(
-            "_acpmux/release_to_watch",
-            json!({"sessionId": sid, "terminalPid": terminal.pid()}),
-        )
-        .await
-        .unwrap();
+    // `resume-here` asks for the hand-off over the daemon's unix socket as the process that then
+    // becomes Claude Code: the daemon binds the pid the kernel gives it.
+    let sock = listen(&hub, &root).await;
+    let terminal = Terminal::start(&root, &asid, &file, turn_ms, Some((&sock, &sid)), &[]).await;
+    let released = terminal.texts("RELEASED");
+    assert_eq!(released.len(), 1, "refused: {:?}", terminal.texts("REFUSED"));
+    let released: Value = serde_json::from_str(&released[0]).unwrap();
     assert_eq!(released["session"]["watching"], "claude", "{released}");
     let _ = std::fs::remove_file(&gate);
     (hub, sid, file, terminal, root, text)
@@ -238,35 +249,58 @@ async fn a_terminal_harness_with_no_inbox_refuses_with_why() {
     std::fs::write(&gate, "go").unwrap();
     turn.await.unwrap().unwrap();
     let asid = file.file_stem().unwrap().to_string_lossy().into_owned();
-    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude_terminal.py");
-    let log = root.join("noinbox.log");
-    let mut child = std::process::Command::new("python3")
-        .arg(fake)
-        .env("FAKE_CONFIG", root.join("claude"))
-        .env("FAKE_SESSION", &asid)
-        .env("FAKE_TRANSCRIPT", &file)
-        .env("FAKE_LOG", &log)
-        .env("FAKE_NO_INBOX", "1")
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    for _ in 0..400 {
-        if std::fs::read_to_string(&log).is_ok_and(|l| l.contains("READY")) {
+    let sock = listen(&hub, &root).await;
+    let no_inbox = [("FAKE_NO_INBOX", "1".to_owned())];
+    let terminal = Terminal::start(&root, &asid, &file, 300, Some((&sock, &sid)), &no_inbox).await;
+    assert_eq!(terminal.texts("RELEASED").len(), 1, "{:?}", terminal.texts("REFUSED"));
+    let mut c = connect(&hub).await;
+    let refused = c.request(method::SESSION_PROMPT, prompt(&sid, "hello", None)).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("bridge.no_inbox")), "{refused:?}");
+    // The terminal ended: the chat is a watch as any other at once (Take Over runs it here),
+    // its terminal tags gone, so a client shows Take Over and Continue in New Chat again.
+    drop(terminal);
+    let mut tags = Value::Null;
+    for _ in 0..500 {
+        tags = hub.session_summary(&hub.resolve(&sid).unwrap())["tags"].clone();
+        if tags.get("via").is_none() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let mut c = connect(&hub).await;
-    c.request("_acpmux/release_to_watch", json!({"sessionId": sid, "terminalPid": child.id()}))
-        .await
-        .unwrap();
-    let refused = c.request(method::SESSION_PROMPT, prompt(&sid, "hello", None)).await;
-    assert!(refused.as_ref().is_err_and(|e| e.contains("bridge.no_inbox")), "{refused:?}");
-    // The terminal ended: the chat is a watch as any other (Take Over runs it here).
-    let _ = child.kill();
-    let _ = child.wait();
+    assert!(tags.get("via").is_none() && tags.get("bridge").is_none(), "{tags}");
     let after = c.request(method::SESSION_PROMPT, prompt(&sid, "hello", None)).await;
     assert!(after.as_ref().is_err_and(|e| e.contains("watch.read_only")), "{after:?}");
+    let _ = std::fs::remove_file(&gate);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A `terminalPid` the kernel did not give for its caller binds nothing and releases nothing
+/// (review P2-F1): not over a connection with no peer pid (a Windows pipe, a credential read that
+/// failed, an in-process caller), not one naming another process. The chat keeps running here.
+#[tokio::test]
+async fn a_terminal_pid_the_kernel_did_not_give_releases_nothing() {
+    let (hub, sid, file, gate, turn, _, root) = chat_mid_turn().await;
+    std::fs::write(&gate, "go").unwrap();
+    turn.await.unwrap().unwrap();
+    let not_watching = |hub: &Arc<Hub>| hub.resolve(&sid).unwrap().meta().watching.is_none();
+    // No peer pid: an in-process connection.
+    let mut c = connect(&hub).await;
+    let named = std::process::id();
+    let refused = c
+        .request("_acpmux/release_to_watch", json!({"sessionId": sid, "terminalPid": named}))
+        .await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("terminal")), "{refused:?}");
+    assert!(not_watching(&hub), "released on a pid nobody proved");
+    // Over the unix socket, naming another process than itself.
+    let asid = file.file_stem().unwrap().to_string_lossy().into_owned();
+    let sock = listen(&hub, &root).await;
+    let other = [("FAKE_NAMED_PID", std::process::id().to_string())];
+    let terminal = Terminal::start(&root, &asid, &file, 300, Some((&sock, &sid)), &other).await;
+    assert!(terminal.texts("RELEASED").is_empty());
+    let why = terminal.texts("REFUSED");
+    assert!(why.len() == 1 && why[0].contains("watch.terminal_unverified"), "{why:?}");
+    assert!(not_watching(&hub), "released on another process's pid");
+    drop(terminal);
     let _ = std::fs::remove_file(&gate);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -310,6 +344,69 @@ async fn terminal_and_chat_latencies() {
     eprintln!("terminal chat: terminal typed -> chat row p50 {t50:?} p95 {t95:?} over 20 runs");
     assert!(s95 < Duration::from_millis(500), "send p95 {s95:?}");
     assert!(t95 < Duration::from_millis(500), "typed p95 {t95:?}");
+    drop(terminal);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A prompt typed in the terminal whose text contains or repeats a pending chat send's still shows,
+/// once, as typed; the chat's shows once under its id (review P1-F1, P2-F3: text matching used to
+/// hide both terminal prompts).
+#[tokio::test]
+async fn terminal_prompts_overlapping_a_chat_send_each_show_once() {
+    let (hub, sid, _file, mut terminal, root, first) = handed_to_terminal(1500).await;
+    terminal.type_line("first");
+    assert_eq!(terminal.until("RUN", 1).await, ["first"]);
+    let chat = send(&hub, &sid, "test", "chat-test");
+    assert_eq!(terminal.until("RECV", 2).await[1], "test");
+    terminal.type_line("please test the migration");
+    terminal.type_line("test");
+    assert_eq!(terminal.until("RECV", 4).await.len(), 4);
+    let chat = tokio::time::timeout(Duration::from_secs(20), chat).await.unwrap().unwrap();
+    assert_eq!(chat.unwrap()["_meta"]["acpmux"]["answered"], true);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let shown: Vec<(String, String)> = hub
+        .events(&sid, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "user_message")
+        .map(|e| {
+            let id = e.msg["promptId"].as_str().unwrap_or_default();
+            let who = if id == "chat-test" { "chat" } else { "typed" };
+            (e.msg["text"].as_str().unwrap_or_default().to_owned(), who.to_owned())
+        })
+        .collect();
+    let mut rest = shown[1..].to_vec();
+    rest.sort();
+    assert_eq!(shown[0].0, first);
+    let want = [
+        ("first", "typed"),
+        ("please test the migration", "typed"),
+        ("test", "chat"),
+        ("test", "typed"),
+    ]
+    .map(|(t, w)| (t.to_owned(), w.to_owned()));
+    assert_eq!(rest, want, "{shown:?}");
+    drop(terminal);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// More prompts typed mid-turn than the chat keeps as queued each show once (review P2-F4: the
+/// oldest past the cap used to be forgotten as shown and shown again when the turn took it).
+#[tokio::test]
+async fn many_prompts_typed_mid_turn_each_show_once() {
+    let (hub, sid, _file, mut terminal, root, first) = handed_to_terminal(2500).await;
+    terminal.type_line("start");
+    assert_eq!(terminal.until("RUN", 1).await, ["start"]);
+    let typed: Vec<String> = (0..70).map(|i| format!("typed {i}")).collect();
+    for t in &typed {
+        terminal.type_line(t);
+    }
+    assert_eq!(terminal.until("RECV", 71).await.len(), 71);
+    assert_eq!(terminal.until("END", 71).await.len(), 71);
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let mut want = vec![first.clone(), "start".to_owned()];
+    want.extend(typed);
+    assert_eq!(prompts(&hub, &sid), want, "each once, in order");
     drop(terminal);
     let _ = std::fs::remove_dir_all(&root);
 }

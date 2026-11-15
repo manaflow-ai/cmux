@@ -66,6 +66,9 @@ pub(super) struct Pending {
     wire: String,
     /// The watch showed its line (known by its text, which another line may repeat).
     shown: bool,
+    /// The watch read the `enqueue` line the app wrote when it queued it mid-turn: that line is
+    /// this delivery's, not a prompt typed in the terminal (`claim_enqueued`).
+    enqueued: bool,
     order: u64,
     turn: watch::Sender<Outcome>,
 }
@@ -113,6 +116,7 @@ impl Deliveries {
             text: text.to_owned(),
             wire: wire.to_owned(),
             shown: false,
+            enqueued: false,
             order: self.next,
             turn,
         };
@@ -135,48 +139,112 @@ impl Deliveries {
     }
 }
 
+/// What the watch took from the delivery registry while it read one batch: given back
+/// (`unclaim`) when the journal refused the batch, so the batch read again finds the same
+/// deliveries unshown and shows them, never skipping a prompt.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Claim {
+    /// The delivery with this uuid was shown.
+    Shown(String),
+    /// The `enqueue` line of the delivery with this uuid was read as its own.
+    Enqueued(String),
+}
+
+/// Gives back what a refused batch claimed (`Claim`).
+pub(super) fn unclaim(claims: &[Claim]) {
+    let mut all = deliveries();
+    for claim in claims {
+        match claim {
+            Claim::Shown(uuid) => {
+                if let Some(p) = all.by_uuid.get_mut(uuid) {
+                    p.shown = false;
+                }
+            }
+            Claim::Enqueued(uuid) => {
+                if let Some(p) = all.by_uuid.get_mut(uuid) {
+                    p.enqueued = false;
+                }
+            }
+        }
+    }
+}
+
+/// A delivery the watch shows now: (uuid, prompt id, text as sent).
+pub(super) type ShownDelivery = (String, String, String);
+
+fn show(uuid: &str, p: &mut Pending) -> ShownDelivery {
+    p.shown = true;
+    (uuid.to_owned(), p.prompt_id.clone(), p.text.clone())
+}
+
 /// The delivery a transcript line with `uuid` in `session_id` shows, if acpmux sent it and the
 /// watch has not shown it yet, marked shown: Claude Code may write it twice (the attachment that
 /// takes it into a running turn, then its line), and it shows once.
-pub(super) fn delivered(session_id: &str, uuid: &str) -> Option<(String, String)> {
+pub(super) fn delivered(session_id: &str, uuid: &str) -> Option<ShownDelivery> {
     let mut all = deliveries();
     let p = all
         .by_uuid
         .get_mut(uuid)
         .filter(|p| p.session_id == session_id && !p.shown && p.turn.borrow().is_none())?;
-    p.shown = true;
-    Some((p.prompt_id.clone(), p.text.clone()))
+    Some(show(uuid, p))
 }
 
-/// Whether `text`, a prompt the app queued, is one acpmux delivered into `session_id` and has not
-/// answered: it shows by its own line, under its id (`delivered`, `delivered_text`), not as typed.
-pub(super) fn pending_wire(session_id: &str, text: &str) -> bool {
+/// The oldest unanswered delivery into `session_id` whose text as the app got it is exactly
+/// `text`, among those `pick` admits.
+fn oldest_with<'a>(
+    all: &'a mut Deliveries,
+    session_id: &str,
+    text: &str,
+    pick: impl Fn(&Pending) -> bool,
+) -> Option<(&'a String, &'a mut Pending)> {
     let text = text.trim();
-    deliveries().by_uuid.values().any(|p| {
-        p.session_id == session_id
-            && p.turn.borrow().is_none()
-            && !p.wire.trim().is_empty()
-            && (p.wire.trim() == text || text.contains(p.wire.trim()))
-    })
+    all.by_uuid
+        .iter_mut()
+        .filter(|(_, p)| {
+            p.session_id == session_id
+                && p.turn.borrow().is_none()
+                && !p.wire.trim().is_empty()
+                && p.wire.trim() == text
+                && pick(p)
+        })
+        .min_by_key(|(_, p)| p.order)
+}
+
+/// The `enqueue` line the app wrote for a prompt with `text` it queued mid-turn, when it is a
+/// delivery's: the oldest unanswered, unshown delivery into `session_id` with exactly that text and
+/// no `enqueue` line yet takes it (its uuid). Each delivery takes one line, so a prompt the terminal
+/// typed with the same text still shows as typed, and one whose text only contains a delivery's
+/// is never taken for it.
+pub(super) fn claim_enqueued(session_id: &str, text: &str) -> Option<String> {
+    let mut all = deliveries();
+    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown && !p.enqueued)?;
+    p.enqueued = true;
+    Some(uuid.clone())
+}
+
+/// The delivery a running turn took in by its text (`queued_command` attachment) when the
+/// attachment names no uuid acpmux sent: one whose `enqueue` line was its own
+/// (`claim_enqueued`) and that has not shown, marked shown.
+pub(super) fn delivered_enqueued(session_id: &str, text: &str) -> Option<ShownDelivery> {
+    let mut all = deliveries();
+    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown && p.enqueued)?;
+    let uuid = uuid.clone();
+    Some(show(&uuid, p))
 }
 
 /// The delivery a Codex rollout's prompt `text` in `session_id` shows: the oldest one acpmux
 /// sent with that text the watch has not shown yet, marked shown.
-pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<(String, String)> {
-    let text = text.trim();
+pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<ShownDelivery> {
     let mut all = deliveries();
-    let p = all
-        .by_uuid
-        .values_mut()
-        .filter(|p| {
-            p.session_id == session_id
-                && !p.shown
-                && p.turn.borrow().is_none()
-                && p.wire.trim() == text
-        })
-        .min_by_key(|p| p.order)?;
-    p.shown = true;
-    Some((p.prompt_id.clone(), p.text.clone()))
+    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown)?;
+    let uuid = uuid.clone();
+    Some(show(&uuid, p))
+}
+
+/// A delivery for tests that drive the watch alone: `uuid` into `session_id` as `prompt_id`.
+#[cfg(test)]
+pub(super) fn test_delivery(session_id: &str, prompt_id: &str, uuid: &str, text: &str) {
+    let _ = deliveries().claim(uuid.to_owned(), session_id, prompt_id, text, text);
 }
 
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
@@ -364,10 +432,14 @@ impl Hub {
             }
         }
         let target = match terminal {
-            Some(driver) => match terminal_target(&family, &agent_session_id, driver).await {
+            Some(driver) => match terminal_target(&family, &agent_session_id, driver.clone()).await
+            {
                 TerminalTarget::Ready(target) => Some(target),
                 // The terminal's harness ended: a watch as any other (Take Over runs it here).
-                TerminalTarget::Gone => None,
+                TerminalTarget::Gone => {
+                    self.terminal_ended(session, driver.pid).await;
+                    None
+                }
                 TerminalTarget::NoInbox(why) => return Some(Err(no_inbox(&why))),
             },
             None => {
