@@ -145,7 +145,7 @@ pub(crate) fn exited_with(code: i32, stderr: Option<&str>) -> LinkError {
     let last = stderr
         .and_then(|text| text.lines().rev().map(str::trim).find(|line| !line.is_empty()))
         .map(|line| match line.char_indices().nth(STDERR_LINE_LIMIT) {
-            Some((cut, _)) => format!("{}…", &line[..cut]),
+            Some((cut, _)) => format!("{}…", line.get(..cut).unwrap_or(line)),
             None => line.to_owned(),
         });
     LinkError::HelperNotRunning {
