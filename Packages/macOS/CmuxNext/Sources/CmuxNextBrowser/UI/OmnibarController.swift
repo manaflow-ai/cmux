@@ -166,6 +166,13 @@ import Foundation
             lastPreload = nil
             return
         }
+        if lastPreload != nil, state.phase != .editing {
+            // The edit ended with no end effect: Escape reverted the typed text (Chrome's OnRevert counts
+            // every match as missed), or the field left editing some other way (forgotten unlearned).
+            preloader.omniboxPreloadEnded(opened: nil, learn: input == .key(.escape))
+            lastPreload = nil
+            return
+        }
         guard let request = OmnibarPreloadRequest.current(state), request != lastPreload else { return }
         lastPreload = request
         preloader.omniboxPreload(text: request.text, matches: request.matches)
