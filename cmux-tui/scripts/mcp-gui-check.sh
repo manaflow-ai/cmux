@@ -457,7 +457,7 @@ PY
 check "agents.cmuxMcp off: the old entry's cmux mcp serve, started for an agent chat, is the off server" $?
 rm -f "$CLAUDE_CONFIG_DIR/.claude.json"
 # The daemon's question to Codex per Codex chat start (`codex mcp get cmux`, logged with its time).
-times=$(cat "$D"/daemon*.log 2>/dev/null | grep 'codex mcp get cmux' | sed -n 's/.*ms=\([0-9]*\).*/\1/p' | tr '\n' ' ')
+times=$(cat "$D"/daemon*.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep 'codex mcp get cmux' | sed -n 's/.*ms=\([0-9]*\).*/\1/p' | tr '\n' ' ')
 slow=1; [ -n "$times" ] && slow=0
 for ms in $times; do [ "$ms" -lt 2000 ] || slow=1; done
 check "codex mcp get per Codex chat start (ms): ${times:-none logged}" $slow
