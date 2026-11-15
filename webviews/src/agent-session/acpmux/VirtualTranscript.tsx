@@ -1628,6 +1628,7 @@ function TranscriptView({
   openAt,
   onAnchor,
   anchorNow,
+  placeNow,
   inViewNow,
   heldWorkedClosing,
   onLoadOlder,
@@ -1669,6 +1670,10 @@ function TranscriptView({
   /// Filled with where it last rested in view (null at the latest message, undefined when it was
   /// never in view), for a page about to let go.
   anchorNow?: React.MutableRefObject<(() => ScrollAnchor | null | undefined) | undefined>;
+  /// Filled with the placement Toggle Terminal and Chat makes before the pane shows (togglePlace.ts):
+  /// row `rowId` at the top of the view, or the latest message for null, in one frame with no glide.
+  /// False when the row is not loaded. A transcript with no height yet places on its first layout.
+  placeNow?: React.MutableRefObject<((rowId: string | null) => boolean) | undefined>;
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
@@ -2170,6 +2175,9 @@ function TranscriptView({
   const sessionIdRef = useRef(sessionId);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
+  /// A Toggle Terminal and Chat placement asked while the transcript had no height (`placeAt`):
+  /// a row id, null for the latest message, undefined for none.
+  const pendingPlace = useRef<string | null | undefined>(undefined);
   // The native pane's width, distinct from the transcript scroller's width when Push always reserves
   // a Session Info column. The pane-pinned rail uses this so its inset never follows that column.
   const [paneWidth, setPaneWidth] = useState(() => lastTranscriptBox.width);
@@ -5963,6 +5971,42 @@ function TranscriptView({
     rideToLatest(node, target, reduce, true);
   };
   jumpToLatestRef.current = jumpToLatest;
+  // Toggle Terminal and Chat (togglePlace.ts): the turn the terminal showed, at the top of the view,
+  // set before the pane shows. A cut, never a glide: the pane is hidden while it moves, so the first
+  // frame the reader sees is already there, its rows mounted (`handleScroll` at once, not on the
+  // scroll event a hidden page may not get before it shows).
+  const placeAt = (rowId: string | null): boolean => {
+    const node = ref.current;
+    if (!node) return false;
+    const { layout: placed, rows: shown } = latestLayout.current;
+    const index = rowId === null ? -1 : indexOfRow(shown, rowId, { current: -1 });
+    if (rowId !== null && index < 0) return false;
+    if (node.clientHeight <= 0) {
+      pendingPlace.current = rowId;
+      return true;
+    }
+    pendingPlace.current = undefined;
+    const latest = Math.max(0, placed.totalHeight - node.clientHeight);
+    revealing.current = undefined;
+    stopJump();
+    unlift();
+    clearScrollOrigin(node);
+    if (index < 0) {
+      node.scrollTop = latest;
+      scrolledTo.current = { top: node.scrollTop, atLatest: true };
+      follow(true, "toggle");
+    } else {
+      writeAnchorScrollTop(node, Math.min(latest, placed.geometry.topAt(index)));
+      scrolledTo.current = { top: node.scrollTop, atLatest: false };
+      follow(false, "toggle");
+    }
+    handleScroll(node, true);
+    return true;
+  };
+  if (placeNow) placeNow.current = placeAt;
+  useLayoutEffect(() => {
+    if (pendingPlace.current !== undefined && height > 0) placeAt(pendingPlace.current);
+  });
   /// Jump up (jumpUp.ts): to where the reader left off, holding where the view is; pressed again
   /// (or Esc), back there. The reader asked for this place, so the view stops following the reply.
   /// It glides on Jump to latest's ride (curve, distance duration, move token): a long way skips at

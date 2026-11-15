@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 
 #[path = "tabs_panes.rs"]
 pub mod panes;
+#[path = "tabs_place.rs"]
+pub mod place;
 
 // MARK: New tab kind
 
