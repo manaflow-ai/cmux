@@ -628,7 +628,24 @@ fn rolled_back(error: String, left: &[String]) -> String {
 }
 
 /// The changes that put back what a receipt's `undo` names.
-pub(super) fn undo_changes(undo: &Map<String, Value>) -> Result<Vec<Change>, String> {
+pub(super) fn undo_changes(app: &Path, receipt: &Value) -> Result<Vec<Change>, String> {
+    let undo =
+        receipt.pointer("/undo/files").and_then(Value::as_object).cloned().unwrap_or_default();
+    // Only files still as the try left them go back: an update that replaced the bundle since
+    // (a new nightly) is never overwritten with the files from before the try.
+    let set =
+        receipt.pointer("/steps/files").and_then(Value::as_object).cloned().unwrap_or_default();
+    let bin = app.join(BIN);
+    for (file, want) in &set {
+        let target = bin.join(file);
+        let have = if target.is_file() { Some(sha256_file(&target)?) } else { None };
+        if have.as_deref() != want.as_str() {
+            return Err(format!(
+                "{} changed since the try (an update?): nothing was put back",
+                target.display()
+            ));
+        }
+    }
     undo.iter()
         .map(|(file, was)| {
             if !FILES.iter().any(|(_, known)| known == file) {

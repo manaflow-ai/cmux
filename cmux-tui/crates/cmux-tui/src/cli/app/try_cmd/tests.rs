@@ -309,7 +309,7 @@ fn app_try_live_swaps_hands_off_and_undo_restores_the_bytes() {
     fixture
         .store
         .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(),
-                        "undo": {"files": applied.prior}}))
+                        "steps": applied.steps, "undo": {"files": applied.prior}}))
         .unwrap();
 
     // The same try again changes nothing and leaves the daemon alone.
@@ -324,6 +324,26 @@ fn app_try_live_swaps_hands_off_and_undo_restores_the_bytes() {
     assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
     assert_eq!(read(&fixture.app, "cmux-holder").as_deref(), Some(OLD_HOLDER));
     assert_eq!(daemon.terminated.get(), 2, "undo hands the daemon over too");
+}
+
+#[test]
+fn app_try_undo_refuses_after_an_update_replaced_the_files() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let applied =
+        try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
+    fixture
+        .store
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(),
+                        "steps": applied.steps, "undo": {"files": applied.prior}}))
+        .unwrap();
+    // The next nightly replaced the bundle: undo must not put the files from before the try back.
+    fs::write(fixture.app.join(live::BIN).join("cmux"), b"next nightly").unwrap();
+    let error = undo_live(&fixture.store, &daemon).unwrap_err();
+    assert!(error.contains("changed since the try"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(&b"next nightly"[..]));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(NEW_HOST));
 }
 
 #[test]

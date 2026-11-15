@@ -640,7 +640,7 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let changes = match live::undo_changes(&files) {
+    let changes = match live::undo_changes(&app, &last) {
         Ok(changes) => changes,
         Err(error) => return failure("try.undo_refused", &error, global.output),
     };
@@ -674,9 +674,8 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
 #[cfg(test)]
 fn undo_live(store: &Store, daemon: &dyn Daemon) -> Result<live::Applied, String> {
     let last = store.last().ok_or("no receipt")?;
-    let files = last.pointer("/undo/files").and_then(Value::as_object).cloned().unwrap_or_default();
     let app = PathBuf::from(last.get_str("app").unwrap_or_default());
-    let changes = live::undo_changes(&files)?;
+    let changes = live::undo_changes(&app, &last)?;
     live::apply(&app, &changes, store, daemon, &mut Phases::default())
 }
 
