@@ -438,3 +438,146 @@ fn a_kind_index_write_does_not_sync() {
     assert_ne!(std::fs::read(&copy).unwrap(), first, "the copy was replaced");
     assert_eq!(syncs.get(), 0, "a derived kind index performed durability work");
 }
+
+/// The kinds a resend's prompt state reads (`hub/prompt_ledger.rs` `PROMPT_STATE_KINDS`).
+const PROMPT_KINDS: &[&str] = &[
+    "turn_stop_requested",
+    "queued",
+    "user_message",
+    "turn_started",
+    "turn_result",
+    "prompt_refused",
+    "queue_declined",
+    "queue_removed",
+    "dequeued",
+];
+
+/// A restart's resume pass asks each chat's prompt state per retry and per queued prompt, and
+/// each ask scans its indexed kinds (NIGHTLY sample 2026-11-15: 2947 of 4269 samples under
+/// `scan_kinds`, each call reading, hashing and parsing the chat's whole copy again). A scan of a
+/// log a scan already read parses none of its lines again, however many times it is asked; a
+/// record appended after is seen, at the cost of the appended lines only.
+#[test]
+fn a_repeated_scan_parses_no_line_again_and_sees_what_was_appended() {
+    let root = root();
+    let (store, mut log) = store_with_log(&root, 12);
+    let want = |log: &[EventRecord]| -> Vec<EventRecord> {
+        log.iter().filter(|r| PROMPT_KINDS.contains(&r.kind.as_str())).cloned().collect()
+    };
+    assert_eq!(scanned(&store, PROMPT_KINDS), want(&log));
+    assert_eq!(scanned(&store, PROMPT_KINDS), want(&log));
+    PARSED_LINES.with(|n| n.set(0));
+    for _ in 0..20 {
+        assert_eq!(scanned(&store, PROMPT_KINDS), want(&log));
+    }
+    let parsed = PARSED_LINES.with(|n| n.get());
+    assert_eq!(parsed, 0, "20 scans of an unchanged log parsed {parsed} lines");
+    // Appended after: the next scan returns them, parsing only them.
+    let mut seq = log.last().unwrap().seq;
+    for kind in ["queued", "tool_call_update", "user_message", "turn_result"] {
+        seq += 1;
+        let r = rec(seq, kind);
+        store.append("c", &r).unwrap();
+        log.push(r);
+    }
+    store.flush().unwrap();
+    PARSED_LINES.with(|n| n.set(0));
+    for _ in 0..20 {
+        assert_eq!(scanned(&store, PROMPT_KINDS), want(&log), "the appended records are seen");
+    }
+    let parsed = PARSED_LINES.with(|n| n.get());
+    assert!(parsed <= 12, "20 scans after 4 appends parsed {parsed} lines");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A segment replaced by a rename (a retention rewrite) after a scan read it is read again: the
+/// scan returns the new file's records, not the old file's.
+#[test]
+fn a_segment_replaced_after_a_scan_is_read_again() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 4);
+    let kinds = ["queued"];
+    scanned(&store, &kinds);
+    scanned(&store, &kinds);
+    let (_, first) = store.segments("c").unwrap()[0].clone();
+    let text = std::fs::read_to_string(&first).unwrap();
+    let kept: Vec<&str> = text.lines().filter(|l| !l.contains("\"kind\":\"queued\"")).collect();
+    let tmp = first.with_extension("rewrite");
+    std::fs::write(&tmp, kept.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+    std::fs::rename(&tmp, &first).unwrap();
+    let dropped: Vec<u64> = text
+        .lines()
+        .filter(|l| l.contains("\"kind\":\"queued\""))
+        .map(|l| serde_json::from_str::<EventRecord>(l).unwrap().seq)
+        .collect();
+    assert!(!dropped.is_empty());
+    let expected: Vec<EventRecord> =
+        log.iter().filter(|r| r.kind == "queued" && !dropped.contains(&r.seq)).cloned().collect();
+    assert_eq!(scanned(&store, &kinds), expected);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The resume pass's cost, timed: `ACPMUX_LEDGER_BENCH=1 cargo test -p acpmux --lib
+/// ledger_scan_resume_pass_bench -- --ignored --nocapture`. 64 chats of 300 turns each (a
+/// 4 KiB prompt and 20 agent updates a turn), each asked its prompt state 4 times a pass.
+#[test]
+#[ignore = "a timing harness, run by hand"]
+fn ledger_scan_resume_pass_bench() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 8 << 20).unwrap();
+    let (chats, turns) = (64u64, 300u64);
+    for chat in 0..chats {
+        let id = format!("c{chat}");
+        let mut seq = 0;
+        for _ in 0..turns {
+            for kind in ["queued", "user_message", "turn_started"]
+                .into_iter()
+                .chain(std::iter::repeat_n("tool_call_update", 20))
+                .chain(["turn_result"])
+            {
+                seq += 1;
+                let pad = if kind == "user_message" { 4096 } else { 512 };
+                let msg = json!({"promptId": format!("p{seq}"), "turnId": format!("t{seq}"), "text": "x".repeat(pad)});
+                let dir = if kind == "tool_call_update" { "in" } else { "mux" };
+                let r = EventRecord {
+                    seq,
+                    at: seq,
+                    dir: dir.into(),
+                    kind: kind.into(),
+                    msg,
+                    host_seq: None,
+                };
+                store.append(&id, &r).unwrap();
+            }
+        }
+    }
+    store.flush().unwrap();
+    let pass = |store: &LocalStore| {
+        let started = std::time::Instant::now();
+        let mut seen = 0u64;
+        for chat in 0..chats {
+            for _ in 0..4 {
+                store
+                    .scan_kinds(&format!("c{chat}"), PROMPT_KINDS, &mut |_| {
+                        seen += 1;
+                        true
+                    })
+                    .unwrap();
+            }
+        }
+        (started.elapsed(), seen)
+    };
+    let (first, seen) = pass(&store);
+    let mut later = Vec::new();
+    for _ in 0..5 {
+        later.push(pass(&store).0);
+    }
+    later.sort();
+    println!(
+        "LEDGER_BENCH chats={chats} turns={turns} scans_per_pass={} records_per_pass={seen} first_pass_ms={:.1} median_later_pass_ms={:.1}",
+        chats * 4,
+        first.as_secs_f64() * 1e3,
+        later[later.len() / 2].as_secs_f64() * 1e3,
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
