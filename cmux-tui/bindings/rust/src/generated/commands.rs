@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294.
+// cmux-tui mux protocol 12, IR b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -76,6 +76,8 @@ pub struct AttachSurfaceRequest {
     pub expected_terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub output_coalesce_ms: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub replay_history_rows: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4360,6 +4362,9 @@ impl CmuxClient {
         }
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
+        }
+        if !request.output_coalesce_ms.is_missing() {
+            self.require_capability_field("attach-surface", "attach-output-coalesce-v1")?;
         }
         if !request.replay_history_rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-replay-history-rows-v1")?;

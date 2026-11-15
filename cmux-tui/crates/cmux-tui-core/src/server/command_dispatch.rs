@@ -1006,6 +1006,7 @@ fn dispatch_command(
             expected_generation,
             expected_terminal_id,
             replay_history_rows,
+            output_coalesce_ms,
             replay_history_start,
             snapshot,
         } => {
@@ -1025,6 +1026,7 @@ fn dispatch_command(
                 expected_generation,
                 expected_terminal_id,
                 replay_history_rows,
+                output_coalesce_ms,
                 replay_history_start,
                 snapshot,
             )
