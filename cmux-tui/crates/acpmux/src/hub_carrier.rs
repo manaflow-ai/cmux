@@ -957,7 +957,9 @@ where
             if n == 0 {
                 return Ok::<_, String>(());
             }
-            link.send(Bytes::copy_from_slice(&buf[..n])).await.map_err(|e| e.to_string())?;
+            // `read` never returns more than `buf` holds; `get` keeps that a checked fact.
+            let read_bytes = buf.get(..n).ok_or("the read overran its buffer")?;
+            link.send(Bytes::copy_from_slice(read_bytes)).await.map_err(|e| e.to_string())?;
             stats.sent.fetch_add(n as u64, Ordering::Relaxed);
             stats.records.fetch_add(1, Ordering::Relaxed);
         }
