@@ -12,6 +12,9 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// Starts the daemon before a page is visible. Callers may treat this as
     /// best effort because the normal page handshake still reports failures.
     func prewarm() async throws
+    /// ``prewarm()`` at launch, for the chats the launch restores: a host may keep what it found
+    /// for the first page handshake after it (``AcpmuxHost``, CMUX-571).
+    func prewarmForRestoredChats() async throws
     /// The peers listed by the same daemon the composer Environment picker reads.
     func chatPeers() async throws -> [AgentChatPeer]
     /// The handshake for a page that lost its daemon. Starts one only after a
@@ -57,6 +60,9 @@ extension AgentPaneHostProviding {
     public func peerSnapshot(sessionId: String) async -> Data? { nil }
 
     public func prewarm() async throws {}
+
+    /// Hosts that keep nothing for a handshake prewarm as at any other time.
+    public func prewarmForRestoredChats() async throws { try await prewarm() }
 
     public func chatPeers() async throws -> [AgentChatPeer] { [] }
 
@@ -167,6 +173,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// chat could draw. One handshake takes it, only while fresh (``AcpmuxPrewarmedEndpoint``); a
     /// restart drops it, and a page whose connect fails asks again with a full lookup.
     private var prewarmed = AcpmuxPrewarmedEndpoint()
+    /// The last lookup's settling (``lookupSettled()``).
+    private var settling: Task<Void, Never>?
     /// Runs one lookup; nil: ``findOrStart(_:daemons:startsDaemon:owned:heal:startOwner:approver:)``
     /// (a recorder in tests).
     private let lookup: (@Sendable (AcpmuxEnvironment, Bool) async throws -> AcpmuxWebEndpoint)?
@@ -282,11 +290,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
         if let kept = prewarmed.take(at: .now) { return .acpmux(connection(kept), sessionId: sessionId) }
+        // A handshake that looks up itself (it joins a launch prewarm still running, or asks again to
+        // recover the person's proof) leaves nothing for a later one: that one looks up in full.
+        prewarmed.drop()
         return .acpmux(connection(try await endpoint(startsDaemon: true)), sessionId: sessionId)
     }
 
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        .acpmux(connection(try await endpoint(startsDaemon: false)), sessionId: sessionId)
+        prewarmed.drop()
+        return .acpmux(connection(try await endpoint(startsDaemon: false)), sessionId: sessionId)
     }
 
     /// The host socket's connection, with this daemon launch's LocalApp token read now, on the
@@ -297,10 +309,19 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     public func prewarm() async throws {
-        let restarts = prewarmed.restarts
-        let found = try await endpoint(startsDaemon: true)
-        prewarmed.keep(found, at: .now, unlessRestartedSince: restarts)
+        _ = try await endpoint(startsDaemon: true)
     }
+
+    /// The launch's prewarm keeps its endpoint for the restored chat's first handshake, unless a
+    /// restart or another handshake came while it looked (``AcpmuxPrewarmedEndpoint``).
+    public func prewarmForRestoredChats() async throws {
+        let generation = prewarmed.generation
+        let found = try await endpoint(startsDaemon: true)
+        prewarmed.keep(found, at: .now, unlessDroppedSince: generation)
+    }
+
+    /// Waits until the last lookup has left `inFlight` (tests: the next call starts its own lookup).
+    func lookupSettled() async { await settling?.value }
 
     public func chatPeers() async throws -> [AgentChatPeer] {
         // Validate the app's daemon/home just as a composer handshake does. Listing never
@@ -441,7 +462,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // The lookup leaves `inFlight` when it settles, not when this caller stops waiting: a
         // caller that cancels must not let the next one start a second lookup beside it.
         // task-owner: one per lookup; ends when the lookup settles
-        Task { [weak self] in
+        settling = Task { [weak self] in
             _ = await task.result
             await self?.settled(task, startsDaemon: startsDaemon)
         }
