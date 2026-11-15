@@ -125,7 +125,7 @@ struct KeyRequestsTests {
     // MARK: The CLI
 
     /// Records each run; answers what `answer` returns.
-    final class FakeCLI: @unchecked Sendable {
+    nonisolated final class FakeCLI: @unchecked Sendable {
         var runs: [(arguments: [String], stdin: Data?)] = []
         var answer: ([String]) -> KeysCLI.Output = { _ in KeysCLI.Output(status: 0, stdout: Data("{}\n".utf8), stderr: Data()) }
 
