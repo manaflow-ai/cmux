@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextHome
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHomeModel
@@ -60,7 +61,7 @@ extension AppActions {
         services.registry.perform("home.openConversation",
                                   invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
         guard let draft, let page = shownPage(services), page.shown == id, let host = page.host,
-              let transcript = HomePageTab.transcript(in: host) else { return }
+              let transcript = HomeNativeTranscriptView.first(in: host) else { return }
         transcript.showDraft(draft)
     }
 

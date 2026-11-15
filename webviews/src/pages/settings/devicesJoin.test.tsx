@@ -1,5 +1,5 @@
 // Settings > Devices on a Mac joined to a team with the one-line join: what it joined as, and its
-// Screen sharing and Control switches, both off until the person turns one on. Each switch sends one
+// Screen sharing, Control and Your other Macs switches, all off until the person turns one on. Each switch sends one
 // `cmux.settings.devices.join_consent`; the host's answer (re-read host lists) is what the switch shows.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
@@ -21,7 +21,7 @@ test("a Mac that is not joined shows no join group", async () => {
   page.unmount();
 });
 
-test("a joined Mac shows what it joined as, with both switches off", async () => {
+test("a joined Mac shows what it joined as, with every switch off", async () => {
   const page = await renderPage({ path: "/settings/devices", mock: { devicesJoin: mockDevicesJoin } });
   await settle();
   const element = group(page.container)!;
@@ -30,6 +30,8 @@ test("a joined Mac shows what it joined as, with both switches off", async () =>
   expect(toggle(page.container, "control").getAttribute("aria-checked")).toBe("false");
   expect(element.textContent).toContain("Screen sharing");
   expect(element.textContent).toContain("Control");
+  expect(toggle(page.container, "signedInMachines").getAttribute("aria-checked")).toBe("false");
+  expect(element.textContent).toContain("Your other Macs");
   page.unmount();
 });
 
@@ -67,7 +69,7 @@ test("while a consent write is in flight both switches are disabled", async () =
   page.unmount();
 });
 
-test("while acpmux's record is unknown both switches are disabled and one action turns both off", async () => {
+test("while acpmux's record is unknown every switch is disabled and one action turns them all off", async () => {
   const page = await renderPage({
     path: "/settings/devices",
     mock: {
@@ -94,6 +96,7 @@ test("while acpmux's record is unknown both switches are disabled and one action
   ).toEqual([
     { surface: "screen", on: false },
     { surface: "control", on: false },
+    { surface: "signedInMachines", on: false },
   ]);
   page.unmount();
 });

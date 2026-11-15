@@ -360,6 +360,28 @@ fn queued_bytes(fd: std::os::fd::RawFd) -> io::Result<usize> {
 }
 
 #[cfg(unix)]
+/// Reads the bytes the PTY `fd` already holds into `buf` after its first
+/// `count`, until `buf` is full or a read would wait. An end of stream or a
+/// read error stops it; the next read of the reader loop sees it again.
+// perf-hot: 1us local-pty-output (every PTY read)
+pub(super) fn fill_waiting(
+    fd: std::os::fd::RawFd,
+    buf: &mut [u8],
+    count: &mut usize,
+    mut read: impl FnMut(&mut [u8]) -> io::Result<usize>,
+) {
+    while *count < buf.len() && readable(fd, 0).unwrap_or(false) {
+        let Some(rest) = buf.get_mut(*count..) else { return };
+        match read(rest) {
+            Ok(0) => return,
+            Ok(more) => *count += more,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return,
+        }
+    }
+}
+
+#[cfg(unix)]
 pub(super) fn readable(fd: std::os::fd::RawFd, timeout: i32) -> io::Result<bool> {
     let mut descriptor = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
     loop {

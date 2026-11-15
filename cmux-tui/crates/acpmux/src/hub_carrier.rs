@@ -1232,6 +1232,8 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
     use crate::no_panic::LockExt;
     let carrier = hub.hub_carrier.clear();
     let serving = hub.hub_carrier_serve.lock_or_recover().take();
+    // The workspace routes to the person's other machines go with the carrier they dial.
+    hub.machine_routes.clear();
     carrier.is_some() || serving.is_some()
 }
 

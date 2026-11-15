@@ -55,6 +55,9 @@ pub struct SessionCfg {
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub max_width: Option<u32>,
+    /// Linux: how the screen is captured (X11, or the portal on a Wayland session).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub capture: crate::capture_backend::CaptureBackend,
 }
 
 pub struct MediaSession {

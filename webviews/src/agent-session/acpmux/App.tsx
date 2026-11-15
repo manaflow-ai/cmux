@@ -11683,10 +11683,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       workflowTranscript.rows
                                                                         ? workflowTranscript.loadOlder
                                                                         : !childRows
-                                                                          ? (fill: boolean) =>
+                                                                          ? (fill: boolean, rising: boolean) =>
                                                                               directClient.current?.loadOlder(
                                                                                 undefined,
                                                                                 fill,
+                                                                                rising,
                                                                               ) ?? Promise.resolve()
                                                                           : undefined
                                                                     }

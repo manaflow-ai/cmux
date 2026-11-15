@@ -38,7 +38,16 @@ package final class DesktopNotifier: NSObject {
         package var approval = false
         /// The banner's action set (`defaultCategory`, `replyCategory`, the approval one, ...).
         package var category: String?
+        /// An incognito window's banner: the lists name nothing of the window, its surface included.
+        package var incognito = false
     }
+
+    /// The id prefix of a daemon notification's banner, whose click shows its tab: the only banners a
+    /// script may open (`notifications.open`).
+    package nonisolated static let tabBannerPrefix = "cmux-notification-"
+    /// A script's open of a tab banner (`notifications.open`): only the tab-showing part of a click,
+    /// never a passkey ceremony, a page's click handler or another banner's own route.
+    package var onOpenTab: ((_ id: String, _ surface: UInt64?) -> Void)?
 
     /// Banner clicked: the notification id and its tab's surface handle.
     package var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
@@ -118,7 +127,7 @@ package final class DesktopNotifier: NSObject {
         let category = category ?? (approval ? approvalCategory : reply ? Self.replyCategory : Self.defaultCategory)
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
-                             approval: approval, category: category))
+                             approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
@@ -194,6 +203,11 @@ package final class DesktopNotifier: NSObject {
     /// The banner click path, also used by `debug.notifications` (click).
     package func open(id: String, surface: UInt64?) {
         onOpen?(id, surface)
+    }
+
+    /// A script's open of a tab banner (`notifications.open`): shows its tab, nothing else.
+    package func openTab(id: String, surface: UInt64?) {
+        onOpenTab?(id, surface)
     }
 
     /// The Reply field's Send path, also used by `debug.notifications` (reply).
