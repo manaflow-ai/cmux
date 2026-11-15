@@ -246,7 +246,7 @@ pub(crate) fn read_pty_output(
         &reader_host.force_pty_drain,
         &mut forced_at,
     ) {
-        let count = match pty_reader.read(&mut buffer) {
+        let mut count = match pty_reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(count) => count,
             Err(error)
@@ -259,10 +259,17 @@ pub(crate) fn read_pty_output(
             }
             Err(_) => break,
         };
+        // A flood: the bytes already waiting go into the same frame, so a
+        // frame is up to the buffer, not one PTY read (1 KiB on macOS). Each
+        // frame is a parser hand-off, a daemon frame and a mirror parse.
+        let ended = fill_waiting_pty_bytes(&mut *pty_reader, pty_poll_fd, &mut buffer, &mut count);
         cmux_flow_trace::hop_id("host.pty.read", 0, reader_host.terminal_id.as_bytes());
         let read = buffer.get(..count).unwrap_or(&buffer);
         if !publish_pty_output(reader_host, kitty_media.rewrite_borrowed(read, &mut kitty_scratch))
         {
+            break;
+        }
+        if ended {
             break;
         }
     }
@@ -274,6 +281,31 @@ pub(crate) fn read_pty_output(
     // rather than the reader, publishes the drained rendezvous.
     let _source_order = reader_host.source_order_lock.lock().recover_poison();
     let _ = reader_host.parser_commands.send(ParserCommand::Drain);
+}
+
+/// Reads the bytes the PTY already holds into `buffer` after its first
+/// `count` bytes, until the buffer is full or a read would wait. True when
+/// the stream ended (end of file or a read error) after those bytes; the
+/// caller publishes them first. A lone key echo finds nothing more, so it
+/// costs one poll and goes out at once.
+// perf-hot: 1us terminal-host-output (every PTY read)
+pub(crate) fn fill_waiting_pty_bytes(
+    pty_reader: &mut dyn Read,
+    pty_poll_fd: sys::PtyPollHandle,
+    buffer: &mut [u8],
+    count: &mut usize,
+) -> bool {
+    while *count < buffer.len() && sys::pty_readable_now(pty_poll_fd) {
+        let Some(rest) = buffer.get_mut(*count..) else { return false };
+        match pty_reader.read(rest) {
+            Ok(0) => return true,
+            Ok(read) => *count += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return false,
+            Err(_) => return true,
+        }
+    }
+    false
 }
 
 /// The most one Output frame carries; a rewritten Kitty image can be larger

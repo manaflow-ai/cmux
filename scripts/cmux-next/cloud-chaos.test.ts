@@ -584,6 +584,66 @@ describe("the chat's surface after a restart", () => {
   });
 });
 
+describe("why a stalled chat stalled", () => {
+  const ctx = { cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" };
+  const late = (ms: number) => Promise.reject(new Error(`no answer within ${ms / 1000} s`));
+  /** A chat holding seq 10 whose dial answers the diagnosis' `agent-session-events` and `identify` as given. */
+  const chatWith = async (events: () => Promise<any>, identify: () => Promise<any>) => {
+    let onDial: () => void = () => undefined;
+    const asked: any[] = [];
+    const dial = {
+      dials: 0,
+      start() { queueMicrotask(() => onDial()); },
+      async request(frame: any, ms?: number) {
+        if (frame.cmd === "agent-session-events") { asked.push({ ...frame, ms }); return events(); }
+        if (frame.cmd === "identify" && asked.length) { asked.push({ ...frame, ms }); return identify(); }
+        switch (frame.cmd) {
+          case "identify": return { ok: true, data: { registry_id: "r" } };
+          case "create-workspace": return { ok: true, data: { workspace: 1 } };
+          case "new-conversation-tab": return { ok: true, data: { surface: 7, tab_resource_id: "tab_s" } };
+          case "agent-session-start": return { ok: true, data: { session: "s" } };
+          case "agent-session-attach": return { ok: true, data: { lastSeq: 10, events: [], hasMore: false } };
+          default: return { ok: true, data: {} };
+        }
+      },
+      stop() {},
+    };
+    const chat = new chaos.ChatClient(ctx, (_line, d) => { onDial = d; return dial; });
+    await chat.open("claude");
+    return { chat, asked };
+  };
+
+  test("events past the seq held: the attachment is dead and the transport fine, and the client keeps none of them", async () => {
+    const { chat, asked } = await chatWith(async () => ({ ok: true, data: { events: [{ seq: 9 }, { seq: 11 }, { seq: 12 }] } }), async () => ({ ok: true, data: {} }));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events answered from seq 11 (2 records), identify answered: attachment dead, transport fine");
+    expect(chat.held).toBe(10);
+    expect(chat.received).toEqual([]);
+    expect(asked.map((a) => [a.cmd, a.after_seq, a.ms])).toEqual([["agent-session-events", 10, 10_000], ["identify", undefined, 5_000]]);
+    chat.stop();
+  });
+
+  test("events unanswered while identify answers: the bulk lane stalled", async () => {
+    const { chat } = await chatWith(() => late(10_000), async () => ({ ok: true, data: {} }));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events timed out (10 s), identify answered: bulk lane stalled");
+    chat.stop();
+  });
+
+  test("neither answered: the carrier is dead", async () => {
+    const { chat } = await chatWith(() => late(10_000), () => late(5_000));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events timed out (10 s), identify timed out (5 s): carrier dead");
+    chat.stop();
+  });
+
+  test("a refusal or nothing new names no cause", async () => {
+    const refused = await chatWith(async () => ({ ok: false, error: { code: "not_found", message: "no such surface" } }), async () => ({ ok: true, data: {} }));
+    expect(await refused.chat.stallDiagnosis()).toBe("after seq 10: events failed: not_found: no such surface, identify answered: no conclusion");
+    refused.chat.stop();
+    const empty = await chatWith(async () => ({ ok: true, data: { events: [] } }), async () => ({ ok: true, data: {} }));
+    expect(await empty.chat.stallDiagnosis()).toBe("after seq 10: events answered with nothing past it, identify answered: no conclusion");
+    empty.chat.stop();
+  });
+});
+
 describe("the felt time after a send", () => {
   const ctx = { cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" };
   /** A chat on a fake dial whose first `refuse` prompts fail (the carrier still down), then answers and pushes `pushes`. */
