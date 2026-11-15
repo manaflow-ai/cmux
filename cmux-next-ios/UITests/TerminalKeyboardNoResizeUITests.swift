@@ -1,21 +1,21 @@
 import XCTest
 
-/// A full-screen app fits above the soft keyboard. With #41895 the keyboard
-/// never resized the PTY: the app kept its keyboard-down rows and its top
-/// rows went off screen behind the toolbar (Claude Code's header, vim's first
-/// lines). Once the keyboard settles, the page claims the rows above the
-/// composer (one resize), and the keyboard-down rows again when it hides.
+/// Leo, 2026-11-15: "i meant previously there was the thing that stopped the
+/// resizing when you closed the ios built in keyboard". Showing or closing
+/// the soft keyboard never resizes the Mac's PTY (#41895, taken back by
+/// #42760): a full-screen app keeps its keyboard-down rows, and with the
+/// keyboard up its grid is inset, lifted only as far as the cursor's row needs.
 ///
 /// The terminal demo's `kbtui` phase (mock session, the workspace tab page)
 /// opens vim and shows and hides the keyboard five times; its last step reads
 /// `done.rz<before>-<after>`, the grid sizes the page sent before and after.
-final class TerminalKeyboardTUIFitUITests: XCTestCase {
+final class TerminalKeyboardNoResizeUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
     }
 
     @MainActor
-    func testFullScreenAppRefitsAboveTheKeyboard() throws {
+    func testTheKeyboardNeverResizesAFullScreenApp() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -48,10 +48,8 @@ final class TerminalKeyboardTUIFitUITests: XCTestCase {
         let counts = demo.dropFirst("done.rz".count).split(separator: "-").compactMap { Int($0) }
         XCTAssertEqual(counts.count, 2, "resize counts in \(demo)")
         XCTAssertGreaterThan(counts.first ?? 0, 0, "the page claimed its grid on attach (\(demo))")
-        // Each settled show and hide claims the rows that fit; none means the
-        // keyboard covers the app's bottom and its top is clipped.
-        XCTAssertGreaterThanOrEqual((counts.last ?? 0) - (counts.first ?? 0), 10,
-                                    "every keyboard show and hide refit the full-screen app (\(demo))")
+        // Ten keyboard toggles, no resize: the Mac's app never redraws for them.
+        XCTAssertEqual(counts.last, counts.first, "the keyboard resized the full-screen app (\(demo))")
     }
 
     @MainActor

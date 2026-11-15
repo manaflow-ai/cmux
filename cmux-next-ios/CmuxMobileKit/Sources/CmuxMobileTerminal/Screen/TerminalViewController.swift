@@ -98,7 +98,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// surface covers the old and new visible ranges during a keyboard animation.
     private var surfaceRows = 0
     /// Rows a TUI gets: between the toolbar and the composer, keyboard down.
+    /// The soft keyboard never changes them (`TerminalGridSizing`).
     private var tuiRows = 0
+    /// How far the TUI grid is moved down while the keyboard covers its
+    /// bottom, so the cursor's row stays on screen (`TerminalGridSizing.keyboardLift`).
+    private var tuiKeyboardLift: CGFloat = 0
     private var gridColumns = 0
     private var cell = CGSize.zero
     /// The Mac's grid when it is not the phone's (PROTOCOL.md "Terminal
@@ -225,7 +229,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var glide: BottomGlide?
     /// What the dock shows (key row, composer) and the soft keyboard's state.
     private var dock = TerminalDockVisibility()
-    private var tuiSizing = TerminalTUISizing()
     #if DEBUG
     /// DEBUG frame pacing while the page is dragged or decelerates: the gap
     /// between scroll callbacks (one per displayed frame while moving) and
@@ -740,10 +743,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // composer on the first frame (Codex QA F8).
         view.setNeedsLayout()
         view.layoutIfNeeded()
-        // The keyboard may have come or gone while the page was away.
-        settleKeyboardLift()
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
         outputSinceProbe = true
         updateDocument()
         applyScroll()
@@ -849,12 +848,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The composer rests 8 pt above the toolbar capsule, like a tab
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)
-        view.setNeedsLayout()
-        // The resting top moved: a keyboard up now lifts the stack another
-        // distance above it (a TUI's rows follow, R1-1).
-        guard view.window != nil else { return }
-        view.layoutIfNeeded()
-        settleKeyboardLift()
         view.setNeedsLayout()
     }
 
@@ -1096,17 +1089,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
-    override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
-        super.viewWillTransition(to: size, with: coordinator)
-        // A rotation with a hardware keyboard posts no keyboard notification:
-        // settle the keyboard's lift against the new layout once it lands.
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-            guard let self else { return }
-            settleKeyboardLift()
-            view.setNeedsLayout()
-        }
-    }
-
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         keyboardDock.refresh()
@@ -1146,7 +1128,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
-        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom)) tuiclip=\(Int(tuiClip.frame.minY))-\(Int(tuiClip.frame.maxY)) tuihost=\(Int(tuiClip.frame.minY + tuiHost.frame.minY))+\(Int(tuiHost.frame.height)) surface.y=\(Int(surface.frame.minY)) shift=\(tuiRowShift) lift=\(tuiSizing.keyboardLift.map { "\(Int($0))" } ?? "-")"
+        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom)) tuiclip=\(Int(tuiClip.frame.minY))-\(Int(tuiClip.frame.maxY)) tuihost=\(Int(tuiClip.frame.minY + tuiHost.frame.minY))+\(Int(tuiHost.frame.height)) surface.y=\(Int(surface.frame.minY)) shift=\(tuiRowShift) lift=\(Int(tuiKeyboardLift))"
     }
     #endif
 
@@ -1651,9 +1633,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         pacer.finished()
-        // A full-screen app taller than the phone: keep its cursor row on screen
-        // (the Mac's rows as of the bytes fed, `feedHostRows`).
-        if model.isTUI, tuiRowShift > 0 || (feedHostRows ?? 0) > tuiRows {
+        // A full-screen app taller than the phone (the Mac's rows as of the
+        // bytes fed, `feedHostRows`), or partly under the keyboard: keep its
+        // cursor row on screen.
+        if model.isTUI, tuiRowShift > 0 || (feedHostRows ?? 0) > tuiRows
+            || tuiKeyboardLift > 0 || tuiClip.bounds.height < CGFloat(tuiRows) * cell.height - 0.5 {
             applyTUIPlacement()
         }
         #if DEBUG
@@ -1933,9 +1917,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         }
 
-        // TUI rows: toolbar bottom to the composer's top where it settled
-        // (keyboard down, or up once the keyboard finished showing: R1-1).
-        let newTUIRows = tuiSizing.rows(restingStackTop: restingStackTop, chromeTop: chromeTop, cellHeight: cellHeight)
+        // TUI rows: toolbar bottom to the composer's resting top (keyboard
+        // down). Showing or closing the keyboard insets the grid instead of
+        // resizing the Mac's PTY (`TerminalGridSizing`).
+        let newTUIRows = TerminalGridSizing(cellHeight: cellHeight).rows(restingStackTop: restingStackTop, chromeTop: chromeTop)
         // The phone claims its own grid; only the rendering follows the Mac's.
         let columns = layout.phoneColumns
         if newTUIRows != tuiRows || columns != gridColumns {
@@ -2453,7 +2438,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             stopGlide(thenFollow: true)
             copyMode.exit()
             selection.clear()
-            tuiSizing.tuiStarted()
             scrollView.isScrollEnabled = false
             scrollView.topEdgeEffect.style = .hard
             placesFromReport = false
@@ -2472,7 +2456,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The app's screen is gone: its selection and fling go with it.
             tuiSelection.clear()
             tuiScroll.stopMomentum()
-            tuiSizing.tuiEnded()
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true
@@ -2492,7 +2475,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         finder.rowsReplaced()
         // The note follows the screen it is over (letterbox or corner).
         applyHostGridNote()
-        // The TUI's rows follow the settled keyboard (R1-1); the shell's do not.
         view.setNeedsLayout()
     }
 
@@ -3273,33 +3255,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return visible == onScreen
     }
 
-    /// Records how far the keyboard lifts the composer stack now. Only a page
-    /// in a window has a settled layout: `dockChanged()` from viewDidLoad runs
-    /// before the page has a window or its final insets, and its gap read as
-    /// a keyboard lift. A page back in a window, or after a rotation, settles
-    /// again: the keyboard may have come or gone while it was away (a hide
-    /// after a tab switch posts did-hide to a page with no window), and a
-    /// rotation with a hardware keyboard posts no keyboard notification.
-    private func settleKeyboardLift() {
-        guard view.window != nil else { return }
-        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop,
-                                  keyboardShown: dock.softKeyboard == .shown, isTUI: model.isTUI)
-    }
-
     @objc private func keyboardDidChange() {
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
-        // The keyboard settled: a TUI gets the rows above the composer now,
-        // one resize (R1-1).
-        settleKeyboardLift()
+        // The keyboard settled. The grid keeps its rows: no PTY resize for
+        // the soft keyboard showing or closing (`TerminalGridSizing`).
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The page changed without output (the keyboard came or went): the
         // saved frame for the next cold launch follows (R2-5).
         model.saveFrameSoon()
         updateViewport(visibleMinY: scrollView.contentOffset.y)
-        // A full-screen app gets other rows with the keyboard up or down (R1-1).
-        if model.isTUI { finder.rowsReplaced() }
     }
 
     /// Keyboard state for the toolbar icon and the input target; layout
@@ -3495,13 +3459,29 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     /// The full-screen app's surface in its host: panned, shifted to keep
     /// the cursor row, and the letterbox note under a shorter grid.
     func applyTUIPlacement() {
-        guard model.isTUI, surface.superview === tuiHost, cell.height > 0 else { return }
+        guard model.isTUI, surface.superview === tuiHost, cell.height > 0 else {
+            if tuiKeyboardLift != 0 {
+                tuiKeyboardLift = 0
+                tuiClip.bounds.origin.y = 0
+            }
+            return
+        }
         let layout = hostLayout
         tuiPanX = layout.clampPan(tuiPanX)
         tuiRowShift = layout.rowShift(keeping: surface.cursorViewportRow, from: tuiRowShift)
         let origin = CGPoint(x: -tuiPanX, y: -CGFloat(tuiRowShift) * cell.height)
         if surface.frame.origin != origin {
             UIView.performWithoutAnimation { surface.frame.origin = origin }
+        }
+        // Keyboard up: the grid's bottom rides the stack and its top is
+        // clipped; it moves down only as far as the cursor's row needs. Set
+        // in the layout pass, so inside the keyboard's own animation.
+        let lift = TerminalGridSizing(cellHeight: cell.height)
+            .keyboardLift(gridRows: tuiRows, visibleHeight: tuiClip.bounds.height,
+                          cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
+        if lift != tuiKeyboardLift {
+            tuiKeyboardLift = lift
+            tuiClip.bounds.origin.y = -lift
         }
         positionHostGridNote()
         if finder.isActive { finder.redraw() }
@@ -3585,10 +3565,12 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
                 // bottom, `tuiHeight` tall), not its frame: in the page's
                 // layout pass (`layoutTerminal`) the clip is laid out but the
                 // host inside it is not yet, so its frame still has the old
-                // rows (the keyboard settling changes them) and the note was
+                // rows (a page or chrome change sets them) and the note was
                 // hidden above the terminal area, never placed again.
                 gridBottom = surface.superview === tuiHost
-                    ? tuiClip.convert(CGPoint(x: 0, y: tuiClip.bounds.maxY - tuiHeight.constant + gridHeight), to: view).y : nil
+                    // The clip's height, not its bounds' maxY: the keyboard
+                    // lift moves the bounds origin, and the host with it.
+                    ? tuiClip.convert(CGPoint(x: 0, y: tuiClip.bounds.height - tuiHeight.constant + gridHeight), to: view).y : nil
             } else if let document, cell.height > 0, scrollbar.total > 0 {
                 // The Mac's screen is the mirror's last rows: its bottom is
                 // the scrollback's end, wherever the document was last measured.

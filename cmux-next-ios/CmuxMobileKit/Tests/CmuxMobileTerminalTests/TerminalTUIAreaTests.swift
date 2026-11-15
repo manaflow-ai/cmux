@@ -11,8 +11,10 @@ import UIKit
 /// terminal area, under the status bar. The TUI host is bottom-pinned to its
 /// clip (toolbar to the composer stack) with `tuiRows` rows, so rows the clip
 /// has no room for push the app's header (vim's first lines, htop's meters,
-/// Claude Code's banner) off the top. The rows must be the room the clip has,
-/// in a tab or standalone, keyboard down or up.
+/// Claude Code's banner) off the top. With the keyboard down the rows must be
+/// the room the clip has, in a tab or standalone. With the keyboard up the
+/// grid keeps those rows (the keyboard never resizes the Mac's terminal,
+/// `TerminalKeyboardNoResizeTests`) and the cursor's row stays on screen.
 @MainActor
 @Suite(.serialized) struct TerminalTUIAreaTests {
     /// A full-screen app on the phone's own grid (no Mac grid), as vim.
@@ -145,14 +147,38 @@ import UIKit
         #expect(area.height - grid.height < cell, "the app's rows leave a row of the area empty. \(where_)")
     }
 
+    /// Keyboard up: the grid keeps `rows` (its keyboard-down height), the
+    /// terminal area still starts under the toolbar, and the row Ghostty
+    /// draws the cursor on is inside the area (the lift moves the grid down
+    /// only as far as that needs).
+    static func expectKeepsRowsWithKeyboardUp(_ page: Page, _ state: String, areaTop: CGFloat, rows: CGFloat) throws {
+        let view = try #require(page.screen.view)
+        let host = try #require(page.screen.surface.superview, "\(state): the surface has no TUI host")
+        let clip = try #require(host.superview, "\(state): the TUI host has no clip")
+        let area = clip.convert(clip.bounds, to: view)
+        let grid = host.convert(host.bounds, to: view)
+        let surface = page.screen.surface
+        let cursor = surface.visibleCursorCell.map { surface.convert($0, to: view) }
+        let where_ = "\(state): area \(area), grid \(grid), cursor \(cursor.map { "\($0)" } ?? "none"), \(page.screen.debugState)"
+        let drawnCursor = try #require(cursor, "the cursor is not drawn. \(where_)")
+        #expect(abs(area.minY - areaTop) < 0.5, "the terminal area starts under the toolbar. \(where_)")
+        #expect(abs(grid.height - rows) < 0.5, "the keyboard changed the app's rows (\(rows) pt before). \(where_)")
+        #expect(drawnCursor.minY >= area.minY - 0.5 && drawnCursor.maxY <= area.maxY + 0.5, "the cursor's row is off screen. \(where_)")
+    }
+
+    static func gridHeight(_ page: Page) throws -> CGFloat {
+        try #require(page.screen.surface.superview).bounds.height
+    }
+
     @Test func aFullScreenAppInATabStartsInsideTheTerminalArea() async throws {
         await TerminalScreenTestLock.acquire()
         defer { TerminalScreenTestLock.release() }
         let page = try await Self.open(.embedded)
         defer { page.close() }
         try Self.expectFits(page, "tab, keyboard down", areaTop: Self.tabInsets.top)
+        let rows = try Self.gridHeight(page)
         Self.keyboard(page, height: 336)
-        try Self.expectFits(page, "tab, keyboard up", areaTop: Self.tabInsets.top)
+        try Self.expectKeepsRowsWithKeyboardUp(page, "tab, keyboard up", areaTop: Self.tabInsets.top, rows: rows)
         Self.keyboard(page, height: 0)
         try Self.expectFits(page, "tab, keyboard down again", areaTop: Self.tabInsets.top)
     }
@@ -163,8 +189,9 @@ import UIKit
         let page = try await Self.openTab(hostGrid: false)
         defer { page.close() }
         try Self.expectFits(page, "tab page, keyboard down", areaTop: Self.tabInsets.top)
+        let rows = try Self.gridHeight(page)
         Self.keyboard(page, height: 336)
-        try Self.expectFits(page, "tab page, keyboard up", areaTop: Self.tabInsets.top)
+        try Self.expectKeepsRowsWithKeyboardUp(page, "tab page, keyboard up", areaTop: Self.tabInsets.top, rows: rows)
         Self.keyboard(page, height: 0)
         try Self.expectFits(page, "tab page, keyboard down again", areaTop: Self.tabInsets.top)
     }
@@ -185,8 +212,9 @@ import UIKit
         defer { page.close() }
         let top = page.screen.view.safeAreaInsets.top
         try Self.expectFits(page, "standalone, keyboard down", areaTop: top)
+        let rows = try Self.gridHeight(page)
         Self.keyboard(page, height: 336)
-        try Self.expectFits(page, "standalone, keyboard up", areaTop: top)
+        try Self.expectKeepsRowsWithKeyboardUp(page, "standalone, keyboard up", areaTop: top, rows: rows)
         Self.keyboard(page, height: 0)
         try Self.expectFits(page, "standalone, keyboard down again", areaTop: top)
     }
