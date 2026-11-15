@@ -33,7 +33,7 @@ counts="1,10,50"
 measure=60
 agents=""
 infinite="" days=3
-reload_config=() purge=() release=() attribute=() crash_env=()
+reload_config=() purge=() release=() attribute=() crash_env=() attribute_trace=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
@@ -46,10 +46,14 @@ for arg in "$@"; do
     release=*) release=(--release-hidden-chats "${arg#release=}") ;;
     attribute=1) attribute=(--attribute) ;;
     attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
+    attribute_trace=*) attribute_trace=(--attribute-trace "${arg#attribute_trace=}") ;;
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
+# attribute_trace=SECONDS (with attribute=): also a System Trace of each attributed process after the window
+# (bench_memory.py --attribute-trace): per-thread wakeups and the frames each woke in.
+if [[ ${#attribute[@]} -gt 0 && ${#attribute_trace[@]} -gt 0 ]]; then attribute+=("${attribute_trace[@]}"); fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/perf-idle"

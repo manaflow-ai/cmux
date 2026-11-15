@@ -336,7 +336,27 @@ def stack_sample(pid: int, seconds: int = 3) -> dict:
                     break
                 continue
             top.append(line.strip())
-    return {"threads": threads[:60], "top_of_stack": top[:40], "by_tid": by_tid}
+    # The call graph of each thread that ran (CMUX-571 GPU wakeups): the branches with at least 3 samples,
+    # so what a busy thread does between waits shows, not only its top frame.
+    graph, block, keep = [], [], False
+    for line in text.splitlines():
+        if line.startswith("Total number in stack") or line.startswith("Sort by top of stack"):
+            break
+        if re.match(r"^\s{4}\d+ Thread_\d+", line):
+            if keep:
+                graph.extend(block[:300])
+            block, keep = [line.rstrip()], False
+            continue
+        if not block:
+            continue
+        m = re.match(r"^[\s+!:|]*(\d+) ", line)
+        if m and int(m.group(1)) >= 3:
+            block.append(line.rstrip()[:240])
+            if re.search(r"Viz|Display|BeginFrame|Swap|Present|CALayer|Surface|Draw|Frame", line):
+                keep = True
+    if keep:
+        graph.extend(block[:300])
+    return {"threads": threads[:60], "top_of_stack": top[:40], "by_tid": by_tid, "graph": graph[:1500]}
 
 
 class Attribution:
@@ -433,6 +453,8 @@ def print_attribution(label: str, found: dict):
             print(f"PERF-ATTR {label} top {key} {line}")
         for line in stack.get("threads", [])[:40]:
             print(f"PERF-ATTR {label} sthread {key} {line}")
+        for line in stack.get("graph", []):
+            print(f"PERF-ATTR {label} graph {key} {line}")
         if stack.get("error"):
             print(f"PERF-ATTR {label} sample {key} error={stack['error']}")
     sys.stdout.flush()
