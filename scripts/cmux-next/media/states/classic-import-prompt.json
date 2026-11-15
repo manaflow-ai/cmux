@@ -182,41 +182,6 @@
       "wait": 0.6
     },
     {
-      "title": "Open the classicImportManual prompt",
-      "rpc": {
-        "method": "debug.dialog",
-        "params": {
-          "open": "classicImportManual"
-        }
-      },
-      "record": true,
-      "wait": 1,
-      "shot": false
-    },
-    {
-      "title": "Capture classicImportManual",
-      "rpc": {
-        "method": "debug.window_snapshot",
-        "params": {
-          "kind": "main",
-          "path": "{collect}"
-        }
-      },
-      "collect": "prompt-landed-manual.png",
-      "wait": 0.3
-    },
-    {
-      "title": "Dismiss classicImportManual",
-      "rpc": {
-        "method": "debug.dialog",
-        "params": {
-          "dismiss": true
-        }
-      },
-      "shot": false,
-      "wait": 0.6
-    },
-    {
       "title": "Show the before toast",
       "rpc": {
         "method": "debug.toast",
@@ -312,41 +277,6 @@
     },
     {
       "title": "Close toast action",
-      "rpc": {
-        "method": "debug.toast",
-        "params": {
-          "close": "classicImport"
-        }
-      },
-      "shot": false,
-      "wait": 0.5
-    },
-    {
-      "title": "Show the none toast",
-      "rpc": {
-        "method": "debug.toast",
-        "params": {
-          "classic_toast": "none"
-        }
-      },
-      "record": true,
-      "wait": 1.2,
-      "shot": false
-    },
-    {
-      "title": "Capture toast none",
-      "rpc": {
-        "method": "debug.window_snapshot",
-        "params": {
-          "kind": "main",
-          "path": "{collect}"
-        }
-      },
-      "collect": "toast-none.png",
-      "wait": 0.3
-    },
-    {
-      "title": "Close toast none",
       "rpc": {
         "method": "debug.toast",
         "params": {

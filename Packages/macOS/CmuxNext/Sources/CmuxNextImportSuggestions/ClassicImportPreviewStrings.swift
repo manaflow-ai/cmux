@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The classic import prompt's words (table `ImportSuggestions`), in plain sentences (Leo 2026-11-15, on the
 /// label-and-number list it replaced: "this is kinda strange. what happened here?"): what comes over and when
