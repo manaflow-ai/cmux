@@ -160,6 +160,16 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], ["rust"])
         self.assertFalse(planned["needs_build"], planned["build"])
 
+    def test_ffi_drift_still_needs_a_build_for_a_daemon_change(self):
+        # Review of #43811: the head's daemon would speak FFI changes merged after the nightly, which it does not link.
+        tip = self.advance_base({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 2 }\n"})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertTrue(planned["needs_build"])
+        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+        self.assertEqual(planned["layers"], [])
+
     def test_drift_that_changes_the_web_abi_still_needs_a_build(self):
         tip = self.advance_base({"webviews/src/web-abi.json": '{"abi": 4}\n'})
         head = self.fx.commit({"webviews/src/app.tsx": "export const title = 'x'\n"}, "change", parent=tip)
