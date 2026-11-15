@@ -2558,3 +2558,44 @@ fn a_digit_button_is_one_digit() {
     assert_eq!(roles::single_digit("+"), None);
     assert_eq!(roles::single_digit(""), None);
 }
+
+/// The app-scoped priming list: under `NotDenied`, browsers (the cmux app
+/// included: it hosts the cmux browser) and messaging and mail apps, their
+/// beta and canary builds, and apps with no readable bundle id are never
+/// primed; under `Any` every app is.
+#[test]
+fn the_priming_deny_list_covers_browsers_and_messaging() {
+    use activation::{PrimeApps, may_prime};
+    for id in [
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "com.google.chrome.for.testing",
+        "company.thebrowser.Browser",
+        "org.mozilla.firefox",
+        "org.mozilla.firefoxdeveloperedition",
+        "com.microsoft.edgemac.Beta",
+        "com.brave.Browser.nightly",
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.debug.cu.preview",
+        "com.apple.MobileSMS",
+        "com.apple.mail",
+        "com.tinyspeck.slackmacgap",
+        "com.hnc.Discord",
+        "net.whatsapp.WhatsApp",
+        "ru.keepcoder.Telegram",
+        "com.microsoft.teams2",
+        "com.microsoft.Outlook",
+    ] {
+        assert!(!may_prime(PrimeApps::NotDenied, Some(id)), "{id}");
+        assert!(may_prime(PrimeApps::Any, Some(id)), "{id}");
+    }
+    for id in ["com.apple.TextEdit", "com.apple.finder", "com.apple.Notes", "com.apple.mailplus"] {
+        // A prefix match on a dot boundary is not required: "com.apple.mailplus"
+        // starts with "com.apple.mail", so it is denied too (fail closed).
+        let denied = id.starts_with("com.apple.mail");
+        assert_eq!(may_prime(PrimeApps::NotDenied, Some(id)), !denied, "{id}");
+    }
+    assert!(!may_prime(PrimeApps::NotDenied, None), "unreadable bundle id");
+}

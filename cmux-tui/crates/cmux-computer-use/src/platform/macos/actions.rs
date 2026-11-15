@@ -615,11 +615,61 @@ fn press_effects(el: &Ax, role: &str, action: &str) -> Option<readback::Check> {
     }
     if let Some(win) = el.element("AXWindow") {
         checks.push(readback::Check::Opened { before: readback::overlays(&win), win: win.clone() });
+        // A "New …" button (Notes' New Note) adds a row to a list.
+        let named_new = [el.string("AXTitle"), el.string("AXDescription")]
+            .into_iter()
+            .flatten()
+            .any(|t| t.trim().starts_with("New "));
+        if named_new {
+            let lists = readback::lists_of(&win)
+                .into_iter()
+                .map(|l| {
+                    let n = l.elements("AXRows").len();
+                    (l, n)
+                })
+                .collect();
+            checks.push(readback::Check::RowsGrew { lists });
+        }
         if let Some(ch) = digit_of(el) {
             checks.push(readback::Check::EndsWith { texts: readback::texts(&win), ch });
         }
     }
     (!checks.is_empty()).then_some(readback::Check::Any(checks))
+}
+
+/// What a menu item titled `title` must show, read before it is pressed:
+/// Save writes the window's document file; an item that makes something
+/// new in a focused list leaves one new row selected.
+fn item_effect(d: &MacDesktop, t: &Target, title: Option<&str>) -> Option<readback::Check> {
+    let title = title?.trim();
+    if title == "Save" {
+        let (_, win) = d.ax_window(t).ok()?;
+        let path = readback::document_path(&win)?;
+        let before = readback::mtime(&path);
+        return Some(readback::Check::Saved { path, before });
+    }
+    if title.starts_with("New ") {
+        let list = d.focused_in(t).filter(|el| {
+            matches!(el.string("AXRole").as_deref(), Some("AXTable" | "AXOutline" | "AXList"))
+        })?;
+        let names = readback::row_names(&list, "AXRows");
+        return Some(readback::Check::NewRow { el: list, names });
+    }
+    None
+}
+
+/// A menu item's toggle read-back joined with what its title must show.
+fn menu_checks(
+    el: &Ax,
+    item_before: (Option<String>, Option<String>),
+    effect: Option<readback::Check>,
+) -> readback::Check {
+    let (title, mark) = item_before;
+    let toggle = readback::Check::MenuItem { el: el.clone(), title, mark };
+    match effect {
+        Some(e) => readback::Check::Any(vec![toggle, e]),
+        None => toggle,
+    }
 }
 
 /// The digit a button types: its title or description is one digit.
@@ -1074,6 +1124,8 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
     // A menu bar item's title and check mark before any scope: read back
     // after the settle (a toggle changes one of them).
     let item_before = in_menu_bar.then(|| (el.string("AXTitle"), el.string("AXMenuItemMarkChar")));
+    let item_effect =
+        item_before.as_ref().and_then(|(title, _)| item_effect(d, &t, title.as_deref()));
     // A disabled item of an app that cannot be made to validate (the
     // person's front app, or the scope off) is not pressed: the press would
     // do nothing.
@@ -1159,11 +1211,10 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         if in_menu_bar {
             out.cursor_at = None;
         }
-        if let Some((title, mark)) = item_before
+        if let Some(before) = item_before
             && out.evidence != "confirmed"
         {
-            let check = readback::Check::MenuItem { el: el.clone(), title, mark };
-            out.expect = d.expect(Some(check), false);
+            out.expect = d.expect(Some(menu_checks(&el, before, item_effect)), false);
         }
         // AXPress runs the item's action before it returns: hand back now.
         if let Some(key) = menu_key.take()
@@ -1319,6 +1370,14 @@ pub(super) fn type_text(
     // Read back after the settle: the value before the keys.
     let check =
         target.as_ref().filter(|_| shows_text).and_then(|el| readback::Check::text(el, text));
+    // Typed into a focused list: type-to-select picks a row by its name.
+    let check = check.or_else(|| {
+        let list = target.as_ref().filter(|el| {
+            matches!(el.string("AXRole").as_deref(), Some("AXTable" | "AXOutline" | "AXList"))
+        })?;
+        (!has_keys && !text.trim().is_empty())
+            .then(|| readback::Check::TypeSelect { el: list.clone(), typed: text.to_string() })
+    });
     // Never into a primed app (another session's scope): each chunk is posted
     // under the lock entering a scope takes, so a scope can open between
     // chunks but no key lands inside one.
@@ -1592,6 +1651,9 @@ fn press_keys_inner(
                 let item_before = primed
                     .is_none()
                     .then(|| (el.string("AXTitle"), el.string("AXMenuItemMarkChar")));
+                let effect = item_before
+                    .as_ref()
+                    .and_then(|(title, _)| item_effect(d, &t, title.as_deref()));
                 let mut out = match press_outcome(el.perform("AXPress"), "ax_menu_shortcut") {
                     Ok(out) => out,
                     Err(e) => return Err(with_hand_back(e, primed.take())),
@@ -1609,9 +1671,8 @@ fn press_keys_inner(
                 if let Some((check, already)) = select_all {
                     out = out.showing("selection");
                     out.expect = d.expect(Some(check), already);
-                } else if let Some((title, mark)) = item_before {
-                    let check = readback::Check::MenuItem { el: el.clone(), title, mark };
-                    out.expect = d.expect(Some(check), false);
+                } else if let Some(before) = item_before {
+                    out.expect = d.expect(Some(menu_checks(el, before, effect)), false);
                 }
                 return Ok(out);
             }

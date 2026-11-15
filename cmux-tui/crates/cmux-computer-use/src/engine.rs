@@ -1781,6 +1781,16 @@ impl Engine {
                 out.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
             crate::outcome::append(&mut note, why);
             out.body["note"] = json!(note);
+        } else if !confirmed && read.as_deref() == Some("failed") {
+            // A delivered result whose read-back shows the wrong effect (a
+            // type-to-select that picked another row) says so.
+            let mut note =
+                out.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
+            crate::outcome::append(
+                &mut note,
+                "read back after the settle: the intended effect does not show",
+            );
+            out.body["note"] = json!(note);
         }
         if let Some(read) = read {
             out.body["read_back"] = json!(read);

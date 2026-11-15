@@ -72,6 +72,57 @@ pub(super) const OFF_ENV: &str = "CMUX_CU_BG_ACTIVATE";
 /// window are refused in a background app instead.
 pub(super) const DEFAULT_ON: bool = true;
 
+/// Which apps the scope may prime. `Any`: every app (today's behaviour).
+/// `NotDenied`: never the apps in [`PRIME_DENY`] (browsers, whose pages get
+/// a window `focus` event while the scope is open, and messaging and mail
+/// apps, which may mark what they show as read when they become active).
+pub(super) const PRIME_APPS: PrimeApps = PrimeApps::Any;
+
+/// See [`PRIME_APPS`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // the variant not chosen in PRIME_APPS
+pub(super) enum PrimeApps {
+    Any,
+    NotDenied,
+}
+
+/// Bundle id prefixes never primed under [`PrimeApps::NotDenied`] (any
+/// case; a prefix also covers its betas, canaries and nightlies). The cmux
+/// app hosts the cmux browser, so all of cmux is on it.
+pub(super) const PRIME_DENY: &[&str] = &[
+    // Browsers.
+    "com.apple.Safari",
+    "com.google.Chrome",
+    "company.thebrowser.",
+    "org.mozilla.firefox",
+    "com.microsoft.edgemac",
+    "com.brave.Browser",
+    "com.cmuxterm.",
+    // Messaging and mail.
+    "com.apple.MobileSMS",
+    "com.apple.mail",
+    "com.tinyspeck.slackmacgap",
+    "com.hnc.Discord",
+    "net.whatsapp.WhatsApp",
+    "desktop.WhatsApp",
+    "ru.keepcoder.Telegram",
+    "org.telegram.desktop",
+    "com.microsoft.teams",
+    "com.microsoft.Outlook",
+];
+
+/// Whether the scope may prime the app with `bundle_id` under `apps`. An
+/// app whose bundle id cannot be read is never primed under `NotDenied`.
+pub(super) fn may_prime(apps: PrimeApps, bundle_id: Option<&str>) -> bool {
+    match apps {
+        PrimeApps::Any => true,
+        PrimeApps::NotDenied => bundle_id.is_some_and(|id| {
+            let id = id.to_ascii_lowercase();
+            !PRIME_DENY.iter().any(|p| id.starts_with(&p.to_ascii_lowercase()))
+        }),
+    }
+}
+
 /// The longest a scope is open: validation plus one press, a hung app
 /// included (AX calls on the target are bounded inside it).
 pub(super) const SCOPE_BOUND: Duration = Duration::from_millis(1500);
@@ -522,6 +573,12 @@ impl KeyInApp<'static, Real> {
         static OS: Real = Real;
         if !enabled() || calls().is_none() {
             return None;
+        }
+        if PRIME_APPS != PrimeApps::Any {
+            let bundle = super::workspace::app_for_pid(pid).and_then(|a| a.bundle_id);
+            if !may_prime(PRIME_APPS, bundle.as_deref()) {
+                return None;
+            }
         }
         KeyInApp::enter_with(&OS, registry(), window, pid)
     }

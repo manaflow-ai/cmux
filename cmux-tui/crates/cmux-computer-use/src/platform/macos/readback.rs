@@ -64,6 +64,71 @@ pub(super) enum Check {
     EndsWith { texts: Vec<(Ax, Option<String>)>, ch: char },
     /// Any of these holds.
     Any(Vec<Check>),
+    /// The document file `path` was written after `before` (its mtime).
+    Saved { path: String, before: Option<f64> },
+    /// The list `el` has one new row selected (not among `names`).
+    NewRow { el: Ax, names: Vec<String> },
+    /// Type-to-select in the list `el` picked a row starting with `typed`.
+    TypeSelect { el: Ax, typed: String },
+    /// Some of these lists has more rows than its count before.
+    RowsGrew { lists: Vec<(Ax, usize)> },
+}
+
+/// A file's modification time (seconds), when it can be read.
+pub(super) fn mtime(path: &str) -> Option<f64> {
+    let t = std::fs::metadata(path).ok()?.modified().ok()?;
+    Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs_f64())
+}
+
+/// The path of a window's document (`AXDocument`, a file URL).
+pub(super) fn document_path(win: &Ax) -> Option<String> {
+    let url = win.string("AXDocument")?;
+    let path = url.strip_prefix("file://")?;
+    Some(percent_decode(path))
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(v);
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// A row's name: the first text or text field value (or title) in it.
+pub(super) fn row_name(row: &Ax) -> Option<String> {
+    walk(row).into_iter().find_map(|(el, _)| match el.string("AXRole").as_deref() {
+        Some("AXStaticText" | "AXTextField") => el.value_text().filter(|v| !v.is_empty()),
+        Some("AXCell" | "AXRow") => None,
+        _ => el.string("AXTitle").filter(|v| !v.is_empty()),
+    })
+}
+
+/// The names of `list`'s rows (or of its selected rows).
+pub(super) fn row_names(list: &Ax, attr: &str) -> Vec<String> {
+    list.elements(attr).iter().filter_map(row_name).collect()
+}
+
+/// The lists, tables and outlines of a window.
+pub(super) fn lists_of(win: &Ax) -> Vec<Ax> {
+    walk(win)
+        .into_iter()
+        .filter(|(el, _)| {
+            matches!(el.string("AXRole").as_deref(), Some("AXTable" | "AXOutline" | "AXList"))
+        })
+        .map(|(el, _)| el)
+        .collect()
 }
 
 /// How deep and how many elements a window walk for sheets, popovers and
@@ -158,6 +223,8 @@ impl Checks {
             Check::Shown { .. } | Check::MenuItem { .. } => "menu",
             Check::Opened { .. } | Check::Gone { .. } => "window",
             Check::EndsWith { .. } => "text",
+            Check::Saved { .. } => "file",
+            Check::NewRow { .. } | Check::TypeSelect { .. } | Check::RowsGrew { .. } => "rows",
             Check::Any(_) => "any",
         };
         self.pending.push_back((self.next, check));
@@ -196,6 +263,31 @@ pub(super) fn secure_count(el: &Ax) -> Option<f64> {
             el.value_text().filter(|v| !v.is_empty()).map(|v| v.encode_utf16().count() as f64)
         })
         .or_else(|| el.selected_range().map(|r| (r.location + r.length) as f64))
+}
+
+/// Whether a save shows: the document file's modification time moved
+/// forward (stub until implemented).
+pub(super) fn saved(before: Option<f64>, after: Option<f64>) -> bool {
+    matches!((before, after), (Some(b), Some(a)) if a > b)
+}
+
+/// Whether exactly one row is selected and its name was not among the
+/// rows before (a new folder or note waiting for its name).
+pub(super) fn new_row_selected(before: &[String], selected: &[String]) -> bool {
+    matches!(selected, [one] if !before.contains(one))
+}
+
+/// What type-to-select picked: `Some(true)` the one selected row's name
+/// starts with the typed text (any case), `Some(false)` it does not,
+/// `None` no single row selected.
+pub(super) fn type_selected(selected: &[String], typed: &str) -> Option<bool> {
+    let [one] = selected else { return None };
+    Some(one.to_lowercase().starts_with(&typed.to_lowercase()))
+}
+
+/// Whether some list grew: a pair of row counts before and after.
+pub(super) fn rows_grew(counts: &[(usize, usize)]) -> bool {
+    counts.iter().any(|(before, after)| after > before)
 }
 
 /// UTF-16 code units of `s`.
@@ -345,6 +437,18 @@ impl Check {
                     texts.iter().map(|(el, b)| (b.clone(), el.value_text())).collect();
                 one_changed_ending(&pairs, *ch).then_some(true)
             }
+            Check::Saved { path, before } => saved(*before, mtime(path)).then_some(true),
+            Check::NewRow { el, names } => {
+                new_row_selected(names, &row_names(el, "AXSelectedRows")).then_some(true)
+            }
+            Check::TypeSelect { el, typed } => {
+                type_selected(&row_names(el, "AXSelectedRows"), typed)
+            }
+            Check::RowsGrew { lists } => {
+                let counts: Vec<_> =
+                    lists.iter().map(|(el, n)| (*n, el.elements("AXRows").len())).collect();
+                rows_grew(&counts).then_some(true)
+            }
             Check::Any(all) => {
                 let reads: Vec<Option<bool>> = all.iter().map(Check::holds).collect();
                 if reads.contains(&Some(true)) { Some(true) } else { None }
@@ -401,6 +505,48 @@ mod tests {
         assert!(!one_changed_ending(&[p("0", "8"), p("a", "b")], '8'), "two changed");
         assert!(!one_changed_ending(&[p("8", "8")], '8'), "none changed");
         assert!(!one_changed_ending(&[p("0", "9")], '8'), "another digit");
+    }
+
+    /// Batch 2: ⌘S confirms when the document file was written after the
+    /// press; an unchanged or unreadable time says nothing.
+    #[test]
+    fn a_save_shows_as_a_newer_file() {
+        assert!(saved(Some(100.0), Some(101.5)));
+        assert!(!saved(Some(100.0), Some(100.0)));
+        assert!(
+            !saved(None, Some(100.0)),
+            "no file before: a new document's first save is a dialog"
+        );
+        assert!(!saved(Some(100.0), None));
+    }
+
+    /// Batch 2: Finder ⌘⇧N and Notes New Note: one new row selected.
+    #[test]
+    fn a_new_row_is_one_selected_row_not_seen_before() {
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(new_row_selected(&names(&["a", "b"]), &names(&["untitled folder"])));
+        assert!(!new_row_selected(&names(&["a", "b"]), &names(&["a"])), "an old row");
+        assert!(!new_row_selected(&names(&["a"]), &names(&["x", "y"])), "two selected");
+        assert!(!new_row_selected(&names(&["a"]), &[]), "none selected");
+    }
+
+    /// Batch 2: type-to-select picked the row whose name starts with the
+    /// typed text; a row that does not is a wrong pick, said as such.
+    #[test]
+    fn type_select_reads_the_picked_row() {
+        let one = |s: &str| vec![s.to_string()];
+        assert_eq!(type_selected(&one("file-07.txt"), "file-07"), Some(true));
+        assert_eq!(type_selected(&one("File-07.txt"), "file-07"), Some(true), "any case");
+        assert_eq!(type_selected(&one("file-08.txt"), "file-07"), Some(false));
+        assert_eq!(type_selected(&[], "file"), None);
+        assert_eq!(type_selected(&[one("a"), one("b")].concat(), "a"), None, "two selected");
+    }
+
+    #[test]
+    fn rows_grew_when_any_list_has_more_rows() {
+        assert!(rows_grew(&[(3, 3), (5, 6)]));
+        assert!(!rows_grew(&[(3, 3), (6, 5)]));
+        assert!(!rows_grew(&[]));
     }
 
     #[test]
