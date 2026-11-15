@@ -562,12 +562,12 @@ fn an_action_reports_its_own_failed_hand_back_once() {
     };
     // A stale flag from before the call is cleared.
     fail();
-    let ok = actions::reporting_hand_back(|| Ok(crate::desktop::ActionOutcome::delivered("x")));
+    let ok = actions::reporting_hand_back(|| Ok(ActionOutcome::delivered("x")));
     assert!(ok.unwrap().note.is_empty());
     // A failure during the call: on Ok and on Err, once.
     let ok = actions::reporting_hand_back(|| {
         fail();
-        let mut out = crate::desktop::ActionOutcome::delivered("x");
+        let mut out = ActionOutcome::delivered("x");
         activation::append_note(&mut out.note, activation::HAND_BACK_FAILED);
         Ok(out)
     })
