@@ -312,6 +312,7 @@ mod tests {
         // The writer of the detail gives another failed launch no code word.
         let other = anyhow::anyhow!("spawn the terminal host: No such file or directory");
         let plain = TerminalEnd::host_lost(respawn_failed_detail(&other, false)).wire_json();
+        assert_eq!(plain["reason"], "restart_failed", "{plain}");
         assert!(plain.get("launch_failure").is_none(), "{plain}");
     }
 
