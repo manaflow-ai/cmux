@@ -419,7 +419,8 @@ fn own_tree_a_port_read_takes_no_port_lock() {
 }
 
 /// An allocation waits a bounded time for the port lock: it ends while another session host
-/// holds the lock, and the worktree has its port.
+/// holds the lock, and the worktree has its port. The time is zero here, which is one try of
+/// the lock and no wait.
 #[cfg(unix)]
 #[test]
 fn own_tree_a_port_allocation_waits_a_bounded_time_for_the_port_lock() {
@@ -427,7 +428,7 @@ fn own_tree_a_port_allocation_waits_a_bounded_time_for_the_port_lock() {
     let place = place_in(&top);
 
     let port = with_the_port_lock_held(&top, move || {
-        super::ports::allocate(&place.git_dir, &place.root).ok().flatten()
+        super::ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten()
     });
 
     fs::remove_dir_all(top).unwrap();
