@@ -363,14 +363,14 @@ enum AgentHandlers {
             var seed = await inherited?.peek() ?? AgentPaneSeed()
             seed.cwd = requested.cwd ?? seed.cwd
             seed.harness = requested.harness ?? seed.harness
-            seed.model = requested.model ?? seed.model
+            (seed.model, seed.draft) = (requested.model ?? seed.model, requested.draft ?? seed.draft)
             return seed
         }, placed: placed)
     }
 
     static func seed(for invocation: ActionInvocation) -> AgentPaneSeed {
         let host = invocation["host"]?.targetValue?.id ?? invocation["host"]?.stringValue
-        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue,
+        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue, draft: invocation["draft"]?.stringValue,
                       harness: invocation["harness"]?.stringValue,
                       model: invocation["model"]?.stringValue,
                       host: host == MachineRegistry.localID ? nil : host)

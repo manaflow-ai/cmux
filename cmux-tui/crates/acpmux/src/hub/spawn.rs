@@ -351,8 +351,10 @@ impl Hub {
         // The family as the launch derives it (`agent/command.rs`): a discovered Claude profile has
         // none set. The sign-in check reads the env the child gets: the profile's `${env:…}` and
         // keychain references resolved as the launch resolves them (`resolved_profile_env`; one
-        // that does not resolve keeps own), over the vault's and `machine.env`'s values
-        // (`login_env::effective_for`), and its project settings.
+        // that does not resolve keeps own), over the vault's and `machine.env`'s values, and its
+        // project settings (`claude_cloud_auth::launch_env`). A remote-origin launch (the app's
+        // Cloud chat, over its peer link) gets none of those, only the host base and its profile
+        // (`agent/command.rs`), so only those count as its sign-in (#43821).
         // Only an owner Cloud machine's Claude, so no other launch resolves its references twice.
         // A launcher that picks Claude's provider itself (`claude-sr`, `claude-cr`) owns it too.
         let claude_on_cloud = crate::config::derive_family(&meta.harness, &p) == "claude"
@@ -368,7 +370,7 @@ impl Hub {
             None => None,
         };
         if let Some(resolved) = resolved {
-            let env = crate::login_env::effective_for(Some("claude"), &resolved);
+            let env = crate::claude_cloud_auth::launch_env_now(resolved, meta.remote_origin);
             let read = env.clone();
             let var = move |k: &str| read.get(k).cloned().filter(|v| !v.is_empty());
             let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();

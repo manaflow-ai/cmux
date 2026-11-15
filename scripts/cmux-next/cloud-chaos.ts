@@ -258,6 +258,8 @@ function answerOf(msg: any): any {
 /** What the chat and the guest terminal need of a carrier dial (ClientDial; a fake in the tests). */
 export type DialLike = {
   dials: number;
+  /** What the dial went through (ClientDial.events); none for a fake. */
+  events?: string[];
   start(): void;
   request(frame: Record<string, unknown>, timeoutMs?: number): Promise<any>;
   stop(): void;
@@ -270,6 +272,12 @@ export type DialLike = {
  */
 class ClientDial implements DialLike {
   dials = 0;
+  /**
+   * The dial's own story, oldest first: each `cloud.connect` route line (a resume, a fresh session) and each exit, with
+   * its time. The chat rides this dial, not the pinged one, so a chat stream that stops while the pinged dial resumed
+   * is told from these.
+   */
+  events: string[] = [];
   private child: ReturnType<typeof spawn> | null = null;
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private n = 0;
@@ -306,16 +314,24 @@ class ClientDial implements DialLike {
     });
     let err = "";
     let said = false;
+    let rest = "";
     child.stderr!.setEncoding("utf8").on("data", (chunk: string) => {
-      err += chunk;
+      rest += chunk;
+      for (let at = rest.indexOf("\n"); at >= 0; at = rest.indexOf("\n")) {
+        const line = rest.slice(0, at);
+        rest = rest.slice(at + 1);
+        if (line.startsWith("cloud.connect ")) this.note(line.slice(0, 300));
+      }
       if (said) return;
+      err += chunk;
       const first = err.split("\n")[0];
       if (!err.includes("\n")) return;
       said = true;
       try { if (JSON.parse(first).ok === true && this.child === child) this.onDial(); } catch { /* not the reply line */ }
     });
-    child.on("exit", () => {
+    child.on("exit", (code) => {
       if (this.child === child) this.child = null;
+      if (!this.stopped) this.note(`exit ${code}`);
       for (const [id, w] of this.pending) {
         clearTimeout(w.timer);
         w.reject(new Error("the client's dial ended"));
@@ -325,6 +341,12 @@ class ClientDial implements DialLike {
       // At once, as the app's redial; a dial that cannot connect yet ends again and comes back here.
       setTimeout(() => this.dial(), 250);
     });
+  }
+
+  /** Keeps the newest 40 of the dial's events. */
+  private note(text: string): void {
+    this.events.push(`${new Date().toISOString().slice(11, 23)}Z dial ${this.dials}: ${text}`);
+    if (this.events.length > 40) this.events.shift();
   }
 
   /** One request on the current dial; rejects when it is not answered within `timeoutMs` or the dial ends. */
@@ -886,6 +908,12 @@ async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, bas
   const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""}; ${await chat.stallDiagnosis()})`;
   const pages = slice.filter((r) => r.via === "page").length;
   const why = ranNone ? `; ${journalNotesText(notes)}` : "";
+  if (!verdict.ok || !caught) {
+    // In the job log (it outlives a full artifact store): when the client's stream last moved, and what the chat's
+    // own dial went through (its resumes, fresh sessions and exits), so a stall is told from a lost push.
+    const lastAt = slice.length ? new Date(slice[slice.length - 1].at).toISOString().slice(11, 23) + "Z" : "never";
+    ctx.log?.(`chaos: ${tag}: the client's last record came at ${lastAt}; its dial: ${(chat.dial.events ?? []).slice(-12).join(" | ") || "no route line or exit"}`);
+  }
   return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)${why}` };
 }
 
@@ -1121,6 +1149,8 @@ export type SeqEvent = {
    * update, so a step counts once per call, and twice only when two calls printed it.
    */
   call?: string;
+  /** The record's kind (`tool_call`, `agent_message_chunk`, ...), so a seq the client skipped can be named. */
+  kind?: string;
 };
 
 export type LossVerdict = { ok: boolean; text: string };
@@ -1145,6 +1175,7 @@ export function journalEvent(tag: string, line: unknown): SeqEvent | null {
     seq,
     ks: tool ? [...new Set(countedSteps(tag, JSON.stringify(update ?? e)))] : [],
     ...(tool && typeof update?.toolCallId === "string" ? { call: update.toolCallId } : {}),
+    ...(kind ? { kind } : {}),
   };
 }
 
@@ -1203,7 +1234,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
     if (seen.has(e.seq)) cRepeats.push(e.seq);
     else if (i > 0 && e.seq !== client[i - 1].seq + 1) {
       const at = input.reconnects?.includes(i) ? " (a replay after a reconnect)" : "";
-      cGaps.push(`${client[i - 1].seq}->${e.seq}${at}`);
+      // What the skipped seqs were on the machine: a kind that is never pushed live is a different bug from a lost push.
+      const skipped: string[] = [];
+      for (let s = client[i - 1].seq + 1; s < e.seq && skipped.length < 3; s++) skipped.push(bySeq.get(s)?.kind || "?");
+      const what = e.seq > client[i - 1].seq + 1 ? ` [${skipped.join(",")}${e.seq - client[i - 1].seq - 1 > 3 ? ",..." : ""}]` : "";
+      cGaps.push(`${client[i - 1].seq}->${e.seq}${at}${what}`);
     }
     seen.add(e.seq);
   }
