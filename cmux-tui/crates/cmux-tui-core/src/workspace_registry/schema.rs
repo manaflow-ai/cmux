@@ -103,7 +103,7 @@ pub(super) fn vacuum_with_file_temp_store(
     Ok(result?)
 }
 
-fn require_resource_effect_pepper_id(
+pub(super) fn require_resource_effect_pepper_id(
     transaction: &Transaction<'_>,
     expected: &str,
 ) -> anyhow::Result<()> {
@@ -121,7 +121,7 @@ fn require_resource_effect_pepper_id(
     Ok(())
 }
 
-fn migrate_resource_effect_pepper(
+pub(super) fn migrate_resource_effect_pepper(
     transaction: &Transaction<'_>,
     identifier: &str,
 ) -> anyhow::Result<()> {
