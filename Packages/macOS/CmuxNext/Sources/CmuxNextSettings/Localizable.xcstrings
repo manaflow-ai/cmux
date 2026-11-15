@@ -74052,127 +74052,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+            "value": "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「ポインタを置いたとき」では、各タブバーの + はそのタブバーにポインタがある間だけ表示されます。"
+            "value": "ミニマルモードでは、「ポインタを置いたとき」で各タブバーの + はそのタブバーにポインタがある間だけ表示されます。ミニマルモード以外では + は常に表示されます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«عند التمرير» يُظهر زر + في كل شريط علامات تبويب فقط أثناء وجود المؤشر فوقه."
+            "value": "في الوضع البسيط، «عند التمرير» يُظهر زر + في كل شريط علامات تبويب فقط أثناء وجود المؤشر فوقه. خارج الوضع البسيط يظهر + دائمًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pri prelasku prikazuje + svake trake kartica samo dok je pokazivač iznad nje."
+            "value": "U Minimalnom načinu, Pri prelasku prikazuje + svake trake kartica samo dok je pokazivač iznad nje. Izvan Minimalnog načina + se uvijek prikazuje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ved markør viser hver fanelinjes + kun, mens markøren er over den fanelinje."
+            "value": "I Minimal tilstand viser Ved markør hver fanelinjes + kun, mens markøren er over den fanelinje. Uden for Minimal tilstand vises + altid."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„Beim Darüberfahren“ zeigt das + jeder Tableiste nur, solange der Zeiger darüber ist."
+            "value": "Im Minimalen Modus zeigt „Beim Darüberfahren“ das + jeder Tableiste nur, solange der Zeiger darüber ist. Außerhalb des Minimalen Modus wird das + immer angezeigt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Al pasar el puntero muestra el + de cada barra de pestañas solo mientras el puntero está sobre ella."
+            "value": "En el Modo mínimo, Al pasar el puntero muestra el + de cada barra de pestañas solo mientras el puntero está sobre ella. Fuera del Modo mínimo, el + se muestra siempre."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Au survol n'affiche le + de chaque barre d'onglets que lorsque le pointeur la survole."
+            "value": "En Mode minimal, Au survol n'affiche le + de chaque barre d'onglets que lorsque le pointeur la survole. Hors du Mode minimal, le + s'affiche toujours."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Al passaggio mostra il + di ogni barra delle schede solo mentre il puntatore è sopra di essa."
+            "value": "In Modalità minimale, Al passaggio mostra il + di ogni barra delle schede solo mentre il puntatore è sopra di essa. Fuori dalla Modalità minimale il + è sempre visibile."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញ + នៃរបារផ្ទាំងនីមួយៗ តែពេលទស្សន៍ទ្រនិចនៅលើរបារនោះប៉ុណ្ណោះ។"
+            "value": "ក្នុងរបៀបអប្បបរមា ពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញ + នៃរបារផ្ទាំងនីមួយៗ តែពេលទស្សន៍ទ្រនិចនៅលើរបារនោះប៉ុណ្ណោះ។ ក្រៅរបៀបអប្បបរមា + តែងតែបង្ហាញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "마우스를 올릴 때는 포인터가 해당 탭 막대 위에 있을 때만 그 막대의 +를 표시합니다."
+            "value": "미니멀 모드에서 마우스를 올릴 때는 포인터가 해당 탭 막대 위에 있을 때만 그 막대의 +를 표시합니다. 미니멀 모드가 아니면 +는 항상 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ved peker viser hver fanelinjes + bare mens pekeren er over den fanelinjen."
+            "value": "I Minimal modus viser Ved peker hver fanelinjes + bare mens pekeren er over den fanelinjen. Utenfor Minimal modus vises + alltid."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Po najechaniu pokazuje + każdego paska kart tylko wtedy, gdy wskaźnik jest nad nim."
+            "value": "W Trybie minimalnym opcja Po najechaniu pokazuje + każdego paska kart tylko wtedy, gdy wskaźnik jest nad nim. Poza Trybem minimalnym + jest zawsze widoczny."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ao passar o ponteiro mostra o + de cada barra de abas só enquanto o ponteiro está sobre ela."
+            "value": "No Modo Mínimo, Ao passar o ponteiro mostra o + de cada barra de abas só enquanto o ponteiro está sobre ela. Fora do Modo Mínimo, o + sempre aparece."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«При наведении» показывает + каждой панели вкладок, только пока указатель над ней."
+            "value": "В Минимальном режиме «При наведении» показывает + каждой панели вкладок, только пока указатель над ней. Вне Минимального режима + виден всегда."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เมื่อวางเมาส์ จะแสดง + ของแถบแท็บแต่ละแถบเฉพาะตอนที่ตัวชี้อยู่เหนือแถบนั้น"
+            "value": "ในโหมดมินิมอล เมื่อวางเมาส์ จะแสดง + ของแถบแท็บแต่ละแถบเฉพาะตอนที่ตัวชี้อยู่เหนือแถบนั้น นอกโหมดมินิมอล + จะแสดงเสมอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Üzerine gelince, her sekme çubuğunun + düğmesini yalnızca işaretçi o çubuğun üzerindeyken gösterir."
+            "value": "Minimal Modda, Üzerine gelince her sekme çubuğunun + düğmesini yalnızca işaretçi o çubuğun üzerindeyken gösterir. Minimal Mod dışında + her zaman görünür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«При наведенні» показує + кожної панелі вкладок, лише поки вказівник над нею."
+            "value": "У Мінімальному режимі «При наведенні» показує + кожної панелі вкладок, лише поки вказівник над нею. Поза Мінімальним режимом + видно завжди."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khi di chuột chỉ hiện nút + của mỗi thanh thẻ khi con trỏ ở trên thanh đó."
+            "value": "Trong Chế độ tối giản, Khi di chuột chỉ hiện nút + của mỗi thanh thẻ khi con trỏ ở trên thanh đó. Ngoài Chế độ tối giản, nút + luôn hiển thị."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“悬停时”仅在指针位于某个标签栏上时显示该标签栏的 +。"
+            "value": "在极简模式下，“悬停时”仅在指针位于某个标签栏上时显示该标签栏的 +。不在极简模式时，+ 始终显示。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「懸停時」僅在指標位於某個分頁列上時顯示該分頁列的 +。"
+            "value": "在極簡模式下，「懸停時」僅在指標位於某個分頁列上時顯示該分頁列的 +。不在極簡模式時，+ 一律顯示。"
           }
         }
       }
@@ -108464,127 +108464,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعرض صفوف مساحات العمل أيقونتها واسمها وعلامة غير المقروء فقط، وتصبح عناوين الأقسام خطوطًا رفيعة."
+            "value": "تظهر أزرار الشريط الجانبي وأشرطة علامات التبويب والمساحات وزر الملف الشخصي فقط أثناء وجود المؤشر فوقها. تعرض صفوف مساحات العمل أيقونتها واسمها وعلامة غير المقروء فقط، وتصبح عناوين الأقسام خطوطًا رفيعة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Redovi radnih prostora prikazuju samo ikonu, naziv i oznaku nepročitanog, a naslovi odjeljaka postaju tanke linije."
+            "value": "Dugmad bočne trake i traka kartica, prostori i dugme profila prikazuju se samo dok je pokazivač iznad njih. Redovi radnih prostora prikazuju samo ikonu, naziv i oznaku nepročitanog, a naslovi odjeljaka postaju tanke linije."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbejdsområderækker viser kun ikon, navn og ulæst-mærke, og sektionstitler bliver til tynde streger."
+            "value": "Sidepanelets og fanelinjernes knapper, rum og profilknap vises kun, mens markøren er over dem. Rækker for arbejdsområder viser kun ikon, navn og ulæst-mærke, og sektionstitler bliver til tynde linjer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbeitsbereichszeilen zeigen nur Symbol, Namen und Ungelesen-Markierung, und Abschnittstitel werden zu dünnen Linien."
+            "value": "Die Tasten, Bereiche und die Profiltaste der Seitenleiste und der Tableisten erscheinen nur, solange der Zeiger darüber ist. Arbeitsbereichszeilen zeigen nur Symbol, Name und Ungelesen-Markierung, und Abschnittstitel werden zu dünnen Linien."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+            "value": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las filas de los espacios de trabajo solo muestran su icono, nombre y marca de no leído, y los títulos de sección se vuelven líneas finas."
+            "value": "Los botones, los espacios y el botón de perfil de la barra lateral y de las barras de pestañas solo se muestran mientras el puntero está sobre ellos. Las filas de espacios de trabajo muestran solo su icono, nombre y marca de no leído, y los títulos de sección se vuelven líneas finas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les lignes des espaces de travail n’affichent que leur icône, leur nom et la marque non lu, et les titres de section deviennent de fines lignes."
+            "value": "Les boutons, les espaces et le bouton de profil de la barre latérale et des barres d’onglets ne s’affichent que lorsque le pointeur les survole. Les lignes d’espace de travail n’affichent que leur icône, leur nom et leur marque non lu, et les titres de section deviennent de fines lignes."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le righe degli spazi di lavoro mostrano solo icona, nome e indicatore di non letto, e i titoli delle sezioni diventano linee sottili."
+            "value": "I pulsanti, gli spazi e il pulsante del profilo della barra laterale e delle barre delle schede si vedono solo mentre il puntatore è sopra di essi. Le righe dei workspace mostrano solo icona, nome e segno di non letto, e i titoli delle sezioni diventano linee sottili."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースの行にはアイコン、名前、未読マークだけを表示し、セクションのタイトルは細い線になります。"
+            "value": "サイドバーとタブバーのボタン、スペース、プロフィールボタンは、ポインタを置いている間だけ表示されます。ワークスペースの行はアイコン、名前、未読マークだけを表示し、セクションの見出しは細い線になります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរកន្លែងធ្វើការបង្ហាញតែរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន ហើយចំណងជើងផ្នែកក្លាយជាបន្ទាត់ស្តើង។"
+            "value": "ប៊ូតុង ចន្លោះ និងប៊ូតុងប្រវត្តិរូបនៃរបារចំហៀង និងរបារផ្ទាំង បង្ហាញតែពេលទស្សន៍ទ្រនិចនៅលើពួកវាប៉ុណ្ណោះ។ ជួរកន្លែងធ្វើការបង្ហាញតែរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន ហើយចំណងជើងផ្នែកក្លាយជាបន្ទាត់ស្ដើង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "작업 공간 행에는 아이콘, 이름, 읽지 않음 표시만 나타나고 섹션 제목은 얇은 선이 됩니다."
+            "value": "사이드바와 탭 막대의 버튼, 스페이스, 프로필 버튼은 포인터가 그 위에 있을 때만 표시됩니다. 워크스페이스 행에는 아이콘, 이름, 읽지 않음 표시만 나오고 섹션 제목은 가는 선이 됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbeidsområderader viser bare ikon, navn og ulest-merke, og seksjonstitler blir tynne streker."
+            "value": "Knappene, rommene og profilknappen i sidefeltet og fanelinjene vises bare mens pekeren er over dem. Rader for arbeidsområder viser bare ikon, navn og ulest-merke, og seksjonstitler blir tynne linjer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wiersze obszarów roboczych pokazują tylko ikonę, nazwę i znacznik nieprzeczytanych, a tytuły sekcji stają się cienkimi liniami."
+            "value": "Przyciski, przestrzenie i przycisk profilu paska bocznego oraz pasków kart są widoczne tylko, gdy wskaźnik jest nad nimi. Wiersze przestrzeni roboczych pokazują tylko ikonę, nazwę i znacznik nieprzeczytanych, a tytuły sekcji stają się cienkimi liniami."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As linhas dos espaços de trabalho mostram só o ícone, o nome e a marca de não lido, e os títulos das seções viram linhas finas."
+            "value": "Os botões, os espaços e o botão de perfil da barra lateral e das barras de abas aparecem só enquanto o ponteiro está sobre eles. As linhas de espaços de trabalho mostram só o ícone, o nome e a marca de não lido, e os títulos de seção viram linhas finas."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Строки рабочих пространств показывают только значок, имя и отметку непрочитанного, а заголовки разделов становятся тонкими линиями."
+            "value": "Кнопки, пространства и кнопка профиля боковой панели и панелей вкладок видны, только пока указатель над ними. Строки рабочих пространств показывают только значок, имя и отметку непрочитанного, а заголовки разделов становятся тонкими линиями."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แถวพื้นที่ทำงานแสดงเฉพาะไอคอน ชื่อ และเครื่องหมายยังไม่อ่าน และชื่อส่วนจะกลายเป็นเส้นบาง"
+            "value": "ปุ่ม สเปซ และปุ่มโปรไฟล์ของแถบด้านข้างและแถบแท็บจะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือสิ่งเหล่านั้น แถวพื้นที่ทำงานแสดงเฉพาะไอคอน ชื่อ และเครื่องหมายยังไม่ได้อ่าน และชื่อส่วนจะกลายเป็นเส้นบาง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çalışma alanı satırları yalnızca simgeyi, adı ve okunmamış işaretini gösterir; bölüm başlıkları ince çizgilere dönüşür."
+            "value": "Kenar çubuğunun ve sekme çubuklarının düğmeleri, alanları ve profil düğmesi yalnızca işaretçi üzerlerindeyken görünür. Çalışma alanı satırları yalnızca simgelerini, adlarını ve okunmamış işaretini gösterir, bölüm başlıkları ince çizgilere dönüşür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Рядки робочих просторів показують лише значок, назву й позначку непрочитаного, а назви розділів стають тонкими лініями."
+            "value": "Кнопки, простори та кнопка профілю бічної панелі й панелей вкладок видні, лише поки вказівник над ними. Рядки робочих просторів показують лише значок, назву й позначку непрочитаного, а заголовки розділів стають тонкими лініями."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các hàng không gian làm việc chỉ hiện biểu tượng, tên và dấu chưa đọc, còn tiêu đề mục trở thành đường mảnh."
+            "value": "Các nút, không gian và nút hồ sơ của thanh bên và thanh thẻ chỉ hiện khi con trỏ ở trên chúng. Các hàng không gian làm việc chỉ hiện biểu tượng, tên và dấu chưa đọc, còn tiêu đề mục trở thành đường mảnh."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "工作区行只显示图标、名称和未读标记，分区标题变为细线。"
+            "value": "边栏和标签栏的按钮、空间和个人资料按钮仅在指针位于其上方时显示。工作区行仅显示图标、名称和未读标记，分区标题变为细线。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "工作區列只顯示圖示、名稱與未讀標記，區段標題變成細線。"
+            "value": "側邊欄和分頁列的按鈕、空間和個人檔案按鈕僅在指標位於其上方時顯示。工作區列僅顯示圖示、名稱和未讀標記，區段標題變為細線。"
           }
         }
       }
@@ -115430,127 +115430,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rows show only icon, name and unread mark"
+            "value": "Buttons show on hover; rows show icon, name and unread mark"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعرض الصفوف الأيقونة والاسم وعلامة غير المقروء فقط"
+            "value": "تظهر الأزرار عند التمرير؛ تعرض الصفوف الأيقونة والاسم وعلامة غير المقروء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Redovi prikazuju samo ikonu, ime i oznaku nepročitanog"
+            "value": "Dugmad se prikazuju pri prelasku; redovi prikazuju ikonu, naziv i oznaku nepročitanog"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rækker viser kun ikon, navn og ulæst-mærke"
+            "value": "Knapper vises ved markør; rækker viser ikon, navn og ulæst-mærke"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeilen zeigen nur Symbol, Name und Ungelesen-Markierung"
+            "value": "Tasten erscheinen beim Darüberfahren; Zeilen zeigen Symbol, Name und Ungelesen-Markierung"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las filas muestran solo icono, nombre y marca de no leído"
+            "value": "Los botones aparecen al pasar el puntero; las filas muestran icono, nombre y marca de no leído"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les lignes n’affichent que l’icône, le nom et le non-lu"
+            "value": "Boutons au survol ; les lignes affichent icône, nom et marque non lu"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le righe mostrano solo icona, nome e segno di non letto"
+            "value": "Pulsanti al passaggio; le righe mostrano icona, nome e segno di non letto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "行にはアイコン、名前、未読マークだけを表示"
+            "value": "ボタンはポインタを置いたときに表示、行はアイコン・名前・未読マークのみ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ជួរដេកបង្ហាញតែរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន"
+            "value": "ប៊ូតុងបង្ហាញពេលដាក់ទស្សន៍ទ្រនិច ជួរបង្ហាញរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "행에 아이콘, 이름, 읽지 않음 표시만 보임"
+            "value": "버튼은 마우스를 올릴 때 표시, 행은 아이콘·이름·읽지 않음 표시만"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rader viser bare ikon, navn og ulest-merke"
+            "value": "Knapper vises ved peker; rader viser ikon, navn og ulest-merke"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wiersze pokazują tylko ikonę, nazwę i znak nieprzeczytanych"
+            "value": "Przyciski po najechaniu; wiersze pokazują ikonę, nazwę i znacznik nieprzeczytanych"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As linhas mostram só ícone, nome e marca de não lido"
+            "value": "Botões aparecem ao passar o ponteiro; linhas mostram ícone, nome e marca de não lido"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В строках только значок, имя и отметка непрочитанного"
+            "value": "Кнопки при наведении; строки показывают значок, имя и отметку непрочитанного"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แถวแสดงเพียงไอคอน ชื่อ และเครื่องหมายยังไม่อ่าน"
+            "value": "ปุ่มแสดงเมื่อวางเมาส์ แถวแสดงไอคอน ชื่อ และเครื่องหมายยังไม่ได้อ่าน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Satırlar yalnızca simge, ad ve okunmadı işaretini gösterir"
+            "value": "Düğmeler üzerine gelince görünür; satırlar simge, ad ve okunmamış işaretini gösterir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "У рядках лише значок, назва й позначка непрочитаного"
+            "value": "Кнопки при наведенні; рядки показують значок, назву й позначку непрочитаного"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hàng chỉ hiện biểu tượng, tên và dấu chưa đọc"
+            "value": "Nút hiện khi di chuột; hàng chỉ hiện biểu tượng, tên và dấu chưa đọc"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "行只显示图标、名称和未读标记"
+            "value": "按钮悬停时显示；行仅显示图标、名称和未读标记"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "列只顯示圖示、名稱和未讀標記"
+            "value": "按鈕懸停時顯示；列僅顯示圖示、名稱和未讀標記"
           }
         }
       }
@@ -203950,27 +203950,27 @@
     "settings.sidebar.controlsOnHover.help": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يظهر زر مساحة عمل جديدة والمساحات وزر الملف الشخصي وزر البحث في الشريط الجانبي، وزر الشريط الجانبي وزرّا الرجوع والتقدم فوقه، فقط عندما يكون المؤشر فوق الشريط الجانبي. عند الإيقاف، تظهر دائمًا."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Dugme Novi radni prostor, prostori, dugme profila i dugme Pretraga na bočnoj traci, te dugme bočne trake, Nazad i Naprijed iznad nje, prikazuju se samo dok je pokazivač iznad bočne trake. Isključeno: uvijek se prikazuju."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets knap Nyt arbejdsområde, rum, profilknap og søgeknap samt sidepanelknappen, Tilbage og Frem over det vises kun, mens markøren er over sidepanelet. Slået fra vises de altid."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Die Taste „Neuer Arbeitsbereich“, die Bereiche, die Profiltaste und die Suchtaste der Seitenleiste sowie die Seitenleistentaste, Zurück und Vorwärts darüber erscheinen nur, solange der Zeiger über der Seitenleiste ist. Aus: Sie werden immer angezeigt."}},
-        "en": {"stringUnit": {"state": "translated", "value": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "El botón Nuevo espacio de trabajo, los espacios, el botón de perfil y el botón Buscar de la barra lateral, y el botón de la barra lateral, Atrás y Adelante encima, solo se muestran mientras el puntero está sobre la barra lateral. Desactivado, se muestran siempre."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Le bouton Nouvel espace de travail, les espaces, le bouton de profil et le bouton Rechercher de la barre latérale, ainsi que le bouton de la barre latérale, Précédent et Suivant au-dessus, ne s’affichent que lorsque le pointeur est sur la barre latérale. Désactivé, ils s’affichent toujours."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Il pulsante Nuovo workspace, gli spazi, il pulsante del profilo e il pulsante Cerca della barra laterale, e il pulsante della barra laterale, Indietro e Avanti sopra di essa, si vedono solo mentre il puntatore è sulla barra laterale. Disattivato, sono sempre visibili."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの新規ワークスペースボタン、スペース、プロフィールボタン、検索ボタン、およびその上のサイドバーボタン、「戻る」と「進む」は、ポインタがサイドバー上にあるときだけ表示されます。オフのときは常に表示されます。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ប៊ូតុងកន្លែងធ្វើការថ្មី ចន្លោះ ប៊ូតុងប្រវត្តិរូប និងប៊ូតុងស្វែងរកនៃរបារចំហៀង ព្រមទាំងប៊ូតុងរបារចំហៀង ថយក្រោយ និងទៅមុខខាងលើវា បង្ហាញតែនៅពេលព្រួញនៅលើរបារចំហៀងប៉ុណ្ណោះ។ បិទ៖ ពួកវាតែងតែបង្ហាញ។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 새 워크스페이스 버튼, 스페이스, 프로필 버튼, 검색 버튼과 그 위의 사이드바 버튼, 뒤로, 앞으로는 포인터가 사이드바 위에 있을 때만 표시됩니다. 끄면 항상 표시됩니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Sidefeltets knapp Nytt arbeidsområde, rom, profilknappen og søkeknappen, og sidefeltknappen, Tilbake og Frem over det, vises bare mens pekeren er over sidefeltet. Av: de vises alltid."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Przycisk Nowa przestrzeń robocza, przestrzenie, przycisk profilu i przycisk Szukaj paska bocznego oraz przycisk paska bocznego, Wstecz i Dalej nad nim są widoczne tylko, gdy wskaźnik jest nad paskiem bocznym. Wyłączone: są zawsze widoczne."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O botão Novo espaço de trabalho, os espaços, o botão de perfil e o botão Buscar da barra lateral, e o botão da barra lateral, Voltar e Avançar acima dela, aparecem só enquanto o ponteiro está sobre a barra lateral. Desativado, eles sempre aparecem."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новое рабочее пространство», пространства, кнопка профиля и кнопка поиска боковой панели, а также кнопка боковой панели, «Назад» и «Вперёд» над ней видны, только пока указатель над боковой панелью. Выключено: видны всегда."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ปุ่มพื้นที่ทำงานใหม่ สเปซ ปุ่มโปรไฟล์ และปุ่มค้นหาของแถบด้านข้าง รวมถึงปุ่มแถบด้านข้าง ย้อนกลับ และไปข้างหน้าด้านบน จะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือแถบด้านข้าง เมื่อปิด จะแสดงเสมอ"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun Yeni Çalışma Alanı düğmesi, alanları, profil düğmesi ve Ara düğmesi ile üstündeki kenar çubuğu düğmesi, Geri ve İleri yalnızca işaretçi kenar çubuğunun üzerindeyken görünür. Kapalıyken her zaman görünürler."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новий робочий простір», простори, кнопка профілю та кнопка пошуку бічної панелі, а також кнопка бічної панелі, «Назад» і «Вперед» над нею видні, лише поки вказівник над бічною панеллю. Вимкнено: видні завжди."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Nút Không gian làm việc mới, các không gian, nút hồ sơ và nút Tìm kiếm của thanh bên, cùng nút thanh bên, Quay lại và Tiếp tới phía trên, chỉ hiện khi con trỏ ở trên thanh bên. Khi tắt, chúng luôn hiển thị."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏的“新建工作区”按钮、空间、个人资料按钮和“搜索”按钮，以及其上方的边栏按钮、“后退”和“前进”，仅在指针位于边栏上方时显示。关闭时始终显示。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和「搜尋」按鈕，以及其上方的側邊欄按鈕、「上一頁」和「下一頁」，僅在指標位於側邊欄上方時顯示。關閉時一律顯示。"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يظهر زر مساحة عمل جديدة والمساحات وزر الملف الشخصي وزر البحث في الشريط الجانبي، وزر الشريط الجانبي وزرّا الرجوع والتقدم فوقه، فقط عندما يكون المؤشر فوق الشريط الجانبي. عند الإيقاف، تظهر دائمًا ما لم يكن الوضع البسيط مفعّلًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dugme Novi radni prostor, prostori, dugme profila i dugme Pretraga na bočnoj traci, te dugme bočne trake, Nazad i Naprijed iznad nje, prikazuju se samo dok je pokazivač iznad bočne trake. Isključeno: uvijek se prikazuju, osim ako je uključen Minimalni način."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets knap Nyt arbejdsområde, rum, profilknap og søgeknap samt sidepanelknappen, Tilbage og Frem over det vises kun, mens markøren er over sidepanelet. Slået fra vises de altid, medmindre Minimal tilstand er slået til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Taste „Neuer Arbeitsbereich“, die Bereiche, die Profiltaste und die Suchtaste der Seitenleiste sowie die Seitenleistentaste, Zurück und Vorwärts darüber erscheinen nur, solange der Zeiger über der Seitenleiste ist. Aus: Sie werden immer angezeigt, außer im Minimalen Modus."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El botón Nuevo espacio de trabajo, los espacios, el botón de perfil y el botón Buscar de la barra lateral, y el botón de la barra lateral, Atrás y Adelante encima, solo se muestran mientras el puntero está sobre la barra lateral. Desactivado, se muestran siempre salvo con el Modo mínimo activado."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le bouton Nouvel espace de travail, les espaces, le bouton de profil et le bouton Rechercher de la barre latérale, ainsi que le bouton de la barre latérale, Précédent et Suivant au-dessus, ne s’affichent que lorsque le pointeur est sur la barre latérale. Désactivé, ils s’affichent toujours, sauf si le Mode minimal est activé."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il pulsante Nuovo workspace, gli spazi, il pulsante del profilo e il pulsante Cerca della barra laterale, e il pulsante della barra laterale, Indietro e Avanti sopra di essa, si vedono solo mentre il puntatore è sulla barra laterale. Disattivato, sono sempre visibili, tranne con la Modalità minimale attiva."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの新規ワークスペースボタン、スペース、プロフィールボタン、検索ボタン、およびその上のサイドバーボタン、「戻る」と「進む」は、ポインタがサイドバー上にあるときだけ表示されます。オフのときは、ミニマルモードがオンでない限り常に表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប៊ូតុងកន្លែងធ្វើការថ្មី ចន្លោះ ប៊ូតុងប្រវត្តិរូប និងប៊ូតុងស្វែងរកនៃរបារចំហៀង ព្រមទាំងប៊ូតុងរបារចំហៀង ថយក្រោយ និងទៅមុខខាងលើវា បង្ហាញតែនៅពេលព្រួញនៅលើរបារចំហៀងប៉ុណ្ណោះ។ បិទ៖ ពួកវាតែងតែបង្ហាញ លុះត្រាតែរបៀបអប្បបរមាបើក។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 새 워크스페이스 버튼, 스페이스, 프로필 버튼, 검색 버튼과 그 위의 사이드바 버튼, 뒤로, 앞으로는 포인터가 사이드바 위에 있을 때만 표시됩니다. 끄면 미니멀 모드가 켜져 있지 않은 한 항상 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sidefeltets knapp Nytt arbeidsområde, rom, profilknappen og søkeknappen, og sidefeltknappen, Tilbake og Frem over det, vises bare mens pekeren er over sidefeltet. Av: de vises alltid, med mindre Minimal modus er på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przycisk Nowa przestrzeń robocza, przestrzenie, przycisk profilu i przycisk Szukaj paska bocznego oraz przycisk paska bocznego, Wstecz i Dalej nad nim są widoczne tylko, gdy wskaźnik jest nad paskiem bocznym. Wyłączone: są zawsze widoczne, chyba że włączony jest Tryb minimalny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O botão Novo espaço de trabalho, os espaços, o botão de perfil e o botão Buscar da barra lateral, e o botão da barra lateral, Voltar e Avançar acima dela, aparecem só enquanto o ponteiro está sobre a barra lateral. Desativado, eles sempre aparecem, a menos que o Modo Mínimo esteja ativado."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новое рабочее пространство», пространства, кнопка профиля и кнопка поиска боковой панели, а также кнопка боковой панели, «Назад» и «Вперёд» над ней видны, только пока указатель над боковой панелью. Выключено: видны всегда, если не включён Минимальный режим."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปุ่มพื้นที่ทำงานใหม่ สเปซ ปุ่มโปรไฟล์ และปุ่มค้นหาของแถบด้านข้าง รวมถึงปุ่มแถบด้านข้าง ย้อนกลับ และไปข้างหน้าด้านบน จะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือแถบด้านข้าง เมื่อปิด จะแสดงเสมอ เว้นแต่เปิดโหมดมินิมอลอยู่"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun Yeni Çalışma Alanı düğmesi, alanları, profil düğmesi ve Ara düğmesi ile üstündeki kenar çubuğu düğmesi, Geri ve İleri yalnızca işaretçi kenar çubuğunun üzerindeyken görünür. Kapalıyken, Minimal Mod açık değilse her zaman görünürler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новий робочий простір», простори, кнопка профілю та кнопка пошуку бічної панелі, а також кнопка бічної панелі, «Назад» і «Вперед» над нею видні, лише поки вказівник над бічною панеллю. Вимкнено: видні завжди, якщо не ввімкнено Мінімальний режим."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Nút Không gian làm việc mới, các không gian, nút hồ sơ và nút Tìm kiếm của thanh bên, cùng nút thanh bên, Quay lại và Tiếp tới phía trên, chỉ hiện khi con trỏ ở trên thanh bên. Khi tắt, chúng luôn hiển thị, trừ khi Chế độ tối giản đang bật."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏的“新建工作区”按钮、空间、个人资料按钮和“搜索”按钮，以及其上方的边栏按钮、“后退”和“前进”，仅在指针位于边栏上方时显示。关闭时始终显示，除非开启了极简模式。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和「搜尋」按鈕，以及其上方的側邊欄按鈕、「上一頁」和「下一頁」，僅在指標位於側邊欄上方時顯示。關閉時一律顯示，除非開啟了極簡模式。"}}
       }
     },
     "settings.sidebar.workspacesAsTabs": {
