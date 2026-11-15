@@ -13762,127 +13762,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your other Macs signed in to this account can open workspaces, terminals and chats here"
+            "value": "Your other Macs signed in to this account can open workspaces and terminals here"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يمكن لأجهزة Mac الأخرى المسجّل دخولها إلى هذا الحساب فتح مساحات العمل والطرفيات والمحادثات هنا"
+            "value": "يمكن لأجهزة Mac الأخرى المسجّل دخولها إلى هذا الحساب فتح مساحات العمل والطرفيات هنا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vaši drugi Macovi prijavljeni na ovaj račun mogu ovdje otvarati radne prostore, terminale i razgovore"
+            "value": "Vaši drugi Macovi prijavljeni na ovaj račun mogu ovdje otvarati radne prostore i terminale"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dine andre Mac'er, der er logget ind på denne konto, kan åbne arbejdsområder, terminaler og chats her"
+            "value": "Dine andre Mac'er, der er logget ind på denne konto, kan åbne arbejdsområder og terminaler her"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Deine anderen Macs mit diesem Konto öffnen hier Arbeitsbereiche, Terminals und Chats"
+            "value": "Deine anderen Macs mit diesem Konto öffnen hier Arbeitsbereiche und Terminals"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tus otros Mac con esta cuenta pueden abrir aquí espacios de trabajo, terminales y chats"
+            "value": "Tus otros Mac con esta cuenta pueden abrir aquí espacios de trabajo y terminales"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vos autres Mac connectés à ce compte ouvrent ici des espaces de travail, des terminaux et des discussions"
+            "value": "Vos autres Mac connectés à ce compte ouvrent ici des espaces de travail et des terminaux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gli altri Mac connessi a questo account possono aprire qui spazi di lavoro, terminali e chat"
+            "value": "Gli altri Mac connessi a questo account possono aprire qui spazi di lavoro e terminali"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このアカウントでサインインしたほかの Mac が、ここでワークスペース、ターミナル、チャットを開けます"
+            "value": "このアカウントでサインインしたほかの Mac が、ここでワークスペースとターミナルを開けます"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac ផ្សេងទៀតដែលបានចូលគណនីនេះ អាចបើកកន្លែងធ្វើការ ទែមីណាល់ និងការជជែកនៅទីនេះ"
+            "value": "Mac ផ្សេងទៀតដែលបានចូលគណនីនេះ អាចបើកកន្លែងធ្វើការ និងទែមីណាល់នៅទីនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 계정으로 로그인한 다른 Mac에서 여기에 워크스페이스, 터미널, 채팅을 열 수 있습니다"
+            "value": "이 계정으로 로그인한 다른 Mac에서 여기에 워크스페이스와 터미널을 열 수 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dine andre Mac-er som er logget på denne kontoen, kan åpne arbeidsområder, terminaler og chatter her"
+            "value": "Dine andre Mac-er som er logget på denne kontoen, kan åpne arbeidsområder og terminaler her"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Twoje inne Maki zalogowane na to konto mogą tu otwierać obszary robocze, terminale i czaty"
+            "value": "Twoje inne Maki zalogowane na to konto mogą tu otwierać obszary robocze i terminale"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Seus outros Macs conectados a esta conta podem abrir espaços de trabalho, terminais e chats aqui"
+            "value": "Seus outros Macs conectados a esta conta podem abrir espaços de trabalho e terminais aqui"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ваши другие Mac с этой учётной записью открывают здесь рабочие области, терминалы и чаты"
+            "value": "Ваши другие Mac с этой учётной записью открывают здесь рабочие области и терминалы"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac เครื่องอื่นที่ลงชื่อเข้าบัญชีนี้เปิดพื้นที่ทำงาน เทอร์มินัล และแชตที่นี่ได้"
+            "value": "Mac เครื่องอื่นที่ลงชื่อเข้าบัญชีนี้เปิดพื้นที่ทำงานและเทอร์มินัลที่นี่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu hesapla oturum açmış diğer Mac'leriniz burada çalışma alanı, terminal ve sohbet açabilir"
+            "value": "Bu hesapla oturum açmış diğer Mac'leriniz burada çalışma alanı ve terminal açabilir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ваші інші Mac з цим обліковим записом відкривають тут робочі області, термінали й чати"
+            "value": "Ваші інші Mac з цим обліковим записом відкривають тут робочі області й термінали"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các máy Mac khác đăng nhập tài khoản này có thể mở không gian làm việc, terminal và cuộc trò chuyện tại đây"
+            "value": "Các máy Mac khác đăng nhập tài khoản này có thể mở không gian làm việc và terminal tại đây"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "登录此账户的其他 Mac 可以在这里打开工作区、终端和聊天"
+            "value": "登录此账户的其他 Mac 可以在这里打开工作区和终端"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "登入此帳號的其他 Mac 可以在這裡打開工作區、終端機和聊天"
+            "value": "登入此帳號的其他 Mac 可以在這裡打開工作區和終端機"
           }
         }
       }

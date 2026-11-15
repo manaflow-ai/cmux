@@ -10,7 +10,7 @@ public nonisolated enum JoinConsentSurface: String, CaseIterable, Equatable, Sen
     case screen
     /// Other team machines move the pointer and type here.
     case control
-    /// The person's other Macs signed in to this account open workspaces, terminals and chats here
+    /// The person's other Macs signed in to this account open workspaces and terminals here
     /// (acpmux's `signedInMachines`, which gates the cmux-tui session circuit). Asked once on this Mac,
     /// at the first New Workspace aimed at it; a sign-in alone grants nothing.
     case signedInMachines
@@ -630,7 +630,7 @@ public nonisolated struct JoinConsentStrings {
         switch surface {
         case .screen: s("devices.join.screenHelp", "Your team's machines can see this screen")
         case .control: s("devices.join.controlHelp", "Your team's machines can move the pointer and type here")
-        case .signedInMachines: s("devices.join.signedInMachinesHelp", "Your other Macs signed in to this account can open workspaces, terminals and chats here")
+        case .signedInMachines: s("devices.join.signedInMachinesHelp", "Your other Macs signed in to this account can open workspaces and terminals here")
         }
     }
     static var onFailed: String { s("devices.join.onFailed", "Still off: this Mac could not confirm it was you") }

@@ -107,7 +107,7 @@ export const mockDevicesJoin: DevicesJoinState = {
     {
       surface: "signedInMachines",
       title: "Your other Macs",
-      help: "Your other Macs signed in to this account can open workspaces, terminals and chats here",
+      help: "Your other Macs signed in to this account can open workspaces and terminals here",
       on: false,
     },
   ],
