@@ -41,6 +41,7 @@ import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
 import { describePaintWindow, paintWindow } from "./paintWindow";
+import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
 import { settledAt } from "./stability";
 
@@ -168,9 +169,11 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT },
     logLevel: "error",
   });
+  // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
+  const sources = PAINT ? sourceMapper(out) : undefined;
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -509,7 +512,7 @@ try {
         const { page, cdp } = pages[0]!;
         const id = sessionId(0);
         if (runGrow === 0) {
-          console.log(describePaintWindow(`${name} idle, no turn`, await paintWindow(page, cdp, IDLE_S)));
+          console.log(describePaintWindow(`${name} idle, no turn`, await paintWindow(page, cdp, IDLE_S, sources)));
           emit(id, "mux", "user_message", { text: "Wait on the lanes" });
           emit(id, "mux", "turn_started", {});
           setStatus(id, "running");
@@ -531,7 +534,7 @@ try {
         // fixed-wait: the opened turn's marks mount and its records apply.
         await new Promise((resolve) => setTimeout(resolve, 2000));
         const openPct = await window(IDLE_S);
-        const paint = await paintWindow(page, cdp, IDLE_S);
+        const paint = await paintWindow(page, cdp, IDLE_S, sources);
         console.log(describePaintWindow(`${name} idle, turn open, ${openPct.toFixed(2)} % CPU`, paint));
         const row = (key: string, value: number, unit: string) =>
           perfRow({ name: `${ROW}.${name}.idle_open_${key}`, p50: value, p95: value, unit });
@@ -540,6 +543,23 @@ try {
         row("main_frames_per_s", paint.mainFramesPerS, "count");
         row("paints_per_s", paint.paintsPerS, "count");
         row("main_ms_per_s", paint.taskMsPerS, "ms");
+        // A trickle: the open turn takes one reply chunk a second (a coordinator's slow stream), so what one record
+        // costs in frames and paints shows beside the window above.
+        let trickling = true;
+        const trickle = (async () => {
+          for (let n = 0; trickling; n++) {
+            said({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `still waiting ${n}. ` } });
+            // fixed-wait: the trickle's own pacing.
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        })();
+        const trickled = await paintWindow(page, cdp, IDLE_S, sources);
+        trickling = false;
+        await trickle;
+        console.log(describePaintWindow(`${name} turn open, a chunk a second`, trickled));
+        row("trickle_frames_per_s", trickled.framesPerS, "count");
+        row("trickle_paints_per_s", trickled.paintsPerS, "count");
+        row("trickle_main_ms_per_s", trickled.taskMsPerS, "ms");
         said({
           sessionUpdate: "tool_call_update",
           toolCallId: "paint-wait",

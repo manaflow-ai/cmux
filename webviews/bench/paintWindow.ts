@@ -62,6 +62,10 @@ export type PaintWindow = {
    * unsupportedProperties), by animation name. */
   notComposited: string[];
   animations: RunningAnimation[];
+  /// requestAnimationFrame callbacks a second, by the site that asked for them, most first.
+  frameSources: [site: string, perS: number][];
+  /// CSS animations and transitions started a second, by name or property and target, most first.
+  startedPerS: [what: string, perS: number][];
 };
 
 const COMPOSITABLE = new Set(["transform", "opacity", "translate", "rotate", "scale"]);
@@ -101,7 +105,57 @@ export async function runningAnimations(page: Page): Promise<RunningAnimation[]>
 
 /// Traces `seconds` of `page` through `cdp` (a session of that page). The page's running loops are paused and played
 /// again at the window's start, so the trace sees each start on (or refused by) the compositor.
-export async function paintWindow(page: Page, cdp: CDPSession, seconds: number): Promise<PaintWindow> {
+export async function paintWindow(
+  page: Page,
+  cdp: CDPSession,
+  seconds: number,
+  /// A bundle position (file name, 0-based line and column) to its source (bench/sourceMapper.ts), for the frame
+  /// requests' sites.
+  mapSource?: (file: string, line: number, column: number) => string,
+): Promise<PaintWindow> {
+  // What asks for frames over the window: each requestAnimationFrame callback that ran, by the site that asked for it
+  // (two stack frames), and each CSS animation and transition that started, by name or property and target.
+  await page.evaluate(() => {
+    type Probe = { on: boolean; frames: Map<string, number>; started: Map<string, number> };
+    const w = window as unknown as { __cmuxFrameSources?: Probe };
+    const label = (target: EventTarget | null) =>
+      target instanceof Element
+        ? `${target.tagName.toLowerCase()}${typeof target.className === "string" && target.className ? `.${target.className.trim().split(/\s+/).slice(0, 3).join(".")}` : ""}`
+        : "?";
+    if (!w.__cmuxFrameSources) {
+      const probe: Probe = { on: false, frames: new Map(), started: new Map() };
+      w.__cmuxFrameSources = probe;
+      const raf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+        if (!probe.on) return raf(callback);
+        const site =
+          new Error().stack
+            ?.split("\n")
+            .slice(2, 4)
+            .map((line) => line.trim())
+            .join(" < ") ?? "?";
+        return raf((time) => {
+          if (probe.on) probe.frames.set(site, (probe.frames.get(site) ?? 0) + 1);
+          callback(time);
+        });
+      };
+      const note = (key: string) => probe.on && probe.started.set(key, (probe.started.get(key) ?? 0) + 1);
+      document.addEventListener(
+        "animationstart",
+        (event) => note(`animation ${event.animationName} on ${label(event.target)}`),
+        true,
+      );
+      document.addEventListener(
+        "transitionrun",
+        (event) => note(`transition ${event.propertyName} on ${label(event.target)}`),
+        true,
+      );
+    }
+    const probe = w.__cmuxFrameSources;
+    probe.frames.clear();
+    probe.started.clear();
+    probe.on = true;
+  });
   const events: TraceEvent[] = [];
   const collect = (payload: { value: TraceEvent[] }) => {
     for (const event of payload.value) events.push(event);
@@ -130,6 +184,29 @@ export async function paintWindow(page: Page, cdp: CDPSession, seconds: number):
     cdp.off("Tracing.dataCollected", collect);
   }
   const animations = await runningAnimations(page);
+  const probed = await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        __cmuxFrameSources: { on: boolean; frames: Map<string, number>; started: Map<string, number> };
+      }
+    ).__cmuxFrameSources;
+    probe.on = false;
+    return { frames: [...probe.frames], started: [...probe.started] };
+  });
+  // A stack line `at name (http://host/assets/file.js:L:C)` to its source, when a map is given.
+  const mapSite = (site: string) =>
+    mapSource
+      ? site.replace(
+          /(?:https?:\/\/[^\s)]*\/)?assets\/([^\s/:)]+\.js):(\d+):(\d+)/g,
+          (_, file: string, line: string, column: string) => mapSource(file, Number(line) - 1, Number(column) - 1),
+        )
+      : site;
+  const frameSources = probed.frames
+    .map(([site, count]) => [mapSite(site), count / seconds] as [string, number])
+    .sort((a, b) => b[1] - a[1]);
+  const startedPerS = probed.started
+    .map(([key, count]) => [key, count / seconds] as [string, number])
+    .sort((a, b) => b[1] - a[1]);
   const threads = new Map<string, string>();
   const renderers = new Set<number>();
   for (const event of events) {
@@ -153,7 +230,7 @@ export async function paintWindow(page: Page, cdp: CDPSession, seconds: number):
   const animationId = (event: TraceEvent) => `${event.pid}:${event.id ?? event.id2?.local ?? ""}`;
   const animationNames = new Map<string, string>();
   for (const event of events)
-    if (event.name === "Animation" && event.ph === "b" && typeof event.args?.data?.name === "string")
+    if (event.name === "Animation" && typeof event.args?.data?.name === "string" && event.args.data.name)
       animationNames.set(animationId(event), event.args.data.name as string);
   for (const event of events) {
     if (!renderers.has(event.pid)) continue;
@@ -197,6 +274,8 @@ export async function paintWindow(page: Page, cdp: CDPSession, seconds: number):
     paintAreaPerS: paintArea / seconds,
     notComposited: [...notComposited],
     animations,
+    frameSources,
+    startedPerS,
   };
 }
 
@@ -213,5 +292,8 @@ export function describePaintWindow(label: string, window: PaintWindow): string 
       `${animation.compositable ? "" : " (not compositor-only)"}${animation.onScreen ? "" : " (off screen)"}`,
   );
   for (const reason of window.notComposited) lines.push(`    trace: not composited ${reason}`);
+  for (const [site, perS] of window.frameSources.slice(0, 8))
+    lines.push(`    frames ${perS.toFixed(1)}/s from ${site}`);
+  for (const [what, perS] of window.startedPerS.slice(0, 8)) lines.push(`    started ${perS.toFixed(1)}/s: ${what}`);
   return [head, ...lines].join("\n");
 }
