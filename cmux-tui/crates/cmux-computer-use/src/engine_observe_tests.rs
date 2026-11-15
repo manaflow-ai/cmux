@@ -423,3 +423,17 @@ fn the_last_looks_kept_per_session_are_bounded() {
     assert!(kept <= 24, "{kept}");
     assert!(lock(&e.observe.seen).contains_key(&("s9".into(), "w39".into())));
 }
+
+#[test]
+fn an_actions_state_carries_its_evidence_in_a_fixed_shape() {
+    let (d, e) = rig();
+    e.call(&ctx(), "screenshot", &json!({"window_id": "1"}));
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    set_tree(&d, form(2, false, false, "Ada"));
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3"}));
+    let c = &out.body["state"]["changes"];
+    assert_eq!(c["changed"], 1, "{c}");
+    assert_eq!((c["added"].clone(), c["removed"].clone()), (json!(0), json!(0)));
+    assert_eq!(c["elements_read"], "all");
+    assert!(["changed", "same"].contains(&c["pixels"].as_str().unwrap()), "{c}");
+}

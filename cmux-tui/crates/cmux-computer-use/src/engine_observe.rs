@@ -30,6 +30,17 @@ pub(super) struct Observe {
     reach: Mutex<HashMap<String, usize>>,
 }
 
+impl Pixels {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Pixels::Changed => "changed",
+            Pixels::Same => "same",
+            Pixels::Unknown => "unknown",
+            Pixels::NotRead => "not_read",
+        }
+    }
+}
+
 impl Default for Observe {
     fn default() -> Self {
         Self {
@@ -219,6 +230,18 @@ impl Engine {
             }
             return;
         }
+        // The evidence in a fixed shape beside the text, for an outcome
+        // (confirmed / no_effect / uncertain) to be decided from: what changed
+        // in the elements, the windows over the target, and the pixels.
+        let opened = windows.iter().filter(|l| l.starts_with('+')).count();
+        let closed = windows.iter().filter(|l| l.starts_with('-')).count();
+        let first_look = (old.is_none() || look.full) && menus.is_empty();
+        let mut evidence = json!({
+            "windows_opened": opened,
+            "windows_closed": closed,
+            "pixels": pixels.as_str(),
+            "elements_read": if truncated { "partial" } else { "all" },
+        });
         let mut parts: Vec<String> = windows;
         if !menus.is_empty() {
             let mut text = String::from(
@@ -235,6 +258,13 @@ impl Engine {
             match old.filter(|_| !look.full) {
                 Some(old) => {
                     let changes = diff::compute(&old, &new, &opts);
+                    evidence["added"] = json!(changes.added.len());
+                    evidence["changed"] = json!(
+                        changes.changed.len() + changes.unfolded.len() + changes.folded.len()
+                    );
+                    evidence["removed"] = json!(changes.removed.len());
+                    evidence["renumbered"] = json!(changes.renumbered.len());
+                    evidence["focus_moved"] = json!(changes.focus.is_some());
                     match diff::render(&old, &new, &changes, &opts) {
                         None => {
                             let elements = if truncated {
@@ -263,6 +293,13 @@ impl Engine {
                 }
                 None => parts.push(full),
             }
+        }
+        // Only a look compared with an earlier one has element changes.
+        if evidence.get("added").is_some() {
+            body.insert("changes".into(), evidence);
+        } else if first_look {
+            evidence["first_look"] = json!(true);
+            body.insert("changes".into(), evidence);
         }
         body.insert("tree".into(), json!(parts.join("\n")));
     }
