@@ -115,6 +115,13 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// unread mark and attention state (no second line, no counts or badges,
     /// no tab rows), and section headers become thin lines (the `lines` look).
     public var minimal = false
+    /// Whether the window's hover chrome hides until the pointer is over it: Minimal Mode (user
+    /// 2026-11-15: "only when minimal mode is enabled, we should hide the buttons, spaces, and bottom
+    /// left profile picture, and sidebar buttons and back/forth and plus buttons in sidebar, unless user
+    /// is hovered on sidebar/hovered on tabbar"), or the older sidebar-only Show Sidebar Controls Only on
+    /// Hover. Off (the default), every button shows at rest; only a tab's or a workspace's close X waits
+    /// for hover.
+    public var hidesControlsUntilHover: Bool { minimal || controlsOnHover }
     /// `sidebar.detailedStatusIcons`: a workspace row's badge draws each state apart (working,
     /// waiting for input, error, done, as agents and OSC 7501 programs report them). Off by default:
     /// the row says Working (one spinner) or Ready (the blue dot) only (Lawrence 2026-10-18).
