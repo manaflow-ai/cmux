@@ -435,7 +435,7 @@ PY
     done
     perl -e 'select(undef,undef,undef,3)'
     screen > "$D/trust.screen"
-    dead=$(tm display -p -t trust '#{pane_dead}')
+    ended=$(tm display -p -t trust '#{pane_dead}')
     tm send-keys -t trust C-c; tm send-keys -t trust C-c
     for _ in $(seq 1 20); do [ "$(tm display -p -t trust '#{pane_dead}')" = 1 ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
     screen > "$D/trust.after"
@@ -444,9 +444,9 @@ PY
     refused=$(grep -cE "not supported for stdio|Error loading" "$D/trust.screen")
     trusted=$(grep -c "\"$N\"" "$CODEX_HOME/config.toml" 2>/dev/null)
     entry=$(sed -n 's/.*cmux-tui: codex mcp get cmux: [0-9]* ms (\([A-Za-z]*\).*/\1/p' "$D/trust.after" | head -1)
-    [ "${prompt:-0}" -ge 1 ] && [ "$dead" = 0 ] && [ "$refused" = 0 ] && [ "${trusted:-0}" -ge 1 ] \
+    [ "${prompt:-0}" -ge 1 ] && [ "$ended" = 0 ] && [ "$refused" = 0 ] && [ "${trusted:-0}" -ge 1 ] \
       && grep -q "for shortcuts" "$D/trust.screen" && [ "$entry" = Doubt ]
-    rc=$?; check "doubt [trust prompt]: a new folder with an HTTP project cmux entry, trusted at Codex's prompt (prompt shown: ${prompt:-0}, saved: ${trusted:-0}): answer ${entry:-?}, Codex runs on (ended: $dead, refused: $refused)" $rc
+    rc=$?; check "doubt [trust prompt]: a new folder with an HTTP project cmux entry, trusted at Codex's prompt (prompt shown: ${prompt:-0}, saved: ${trusted:-0}): answer ${entry:-?}, Codex runs on (ended: $ended, refused: $refused)" $rc
   else
     check "doubt [trust prompt]: tmux is missing" 1
   fi
