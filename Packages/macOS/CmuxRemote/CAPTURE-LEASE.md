@@ -16,7 +16,9 @@ Successful prepare permanently closes child admission in that host, so no late
 writer can race the app's external host-exit observation. The app drains this
 credential-free host before relaunch; a fresh host can start writers from the
 active marker. Prepare does not set the terminal `cleaning` phase. Rejected
-bindings never freeze admission or signal children.
+bindings never freeze admission or signal children: both cleanup paths check
+the binding (and the marker, or its absence) before they freeze, stop workers
+or signal. `rejectedUnpreparedCleanupNeverFreezesOrSignals` covers that order.
 The host and worker serialize marker changes with a nonblocking file lock.
 Before any identity write the worker records that it started. Cleanup persists
 `cleaning` before closing spawn admission, signaling owned children, or waiting
@@ -26,7 +28,14 @@ A cleaning marker refuses every later identity load/renewal.
 Every child launch (including permission probes) has its own generation token.
 Reaping one token cannot remove a different child after PID reuse. A failed
 `waitpid` never establishes exit. The drain has a 15-second deadline and cleanup
-cannot delete while a tracked writer remains.
+cannot delete while a tracked writer remains. One reaper thread serves every
+tracked child: it wakes on SIGCHLD (a kqueue `EVFILT_SIGNAL` watch), then the gated
+nonblocking `waitpid`, with no per-child thread and no periodic wakeup.
+When the host itself exits (drain, features off, no daemon adopted it), a
+stamped child still tracked 15 s after SIGTERM gets SIGKILL and the host exits,
+so frozen admission never outlives it; the daemon's group check still holds
+capture closed for any survivor. Only children this host spawned and stamped
+are ever signalled.
 
 The host deletes only its exact `<remote-bundle>.<scope>.device-hub` namespace,
 refuses unknown account names, and treats errors in either Keychain store as
@@ -49,13 +58,21 @@ config, or drain commands. Prepare can start a quiet host while both saved
 features are off. Capture never rewrites those saved settings. Its durable
 supervisor record and lifecycle lock fence ordinary calls, config changes,
 ensure, upgrade replacement, and automatic restart through prepare/cleanup.
+The start lock is held only for admission and host start, never across an
+ordinary request; a capture that begins meanwhile is fenced by the host's own
+child admission.
 Unreadable or malformed records keep admission closed after daemon restart.
 
 Prepare drains its original host and requires a kernel process-exit event plus
 ESRCH from a signal-zero query of its recorded owned process group before
 returning full proof. Permission errors and lingering zombies fail closed; no
-process table is scanned. The app bundle binding is checked against the
-executable of the socket peer’s retained audit token. The
+process table is scanned. A group ID that is now the PID of a live,
+differently stamped process (the same stamp before and after the query) is a
+reuse: the kernel never assigns a PID while a group with that ID exists, so the
+host's group has ended. A leaderless group still fails closed
+(`capture_reused_group_id_after_recorded_host_exit_does_not_block_cleanup`).
+The app bundle binding is checked against the executable of the socket peer’s
+retained audit token. The
 public facade additionally verifies its own namespaces. A fresh credential-free
 app process resumes only the same Prepared binding; resume does not start a
 host, accepts no credentials, and persists Active before reopening admission.
@@ -77,3 +94,16 @@ without claiming the namespace; a later competing spawn still fails closed.
 The daemon retains a recoverable Cleaning fence even when host startup failed
 before a host record existed. `capture_failed_ensure_leaves_a_recoverable_durable_fence`
 restarts and retries that sequence; Prepared and Active still require host proof.
+Cleanup picks the host's path by whether its prepare completed (it answered
+with a bound lease, so its marker exists), never by whether a host is recorded:
+a failed grant or a refused prepare after the record still takes the markerless
+path, after an app relaunch too. The record keeps that flag through Cleaning;
+a record from before the flag chooses by its recorded host, as it did then.
+That choice is only a first try: only the host knows whether its marker exists
+(a prepare answer can be lost after the marker was written). When the host
+refuses the chosen path with `remote_lease_mismatch`, which both paths answer
+before any freeze, signal or delete, the daemon tries the other path once and
+persists the one the host admitted; a second refusal keeps the fence.
+`capture_cleanup_after_failed_prepare_with_a_recorded_host_takes_the_unprepared_path`,
+`capture_cleanup_falls_back_when_the_host_disagrees_about_its_marker` and
+`capture_record_from_before_native_prepared_keeps_its_recorded_host_choice` cover it.
