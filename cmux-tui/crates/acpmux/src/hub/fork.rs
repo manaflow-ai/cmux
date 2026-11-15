@@ -352,7 +352,25 @@ impl Hub {
             }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
-            let mut fork_params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all, codex_fork.as_deref().map(|argv| crate::agent_tools::CodexLaunch { cwd: &cwd, argv }))});
+            let codex = codex_fork
+                .as_deref()
+                .map(|argv| crate::agent_tools::CodexLaunch { cwd: &cwd, argv });
+            let servers = crate::agent_tools::acp_servers_for(
+                parent_meta.remote_origin,
+                &fork_env,
+                &id,
+                all,
+                codex,
+            );
+            // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
+            // With the parent's answer, for a chat another Mac started (`cmux_tools_answer.rs`).
+            let answer_env =
+                super::cmux_tools_answer::inherited(fork_env.clone(), &parent_meta.session_env);
+            let entry_env = codex.and_then(|launch| {
+                crate::agent_tools::person_entry_env(&servers, launch, &answer_env, &id)
+            });
+            let mut fork_params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": servers});
+            crate::agent_tools::send_person_entry_env(&mut fork_params, entry_env);
             // The parent's folders, as its own start gave them (`additional_dirs.rs`).
             if let Some(dirs) = super::additional_dirs::acp_value(&parent_meta) {
                 fork_params.set(super::additional_dirs::FIELD, dirs);

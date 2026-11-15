@@ -120,14 +120,27 @@ struct McpLaunch<'a> {
 /// started in cmux (`choice`), unless a config Codex may load has the
 /// person's own HTTP server named `cmux`, which this build's command cannot
 /// merge into (acpmux codex_cmux_entry.rs): then none, and nothing is said.
+///
+/// Without the yes, a stdio `cmux` entry of the person's own that Codex surely
+/// loads (`codex_cmux_entry::stdio_cmux_entry`) gets one env key only,
+/// `CMUX_AGENT_TOOLS_ANSWER` = `off`: its `cmux mcp serve` then follows the
+/// answer as an agent cmux started (`cli/mcp.rs` `refusal`), not
+/// `mcp.enabled` as a caller outside cmux. An HTTP entry has no env: none.
 fn mcp_settings(
     launch: &McpLaunch<'_>,
     choice: cmux_tui_core::user_settings::AgentsCmuxMcp,
     getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> Vec<OsString> {
-    if !choice.injects()
-        || acpmux::codex_cmux_entry::http_cmux_entry(launch.args, launch.cwd, getenv)
-    {
+    if !choice.injects() {
+        if acpmux::codex_cmux_entry::stdio_cmux_entry(launch.args, launch.cwd, getenv) {
+            return vec![OsString::from(format!(
+                "mcp_servers.cmux.env.{}=\"off\"",
+                acpmux::agent_tools::TOOLS_ANSWER_ENV
+            ))];
+        }
+        return Vec::new();
+    }
+    if acpmux::codex_cmux_entry::http_cmux_entry(launch.args, launch.cwd, getenv) {
         return Vec::new();
     }
     crate::agent_mcp_choice::codex_settings(
@@ -414,6 +427,27 @@ mod tests {
             assert!(settings.contains(&"mcp_servers.cmux.enabled=true".to_owned()), "{args:?}");
             assert!(settings.contains(&"mcp_servers.cmux.cwd=\"/work\"".to_owned()), "{args:?}");
         }
+    }
+
+    /// Without the yes, a person's own stdio `cmux` entry Codex surely loads (here their own
+    /// `-c`) gets the answer and nothing else, so its `cmux mcp serve` follows it; an HTTP one,
+    /// which has no env, and no entry get nothing.
+    #[test]
+    fn without_the_yes_a_persons_stdio_entry_gets_the_answer_only() {
+        let stdio = ["-c", "mcp_servers.cmux.command=\"/opt/cmux\"", "exec", "hi"];
+        for choice in [AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
+            assert_eq!(
+                launch(choice, &stdio),
+                ["mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER=\"off\""],
+                "{choice:?}"
+            );
+            assert!(launch(choice, &["-c", "mcp_servers.cmux.url=\"http://x\""]).is_empty());
+            assert!(launch(choice, &["exec", "hi"]).is_empty());
+        }
+        // With the yes, cmux's own server goes in as before.
+        assert!(
+            launch(AgentsCmuxMcp::On, &stdio).contains(&"mcp_servers.cmux.enabled=true".to_owned())
+        );
     }
 
     /// Codex 0.160.1 keeps only the deepest list of a clap global (`-c`,

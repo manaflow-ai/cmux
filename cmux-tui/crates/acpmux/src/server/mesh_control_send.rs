@@ -57,12 +57,24 @@ pub(super) async fn handle(
     }
     let to = recipient(&params["to"])?;
     let command = match params["op"].as_str() {
-        Some("start") => Command::Start {
-            params: params["params"]
-                .as_object()
-                .cloned()
-                .ok_or_else(|| RpcError::invalid_params("start requires params"))?,
-        },
+        Some("start") => {
+            let mut start = Value::Object(
+                params["params"]
+                    .as_object()
+                    .cloned()
+                    .ok_or_else(|| RpcError::invalid_params("start requires params"))?,
+            );
+            // The chat there follows this Mac's answer to cmux's tools, never the caller's
+            // (`hub/cmux_tools_answer.rs`), as a `session/new` forwarded to a peer does.
+            crate::hub::cmux_tools_answer::stamp(
+                &mut start,
+                crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+            );
+            let Value::Object(params) = start else {
+                return Err(RpcError::internal("start params are not an object"));
+            };
+            Command::Start { params }
+        }
         Some("resume") => Command::Resume,
         Some("stop") => Command::Stop,
         _ => return Err(RpcError::invalid_params("op must be start, resume or stop")),

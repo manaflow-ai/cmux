@@ -14,7 +14,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{ConnAuth, Origin, serve_connection_authed};
+use acpmux::server::peer_auth::PeerAuth;
+use acpmux::server::{ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_ws_with};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -80,6 +81,11 @@ impl Client {
         }
         let r = self.call("session/new", params).await;
         let s = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        self.answer_of(&s).await
+    }
+
+    /// `CMUX_AGENT_TOOLS_ANSWER` as session `s`'s harness sees it.
+    async fn answer_of(&mut self, s: &str) -> String {
         let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": "envs: CMUX_AGENT_TOOLS_ANSWER"}]});
         let r = self.call("session/prompt", p).await;
         assert!(r.get("error").is_none(), "{r}");
@@ -114,4 +120,47 @@ async fn a_chat_a_peer_daemon_started_runs_with_that_macs_answer() {
         let _ = std::fs::remove_dir_all(&d);
         assert_eq!(got, seen, "{tag}");
     }
+}
+
+/// A `session/new` this daemon forwards to a peer over a real peer link carries this daemon's
+/// own answer (here: no settings file, so `off`), over the `on` its caller sent: the chat on the
+/// peer runs with `off`.
+#[test]
+fn a_start_forwarded_to_a_peer_carries_this_macs_answer_not_the_callers() {
+    big_stack(async {
+        let d = dir("forward");
+        let b = hub(&d);
+        let home = d.join("peer-home");
+        let auth = PeerAuth::create(&home).unwrap();
+        let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+        let l = bind_ws("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let ws = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+        tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), ws));
+        let a = hub(&d);
+        a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
+            .await
+            .unwrap();
+        let mut app = Client::new(&a, Origin::LocalApp, ConnAuth::LocalApp);
+        let p = json!({"cwd": d.join("work"), "mcpServers": [],
+                       "_meta": {"acpmux": {"peer": "b", "cmuxTools": "on"}}});
+        let r = app.call("session/new", p).await;
+        let s = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        let mut on_b = Client::new(&b, Origin::Local, ConnAuth::LocalSocket);
+        let seen = on_b.answer_of(&s).await;
+        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(seen, "off");
+    });
+}
+
+/// The session/new handler's future is deeper than a debug build's 2 MiB worker stack, as in
+/// `tests/created_by.rs`.
+fn big_stack(f: impl std::future::Future<Output = ()>) {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_stack_size(32 << 20)
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(f);
 }

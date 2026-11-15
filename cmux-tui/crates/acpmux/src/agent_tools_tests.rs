@@ -695,3 +695,60 @@ fn a_chat_started_from_another_mac_gets_cmux_by_that_macs_answer() {
     assert!(has_cmux(on, None));
     assert!(!has_cmux(off, None));
 }
+
+/// A Codex chat whose servers hold no `cmux` of cmux's own sends the person's own stdio `cmux`
+/// entry the chat's session and answer (`person_entry_env`): only where that entry surely loads,
+/// never beside an HTTP one, and not when cmux gives its own `cmux`.
+#[test]
+fn a_persons_own_stdio_cmux_entry_learns_which_chat_starts_it() {
+    let root = tempfile::tempdir().unwrap();
+    let (codex_home, work) = (root.path().join("codex-home"), root.path().join("work"));
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    let argv = vec!["codex".to_owned(), "app-server".to_owned()];
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv };
+    let mut env = std::collections::BTreeMap::from([(
+        "CODEX_HOME".to_owned(),
+        codex_home.to_string_lossy().into_owned(),
+    )]);
+    env.insert(super::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned());
+    let without = serde_json::json!([{"name": "acpmux"}]);
+    let with_cmux = serde_json::json!([{"name": "cmux"}]);
+    let config = codex_home.join("config.toml");
+    assert_eq!(super::person_entry_env(&without, launch, &env, "s-1"), None, "no entry");
+    std::fs::write(
+        &config,
+        "[mcp_servers.cmux]\ncommand = \"/opt/cmux\"\nargs = [\"mcp\", \"serve\"]\n",
+    )
+    .unwrap();
+    assert_eq!(
+        super::person_entry_env(&without, launch, &env, "s-1"),
+        Some(
+            serde_json::json!({"cmux": {"CMUX_AGENT_SESSION": "s-1", "CMUX_AGENT_TOOLS_ANSWER": "off"}})
+        )
+    );
+    env.insert(super::TOOLS_ANSWER_ENV.to_owned(), "on".to_owned());
+    assert_eq!(
+        super::person_entry_env(&without, launch, &env, "s-2").unwrap()["cmux"]["CMUX_AGENT_TOOLS_ANSWER"],
+        "on"
+    );
+    assert_eq!(
+        super::person_entry_env(&with_cmux, launch, &env, "s-1"),
+        None,
+        "cmux gives its own"
+    );
+    std::fs::write(&config, "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n").unwrap();
+    assert_eq!(
+        super::person_entry_env(&without, launch, &env, "s-1"),
+        None,
+        "an HTTP entry has no env"
+    );
+    // On the ACP params: `_meta.cmux.mcpServerEnv`, beside what is there.
+    let mut params = serde_json::json!({"cwd": "/w", "_meta": {"cmux": {"generateTitle": false}}});
+    super::send_person_entry_env(&mut params, Some(serde_json::json!({"cmux": {"K": "v"}})));
+    assert_eq!(params["_meta"]["cmux"]["mcpServerEnv"]["cmux"]["K"], "v");
+    assert_eq!(params["_meta"]["cmux"]["generateTitle"], false);
+    let mut bare = serde_json::json!({"cwd": "/w"});
+    super::send_person_entry_env(&mut bare, None);
+    assert!(bare.get("_meta").is_none());
+}

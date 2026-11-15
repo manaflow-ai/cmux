@@ -71,9 +71,15 @@ mod tests {
         let p = json!({"_meta": {"acpmux": {"cmuxTools": "on"}}});
         assert_eq!(asked(ConnAuth::PeerToken, &p), Some("on"));
         assert_eq!(asked(ConnAuth::CarrierOwner, &p), Some("on"));
-        for auth in
-            [ConnAuth::LocalSocket, ConnAuth::LocalApp, ConnAuth::ListenerToken, ConnAuth::Device]
-        {
+        for auth in [
+            ConnAuth::None,
+            ConnAuth::LocalSocket,
+            ConnAuth::LocalApp,
+            ConnAuth::ListenerToken,
+            ConnAuth::Device,
+            ConnAuth::ReadOnlyDevice,
+            ConnAuth::CarrierTeam,
+        ] {
             assert_eq!(asked(auth, &p), None, "{auth:?}");
         }
         let other = json!({"_meta": {"acpmux": {"cmuxTools": "yes"}}});

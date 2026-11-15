@@ -193,6 +193,75 @@ pub fn http_cmux_entry(
     files.iter().any(|file| names_http_cmux(file))
 }
 
+/// Whether the Codex config at `file` has a stdio MCP server named `cmux` (a
+/// `command`, no HTTP-only field).
+fn names_stdio_cmux(file: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(file) else { return false };
+    let Ok(config) = text.parse::<toml::Table>() else { return false };
+    config
+        .get("mcp_servers")
+        .and_then(|servers| servers.get(SERVER))
+        .and_then(toml::Value::as_table)
+        .is_some_and(|entry| {
+            entry.contains_key("command") && !HTTP_ONLY.iter().any(|f| entry.contains_key(*f))
+        })
+}
+
+/// Whether one of the person's own `-c` values gives the server named `cmux`
+/// a `command` (`-c mcp_servers.cmux.command=…`, or a whole table with one).
+fn names_stdio_cmux_override(overrides: &[String]) -> bool {
+    overrides.iter().any(|value| {
+        let Some((key, raw)) = value.split_once('=') else { return false };
+        let key: Vec<&str> = key.trim().split('.').collect();
+        match key.as_slice() {
+            ["mcp_servers", name, "command"] => *name == SERVER,
+            ["mcp_servers", name] if *name == SERVER => format!("v = {raw}")
+                .parse::<toml::Table>()
+                .ok()
+                .and_then(|t| t.get("v").and_then(toml::Value::as_table).cloned())
+                .is_some_and(|entry| entry.contains_key("command")),
+            _ => false,
+        }
+    })
+}
+
+/// Whether this Codex launch surely loads a stdio server of the person's own
+/// named `cmux`, with no HTTP one beside it ([`http_cmux_entry`]): in their
+/// own `-c` values, the user config or the `--profile` file. A project's
+/// `.codex/config.toml` is not counted: Codex loads it only for a project it
+/// trusts, and env keys sent for an entry Codex does not load would make a
+/// server with no command, which Codex refuses. Where this says yes, a launch
+/// that gives no `cmux` of its own may send the entry env keys only
+/// (`mcp_servers.cmux.env.KEY`), which Codex merges into it.
+pub fn stdio_cmux_entry(
+    args: &[OsString],
+    cwd: &Path,
+    getenv: &dyn Fn(&str) -> Option<OsString>,
+) -> bool {
+    if http_cmux_entry(args, cwd, getenv) {
+        return false;
+    }
+    let config = config_args(args);
+    if names_stdio_cmux_override(&config.overrides) {
+        return true;
+    }
+    let home = home_dir(getenv);
+    let Some(codex_home) = getenv("CODEX_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|home| home.join(".codex")))
+    else {
+        return false;
+    };
+    let mut files = vec![codex_home.join("config.toml")];
+    if let Some(profile) = &config.profile {
+        let mut name = profile.clone();
+        name.push(".config.toml");
+        files.push(codex_home.join(name));
+    }
+    files.iter().any(|file| names_stdio_cmux(file))
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -321,5 +390,39 @@ mod tests {
         let account = home_dir(&empty).expect("the account has a home");
         assert!(account.is_absolute() && account != Path::new(""), "{account:?}");
         assert_eq!(home_dir(&|_: &str| None), Some(account));
+    }
+
+    /// A stdio `cmux` entry Codex surely loads (user config, the `--profile` file, the person's
+    /// own `-c`) counts; one only in a project file does not (Codex loads it only once it trusts
+    /// the project); an HTTP one anywhere wins.
+    #[test]
+    fn a_stdio_cmux_entry_counts_only_where_codex_surely_loads_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let (codex_home, work) = (root.join("codex-home"), root.join("work"));
+        std::fs::create_dir_all(&codex_home).unwrap();
+        std::fs::create_dir_all(work.join(".codex")).unwrap();
+        let home = codex_home.clone();
+        let getenv = move |key: &str| (key == "CODEX_HOME").then(|| home.clone().into_os_string());
+        let stdio = "[mcp_servers.cmux]\ncommand = \"/opt/cmux\"\nargs = [\"mcp\", \"serve\"]\n";
+        assert!(!stdio_cmux_entry(&[], &work, &getenv), "no entry");
+        std::fs::write(work.join(".codex/config.toml"), stdio).unwrap();
+        assert!(!stdio_cmux_entry(&[], &work, &getenv), "a project file alone");
+        std::fs::write(codex_home.join("config.toml"), stdio).unwrap();
+        assert!(stdio_cmux_entry(&[], &work, &getenv), "the user config");
+        std::fs::write(work.join(".codex/config.toml"), "[mcp_servers.cmux]\nurl = \"http://x\"\n")
+            .unwrap();
+        assert!(!stdio_cmux_entry(&[], &work, &getenv), "an HTTP entry beside it wins");
+        std::fs::remove_file(work.join(".codex/config.toml")).unwrap();
+        std::fs::remove_file(codex_home.join("config.toml")).unwrap();
+        std::fs::write(codex_home.join("w.config.toml"), stdio).unwrap();
+        assert!(stdio_cmux_entry(&os(&["-p", "w"]), &work, &getenv), "the profile file");
+        assert!(stdio_cmux_entry(&os(&["-c", "mcp_servers.cmux.command=\"/x\""]), &work, &getenv));
+        assert!(stdio_cmux_entry(
+            &os(&["-c", "mcp_servers.cmux={command=\"/x\"}"]),
+            &work,
+            &getenv
+        ));
+        assert!(!stdio_cmux_entry(&os(&["-c", "mcp_servers.cmux.cwd=\"/x\""]), &work, &getenv));
     }
 }

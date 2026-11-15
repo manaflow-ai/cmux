@@ -529,6 +529,56 @@ pub fn acp_servers_for(
     acp_servers_with(current(), env, session_id, all_tools, codex)
 }
 
+/// The env keys a Codex chat sends the person's own stdio `cmux` entry when the chat's servers
+/// (`servers`, as [`acp_servers_for`] gave them) hold no `cmux` of cmux's own (the answer is not
+/// on, the HTTP rule, or a chat started from another machine): `{"cmux": {CMUX_AGENT_SESSION,
+/// CMUX_AGENT_TOOLS_ANSWER}}`, which cmux-codex-acp (`_meta.cmux.mcpServerEnv`) sends as
+/// `mcp_servers.cmux.env.*` overrides that Codex merges into that entry. Codex passes a stdio
+/// server only its own env and an allowlist, so without them the entry's `cmux mcp serve` cannot
+/// tell it runs in a chat, and counts as a caller outside cmux (cmux-tui `cli/mcp.rs`
+/// `refusal`). The answer is the session's own (a chat another Mac started,
+/// `TOOLS_ANSWER_ENV`), else this machine's. `None` where no such entry surely loads
+/// ([`crate::codex_cmux_entry::stdio_cmux_entry`]): keys with no entry to merge into would be a
+/// server with no command, which Codex refuses.
+pub fn person_entry_env(
+    servers: &Value,
+    launch: CodexLaunch<'_>,
+    env: &BTreeMap<String, String>,
+    session_id: &str,
+) -> Option<Value> {
+    let gives_cmux =
+        servers.as_array().is_some_and(|list| list.iter().any(|s| s["name"] == CMUX_SERVER));
+    if gives_cmux {
+        return None;
+    }
+    let effective = crate::login_env::effective_for(Some("codex"), env);
+    let getenv = |key: &str| effective.get(key).map(std::ffi::OsString::from);
+    let args: Vec<std::ffi::OsString> =
+        launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect();
+    if !crate::codex_cmux_entry::stdio_cmux_entry(&args, launch.cwd, &getenv) {
+        return None;
+    }
+    let answer = match env.get(TOOLS_ANSWER_ENV).map(String::as_str) {
+        Some("on") => "on",
+        Some(_) => "off",
+        None if agents_get_cmux(crate::user_settings::text().as_deref()) => "on",
+        None => "off",
+    };
+    Some(json!({CMUX_SERVER: {AGENT_SESSION_ENV: session_id, TOOLS_ANSWER_ENV: answer}}))
+}
+
+/// Puts [`person_entry_env`]'s keys on ACP session params as `_meta.cmux.mcpServerEnv`.
+pub fn send_person_entry_env(params: &mut Value, entry_env: Option<Value>) {
+    let Some(entry_env) = entry_env else { return };
+    if !params.get("_meta").is_some_and(Value::is_object) {
+        params["_meta"] = json!({});
+    }
+    if !params["_meta"].get("cmux").is_some_and(Value::is_object) {
+        params["_meta"]["cmux"] = json!({});
+    }
+    params["_meta"]["cmux"]["mcpServerEnv"] = entry_env;
+}
+
 /// A Codex session's launch, for [`AgentTools::without_cmux_beside_an_http_entry`]: its folder and
 /// its profile's argv (the program first), whose `-c`, `--profile` and `-C` Codex reads too.
 #[derive(Clone, Copy, Debug)]

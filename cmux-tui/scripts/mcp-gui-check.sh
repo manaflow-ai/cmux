@@ -30,7 +30,16 @@
 #      (Codex passes a stdio server only its own env and an allowlist), so it
 #      is an agent chat: run again with that env and the answer turned off
 #      (with "mcp": {"enabled": true}, which serves a caller outside chats),
-#      it is the off server.
+#      it is the off server;
+#   8. agents.cmuxMcp off with "mcp": {"enabled": true} and the person's own
+#      stdio `cmux` entry (the manual line) in Codex's config: cmux gives the
+#      chat no `cmux`, Codex starts the person's entry, and cmux tells it the
+#      chat's CMUX_AGENT_SESSION and CMUX_AGENT_TOOLS_ANSWER=off: it is the
+#      off server;
+#   9. a second daemon in the scratch folder, linked as a peer: its own answer
+#      is off (with "mcp": {"enabled": true}) and its Codex config has the
+#      person's stdio entry; a Codex chat this daemon (answer on) starts there
+#      runs that entry with CMUX_AGENT_TOOLS_ANSWER=on and gets cmux's tools.
 # Needs `node`, `claude` and `codex` on PATH; no sign-in. Never run it on a
 # person's laptop. Prints PASS or FAIL per check and exits 1 on any FAIL.
 set -u
@@ -268,6 +277,97 @@ case " ${names%% | *} " in *" cmux "*) ;; *) ok=1 ;; esac
 case "$names" in *acpmux*) ;; *) ok=1 ;; esac
 check "agent chat [codex] over a desktop-link cmux entry: this build's server ($got), ACPMUX_MCP_GUEST sent empty ($guest), cmux and acpmux tools listed ($names)" $ok
 cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
+
+# `cmux mcp serve` run with the env keys in file $2 (KEY=VALUE lines) and settings file $3: "off"
+# when it is the off server, else "on".
+cat > "$D/serve-as.py" <<'PY'
+import json, os, subprocess, sys
+cmux, envfile, settings = sys.argv[1:]
+pairs = dict(line.strip().split("=", 1) for line in open(envfile) if "=" in line)
+env = {"HOME": os.environ["HOME"], "PATH": os.environ["PATH"], "CMUX_NEXT_CONFIG_FILE": settings, **pairs}
+p = subprocess.Popen([cmux, "mcp", "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                     stderr=subprocess.DEVNULL, env=env, text=True)
+def ask(i, method, params):
+    p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n"); p.stdin.flush()
+    while True:
+        m = json.loads(p.stdout.readline())
+        if m.get("id") == i: return m
+init = ask(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "gui-check", "version": "1"}})
+p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"); p.stdin.flush()
+tools = [t["name"] for t in ask(2, "tools/list", {})["result"]["tools"]]
+p.kill()
+print("off" if tools == ["cmux_tools_off"] else "on")
+PY
+# The env keys that decide the caller, of the `cmux mcp serve` processes whose env has $2.
+cat > "$D/serve-env.py" <<'PY'
+import re, subprocess, sys
+cmux, marker = sys.argv[1:]
+for line in subprocess.run(["ps", "-Ao", "pid=,command="], capture_output=True, text=True).stdout.splitlines():
+    pid, cmd = line.strip().split(None, 1)
+    if not cmd.startswith(cmux + " mcp serve"):
+        continue
+    env = subprocess.run(["ps", "eww", "-o", "command=", "-p", pid], capture_output=True, text=True).stdout
+    if marker not in env:
+        continue
+    for key in ["CMUX_AGENT_SESSION", "CMUX_AGENT_TOOLS_ANSWER", "CMUX_MCP_TOOLS"]:
+        m = re.search(r"(?:^| )" + key + r"=(\S*)", env)
+        if m:
+            print(f"{key}={m.group(1)}")
+    break
+PY
+# 8. Off with "mcp": {"enabled": true}, and the person's own stdio entry (the manual line) in
+# Codex's user config: the entry Codex starts for the chat is told the chat and the answer.
+cp "$CMUX_NEXT_CONFIG_FILE" "$D/settings-on.json"
+echo '{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}' > "$CMUX_NEXT_CONFIG_FILE"
+printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\n' "$CMUX" >> "$CODEX_HOME/config.toml"
+start_chat gui-codex-manual codex
+sid=$(session_id gui-codex-manual)
+for _ in $(seq 1 60); do [ -s "$D/manual.env" ] && break; python3 "$D/serve-env.py" "$CMUX" "CMUX_AGENT_SESSION=$sid" > "$D/manual.env"; perl -e 'select(undef,undef,undef,0.5)'; done
+got=$(python3 "$D/serve-as.py" "$CMUX" "$D/manual.env" "$CMUX_NEXT_CONFIG_FILE" 2>&1)
+keys=$(tr '\n' ' ' < "$D/manual.env")
+grep -q "^CMUX_AGENT_TOOLS_ANSWER=off$" "$D/manual.env" && [ "$got" = off ]
+check "agent chat [codex], answer off, mcp.enabled true, the person's own stdio cmux entry: it gets the chat's keys ($keys) and is the off server ($got)" $?
+cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
+cp "$D/settings-on.json" "$CMUX_NEXT_CONFIG_FILE"
+
+# 9. A second daemon (B), linked to this one (A) as a peer: B's own answer is off with
+# "mcp": {"enabled": true}, its Codex config has the person's stdio entry. A Codex chat A (answer
+# on) starts on B runs that entry with A's answer, on, and it gets cmux's tools.
+B=$D/b; mkdir -p "$B/home/.codex" "$B/acpmux" "$B/home/.config/cmux"
+cp "$D/codex-base.toml" "$B/home/.codex/config.toml"
+printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\n' "$CMUX" >> "$B/home/.codex/config.toml"
+echo '{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}' > "$B/home/.config/cmux/cmux-next.json"
+port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+python3 - "$B/acpmux/config.json" "$D/work" <<'PY'
+import json, sys
+json.dump({"webRoots": [sys.argv[2]], "webAskingModes": {"codex": ["read-only", "auto", "agent", "default", "ask", "full-access"]},
+           "permissionPolicy": "ask"}, open(sys.argv[1], "w"))
+PY
+( env -u CODEX_HOME -u CMUX_NEXT_CONFIG_FILE HOME="$B/home" ACPMUX_HOME="$B/acpmux" ACPMUX_SOCKET="$B/acpmux/acpmux.sock" \
+    "$CMUX" acp daemon run --listen "127.0.0.1:$port" --token peer-check > "$D/daemon-b.log" 2>&1 ) &
+daemon_b=$!
+trap 'acp daemon shutdown --end-agents >/dev/null 2>&1; kill "$daemon" "$daemon_b" 2>/dev/null' EXIT
+for _ in $(seq 1 60); do [ -s "$B/acpmux/run/peer.token" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
+python3 - "$ACPMUX_HOME/config.json" "$port" "$(cat "$B/acpmux/run/peer.token" 2>/dev/null)" <<'PY'
+import json, os, sys
+path, port, token = sys.argv[1:]
+cfg = json.load(open(path)) if os.path.exists(path) else {}
+cfg.setdefault("peers", {})["b"] = {"url": f"ws://127.0.0.1:{port}", "token": "peer-check", "peerToken": token.strip()}
+json.dump(cfg, open(path, "w"))
+PY
+# A reads its peers as it starts: restart it on its new config.
+acp daemon shutdown --end-agents > /dev/null 2>&1; wait "$daemon" 2>/dev/null
+acp daemon run > "$D/daemon2.log" 2>&1 &
+daemon=$!
+for _ in $(seq 1 60); do acp daemon status >/dev/null 2>&1 && break; perl -e 'select(undef,undef,undef,0.5)'; done
+for _ in $(seq 1 40); do acp machine ls 2>/dev/null | grep -qi "^b .*\(connected\|online\|up\)" && break; perl -e 'select(undef,undef,undef,0.5)'; done
+acp machine ls > "$D/machines.txt" 2>&1
+acp new -d -n gui-codex-peer -m codex --machine b --cwd "$D/work" "say hi" > "$D/peer.new" 2>&1
+for _ in $(seq 1 80); do [ -s "$D/peer.env" ] && break; python3 "$D/serve-env.py" "$CMUX" "CMUX_AGENT_TOOLS_ANSWER=on" > "$D/peer.env"; perl -e 'select(undef,undef,undef,0.5)'; done
+got=$(python3 "$D/serve-as.py" "$CMUX" "$D/peer.env" "$B/home/.config/cmux/cmux-next.json" 2>&1)
+keys=$(tr '\n' ' ' < "$D/peer.env")
+grep -q "^CMUX_AGENT_SESSION=." "$D/peer.env" && [ "$got" = on ]
+check "agent chat [codex] started on a peer whose own answer is off: the person's stdio entry there gets this Mac's answer ($keys) and cmux's tools ($got; $(head -c 160 "$D/peer.new" | tr '\n' ' '); machines: $(head -c 160 "$D/machines.txt" | tr '\n' ' '))" $?
 
 # 2. Off and unanswered
 for value in off ask; do

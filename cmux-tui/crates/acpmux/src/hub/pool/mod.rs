@@ -270,7 +270,21 @@ fn tool_servers(
         Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
         None => tools,
     };
-    tools.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(",")
+    let mut names: Vec<String> = tools.servers.iter().map(|s| s.name.clone()).collect();
+    // The env keys a Codex chat sends the person's own stdio `cmux` entry
+    // (`agent_tools::person_entry_env`), with the answer they carry: a spare started before the
+    // entry appeared, or under another answer, is never served.
+    let listed = serde_json::Value::Array(names.iter().map(|n| json!({"name": n})).collect());
+    if let Some(entry) =
+        codex.and_then(|launch| crate::agent_tools::person_entry_env(&listed, launch, env, ""))
+    {
+        let answer = entry[crate::agent_tools::CMUX_SERVER][crate::agent_tools::TOOLS_ANSWER_ENV]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        names.push(format!("cmux-entry-env:{answer}"));
+    }
+    names.join(",")
 }
 
 #[cfg(test)]

@@ -150,7 +150,12 @@ impl Hub {
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all, codex);
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
+        // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
+        let entry_env = codex.and_then(|launch| {
+            crate::agent_tools::person_entry_env(&servers, launch, &profile.env, id)
+        });
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
+        crate::agent_tools::send_person_entry_env(&mut params, entry_env);
         if let Some(dirs) = super::additional_dirs::acp_value(meta) {
             params.set(super::additional_dirs::FIELD, dirs);
         }

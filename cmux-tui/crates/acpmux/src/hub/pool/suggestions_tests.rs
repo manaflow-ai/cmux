@@ -156,3 +156,34 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     // Not Codex: the person's Codex config does not matter.
     assert_eq!(tool_servers(tools(), &env, None), "cmux");
 }
+
+/// A Codex spare started before the person added their own stdio `cmux` entry got no env keys for
+/// it (`agent_tools::person_entry_env`): once the entry is there, or the answer it would carry
+/// changes, its key no longer matches and it is discarded.
+#[test]
+fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
+    let root = tempfile::tempdir().unwrap();
+    let (codex_home, work) = (root.path().join("codex-home"), root.path().join("work"));
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    let tools = || crate::agent_tools::AgentTools::default();
+    let env = |answer: &str| {
+        std::collections::BTreeMap::from([
+            ("CODEX_HOME".to_owned(), codex_home.to_string_lossy().into_owned()),
+            (crate::agent_tools::TOOLS_ANSWER_ENV.to_owned(), answer.to_owned()),
+        ])
+    };
+    let argv = vec!["codex".to_owned(), "app-server".to_owned()];
+    let codex = || Some(crate::agent_tools::CodexLaunch { cwd: &work, argv: &argv });
+    let before = tool_servers(tools(), &env("off"), codex());
+    std::fs::write(codex_home.join("config.toml"), "[mcp_servers.cmux]\ncommand = \"/opt/cmux\"\n")
+        .unwrap();
+    let off = tool_servers(tools(), &env("off"), codex());
+    let on = tool_servers(tools(), &env("on"), codex());
+    assert_eq!(before, "");
+    assert_eq!(off, "cmux-entry-env:off");
+    assert_eq!(on, "cmux-entry-env:on");
+    let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
+    assert!(!served(with(&before), &with(&off)));
+    assert!(!served(with(&off), &with(&on)));
+}

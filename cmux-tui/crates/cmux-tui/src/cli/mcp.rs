@@ -492,7 +492,9 @@ pub(super) enum Caller {
     Outside,
     /// An agent chat cmux started (`CMUX_AGENT_SESSION` set): also a server a
     /// `cmux` entry in the person's own agent config starts inside a chat,
-    /// which inherits the chat's env.
+    /// which inherits the chat's env or gets these keys from the chat's launch
+    /// (`acpmux::agent_tools::person_entry_env`), and one a Codex started in a
+    /// cmux terminal starts, which the shim gives `CMUX_AGENT_TOOLS_ANSWER`.
     AgentChat,
     /// A Chief turn: an agent chat whose preset names its cmux tools
     /// (`CMUX_MCP_TOOLS`).
@@ -510,9 +512,13 @@ pub(super) enum Caller {
 /// agents, not a sandbox.
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
     let set = |key: &str| std::env::var_os(key).is_some_and(|v| !v.is_empty());
-    let caller = match (set(AGENT_SESSION_ENV), std::env::var_os(ALLOWED_TOOLS_ENV).is_some()) {
+    // An agent cmux started: a chat (`CMUX_AGENT_SESSION`), or a Codex cmux started whose
+    // person's own `cmux` entry it told the answer (`CMUX_AGENT_TOOLS_ANSWER`; the terminal shim).
+    let chat = set(AGENT_SESSION_ENV);
+    let caller = match (chat, std::env::var_os(ALLOWED_TOOLS_ENV).is_some()) {
         (true, true) => Caller::ChiefTurn,
         (true, false) => Caller::AgentChat,
+        _ if set(acpmux::agent_tools::TOOLS_ANSWER_ENV) => Caller::AgentChat,
         _ => Caller::Outside,
     };
     let started_with = match std::env::var(acpmux::agent_tools::TOOLS_ANSWER_ENV).as_deref() {

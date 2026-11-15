@@ -181,6 +181,11 @@ impl Client {
                 .filter(|(k, v)| !RESTORABLE_ENV.contains(&k.as_str()) || !v.is_string())
                 .map(|(k, _)| format!("env {k}")),
         );
+        // A URL with credentials (`npx --registry https://user:token@host/…`): shown redacted, and
+        // the entry is kept, as for a token in `env` (cmux could not put the secret back).
+        if args.iter().any(|arg| redact_url_credentials(arg) != *arg) {
+            unrestorable.push("args (a URL with credentials)".to_owned());
+        }
         let stdio = entry.get("type").is_none_or(|t| t == "stdio");
         let manual = stdio
             && unrestorable.is_empty()
@@ -246,8 +251,8 @@ impl Leftover {
     fn json(&self, client: Client) -> Value {
         json!({
             "config": self.config,
-            "command": self.command,
-            "args": self.args,
+            "command": redact_url_credentials(&self.command),
+            "args": self.args.iter().map(|arg| redact_url_credentials(arg)).collect::<Vec<_>>(),
             "runs": self.runs,
             "remove": client.line(&client.remove_args()),
         })
@@ -559,6 +564,32 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     Ok(request)
 }
 
+/// `value` with the credentials of each URL in it (`scheme://user:pass@host`) replaced by
+/// `<redacted>`, as in `--registry=https://<redacted>@registry.example/`.
+fn redact_url_credentials(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        let authority_end = tail.find(['/', '?', '#', ' ']).unwrap_or(tail.len());
+        match tail[..authority_end].rfind('@') {
+            Some(cut) => {
+                out.push_str("<redacted>");
+                rest = &tail[cut..];
+            }
+            None => rest = tail,
+        }
+        if rest.as_ptr() == tail.as_ptr() {
+            // No credentials: copy the authority and go on after it.
+            out.push_str(&tail[..authority_end]);
+            rest = &tail[authority_end..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Whether `command` is the file `cli` (links followed): an entry that runs
 /// this very cmux.
 fn same_file(command: &str, cli: &str) -> bool {
@@ -606,4 +637,25 @@ fn switch(settings: &Path, unreadable: Option<&str>) -> Value {
         "command": Value::Null,
         "url": Value::Null,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_url_credentials as redact;
+
+    #[test]
+    fn url_credentials_are_redacted_and_nothing_else_changes() {
+        assert_eq!(
+            redact("--registry=https://me:tok@npm.example/x"),
+            "--registry=https://<redacted>@npm.example/x"
+        );
+        assert_eq!(redact("https://tok@h"), "https://<redacted>@h");
+        assert_eq!(
+            redact("a http://u:p@h/ b https://v@w"),
+            "a http://<redacted>@h/ b https://<redacted>@w"
+        );
+        for plain in ["https://npm.example/x", "mcp", "user@host", "https://h/a@b", ""] {
+            assert_eq!(redact(plain), plain);
+        }
+    }
 }
