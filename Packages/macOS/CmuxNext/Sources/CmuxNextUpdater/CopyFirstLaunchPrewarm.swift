@@ -53,13 +53,14 @@ public nonisolated struct CopyFirstLaunchPrewarm: Sendable {
     /// The app's own load of the Chromium framework waits for it (`CEFEngine.loadAfter`), so `timeout` bounds that wait.
     /// `mark` names the moments the runs start and end (the app's launch marks).
     @discardableResult
-    public func start(defaults: UserDefaults = .standard, processes: AsyncProcess = AsyncProcess(),
+    public func start(processes: AsyncProcess = AsyncProcess(),
                       timeout: Duration = .seconds(5), mark: @escaping @Sendable (String) -> Void = { _ in }) -> Task<Void, Never> {
         let prewarm = self
         // task-owner: one per launch; ends after the last helper exits (each stopped at its timeout). Its own
         // detached task at the start's priority: the point is to finish before Home's first page asks for Chromium.
         return Task.detached(priority: .userInitiated) {
-            await prewarm.perform(defaults: defaults, processes: processes, timeout: timeout, mark: mark)
+            // The app's own defaults, read in the task: UserDefaults is not Sendable, so it is never passed in.
+            await prewarm.perform(defaults: .standard, processes: processes, timeout: timeout, mark: mark)
         }
     }
 
