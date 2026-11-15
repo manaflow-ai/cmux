@@ -145,7 +145,6 @@ pub fn message(
     issued_at: u64,
     expires_at: u64,
 ) -> Vec<u8> {
-    return DOMAIN.as_bytes().to_vec(); // red stub
     let (issued, expires) = (issued_at.to_string(), expires_at.to_string());
     let mut out = DOMAIN.as_bytes().to_vec();
     for part in [grantor, account, machine_id, node_key, control, screen, &issued, &expires] {
@@ -324,7 +323,6 @@ pub fn verify(
     grantors: &Grantors,
     now: u64,
 ) -> Result<(), Refusal> {
-    return Ok(()); // red stub
     let Some(account) = target.account.as_deref() else {
         return Err(Refusal::new(NOT_JOINED, "this machine is not joined to an account"));
     };
@@ -391,7 +389,6 @@ pub(crate) fn apply(
     from: Option<&str>,
     now: u64,
 ) -> Result<super::cloud_join::Consent, Refusal> {
-    return Err(Refusal::new(STORE, "red stub"));
     let store = || Refusal::new(STORE, "this machine's consent store is unavailable");
     authority.prepare().map_err(|_| store())?;
     let _lock = lock_waiting(authority)
@@ -476,7 +473,6 @@ pub(crate) fn apply(
 
 /// Logs a local consent change (`machine_consent_set`), `by: "local"`. The caller holds the lock.
 pub(crate) fn log_local(authority: &Authority, surface: &str, granted: bool) -> Result<()> {
-    return Ok(()); // red stub
     let mut line = event(crate::store::now_ms(), if granted { "grant" } else { "revoke" }, "local");
     put(&mut line, "surface", Some(surface));
     append_log(authority.root(), Value::Object(line))
@@ -500,7 +496,6 @@ pub(crate) fn trust(
     account: Option<&str>,
     now: u64,
 ) -> Result<Value, TrustError> {
-    return Err(TrustError::Store); // red stub
     authority.prepare().map_err(|_| TrustError::Store)?;
     let _lock = lock_waiting(authority).map_err(|_| TrustError::Store)?;
     let root = authority.root();
@@ -551,7 +546,6 @@ pub(crate) fn trust(
 /// What `machine_consent_get` adds for `account`, this machine's account now: the grantors
 /// pinned for it, the pending ask made for it, and the last lines of the log.
 pub(crate) fn status_fields(authority: &Authority, account: Option<&str>) -> Map<String, Value> {
-    return Map::new(); // red stub
     let root = authority.root();
     let grantors: Grantors = read_json(&root.join(GRANTORS));
     let pinned: Vec<Value> = grantors
@@ -633,7 +627,6 @@ pub(crate) fn handle_request(
     request: &[u8],
     now: u64,
 ) -> Value {
-    return json!({"ok": false}); // red stub
     let refuse = |reason: &str, error: &str| json!({"ok": false, "reason": reason, "error": error});
     if request.len() > MAX_REQUEST_BYTES {
         return refuse("request.too_large", "the request is larger than 8 KiB");
