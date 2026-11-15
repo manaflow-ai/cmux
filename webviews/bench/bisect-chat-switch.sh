@@ -12,7 +12,8 @@ root="$(cd "$here/.." && pwd)"
 cd "$root"
 work="/tmp/bcs"  # short: Chrome refuses a long profile socket path
 rm -rf "$work"; mkdir -p "$work"
-out="${FAST_CHECKS_OUT:-$work/out}"; mkdir -p "$out"
+# BENCH (default chat-switch.bench.ts) and BENCH_ARGS run another bench the same way; OUT_SUB keeps a run's files apart.
+out="${FAST_CHECKS_OUT:-$work/out}${OUT_SUB:+/$OUT_SUB}"; mkdir -p "$out"
 nproc_="$(nproc)"
 PAR="${PAR:-$(( nproc_ / 4 > 0 ? nproc_ / 4 : 1 ))}"
 echo "bisect: nproc=$nproc_ par=$PAR points=$*"
@@ -79,7 +80,7 @@ run_point() { # SHA[:MODE[:VARIANT[.N]]] INDEX (VARIANT.N repeats a variant unde
     [[ "${variant%%.*}" == profile ]] && env+=(PROFILE=1)
     local start=$SECONDS
     (cd "$dir/webviews" && env "${env[@]}" CHURN="${CHURN:-24}" MAX_WARM="${MAX_WARM:-6}" TMPDIR="$dir" \
-      timeout 900 bun bench/chat-switch.bench.ts "${ROUNDS:-3}" "${TURNS:-300}") >"$log.$fx.log" 2>&1
+      timeout "${BENCH_TIMEOUT:-900}" bun "bench/${BENCH:-chat-switch.bench.ts}" ${BENCH_ARGS:-"${ROUNDS:-3}" "${TURNS:-300}"}) >"$log.$fx.log" 2>&1
     local rc=$?
     echo "DONE $id $fx rc=$rc $((SECONDS - start))s"
     grep -h '^PERF_ROW' "$log.$fx.log" | sed "s/^PERF_ROW /BISECT $id $fx /"
