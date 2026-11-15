@@ -5700,7 +5700,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
+			<string>The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.</string>
 			<key>pfm_name</key>
 			<string>sidebar.minimal</string>
 			<key>pfm_title</key>
