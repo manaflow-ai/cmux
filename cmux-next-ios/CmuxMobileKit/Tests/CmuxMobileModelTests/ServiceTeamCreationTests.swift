@@ -5,10 +5,10 @@ import Testing
 /// Full verify D1 (2026-10-19): Stack refuses team creation from the
 /// client, so the phone creates teams through the cmux service.
 @Suite struct ServiceTeamCreationTests {
-    let creation = ServiceTeamCreation(apiBase: URL(string: "https://api.example")!, buildSpace: nil)
+    let creation = ServiceTeamCreation(apiBase: URL(string: "https://api.example")!, buildSpace: .nightly)
 
     @Test func theRequestGoesToTheServiceWithTheName() throws {
-        let request = creation.request(accessToken: "tok", name: "fv team")
+        let request = try creation.request(accessToken: "tok", name: "fv team")
         #expect(request.url?.absoluteString == "https://api.example/v1/teams")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer tok")

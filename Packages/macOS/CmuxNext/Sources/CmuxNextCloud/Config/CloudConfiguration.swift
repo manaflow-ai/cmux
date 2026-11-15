@@ -70,11 +70,11 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var namespacedLegacyStore: LegacyStore?
     /// A signed NEXT DEV production launch adopts the running NIGHTLY's session in memory.
     public var adoptsNightlySession = false
-    /// A tagged dev build's cloud data space (`X-Cmux-Build-Space: dev:<slug>`), made with the configuration from the
-    /// bundle's identity (``BuildIdentity/devTag``: its bundle id and shipped `CMUX_TAG`); nil for nightly, stable and
-    /// every untagged build, which send no header. Every client of this configuration's origins adds it to each request
-    /// and WebSocket upgrade.
-    public var buildSpace: CMUXBuildSpace?
+    /// The build's cloud data space, made with the configuration from the bundle's identity (``dataSpace(of:)``):
+    /// a tagged dev build sends `X-Cmux-Build-Space: dev:<slug>`, nightly, RC and release send no header, and a DEV
+    /// build with no usable tag is misconfigured: every client of this configuration's origins refuses its calls
+    /// (``CMUXBuildSpaceError``) rather than reach nightly's data. Every client adds it to each request and upgrade.
+    public var buildSpace: CMUXBuildSpaceState = .nightly
 
     /// The Stack token Keychain service.
     public var keychainService: String { storage.keychainService }
@@ -146,8 +146,14 @@ public struct CloudConfiguration: Sendable, Equatable {
             runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore,
             adoptsNightlySession: made.adoptsNightlySession)
         // A tagged dev build asks every cloud backend for its own data space; nightly and stable send nothing.
-        configuration.buildSpace = CMUXBuildSpace(devTag: BuildIdentity(bundleID: bundleID, bundledTag: bundled["CMUX_TAG"]).devTag)
+        configuration.buildSpace = dataSpace(of: BuildIdentity(bundleID: bundleID, bundledTag: bundled["CMUX_TAG"]))
         return configuration
+    }
+
+    /// The cloud data space of `build`: its dev tag's space; none for nightly, RC and release; misconfigured for a
+    /// DEV build (``BuildIdentity/needsBuildSpace``) with no usable tag.
+    static func dataSpace(of build: BuildIdentity) -> CMUXBuildSpaceState {
+        CMUXBuildSpaceState(devBuild: build.needsBuildSpace, devTag: build.devTag)
     }
 
     /// This build's configuration for another selection, everything Rust makes of it made again (the callback

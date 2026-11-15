@@ -7,10 +7,16 @@ import Testing
 @Suite struct ServiceTeamCreationBuildSpaceTests {
     @Test func aDevBuildsTeamCreationCarriesItsBuildSpace() throws {
         let base = try #require(URL(string: "https://cmux-mobile-api-dev.debussy.workers.dev"))
-        let request = ServiceTeamCreation(apiBase: base, buildSpace: CMUXBuildSpace(devTag: "My_Tag 2"))
+        let request = try ServiceTeamCreation(apiBase: base, buildSpace: CMUXBuildSpaceState(devBuild: true, devTag: "My_Tag 2"))
             .request(accessToken: "tok", name: "team")
         #expect(request.value(forHTTPHeaderField: "X-Cmux-Build-Space") == "dev:my-tag-2")
-        let plain = ServiceTeamCreation(apiBase: base, buildSpace: nil).request(accessToken: "tok", name: "team")
+        let plain = try ServiceTeamCreation(apiBase: base, buildSpace: .nightly).request(accessToken: "tok", name: "team")
         #expect(plain.value(forHTTPHeaderField: "X-Cmux-Build-Space") == nil)
+    }
+
+    @Test func aMisconfiguredDevBuildCreatesNoTeam() throws {
+        let base = try #require(URL(string: "https://cmux-mobile-api-dev.debussy.workers.dev"))
+        let creation = ServiceTeamCreation(apiBase: base, buildSpace: .misconfiguredDev(reason: "it has no tag"))
+        #expect(throws: CMUXBuildSpaceError.self) { _ = try creation.request(accessToken: "tok", name: "team") }
     }
 }

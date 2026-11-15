@@ -20,4 +20,19 @@ import Testing
     func untagged(bundleID: String) {
         #expect(BuildIdentity(bundleID: bundleID, bundledTag: nil).devTag == nil)
     }
+
+    @Test("Every DEV build and a tagged staging build must have a build space of their own", arguments: [
+        "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.feat-x", "com.cmuxterm.app.debug.___", "com.cmuxterm.app.staging.rel-check",
+    ])
+    func needsBuildSpace(bundleID: String) {
+        #expect(BuildIdentity(bundleID: bundleID, bundledTag: nil).needsBuildSpace)
+    }
+
+    @Test("Nightly, cmux NEXT, RC, release, untagged staging, other bundles and no bundle need none", arguments: [
+        "com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next", "com.cmuxterm.app", "com.cmuxterm.app.rc",
+        "com.cmuxterm.app.rc.cmux-next", "com.cmuxterm.app.staging", "com.cmuxterm.app.debugger", "com.apple.dt.xctest.tool", "",
+    ])
+    func needsNoBuildSpace(bundleID: String) {
+        #expect(!BuildIdentity(bundleID: bundleID, bundledTag: nil).needsBuildSpace)
+    }
 }

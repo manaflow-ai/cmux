@@ -41,7 +41,7 @@ extension CloudOwnerAPIClient {
         // RULE (cx-kvmz, hq-84), as in post(_:_:body:timeout:as:): Authorization, Content-Type,
         // x-cmux-team and the build space only; the path's one varying part is a checked id.
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request = await authorized(request, access: access)
+        request = try await authorized(request, access: access)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let data: Data
         let response: URLResponse

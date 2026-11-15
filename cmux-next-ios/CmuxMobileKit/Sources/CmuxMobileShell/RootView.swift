@@ -895,7 +895,7 @@ struct ShellTabs: View {
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
-                    cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: nil) == nil ? nil : SettingsCloudPages(
+                    cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: .nightly) == nil ? nil : SettingsCloudPages(
                         machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })) },
                         automations: { AnyView(CloudAutomationsScreen()) },
                         connectGitHub: { AnyView(GitHubConnectRow()) }

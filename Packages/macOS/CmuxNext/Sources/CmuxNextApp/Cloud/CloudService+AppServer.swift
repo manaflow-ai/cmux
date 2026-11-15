@@ -171,7 +171,7 @@ extension CloudService {
             request.timeoutInterval = 15
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
-            buildSpace?.apply(to: &request)
+            try buildSpace.apply(to: &request)
             request.httpBody = body
             return try await session.data(for: request).0
         }

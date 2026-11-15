@@ -38,10 +38,10 @@ public struct CloudOwnerAPIClient: Sendable {
     let accessToken: AccessToken
     let teamID: TeamID
     let session: URLSession
-    /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); nil sends no header.
-    let buildSpace: CMUXBuildSpace?
+    /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); none for nightly; a misconfigured dev build's requests throw.
+    let buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, accessToken: @escaping AccessToken, teamID: @escaping TeamID, buildSpace: CMUXBuildSpace?) {
+    public init(baseURL: URL, accessToken: @escaping AccessToken, teamID: @escaping TeamID, buildSpace: CMUXBuildSpaceState) {
         self.baseURL = baseURL
         self.accessToken = accessToken
         self.teamID = teamID
@@ -51,11 +51,11 @@ public struct CloudOwnerAPIClient: Sendable {
 
     /// `request` with the person's session (`access`), the cmux team and the build space: every header this
     /// client sets besides the body's `Content-Type` and `Content-Length`.
-    func authorized(_ request: URLRequest, access: String) async -> URLRequest {
+    func authorized(_ request: URLRequest, access: String) async throws -> URLRequest {
         var request = request
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         return request
     }
 
@@ -139,7 +139,7 @@ public struct CloudOwnerAPIClient: Sendable {
         // Worker's invocation log masks it), Content-Type, Content-Length, x-cmux-team and the
         // build space (the build's public tag). The log records every other header and the URL, so
         // no other header, no query and no path part that could hold a key may ever be added here.
-        request = await authorized(request, access: access)
+        request = try await authorized(request, access: access)
         switch body {
         case let .stream(stream, length, contentType):
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -189,7 +189,7 @@ public struct CloudOwnerAPIClient: Sendable {
         // RULE (cx-kvmz, hq-84), as in post(_:_:body:timeout:as:): Authorization, x-cmux-team and
         // the build space only; the path's one varying part is a checked id and the query holds
         // integers and the store's own list cursor alone.
-        request = await authorized(request, access: access)
+        request = try await authorized(request, access: access)
         let data: Data
         let response: URLResponse
         do {
@@ -219,7 +219,7 @@ public struct CloudOwnerAPIClient: Sendable {
         }
         var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
         request.httpMethod = "POST"
-        request = await authorized(request, access: access)
+        request = try await authorized(request, access: access)
         switch body {
         case let .stream(stream, length, contentType):
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")

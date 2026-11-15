@@ -55,15 +55,12 @@ extension AppControl {
             guard services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: Self.vmText(.cloudUnavailable)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
             let configuration = services.cloud.configuration
-            return (services.cloud, configuration.backend, configuration.runtimeSelection?.vmOrigin, configuration.buildSpace?.headers ?? [:])
+            return (services.cloud, configuration.backend, configuration.runtimeSelection?.vmOrigin, try configuration.buildSpace.headers())
         }
         guard let teamID = await MainActor.run(body: { cloud.auth.teamID }), !teamID.isEmpty else {
             throw ControlError(code: "no_team", message: Self.vmText(.noTeam))
         }
-        let access: String
-        do {
-            access = try await cloud.auth.tokens().access
-        } catch {
+        guard let access = try? await cloud.auth.tokens().access else {
             throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn))
         }
         return VMIssuer(backend: backend, vmOrigin: vmOrigin, teamID: teamID, accessToken: access, buildSpaceHeaders: buildSpaceHeaders)

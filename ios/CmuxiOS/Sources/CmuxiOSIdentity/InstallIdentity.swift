@@ -15,8 +15,9 @@ public actor InstallIdentity {
     private let records: InstallRecordStore
     private let deviceName: String
     private let clientVersion: String?
-    /// A dev build's cloud data space (`X-Cmux-Build-Space` on every request); nil sends none.
-    private let buildSpace: CMUXBuildSpace?
+    /// The build's cloud data space (a dev build's `X-Cmux-Build-Space` on every request); a misconfigured
+    /// dev build mints no token and sends nothing (``CMUXBuildSpaceError``).
+    private let buildSpace: CMUXBuildSpaceState
     private var clients: [String: InstallAuthClient] = [:]
     public private(set) var current: String?
     /// Set while the owner refuses this app as too old; nil otherwise.
@@ -26,11 +27,11 @@ public actor InstallIdentity {
     /// - Parameters:
     ///   - clientVersion: sent as `x-cmux-client-version`; defaults
     ///     to the app's `CFBundleShortVersionString`.
-    ///   - buildSpace: a dev build's cloud data space (`X-Cmux-Build-Space`); nil for
+    ///   - buildSpace: the build's cloud data space (`X-Cmux-Build-Space`); `.nightly` for
     ///     release and TestFlight builds, which send no header.
     public init(baseURL: URL, bundleID: String, deviceName: String,
                 clientVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-                buildSpace: CMUXBuildSpace? = nil) {
+                buildSpace: CMUXBuildSpaceState = .nightly) {
         self.baseURL = baseURL
         self.buildSpace = buildSpace
         let host = baseURL.host ?? "unknown"
@@ -120,6 +121,7 @@ public actor InstallIdentity {
     /// One mint; a too-old refusal (or the first success after one) is
     /// reported to the observer before the result returns.
     private func mint(_ client: InstallAuthClient) async throws -> String {
+        try buildSpace.check()
         do {
             let token = try await client.installToken()
             if updateRequired != nil { await setUpdateRequired(nil) }
@@ -210,25 +212,25 @@ struct InstallRecordStore: Sendable {
 /// POSTs over the redirect-refusing credentialed session.
 struct CredentialedTransport: InstallAuthTransport {
     let baseURL: URL
-    /// A dev build's cloud data space; nil sends no `X-Cmux-Build-Space` header.
-    let buildSpace: CMUXBuildSpace?
+    /// The build's cloud data space: a dev build's `X-Cmux-Build-Space`; a misconfigured dev build sends nothing.
+    let buildSpace: CMUXBuildSpaceState
     private let session = CmxCredentialedHTTPSession()
 
     /// The POST of `path` with its headers, the bearer and the build space, if any.
-    func makeRequest(_ path: String, json: Data, bearer: String?, headers: [String: String]) -> URLRequest {
+    func makeRequest(_ path: String, json: Data, bearer: String?, headers: [String: String]) throws -> URLRequest {
         var request = URLRequest(url: baseURL.appendingPathComponent(String(path.drop(while: { $0 == "/" }))))
         request.httpMethod = "POST"
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
-        buildSpace?.apply(to: &request)
+        try buildSpace.apply(to: &request)
         request.httpBody = json
         request.timeoutInterval = 15
         return request
     }
 
     func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
-        let request = makeRequest(path, json: json, bearer: bearer, headers: headers)
+        let request = try makeRequest(path, json: json, bearer: bearer, headers: headers)
         let (data, response) = try await session.data(for: request)
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }

@@ -52,10 +52,11 @@ final class AppContainer {
     var onUpdateRequiredChange: ((HomeUpdateRequired?) -> Void)?
     /// Dials Home's sockets again when the app comes to the foreground.
     private var foregroundObserver: (any NSObjectProtocol)?
-    /// This dev build's cloud data space: every request to the cmux cloud
-    /// (`CMUXCloudAPIBaseURL`) carries `X-Cmux-Build-Space: dev:<tag>`. Nil for a
-    /// build without a `CMUXDevTag` (release, TestFlight), which sends no header.
-    let buildSpace: CMUXBuildSpace?
+    /// This build's cloud data space: every request to the cmux cloud
+    /// (`CMUXCloudAPIBaseURL`) from a tagged DEBUG build carries `X-Cmux-Build-Space: dev:<tag>`;
+    /// release and TestFlight send no header; a DEBUG build without a usable `CMUXDevTag` is
+    /// misconfigured and its cloud clients refuse every call (``CMUXBuildSpaceError``).
+    let buildSpace: CMUXBuildSpaceState
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let composition = MobileAuthComposition(
@@ -69,8 +70,16 @@ final class AppContainer {
         #else
         homeUsesMock = false
         #endif
-        let buildSpace = Self.devBuildSpace(infoDictionary: Bundle.main.infoDictionary)
+        #if DEBUG
+        let devBuild = true
+        #else
+        let devBuild = false
+        #endif
+        let buildSpace = Self.buildSpace(infoDictionary: Bundle.main.infoDictionary, devBuild: devBuild)
         self.buildSpace = buildSpace
+        if let refusal = buildSpace.refusal {
+            Logger(subsystem: "dev.cmux.ios", category: "identity").fault("cloud calls refused: \(refusal.localizedDescription, privacy: .public)")
+        }
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
         let base = Self.cloudAPIBaseURL()
@@ -149,12 +158,11 @@ final class AppContainer {
         updateRequired = requirement
     }
 
-    /// The build space of a dev build: its `CMUXDevTag` (empty, or an unexpanded
-    /// `$(CMUX_DEV_TAG)`, in release and TestFlight builds), sanitized like
-    /// `scripts/lib/mobile-attach.sh`; nil when there is no usable tag.
-    static func devBuildSpace(infoDictionary: [String: Any]?) -> CMUXBuildSpace? {
-        let tag = AppVersionInfo(infoDictionary: infoDictionary, isDevBuild: true).devTag
-        return tag.isEmpty ? nil : CMUXBuildSpace(devTag: tag)
+    /// The build's space from its `CMUXDevTag` (empty, or an unexpanded `$(CMUX_DEV_TAG)`, in
+    /// release and TestFlight builds), sanitized like `scripts/lib/mobile-attach.sh`. A DEBUG build
+    /// (`devBuild`) with no usable tag is misconfigured, never nightly.
+    static func buildSpace(infoDictionary: [String: Any]?, devBuild: Bool) -> CMUXBuildSpaceState {
+        CMUXBuildSpaceState(devBuild: devBuild, devTag: AppVersionInfo(infoDictionary: infoDictionary, isDevBuild: true).devTag)
     }
 
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the

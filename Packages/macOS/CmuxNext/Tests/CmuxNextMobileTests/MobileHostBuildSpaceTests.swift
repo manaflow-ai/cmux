@@ -23,7 +23,8 @@ import Testing
     func directory(tagged: Bool) async throws {
         let base = try #require(URL(string: "https://cmuxMobile.test"))
         let log = RequestLog()
-        let directory = MobileHostDeviceDirectory(baseURL: base, buildSpace: tagged ? Self.space : nil) { request in
+        let space = try #require(Self.space)
+        let directory = MobileHostDeviceDirectory(baseURL: base, buildSpace: tagged ? .dev(space) : .nightly) { request in
             await log.add(request)
             if request.httpMethod == "DELETE" { return (Data(), 200) }
             return (Data(#"{"devices":[{"deviceId":"a","kind":"phone","name":"P"}]}"#.utf8), 200)
@@ -33,5 +34,19 @@ import Testing
         let requests = await log.requests
         #expect(requests.count == 2)
         #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "X-Cmux-Build-Space") == (tagged ? "dev:my-tag-2" : nil) })
+    }
+
+    @Test("A misconfigured dev build's device directory refuses before anything is sent")
+    func directoryRefuses() async throws {
+        let base = try #require(URL(string: "https://cmuxMobile.test"))
+        let log = RequestLog()
+        let directory = MobileHostDeviceDirectory(baseURL: base, buildSpace: .misconfiguredDev(reason: "it has no tag")) { request in
+            await log.add(request)
+            return (Data(#"{"devices":[]}"#.utf8), 200)
+        }
+        await #expect(throws: CMUXBuildSpaceError.self) { _ = try await directory.phones(token: "tok") }
+        let phone = MobileHostKnownPhone.group([try #require(MobileHostRegisteredDevice(json: ["deviceId": "a", "kind": "phone", "name": "P"]))])
+        await #expect(throws: CMUXBuildSpaceError.self) { try await directory.remove(try #require(phone.first), token: "tok") }
+        #expect(await log.requests.isEmpty)
     }
 }

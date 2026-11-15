@@ -45,8 +45,9 @@ public final class IPhoneHostService {
         /// The mobile service.
         var baseURL: URL
         var stackProjectID: String
-        /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); nil for nightly and stable.
-        var buildSpace: CMUXBuildSpace?
+        /// The build's cloud data space (``CloudConfiguration/buildSpace``): a tagged dev build's goes to hostd; a
+        /// misconfigured dev build starts no hostd and lists no phones (``CMUXBuildSpaceError``).
+        var buildSpace: CMUXBuildSpaceState
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
         var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
@@ -109,7 +110,7 @@ public final class IPhoneHostService {
         launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
-        launch.buildSpace = dependencies.buildSpace
+        launch.buildSpace = dependencies.buildSpace.space
         return launch
     }
 
@@ -623,6 +624,8 @@ public final class IPhoneHostService {
                 return
             }
             do {
+                // A dev build with no usable tag would run hostd in nightly's space: it starts none.
+                try dependencies.buildSpace.check()
                 let deviceID = try MobileHostDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
@@ -647,6 +650,14 @@ public final class IPhoneHostService {
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
                     surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+            } catch let refusal as CMUXBuildSpaceError {
+                // Does not pass by itself (a rebuild with a tag does): no retry, as for a blocked daemon socket.
+                guard !Task.isCancelled, self?.running == key else { return }
+                let reason = refusal.localizedDescription
+                logger.fault("iPhone host not started: \(reason, privacy: .public)")
+                await supervisor.stop(phase: .unavailable(reason))
+                guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
+                self?.setKeepAwake(false)
             } catch MobileHostMacIdentityError.keychainRefused(let status) {
                 // The Keychain holds this Mac's identity but refused the read (locked at login or wake):
                 // try again shortly rather than prove a second key the phones would refuse. A stop() or a

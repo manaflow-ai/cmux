@@ -476,7 +476,10 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             }
             // Closed while the token came: open nothing.
             guard !closed, !Task.isCancelled else { return .ended(welcomed: false, unauthorized: false, reason: "closed") }
-            let task = http.session.webSocketTask(with: http.socketRequest(url, token: token))
+            // A misconfigured dev build's refusal (CMUXBuildSpaceError) does not pass by itself: no retry.
+            let request: URLRequest
+            do { request = try http.socketRequest(url, token: token) } catch { return .refused(error.localizedDescription) }
+            let task = http.session.webSocketTask(with: request)
             socket = task
             awaitingSnapshot = false
             subscribeOutstanding = false
