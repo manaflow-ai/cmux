@@ -1,8 +1,38 @@
 import CmuxCloud
+import CmuxCore
 import AppKit
 import CmuxSettings
 import CmuxTerminalCore
 import Foundation
+
+/// The SSH endpoint a remote file link's file is downloaded from.
+struct RemoteTerminalFilePreviewRoute: Equatable {
+    let destination: String
+    let port: Int?
+    let identityFile: String?
+    let sshOptions: [String]
+    let displayTarget: String
+
+    /// A managed `cmux ssh` workspace reuses its carrier's route and ControlPath.
+    init(configuration: WorkspaceRemoteConfiguration) {
+        destination = configuration.destination
+        port = configuration.port
+        identityFile = configuration.identityFile
+        sshOptions = configuration.fileOperationSSHOptions
+        displayTarget = configuration.displayTarget
+    }
+
+    /// A mirrored tmux pane rides the mirror's ControlMaster socket as is. It
+    /// skips the managed-SSH option merge, which would swap a caller-owned
+    /// ControlPath for `ControlPath=none` whenever an agent socket is set.
+    init(host: RemoteTmuxHost) {
+        destination = host.destination
+        port = host.port
+        identityFile = host.identityFile
+        sshOptions = ["ControlPath=\(host.controlSocketPath)"]
+        displayTarget = host.port.map { "\(host.destination):\($0)" } ?? host.destination
+    }
+}
 
 /// Owns remote click downloads and discards completions whose source terminal has changed.
 @MainActor
@@ -32,8 +62,8 @@ final class RemoteTerminalFilePreviewCoordinator {
     func open(workspace: Workspace, sourcePanelID: UUID, tokens: [String]) -> Bool {
         let tokens = tokens.filter { RemoteTerminalPathResolver().isFileReference($0) }
         guard !tokens.isEmpty,
-              let configuration = workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID),
-              let panel = workspace.terminalPanel(for: sourcePanelID) else { return false }
+              let route = workspace.remoteTerminalFilePreviewRoute(for: sourcePanelID),
+              let panel = workspace.remoteFilePreviewSourcePanel(for: sourcePanelID) else { return false }
         tasks[sourcePanelID]?.task.cancel()
         let settings = FileRouteSettingsStore(defaults: defaults)
         guard !ManagedFileTransferPolicy.isDisabled,
@@ -43,11 +73,11 @@ final class RemoteTerminalFilePreviewCoordinator {
         }
         let directory = workspace.effectivePanelDirectory(panelId: sourcePanelID)
         let provider = SSHFileExplorerProvider(
-            destination: configuration.destination,
-            port: configuration.port,
-            identityFile: configuration.identityFile,
-            sshOptions: configuration.fileOperationSSHOptions,
-            displayTarget: configuration.displayTarget,
+            destination: route.destination,
+            port: route.port,
+            identityFile: route.identityFile,
+            sshOptions: route.sshOptions,
+            displayTarget: route.displayTarget,
             homePath: "",
             isAvailable: true,
             transport: transport
@@ -89,8 +119,8 @@ final class RemoteTerminalFilePreviewCoordinator {
                 guard let self, let workspace, let panel, let sourceSurface,
                       !ManagedFileTransferPolicy.isDisabled,
                       !workspace.isRetiredFromOwningTabManager,
-                      workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
-                      workspace.terminalPanel(for: sourcePanelID) === panel,
+                      workspace.remoteTerminalFilePreviewRoute(for: sourcePanelID) == route,
+                      workspace.remoteFilePreviewSourcePanel(for: sourcePanelID) === panel,
                       panel.surface === sourceSurface,
                       sourceSurface.terminalLifecycleId == lifecycleID,
                       workspace.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID] == attemptID,
@@ -98,7 +128,7 @@ final class RemoteTerminalFilePreviewCoordinator {
                       SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource == projectionResource,
                       sourceSurface.owningWorkspace() === workspace,
                       workspace.owningTabManager?.selectedTabId == workspace.id,
-                      workspace.focusedPanelId == sourcePanelID,
+                      workspace.remoteFilePreviewSourceIsFocused(sourcePanelID),
                       panel.hostedView.window?.isKeyWindow == true else {
                     #if DEBUG
                     cmuxDebugLog("remotePreview.discarded request=\(requestID.uuidString)")
@@ -107,7 +137,7 @@ final class RemoteTerminalFilePreviewCoordinator {
                 }
                 let opened = CommandClickFileOpenRouter.openInCmux(
                     workspace: workspace,
-                    sourcePanelId: sourcePanelID,
+                    sourcePanelId: workspace.remoteFilePreviewAnchorPanelID(for: sourcePanelID),
                     filePath: localURL.path,
                     defaults: self.defaults
                 )
@@ -120,11 +150,11 @@ final class RemoteTerminalFilePreviewCoordinator {
                 cmuxDebugLog("remotePreview.failed request=\(requestID.uuidString)")
                 #endif
                 guard let workspace, let panel,
-                      workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
+                      workspace.remoteTerminalFilePreviewRoute(for: sourcePanelID) == route,
                       workspace.sshTuiConnectionAttemptID == tuiAttemptID,
-                      workspace.terminalPanel(for: sourcePanelID) === panel,
+                      workspace.remoteFilePreviewSourcePanel(for: sourcePanelID) === panel,
                       workspace.owningTabManager?.selectedTabId == workspace.id,
-                      workspace.focusedPanelId == sourcePanelID,
+                      workspace.remoteFilePreviewSourceIsFocused(sourcePanelID),
                       panel.hostedView.window?.isKeyWindow == true else { return }
                 // Match the existing file-explorer preview failure affordance without exposing SSH diagnostics.
                 NSSound.beep()

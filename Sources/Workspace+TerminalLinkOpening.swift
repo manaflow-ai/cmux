@@ -39,11 +39,52 @@ extension Workspace: TerminalLinkOpenContainer {
         return configuration
     }
 
+    /// Where a remote file link's file is read from: the managed SSH connection,
+    /// or the SSH host behind a mirrored `cmux ssh-tmux` session.
+    func remoteTerminalFilePreviewRoute(for surfaceID: UUID) -> RemoteTerminalFilePreviewRoute? {
+        if let configuration = remoteTerminalFilePreviewConfiguration(for: surfaceID) {
+            return RemoteTerminalFilePreviewRoute(configuration: configuration)
+        }
+        return remoteTmuxFilePreviewRoute(for: surfaceID)
+    }
+
+    /// A mirrored tmux pane has no `remoteConfiguration`, so its files are read over
+    /// the mirror's own ControlMaster. The file transport never opens a master
+    /// (`ControlMaster=no`, `BatchMode=yes`), so a click never prompts for auth.
+    private func remoteTmuxFilePreviewRoute(for surfaceID: UUID) -> RemoteTerminalFilePreviewRoute? {
+        guard let sessionMirror = remoteTmuxSessionMirror,
+              !sessionMirror.connection.exited,
+              case .pane = remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) else { return nil }
+        let host = sessionMirror.host
+        // A brokered or non-ssh route can't be reached by a plain ssh to the destination.
+        guard host.transport == .ssh, host.transportBroker == nil else { return nil }
+        return RemoteTerminalFilePreviewRoute(host: host)
+    }
+
+    /// The terminal behind a remote file link, including a pane owned by a tmux mirror.
+    func remoteFilePreviewSourcePanel(for surfaceID: UUID) -> TerminalPanel? {
+        terminalPanel(for: surfaceID) ?? remoteTmuxControlPane(surfaceID: surfaceID)?.pane.panel
+    }
+
+    /// A mirrored pane is focused when its window tab is focused and it is that window's active pane.
+    func remoteFilePreviewSourceIsFocused(_ surfaceID: UUID) -> Bool {
+        if focusedPanelId == surfaceID { return true }
+        guard let location = remoteTmuxControlPane(surfaceID: surfaceID) else { return false }
+        return focusedPanelId == location.containerPanelID && location.pane.isFocused
+    }
+
+    /// The workspace panel a preview opens next to. A mirrored pane isn't in the
+    /// workspace's split tree, so the preview goes beside its window tab.
+    func remoteFilePreviewAnchorPanelID(for surfaceID: UUID) -> UUID {
+        remoteTmuxControlPane(surfaceID: surfaceID)?.containerPanelID ?? surfaceID
+    }
+
     func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool {
-        guard remoteConfiguration?.transport == .ssh,
-              let target = surfaceOwnershipTarget(for: sourcePanelId),
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId),
               terminalLinkIsRemoteTerminal(target.surfaceID),
-              let panel = terminalPanel(for: target.surfaceID) else { return false }
+              remoteConfiguration?.transport == .ssh
+                || remoteTmuxFilePreviewRoute(for: target.surfaceID) != nil,
+              let panel = remoteFilePreviewSourcePanel(for: target.surfaceID) else { return false }
         _ = panel.hostedView.openRemoteFilePreview(tokens: [rawValue])
         return true
     }
