@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43669611952",
+  "recorded_at": "2026-11-15T02:59:33Z",
+  "reason": "cmux-tui 6860c55ae863 changes the image's cmux-tui (pinned 8ddecc221fcf)",
+  "dry_run": false,
+  "cmux_tui": "6860c55ae8631899d4a12e1b7429625301eea1c1",
+  "fixes": [
+    {
+      "sha": "6860c55ae8631899d4a12e1b7429625301eea1c1",
+      "mergedAt": "2026-11-14T18:34:50-08:00",
+      "subject": "cmux-rd bench --present :N: draw decoded frames in an X window (Linux) (#43058)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T02:59:33Z",
+    "snapshot_id": "sh-0adcdb0825734d64abbe1fae043e45fb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43669611952): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cc0264a587654040014d2b263c897caf6d4bcd6f",
+    "image": "cloud-native-auto-6860c55a-43669611952-1",
+    "revision": "ci-43669611952-1",
+    "at": "2026-11-15T02:59:33Z"
+  },
+  "rolled_back": false
+}
