@@ -390,6 +390,10 @@ fn detector_wake_streams_decode_a_session_with_a_terminal_that_ended() {
         panic!("the detector's pass on the session `{label}` ends: {error}")
     });
     eprintln!("{label}: {read:?}");
+    assert!(
+        read.lifecycles.contains(&TerminalLifecycle::Exited),
+        "setup: the detector's list had no terminal that ended: {read:?}"
+    );
     let (ended, others): (Vec<_>, Vec<_>) =
         terminals.iter().partition(|terminal| terminal.row.lifecycle == TerminalLifecycle::Exited);
     assert_eq!(
