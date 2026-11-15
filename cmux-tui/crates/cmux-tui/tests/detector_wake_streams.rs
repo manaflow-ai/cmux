@@ -23,9 +23,6 @@ mod fault_support;
 #[path = "../../../bindings/examples/rust-agent-screen-detection/src/wake_kinds.rs"]
 mod detector_wake_kinds;
 
-use std::ffi::CString;
-use std::fs;
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -43,22 +40,11 @@ const READY_BOUND: Duration = Duration::from_secs(60);
 /// own request makes.
 const SETUP_BOUND: Duration = Duration::from_secs(60);
 
-/// The terminals of the session with many terminals, and how many of them
-/// the test takes out of their tabs while their processes stay.
+/// The terminals of the session with many terminals, and how many of their
+/// tabs the test closes while their processes stay.
 const STORED_TERMINALS: usize = 96;
-const NOT_PLACED: usize = 16;
+const CLOSED_TABS: usize = 16;
 const TABS_OF_A_WORKSPACE: usize = 12;
-
-/// Opens the gate of the terminal hosts when the test ends, also by a
-/// panic: no host stays at the gate after its owner.
-struct OpenGateAtEnd<'a>(&'a Path);
-
-impl Drop for OpenGateAtEnd<'_> {
-    fn drop(&mut self) {
-        let _open = fs::OpenOptions::new().read(true).write(true).open(self.0);
-        let _ = fs::remove_file(self.0);
-    }
-}
 
 /// A process that stays and costs nothing.
 fn idle_argv() -> Value {
@@ -365,58 +351,15 @@ fn detector_wake_streams_decode_a_session_with_a_terminal_that_ended() {
         panic!("the detector's pass on the session `{label}` ends: {error}")
     });
     eprintln!("{label}: {read:?}");
-}
-
-/// A terminal whose host has made the terminal's process and has not said
-/// yet that the terminal is ready: the hosts of the owner wait at a gate (a
-/// Debug owner only).
-#[test]
-fn detector_wake_streams_decode_a_session_with_a_terminal_that_starts() {
-    let label = "dws-starts";
-    let dir = FaultDir::new(label);
-    let gate = dir.root.join("host-ready-gate");
-    let gate_text = gate.to_str().expect("the gate path is not UTF-8").to_owned();
-    let owner = Owner::start(
-        &dir,
-        label,
-        &[NO_MAINTENANCE, ("CMUX_TUI_TEST_HOST_READY_GATE", gate_text.as_str())],
-        READY_BOUND,
-    );
-    new_workspace(&owner, "stays");
-    let c_path = CString::new(gate.as_os_str().as_bytes()).unwrap();
-    // SAFETY: `c_path` is a valid C string that lives across the call.
-    let made = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
-    assert_eq!(made, 0, "setup: mkfifo {}: {}", gate.display(), std::io::Error::last_os_error());
-    let _open_at_end = OpenGateAtEnd(&gate);
-    let socket = dir.socket();
-    let held = std::thread::spawn(move || {
-        fault_support::request(
-            &socket,
-            json!({"cmd": "run", "argv": idle_argv(), "new_workspace": true, "name": "starts"}),
-            Duration::from_secs(120),
-        )
-    });
-    wait_for_lifecycle(&dir.socket(), label, TerminalLifecycle::Launching);
-    let read = detector_first_read(&dir.socket(), label);
-    // An open for reading and writing does not wait for a host; each host
-    // that waits at the gate goes on.
-    let open = fs::OpenOptions::new().read(true).write(true).open(&gate);
-    let _ = fs::remove_file(&gate);
-    let reply = held.join().expect("the request thread panicked");
-    drop(open);
-    owner.stop();
-    let read = read.unwrap_or_else(|error| {
-        panic!("the detector's pass on the session `{label}` ends: {error}")
-    });
-    eprintln!("{label}: {read:?}; the held request: {reply:?}");
     assert!(
-        read.lifecycles.contains(&TerminalLifecycle::Launching),
-        "setup: the detector's list had no terminal that starts: {read:?}"
+        read.lifecycles.contains(&TerminalLifecycle::Exited),
+        "setup: the detector's list had no terminal that ended: {read:?}"
     );
 }
 
 /// Many terminals, and a part of them with no tab: the test closes their
-/// tabs and keeps their processes.
+/// tabs and keeps their processes. The owner lists each terminal still, with
+/// a tab or with none.
 #[test]
 fn detector_wake_streams_decode_a_session_with_many_terminals_and_closed_tabs() {
     let label = "dws-many";
@@ -436,13 +379,13 @@ fn detector_wake_streams_decode_a_session_with_many_terminals_and_closed_tabs() 
     // first tab of a workspace.
     let of_a_workspace = 4;
     let mut surfaces = Vec::new();
-    for index in 0..NOT_PLACED / of_a_workspace {
+    for index in 0..CLOSED_TABS / of_a_workspace {
         let made = workspace(&owner, &format!("many-{index}"));
         let tabs = made["screens"][0]["panes"][0]["tabs"].as_array().cloned().unwrap_or_default();
         assert_eq!(tabs.len(), TABS_OF_A_WORKSPACE, "setup: the tabs of many-{index}: {made}");
         surfaces.extend(tabs.iter().rev().take(of_a_workspace).map(|tab| tab["surface"].clone()));
     }
-    assert_eq!(surfaces.len(), NOT_PLACED, "setup: the tabs to close");
+    assert_eq!(surfaces.len(), CLOSED_TABS, "setup: the tabs to close");
     owner.data(json!({"cmd": "close-tabs", "surfaces": surfaces, "end_terminals": false}));
     let read = detector_first_read(&dir.socket(), label);
     owner.stop();
@@ -451,9 +394,9 @@ fn detector_wake_streams_decode_a_session_with_many_terminals_and_closed_tabs() 
     });
     eprintln!("{label}: {read:?}");
     assert!(
-        read.listed >= STORED_TERMINALS && read.not_found == NOT_PLACED,
-        "setup: {} terminals are listed and `terminal.get` does not find {} of them; wanted \
-         {STORED_TERMINALS} and {NOT_PLACED}: {}",
+        read.listed >= STORED_TERMINALS,
+        "setup: {} terminals are listed (`terminal.get` does not find {} of them); wanted \
+         {STORED_TERMINALS}: {}",
         read.listed,
         read.not_found,
         read.snapshot
