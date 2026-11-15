@@ -10,6 +10,9 @@ use serde_json::{Value, json};
 const DESTRUCTIVE_OPERATIONS: &[&str] =
     &["closed.delete", "git.worktree.remove", "chief.profile.delete", "history.site.remove"];
 
+/// The target kinds whose daemon id the app's `CatalogRequestHandlers` resolves.
+const RESOLVED_TARGETS: &[&str] = &["workspace", "pane"];
+
 fn well_formed(action: &Action) -> Result<(), String> {
     let Some(request) = &action.request else { return Ok(()) };
     let id = action.id;
@@ -30,6 +33,12 @@ fn well_formed(action: &Action) -> Result<(), String> {
         match param.source {
             ParamSource::Argument(name) if !action.arguments.iter().any(|a| a.name == name) => {
                 return Err(format!("{id}: param {} reads undeclared argument {name}", param.name));
+            }
+            ParamSource::Target(kind) if !RESOLVED_TARGETS.contains(&kind) => {
+                return Err(format!(
+                    "{id}: param {} reads a {kind} target, whose daemon id the app does not resolve",
+                    param.name
+                ));
             }
             ParamSource::Target(kind)
                 if !action.targets.contains(&kind) && action.palette_target != Some(kind) =>
@@ -171,6 +180,16 @@ fn malformed_rows_are_refused() {
         ..DELETE
     };
     assert!(well_formed(&spaced).unwrap_err().contains("not an operation name"));
+    let tab = Action {
+        targets: &["tab"],
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "closed.delete",
+            params: &[RequestParam { name: "tab", source: ParamSource::Target("tab") }],
+        }),
+        ..DELETE
+    };
+    assert!(well_formed(&tab).unwrap_err().contains("does not resolve"));
 }
 
 #[test]
