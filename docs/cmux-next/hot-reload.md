@@ -501,10 +501,12 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   `cmux app quit --keep-sessions` and opens again, and the part is done once the app's control socket
   answers from a new pid that stays up. The daemon and its terminals never stop. The release must only
   add to the FFI the app's pin was built from (`scripts/cmux-next/app_ffi_additive.py`), and the
-  library must export every symbol the app imports. A Developer ID app (a NIGHTLY) loads only
-  libraries signed by its team: `--sign-identity ID` signs with that team's identity, and `--reseal`
-  signs the app ad hoc too, so it starts signed out of its Keychain items until `rollback`. Without
-  either, the part and the Rust part are left, with why. An app that links the FFI statically (built
+  library must export every symbol the app imports. An ad hoc app takes the released (ad hoc)
+  library as is, and so does a NIGHTLY: its signature carries
+  `com.apple.security.cs.disable-library-validation`. A Developer ID app without that entitlement
+  loads only libraries signed by its team: `--sign-identity ID` signs with that team's identity, and
+  `--reseal` signs the app ad hoc too, so it starts signed out of its Keychain items until
+  `rollback`. Without either, the part and the Rust part are left, with why. An app that links the FFI statically (built
   before the library) leaves it for a nightly.
 - **Neither:** Swift, resources, Rust the app links statically, and helpers such as
   cmux-mobile-host still need the nightly. `plan` lists them under `left`. C, Objective-C and Zig

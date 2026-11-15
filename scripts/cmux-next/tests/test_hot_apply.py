@@ -964,18 +964,23 @@ class HotApplyFFI(unittest.TestCase):
         self.assertFalse((self.tmp / "state" / "ffi").exists())
 
     def test_a_developer_id_app_takes_the_library_only_as_asked(self):
-        saved = self.ffi.signature
+        saved = self.ffi.signature, self.ffi.validates_no_libraries
         try:
             self.ffi.signature = lambda path: {"team": "TEAM123456", "runtime": True, "adhoc": False}
+            self.ffi.validates_no_libraries = lambda path: False
             with self.assertRaises(self.ffi.Left) as left:
                 self.ffi.how_to_sign(self.app, None, False)
             self.assertIn("--sign-identity", str(left.exception))
             self.assertEqual(self.ffi.how_to_sign(self.app, "Developer ID Application: X", False), "identity")
             self.assertEqual(self.ffi.how_to_sign(self.app, None, True), "reseal")
+            # A NIGHTLY's signature disables library validation (cmux.nightly.entitlements): an ad hoc library loads.
+            self.ffi.validates_no_libraries = lambda path: True
+            self.assertEqual(self.ffi.how_to_sign(self.app, None, False), "adhoc")
             self.ffi.signature = lambda path: {"team": None, "runtime": False, "adhoc": True}
+            self.ffi.validates_no_libraries = lambda path: False
             self.assertEqual(self.ffi.how_to_sign(self.app, None, False), "adhoc")
         finally:
-            self.ffi.signature = saved
+            self.ffi.signature, self.ffi.validates_no_libraries = saved
 
 
 if __name__ == "__main__":

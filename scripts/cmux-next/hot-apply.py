@@ -41,9 +41,10 @@ with live_apply.py's rules:
          release replaces it across `cmux app quit --keep-sessions` and a relaunch (a warm swap:
          the daemon and its terminals stay up), once the release is paired with the app (SHA's FFI
          only adds to the release the app's commit pins, and the library exports every symbol the
-         app imports). A Developer ID app (a NIGHTLY) loads only libraries of its team:
-         --sign-identity signs with that team's identity, --reseal signs the app ad hoc too
-         (hot_apply_ffi.py has the rules). The rust part rides with it; without it, both are left.
+         app imports). An ad hoc app, or one whose signature disables library validation (a
+         NIGHTLY), takes the ad hoc library as is; another Developer ID app loads only libraries of
+         its team: --sign-identity signs with that team's identity, --reseal signs the app ad hoc
+         too (hot_apply_ffi.py has the rules). The rust part rides with it; without it, both are left.
   left   what needs a new app: Swift, resources and manifests, Rust the app links (statically), a web ABI
          change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
          keep the app's build while the daemon part still applies)

@@ -16,11 +16,12 @@ cmux-app-ffi-<commit>). For a commit SHA this part:
   fetch    downloads the release's xcframework zip, checks it against the release's SHA256SUMS, and keeps the
            library under the state folder by that checksum.
   sign     signs it the way the app can load it. An app signed ad hoc (a fleet try, a side instance) takes an
-           ad hoc library. A Developer ID app (a NIGHTLY) validates its libraries' team, so it takes the library
-           only signed by that team (--sign-identity, an identity in this Mac's keychain), or with --reseal, which
-           signs the app's own bundle ad hoc too (as nightly-swap and side-instance.sh do; the Keychain group
-           entitlement goes with the Developer ID signature, so the app starts signed out); otherwise the part is
-           left, with why.
+           ad hoc library, and so does a Developer ID app with com.apple.security.cs.disable-library-validation
+           (a NIGHTLY: cmux.nightly.entitlements). A Developer ID app without it validates its libraries' team,
+           so it takes the library only signed by that team (--sign-identity, an identity in this Mac's
+           keychain), or with --reseal, which signs the app's own bundle ad hoc too (as nightly-swap and
+           side-instance.sh do; the Keychain group entitlement goes with the Developer ID signature, so the app
+           starts signed out); otherwise the part is left, with why.
   swap     quits the app keeping its sessions (`cmux app quit --keep-sessions` from the app's own bin), renames
            the library into place, opens the app again and waits until its control socket answers from a new pid
            that stays up STAY_SECONDS. The daemon and its terminals never stop.
@@ -207,10 +208,22 @@ def signature(path: Path) -> dict:
     return info
 
 
+def validates_no_libraries(app: Path) -> bool:
+    """The app's signature carries com.apple.security.cs.disable-library-validation set to true: under the
+    hardened runtime it then loads a library of any signer, an ad hoc one included."""
+    for form in (["--entitlements", "-", "--xml"], ["--entitlements", ":-"]):
+        out = _run("codesign", "-d", *form, str(app), check=False).stdout
+        try:
+            return plistlib.loads(out.encode()).get("com.apple.security.cs.disable-library-validation") is True
+        except Exception:  # noqa: BLE001 - no entitlements, or a form this codesign does not print
+            continue
+    return False
+
+
 def how_to_sign(app: Path, identity: str | None, reseal: bool) -> str:
     """`adhoc`, `identity` or `reseal`: Left when the app cannot load a library this Mac can sign."""
     app_sig = signature(app)
-    if not app_sig["team"]:
+    if not app_sig["team"] or validates_no_libraries(app):
         return "adhoc"
     if identity:
         return "identity"
