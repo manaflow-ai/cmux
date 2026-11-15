@@ -411,8 +411,7 @@ fn own_tree_a_port_read_takes_no_port_lock() {
     let top = folder_with_a_port_of_its_root();
     let place = place_in(&top);
 
-    let port =
-        with_the_port_lock_held(&top, move || super::ports::lookup(&place.git_dir, &place.root));
+    let port = with_the_port_lock_held(&top, move || ports::lookup(&place.git_dir, &place.root));
 
     fs::remove_dir_all(top).unwrap();
     assert_eq!(port, Some(Some(40_010)), "the read waited for the port lock");
@@ -428,9 +427,90 @@ fn own_tree_a_port_allocation_waits_a_bounded_time_for_the_port_lock() {
     let place = place_in(&top);
 
     let port = with_the_port_lock_held(&top, move || {
-        super::ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten()
+        ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten()
     });
 
     fs::remove_dir_all(top).unwrap();
     assert_eq!(port, Some(Some(40_010)), "the allocation waited for the port lock with no end");
+}
+
+/// The read of a setup gives no text of a log that has a second name: the text is the text of
+/// the file at the other name. The read gives the setup's state.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_read_gives_no_text_of_a_log_with_a_second_name() {
+    let top = folder_with_a_second_name_in_its_git_folder_at(LOG_FILE);
+    let status = r#"{"state":"succeeded","started_ms":1}"#;
+    fs::write(top.join("git-folder").join(STATUS_FILE), status).unwrap();
+    let place = place_in(&top);
+
+    let reply = read(&place.root, &place.git_dir, 0);
+
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((&reply["output"], &reply["state"]), (&json!(""), &json!("succeeded")), "{reply}");
+}
+
+/// A run lock that has a second name is made new: the run's lock is on the new file, and the
+/// file at the other name keeps its text, has one name and has no lock.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_run_lock_with_a_second_name_is_made_new() {
+    use std::os::unix::fs::MetadataExt as _;
+    let top = folder_with_a_second_name_in_its_git_folder_at(LOCK_FILE);
+    let elsewhere = top.join("elsewhere/file");
+
+    let lock = hold(&top.join("git-folder"));
+
+    let names = fs::metadata(&elsewhere).map_or(0, |file| file.nlink());
+    let free_elsewhere = crate::fork_tests::free(&elsewhere);
+    let free_at_the_name = crate::fork_tests::free(&top.join("git-folder").join(LOCK_FILE));
+    assert_eq!(
+        (lock.is_some(), free_at_the_name, text_elsewhere(&top).as_str(), names, free_elsewhere),
+        (true, false, KEPT, 1, true)
+    );
+    drop(lock);
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// The port lock is opened as the run lock is: a lock file that has a second name is made new,
+/// and the file at the other name keeps its text and has one name.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_port_lock_with_a_second_name_is_made_new() {
+    use std::os::unix::fs::MetadataExt as _;
+    let top = folder_with_a_port_of_its_root();
+    let (elsewhere, lock_file) =
+        (top.join("elsewhere/file"), top.join("git-folder/cmux-worktree-ports.lock"));
+    fs::write(&elsewhere, KEPT).unwrap();
+    fs::hard_link(&elsewhere, &lock_file).unwrap();
+    let place = place_in(&top);
+
+    let port = ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten();
+
+    let names = fs::metadata(&elsewhere).map_or(0, |file| file.nlink());
+    assert_eq!((port, text_elsewhere(&top).as_str(), names), (Some(40_010), KEPT, 1));
+    assert!(lock_file.is_file(), "the ports have no lock file");
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// A lock file that has a second name is the lock of no run: a lock that a program has on the
+/// file at the other name is not read as a setup that runs.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_lock_file_with_a_second_name_is_no_run_lock() {
+    use std::os::fd::AsRawFd as _;
+    let top = folder_with_a_second_name_in_its_git_folder_at(LOCK_FILE);
+    let other = File::open(top.join("elsewhere/file")).unwrap();
+    // SAFETY: flock(2) on a descriptor that `other` keeps open; LOCK_NB makes it return at once.
+    let taken = unsafe { libc::flock(other.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    assert_eq!(taken, 0, "the test did not get the lock of the file");
+
+    let run_lock = held(&top.join("git-folder"));
+
+    // SAFETY: as above. The unlock is its own call, as in `with_the_port_lock_held`.
+    unsafe {
+        libc::flock(other.as_raw_fd(), libc::LOCK_UN);
+    }
+    fs::remove_dir_all(top).unwrap();
+    assert!(!run_lock, "a lock on a file with a second name was read as the lock of a run");
 }
