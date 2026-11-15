@@ -10399,6 +10399,7 @@ STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
 # the scan until it is listed here or reads a failed_view instead.
 RAW_LOG_READERS = {
     "generated_stale_host": "only the shared generated-files check's own one error line, to name its host; compares nothing",
+    "generated_catalog_host": "only the shared generated-files check's own one error line, to name its host; compares nothing",
     "failed_view": "the one reader: the owned non-passed sections, or UNPLACED",
     "failed_steps_log": "what a comment shows; never compared",
     "step_owners": "the one placer of a line in a step, read by the two above alone",
@@ -10419,7 +10420,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -13857,6 +13858,7 @@ SCANNERS = {
     "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
     "base_red_excuse.compile_errors": lambda f: excuse.compile_errors(f.lines, f.job),
     "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
+    "base_red_excuse.generated_catalog_host": lambda f: excuse.generated_catalog_host(f.log),
     "base_red_excuse.no_verdict": lambda f: excuse.no_verdict(f.log),
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
     "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
