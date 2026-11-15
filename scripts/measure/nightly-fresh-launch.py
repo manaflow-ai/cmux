@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import select
 import os
 import shutil
 import statistics
@@ -42,6 +43,23 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SMOKE_PATH = HERE.parent / "ci" / "fresh_home_launch_smoke.py"
 ARMS = ("fresh-copy", "same-copy", "warm")
+# --arms=extra: where a new copy's first-exec cost lives and whether a pre-warm of the copy keeps (each its own copy):
+#   prewarm-main    the copy runs once until main_start (exec and dyld only, then killed), then the fresh-home launch
+#   prewarm-moved   as prewarm-main, but in a staging folder, then renamed into another folder before the launch
+#                   (Sparkle's installer moves its staged copy into place: a rename on one volume)
+#   prewarm-home    the copy runs once to Home in a staging folder (every helper and the daemon), renamed, launched
+#   spctl           `spctl --assess --type execute` on the copy (the system's own assessment), then the launch
+#   gktool          `gktool scan` on the copy (what Sparkle 2 runs on a staged update when its Autoupdate has the
+#                   update's team), then the launch
+#   gktool-moved    as gktool, in a staging folder, then renamed into place (Sparkle's install of a scanned update)
+#   prewarm-bins-moved  as prewarm-moved, and the bundled `cmux` and `cmux-tui` (Contents/Resources/bin) run once
+#                   with --version: the launch's other first execs (the CLI's cloud env read, the daemon)
+EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
+PREWARM_BINS = ("cmux", "cmux-tui")
+# The unified log around a fresh copy's launch: who works on a new executable before main.
+FIRST_EXEC_LOG = ('process == "syspolicyd" OR process == "amfid" OR process == "XProtect" OR process == "trustd" '
+                  'OR process == "kernel" OR subsystem == "com.apple.dyld" OR subsystem BEGINSWITH "com.apple.syspolicy" '
+                  'OR process == "lsd" OR process == "mds_stores"')
 PHASE_KEYS = ("main_start", "first_window_frame_committed", "home.first_page", "reveal.home")
 # The sample's span (start_sample): from the first window frame (about 2.2 s after spawn on a fleet Mac) through the
 # wait for the Chief owner that Home's first page needs (home.chief_owner_ready about 4.1 s).
@@ -87,6 +105,11 @@ def facts(app: Path, executable: str, copy_s: float) -> dict:
         "codesign": [line for line in run_text(["codesign", "-dv", str(exe)]).splitlines()
                      if not line.startswith("Executable=")],
         "codesign_verify_exe_s": round(verify_s, 2), "codesign_verify": verify or "ok",
+        # Sparkle runs `gktool scan` on a staged update only when its Autoupdate has the update's team (SUPlainInstaller).
+        "autoupdate_codesign": [line for line in run_text(["codesign", "-dv", str(frameworks / "Sparkle.framework" / "Versions" / "B" / "Autoupdate")]).splitlines()
+                                if line.startswith(("TeamIdentifier", "Authority", "Identifier"))],
+        "bundled_bin": sorted(p.name for p in (app / "Contents" / "Resources" / "bin").iterdir())
+                       if (app / "Contents" / "Resources" / "bin").is_dir() else [],
         "macos": run_text(["sw_vers", "-productVersion"]), "chip": run_text(["sysctl", "-n", "machdep.cpu.brand_string"]),
     }
 
@@ -179,8 +202,104 @@ def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, secon
             "sample_main": main_thread_summary(home_root / f"sample-{name}.txt", 200) if sample else None}
 
 
+def prewarm_until_main(smoke, root: Path, app: Path, executable: str, home_root: Path) -> dict:
+    """Runs APP once with HOME_ROOT's fresh home until its main_start mark (exec, dyld and static initializers
+    done), then kills it: the pre-warm a launcher would do. Returns its seconds and when main_start came."""
+    started = time.monotonic()
+    marks_read, marks_write = os.pipe()
+    try:
+        try:
+            env = smoke.fresh_env(home_root, home_root / "prewarm.sock", marks_write)
+            process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable), "-ApplePersistenceIgnoreState", "YES"],
+                                       env=env, cwd=env["HOME"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, pass_fds=(marks_write,), start_new_session=True)
+        finally:
+            os.close(marks_write)
+        seen, buf = None, b""
+        try:
+            while time.monotonic() - started < 60 and process.poll() is None:
+                ready, _, _ = select.select([marks_read], [], [], 0.25)
+                if ready:
+                    chunk = os.read(marks_read, 1 << 16)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    if b"main_start" in buf:
+                        seen = time.monotonic() - started
+                        break
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=10)
+            smoke.stop(smoke.own_pids(root))
+    finally:
+        os.close(marks_read)
+    return {"seconds": round(time.monotonic() - started, 3), "main_start_at": None if seen is None else round(seen, 3)}
+
+
+def first_exec_log(since: float, until: float) -> dict:
+    """The unified log's FIRST_EXEC_LOG lines between SINCE and UNTIL (epoch seconds): a count per process and the
+    first lines, best effort."""
+    fmt = "%Y-%m-%d %H:%M:%S"
+    out = run_text(["/usr/bin/log", "show", "--style", "compact", "--info", "--debug",
+                    "--start", time.strftime(fmt, time.localtime(since)),
+                    "--end", time.strftime(fmt, time.localtime(until + 1)), "--predicate", FIRST_EXEC_LOG], timeout=180)
+    lines = [line[:300] for line in out.splitlines() if line and not line.startswith(("Timestamp", "Filtering"))]
+    counts: dict[str, int] = {}
+    for line in lines:
+        parts = line.split()
+        who = parts[3].split("[")[0] if len(parts) > 3 else "?"
+        counts[who] = counts.get(who, 0) + 1
+    return {"count": len(lines), "by_process": counts, "lines": lines[:400]}
+
+
+def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: float, arm: str) -> dict:
+    """One EXTRA_ARMS launch, on its own new copy and a new home."""
+    root = Path(tempfile.mkdtemp(prefix="cmux-nfl-", dir="/tmp"))
+    try:
+        stage = root / "stage"
+        stage.mkdir()
+        app = smoke.copy_app(mount_app, stage)
+        before: dict = {}
+        with smoke.DefaultsAside(bundle_id, root):
+            if arm in ("prewarm-main", "prewarm-moved", "prewarm-bins-moved"):
+                (root / "w").mkdir()
+                before = prewarm_until_main(smoke, root, app, executable, root / "w")
+                if arm == "prewarm-bins-moved":
+                    for name in PREWARM_BINS:
+                        binary = app / "Contents" / "Resources" / "bin" / name
+                        if binary.exists():
+                            started = time.monotonic()
+                            run_text([str(binary), "--version"], timeout=60)
+                            before[f"{name}_s"] = round(time.monotonic() - started, 3)
+            elif arm == "prewarm-home":
+                (root / "w").mkdir()
+                started = time.monotonic()
+                run = launch(smoke, root, app, executable, root / "w", 0.0, "prewarm")
+                before = {"seconds": round(time.monotonic() - started, 3), "rendered_at": run["rendered_at"]}
+            elif arm == "spctl":
+                started = time.monotonic()
+                before = {"spctl": run_text(["spctl", "--assess", "--type", "execute", "-vv", str(app)], timeout=600)[:400],
+                          "seconds": round(time.monotonic() - started, 3)}
+            elif arm in ("gktool", "gktool-moved"):
+                started = time.monotonic()
+                before = {"gktool": run_text(["/usr/bin/gktool", "scan", str(app)], timeout=900)[-400:],
+                          "seconds": round(time.monotonic() - started, 3)}
+            if arm in ("prewarm-moved", "prewarm-bins-moved", "prewarm-home", "gktool-moved"):
+                placed = root / "placed"
+                placed.mkdir()
+                os.rename(app.parent, placed / "app")
+                app = placed / "app" / app.name
+            (root / "m").mkdir()
+            row = launch(smoke, root, app, executable, root / "m", seconds, "measured")
+        return {"arm": arm, "before": before, **row}
+    finally:
+        smoke.stop(smoke.own_pids(root))
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: float, index: int,
-               report: dict) -> list[dict]:
+               report: dict, extra: bool = False) -> list[dict]:
     root = Path(tempfile.mkdtemp(prefix="cmux-nfl-", dir="/tmp"))
     rows: list[dict] = []
     try:
@@ -194,14 +313,23 @@ def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds:
         first.mkdir()
         second.mkdir()
         with smoke.DefaultsAside(bundle_id, root):
+            since = time.time()
             rows.append({"arm": "fresh-copy", **launch(smoke, root, app, executable, first, seconds, "fresh", sample=index == 1)})
+            if extra:
+                log = rows[-1]["first_exec_log"] = first_exec_log(since, since + 6)
+                print("NFL-FIRST-EXEC-LOG", index, json.dumps({k: log[k] for k in ("count", "by_process")}), flush=True)
+                for line in log["lines"][:150]:
+                    print("NFL-LOG", index, line, flush=True)
         with smoke.DefaultsAside(bundle_id, root):
             rows.append({"arm": "same-copy", **launch(smoke, root, app, executable, second, seconds, "same", sample=index == 1)})
             rows.append({"arm": "warm", **launch(smoke, root, app, executable, second, seconds, "warm")})
+        if extra:
+            for arm in EXTRA_ARMS:
+                rows.append(extra_arm(smoke, mount_app, bundle_id, executable, seconds, arm))
         for row in rows:
             row["round"] = index
-            print("NFL-LAUNCH", index, row["arm"], json.dumps({k: row[k] for k in ("exit", "rendered_at", "phases")}),
-                  flush=True)
+            print("NFL-LAUNCH", index, row["arm"],
+                  json.dumps({k: row[k] for k in ("exit", "rendered_at", "phases", "before") if k in row}), flush=True)
             print("NFL-MARKS", index, row["arm"], json.dumps(row["marks"]), flush=True)
             print("NFL-REPEATS", index, row["arm"], json.dumps(row["repeats"]), flush=True)
             for line in row.get("sample_main") or []:
@@ -218,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--rounds", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--seconds", type=float, default=8.0)
+    parser.add_argument("--arms", choices=("base", "extra"), default="base",
+                        help="extra: also the EXTRA_ARMS, and the unified log around each fresh-copy launch")
     args = parser.parse_args(argv)
     os.umask(0o022)
     out = Path(args.out)
@@ -240,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
         bundle_id, executable = smoke.bundle_info(apps[0])
         report["bundle_id"] = bundle_id
         for index in range(1, args.rounds + 1):
-            rows = round_once(smoke, apps[0], bundle_id, executable, args.seconds, index, report)
+            rows = round_once(smoke, apps[0], bundle_id, executable, args.seconds, index, report, extra=args.arms == "extra")
             report["launches"].extend(rows)
             if any(row["rendered_at"] is None for row in rows):
                 status = 1
@@ -251,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         smoke.detach(mount)
         shutil.rmtree(mount, ignore_errors=True)
     medians = {}
-    for arm in ARMS:
+    for arm in ARMS + (EXTRA_ARMS if args.arms == "extra" else ()):
         rows = [r for r in report["launches"] if r["arm"] == arm and r["rendered_at"] is not None]
         med = {}
         for key in ("pre_main", "to_frame", "to_page", "frame", "page", "harness"):

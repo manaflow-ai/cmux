@@ -88,6 +88,13 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BACKEND_ONLY: ${{ inputs.backend_only }}
+          # Off until the Tailscale trust credential behind TS_E2E_OIDC_CLIENT_ID
+          # admits pull_request runs: today it admits only this workflow's
+          # workflow_dispatch, so every PR run's tailnet join was refused 403 and
+          # every PR into feat-cmux-next went red with no base run to compare
+          # (since #42973). Set the repo variable IOS_E2E_PR_TAILNET=true once
+          # the credential is widened.
+          PR_TAILNET: ${{ vars.IOS_E2E_PR_TAILNET }}
         run: |
           set -euo pipefail
           run_clients=true
@@ -115,6 +122,13 @@ jobs:
               # shared stack when the changed-file diff is unavailable.
               web_changed=true
             fi
+          fi
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "${PR_TAILNET:-}" != "true" ] && [ "$run_e2e" = "true" ]; then
+            run_e2e=false
+            run_clients=false
+            msg="pull_request runs skip the tailnet jobs until the Tailscale trust credential admits them (repo variable IOS_E2E_PR_TAILNET is not true); dispatch the workflow to run the lane"
+            echo "::notice::$msg"
+            echo "- route: $msg" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ "$web_changed" = "true" ] && [ -n "${PR_NUMBER:-}" ]; then
             backend_tag="ci${PR_NUMBER}"
@@ -345,10 +359,9 @@ jobs:
           brew_bin="$(brew --prefix)/bin"
           export PATH="$brew_bin:$PATH"
           echo "$brew_bin" >> "$GITHUB_PATH"
-          if ! command -v axe >/dev/null 2>&1; then
-            brew install cameroncooke/axe/axe
-          fi
-          command -v axe >/dev/null 2>&1 || {
+          # Not the Homebrew tap: its formula's install DSL fails on the
+          # runners' Homebrew (job 132861077367).
+          ./scripts/install-axe-ci.sh || {
             echo "::error::[infra-preflight] axe is missing from the simulator runner"
             exit 1
           }

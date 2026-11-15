@@ -1,0 +1,3 @@
+# The gates whose tests write the design doc's row 6 (`v2.pr06.*`). A line is GROUP FILTER; see run-v2-gates.sh.
+client v2_pr06_client_chat
+acpmux-lib hold_attach_gate
