@@ -10,7 +10,9 @@
 //! was opened, also when its path names a different folder later.
 //!
 //! A system that is not Unix has no call that takes a name in an open
-//! folder. There each call is by the path of the folder.
+//! folder. There each call is by the real path of the folder, as the open
+//! read it: a link in the path that the folder was opened by has no effect
+//! after the open.
 
 use std::fs::File;
 use std::io::{self, Read as _, Write as _};
@@ -326,14 +328,20 @@ mod system {
 
     use super::{Access, Open};
 
-    /// The folder, as its path.
+    /// The folder, as its real path; as the path that it was opened by when
+    /// that has no real path.
     pub(super) struct Folder(PathBuf);
 
     impl Folder {
         /// The folder at `path`, with its real path at this time. Each
-        /// later call is by `path`.
+        /// later call is by the real path, which the check of the folder
+        /// is of ([`OwnFolder::is_of`](super::OwnFolder::is_of)). With no
+        /// real path, each later call is by `path`.
         pub(super) fn open(path: &Path) -> (Result<PathBuf, io::ErrorKind>, Self) {
-            (fs::canonicalize(path).map_err(|error| error.kind()), Self(path.to_path_buf()))
+            match fs::canonicalize(path) {
+                Ok(real) => (Ok(real.clone()), Self(real)),
+                Err(error) => (Err(error.kind()), Self(path.to_path_buf())),
+            }
         }
 
         pub(super) fn open_file(&self, name: &str, open: Open) -> io::Result<File> {
