@@ -129,6 +129,7 @@ pub(crate) mod room_delete;
 mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
+pub(crate) mod room_emptied;
 pub(crate) mod router;
 #[cfg(test)]
 mod screen_group_icon_tests;
