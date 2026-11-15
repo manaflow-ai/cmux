@@ -19,7 +19,7 @@ extension SettingsSchema {
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy, "cloud.useMyCodexLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy, "agents.chats.discovery": .privacy,
-        "agentPane.scrollToBottomOnSend": .userOnly, "agentPane.display.queueing": .userOnly,
+        "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
         // Each recap is an extra model call on the person's usage: theirs to turn on or off.
         "agents.chats.sessionRecap": .userOnly,

@@ -750,6 +750,7 @@
         "agentPane.display.harnessPlacement",
         "agentPane.display.composerLook",
         "agentPane.display.modelChipIcon",
+        "agentPane.display.queueing",
         "agentPane.display.rail.side",
         "agentPane.display.commandLabels"
       ]
@@ -952,8 +953,7 @@
     {
       "agent": "userOnly",
       "keys": [
-        "agentPane.scrollToBottomOnSend",
-        "agentPane.display.queueing"
+        "agentPane.scrollToBottomOnSend"
       ]
     },
     {
