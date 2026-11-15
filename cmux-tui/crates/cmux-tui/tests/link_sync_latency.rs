@@ -277,3 +277,27 @@ fn a_copy_into_a_new_folder_makes_each_folder_with_one_request_and_asks_nothing_
     // The root's own checks and the manifest's read only, none per folder or file.
     assert!(count("fs.stat") + count("fs.list") <= 8, "{asked:?}");
 }
+
+/// After the change above each new folder was still one `fs.mkdir` round trip, one after
+/// another: 6 of the bench's 12 s for the 20,000-file folder (at a quarter of its size). They
+/// now go together once the push knows every folder, so 60 folders at 200 ms a round trip are
+/// made in a few round trips, not 60.
+#[test]
+fn new_folders_cross_a_slow_link_together() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let local = root.join("folder");
+    plain_folder(&local, 60, 60, 0, 0);
+    let (_sockets, socket, home) = machine(&root);
+    let rtt = Duration::from_millis(200);
+    serve_with_rtt(&socket, &home, rtt);
+    let remote = home.join("work/folder");
+
+    let (summary, timings) = push(&socket, &local, &remote);
+
+    assert_eq!(summary["written"], 60, "{summary}");
+    assert_eq!(files_below(&local), files_below(&remote));
+    let prepare =
+        Duration::from_millis(timings["prepare"].as_u64().expect("the push's stage times"));
+    assert!(prepare < rtt * 20, "making 60 folders took {prepare:?}");
+}
