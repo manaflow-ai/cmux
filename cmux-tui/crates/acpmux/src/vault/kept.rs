@@ -44,8 +44,9 @@ use super::wire::{MAX_ENV_STRING_BYTES, MAX_HOSTS, MAX_VAULT_ENV_BYTES, env_stri
 use super::{Given, Stamp, stamp_of};
 
 pub const FILE: &str = "vault-kept.json";
-/// The most bytes one kept value may have.
-pub const MAX_VALUE_BYTES: usize = 16 * 1024;
+/// The most bytes one kept value may have: the pulled vault's own bound, one
+/// value a spawn's env can carry (the platform's per-string exec limit).
+pub use super::wire::MAX_VALUE_BYTES;
 
 pub fn path(home: &Path) -> PathBuf {
     home.join(FILE)
