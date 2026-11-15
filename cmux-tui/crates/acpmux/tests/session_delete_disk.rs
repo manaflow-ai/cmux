@@ -93,11 +93,10 @@ impl Drop for Daemon {
         for entry in std::fs::read_dir(&hosts).into_iter().flatten().flatten() {
             let Ok(bytes) = std::fs::read(entry.path()) else { continue };
             let Ok(record) = serde_json::from_slice::<Value>(&bytes) else { continue };
-            for pid in [record["harness_pid"].as_i64(), record["host_pid"].as_i64()] {
-                if let Some(pid) = pid {
-                    // SAFETY: process groups this test's daemon created.
-                    unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
-                }
+            let pids = [record["harness_pid"].as_i64(), record["host_pid"].as_i64()];
+            for pid in pids.into_iter().flatten() {
+                // SAFETY: process groups this test's daemon created.
+                unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
             }
         }
         let _ = std::fs::remove_dir_all(&self.root);
