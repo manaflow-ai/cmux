@@ -354,7 +354,7 @@ pub(super) async fn local(
         prompt.set_path(&["_meta", "acpmux", "via"], via);
     }
     let web = super::super::trust_gate::for_web(conn.origin, &prompt);
-    let device = super::super::remote_guard::full_access_device(hub, conn, &prompt);
+    let device = super::super::remote_guard::sending_device(conn, &prompt);
     let control = super::super::remote_guard::control_of(conn.origin, conn.auth, &prompt);
     let trust_gate = params.pointer("/_meta/acpmux/via").is_some() || web;
     *flight.failure.lock().unwrap_or_else(|e| e.into_inner()) = None;

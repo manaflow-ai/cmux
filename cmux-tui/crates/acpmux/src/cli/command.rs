@@ -713,8 +713,12 @@ pub enum Command {
         /// `permissions.default=yolo` (yolo, standard, ask or default) for the
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
-        /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
-        /// `session.cpu_class=normal`).
+        /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
+        /// `session.cpu_class=normal` or `remote_daemon=127.0.0.1:PORT`). A value the
+        /// daemon would refuse to start with is refused and config.json is left as it was:
+        /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
+        /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
+        /// machine runs it on its node key.
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
     },
