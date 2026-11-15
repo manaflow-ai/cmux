@@ -76,7 +76,7 @@ fn fixture(closed: u64) -> Side {
     let path = dir.path().join("index.snap");
     SortedSnapshot::write(&path, &index).expect("the snapshot is written");
     let on_disk =
-        SummaryIndex::from_disk(DiskSnapshot::open(&path).expect("the snapshot opens"), seq);
+        SummaryIndex::from_disk(DiskSnapshot::open(&path).expect("the snapshot opens"), 1);
     let (hub, _writer) = Hub::new(index);
     let (disk, _writer) = Hub::new(on_disk);
     let mut newest = Page::new("serve-gate", "list", PageSide::After, 0);
