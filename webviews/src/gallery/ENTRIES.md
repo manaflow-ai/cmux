@@ -75,6 +75,11 @@ The parameterized `loadFixture` test checks fixture loading without requiring a 
 Both entrypoints select `CmuxNextAppTests.NativeSidebarGalleryTests`: SwiftPM lists
 tests as `Target.Suite/test`. `tests/test_native_sidebar_gallery.py` checks that the
 submitted filter matches the renderer and fixture tests; `Target/Suite` matches neither.
+The gateway keeps client stderr in memory and forwards worker stdout to the job log;
+worker output cannot supply its receipt. Its warm-cache registration lives in
+`.github/warm-sources.json`. Before changing the workflow, run the receipt checks,
+`test_ci_noclobber_sweep.py`, `test_ci_warm_sources.py`, and
+`test_ci_workflow_guards_are_wired.py` through `cmux-ci test`, plus the workflow linter.
 
 ## Example: a page (the diff viewer)
 

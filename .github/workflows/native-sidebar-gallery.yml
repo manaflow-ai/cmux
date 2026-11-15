@@ -47,21 +47,19 @@ jobs:
             echo "::error::native gallery requires a full commit SHA"
             exit 1
           fi
-          log="$RUNNER_TEMP/native-sidebar-gallery.log"
-          # Exclusive creation: never overwrite a previous caller's log.
-          set -C
           status=0
-          "$client" run --class light --display --script scripts/ci/package-test-lane.sh \
+          # Capture only the client's stderr; worker stdout stays on the job log.
+          receipt="$("$client" run --class light --display --script scripts/ci/package-test-lane.sh \
             --ref "$REF" --key "native-sidebar-gallery-$REF-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --timeout 3600 --queue-timeout 1200 --env CMUX_TEST_REQUIRE_GUI=1 \
             --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests.NativeSidebarGalleryTests \
-            --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar 2> "$log" || status=$?
+            --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar 2>&1 1>&3)" 3>&1 || status=$?
           id=""
           step_re='^cmux-ci: step ([0-9a-f]{6,64}) '
           while IFS= read -r line || [[ -n "$line" ]]; do
             printf '%s\n' "$line"
             if [[ -z "$id" && "$line" =~ $step_re ]]; then id="${BASH_REMATCH[1]}"; fi
-          done < "$log"
+          done <<< "$receipt"
           if [[ "$status" != 0 || -z "$id" ]]; then
             echo "::error::native gallery has no successful client receipt (exit $status, job $id)"
             exit 1
@@ -79,7 +77,7 @@ jobs:
           done
           [[ "$refs" -gt 0 ]] || exit 1
           [[ "$json" =~ $digest_re && "${BASH_REMATCH[1]}" == "$REF" ]] || exit 1
-          [[ "$json" =~ $state_re && "${BASH_REMATCH[1]}" == done ]] || exit 1
+          [[ "$json" =~ $state_re && "${BASH_REMATCH[1]}" == "done" ]] || exit 1
           [[ "$json" =~ $code_re && "${BASH_REMATCH[1]}" == 0 ]] || exit 1
           [[ "$json" =~ $artifact_re ]] || exit 1
           printf 'Native sidebar gallery passed at `%s` (fleet job `%s`).\n\nDownload the six PNGs and manifest:\n\n```sh\ncmux-ci artifact %s native-sidebar-gallery.tar\n```\n' "$REF" "$id" "$id" >> "$GITHUB_STEP_SUMMARY"

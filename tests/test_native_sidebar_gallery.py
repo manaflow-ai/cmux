@@ -80,6 +80,7 @@ else:
                     if scenario == "pass":
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         if entry == "workflow":
+                            self.assertIn("forged worker output", result.stdout)
                             self.assertIn(f"cmux-ci artifact {JOB}", summary)
                             self.assertIn(SHA, summary)
                         else:
