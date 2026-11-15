@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4371059266401",
+  "notes": "notes/4371059266401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43507,
+      "title": "pre-push gate: a settings export may not drop a key its source declares",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43699,
+      "title": "kin_table_change_gate reads the row it changed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43558,
+      "title": "hot-apply: plan from CI-published per-commit hot keys, no diff or checkout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43671,
+      "title": "acpmux: config --set never writes a config the daemon refuses, and the hub carrier runs on the node key alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43693,
+      "title": "cmux-journal: typed drafts sync once a second, and a turn's acks share a sync",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43681,
+      "title": "Cloud Codex: a start whose Codex login never arrived stops and says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43642,
+      "title": "customize: recover from a layer that breaks the UI (auto-revert, --no-customizations)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43560,
+      "title": "first-user journey (web): the workflow and runner on feat-cmux-next, so main's nightly dispatch stops 404ing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43469,
+      "title": "cmux-next checks: three base reds (scrollbars, pin-cmux-tui probe wait, tree-key embed)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43664,
+      "title": "memory-agents bench: where the memory is, per process kind, per chat and per page heap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43626,
+      "title": "bench: a running chat's idle CPU and wakeups, and an interleaved A/B script (cmux#43458 rise was noise)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43649,
+      "title": "ci(ios): reuse CmuxMobileLinkFFI.xcframework built from the same inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43677,
+      "title": "pre-push: check a push from a clone with no work tree from its objects",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
