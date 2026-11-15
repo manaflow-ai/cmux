@@ -113,3 +113,50 @@ fn claude_in_a_dev_build_terminal_gets_cmux_with_its_settings_file_and_no_global
     let args = fs::read_to_string(&received).unwrap();
     assert!(!args.lines().any(|arg| arg == "--mcp-config"), "{args}");
 }
+
+/// Without the person's yes, the `claude` shim gives Claude `CMUX_AGENT_TOOLS_ANSWER=off` in its
+/// environment, which a stdio server of the person's own (their `cmux` entry) inherits, so its
+/// `cmux mcp serve` is the off server, as in an agent chat. With the yes it gives `on`.
+#[test]
+fn claude_in_a_terminal_tells_its_own_servers_the_answer() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let bin = root.path().join("bin");
+    for dir in [&home, &bin] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let settings = home.join(".config/cmux/cmux-next.json");
+    fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    let received = root.path().join("claude-env");
+    let claude = bin.join("claude");
+    fs::write(
+        &claude,
+        format!(
+            "#!/bin/sh\nprintf '%s' \"${{CMUX_AGENT_TOOLS_ANSWER-unset}}\" > '{}'\n",
+            received.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+    let socket = root.path().join("mux.sock");
+    let _listener = UnixListener::bind(&socket).unwrap();
+    for (file, expected) in [
+        (r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#, "off"),
+        (r#"{"agents": {"cmuxMcp": "ask"}}"#, "off"),
+        (r#"{"agents": {"cmuxMcp": "on"}}"#, "on"),
+    ] {
+        fs::write(&settings, file).unwrap();
+        let status = Command::new(CMUX)
+            .args(["agent", "claude-wrapper", "hi"])
+            .current_dir(root.path())
+            .env_clear()
+            .env("HOME", &home)
+            .env("PATH", &bin)
+            .env("CMUX_TUI_SOCKET", &socket)
+            .env("CMUX_TUI_TERMINAL_ID", "term_1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(fs::read_to_string(&received).unwrap(), expected, "{file}");
+    }
+}

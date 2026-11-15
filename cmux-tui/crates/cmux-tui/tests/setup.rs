@@ -1478,6 +1478,65 @@ fn cmux_setup_mcp_redacts_a_registry_urls_credentials_and_keeps_the_entry() {
     assert!(world.take_mcp_calls().is_empty(), "an entry with a credential was removed");
 }
 
+/// A `cmux` entry with a secret-shaped value in its command or args (`--token=…`, `--api-key V`,
+/// a URL's credentials) is listed with each redacted and is never removed: no secret is printed,
+/// in the report, the remove result or an undo line.
+#[test]
+fn cmux_setup_mcp_never_prints_a_secret_in_a_cmux_entrys_command_or_args() {
+    let world = World::new("mcpsecretargs").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let (token, url_secret) = ("tok_live_8c3e9a7f", "pw_live_2b1d");
+    let cases = [
+        (
+            json!("npx"),
+            json!(["-y", format!("--token={token}"), "cmux", "mcp", "serve"]),
+            "--token=<redacted>",
+        ),
+        (
+            json!("npx"),
+            json!([
+                "-y",
+                format!("--//registry.npmjs.org/:_authToken={token}"),
+                "cmux",
+                "mcp",
+                "serve"
+            ]),
+            "--//registry.npmjs.org/:_authToken=<redacted>",
+        ),
+        (
+            json!(format!("https://me:{url_secret}@dl.example/cmux")),
+            json!(["mcp", "serve"]),
+            "https://<redacted>@dl.example/cmux",
+        ),
+    ];
+    for (command, args, shown) in cases {
+        std::fs::write(
+            world.home.join(".claude.json"),
+            json!({"mcpServers": {"cmux": {"type": "stdio", "command": command, "args": args, "env": {}}}})
+                .to_string(),
+        )
+        .unwrap();
+        for run in [&["setup", "mcp"][..], &["setup", "mcp", "--remove", "claude"]] {
+            let out = world.run(run);
+            let printed = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            for secret in [token, url_secret] {
+                assert!(!printed.contains(secret), "{run:?} printed a secret: {printed}");
+            }
+        }
+        let report = world.json(&["setup", "mcp"]);
+        let leftover = report["clients"][0]["leftover"].to_string();
+        assert!(leftover.contains(shown), "{leftover}");
+        let kept = world.json(&["setup", "mcp", "--remove", "claude"]);
+        assert_eq!(kept["state"], "needs_user", "{kept}");
+        assert_eq!(kept["undo"], Value::Null);
+        assert!(world.take_mcp_calls().is_empty(), "an entry with a secret was removed");
+    }
+}
+
 /// The report the app reads (the fixture CmuxNext's tests read too): each installed agent and
 /// whether it gets cmux's server in cmux.
 #[test]
