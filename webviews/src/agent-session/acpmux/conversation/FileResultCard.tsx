@@ -1,38 +1,45 @@
 // An opened read or file search as a card of what it found (fileResults.ts), in place of the generic
 // Input and Output body (ToolDetail.tsx). A read: the file's name and line range over its lines,
-// highlighted and numbered from where the read started, the first eight under a fade with "Show all
-// N lines". A text or file search: how many lines and files it found, then each file with its
-// matching lines, line number first; a file name or a line opens the file in cmux as a path chip in
+// highlighted and numbered from where the read started. A text or file search: how many lines and
+// files it found, then each file with its matching lines, line number first. Either draws whole up
+// to `OUTPUT_BOX_LINES` rows and scrolls inside a box that tall past them (outputScrollBox.css),
+// never behind a Show all button; a file name or a line opens the file in cmux as a path chip in
 // a reply does (`link.openPath`; the host only takes the path, so it opens at its top). The closed row
 // stays one line (ToolRow.tsx). Leo, 2026-11-05: "could we potentially do even better?"; the same web
 // draws it on the Mac and the phone.
 import { cornerAction } from "./cornerActions";
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "../chips/host";
 import { FileKindIcon } from "../chips/FileKindIcon";
 import { usePathInfo } from "../chips/linkStore";
 import { useMessageScope } from "../chips/messageScope";
 import { isDeniedPath, pathName } from "../chips/paths";
-import { usePreview } from "./blockPartsModel";
-import { useMoreBelow } from "./moreBelow";
-import { ExpandRow } from "./ExpandRow";
+import { OUTPUT_SCROLL_BOX } from "./blockPartsModel";
 import { CodeLines } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import type { FileCard, ReadPeek, SearchFile, SearchResult } from "./fileResults";
+import { watchOutputViewport } from "./outputViewport";
 import { useTranscriptReadOnly } from "./readOnly";
 import "./FileResultCard.css";
+import "./outputScrollBox.css";
 
-/// Rows a search card shows (a file's line and each of its matches) before "Show all N files".
-const SEARCH_PREVIEW_ROWS = 16;
+/// Rows a search card mounts (a file's line and each of its matches): a search with thousands of
+/// matches never mounts more than this; the summary counts all of them.
+const SEARCH_MOUNTED_ROWS = 2_000;
 
-export function FileResultCard({ id, card, reveal }: { id: string; card: FileCard; reveal: number }) {
+/// `reveal` (Find in Chat revealed the call) needs nothing here: every line is drawn already.
+export function FileResultCard({ id, card }: { id: string; card: FileCard; reveal?: number }) {
   return card.kind === "read" ? (
-    <ReadCard id={id} read={card.read} reveal={reveal} />
+    <ReadCard id={id} read={card.read} />
   ) : (
-    <SearchCard id={id} result={card.result} lines={card.tool === "search"} reveal={reveal} />
+    <SearchCard id={id} result={card.result} lines={card.tool === "search"} />
   );
 }
+
+/// The ref of a card body that scrolls in its box: it keeps the box's edge marks current (moreBelow.ts).
+const useScrollBox = () =>
+  useCallback((node: HTMLElement | null) => (node ? watchOutputViewport(node) : undefined), []);
 
 /// Opens `path` in cmux on a click, where this page may: never for another machine's chat, a shared
 /// read-only one, or a path on the deny list (as PathChip). Otherwise it draws as plain text.
@@ -76,11 +83,10 @@ function HostFileButton({
   );
 }
 
-function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: number }) {
+function ReadCard({ id, read }: { id: string; read: ReadPeek }) {
   const t = useT();
   const lines = read.end - read.start + 1;
-  const preview = usePreview(lines, reveal);
-  const body = useMoreBelow<HTMLDivElement>(read.code);
+  const box = useScrollBox();
   const numbers = useMemo(
     () => Array.from({ length: lines }, (_, index) => read.start + index).join("\n"),
     [lines, read.start],
@@ -99,7 +105,12 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
         </span>
         <CopyButton text={read.code} label={t("code.copy")} className={`${cornerAction()} cv-edit-diff__copy`} />
       </div>
-      <div ref={body} className="cv-filepeek__body" data-preview={preview.attribute}>
+      <div
+        ref={box}
+        className={`cv-filepeek__body ${OUTPUT_SCROLL_BOX}`}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the scroll box to read it with arrow keys.
+        tabIndex={0}
+      >
         <div className="cv-filepeek__code">
           <pre className="cv-filepeek__gutter" aria-hidden data-find-skip>
             {numbers}
@@ -111,33 +122,16 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   );
 }
 
-function SearchCard({
-  id,
-  result,
-  lines,
-  reveal,
-}: {
-  id: string;
-  result: SearchResult;
-  lines: boolean;
-  reveal: number;
-}) {
+function SearchCard({ id, result, lines }: { id: string; result: SearchResult; lines: boolean }) {
   const t = useT();
-  const [all, setAll] = useState(reveal > 0);
-  const [revealed, setRevealed] = useState(reveal);
-  // Find in Chat opened the call: a match may be past the cut.
-  if (reveal !== revealed) {
-    setRevealed(reveal);
-    if (reveal > 0) setAll(true);
-  }
+  const box = useScrollBox();
   const rows = result.files.reduce((sum, file) => sum + 1 + file.matches.length, 0);
-  const long = rows > SEARCH_PREVIEW_ROWS;
   const files = useMemo(() => {
-    if (all || !long) return result.files;
-    // Files up to the cut, the last one's matches cut with it, so one file with thousands of matches
-    // mounts no more rows than the preview shows.
+    if (rows <= SEARCH_MOUNTED_ROWS) return result.files;
+    // Files up to the cap, the last one's matches cut with it, so one file with a huge number of
+    // matches never mounts them all.
     const shown: SearchFile[] = [];
-    let left = SEARCH_PREVIEW_ROWS;
+    let left = SEARCH_MOUNTED_ROWS;
     for (const file of result.files) {
       if (left <= 0) break;
       const matches = file.matches.slice(0, Math.max(0, left - 1));
@@ -145,7 +139,7 @@ function SearchCard({
       left -= 1 + matches.length;
     }
     return shown;
-  }, [all, long, result.files]);
+  }, [rows, result.files]);
   const summary = [
     // A text search that numbered its matches counts them; a files-only one counts files alone.
     lines && result.matches > 0 ? t("fileCards.matches", { n: result.matches }) : undefined,
@@ -156,9 +150,13 @@ function SearchCard({
     .filter(Boolean)
     .join(" · ");
   return (
-    <div id={id} className="cv-filematches" data-cut={(long && !all) || undefined}>
-      {/* The cut list fades out; Show all is outside the fade, under it (conversation.css). */}
-      <div className="cv-filematches__list">
+    <div id={id} className="cv-filematches">
+      <div
+        ref={box}
+        className={`cv-filematches__list ${OUTPUT_SCROLL_BOX}`}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the scroll box to read it with arrow keys.
+        tabIndex={0}
+      >
         <div className="cv-filematches__summary" data-find-skip>
           {summary}
         </div>
@@ -189,14 +187,6 @@ function SearchCard({
           </div>
         ))}
       </div>
-      {long && (
-        <ExpandRow
-          className="cv-output-more"
-          open={all}
-          onToggle={() => setAll((value) => !value)}
-          label={all ? t("shell.showLess") : t("fileCards.showAllFiles", { n: result.files.length })}
-        />
-      )}
     </div>
   );
 }

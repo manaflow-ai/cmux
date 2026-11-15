@@ -95,7 +95,7 @@ const READ = Array.from({ length: 12 }, (_, index) => `${String(120 + index).pad
 const GREP =
   "/work/app/src/a.ts:12:  const x = useTool();\n/work/app/src/a.ts:40:useTool(b)\n/work/app/src/lib/b.ts:3:import { useTool }";
 
-test("an opened Read is its file, line range and numbered lines, scrolling past eight; closed, one row", async () => {
+test("an opened Read is its file, line range and every numbered line in its scroll box; closed, one row", async () => {
   const container = await render(<ToolRow item={item(HARNESS_CALLS.claude.read, READ)} />);
   expect(container.querySelector(".cv-filepeek")).toBeNull();
   await open(container);
@@ -108,10 +108,12 @@ test("an opened Read is its file, line range and numbered lines, scrolling past 
   // The lines without Claude's numbers and arrows.
   expect(container.querySelector(".cv-filepeek__lines")?.textContent).toContain("line 1");
   expect(container.querySelector(".cv-filepeek__lines")?.textContent).not.toContain("→");
+  // Every line, in the shared box that scrolls past 24 rows; nothing to open (Leo, 2026-11-12).
   const body = container.querySelector(".cv-filepeek__body")!;
-  expect(body.getAttribute("data-preview")).toBe("cut");
-  // The box scrolls through all twelve; no Show all row under it.
-  expect(container.querySelector(".cv-filepeek .cv-output-more")).toBeNull();
+  expect(body.classList.contains("cv-scroll-box")).toBe(true);
+  expect(body.getAttribute("tabindex")).toBe("0");
+  expect(container.querySelector(".cv-filepeek__lines")?.textContent).toContain("line 12");
+  expect(container.querySelector(".cv-filepeek button.cv-expand-row")).toBeNull();
 });
 
 test("an opened Grep lists matches by file with their line numbers, and a line opens its file", async () => {
@@ -151,7 +153,7 @@ test("a chat on another machine, whose paths the host does not place, draws its 
   expect(container.querySelector("button.cv-filematches__line, button.cv-filematches__path")).toBeNull();
 });
 
-test("a long search mounts only its preview rows, cuts inside a big file, and says when the harness cut it", async () => {
+test("a long search draws every match in its scroll box and says when the harness cut it", async () => {
   const many = Array.from({ length: 500 }, (_, index) => `/w/src/big.ts:${index + 1}:match ${index + 1}`).join("\n");
   const container = await render(
     <ToolRow
@@ -162,12 +164,12 @@ test("a long search mounts only its preview rows, cuts inside a big file, and sa
     />,
   );
   await open(container);
-  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(15);
+  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(501);
   expect(container.querySelector(".cv-filematches__summary")?.textContent).toBe(
     "501 matches · 2 files · more were left out",
   );
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-filematches .cv-output-more")!.click());
-  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(501);
+  expect(container.querySelector(".cv-filematches__list")?.classList.contains("cv-scroll-box")).toBe(true);
+  expect(container.querySelector(".cv-filematches button.cv-expand-row")).toBeNull();
 });
 
 test("in a read-only chat a search's files draw as text, never opening the owner's files", async () => {

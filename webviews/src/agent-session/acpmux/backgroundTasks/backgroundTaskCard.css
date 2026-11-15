@@ -83,10 +83,6 @@
   color: var(--agent-muted);
   user-select: none;
 }
-.acpmux-bg-card__output {
-  max-height: calc(var(--text-detail--line-height) * 12);
-  overflow: auto;
-}
 .acpmux-bg-card__empty {
   margin: 0;
   color: var(--agent-muted);

@@ -9,9 +9,11 @@ const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()*
 
 export const stripAnsi = (text: string) => text.replace(ANSI, "");
 
-/// The end a long output shows: its last lines, and no more than this many characters of them.
-const TAIL_LINES = 400;
-const TAIL_CHARS = 40_000;
+/// The end a very long output draws in its scroll box (outputScrollBox.css): its last lines, and no
+/// more than this many characters of them, so a megabyte of output never stalls the pane. Copy
+/// takes all of it, and Find in Chat draws all of it when its match is there.
+const TAIL_LINES = 2_000;
+const TAIL_CHARS = 200_000;
 
 /// The end of `text` a closed-up output shows, or undefined when all of it fits.
 export function outputTail(text: string): string | undefined {
@@ -25,9 +27,9 @@ export function outputTail(text: string): string | undefined {
   return start > 0 ? text.slice(start) : undefined;
 }
 
-/// What an opened call shows of `output` (colour codes removed): its end while long, all of it
-/// once the reader asks. Each new `reveal` (Find in Chat revealed the call, and a match may be in
-/// the head) shows all of it too; the reader can still close it up.
+/// What an opened call shows of `output` (colour codes removed): all of it, in a box that scrolls
+/// past `OUTPUT_BOX_LINES` lines, though only the end of a very long one. Each new `reveal` (Find in
+/// Chat revealed the call, and a match may be in the head) draws all of it.
 export function useOutput(output: string | undefined, reveal = 0) {
   const [all, setAll] = useState(reveal > 0);
   const [revealed, setRevealed] = useState(reveal);
@@ -41,11 +43,9 @@ export function useOutput(output: string | undefined, reveal = 0) {
   }, [output]);
   return {
     text,
-    tail,
+    /// Find in Chat opened it whole: every line is drawn, none windowed (BlockParts.tsx `Lines`).
+    all,
     shown: all || tail === undefined ? text : tail,
     cut: !all && tail !== undefined,
-    long: tail !== undefined,
-    all,
-    toggle: () => setAll((value) => !value),
   };
 }

@@ -1,0 +1,32 @@
+/* One rule for every output and code card in the agent chat: a Shell block's output, a call's
+   output (mono or Markdown), an edit's diff, a file read, a search's files, a shell mode command's
+   output and a background task's output. Leo, 2026-11-12, on a Shell card's "Show all 9 lines":
+   "this is a really useless show all 9 lines. i think [another chat app] just lets you scroll, straight up?"
+   Up to `--cv-output-box-lines` lines draw whole. Past them the body keeps that height and scrolls
+   inside; nothing is ever behind a Show all button (blockPartsModel.ts OUTPUT_BOX_LINES is the
+   same number, and test/output-scroll-box.test.ts fails on a new Show all N lines). A surface
+   whose line is not the box's own `1lh` (Pierre's diff rows, the read's code rows, rendered
+   Markdown) names it in `--cv-scroll-box-line`; `--cv-scroll-box-pad` is the box's own vertical
+   padding and `--cv-lane` the sideways scrollbar's lane under the last line (conversation.css). */
+:root {
+  --cv-output-box-lines: 24;
+}
+.cv-scroll-box {
+  max-height: calc(
+    var(--cv-output-box-lines) * var(--cv-scroll-box-line, 1lh) + var(--cv-scroll-box-pad, 0px) +
+      var(--cv-lane, 0px)
+  );
+  overflow-y: auto;
+  /* Never traps the transcript's wheel: a box that fits passes it straight on, and one that scrolls
+     takes it until its edge, then chains it to the transcript (tool-output-full-read-browser.test.ts
+     "chains a wheel at its edge to the reader"). `data-scrolls` (moreBelow.ts) marks a box that
+     scrolls, for its focus ring and for tests. */
+  overscroll-behavior-y: auto;
+}
+/* Its bottom edge fades while more lies under it, hard once scrolled to the end (moreBelow.ts). A
+   body with its own composite mask (the sideways fade and lane: a Shell block's output, a call's
+   mono output, a diff) sets it in conversation.css; `:where` keeps this one under those. */
+:where(.cv-scroll-box[data-more-below]) {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
+}

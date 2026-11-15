@@ -297,7 +297,7 @@ for (const [harness, call] of [
     expect(host.textContent).not.toContain("blocked by hook");
   });
 
-  test(`${harness}: a Markdown MCP result shares full-read expansion, Raw, and Find formatting`, async () => {
+  test(`${harness}: a Markdown MCP result shares the scroll box, Raw, and Find formatting`, async () => {
     const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
     const text = `${"## Sample section\n\nRead every line.\n\n".repeat(15)}The **service** is healthy.`;
     const item = call(
@@ -309,9 +309,10 @@ for (const [harness, call] of [
     await render([item]);
     await click(toggles()[0]!);
     expect(host.querySelector(".cv-tool-output__markdown h2")?.textContent).toBe("Sample section");
-    // Its 61 lines scroll in the box, with no Show all row under it.
-    expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("cut");
-    expect([...host.querySelectorAll("button")].some((node) => node.textContent?.startsWith("Show all"))).toBe(false);
+    expect(host.querySelector(".cv-tool-output__markdown")?.classList.contains("cv-scroll-box")).toBe(true);
+    expect([...host.querySelectorAll("button")].some((node) => /^Show (all|less)/.test(node.textContent ?? ""))).toBe(
+      false,
+    );
     expect([...host.querySelectorAll("button")].some((node) => node.textContent?.trim() === "Raw")).toBe(true);
     expect(activityText(item)).toContain("The service is healthy.");
     const { menuPartAt } = await import("../src/agent-session/acpmux/conversation/menuParts");

@@ -5,8 +5,8 @@
 // really display properly or even show that there's a horizontal scrollbar i think it's cut off").
 // Unwrapped, an edit's diff (Pierre's code rows, in a shadow root) and a command's output keep a
 // thin thumb on no track under their lines at rest, in the shared thumb color (scrollers.ts
-// SIDEWAYS_ATTRIBUTE), on a lane no taller than the thin scroller's. A block past eight lines,
-// scrolling in its eight-line box, ends with that lane, clear of the box's bottom fade. Nothing over a block shows a
+// SIDEWAYS_ATTRIBUTE), on a lane no taller than the thin scroller's. A block past the 24-line
+// output box (outputScrollBox.css) ends with that lane, clear of the box's bottom fade. Nothing over a block shows a
 // resize cursor (the same ask: "the cursor hover that turns into the resizing cursor").
 //
 // The lane never moves the transcript and is never an empty tail (Codex review of #23967): a diff
@@ -75,7 +75,7 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     cut,
   });
   const output = call("output-unwrapped-long-line", false);
-  /// A call output past eight lines, cut to its preview (Codex review of #23967, round 4).
+  /// A call output past the 24-line box, scrolling inside it (Codex review of #23967, round 4).
   const outputCut = call("output-unwrapped-long-cut", true);
   /// Unwrapped, every line past the edge, settled.
   const blocks: Block[] = [
@@ -103,10 +103,10 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     output,
     outputCut,
   ];
-  /// Cut call outputs: eight whole lines and the lane under them.
+  /// Long call outputs: a 24-line box of whole lines and the lane under them.
   const cutCalls: Block[] = [outputCut];
-  /// Wrapped diffs past eight lines, each scrolling in its box: at its start and scrolled to its end.
-  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-scrolled", true)];
+  /// Wrapped diffs past the 24-line box (no gallery state draws a long wrapped diff whole any more).
+  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-open", true)];
 
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -492,11 +492,11 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
           }
         });
 
-      // A cut call output shows its eight lines and the lane under them, whether or not its lines
-      // run past the edge (Codex review of #23967, round 4): the lane is added to the preview's
-      // cut, not taken out of it, so the bar never covers an eighth line.
+      // A long call output shows a 24-line box and the lane under it, whether or not its lines
+      // run past the edge (Codex review of #23967, round 4): the lane is added to the box's
+      // height, not taken out of it, so the bar never covers the 24th line.
       for (const block of cutCalls)
-        test(`${block.variant}: a cut preview shows eight whole lines and the lane under them`, async () => {
+        test(`${block.variant}: a long output shows a 24-line box and the lane under it`, async () => {
           const page = await open(engine, block);
           try {
             const inside = () =>
@@ -504,10 +504,11 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
                 const box = document.querySelector<HTMLElement>(scroller)!;
                 const style = getComputedStyle(box);
                 return {
-                  preview: box.getAttribute("data-preview"),
+                  box: box.classList.contains("cv-scroll-box"),
+                  scrolls: box.hasAttribute("data-scrolls"),
                   sideways: box.hasAttribute("data-cmux-sideways"),
                   shown: box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
-                  eight: 8 * parseFloat(style.lineHeight),
+                  lines: 24 * parseFloat(style.lineHeight),
                   lane: box.offsetHeight - box.clientHeight + parseFloat(style.paddingBottom),
                 };
               }, block.scroller);
@@ -518,8 +519,10 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             expect(past.sideways).toBe(true);
             expect(fits.sideways).toBe(false);
             for (const shown of [past, fits]) {
-              expect(shown.preview).toBe("cut");
-              expect(shown.shown).toBeCloseTo(shown.eight, 0);
+              expect({ box: shown.box, scrolls: shown.scrolls }).toEqual({ box: true, scrolls: true });
+              // 24 whole lines, plus at most the thin scroller's lane the box adds under them.
+              expect(shown.shown).toBeGreaterThanOrEqual(shown.lines - 1);
+              expect(shown.shown).toBeLessThanOrEqual(shown.lines + THIN);
               expect(shown.lane).toBeGreaterThan(0);
             }
           } finally {
@@ -527,7 +530,7 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
           }
         });
 
-      // Wrapped rows never scroll sideways: Pierre's box keeps no lane, and a cut preview is eight rows.
+      // Wrapped rows never scroll sideways: Pierre's box keeps no lane, and a long diff's box is 24 rows.
       for (const block of wrapped)
         test(`${block.variant}: a wrapped diff keeps no lane`, async () => {
           const page = await open(engine, block);
@@ -535,8 +538,11 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             const shown = await look(page, block);
             console.log(`${engine} ${block.variant} wrapped: ${JSON.stringify(shown)}`);
             expect({ wrap: shown.wrap, lane: shown.lane }).toEqual({ wrap: "true", lane: 0 });
-            if (block.cut) expect(shown.maxHeight).toBe(`${8 * (parseFloat(shown.lineHeight) || 18)}px`);
-            else expect(shown.tail).toBe(shown.inset);
+            if (block.cut) {
+              const rows = parseFloat(shown.maxHeight) / (parseFloat(shown.lineHeight) || 18);
+              expect(rows).toBeGreaterThan(23.5);
+              expect(rows).toBeLessThan(25);
+            } else expect(shown.tail).toBe(shown.inset);
           } finally {
             await page.close();
           }

@@ -13,13 +13,17 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useFold } from "../conversation/fold";
 import { tailLines, useLiveBackgroundTaskOutput } from "../conversation/backgroundTaskOutput";
+import { OUTPUT_SCROLL_BOX } from "../conversation/blockPartsModel";
+import { useMoreBelowOn } from "../conversation/moreBelow";
+import "../conversation/outputScrollBox.css";
 import { TerminalSquare } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import "./backgroundTaskCard.css";
 
-/// How many of the last lines of output a card shows.
-const CARD_TAIL_LINES = 12;
+/// How many of the last lines of output a card mounts. Up to `OUTPUT_BOX_LINES` of them draw whole;
+/// past that the output scrolls inside its box (outputScrollBox.css), its newest line in view.
+const CARD_TAIL_LINES = 2_000;
 
 /// The command and its latest output, with `children` (the surface's actions) under them. Reads
 /// only while `open`; with `readOutput` false (a host that cannot read it) it shows the command alone.
@@ -48,6 +52,7 @@ export function BackgroundTaskBody({
   // "No output yet" only where output can come: a process acpmux keeps none for says nothing.
   const empty = readOutput && !output && !read.unavailable;
   const outputRef = useRef<HTMLPreElement>(null);
+  useMoreBelowOn(outputRef, output);
   // New output keeps the newest line in view.
   useLayoutEffect(() => {
     if (open && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -61,7 +66,13 @@ export function BackgroundTaskBody({
         {command}
       </code>
       {readOutput && output && (
-        <pre ref={outputRef} className="acpmux-bg-card__output">
+        <pre
+          ref={outputRef}
+          className={`acpmux-bg-card__output ${OUTPUT_SCROLL_BOX}`}
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the scroll box to read it with arrow keys.
+          tabIndex={0}
+          aria-label={t("handoff.tool_output")}
+        >
           {output}
         </pre>
       )}
