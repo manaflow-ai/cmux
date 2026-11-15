@@ -9,6 +9,8 @@ public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public static let status = "cmux.status/1"
     public static let pane = "cmux.pane/1"
     public static let paletteScope = "cmux.palette.scope/1"
+    /// A whole New Tab page, shown only when the person names its app in `tabs.newTabApp`.
+    public static let newTab = "cmux.newtab/1"
 
     /// `cmux.section/1`.
     public var interface: String

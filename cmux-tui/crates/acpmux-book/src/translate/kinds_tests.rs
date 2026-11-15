@@ -57,7 +57,7 @@ fn the_tables_are_sorted_with_one_line_a_kind() {
         }
         for kind in table {
             match kind.draw {
-                Draw::Row(drawn) => assert!(drawn.patch.is_none() || !drawn.notice.is_empty()),
+                Draw::Row(drawn) => assert!(drawn.patch.is_empty() || !drawn.notice.is_empty()),
                 Draw::Code(why) | Draw::Not(why) => assert!(!why.is_empty(), "{}", kind.name),
                 Draw::PageState => {}
             }
@@ -255,4 +255,47 @@ fn a_claude_turn_ends_with_a_notice_of_its_tokens() {
         ],
     );
     assert_eq!(turn_end(&ops), fields(&[("notice", "\"turn_result\""), ("status", "\"failed\"")]));
+}
+
+#[test]
+fn a_claude_result_names_its_error_by_is_error_alone() {
+    let user = r#"{"type":"user","uuid":"u1","message":{"content":"Question"}}"#;
+    let mut state = State::default();
+    let ops = run(
+        &mut state,
+        Harness::Claude,
+        &[user.to_owned(), r#"{"type":"result","subtype":"success","is_error":true}"#.to_owned()],
+    );
+    assert_eq!(turn_end(&ops)["status"], "\"failed\"");
+}
+
+#[test]
+fn an_interrupted_claude_turn_leaves_no_tokens_to_the_next() {
+    let user = r#"{"type":"user","uuid":"u1","message":{"content":"Question"}}"#;
+    let call = |id: &str, output: u64, stop: &str| {
+        format!(
+            r#"{{"type":"assistant","message":{{"id":"{id}","content":[{{"type":"text","text":"a"}}],"stop_reason":{stop},"usage":{{"input_tokens":5,"output_tokens":{output},"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}}}}"#
+        )
+    };
+    let mut state = State::default();
+    let ops = run(
+        &mut state,
+        Harness::Claude,
+        &[
+            user.to_owned(),
+            call("m1", 9, "null"),
+            r#"{"type":"user","uuid":"u2","message":{"content":"Another"}}"#.to_owned(),
+            call("m2", 3, "\"end_turn\""),
+        ],
+    );
+    assert_eq!(
+        turn_end(&ops)["tokens"],
+        r#"{"output":3,"input":5,"cacheRead":0,"cacheWrite":0,"context":5,"calls":1}"#
+    );
+    // A usage that is no object reads as none, and the line still translates.
+    let mut state = State::default();
+    let null_usage = r#"{"type":"assistant","message":{"id":"m","content":[{"type":"text","text":"a"}],"stop_reason":"end_turn","usage":null}}"#;
+    let ops = run(&mut state, Harness::Claude, &[user.to_owned(), null_usage.to_owned()]);
+    assert!(!turn_end(&ops).contains_key("tokens"));
+    assert_eq!(state.counters().line_errors, 0);
 }

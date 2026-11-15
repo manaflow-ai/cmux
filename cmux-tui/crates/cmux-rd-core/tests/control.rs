@@ -586,9 +586,18 @@ fn stale_overuse_does_not_reduce_bitrate_without_new_timing_evidence() {
     cc.on_sent(1, 100_000);
     cc.on_feedback(&[Arrival { transport_seq: 1, arrival_us: 145_000 }], 0.0, 170_000);
     assert_eq!(cc.usage(), Usage::Overuse);
+    // Queue growth must persist across fresh bursts before a delay-only cut.
+    for (seq, sent, delay) in [(2, 200_000, 55_000), (3, 300_000, 65_000)] {
+        cc.on_sent(seq, sent);
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq, arrival_us: (sent + delay) as u32 }],
+            0.0,
+            sent + delay + 25_000,
+        );
+    }
     let reduced = cc.target_bps();
     assert!(reduced < CcConfig::default().start_bps, "new delay evidence still reduces bitrate");
-    for now in [180_000, 200_000, 250_000] {
+    for now in [500_000, 520_000, 550_000] {
         cc.on_feedback(&[], 0.0, now);
         assert_eq!(cc.target_bps(), reduced, "an ACK or NACK alone is not more congestion");
     }

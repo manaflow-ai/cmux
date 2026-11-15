@@ -87,6 +87,19 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+try:
+    import chat_renderer_crash  # noqa: E402  (CMUX_BENCH_CHAT_RENDERER_CRASH: the chat renderer crash test)
+except ModuleNotFoundError:
+    # perf-idle-ab.sh copies this file alone and the frame-pacing job's sparse checkout omits the helper:
+    # without it the crash test is off, and asking for it is an error.
+    if os.environ.get("CMUX_BENCH_CHAT_RENDERER_CRASH") == "1":
+        raise
+
+    class chat_renderer_crash:  # noqa: N801
+        @staticmethod
+        def enabled() -> bool:
+            return False
+
 
 
 def _thread_wakes():
@@ -604,6 +617,12 @@ class FakeChats:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
         remember_chat_tab(created[0], response)
+        if chat_renderer_crash.enabled():
+            # A pinned chat keeps its hidden page (HiddenChatPages), so the crash test finds every chat live.
+            tab = CHAT_TABS.get(created[0]) or chat_tab_of(self.app, created[0])
+            pinned = self.app.run("palette.toggleTabPin", target=tab) if tab else {"error": "no chat tab"}
+            if pinned.get("error"):
+                print(f"   pin {created[0]}: {pinned['error']}", file=sys.stderr)
         return created[0]
 
 
@@ -668,6 +687,77 @@ def cef_page_count(app: App) -> int | None:
     if not isinstance(pages, list):
         return None
     return sum(1 for p in pages if str(p.get("origin", "")).startswith("cmux-page://"))
+
+
+def heap_summary(pages: list, replies: dict) -> dict:
+    """--js-heap (pure): the V8 heap of the renderers that host cmux's pages, from each page's
+    `Runtime.getHeapUsage` reply. `replies` maps a page's browser id to its parsed reply.
+
+    The reply is the page's renderer's whole isolate, not the page's own share: cmux pages share a
+    renderer per site (CEFSwitches `cmux-process-per-site-schemes`), so every page of one renderer
+    answers the same numbers. Summing pages counted that isolate once per page (a fleet Mac run at
+    10 chats read 2,562 MB of "heap" from a 632 MB renderer). The totals count each renderer once (by
+    its `renderer_clients`); a page with none is its own. `by_path` counts pages only.
+    A page whose read failed is counted under `errors`, never as 0 MB."""
+    rows, errors = [], []
+    for page in pages:
+        if not isinstance(page, dict) or not str(page.get("origin", "")).startswith("cmux-page://"):
+            continue
+        reply = replies.get(page.get("browser")) or {}
+        used, total = reply.get("usedSize"), reply.get("totalSize")
+        if not isinstance(used, (int, float)) or not isinstance(total, (int, float)):
+            errors.append(str(reply.get("error") or "no heap in the reply")[:120])
+            continue
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        rows.append({"browser": page.get("browser"), "path": str(page.get("path") or "/"), "hidden": bool(page.get("hidden")),
+                     "renderer": clients[0] if clients else None,
+                     "used_mb": round(used / MB, 1), "total_mb": round(total / MB, 1)})
+    renderers: dict = {}
+    for row in rows:
+        key = ("renderer", row["renderer"]) if row["renderer"] is not None else ("page", row["browser"])
+        entry = renderers.setdefault(key, {"renderer": row["renderer"], "pages": 0, "hidden_pages": 0,
+                                           "used_mb": 0.0, "total_mb": 0.0})
+        entry["pages"] += 1
+        entry["hidden_pages"] += int(row["hidden"])
+        # One isolate: its pages read it at slightly different moments; the largest read stands.
+        entry["used_mb"] = max(entry["used_mb"], row["used_mb"])
+        entry["total_mb"] = max(entry["total_mb"], row["total_mb"])
+    by_path: dict = {}
+    for row in rows:
+        entry = by_path.setdefault(row["path"], {"pages": 0, "hidden_pages": 0})
+        entry["pages"] += 1
+        entry["hidden_pages"] += int(row["hidden"])
+    isolates = sorted(renderers.values(), key=lambda r: -r["total_mb"])
+    return {"pages": len(rows), "hidden_pages": sum(int(r["hidden"]) for r in rows), "renderers": len(isolates),
+            "used_mb": round(sum(r["used_mb"] for r in isolates), 1),
+            "total_mb": round(sum(r["total_mb"] for r in isolates), 1),
+            "by_renderer": isolates[:12],
+            "by_path": dict(sorted(by_path.items(), key=lambda item: -item[1]["pages"])),
+            "per_page": sorted(rows, key=lambda r: -r["total_mb"])[:40], "errors": errors[:5], "error_count": len(errors)}
+
+
+def js_heaps(app: App) -> dict:
+    """--js-heap: every cmux page's V8 heap (DevTools `Runtime.getHeapUsage`, which needs no domain enabled
+    and runs no script), read after the sample's window so the read is not in it. A bench or DEV build has
+    `debug.cef_pages`; an app without it gives {"error": ...}."""
+    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    if not isinstance(pages, list):
+        return {"error": "no debug.cef_pages (a bench or DEV build has it)"}
+
+    def read(page):
+        reply = app.call("debug.cef_page_devtools", {"browser": page["browser"], "method": "Runtime.getHeapUsage",
+                                                     "params": {}}, timeout=20)
+        if reply.get("error") or not isinstance(reply.get("result"), str):
+            return page["browser"], {"error": str(reply.get("error") or "no reply")}
+        try:
+            return page["browser"], json.loads(reply["result"])
+        except ValueError as error:
+            return page["browser"], {"error": str(error)}
+
+    own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        replies = dict(pool.map(read, own))
+    return heap_summary(own, replies)
 
 
 def percentile(values: list[float], share: float) -> float | None:
@@ -1134,6 +1224,9 @@ def main():
     parser.add_argument("--child-time", action="store_true",
                         help="with --measure: child_cpu_pct, the whole CPU of each process's children that ended "
                              "in the window (the daemon's git runs); none when the run's own check of the read fails")
+    parser.add_argument("--js-heap", action="store_true",
+                        help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
+                             "(`js_heap` in the sample; a bench or DEV build)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1172,6 +1265,8 @@ def main():
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
         config = json.loads(args.config)
+        if chat_renderer_crash.enabled():
+            config = merged(config, chat_renderer_crash.CONFIG)
         launched, socket_path, scratch = launch(bundle, config, extra)
         app_pid = launched
     app = App(bundle, socket_path)
@@ -1214,6 +1309,12 @@ def main():
         if attribution:
             result["attribution"] = attribution.finish()
             print_attribution(label, result["attribution"])
+        if args.js_heap:
+            result["js_heap"] = js_heaps(app)
+            heap = result["js_heap"]
+            print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
+                  f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
+                  f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
@@ -1250,7 +1351,10 @@ def main():
                 repository = os.path.join(os.path.realpath(diff_scratch), "diff-tab-repository")
                 diff_tab = {"repository": cells.make_repository(repository, args.diff_tab)}
                 diff_tab["open"] = cells.open_tab(app, repository)
-            settle_and_sample(f"idle-{count}", diff_tab)
+            result = settle_and_sample(f"idle-{count}", diff_tab)
+            if chat_renderer_crash.enabled() and chats:
+                result["chat_renderers"] = chat_renderer_crash.renderers(app)
+                print(f"CHAT-RENDERERS phase=open agents={count} {json.dumps(result['chat_renderers'])}", flush=True)
             if args.purge_hidden:
                 purge = purge_hidden_pages(app)
                 print(f"== purge at {count}: {json.dumps(purge)}", flush=True)
@@ -1271,6 +1375,8 @@ def main():
                 print(f"== released at {count}: cmux pages {json.dumps(result['cef_pages'])}", flush=True)
                 report["restore"] = restore_chats(app, opened, args.restore_chats)
                 print(f"== restore: {json.dumps({k: v for k, v in report['restore'].items() if k != 'opens'})}", flush=True)
+        if chat_renderer_crash.enabled() and chats:
+            report["chat_renderer_crash"] = chat_renderer_crash.crash(app)
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60
@@ -1314,6 +1420,9 @@ def main():
             shutil.rmtree(scratch, ignore_errors=True)
         if diff_scratch and diff_scratch != scratch:
             shutil.rmtree(diff_scratch, ignore_errors=True)
+    crash = report.get("chat_renderer_crash")
+    if crash is not None and not crash.get("pass"):
+        sys.exit(2 if crash.get("setup_failed") else 1)
 
 
 if __name__ == "__main__":

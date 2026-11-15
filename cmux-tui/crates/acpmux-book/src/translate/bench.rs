@@ -67,6 +67,15 @@ fn full_state() -> State {
         );
         let _ = t(&mut state, Harness::V1, line.as_bytes());
     }
+    // And the most asks a chat holds open (decision 245).
+    for n in 0..32u64 {
+        let line = format!(
+            r#"{{"seq":{},"at":1000,"dir":"mux","kind":"permission_request","msg":{{"permissionId":"a-{n}","turnId":"p","request":{{"toolCall":{{"title":"Run step {n}"}},"options":[{{"optionId":"once","kind":"allow_once"}},{{"optionId":"no","kind":"reject_once"}}]}}}}}}"#,
+            n + 1026
+        );
+        let _ = t(&mut state, Harness::V1, line.as_bytes());
+    }
+    assert_eq!(state.counters().forced_asks, 0);
     state
 }
 fn full_state_p95(harness: Harness, lines: &[String], start: usize, queue: bool) -> u128 {

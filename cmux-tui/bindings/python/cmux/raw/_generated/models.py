@@ -1021,10 +1021,13 @@ class IdentifyResult:
     launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
     machine_capabilities: Union[List[str], MissingType] = field(default=MISSING)
+    machine_device: Union[str, MissingType] = field(default=MISSING)
     machine_id: Union[str, MissingType] = field(default=MISSING)
     machine_name: Union[str, MissingType] = field(default=MISSING)
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
+    machine_symbol: Union[str, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    screen_device_id: Union[str, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -2540,7 +2543,9 @@ class AttachSurfaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
+    output_coalesce_ms: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
+    replay_history_start: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
@@ -6103,6 +6108,7 @@ class ResizedEvent(EventBase):
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
     data: Union[Base64, MissingType] = field(default=MISSING)
+    history_rows_omitted: Union[int, MissingType] = field(default=MISSING)
     kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
     kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     replay: Union[Base64, MissingType] = field(default=MISSING)
@@ -6139,6 +6145,14 @@ class ScreenClosedEvent(EventBase):
     entity: Screen
     event: Literal['screen-closed']
     index: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class ScreenDeviceChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/screen-device-changed/payload'
+    event: Literal['screen-device-changed']
+    screen_device_id: Union[str, None]
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6389,6 +6403,7 @@ class VtStateEvent(EventBase):
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
     history_rows_omitted: Union[int, MissingType] = field(default=MISSING)
+    history_rows_skipped: Union[int, MissingType] = field(default=MISSING)
     kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
     kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -6502,7 +6517,7 @@ TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 WorkspaceFirstTab = Union[WorkspaceFirstTabBrowser]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenDeviceChangedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -7176,6 +7191,7 @@ __all__ = [
     'ScreenAddedEvent',
     'ScreenChangedEvent',
     'ScreenClosedEvent',
+    'ScreenDeviceChangedEvent',
     'ScreenRenamedEvent',
     'ScrollChangedEvent',
     'SelectionChangedEvent',

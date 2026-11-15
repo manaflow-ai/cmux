@@ -4,7 +4,9 @@
 //! file. The line format is `{"name":"v2.prNN.measure","small_p95":N,"god_p95":N,"unit":"ns"}`.
 //! This home joins those files with the registry, computes the ratio and verdict, and prints the
 //! JSON consumed by `quality-report.py --god-small`. A missing placeholder remains skipped; an
-//! unknown name or a measured row with no input is an error.
+//! unknown name or a measured row with no input is an error. `run-v2-gates.sh` adds
+//! `"gate_failed":true` to every line a gate filter wrote before its test failed; that row reads
+//! red with its numbers kept.
 
 use acpmux::god_fixture::Shape;
 use serde_json::{Value, json};
@@ -124,7 +126,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "3c",
         name: "v2.pr03c.fold_window",
         done_when: "A window at the end of a chat whose last turn folded 100,000 rows stays within 1.2x of one folded 10 rows, with the same reply size.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -142,7 +144,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "3c",
         name: "v2.pr03c.blob_range",
         done_when: "A bounded 256 KB range of a 100 MB body stays within 1.2x of one from a 300 KB body, for settled and open bodies.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -186,8 +188,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3c",
         name: "v2.pr03c.append_behind_page",
-        done_when: "An append that waits behind a cold `page` read: its wait 1.2x. Runs of their own, alternated. The cold segment read is paid on both sides.",
-        measured: false,
+        done_when: "An append that waits behind a cold `page` read: its wait 1.2x on the best p95 of five rounds, as each sample holds a cold read, and 2x on the p95 of all samples. Runs of their own, alternated. The cold segment read is paid on both sides; bytes read and minor faults printed beside the time. Sampled in a child process whose allocator keeps fixed thresholds, so an actor arena's trim (faults that follow the thread, not the chat's length) is not read as god's cost.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -195,8 +197,10 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3c",
         name: "v2.pr03c.queue_window",
-        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 100 bytes: 1.2x. Window time and bytes read of the lines.",
-        measured: false,
+        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 16 KB (the head read's bound, so both sides fill each head's one read and both windows carry the same bytes), each on a cold actor: 1.2x. Window time and bytes read. A probe prints the 1 KB and 1 MB sides.",
+        // Best p95 time ratio 0.984, 0.965 and 0.945 in three runs, bytes read 1.000; the probe
+        // (`queue_window_sizes_probe`) has 1 MB within 1.013 of 16 KB on time and 1.000 on bytes.
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -232,7 +236,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "3a",
         name: "v2.pr03a.source_read_bounds",
         done_when: "A 1 GB growth reads one chunk and holds reads one byte at 40 rows and 2M rows. A 10 MB line appended in 100 pieces is read once when its newline arrives.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -240,8 +244,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3b",
         name: "v2.pr03b.catchup_peak_rss",
-        done_when: "The god chat caught up from nothing over the v1 source: peak RSS within 1.2x of small (one catch-up nobody measures runs before both sides, stretches of the same length, malloc_trim(0) before the baseline), one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives.",
-        measured: false,
+        done_when: "The god chat caught up from nothing over the v1 source: the most bytes the actor's thread holds at once (the test allocator's count, over its first chunk's, in any stretch of the same length or at the end) within 1.2x of small, after one catch-up nobody measures; god's resident anonymous bytes grow at most 64 KiB from the stretch a quarter of the way through to its last (no small side: what the thread count cannot see); one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives. Resident size's rise is printed, not gated: glibc's held free pages and rows.idx's page cache move it.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -329,36 +333,18 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "4b",
-        name: "v2.pr04b.bytes_held",
-        done_when: "With one frame of changes waiting while the daemon sends 1 GB, the client holds no more than one frame of bytes.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4b",
-        name: "v2.pr04b.credit_slow_taker",
-        done_when: "A caller taking one change per 10 ms stays within one credit window of uncredited daemon bytes, sees replay frames and an end, and converges to the hub's rows.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4b",
         name: "v2.pr04b.mirror_v1_rows",
         done_when: "A live mirror with rows: v1 converts 20 live rows with 11,000 closed rows beside them within 1.2x of 20 alone for received bytes and client time.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
         pr: "6e",
         name: "v2.pr06.hold_attach",
         done_when: "A hold attach on the god chat costs at most 1.2x the same hold attach on the small chat, without reading the chat log.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -555,8 +541,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "5c",
         name: "v2.pr05c.replay_append",
-        done_when: "Writer append p95 during a full ring replay stays within 1.2x of append with no replay.",
-        measured: false,
+        done_when: "Writer append p95 beside a full replay of its own ring stays within 1.2x of append beside the same replay of another hub's ring; the probe prints both against no replay.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -718,7 +704,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5f",
         name: "v2.pr05f.serving_window",
         done_when: "The folders serving window returns three rows within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -727,7 +713,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5f",
         name: "v2.pr05f.serving_page",
         done_when: "A deep folders page returning three rows stays within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -745,7 +731,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5f",
         name: "v2.pr05f.tail_replay",
         done_when: "A live folders sid reads 100 retained steps within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -810,6 +796,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "6c",
         name: "v2.pr06.page_store_apply",
         done_when: "p95 for the page's row store to take one batch holding one settled row op: a chat of 100,000 rows within 1.2x of one of 100, rounds alternating, the same samples a side.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "6c",
+        name: "v2.pr06.page_store_text",
+        done_when: "p95 for the page's row store to take one batch holding one text op on an open row whose body is 200 KB, within 1.2x of one whose body is 1 KB.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -933,6 +928,26 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "7c",
+        name: "v2.pr07c.update_plan_bytes",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    // Best round, with every sample's p95 beside it: a round is 20 runs over a socket (about
+    // 0.6 ms each), and a shared runner's one slow round is not the list's.
+    GateRow {
+        pr: "7c",
+        name: "v2.pr07c.update_plan_wall",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, best p95 of five rounds 1.2x, every sample's p95 2x.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "8",
         name: "v2.pr08.reconnect_30",
         done_when: "30 link clients with a subscription and a saved cursor reconnect at once at 11k chats and 500 live, in two storms: to the daemon they left, nothing missed (one empty frame marked end to each), and to a restarted daemon whose new peer store has every saved cursor under its floor (a window to each). RSS rise under 20 MB over a trimmed baseline in both. A peak row: only the absolute bound applies.",
@@ -957,6 +972,51 @@ pub const GATE_ROWS: &[GateRow] = &[
         measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_apply",
+        done_when: "One mirrored frame's unit (10 changes and its mark) from the queue through the writer's append, sync and publish: p95 within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate. At most two units per origin are unapplied (one in the storage retry, one in the slot), joined into one append.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_local_row",
+        done_when: "A local row's submit-to-publish p95 while a unit of the largest size (MAX_UNIT_CHANGES, 512 changes; the dialer cuts a peer's frame of up to 5,242 into such units) applies in the same writer turn: within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_local_row_thirty",
+        done_when: "A local row's submit-to-publish p95 while 30 origins each queue a unit of 512 changes before one writer turn, 11k chats and 16,000 rows held: at most 10 ms under the turn's cap (MAX_TURN_UNIT_CHANGES, 2,048 changes), and the same with the cap lifted for comparison.",
+        measured: false,
+        ratio: f64::INFINITY,
+        ratio_all: None,
+        god_max: Some(10_000_000.0),
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.dial_resume",
+        done_when: "A dial's resume with nothing missed into a hub reopened from its store, from the dial to the frame that ends it, and the link's bytes: a peer of 500 live rows with 11k closed beside them against none, rounds alternating, two hubs over a pipe, the serving side the real connection in peer role. One empty frame marked end, no walk; bytes equal but for the cursor's digits.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.edition_walk",
+        done_when: "A walk in a new edition, from the dial to whole, and the link's bytes: 500 live rows with 11k closed beside them against none, bytes under 200 KB; no index the writer publishes in the walk lacks a live row or holds it closed.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
         god_max: None,
     },
     GateRow {
@@ -1029,6 +1089,8 @@ struct Measure {
     god_p95: f64,
     god_p95_all: Option<f64>,
     unit: Option<String>,
+    /// The gate's test failed after writing this measure.
+    gate_failed: bool,
 }
 
 fn registered_names() -> HashSet<&'static str> {
@@ -1067,12 +1129,15 @@ fn parse_measure(value: Value, source: &Path) -> Result<Measure, String> {
         .and_then(Value::as_str)
         .filter(|unit| !unit.is_empty())
         .ok_or_else(|| format!("{source:?}: {name} has no unit"))?;
+    // Only `true` marks the row: the home took any other value before the mark existed.
+    let gate_failed = object.get("gate_failed").and_then(Value::as_bool).unwrap_or(false);
     Ok(Measure {
         name: name.to_string(),
         small_p95,
         god_p95,
         god_p95_all,
         unit: Some(unit.to_string()),
+        gate_failed,
     })
 }
 
@@ -1129,6 +1194,7 @@ fn measured_row(row: &GateRow, measure: &Measure) -> Value {
     };
     let ratio_all = measure.god_p95_all.map(|value| value / measure.small_p95);
     let failures = [
+        (measure.gate_failed, "the gate's test failed after writing this measure"),
         (ratio > row.ratio, "god p95 exceeds the row's ratio"),
         (
             row.ratio_all.is_some_and(|limit| ratio_all.is_none_or(|value| value > limit)),
@@ -1252,9 +1318,8 @@ pub fn print_report_with_mode(
 mod tests {
     use super::*;
 
-    /// A row of a PR whose other rows are written, held for a gate a later PR adds. PR 4b's
-    /// two are held by plain tests of the client today and have no gate line yet.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr04b.bytes_held", "v2.pr04b.credit_slow_taker"];
+    /// Rows intentionally left without a source writer while a later PR owns their gate.
+    const WAITS_ON_ANOTHER_PR: &[&str] = &[];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
     const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";
@@ -1271,9 +1336,10 @@ mod tests {
         }
     }
 
-    /// Every gate name the acpmux crates' sources hold, with the file that holds it. This file is
-    /// left out: its rows are what the names are checked against. `v2.pr99` is the made-up PR
-    /// the report's own tests use.
+    /// Every gate name the acpmux crates' sources hold (and `cmux-tui-core`'s, whose list
+    /// callers' gates are row 7c's), with the file that holds it. This file is left out: its
+    /// rows are what the names are checked against. `v2.pr99` is the made-up PR the report's own
+    /// tests use.
     fn names_in_sources() -> Vec<(String, PathBuf)> {
         let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
         let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2/mod.rs");
@@ -1283,7 +1349,7 @@ mod tests {
             let is_ours = path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("acpmux"));
+                .is_some_and(|name| name.starts_with("acpmux") || name == "cmux-tui-core");
             for part in ["src", "tests", "benches"] {
                 if is_ours && path.join(part).is_dir() {
                     rust_sources(&path.join(part), &mut files);
@@ -1482,6 +1548,148 @@ mod tests {
                 reached.extend(callers);
             }
         }
+
+        /// `from` and every function of this source that one of them calls, and so on: the
+        /// functions a row's line can be written through.
+        fn called_from(&self, from: HashSet<String>) -> HashSet<String> {
+            let mut called = from;
+            loop {
+                let bodies: Vec<&str> = self
+                    .functions
+                    .iter()
+                    .filter(|(function, _, _)| called.contains(function))
+                    .flat_map(|(_, first, last)| self.lines[*first + 1..=*last].iter().copied())
+                    .collect();
+                let more: Vec<String> = self
+                    .functions
+                    .iter()
+                    .map(|(function, _, _)| function)
+                    .filter(|function| {
+                        let call = regex::Regex::new(&format!(r"\b{function}\(")).unwrap();
+                        !called.contains(*function) && bodies.iter().any(|line| call.is_match(line))
+                    })
+                    .cloned()
+                    .collect();
+                if more.is_empty() {
+                    return called;
+                }
+                called.extend(more);
+            }
+        }
+
+        /// Whether one of `functions` calls [`acpmux_book::gate_rounds::report`].
+        fn reports_rounds(&self, functions: &HashSet<String>) -> bool {
+            self.functions.iter().filter(|(function, _, _)| functions.contains(function)).any(
+                |(_, first, last)| {
+                    self.lines[*first..=*last]
+                        .iter()
+                        .any(|line| line.contains("gate_rounds::report("))
+                },
+            )
+        }
+    }
+
+    /// Rows a source with `god_p95_all` in it names and that compare no rounds: one measure a
+    /// side, or no `god_p95_all` of their own (the source's line format holds it for others).
+    const NO_ROUNDS: &[(&str, &str)] = &[
+        ("v2.pr05e.random_replay", "a fixed count of checks, no god_p95_all"),
+        ("v2.pr05e.cold_continuation", "one byte count a side, no god_p95_all"),
+        ("v2.pr05f.equal_entry", "a count of operations, 0 at both sizes"),
+        ("v2.pr05d.origin_state_ops", "one count of operations a side"),
+        ("v2.pr05d.removed_origin_batch", "one count of operations a side"),
+        ("v2.pr05c.replay_frame", "one replay's largest frame a side"),
+        ("v2.pr05c.replay_open_hold", "one round, against an absolute bound"),
+        ("v2.pr05c.single_encode", "one count of encodes a side"),
+        ("v2.pr05c.walk_rss", "a diagnostic line that names the row, no measure"),
+    ];
+
+    /// Best-of-rounds rows whose gate source an open pull request changes: they move onto
+    /// `gate_rounds` after it lands, and leave this list then.
+    const ROUNDS_WAIT_ON_ANOTHER_PR: &[&str] = &[
+        // cmux#43039: acpmux-client/src/lib.rs.
+        "v2.pr04b.mirror_v1_rows",
+        // cmux#43553: acpmux-core/src/chat/stream/gates_tests.rs.
+        "v2.pr03c.first_window",
+        "v2.pr03c.resume_missed",
+        "v2.pr03c.subscribed_rss",
+        "v2.pr03c.append_behind_page",
+        "v2.pr03c.queue_window",
+        "v2.pr03c.prompt_blob_next",
+        "v2.pr04.chat_stopped_reader",
+        // cmux#43438 and cmux#43403: acpmux-core/src/hub.rs.
+        "v2.pr05.first_list_window",
+        "v2.pr05.summary_change",
+        // cmux#43403: acpmux-core/src/hub/mirror_gates.rs.
+        "v2.pr08.mirror_apply",
+        "v2.pr08.mirror_local_row",
+        "v2.pr08.mirror_local_row_thirty",
+    ];
+
+    /// A gate that keeps the best of several rounds hides a round that did different work from
+    /// the rest (cmux#43438's replay append read 0.995x on rounds that returned early). A source
+    /// that writes `god_p95_all` for a row calls `gate_rounds::report` on the way to that line:
+    /// in a function that reaches the row's name ([`Source::reaches`]) or one those call.
+    #[test]
+    fn a_best_of_rounds_row_reports_its_rounds() {
+        let registry_home = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/v2_gate_home.rs");
+        let mut files: Vec<PathBuf> =
+            names_in_sources().into_iter().map(|(_, file)| file).collect();
+        files.sort();
+        files.dedup();
+        let mut checked = 0;
+        let mut silent = Vec::new();
+        for file in files.iter().filter(|file| **file != registry_home) {
+            let text = fs::read_to_string(file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            if !text.contains("god_p95_all") {
+                continue;
+            }
+            let source = Source::read(&text);
+            for row in GATE_ROWS {
+                let reached = source.reaches(row.name);
+                if reached.is_empty() {
+                    continue;
+                }
+                checked += 1;
+                let exempt = NO_ROUNDS.iter().any(|(name, _)| *name == row.name)
+                    || ROUNDS_WAIT_ON_ANOTHER_PR.contains(&row.name);
+                if !exempt && !source.reports_rounds(&source.called_from(reached)) {
+                    silent.push(format!("{} in {file:?}", row.name));
+                }
+            }
+        }
+        assert!(checked >= 20, "the scan read too few rows that write god_p95_all: {checked}");
+        assert!(
+            silent.is_empty(),
+            "these rows write god_p95_all and no function on the way to their line calls \
+             gate_rounds::report, so a round that did different work stays hidden: {silent:#?}"
+        );
+    }
+
+    #[test]
+    fn a_row_reports_its_rounds_through_the_functions_it_calls() {
+        let text = [
+            "fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>]) {",
+            "    gate_rounds::report(name, &[(\"small\", small), (\"god\", god)]);",
+            "    line(name, \"god_p95_all\");",
+            "}",
+            "",
+            "fn measure(name: &str) {",
+            "    emit(name, &small, &god);",
+            "}",
+            "",
+            "fn first_gate() {",
+            "    measure(\"v2.pr99.through_two\");",
+            "}",
+            "",
+            "fn second_gate() {",
+            "    line(\"v2.pr99.silent\", \"god_p95_all\");",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        let reports = |row: &str| source.reports_rounds(&source.called_from(source.reaches(row)));
+        assert!(reports("v2.pr99.through_two"));
+        assert!(!reports("v2.pr99.silent"));
     }
 
     /// A row is marked measured only when the nightly can write it. The nightly starts the gate
@@ -1606,6 +1814,7 @@ mod tests {
             god_p95: god,
             god_p95_all: all,
             unit: Some("ns".to_owned()),
+            gate_failed: false,
         }
     }
 
@@ -1641,6 +1850,7 @@ mod tests {
                 god_p95: god,
                 god_p95_all: None,
                 unit: Some("bytes".to_owned()),
+                gate_failed: false,
             };
             assert_eq!(measured_row(row, &measure(4000.0, 47_870.0))["status"], "ok");
             assert_eq!(measured_row(row, &measure(1000.0, 15_401.0))["status"], "red");
@@ -1726,5 +1936,78 @@ mod zero_baseline_tests {
     #[test]
     fn zero_small_and_nonzero_god_is_red() {
         assert_eq!(zero_measure(1.0).get("status"), Some(&json!("red")));
+    }
+}
+
+#[cfg(test)]
+mod gate_failed_tests {
+    use super::*;
+
+    fn kin_line(mark: Option<Value>) -> Value {
+        let mut line = json!({"name": "v2.pr05e.kin_table_change", "small_p95": 1000,
+            "god_p95": 1100, "god_p95_all": 1200, "unit": "ns"});
+        if let Some(mark) = mark {
+            line["gate_failed"] = mark;
+        }
+        line
+    }
+
+    fn kin_row(line: Value) -> Value {
+        let row = GATE_ROWS.iter().find(|row| row.name == "v2.pr05e.kin_table_change").unwrap();
+        measured_row(row, &parse_measure(line, Path::new("fixture")).unwrap())
+    }
+
+    #[test]
+    fn a_marked_line_reads_red_with_its_numbers_kept() {
+        let row = kin_row(kin_line(Some(json!(true))));
+        assert_eq!(row["status"], "red");
+        assert_eq!(row["reason"], "the gate's test failed after writing this measure");
+        assert_eq!(row["small_p95"], 1000.0);
+        assert_eq!(row["god_p95"], 1100.0);
+        assert_eq!(row["ratio"], 1.1);
+    }
+
+    #[test]
+    fn a_line_without_the_mark_reads_as_before() {
+        for mark in [None, Some(json!(false)), Some(json!("yes")), Some(Value::Null)] {
+            let row = kin_row(kin_line(mark.clone()));
+            assert_eq!(row["status"], "ok", "{mark:?}");
+            assert_eq!(row["reason"], "within the row's bounds", "{mark:?}");
+        }
+    }
+
+    /// The gate script with a stand-in cargo (scripts/cmux-next/tests/run-v2-gates.test.sh): a
+    /// filter that wrote a line and failed, one that wrote a line and passed, one that failed with
+    /// no line. The home reads the file the script left.
+    #[cfg(unix)]
+    #[test]
+    fn the_gate_script_marks_a_failed_filters_rows_red() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        let status = std::process::Command::new("bash")
+            .arg(root.join("scripts/cmux-next/tests/run-v2-gates.test.sh"))
+            .arg(measures.path())
+            .status()
+            .unwrap();
+        assert!(status.success(), "run-v2-gates.test.sh failed: {status}");
+        let (value, missing) = report_value(&[measures.path().to_path_buf()], true).unwrap();
+        assert!(missing);
+        let rows = value["rows"].as_array().unwrap();
+        let status_of = |name: &str| {
+            let row = rows.iter().find(|row| row["name"] == name).unwrap();
+            (row["status"].clone(), row["reason"].clone())
+        };
+        assert_eq!(
+            status_of("v2.pr05e.kin_table_change"),
+            (json!("red"), json!("the gate's test failed after writing this measure"))
+        );
+        assert_eq!(
+            status_of("v2.pr05e.sibling_insert"),
+            (json!("ok"), json!("within the row's bounds"))
+        );
+        assert_eq!(
+            status_of("v2.pr05e.family_page"),
+            (json!("failed"), json!("the gate did not report a measure"))
+        );
     }
 }

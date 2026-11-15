@@ -136,7 +136,16 @@ pub struct Since {
 pub enum ResumeSize {
     Within(u64),
     Over,
+    /// A header on the way to the record after the cursor is not the next record's (or the log
+    /// ends first): the resume would stop at it, so its size is not known. The caller sends a
+    /// window and rebuilds the book, as for a record a read refused.
+    Damaged,
 }
+
+/// A group row of a page of turns and its checked text. A group row `folds.idx` lists has
+/// none when its index entry is missing or its record is refused: a hole that keeps its place
+/// and its row slot.
+type TurnRead = (RowRef, Vec<u8>);
 
 /// The segment bytes one read covers, including record headers and CRCs.
 #[derive(Clone, Copy)]
@@ -744,23 +753,24 @@ impl Log {
         let mut next =
             if up { Some(first_after).filter(|at| *at < count) } else { before_end.checked_sub(1) };
         let mut bytes_left = Self::bound(max_bytes, MAX_PAGE_BYTES) as u64;
-        let mut taken: Vec<(RowRef, Option<Vec<u8>>)> = Vec::new();
-        let mut looked = 0usize;
+        let mut taken: Vec<(u64, Option<TurnRead>)> = Vec::new();
         while let Some(at) = next
-            && looked < MAX_ROWS
+            && taken.len() < MAX_ROWS
         {
             let Some(fold) = folds.entry_at(at)? else { break };
-            if let Some(entry) = self.entry(fold.group) {
-                let len = u64::from(entry.len).saturating_add(super::RECORD_OVERHEAD as u64);
-                if len > bytes_left && !taken.is_empty() {
-                    break;
+            let read = match self.entry(fold.group) {
+                Some(entry) => {
+                    let len = u64::from(entry.len).saturating_add(super::RECORD_OVERHEAD as u64);
+                    if len > bytes_left && !taken.is_empty() {
+                        break;
+                    }
+                    bytes_left = bytes_left.saturating_sub(len);
+                    let row = RowRef::of(fold.group, 0, &entry);
+                    self.read_row_bytes(&row)?.map(|text| (row, text))
                 }
-                bytes_left = bytes_left.saturating_sub(len);
-                let row = RowRef::of(fold.group, 0, &entry);
-                let text = self.read_row_bytes(&row)?;
-                taken.push((row, text));
-            }
-            looked = looked.saturating_add(1);
+                None => None,
+            };
+            taken.push((fold.group, read));
             next = if up {
                 Some(at.saturating_add(1)).filter(|at| *at < count)
             } else {
@@ -776,21 +786,21 @@ impl Log {
             taken.reverse();
         }
         let mut result = Window {
-            lo: taken.first().map_or(id, |(row, _)| row.row_id),
-            hi: taken.last().map_or(id, |(row, _)| row.row_id),
+            lo: taken.first().map_or(id, |(group, _)| *group),
+            hi: taken.last().map_or(id, |(group, _)| *group),
             has_before,
             has_after,
             ..Window::default()
         };
-        for (row, text) in taken {
-            match text {
-                Some(text) => {
+        for (group, read) in taken {
+            match read {
+                Some((row, text)) => {
                     let start = result.bytes.len();
                     result.bytes.extend_from_slice(&text);
                     result.at.push(start..result.bytes.len());
                     result.rows.push(row);
                 }
-                None => result.refused.push(row.row_id),
+                None => result.refused.push(group),
             }
         }
         Ok(result)
@@ -808,9 +818,9 @@ impl Log {
             return Ok(ResumeSize::Within(0));
         }
         // A header that is not the next record's: the resume reads up to it and stops, so
-        // its size is not known here; over sends the window that names the damage.
+        // its size is not known here, and the book is damaged.
         let Some((seg, offset)) = self.since_start(cursor)? else {
-            return Ok(ResumeSize::Over);
+            return Ok(ResumeSize::Damaged);
         };
         let bytes = match self.tail.seg.checked_sub(seg) {
             Some(0) => self.tail.len.checked_sub(offset),

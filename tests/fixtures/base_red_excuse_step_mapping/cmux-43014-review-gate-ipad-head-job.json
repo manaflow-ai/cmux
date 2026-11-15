@@ -1,0 +1,180 @@
+{
+ "id": 132561563162,
+ "run_id": 43632344606,
+ "name": "Reviewer path (appstore, ipad)",
+ "head_sha": "749d86697ef31d198612eed13817041569574e40",
+ "status": "completed",
+ "conclusion": "failure",
+ "started_at": "2026-11-14T19:50:51Z",
+ "completed_at": "2026-11-14T20:17:39Z",
+ "steps": [
+  {
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 1,
+   "started_at": "2026-11-14T19:50:52Z",
+   "completed_at": "2026-11-14T19:50:54Z"
+  },
+  {
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 2,
+   "started_at": "2026-11-14T19:50:54Z",
+   "completed_at": "2026-11-14T19:50:54Z"
+  },
+  {
+   "name": "Result paths",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 3,
+   "started_at": "2026-11-14T19:50:54Z",
+   "completed_at": "2026-11-14T19:50:54Z"
+  },
+  {
+   "name": "Checkout the app source",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 4,
+   "started_at": "2026-11-14T19:50:54Z",
+   "completed_at": "2026-11-14T19:51:40Z"
+  },
+  {
+   "name": "Checkout the gate",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 5,
+   "started_at": "2026-11-14T19:51:40Z",
+   "completed_at": "2026-11-14T19:51:43Z"
+  },
+  {
+   "name": "Select Xcode",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 6,
+   "started_at": "2026-11-14T19:51:43Z",
+   "completed_at": "2026-11-14T19:51:45Z"
+  },
+  {
+   "name": "The source is the NEXT app",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 7,
+   "started_at": "2026-11-14T19:51:45Z",
+   "completed_at": "2026-11-14T19:51:45Z"
+  },
+  {
+   "name": "Install xcodegen",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 8,
+   "started_at": "2026-11-14T19:51:45Z",
+   "completed_at": "2026-11-14T19:51:50Z"
+  },
+  {
+   "name": "Pick the ipad simulator",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 9,
+   "started_at": "2026-11-14T19:51:50Z",
+   "completed_at": "2026-11-14T19:51:51Z"
+  },
+  {
+   "name": "Set up pinned Rust",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 10,
+   "started_at": "2026-11-14T19:51:51Z",
+   "completed_at": "2026-11-14T19:51:56Z"
+  },
+  {
+   "name": "Cache cargo",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 11,
+   "started_at": "2026-11-14T19:51:56Z",
+   "completed_at": "2026-11-14T19:51:56Z"
+  },
+  {
+   "name": "Build CmuxMobileLinkFFI.xcframework",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 12,
+   "started_at": "2026-11-14T19:51:56Z",
+   "completed_at": "2026-11-14T19:54:53Z"
+  },
+  {
+   "name": "Build the app and the gate for testing",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 13,
+   "started_at": "2026-11-14T19:54:53Z",
+   "completed_at": "2026-11-14T19:56:21Z"
+  },
+  {
+   "name": "Walk the reviewer path on ipad",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 14,
+   "started_at": "2026-11-14T19:56:21Z",
+   "completed_at": "2026-11-14T20:16:57Z"
+  },
+  {
+   "name": "Agent reviewer pass",
+   "status": "completed",
+   "conclusion": "failure",
+   "number": 15,
+   "started_at": "2026-11-14T20:16:57Z",
+   "completed_at": "2026-11-14T20:17:04Z"
+  },
+  {
+   "name": "Upload results",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 16,
+   "started_at": "2026-11-14T20:17:04Z",
+   "completed_at": "2026-11-14T20:17:32Z"
+  },
+  {
+   "name": "Post Cache cargo",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 29,
+   "started_at": "2026-11-14T20:17:32Z",
+   "completed_at": "2026-11-14T20:17:32Z"
+  },
+  {
+   "name": "Post Checkout the gate",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 30,
+   "started_at": "2026-11-14T20:17:32Z",
+   "completed_at": "2026-11-14T20:17:32Z"
+  },
+  {
+   "name": "Post Checkout the app source",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 31,
+   "started_at": "2026-11-14T20:17:32Z",
+   "completed_at": "2026-11-14T20:17:32Z"
+  },
+  {
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 32,
+   "started_at": "2026-11-14T20:17:32Z",
+   "completed_at": "2026-11-14T20:17:33Z"
+  },
+  {
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 33,
+   "started_at": "2026-11-14T20:17:33Z",
+   "completed_at": "2026-11-14T20:17:36Z"
+  }
+ ]
+}

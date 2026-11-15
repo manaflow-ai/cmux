@@ -10,6 +10,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
 #     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES] [--arg=attribute=1] [--arg=infinite=10,100]
+#     [--arg=chat_renderer_crash=1]
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
@@ -17,6 +18,9 @@
 # reload; bench_memory.py --purge-hidden), sampled again as purged-N.
 # release=MINUTES (with one agents= count): agents.hiddenChats.discard on after MINUTES; the released
 # chats sampled as released-N, then 10 of them shown again and timed (PERF-IDLE-RESTORE).
+# chat_renderer_crash=1 (with agents=): the chat renderer crash test (scripts/cmux-next/chat_renderer_crash.py):
+# every chat pinned and kept loaded, chat pages per renderer at each count, then a SIGKILL of the renderer with
+# the most chat pages; it fails when more than 8 chats reload or a chat of another renderer does.
 # attribute=1 (or attribute=KIND,KIND: those process kinds, default app,cef-gpu): also name what wakes the app and the Chromium GPU process in each window
 # (bench_memory.py --attribute: thread CPU, the debug.wakeups ledger and main run loop timers, live
 # pages, a stack sample after the window), as PERF-ATTR lines.
@@ -29,7 +33,7 @@ counts="1,10,50"
 measure=60
 agents=""
 infinite="" days=3
-reload_config=() purge=() release=() attribute=()
+reload_config=() purge=() release=() attribute=() crash_env=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
@@ -42,6 +46,7 @@ for arg in "$@"; do
     release=*) release=(--release-hidden-chats "${arg#release=}") ;;
     attribute=1) attribute=(--attribute) ;;
     attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
+    chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -110,7 +115,7 @@ for s in data.get("samples", []):
 PY
 if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
-  python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
+  env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
     --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
     ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
@@ -122,8 +127,12 @@ for s in data.get("samples", []):
     for kind, e in s["kinds"].items():
         print(f"PERF-IDLE app-agents {s['label']} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
+    if "chat_renderers" in s:
+        print(f"CHAT-RENDERERS {s['label']} agents={s['workspaces']} {json.dumps(s['chat_renderers'])}")
     if "cef_pages" in s:
         print(f"PERF-IDLE-RELEASED {s['label']} cmux_pages={json.dumps(s['cef_pages'])}")
+if "chat_renderer_crash" in data:
+    print(f"CHAT-RENDERERS-CRASH {json.dumps(data['chat_renderer_crash'])}")
 if "restore" in data:
     print(f"PERF-IDLE-RESTORE {json.dumps({k: v for k, v in data['restore'].items() if k != 'opens'})}")
     # Each restored chat's trace (marks, surface changes, note): why a restore has no first-content time.

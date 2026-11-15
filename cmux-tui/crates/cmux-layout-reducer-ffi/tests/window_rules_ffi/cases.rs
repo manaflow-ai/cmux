@@ -780,3 +780,29 @@ fn remote_connect_step_opens_recovery_for_the_current_attempt_only() {
     );
     assert_eq!(body["recovery"], json!(false));
 }
+
+#[test]
+fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
+    let screen = " Bash command\n   touch /tmp/x\n Do you want to proceed?\n ❯ 1. Yes\n   2. No (esc)\n\n Esc to cancel";
+    let (code, body) = call_json(c"window_tabs_terminal_approval", &json!({"screen": screen}));
+    assert_eq!(code, OK);
+    assert_eq!(body["approval"]["question"], "Do you want to proceed?");
+    let id = body["approval"]["id"].as_str().expect("an id").to_owned();
+    assert_eq!(id.len(), 16);
+    assert_eq!(body["approval"]["command"], "touch /tmp/x");
+    assert_eq!(
+        body["approval"]["options"],
+        json!([
+            {"key": 1, "label": "Yes", "hint": null, "kind": "allow_once", "selected": true},
+            {"key": 2, "label": "No", "hint": "esc", "kind": "reject_once", "selected": false},
+        ])
+    );
+    let (_, body) = call_json(c"window_tabs_terminal_approval", &json!({"screen": "❯ "}));
+    assert_eq!(body, json!({"approval": null}));
+    let answer = json!({"screen": screen, "key": 2, "label": "No", "id": id});
+    let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &answer);
+    assert_eq!(body, json!({"keys": ["down", "enter"]}));
+    let stale = json!({"screen": "❯ ", "key": 2, "label": "No", "id": id});
+    let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &stale);
+    assert_eq!(body, json!({"keys": null}));
+}

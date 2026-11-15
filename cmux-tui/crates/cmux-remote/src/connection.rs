@@ -634,9 +634,16 @@ impl ClientConnection {
                             actual,
                         });
                     }
-                    // Replayable traffic was retained and recovery sent it
-                    // with the original sequence on the new generation.
-                    return Ok(sequence);
+                    // Replayable traffic the old session took (its sequence was used) was
+                    // retained, and recovery sent it with the original sequence on the new
+                    // generation. A send that found the old session already closed took
+                    // nothing: send it now, or it is lost and the next frame takes its
+                    // sequence (a 16 MiB transfer lost a frame at each reconnect).
+                    let session = self.by_deadline(deadline, self.session.read()).await?.clone();
+                    if session.next_outbound_sequence(lane) > sequence {
+                        return Ok(sequence);
+                    }
+                    continue;
                 }
                 Err(error) => {
                     session.rollback_unscheduled(lane, sequence);

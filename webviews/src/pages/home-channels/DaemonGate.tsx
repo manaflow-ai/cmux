@@ -76,6 +76,9 @@ type Phase =
 
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
+/** A shown page asks again at least this often, so it is back within 2 s of its daemon answering after
+ *  a restart or handoff (the agent chat's recovery step, hostRetry.ts). Asking is one local connect. */
+const SHOWN_BACKOFF_MAX_MS = 2_000;
 
 /** What a failed connect does next. Only a refused credential is dropped (`forget`, URL pages); a
  *  daemon that is restarting or slow keeps it and is asked again: unreachable (no upgrade in time),
@@ -241,7 +244,8 @@ export function DaemonGate({
     if (!live.current.mounted || live.current.daemon) return;
     setPhase({ kind: "connecting", note });
     const step = live.current.attempt++;
-    const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** step) * (0.5 + Math.random() / 2);
+    const max = document.visibilityState === "visible" ? SHOWN_BACKOFF_MAX_MS : BACKOFF_MAX_MS;
+    const delay = Math.min(max, BACKOFF_MIN_MS * 2 ** step) * (0.5 + Math.random() / 2);
     clearTimeout(live.current.timer);
     live.current.timer = setTimeout(resume, delay);
   };

@@ -170,7 +170,9 @@ fn mux(
 ) -> Result<(), Error> {
     let Line { place, span, .. } = line;
     match kind {
-        "retracted" | "removed" => {
+        "retracted" | "removed" | "steer_withdrawn" => {
+            // A prompt sent now that an older writer withdraws takes its turn's `continued` back.
+            state.withdrawn(&msg.prompt_id, out);
             state.queue_remove(&msg.prompt_id, out);
             state.settle_prompt(super::prompt_hash(&msg.prompt_id), true, out);
         }
@@ -182,6 +184,7 @@ fn mux(
         }
         "queue_order" => {
             if msg.next {
+                state.interrupt(&msg.prompt_id);
                 state.queue_release(&msg.prompt_id, out);
             }
             state.queue_order(msg.order, out);
@@ -194,13 +197,20 @@ fn mux(
                 state.queue_set_all_held(false, out);
             }
         }
-        "dequeued" | "queue_removed" | "queue_declined" => state.queue_remove(&msg.prompt_id, out),
+        "dequeued" => state.queue_remove(&msg.prompt_id, out),
+        "queue_removed" | "queue_declined" | "prompt_refused" => {
+            state.withdrawn(&msg.prompt_id, out);
+            state.queue_remove(&msg.prompt_id, out);
+        }
         "steer_read" => state.steer_read(&msg.prompt_id, out)?,
         "user_message" => {
             let notice = matches!(
                 msg.meta.provenance.kind.as_ref(),
                 "inbox_notice" | "task_notification" | "notice"
             );
+            // Who sent it and how: the record's keys the message itself does not read.
+            let said: super::user::Said<'_> =
+                serde_json::from_str(line.raw.get()).unwrap_or_default();
             state.prompt(
                 super::PromptEvent {
                     key: &msg.turn_id,
@@ -209,9 +219,25 @@ fn mux(
                     notice,
                     body: msg.text,
                     images: msg.images,
+                    sender: super::user::sender(&said, &msg.prompt_id),
+                    inline_parts: said.inline_parts,
+                    pasted: said.pasted,
+                    place,
+                    span,
                 },
                 out,
             )?;
+        }
+        "permission_request" => state.ask_permission(&ask(line.raw), out)?,
+        "secret_request" => state.ask_secret(&ask(line.raw), false, out)?,
+        "elevation_request" => state.ask_secret(&ask(line.raw), true, out)?,
+        "permission_decision" => state.decide_permission(&ask(line.raw), out),
+        "permission_auto" => state.decide_auto(&ask(line.raw), out),
+        "secret_decision" | "elevation_decision" => state.decide_secret(&ask(line.raw), out),
+        "sender_claim" => {
+            if let Some((prompt, from)) = super::user::sent_from(line.raw) {
+                state.claim(&prompt, from, out);
+            }
         }
         "turn_started" if state.turn_key.is_empty() => {
             super::bounded(&msg.turn_id)?;
@@ -234,13 +260,21 @@ fn mux(
             state.end_turn(end, &msg.status, out);
         }
         "message_superseded" => state.supersede(&msg.old_message_id, out),
+        _ if super::cards::record(
+            state,
+            kind,
+            super::cards::At { raw: line.raw, line: super::RawLine { place, span } },
+            out,
+        )? => {}
         _ => match kinds::find(kinds::MUX, kind).map(|known| known.draw) {
             Some(kinds::Draw::Row(spec)) => {
                 let mut row = state.drawn(&spec, line.raw, out)?;
                 row.open = false;
                 out.row(&row);
-                if matches!(kind, "stopped" | "exited") {
-                    state.end_session(out);
+                match kind {
+                    "stopped" | "exited" => state.end_session(out),
+                    "stopping" => state.stop(),
+                    _ => {}
                 }
             }
             Some(_) => {}
@@ -248,6 +282,10 @@ fn mux(
         },
     }
     Ok(())
+}
+/// An ask's record, read leniently: a key of another type reads as none.
+fn ask(raw: &RawValue) -> super::asks::AskRecord<'_> {
+    serde_json::from_str(raw.get()).unwrap_or_default()
 }
 /// The turn-end notice's fields computed from its result, as the view's turn summary reads
 /// them (direct.ts, `turnSummary`): the split of its tokens, its checkpoints, its error, and the

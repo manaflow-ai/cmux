@@ -267,6 +267,9 @@ public actor DaemonClient {
     private func readLoop() async {
         do {
             while let chunk = try await channel.receive() {
+                #if DEBUG
+                ReceivedByteCount.shared.add(chunk.count)
+                #endif
                 buffer.append(chunk)
                 while let newline = buffer.firstIndex(of: 0x0A) {
                     let line = buffer[buffer.startIndex..<newline]
