@@ -3056,8 +3056,10 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         # assess() reports a stuck job before a refusal; a refused job needs its re-run whatever the queue.
         looked = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
         turned_away = [job for job in looked if refused(job)]
-        # The owned labels the moved jobs leave: a re-run never sends them to a deeper queue (deeper_queue()).
-        sources = {str(job_pool(job)) for job in looked if job_pool(job) and waiting_for_runner(job)}
+        # The owned labels the moved jobs leave: a re-run never sends them to a deeper queue (deeper_queue()). A job
+        # held in its runner's setup (glaeda's capacity wait) waits on its label as much as a queued one.
+        sources = {str(job_pool(job)) for job in looked
+                   if job_pool(job) and (waiting_for_runner(job) or in_setup(job))}
         if turned_away:
             # The refusal path re-runs the failed jobs whether or not the run has finished by the time
             # rescue() reads it (a queued sibling may still run meanwhile); a queue rescue would skip a
@@ -5028,14 +5030,21 @@ def settled_here(api: Any, target: Target, log: Callable[[str], None]) -> None:
 
 
 def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-                 log: Callable[[str], None], every_job: bool, only_job: int | None = None) -> str:
+                 log: Callable[[str], None], every_job: bool, only_job: int | None = None, side_label: str = "",
+                 deadline: dt.datetime | None = None) -> str:
     """The re-run a stopped rescue meant after its cancel (rerun_intended()), with its own CANCEL_SETTLED mark.
     `only_job` (a settled-sibling failover's mark) re-runs that job and its dependents, never the failed jobs.
-    A nightly whose head does not compile (nightly_compile_red()) is settled without it."""
+    A nightly whose head does not compile (nightly_compile_red()) is settled without it. A cmux-next re-run of
+    failed jobs takes `side_label` (rerun_side_label()) and keeps the depth rule (resume_depth_hold())."""
     red = nightly_compile_red(api, target, sleep, log)
     if red:
         settled_here(api, target, log)
         return compile_red_answer(red)
+    if side_label and not every_job and only_job is None and target.path == CMUX_NEXT_WORKFLOW_PATH:
+        deeper = resume_depth_hold(api, target, side_label, now=now, sleep=sleep, log=log, deadline=deadline)
+        if deeper:
+            # CANCEL_SENT stays open: a later successor finishes the re-run once the queue allows it.
+            return f"not resumed yet: attempt {target.attempt + 1} takes {side_label}, but {deeper}"
     try:
         result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=not every_job,
                                   keep_main=False, only_job=only_job)
@@ -5047,6 +5056,36 @@ def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
         raise
     settled_here(api, target, log)
     return result
+
+
+def resume_depth_hold(api: GitHub, target: Target, side_label: str, *, now: Callable[[], dt.datetime],
+                      sleep: Callable[[float], None], log: Callable[[str], None],
+                      deadline: dt.datetime | None) -> str:
+    """Why a resumed re-run of a cmux-next attempt's failed jobs may not go yet, or "": `side_label`'s queue is
+    deeper than the owned labels its failed, cancelled and waiting jobs leave (deeper_queue(), #43799), or the
+    snapshot is unreadable. It looks again every STALL_RECHECK_SECONDS until `deadline` (none: one look)."""
+    while True:
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        sources = {str(job_pool(job)) for job in jobs if job_pool(job) and (
+            job.get("status") != "completed" or job.get("conclusion") in ("failure", "cancelled", "timed_out"))}
+        if not sources - {side_label}:
+            return ""
+        try:
+            snapshot = api.pool_snapshot(now())
+        except Aborted:
+            raise
+        except Exception as error:  # noqa: BLE001 - an unread snapshot shows no depth: the hold goes on
+            log(f"could not read the pool snapshot ({type(error).__name__}: {error})")
+            snapshot = None
+        why = deeper_queue(snapshot, sources, side_label) if isinstance(snapshot, Mapping) else \
+            "the pool snapshot is unreadable"
+        if not why:
+            return ""
+        if deadline is None or now() + dt.timedelta(seconds=STALL_RECHECK_SECONDS) > deadline:
+            log(f"resumed re-run held: {why}")
+            return why
+        log(f"resumed re-run held while {why}; looking again in {STALL_RECHECK_SECONDS}s")
+        sleep(STALL_RECHECK_SECONDS)
 
 
 def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
@@ -5591,7 +5630,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                     sign_text=sign_text, side_label=side_label)
             if outcome == "resume":
                 result = resume_rerun(client, target, now=clock, sleep=rescue_sleep, log=log, every_job=reason == "all",
-                                      only_job=int(reason[4:]) if reason.startswith("job:") else None)
+                                      only_job=int(reason[4:]) if reason.startswith("job:") else None,
+                                      side_label=side_label, deadline=deadline)
                 log(result)
                 return outcome, reason, held, "done"
             if outcome != "stalled":
@@ -6314,9 +6354,31 @@ class Stopping(Aborted):
 SWEEP_FINISHED_SECONDS = 30 * 60
 
 
+def stranded_attempt(api: GitHub, run: Mapping[str, Any], sleep: Callable[[float], None],
+                     log: Callable[[str], None]) -> bool | None:
+    """Whether a finished, cancelled attempt past the ones sweep_target() watches (owned_rerun()) is a rescue's
+    cancel whose re-run never came (rerun_intended()). Only such a run is read for it: the rescue jobs' logs cost
+    requests. None while that cannot be known yet (a rescue job still running, RescueHistoryLive; an error): a later
+    tick asks again."""
+    attempt = int(run.get("run_attempt") or 0)
+    if attempt <= LAST_OWNED_ATTEMPT or owned_rerun(run) or run.get("status") != "completed" \
+            or run.get("conclusion") != "cancelled" or not hasattr(api, "rescue_jobs"):
+        return False
+    try:
+        return bool(rerun_intended(api, run, attempt, sleep, log))
+    except Aborted:
+        raise
+    except Exception as error:  # noqa: BLE001 - a live or unread history leaves the run as it is
+        log(f"[run {run.get('id')}] could not read whether a rescue left attempt {attempt} cancelled ({error})")
+        return None
+
+
 def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_rerun: bool = False,
-                 since: dt.datetime | None = None) -> Target | str:
+                 since: dt.datetime | None = None, stranded: bool = False) -> Target | str:
     """The target for a marked or portable run, resuming its current attempt.
+
+    `stranded` (stranded_attempt()) says a rescue cancelled this attempt to re-run it and stopped first: it is
+    adopted at any attempt, so its re-run is finished (the rerun input re-runs past the watched attempts).
 
     A finished run is only worth a look when it failed or was cancelled after `since`: a refusal nobody
     re-ran yet, or a rescue's cancel whose re-run never came (watch() re-runs it only when GitHub's
@@ -6328,7 +6390,7 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     placement job and paid dependent route before it cancels anything.
     """
     attempt = int(run.get("run_attempt") or 0)
-    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not owned_rerun(run):
+    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not owned_rerun(run) and not stranded:
         return f"attempt {attempt}"
     if run.get("status") == "completed":
         if run.get("conclusion") not in ("failure", "cancelled"):
@@ -6504,7 +6566,13 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
             full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1
                              and not carried(job, attempt_started) for job in jobs)
-        target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since)
+        # A rescue's cancel past the watched attempts (the rerun input's) is adopted only to finish its re-run.
+        stranded = stranded_attempt(client, run, wait, log)
+        if stranded is None:
+            seen.discard(run_id)
+            rerun_seen.discard((run_id, int(run.get("run_attempt") or 0)))
+            return False
+        target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since, stranded=stranded)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
             # An ended watch no longer makes the queued listing take it up again: it would be read every listing.
