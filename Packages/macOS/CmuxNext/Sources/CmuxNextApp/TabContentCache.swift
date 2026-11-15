@@ -219,7 +219,7 @@ final class TabContentCache {
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         session.showsTerminal(identity, carrying: carried)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
-                                  store: daemon.store, surface: tab.surface, gate: gate, ends: daemon.wakingParkedTabs.shownEnd(of:))
+                                  store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
         // The delegate builds a machine-aware link filter. Install it only
         // after this session can be resolved back to its owning tab.

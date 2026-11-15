@@ -65,7 +65,7 @@ public final class TerminalSession {
 
     /// Why a dead terminal's host was lost (nil: its process ended, or it runs).
     public var hostLoss: TerminalHostLoss? {
-        didSet { if hostLoss != oldValue { model.hostLoss = hostLoss; view.showHostLoss(hostLoss, cause: hostLossCause) } }
+        didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
     }
 
     /// What the lost host left as evidence (who signalled it, whether it had

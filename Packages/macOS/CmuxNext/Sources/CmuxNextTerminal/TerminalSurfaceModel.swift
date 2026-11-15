@@ -32,8 +32,6 @@ public final class TerminalSurfaceModel {
     public internal(set) var hasExited = false
     /// The view's link to its terminal (a daemon IO reports it).
     public internal(set) var connection: TerminalConnectionStatus = .connected
-    /// Why the dead terminal's host was lost, as the status line says it (`TerminalSession.hostLoss` writes it).
-    public internal(set) var hostLoss: TerminalHostLoss?
     public internal(set) var isRendererHealthy = true
     public internal(set) var isReadOnly = false
     /// A multi-key Ghostty binding is waiting for its next key.

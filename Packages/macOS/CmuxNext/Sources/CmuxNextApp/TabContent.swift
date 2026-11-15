@@ -107,7 +107,7 @@ final class TerminalEntry {
     nonisolated deinit {}
 
     init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: TerminalThemeKey, store: DaemonStore,
-         surface: SurfaceID, gate: TerminalTargetGate? = nil, ends: @escaping @MainActor (TabModel?) -> TerminalTabEnd? = { $0?.end }) {
+         surface: SurfaceID, gate: TerminalTargetGate? = nil) {
         self.validity = validity
         self.session = session
         self.io = io
@@ -115,7 +115,7 @@ final class TerminalEntry {
         self.themeKey = themeKey
         themeBinding = TerminalThemeBinding(scope: themeScope, session: session)
         themeScope.root(session.view)
-        watch = TerminalLinkWatch(store: store, surface: surface, io: io, session: session, ends: ends)
+        watch = TerminalLinkWatch(store: store, surface: surface, io: io, session: session)
     }
 
     /// The daemon's tab replaced the provisional one: the same view and session attach to it,
@@ -126,7 +126,7 @@ final class TerminalEntry {
         self.themeKey = themeKey
         self.gate = nil
         watch.stop()
-        watch = TerminalLinkWatch(store: store, surface: target.surface, io: io, session: session, ends: watch.ends)
+        watch = TerminalLinkWatch(store: store, surface: target.surface, io: io, session: session)
         gate.resolve(target)
     }
 

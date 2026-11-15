@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextCompat
 @testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 @testable import CmuxNextTerminal
@@ -8,9 +7,8 @@ import Foundation
 import Testing
 
 /// A kept terminal whose restart failed says "Terminal stopped: it could not restart" in its view.
-/// Two holes. A restart that found no free PTY said the same words as each other failed launch,
-/// with nothing the person can do about it. And each show of the tab's workspace starts the restart
-/// again (`DaemonService.wakeParkedTabs`), while the view still said that the restart failed.
+/// A restart that found no free PTY said the same words as each other failed launch, with nothing
+/// the person can do about it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
 struct TerminalRestartFailedTextTests {
     /// AppServices reads `NSApp`; a suite run in its own process has no shared application until something makes it.
@@ -20,13 +18,10 @@ struct TerminalRestartFailedTextTests {
     private static let noFreeTerminal = "Terminal stopped: out of terminals. Close some, then restart."
 
     /// Tab `end`s of a failed restart, as the daemon sends them: a launch that found no free PTY,
-    /// another failed launch, and a cause that this build does not know.
+    /// and a cause that this build does not know.
     private static let noPtyEnd = """
     {"kind":"host_lost","reason":"restart_failed","launch_failure":"pty_capacity_exhausted",\
     "detail":"respawn-failed: pty_capacity_exhausted: spawn the terminal host: PTY capacity exhausted"}
-    """
-    private static let otherEnd = """
-    {"kind":"host_lost","reason":"restart_failed","detail":"respawn-failed: spawn the terminal host: No such file or directory"}
     """
     private static let unknownCauseEnd = """
     {"kind":"host_lost","reason":"restart_failed","launch_failure":"a_cause_of_a_newer_daemon","detail":"respawn-failed: a_cause_of_a_newer_daemon: x"}
@@ -59,13 +54,6 @@ struct TerminalRestartFailedTextTests {
         TerminalStatusBanner.text(for: .exited, hostLoss: entry.session.hostLoss)
     }
 
-    /// Waits until the watch of `entry` gave its session a host loss that `matches`: the observed change
-    /// of the surface model's `hostLoss`, no poll. A change that never comes ends at the suite's time limit.
-    private func hostLoss(of entry: TerminalEntry, _ matches: (TerminalHostLoss?) -> Bool) async {
-        let session = entry.session
-        for await loss in ObservationStream({ session.model.hostLoss }) where matches(loss) { break }
-    }
-
     @Test func aRestartThatFoundNoFreeTerminalSaysWhatToDo() throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let daemon = makeDaemon(), store = daemon.store
@@ -77,36 +65,5 @@ struct TerminalRestartFailedTextTests {
         // A cause that this build does not know keeps the general words (and the tab still decodes).
         let unknown = services.cache.terminal(for: try #require(store.tab(surface: 2)), daemon: daemon)
         #expect(label(unknown) == Self.general)
-    }
-
-    @Test func aKeptTabThatWakesDoesNotSayThatItsRestartFailed() async throws {
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let daemon = makeDaemon(), store = daemon.store
-        let first = SurfaceID(rawValue: 1), second = SurfaceID(rawValue: 2)
-        pushDead(store, surface: 1, end: Self.otherEnd)
-        pushDead(store, surface: 2, end: Self.otherEnd)
-
-        // The show of the workspace started the restart of tab 1: a view made now does not say that the restart failed.
-        daemon.wakingParkedTabs.formUnion([first])
-        let waking = services.cache.terminal(for: try #require(store.tab(surface: 1)), daemon: daemon)
-        #expect(label(waking) == "Process exited")
-        // Tab 2 is not in the set: it keeps the words.
-        let resting = services.cache.terminal(for: try #require(store.tab(surface: 2)), daemon: daemon)
-        #expect(label(resting) == Self.general)
-
-        // A later show starts the restart of tab 2, whose view is there already: the words go.
-        daemon.wakingParkedTabs.formUnion([second])
-        await hostLoss(of: resting) { $0 == nil }
-        #expect(label(resting) == "Process exited")
-
-        // The restart of tab 1 got its answer and the tab is still dead (a refused restart): the words are back.
-        daemon.wakingParkedTabs.remove(first)
-        await hostLoss(of: waking) { $0 != nil }
-        #expect(label(waking) == Self.general)
-        // The launch of tab 2 found no free PTY after its answer: the words are back, with that cause.
-        daemon.wakingParkedTabs.remove(second)
-        pushDead(store, surface: 2, end: Self.noPtyEnd)
-        await hostLoss(of: resting) { $0 == .restartFailedNoFreeTerminal }
-        #expect(label(resting) == Self.noFreeTerminal)
     }
 }
