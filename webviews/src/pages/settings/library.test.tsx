@@ -121,3 +121,9 @@ test("fifty entries draw as fifty rows in order", async () => {
   expect(names()[0]).toBe("look-01");
   expect(names()[49]).toBe("look-50");
 });
+
+test("a host with no CLI draws one Unavailable line, never an error", async () => {
+  await open({ failing: { "cmux.settings.customize.library": "cmux.page.unavailable" } });
+  expect(names()).toEqual([]);
+  expect(card()!.querySelector("[data-library-unavailable]")!.textContent).toBe("The library could not be read.");
+});

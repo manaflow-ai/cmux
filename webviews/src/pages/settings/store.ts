@@ -806,7 +806,9 @@ export class SettingsStore {
    * own words (a toggle while a preview is open), else null. */
   async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {
     const reply = await this.request("cmux.settings.customize.library", run);
-    if (!reply.ok) return { library: null, refusal: userMessage(reply.error, SETTINGS_SENTENCES) };
+    // A read the host could not run (no CLI in this build) draws the card's own Unavailable line.
+    if (!reply.ok)
+      return { library: null, refusal: run.verb === "list" ? null : userMessage(reply.error, SETTINGS_SENTENCES) };
     const answer = reply.value ?? {};
     const refusal = answer.library
       ? null
