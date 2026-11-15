@@ -15,7 +15,7 @@ Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md)
 
 | Layer | Into the running app |
 |---|---|
-| Web (`webviews/`) | `cmux customize use pr:N`; back with `cmux customize library off pr-N`. Your checkout: `cmux live start`. (`branch:`, `sha:`, `dir:` are coming.) |
+| Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA`, `dir:PATH [--watch]` (re-applied about 19 s after a save on a fleet Mac) or a fork's `OWNER/REPO@REF` (from the fork's own CI); back with `cmux customize library off NAME` or `off --all`. `library status` shows what is on, `library refresh` re-pulls |
 | Terminal daemon, acpmux Rust (`cmux-tui/`) | `scripts/cmux-next/hot-apply.py plan SHA`, `apply SHA`, `rollback` (about 2.7 s; `--restart-sessions` also hands other sessions' daemons over, about 6.9 s once its fix lands) |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
 | Swift, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
