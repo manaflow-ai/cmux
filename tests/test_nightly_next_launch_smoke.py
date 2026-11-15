@@ -517,7 +517,7 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertIsNotNone(cells, "smoke: runs-on has a matrix value nothing resolves")
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
-        self.assertTrue(runs_on.rstrip(" }").endswith("fromJSON(vars.RUNNER_POOLS).macos_26"))
+        self.assertTrue(runs_on.rstrip(" }").endswith("(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26)"))
         self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("fromJSON(vars.RUNNER_POOLS).macos_26"))
         for label in re.findall(r"'(macos-[^']+)'", runs_on):
             self.assertIn(f"github.repository_owner != 'manaflow-ai' && '{label}'", runs_on)
