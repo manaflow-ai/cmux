@@ -35,7 +35,14 @@ impl HubError {
 
 impl std::fmt::Display for HubError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "device hub {} {}: {}", self.status, self.code, self.message)
+        // The hub's own text, printed to the journal: no terminal control characters.
+        write!(
+            f,
+            "device hub {} {}: {}",
+            self.status,
+            super::printable(&self.code),
+            super::printable(&self.message)
+        )
     }
 }
 

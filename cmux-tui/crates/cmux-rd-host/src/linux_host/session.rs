@@ -209,7 +209,7 @@ pub fn serve(
                             connected = true;
                             eprintln!(
                                 "linux-host: {} is {} this desktop",
-                                ticket.peer_name,
+                                super::printable(&ticket.peer_name),
                                 if view_only { "viewing" } else { "controlling" }
                             );
                         }
@@ -220,8 +220,9 @@ pub fn serve(
                         }
                         if let Some(message) = line["status"]["message"].as_str() {
                             eprintln!(
-                                "cmux-rd linux-host: session {}: {message}",
-                                ticket.session_id
+                                "cmux-rd linux-host: session {}: {}",
+                                super::printable(&ticket.session_id),
+                                super::printable(message)
                             );
                         }
                         if let Some(reason) = line["ended"].as_str() {
