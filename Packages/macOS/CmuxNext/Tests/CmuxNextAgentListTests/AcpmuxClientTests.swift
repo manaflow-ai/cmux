@@ -11,9 +11,28 @@ private func fixture(_ name: String) throws -> Data {
     try Data(contentsOf: agentListFixtures.appendingPathComponent(name))
 }
 
-private final class LockedData: @unchecked Sendable {
+private nonisolated final class LockedData: @unchecked Sendable {
     let lock = NSLock()
-    var value = Data()
+    private var value = Data()
+
+    func append(_ data: Data) -> Bool {
+        lock.lock()
+        value.append(contentsOf: data)
+        lock.unlock()
+        return true
+    }
+
+    func equals(_ data: Data) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value == data
+    }
+
+    func snapshot() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
 }
 
 /// The recorded JSONL wraps each client change in {"change": ...}. The C
@@ -39,10 +58,8 @@ private func replay(_ bytes: Data, chunkSize: Int, expected: Data) -> Data {
     let done = DispatchSemaphore(value: 0)
     let received = LockedData()
     driver.beginForTesting {
-        received.lock.lock()
-        received.value.append(contentsOf: $0)
-        let complete = received.value == expected
-        received.lock.unlock()
+        received.append($0)
+        let complete = received.equals(expected)
         driver.acknowledgeBatch()
         if complete { done.signal() }
     }
@@ -53,9 +70,7 @@ private func replay(_ bytes: Data, chunkSize: Int, expected: Data) -> Data {
         offset = end
     }
     _ = done.wait(timeout: .now() + 20)
-    received.lock.lock()
-    defer { received.lock.unlock() }
-    return received.value
+    return received.snapshot()
 }
 
 @Test("the wrapper requires the ABI-3 header")
