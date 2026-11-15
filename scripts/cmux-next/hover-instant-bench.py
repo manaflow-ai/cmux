@@ -120,6 +120,7 @@ def where():
 
 
 LAST_POINT = {}
+DELAY_MS = 0.0  # the coordinator's show delay (`debug.hover_cards` delay_ms), read once the app answers
 ROUTE = None  # the real pointer route: "helper" (cmux Computer Use), "posted" (pointer-probe) or "cua" (CuaDriver)
 CUA_CANDIDATES = (os.path.expanduser("~/.local/bin/cua-driver"),
                   "/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
@@ -505,9 +506,14 @@ def sample(count, index, key, point, frame):
     # A card seen before the last post landed counts as 0 ms: it showed while the hand was still arriving.
     pending = None if pending_at is None else max(0.0, (pending_at - last) * 1000)
     shown = None if shown_at is None or shown_at - last > 2.0 else max(0.0, (shown_at - last) * 1000)
+    # The card's own cost past its wait: the coordinator arms the show delay when it turns pending, so pending to
+    # shown, less that delay, is the timer's overshoot plus building and showing the card, whatever the delay is.
+    after_delay = None if shown is None or pending_at is None else (shown_at - pending_at) * 1000 - DELAY_MS
     focus = rpc("debug.focus") or {}
     run = {"workspaces": count, "round": index, "row": key, "pending_ms": pending and round(pending, 1),
-           "shown_ms": shown and round(shown, 1), "target": report.get("shown_target"),
+           "shown_ms": shown and round(shown, 1),
+           "after_delay_ms": None if after_delay is None else round(after_delay, 1),
+           "target": report.get("shown_target"),
            # Where moves stop on a miss: a hovered row with no coordinator hit is the coordinator; a row the list
            # never hovered is delivery (the window server sent the app no move).
            "row_hovered": row_hovered(key), "events_delta": None if not report else
@@ -591,6 +597,10 @@ try:
         if opts.input == "real" else "debug.pointer_hover"
     report = cards()
     REPORT["defaults"] = {k: report.get(k) for k in ("enabled", "delay_ms", "sources", "monitor", "suppressions", "quiet")}
+    try:
+        DELAY_MS = float(report.get("delay_ms") or 0)
+    except (TypeError, ValueError):
+        DELAY_MS = 0.0
     safe_print(f"app pid {APP_PID}, input {opts.input} ({REPORT['pointer_route']}), "
                f"active {REPORT['active_at_start']}, window "
                f"{(main_window() or {}).get('frame')}, cards {REPORT['defaults']}", flush=True)
@@ -602,13 +612,16 @@ try:
         runs = [sample(count, i, *visible[i % len(visible)]) for i in range(opts.samples)] if visible else []
         shown = [r["shown_ms"] for r in runs if r["shown_ms"] is not None]
         pending = [r["pending_ms"] for r in runs if r["pending_ms"] is not None]
+        after = [r["after_delay_ms"] for r in runs if r["after_delay_ms"] is not None]
         cell = {"workspaces": count, "rows_visible": len(visible), "samples": len(runs), "shown": len(shown),
                 "shown_p50": pct(shown, 0.5), "shown_p95": pct(shown, 0.95),
                 "pending_p50": pct(pending, 0.5), "pending_p95": pct(pending, 0.95),
+                "delay_ms": DELAY_MS, "after_delay_p50": pct(after, 0.5), "after_delay_p95": pct(after, 0.95),
                 "median": statistics.median(shown) if shown else None, "runs": runs}
         REPORT["cells"].append(cell)
         safe_print(f"{count} workspaces: {len(shown)}/{len(runs)} shown, last move to shown p50 {cell['shown_p50']} "
-                   f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms", flush=True)
+                   f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms, past the {DELAY_MS:g} ms "
+                   f"delay p50 {cell['after_delay_p50']} p95 {cell['after_delay_p95']} ms", flush=True)
     status = 0 if REPORT["cells"] and all(c["shown"] for c in REPORT["cells"]) else 1
 finally:
     if CUA is not None:
