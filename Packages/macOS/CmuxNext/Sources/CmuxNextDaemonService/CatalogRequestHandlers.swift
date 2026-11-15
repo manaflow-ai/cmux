@@ -53,7 +53,7 @@ public struct CatalogRequestHandlers {
     }
 
     /// Why `invocation` may not send a catalog request, nil when it may.
-    nonisolated static func refusal(_ invocation: ActionInvocation) -> String? {
+    static func refusal(_ invocation: ActionInvocation) -> String? {
         invocation.origin == .remote ? CatalogRequestStrings.remote : nil
     }
 
