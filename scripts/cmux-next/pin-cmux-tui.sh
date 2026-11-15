@@ -1245,9 +1245,9 @@ probe_checkout_tree() {
     # A same-repository pull request whose merge keeps its head's tree: the
     # head's push publishes it. Read from git, so no API listing (which can
     # fail under the fetch budget or the rate limit) decides the publisher.
-    # Only a definite "the head has no artifacts run" (a head whose push ran
-    # no cmux-tui artifacts, or a pull request from a fork) falls through to
-    # the same-key search below, which also finds main's merge-tree publish.
+    # Only when that push has an artifacts run: a definite `none` (a publish
+    # that main starts instead) falls through to the same-key search below,
+    # as before #43406 (pin-cmux-tui-probe.test.sh case (d)).
     source="commit:$head_sha"
   elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch \
       || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
