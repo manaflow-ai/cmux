@@ -839,6 +839,22 @@ export type TailnetState = {
   error?: string;
 };
 
+/** A customization being tried on (`cmux customize try`; cmux-customize `try_on.rs`): applied now,
+ * back to generation `revert_to` by itself at `expires_ms` unless the person keeps it. */
+export type CustomizeTryOn = {
+  generation: number;
+  revert_to: number | null;
+  started_ms: number;
+  expires_ms: number;
+  /** What is tried on, in one line (the profile, or what was asked for). */
+  label: string;
+  origin: string;
+};
+
+/** `cmux --json customize status|keep|revert` as the host answers it: a status carries `try_on`; a
+ * refusal is the CLI's error envelope (`code`, `message`). */
+export type CustomizeAnswer = { try_on?: CustomizeTryOn | null; code?: string; message?: string };
+
 /** Settings > Privacy and Security > Shared Links (`cmux.settings.shares.list`): this Mac's daemon's
  * chat shares as `agent-session-share-list` answers them (cmux-tui server/agent_session_shares.rs),
  * and each chat's tab title by surface number. Times are milliseconds since the epoch. */
@@ -1273,6 +1289,8 @@ export type SettingsOps = {
   "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: signs the node out and closes its listeners. */
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
+  /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
+  "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
