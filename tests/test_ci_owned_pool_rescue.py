@@ -4494,6 +4494,7 @@ class Nightly(unittest.TestCase):
 
 
 IOS_SIM = "glaeda-ios-sim"
+SIM_FIRST = "glaeda-sim-xcode-26.6"
 
 
 class IOSDispatch(unittest.TestCase):
@@ -4588,6 +4589,25 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 is on Blacksmith: not watched
         self.assertIn("a dispatch of .github/workflows/test-ios.yml", summary)
         self.assertIn(f"queued on {MINI}", summary)
+
+    def test_a_job_on_the_sim_first_label_is_owned(self):
+        # glaeda#1983's sim-first runner: requested alone, it is still an owned label to watch.
+        self.assertEqual(rescue.job_pool(job("x", labels=[SIM_FIRST])), SIM_FIRST)
+        self.assertIsNone(rescue.job_pool(job("x", labels=["glaeda-sim-xcode"])))
+
+    def test_a_job_waiting_on_the_sim_first_label_moves_to_blacksmith(self):
+        # The picker put the simulator matrix on the sim-first label and no runner took it.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("ios-simulator (iphone)", labels=[SIM_FIRST], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=e2e_event(path=".github/workflows/test-ios.yml"))
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn(f"queued on {SIM_FIRST}", summary)
 
     def test_a_pull_request_run_waiting_for_the_simulator_label_is_left_at_its_open_head(self):
         # The same wait on a pull request run: the head is checked before the re-run.

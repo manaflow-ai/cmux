@@ -191,7 +191,13 @@ which may put the iOS jobs on an owned pool with the glaeda-ios-sim capability
 label, and uploads the same marker; from attempt 2 on every macOS job takes
 its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
-the same budget.
+the same budget. A simulator job the picker put on glaeda's sim-first label
+(pr_runner_pool.SIM_FIRST_LABEL, `glaeda-sim-xcode-<version>`, requested
+alone; feat-cmux-next's reliability matrix phone cells too, which this sweeper
+on the default branch watches) is an owned job here too (job_pool()): queued
+past the budget, held in its runner's setup for CPU units past
+SETUP_WAIT_SECONDS, or refused, it is moved to retry_runs_on like a job on the
+pool label.
 
 Dispatches of iroh-release-gate.yml, and of cmux-next-dev-daily.yml (its
 verify job), are watched the same way. Its `runner`
@@ -504,11 +510,16 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
+    # Main's Cua Driver SDK, dev helper and remote browser host publishers: their unsigned build
+    # takes the side label on attempt 1 of the dispatch (run 43645667029 sat on a Blacksmith queue).
+    ".github/workflows/cmux-next-cua-driver-sdk-publish.yml",
+    ".github/workflows/cmux-next-cua-helper-dev-sign.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-media.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
@@ -518,7 +529,9 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next.yml",
     # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,
     # tooling tests and release-notary guards on the side label only while a side runner is idle.
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-next-guards.yml",
+    ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
@@ -527,17 +540,24 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
     ".github/workflows/nightly-next-launch-smoke.yml",
+    ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
-    ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+    # Its full-text job takes the side label on attempt 1 (on both branches).
+    ".github/workflows/test-feed-reply-providers.yml",
 })
-# Side workflows whose Mac jobs take a session or gui label on every attempt (feat-cmux-next only), so no
-# re-run moves them off the minis (bot_rerun_leaves_owned()).
+# Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
+# re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
+# CI_BLACKSMITH_MACOS-off fallback is CI_SIDE_LANE_RUNNER: unlike the historical side route,
+# that expression has no github.run_attempt gate.
 OWNED_EVERY_ATTEMPT_PATHS = frozenset({
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-next-base-autofix.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",
+    ".github/workflows/cmux-rd-windows.yml",
+    ".github/workflows/macos-cross-parity.yml",
 })
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
@@ -807,9 +827,15 @@ def nightly_control_label(label: object) -> bool:
 
 
 def job_pool(job: Mapping[str, Any]) -> str | None:
-    """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
+    """The owned pool a job asked for, if any: a pull request pool, the trusted one or the sim-first label.
+
+    glaeda's sim-first label (pr_runner_pool.SIM_FIRST_LABEL) is requested alone by a simulator job
+    ios_runner_pool.py placed there, so a job queued on it past the budget, held in its setup or
+    refused is moved to retry_runs_on like one on a pool label.
+    """
     for label in job.get("labels") or []:
-        if (persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or LANE_LABEL.fullmatch(str(label))
+        if (persistent(str(label)) or pr_runner_pool.sim_first(str(label))
+                or TRUSTED_LABEL.fullmatch(str(label)) or LANE_LABEL.fullmatch(str(label))
                 or job.get("name") == "decide" and nightly_control_label(label)
                 or nightly_dedicated(str(label))):
             return str(label)
