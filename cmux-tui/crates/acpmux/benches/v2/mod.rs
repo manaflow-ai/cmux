@@ -60,7 +60,8 @@ struct Measure {
     god_p95: f64,
     god_p95_all: Option<f64>,
     unit: Option<String>,
-    /// The gate's test failed after writing this measure.
+    /// A test in this row's filter failed: the script marks every line the filter wrote, so the
+    /// failed test may be another of the filter's tests than the one that wrote this measure.
     gate_failed: bool,
 }
 
@@ -165,7 +166,7 @@ fn measured_row(row: &GateRow, measure: &Measure) -> Value {
     };
     let ratio_all = measure.god_p95_all.map(|value| value / measure.small_p95);
     let failures = [
-        (measure.gate_failed, "the gate's test failed after writing this measure"),
+        (measure.gate_failed, "a test in this row's filter failed"),
         (ratio > row.ratio, "god p95 exceeds the row's ratio"),
         (
             row.ratio_all.is_some_and(|limit| ratio_all.is_none_or(|value| value > limit)),
@@ -575,6 +576,24 @@ mod tests {
                 },
             )
         }
+
+        /// Whether one of `functions` calls the function `callee`.
+        fn calls(&self, functions: &HashSet<String>, callee: &str) -> bool {
+            let call = regex::Regex::new(&format!(r"\b{callee}\(")).unwrap();
+            self.functions.iter().filter(|(function, _, _)| functions.contains(function)).any(
+                |(_, first, last)| self.lines[*first + 1..=*last].iter().any(|l| call.is_match(l)),
+            )
+        }
+    }
+
+    /// Helpers that write `god_p95_all` for the rows their callers name, by the file (under this
+    /// crate) that defines each: a caller writes that line without spelling `god_p95_all`. A
+    /// helper here reports the rounds it is given, so a row written through it reports them.
+    const SHARED_WRITERS: &[(&str, &str)] = &[("src/test_support/list_daemon.rs", "emit_with_all")];
+
+    /// Whether one of `functions` in `source` writes its line through a [`SHARED_WRITERS`] helper.
+    fn calls_a_shared_writer(source: &Source, functions: &HashSet<String>) -> bool {
+        SHARED_WRITERS.iter().any(|(_, helper)| source.calls(functions, helper))
     }
 
     /// Rows a source with `god_p95_all` in it names and that compare no rounds: one measure a
@@ -589,6 +608,7 @@ mod tests {
         ("v2.pr05c.replay_open_hold", "one round, against an absolute bound"),
         ("v2.pr05c.single_encode", "one count of encodes a side"),
         ("v2.pr05c.walk_rss", "a diagnostic line that names the row, no measure"),
+        ("v2.pr04.chat_stopped_reader", "one peak resident rise a side, each in its own process"),
     ];
 
     /// Best-of-rounds rows whose gate source an open pull request changes: they move onto
@@ -596,42 +616,42 @@ mod tests {
     const ROUNDS_WAIT_ON_ANOTHER_PR: &[&str] = &[
         // cmux#43039: acpmux-client/src/lib.rs.
         "v2.pr04b.mirror_v1_rows",
-        // cmux#43553: acpmux-core/src/chat/stream/gates_tests.rs.
-        "v2.pr03c.first_window",
-        "v2.pr03c.resume_missed",
-        "v2.pr03c.subscribed_rss",
-        "v2.pr03c.append_behind_page",
-        "v2.pr03c.queue_window",
-        "v2.pr03c.prompt_blob_next",
-        "v2.pr04.chat_stopped_reader",
-        // cmux#43438 and cmux#43403: acpmux-core/src/hub.rs.
-        "v2.pr05.first_list_window",
-        "v2.pr05.summary_change",
-        // cmux#43403: acpmux-core/src/hub/mirror_gates.rs.
-        "v2.pr08.mirror_apply",
-        "v2.pr08.mirror_local_row",
-        "v2.pr08.mirror_local_row_thirty",
     ];
 
     /// A gate that keeps the best of several rounds hides a round that did different work from
     /// the rest (cmux#43438's replay append read 0.995x on rounds that returned early). A source
     /// that writes `god_p95_all` for a row calls `gate_rounds::report` on the way to that line:
-    /// in a function that reaches the row's name ([`Source::reaches`]) or one those call.
+    /// in a function that reaches the row's name ([`Source::reaches`]) or one those call. A row
+    /// written through a [`SHARED_WRITERS`] helper is read the same way, in its caller's source,
+    /// and the helper itself must report.
     #[test]
     fn a_best_of_rounds_row_reports_its_rounds() {
+        for (file, helper) in SHARED_WRITERS {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
+            let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            assert!(text.contains("god_p95_all"), "{helper} in {file} writes no god_p95_all");
+            let source = Source::read(&text);
+            let helper_and_callees = source.called_from(HashSet::from([helper.to_string()]));
+            assert!(
+                source.reports_rounds(&helper_and_callees),
+                "{helper} in {file} writes rows' god_p95_all without gate_rounds::report"
+            );
+        }
         let registry_home = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/v2_gate_home.rs");
         let mut files: Vec<PathBuf> =
             names_in_sources().into_iter().map(|(_, file)| file).collect();
         files.sort();
         files.dedup();
-        let mut checked = 0;
+        let (mut checked, mut shared) = (0, 0);
         let mut silent = Vec::new();
         for file in files.iter().filter(|file| **file != registry_home) {
             let text = fs::read_to_string(file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
-            if !text.contains("god_p95_all") {
+            let source = Source::read(&text);
+            let all_functions = source.functions.iter().map(|(f, _, _)| f.clone()).collect();
+            let through_shared = calls_a_shared_writer(&source, &all_functions);
+            if !text.contains("god_p95_all") && !through_shared {
                 continue;
             }
-            let source = Source::read(&text);
             for row in GATE_ROWS {
                 let reached = source.reaches(row.name);
                 if reached.is_empty() {
@@ -640,12 +660,19 @@ mod tests {
                 checked += 1;
                 let exempt = NO_ROUNDS.iter().any(|(name, _)| *name == row.name)
                     || ROUNDS_WAIT_ON_ANOTHER_PR.contains(&row.name);
-                if !exempt && !source.reports_rounds(&source.called_from(reached)) {
+                let called = source.called_from(reached);
+                if calls_a_shared_writer(&source, &called) {
+                    shared += 1;
+                }
+                let reports =
+                    source.reports_rounds(&called) || calls_a_shared_writer(&source, &called);
+                if !exempt && !reports {
                     silent.push(format!("{} in {file:?}", row.name));
                 }
             }
         }
         assert!(checked >= 20, "the scan read too few rows that write god_p95_all: {checked}");
+        assert!(shared >= 1, "the scan read no row written through a shared writer");
         assert!(
             silent.is_empty(),
             "these rows write god_p95_all and no function on the way to their line calls \
@@ -678,6 +705,26 @@ mod tests {
         let reports = |row: &str| source.reports_rounds(&source.called_from(source.reaches(row)));
         assert!(reports("v2.pr99.through_two"));
         assert!(!reports("v2.pr99.silent"));
+    }
+
+    #[test]
+    fn a_row_written_through_a_shared_writer_reports_its_rounds() {
+        let text = [
+            "fn gate() {",
+            "    let name = \"v2.pr99.through_list_daemon\";",
+            "    let (small, god, god_all) = emit_with_all(name, &small_wall, &god_wall, \"ns\");",
+            "}",
+            "",
+            "fn other_gate() {",
+            "    line(\"v2.pr99.silent\", \"ns\");",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        let shared = |row: &str| calls_a_shared_writer(&source, &source.reaches(row));
+        assert!(shared("v2.pr99.through_list_daemon"));
+        assert!(!shared("v2.pr99.silent"));
+        assert!(!source.reports_rounds(&source.reaches("v2.pr99.through_list_daemon")));
     }
 
     /// The gate script's group table: each `.gates` group word and the runner it starts.
@@ -1099,7 +1146,7 @@ mod gate_failed_tests {
     fn a_marked_line_reads_red_with_its_numbers_kept() {
         let row = kin_row(kin_line(Some(json!(true))));
         assert_eq!(row["status"], "red");
-        assert_eq!(row["reason"], "the gate's test failed after writing this measure");
+        assert_eq!(row["reason"], "a test in this row's filter failed");
         assert_eq!(row["small_p95"], 1000.0);
         assert_eq!(row["god_p95"], 1100.0);
         assert_eq!(row["ratio"], 1.1);
@@ -1137,7 +1184,7 @@ mod gate_failed_tests {
         };
         assert_eq!(
             status_of("v2.pr05e.kin_table_change"),
-            (json!("red"), json!("the gate's test failed after writing this measure"))
+            (json!("red"), json!("a test in this row's filter failed"))
         );
         assert_eq!(
             status_of("v2.pr05e.sibling_insert"),
