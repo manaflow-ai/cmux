@@ -11,8 +11,7 @@ import CmuxNextIcons
 final class EmptyGroupRowView: SidebarRowView {
     private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// The +: New Workspace in Group, as a click on the row and the header's + run.
-    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
-                                      label: Strings.newWorkspace)
+    let addButton = SidebarIconButton(plus: Strings.newWorkspace)
     /// A click makes a workspace in the group (`SidebarListView.wire` sets it with the action).
     var onAdd: (() -> Void)? { didSet { if (onAdd == nil) != (oldValue == nil) { updateText() } } }
     private var groupName = ""

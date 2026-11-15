@@ -743,6 +743,7 @@ mod tests {
             notice: false,
             persons: true,
             accepted: true,
+            device: None,
         });
         // Legacy resend behavior stays intact, but recovery must not answer interrupted.
         assert_eq!(

@@ -14,6 +14,14 @@ branch, not with the last FFI tag: runs 37551889292 and 38682698310 had the
 last tag's workflow tree, minted contents:write only and got HTTP 403. Only the
 release create uses that token.
 
+The xcframework holds one dynamic library, `libcmux_app_ffi.dylib` (install name
+`@rpath/libcmux_app_ffi.dylib`, ad hoc signed, with its dSYM). An app built
+against such a pin carries it at `Contents/Frameworks/libcmux_app_ffi.dylib`
+(Xcode embeds and signs a package's dynamic binary target), where the nightly's bundle signing signs
+it with the app, and `hot-apply.py` can swap a newer release in warm. The
+release also carries `libcmux_app_ffi-prelinked.a`, the same objects as one
+archive, for the size and parity checks.
+
 ## The pin, after a publish
 
 The run's `repin` job first pins its release straight on `feat-cmux-next`
@@ -34,6 +42,14 @@ branch's required check). It does so only when:
 Otherwise it falls back to the `app-ffi-repin` pull request, which the app
 compile proves before it lands. Dry run until `CMUX_NEXT_BASE_AUTOFIX` is
 `1`, like the base autofix.
+
+There is no merge queue on `feat-cmux-next`. next-autoland lands that pull
+request with no review receipt (`repin_bot_exempt`) once its checks finish, and judges it
+first on every pass. Its runner-lost reds get one rerun. The base's pin check
+fails 120 min after the FFI change (`--stale-grace 7200`). At 90 min,
+base-red-watch sends the coordinator a WARN that names the open re-pin pull
+request. If the PR is still unmerged then, land it by hand: `merge_hold
+explain`, then a pinned squash.
 
 A tip whose FFI sources moved past the release still gets that release
 pinned. Until 2026-11-11 it was left to the newer push's own run, and when FFI
@@ -132,8 +148,8 @@ release workflow's push paths, the router, `build_class.py` and
    `Package.swift` or `app-ffi-pin.json`. The merge gate excuses the stale-pin
    red of such a PR (`scripts/ci/base_red_excuse.py`, the step-A rule). After
    the merge, `app-ffi-release.yml` publishes the release and the re-pin bot
-   opens the re-pin pull request (branch `app-ffi-repin`). The merge queue
-   merges the re-pin first. A function that step A adds to a header is not
+   opens the re-pin pull request (branch `app-ffi-repin`), which
+   next-autoland lands first (see above). A function that step A adds to a header is not
    port drift (`scripts/cmux-next/ffi_caller_ratchet.py`) while the pinned
    release lacks it: the app cannot call it yet, so the check prints a note,
    not a finding. From the re-pin on, it needs its Swift caller, which is
