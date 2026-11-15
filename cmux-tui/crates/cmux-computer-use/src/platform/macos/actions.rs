@@ -679,8 +679,11 @@ pub(super) fn click(
         // In a scope: still live (not stopped, not past its bound, the
         // person did not switch to the app) and focus still on the target.
         if let Some(key) = menu_key.as_ref()
-            && let Err(why) =
-                roles::primed_press(key.live(), focused_on_target(&t), prime_block_of(&el).is_some())
+            && let Err(why) = roles::primed_press(
+                key.live(),
+                focused_on_target(&t),
+                prime_block_of(&el).is_some(),
+            )
         {
             return Err(scope_refusal(menu_key.take(), why));
         }
@@ -931,7 +934,10 @@ pub(super) fn press_keys(
                         primed = Some(key);
                         primed_items = Some((first, first_complete));
                     } else if key.end() == super::activation::Ended::HandBackFailed {
-                        super::activation::append_note(&mut notes, super::activation::HAND_BACK_FAILED);
+                        super::activation::append_note(
+                            &mut notes,
+                            super::activation::HAND_BACK_FAILED,
+                        );
                     }
                 }
             }
@@ -942,7 +948,10 @@ pub(super) fn press_keys(
         let (items, complete) = match primed_items.take() {
             Some((first, first_complete)) => {
                 if primed.as_ref().is_some_and(|k| !k.live()) {
-                    return Err(scope_refusal(primed.take(), roles::primed_press(false, true, false).unwrap_err()));
+                    return Err(scope_refusal(
+                        primed.take(),
+                        roles::primed_press(false, true, false).unwrap_err(),
+                    ));
                 }
                 let mut complete = first_complete;
                 let again: Vec<(Ax, roles::ShortcutMatch)> = first
@@ -1148,7 +1157,8 @@ fn prime_block_of(item: &Ax) -> Option<&'static str> {
         node = n.element("AXParent");
     }
     let title = item.string("AXTitle").unwrap_or_default();
-    let number = |name: &str| item.attr(name).ok().flatten().and_then(|v| v.as_f64()).map(|v| v as i64);
+    let number =
+        |name: &str| item.attr(name).ok().flatten().and_then(|v| v.as_f64()).map(|v| v as i64);
     let key = keymap::menu_item_key(
         item.string("AXMenuItemCmdChar").as_deref(),
         number("AXMenuItemCmdVirtualKey"),
