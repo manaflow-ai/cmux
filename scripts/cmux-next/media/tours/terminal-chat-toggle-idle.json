@@ -1,5 +1,17 @@
 {
   "title": "Toggle Terminal and Chat latency, idle: 2,000-turn Claude Code chat whose session a terminal runs",
+  "harnessFixture": {
+    "harnesses": {
+      "claude": {
+        "kind": "claude-stdio",
+        "argv": [
+          "claude"
+        ],
+        "family": "claude",
+        "description": "Synthetic capture harness (Toggle Terminal and Chat tours)"
+      }
+    }
+  },
   "steps": [
     {
       "title": "New workspace Swap",
