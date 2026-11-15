@@ -62,8 +62,8 @@ final class IconPickerService {
     /// Each open's timing (`debug.timings` lists them as `icon_picker_opens`).
     var onOpened: ((IconPickerOpenTiming) -> Void)?
 
-    /// Makes the warm picker ahead of the first open (the app calls it at an idle moment after
-    /// launch); `then` runs when it is ready.
+    /// Makes the warm picker ahead of the first open (the app calls it at the first menu, where every
+    /// Set Icon is, never at launch: `MenuTracking.onFirstMenu`); `then` runs when it is ready.
     func prepare(then: (() -> Void)? = nil) {
         guard let catalog else {
             loadCatalog { [weak self] in self?.prepare(then: then) }
