@@ -242,7 +242,6 @@ import Testing
         let harness = try await connect(answering: false, laterSpawnsHang: true)
         defer { finish(harness) }
         let connection = harness.connection
-        connection.transportLiveness.reconnectAttemptDeadline = .milliseconds(500)
 
         harness.clock.advance(.seconds(31))
         #expect(connection.checkTransportLiveness(now: harness.clock.now) == .probe)
@@ -250,11 +249,23 @@ import Testing
         #expect(isStall(connection.checkTransportLiveness(now: harness.clock.now)))
 
         // Every spawn after the first stays alive and silent, like a broker retrying a refused host.
+        let attempting = await AppKitTestEventPump().waitUntil(timeout: .seconds(20)) {
+            harness.allPIDs().count >= 2 && connection.transportLiveness.reconnectAttemptExpiry != nil
+        }
+        try #require(attempting, "the stall must start a reconnect attempt")
+        let hung = try #require(harness.allPIDs().dropFirst().first)
+
+        harness.clock.advance(connection.transportLiveness.reconnectAttemptDeadline - .seconds(1))
+        #expect(!connection.checkReconnectAttemptDeadline(now: harness.clock.now),
+                "an attempt still inside its deadline must be left alone")
+        harness.clock.advance(.seconds(1))
+        #expect(connection.checkReconnectAttemptDeadline(now: harness.clock.now),
+                "an attempt that never reaches control mode must be replaced at its deadline")
+
         let replaced = await AppKitTestEventPump().waitUntil(timeout: .seconds(20)) {
             harness.allPIDs().count >= 3
         }
-        #expect(replaced, "a reconnect attempt that never reaches control mode must be replaced")
-        let hung = try #require(harness.allPIDs().dropFirst().first)
+        #expect(replaced, "the replaced attempt must be followed by a new one")
         let ended = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) { processIsGone(hung) }
         #expect(ended, "the attempt that never reached control mode must be ended")
         #expect(connection.connectionState == .reconnecting)
