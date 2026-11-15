@@ -347,15 +347,6 @@ fn timed_append_plain(
     timed_append_armed(writer, target, offset, active, || {}, || {})
 }
 
-fn timed_append_plain(
-    writer: HubWriter,
-    target: u64,
-    offset: usize,
-    active: &AtomicBool,
-) -> Result<(HubWriter, u128), crate::hub::HubError> {
-    timed_append_armed(writer, target, offset, active, || {})
-}
-
 async fn wait_for_count(count: &AtomicUsize) {
     let started = timeout(Duration::from_secs(20), async {
         while count.load(Ordering::Acquire) == 0 {
