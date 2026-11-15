@@ -1551,7 +1551,7 @@ class HotApplyFFIPin(unittest.TestCase):
     def plan(self, *args):
         done = subprocess.run([sys.executable, str(SCRIPT), "plan", REPIN, *args], capture_output=True, text=True,
                               env=self.env)
-        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(done.returncode, (0, 3), done.stderr)  # 3: something is left for a new app
         return json.loads(done.stdout)
 
     def test_a_commit_that_moves_the_pin_takes_the_ffi_part(self):
