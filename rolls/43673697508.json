@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43673697508",
+  "recorded_at": "2026-11-15T03:52:11Z",
+  "reason": "cmux-tui 8a2f772e6e59 changes the image's cmux-tui (pinned b65ea49f149a)",
+  "dry_run": false,
+  "cmux_tui": "8a2f772e6e59306b36275d57ff2cdd76f1ea98aa",
+  "fixes": [
+    {
+      "sha": "8a2f772e6e59306b36275d57ff2cdd76f1ea98aa",
+      "mergedAt": "2026-11-15T03:28:04Z",
+      "subject": "Agent chat: the row store's adapter and a parity test against v1 (v2 row 6c, 2 of 3) (#43300)"
+    },
+    {
+      "sha": "1b9b4064640801ecb74fd210408a35671adecbb8",
+      "mergedAt": "2026-11-14T19:26:44-08:00",
+      "subject": "acpmux: steers a dead agent never read go into its continuation (#43456)"
+    },
+    {
+      "sha": "6b488f02956deb80a2933136ef70d474779f5996",
+      "mergedAt": "2026-11-14T19:25:27-08:00",
+      "subject": "Computer Use keeps working in open chats across an app relaunch (#43431)"
+    },
+    {
+      "sha": "6f8c76084bacf07ff42c878bb69757a7d6e5d279",
+      "mergedAt": "2026-11-14T19:20:03-08:00",
+      "subject": "acpmux vault: agents keep keys they make, with no sign-in or click (#43439)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T03:52:11Z",
+    "snapshot_id": "sh-a9ff3c483d854678a9d1b5e1b7e34415",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43673697508): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ac97d39bd3e1c940b43493f45b77ca202721bbfd",
+    "image": "cloud-native-auto-8a2f772e-43673697508-1",
+    "revision": "ci-43673697508-1",
+    "at": "2026-11-15T03:52:11Z"
+  },
+  "rolled_back": false
+}
