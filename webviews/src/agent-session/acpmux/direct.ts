@@ -1415,6 +1415,9 @@ export const HELD_KEPT = OLDER_PAGE_RECORDS;
 /// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice what a cut
 /// keeps, so it sheds at most once per `HELD_KEPT` records, one refold of what it keeps each time.
 export const HELD_RECORDS = 2 * HELD_KEPT;
+/// How many more records a chat that could not shed past `HELD_RECORDS` takes before it tries again
+/// (`shedOlderHeld`): the try walks the newest `HELD_KEPT` records, so a refused one costs O(1) a record.
+const HELD_RETRY = HELD_KEPT / 4;
 
 /// The index of the first record in `events` (oldest first) at or after `seq`: a binary search, so
 /// a read of the newest records costs O(log held), not a walk over every one.
@@ -1446,6 +1449,32 @@ export function rebuildCut(
   while (at > 0 && events[at]!.at >= openSince) at -= 1;
   while (at > 0 && !(startsTurn(events[at]!) && endsTurnBefore(events, at))) at -= 1;
   return at;
+}
+
+/// Where a chat left open lets go of its oldest records inside a turn that has not ended (`shedOlderHeld`): a
+/// coordinator's turn takes prompts and messages for days and never reaches a `turn_result`, so a cut only at a
+/// turn start (`rebuildCut`) never came and the pane held every record it streamed (Leo's coordinator chat: 3.58 GB
+/// and 110% CPU). The newest `keep` records, moved back over a subagent still running (`openSince`) and to the
+/// oldest row a record past the cut changed (`spanningFrom`, so no row is drawn from only part of its records),
+/// until neither moves it. 0 when that reaches the oldest record held. The rows kept are drawn as a page that
+/// starts inside the turn is, under the turn's prompt (`turnOpener`).
+export function midTurnCut(
+  events: readonly EventRecord[],
+  keep: number,
+  openSince: number,
+  spanningFrom: (seq: number) => number,
+): number {
+  if (events.length <= keep) return 0;
+  let at = events.length - keep;
+  for (;;) {
+    const moved = at;
+    while (at > 0 && events[at]!.at >= openSince) at -= 1;
+    if (at <= 0) return 0;
+    const from = spanningFrom(events[at]!.seq);
+    if (from < events[at]!.seq) at = firstHeldFrom(events, from);
+    if (at <= 0) return 0;
+    if (at === moved) return at;
+  }
 }
 
 /// Whether the turn before `events[at]` ended before it: its `turn_result` comes after the agent's
@@ -3484,6 +3513,8 @@ export class AcpmuxDirectClient {
   /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
   /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
   private following = true;
+  /// How many records the chat holds when it next tries to shed inside a turn (`apply`, `HELD_RETRY`).
+  private shedRetryAt = 0;
   /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
   private nativeSeed?: { seq: number; before: number; mark?: string };
   /// Where the next older native page ends, once one was read, for the held transcript
@@ -7601,6 +7632,11 @@ export class AcpmuxDirectClient {
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
+    } else if (this.events.length > HELD_RECORDS && this.events.length >= this.shedRetryAt) {
+      // A turn that does not end (a coordinator's) sheds on the count alone; one that could not shed now
+      // (scrolled up, paging, a gap) tries again `HELD_RETRY` records later, so a refused shed costs O(1) a record.
+      this.shedOlderHeld();
+      if (this.events.length > HELD_RECORDS) this.shedRetryAt = this.events.length + HELD_RETRY;
     }
   }
 
@@ -7624,14 +7660,35 @@ export class AcpmuxDirectClient {
     if (this.indexedPlaceholders?.size || this.indexedGaps.length > 0) return;
     // Native history (seq < 1) pages in by its own cursor (`fetchNativeOlder`): a chat holding it keeps it.
     if ((this.events[0]?.seq ?? 1) < 1) return;
+    // A subagent still running keeps the turn it started in whole, unless it started before the newest
+    // `HELD_RECORDS` records: one that never said it ended (its last record lost, a harness that restarted) pinned
+    // the cut at its start forever. Past the cut it is drawn as a page that starts after its start draws it.
+    const oldestKept = this.events[this.events.length - HELD_RECORDS]?.at ?? -Infinity;
     let openSince = Infinity;
     for (const agent of this.subagents.all())
-      if (agent.state === "running") openSince = Math.min(openSince, agent.startedAt);
-    const cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
+      if (agent.state === "running" && agent.startedAt >= oldestKept) openSince = Math.min(openSince, agent.startedAt);
+    let cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
+    // No turn start to cut at within the budget (a turn that never ends): cut inside the newest turn, under its
+    // prompt, as a page that starts inside a turn is drawn (`turnOpener`).
+    // A turn start cut stays when no cut inside the turn is found (a row or a subagent spans the whole budget).
+    let opener: EventRecord | undefined;
+    if (this.events.length - cut > HELD_RECORDS) {
+      const inside = midTurnCut(this.events, HELD_KEPT, openSince, (seq) => this.rows.spanningFrom(seq));
+      if (inside > cut) {
+        cut = inside;
+        opener = this.turnOpener;
+        for (let index = cut - 1; index >= 0; index -= 1)
+          if (startsTurn(this.events[index]!)) {
+            opener = this.events[index];
+            break;
+          }
+      }
+    }
     if (cut <= 0) return;
+    this.shedRetryAt = 0;
     this.events = this.events.slice(cut);
     this.historyExhausted = false;
-    this.turnOpener = undefined;
+    this.turnOpener = opener;
     // An older page in flight, or read ahead, was read for the held history that just went.
     this.historyEpoch += 1;
     this.cancelOlderPaging();

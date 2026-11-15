@@ -157,6 +157,8 @@ async function streamed(count: number, following: boolean) {
   }
   for (let index = 0; index < 20; index += 1) await tick();
   flush();
+  // Delivered records apply a tick later: the last ones count too.
+  most = Math.max(most, events().length);
   return {
     client,
     events,
