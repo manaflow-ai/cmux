@@ -464,3 +464,30 @@ fn a_join_is_refused_when_the_next_unit_does_not_follow() {
     assert_eq!(hub.mirror_mark(ORIGIN), Some(mark(9)));
     assert!(!writer.mirror.retry_pending());
 }
+
+/// The writer counts each origin's takeovers as it handles them: applied, or
+/// held with the origin (here, its record waiting for the storage retry).
+/// A dialer waits on that count changing, never on a state a held takeover
+/// would not bring.
+#[test]
+fn the_writer_counts_each_takeover_as_applied_or_held() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+    writer.process_batch();
+    assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns::default());
+    hub.takeover(ORIGIN, Source::Mirror).unwrap();
+    writer.process_batch();
+    assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns { applied: 1, held: 0 });
+    let record = writer.published.load().origin(ORIGIN).cloned().unwrap_or(OriginRecord {
+        seq: 0,
+        id: ORIGIN.into(),
+        state: OriginState::Connected,
+        since: 0,
+        extra: None,
+    });
+    writer.origins.retry.insert(ORIGIN.to_owned(), record);
+    hub.takeover(ORIGIN, Source::V1).unwrap();
+    writer.process_batch();
+    assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns { applied: 1, held: 1 });
+    assert_eq!(hub.source(ORIGIN), Some(Source::Mirror), "the held takeover changed nothing");
+}

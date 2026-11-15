@@ -13,7 +13,10 @@
 //!   the dialer sends its takeover, which writes the mark off in its own turn,
 //!   and submits the walk's first unit (`after: None`) only once the mark
 //!   reads off. It never sends a first unit that names the current mark. The
-//!   rows the origin held stay until the walk's reconcile.
+//!   rows the origin held stay until the walk's reconcile. The wait ends on
+//!   the writer's handling of the takeover, never on the mark alone: held with
+//!   a leaving origin, the dialer starts again; replaced or followed by
+//!   another source's takeover, the mirror ends, refused.
 //! - **One unit in the queue.** Before each unit the dialer waits until the
 //!   origin is settled (no unit of it queued, in the writer or in the storage
 //!   retry, and the origin not leaving), so a unit is never refused as full
@@ -219,8 +222,12 @@ impl<'a> Dial<'a> {
         for change in batch {
             match change {
                 Change::Window(window) if window.sid == self.sid => {
-                    if let Some(end) = self.begin_walk().await {
-                        return Some(end);
+                    match self.begin_walk().await {
+                        Ok(true) => {}
+                        // Started again from the mark: the rest of this
+                        // subscription is not read.
+                        Ok(false) => return None,
+                        Err(end) => return Some(end),
                     }
                     (self.cursor, self.edition, self.whole) =
                         (window.cursor, window.edition, false);
@@ -339,30 +346,51 @@ impl<'a> Dial<'a> {
     }
 
     /// A window: the walk's first unit names no mark, so the mark must be off
-    /// and the origin this source's before it goes in.
-    async fn begin_walk(&mut self) -> Option<DialEnd> {
+    /// and the origin this source's before it goes in. `Ok(false)` when the
+    /// takeover did not take effect and the dialer started again.
+    async fn begin_walk(&mut self) -> Result<bool, DialEnd> {
         self.counters.walks.fetch_add(1, Ordering::Relaxed);
         self.hub.wait_mirror_settled(self.origin).await;
         if self.hub.mirror_mark(self.origin).is_some()
             || self.hub.source(self.origin) != Some(Source::Mirror)
         {
-            if let Err(error) = self.hub.takeover(self.origin, Source::Mirror) {
-                return Some(DialEnd::Refused(error));
+            let origin = self.origin;
+            let before = self.hub.takeover_turns(origin);
+            if let Err(error) = self.hub.takeover(origin, Source::Mirror) {
+                return Err(DialEnd::Refused(error));
             }
             self.counters.takeovers.fetch_add(1, Ordering::Relaxed);
-            // The takeover's own turn writes the mark off; each writer turn
-            // wakes this wait.
-            let origin = self.origin;
-            self.hub
-                .wait_mirror_until(|hub| {
-                    hub.mirror_settled(origin)
-                        && hub.mirror_mark(origin).is_none()
-                        && hub.source(origin) == Some(Source::Mirror)
-                })
-                .await;
+            // The writer handles the takeover in a turn of its own, and each
+            // turn wakes this wait: it applies (the mark goes off) or is held
+            // with the origin. A takeover of another source queued right
+            // behind replaces this one and applies in its place.
+            self.hub.wait_mirror_until(|hub| hub.takeover_turns(origin) != before).await;
+            if self.hub.takeover_turns(origin).applied == before.applied {
+                // Held: the origin is leaving, or its record waits for the
+                // storage retry. The start again waits that out, then takes
+                // over or resumes as the mark says then.
+                self.restart().await;
+                return Ok(false);
+            }
+            match self.hub.source(origin) {
+                Some(Source::Mirror) if self.hub.mirror_mark(origin).is_none() => {}
+                // Another source's takeover applied after this one: the
+                // origin is that source's now, and this mirror ends.
+                Some(owner) if owner != Source::Mirror => {
+                    return Err(DialEnd::Refused(HubError::SourceRefused {
+                        origin: origin.to_owned(),
+                        incoming: Source::Mirror,
+                        owner,
+                    }));
+                }
+                _ => {
+                    self.restart().await;
+                    return Ok(false);
+                }
+            }
         }
         self.last_sent = None;
-        None
+        Ok(true)
     }
 
     /// Starts again from the mark, after a back-off when restarts come in a

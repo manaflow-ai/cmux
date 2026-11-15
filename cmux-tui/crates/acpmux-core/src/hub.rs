@@ -43,7 +43,9 @@ pub use acpmux_book::index::MirrorMark;
 mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
-pub use mirror::{MAX_FRAME_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
+pub use mirror::{
+    MAX_FRAME_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, TakeoverTurns, UnitChange,
+};
 pub use origins::{Source, refused_held_rows};
 
 pub use crate::wire::{DeltaFrame, Window};
@@ -1704,6 +1706,13 @@ impl HubWriter {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);
             }
         }
+    }
+
+    /// One writer turn, for a caller that drives the writer itself in place
+    /// of [`Self::run`]: a test that orders the writer's turns against other
+    /// work (a dialer's takeover and an origin's removal in one turn).
+    pub fn turn(&mut self) {
+        self.process_batch();
     }
 
     /// Disk writes, group syncs and hydration run off runtime workers.

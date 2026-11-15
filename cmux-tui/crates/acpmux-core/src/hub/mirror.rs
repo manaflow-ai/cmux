@@ -66,8 +66,20 @@ pub struct Counters {
     join_refused: AtomicU64,
     /// Units queued and not yet handled by the writer, per origin.
     in_flight: Mutex<HashMap<Arc<str>, u32>>,
+    /// The takeovers the writer handled, per origin and by any source.
+    takeovers: Mutex<HashMap<Arc<str>, TakeoverTurns>>,
     /// Woken after each writer turn: a unit was handled or an origin moved.
     settled: Notify,
+}
+
+/// The takeovers the writer handled for one origin: those it applied (the
+/// source set, the mark off) and those it held with the origin (leaving, or
+/// its record waiting for the storage retry). A held takeover that is later
+/// released counts again when it applies.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TakeoverTurns {
+    pub applied: u64,
+    pub held: u64,
 }
 
 /// One read of the mirror's counters.
@@ -105,6 +117,17 @@ impl Counters {
             *count = count.saturating_add_signed(delta);
             if *count == 0 {
                 in_flight.remove(origin);
+            }
+        }
+    }
+
+    pub(super) fn note_takeover(&self, origin: &str, applied: bool) {
+        if let Ok(mut takeovers) = self.takeovers.lock() {
+            let turns = takeovers.entry(origin.into()).or_default();
+            if applied {
+                turns.applied += 1;
+            } else {
+                turns.held += 1;
             }
         }
     }
@@ -224,6 +247,15 @@ impl Hub {
         self.mirror.in_flight(origin) == 0
             && self.updates.pending.lock().is_ok_and(|pending| !pending.retrying.contains(origin))
             && !self.published.load().is_origin_leaving(origin)
+    }
+
+    /// The takeovers of `origin` the writer handled so far. Each writer turn
+    /// wakes [`Self::wait_mirror_until`], so a dialer waits on a change here.
+    pub fn takeover_turns(&self, origin: &str) -> TakeoverTurns {
+        self.mirror.takeovers.lock().map_or_else(
+            |_| TakeoverTurns::default(),
+            |turns| turns.get(origin).copied().unwrap_or_default(),
+        )
     }
 
     /// Waits until [`Self::mirror_settled`], woken by the writer's turns.
