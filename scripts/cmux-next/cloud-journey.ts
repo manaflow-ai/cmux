@@ -1447,6 +1447,8 @@ export type ProbeExtra = {
   spare_fallback?: string | null;
   spare_skips?: Record<string, number> | null;
   claimed_spare?: boolean | null;
+  /** The claim answer's value.claim.behind (cmux-platform#1429): the spare taken was one image roll behind; null with no claim. */
+  claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
   login_path?: "receipt" | "copy";
   failure_facts?: FailureFacts;
@@ -1470,8 +1472,11 @@ const ID_KEY = /(^|_)(id|ids|target|host|hostname|machine|team|user|owner|url|ad
 const publicToken = (v: unknown): string | null => (typeof v === "string" && TOKEN.test(v) && !ID_SHAPE.test(v) ? v : null);
 const publicVersion = (v: unknown): string | null => (typeof v === "string" && VERSION.test(v) && !ID_SHAPE.test(v) ? v : null);
 
-/** The create answer's spare claim report (cmux-platform#1418), as counts by reason and a fallback reason. */
-export function spareFields(value: unknown): { spare_fallback: string | null; spare_skips: Record<string, number> | null } {
+/**
+ * The create answer's spare claim report (cmux-platform#1418), as counts by reason and a fallback reason, and whether
+ * the spare it took was one image roll behind (value.claim.behind, cmux-platform#1429; null when it took none).
+ */
+export function spareFields(value: unknown): { spare_fallback: string | null; spare_skips: Record<string, number> | null; claimed_behind: boolean | null } {
   const v = (value ?? {}) as Record<string, unknown>;
   const raw = v.spare_skips;
   let skips: Record<string, number> | null = null;
@@ -1481,7 +1486,18 @@ export function spareFields(value: unknown): { spare_fallback: string | null; sp
       if (TOKEN.test(k) && Number.isSafeInteger(n) && (n as number) >= 0) skips[k] = n as number;
     }
   }
-  return { spare_fallback: publicToken(v.spare_fallback), spare_skips: skips };
+  const claim = v.claim && typeof v.claim === "object" && !Array.isArray(v.claim) ? (v.claim as Record<string, unknown>) : null;
+  return { spare_fallback: publicToken(v.spare_fallback), spare_skips: skips, claimed_behind: claim ? claim.behind === true : null };
+}
+
+/**
+ * One workflow notice per create with the claim's public fields, so every journey run's spare claim can be counted
+ * from its run's annotations (the image-skip share on staging: spare_skips.image, and claims served one roll behind,
+ * against claims served). Counts and reason tokens only, as probe.json.
+ */
+export function spareNotice(backend: string, phase: string, fields: ReturnType<typeof spareFields>): string {
+  const skips = JSON.stringify(fields.spare_skips);
+  return `::notice title=Cloud journey spare::backend=${backend} phase=${phase || "-"} fallback=${fields.spare_fallback} behind=${fields.claimed_behind} skips=${skips}`;
 }
 
 /** A cloud.machine.get answer's public facts: its status, readiness, versions and updater/flip state. No id or host. */
@@ -2844,7 +2860,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           afterCreate = J.steps.length;
           J.firstText.mark("created");
           // The claim's report (cmux-platform#1418): null until the answer carries it; claimed_spare once the guest says.
-          Object.assign(probeExtra, spareFields(v), { claimed_spare: null });
+          const spare = spareFields(v);
+          Object.assign(probeExtra, spare, { claimed_spare: null });
+          if (process.env.GITHUB_ACTIONS === "true") console.log(spareNotice(backendName, process.env.JOURNEY_PHASE ?? "", spare));
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
         });
     const bound = await J.step("running (status)", async () => {
