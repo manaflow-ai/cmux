@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43712733315",
+  "recorded_at": "2026-11-15T12:17:20Z",
+  "reason": "cmux-tui f5547041076e changes the image's cmux-tui (pinned dea4cecffb7f)",
+  "dry_run": false,
+  "cmux_tui": "f5547041076e51debf53959c9dd75625f3c6277b",
+  "fixes": [
+    {
+      "sha": "f5547041076e51debf53959c9dd75625f3c6277b",
+      "mergedAt": "2026-11-15T03:56:52-08:00",
+      "subject": "acpmux: your own paired phone controls a Claude chat started on your Mac (D13) (#43251)"
+    },
+    {
+      "sha": "778cfddc5005cf83f920ec1d05459a10ff1a1a1f",
+      "mergedAt": "2026-11-15T03:52:41-08:00",
+      "subject": "Extensions run from CMUX_APPS_DIRS hot reload on save, like local ones (#43702)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T12:17:20Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
