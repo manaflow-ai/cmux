@@ -247,6 +247,33 @@ class CheckerTests(unittest.TestCase):
                 self.assertIn(f"ffi-caller-ratchet-note: {why}", out)
                 self.assertIn("judged without the pin", out)
 
+    def test_a_pinned_source_only_on_origin_is_fetched_not_skipped(self) -> None:
+        # CI's push checkout is shallow (fetch-depth 2), so the pinned commit is often not in it. Judging without the
+        # pin there made test_this_checkout_matches_its_baseline skip on feat-cmux-next while every PR failed it
+        # (#43920's re-pin to #43039's step A, 2026-11-15): the checker fetches the pinned commit from origin first.
+        self.fx.commit("base")
+        upstream = Path(tempfile.mkdtemp(prefix="ffi-caller-ratchet-origin-"))
+        self.addCleanup(shutil.rmtree, upstream, True)
+        self.fx.git("clone", "-q", "--bare", str(self.fx.dir), str(upstream / "origin.git"))
+        origin = upstream / "origin.git"
+        subprocess.run(["git", "-C", str(origin), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True,
+                       env=self.fx.env)
+        pinned = self.fx.commit("pinned source")
+        self.fx.git("push", "-q", str(origin), f"{pinned}:refs/heads/pinned")
+        self.fx.git("reset", "-q", "--hard", "HEAD~1")
+        self.fx.git("reflog", "expire", "--expire=now", "--all")
+        self.fx.git("gc", "-q", "--prune=now")
+        self.fx.git("remote", "add", "origin", f"file://{origin}")
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.fx.git("cat-file", "-e", pinned)
+        self.fx.pin(pinned)
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        code, out = self.fx.check()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("judged without the pin", out)
+        self.assertIn("cmux_demo_new", out)
+        self.assertIn("1 awaiting the pin", out)
+
     def test_a_repo_that_is_no_git_repo_judges_as_before(self) -> None:
         self.fx.pin(self.fx.commit("pinned source"))
         self.fx.write(HEADER, NEW_EXPORT_HEADER)
