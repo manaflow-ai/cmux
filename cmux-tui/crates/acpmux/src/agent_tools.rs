@@ -617,7 +617,8 @@ pub fn claude_args_for(
 /// The project's own servers wrapped to wait for the checkout ([`project_mcp`]), for a Claude
 /// Code start in `cwd` while that checkout still fills (a start at its head); none once it is in.
 fn project_servers_at_head(env: &BTreeMap<String, String>, cwd: &Path) -> Map<String, Value> {
-    if !project_mcp::filling(cwd) {
+    // A linked chat folder probes as the folder it names, as `wrapped` walks it.
+    if !project_mcp::filling(&cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())) {
         return Map::new();
     }
     let Some(cmux) = project_mcp::cmux_program() else {

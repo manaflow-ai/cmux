@@ -116,6 +116,25 @@ fn a_nested_chat_gets_the_servers_of_each_folder_still_filling() {
     assert_eq!(wrapped["root"]["args"][2], web.to_str().unwrap(), "it starts in the chat's folder");
 }
 
+/// A chat folder reached through a link counts as the folder it names, as Claude resolves it:
+/// its parents are the repository's, so the root's servers are wrapped, DIR is the real folder,
+/// and `projects` keys are the real paths.
+#[cfg(unix)]
+#[test]
+fn a_linked_chat_folder_counts_as_its_real_folder() {
+    let world = World::new();
+    let web = world.repo.join("app/web");
+    world.servers(&world.repo, json!({"root": stdio("r"), "off": stdio("o")}));
+    let key = web.to_str().unwrap();
+    let projects = json!({"projects": {key: {"disabledMcpjsonServers": ["off"]}}});
+    world.write(&world.top.join(".claude.json"), projects);
+    let link = world.top.join("chat");
+    std::os::unix::fs::symlink(&web, &link).unwrap();
+    let wrapped = world.wrapped(&link);
+    assert_eq!(names(&wrapped), ["root"]);
+    assert_eq!(wrapped["root"]["args"][2], key, "it starts in the real folder");
+}
+
 #[test]
 fn a_whole_checkout_wraps_nothing() {
     let world = World::new();

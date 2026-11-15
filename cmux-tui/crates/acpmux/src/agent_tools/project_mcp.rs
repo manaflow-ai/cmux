@@ -63,13 +63,17 @@ impl Claude {
 /// The `--mcp-config` entries for the project servers Claude would start in `cwd` from a folder
 /// still `filling`, from `cwd` up: each `{command, args, env}` as `cmux repo mcp-lazy DIR --
 /// command args...` run by `cmux`, DIR the chat's folder, where Claude would start it (2.1.305
-/// ignores an entry's `cwd`). A closer folder's server wins a name, as in Claude.
+/// ignores an entry's `cwd`). A closer folder's server wins a name, as in Claude. `cwd` counts
+/// with its links resolved, as Claude resolves it: a linked chat folder's parents are the real
+/// folder's.
 pub fn wrapped(
     cwd: &Path,
     claude: &Claude,
     cmux: &Path,
     filling: impl Fn(&Path) -> bool,
 ) -> Map<String, Value> {
+    let real = cwd.canonicalize();
+    let cwd = real.as_deref().unwrap_or(cwd);
     let mut out = Map::new();
     let folders: Vec<&Path> = cwd.ancestors().take_while(|folder| filling(folder)).collect();
     if folders.is_empty() || claude.managed_mcp.exists() {

@@ -12,8 +12,15 @@
 //! relays lines both ways. A request that came before (a call) waits for the server. A barrier
 //! that fails leaves the lists empty, refuses calls, and says why on stderr. It ends with the
 //! server, or once the client closes stdin and the server ends; a client that closes it before
-//! the checkout is whole ends the wait too, and no server starts. The server runs on a scoped
-//! thread of [`proxy`], joined before it returns.
+//! the checkout is whole ends the wait too, and no server starts; one that closes it while the
+//! server has not answered `initialize` ends the server. The server runs on a scoped thread of
+//! [`proxy`], joined before it returns.
+//!
+//! What only `initialize` carries cannot reach the client: Claude reads it once, from the answer
+//! given here, and MCP has no way to send it again. So the client never sees the server's
+//! `instructions` or `serverInfo`, and the answer here echoes the version the client asked for,
+//! not one the server negotiates. A server that ships `instructions` or settles on another
+//! version says so on stderr.
 
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
@@ -22,7 +29,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use cmux_process::{Command, Stdio};
+use cmux_process::{Child, Command, Stdio};
 use serde_json::{Value, json};
 
 /// The id of the `initialize` this sends the server. Its answer goes nowhere.
@@ -72,6 +79,8 @@ enum Phase {
 
 struct Shared {
     phase: Mutex<Phase>,
+    /// The server while it has not answered `initialize`: a client that closes stdin ends it.
+    starting: Mutex<Option<Child>>,
     /// The client closed stdin: a wait for the checkout ends.
     closed: AtomicBool,
 }
@@ -87,8 +96,11 @@ pub(crate) fn proxy(
     ready: impl FnOnce(&AtomicBool) -> io::Result<()> + Send,
     ended: Box<dyn FnOnce(i32) + Send>,
 ) -> i32 {
-    let shared =
-        Shared { phase: Mutex::new(Phase::Waiting(Vec::new())), closed: AtomicBool::new(false) };
+    let shared = Shared {
+        phase: Mutex::new(Phase::Waiting(Vec::new())),
+        starting: Mutex::new(None),
+        closed: AtomicBool::new(false),
+    };
     std::thread::scope(|scope| {
         let mut start = Some((ready, ended));
         let mut server = None;
@@ -105,6 +117,8 @@ pub(crate) fn proxy(
         shared.closed.store(true, Ordering::SeqCst);
         // A live server's end of stdin closes here: it ends, and its thread says how.
         drop(std::mem::replace(&mut *lock(&shared.phase), Phase::Closed));
+        // A server that has not answered `initialize` may never read stdin: it ends here.
+        drop(lock(&shared.starting).take());
         server.and_then(|server| server.join().ok().flatten()).unwrap_or(0)
     })
 }
@@ -196,17 +210,28 @@ fn serve_when_whole(
         Ok(child) => child,
         Err(error) => return say(format!("cannot start {program}: {error}")),
     };
-    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+    let (Some(stdin), Some(stdout)) = (child.stdin.as_mut(), child.stdout.take()) else {
         return say(format!("{program} has no pipes"));
     };
     let init = json!({"jsonrpc": "2.0", "id": INIT_ID, "method": "initialize", "params": params});
     if writeln!(stdin, "{init}").and_then(|()| stdin.flush()).is_err() {
         return say(format!("{program} ended before it was initialized"));
     }
+    {
+        // Under the lock: once the client closes stdin, `proxy` ends the server (or it ends here).
+        let phase = lock(&shared.phase);
+        if matches!(*phase, Phase::Closed) {
+            return None;
+        }
+        *lock(&shared.starting) = Some(child);
+    }
     let mut lines = BufReader::new(stdout).lines();
     // What the server says before it answers (a log line) still goes to the client.
     let capabilities = loop {
         let Some(Ok(line)) = lines.next() else {
+            if shared.closed.load(Ordering::SeqCst) {
+                return None;
+            }
             return say(format!("{program} ended before it answered initialize"));
         };
         let message = serde_json::from_str::<Value>(&line).unwrap_or(Value::Null);
@@ -215,10 +240,18 @@ fn serve_when_whole(
             continue;
         }
         match message.get("result") {
-            Some(result) => break result.get("capabilities").cloned().unwrap_or(Value::Null),
+            Some(result) => {
+                for note in unrelayed(params.get("protocolVersion"), result) {
+                    eprintln!("cmux repo mcp-lazy: {}: {program} {note}", dir.display());
+                }
+                break result.get("capabilities").cloned().unwrap_or(Value::Null);
+            }
             None => return say(format!("{program} refused initialize: {line}")),
         }
     };
+    // None: the client left, and the server ended with it.
+    let Some(mut child) = lock(&shared.starting).take() else { return None };
+    let Some(mut stdin) = child.stdin.take() else { return None };
     let initialized = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
     if writeln!(stdin, "{initialized}").and_then(|()| stdin.flush()).is_err() {
         return say(format!("{program} ended as it was initialized"));
@@ -266,6 +299,22 @@ fn fail(shared: &Shared, out: &Out) {
     }
 }
 
+/// What the server's `initialize` `result` says that the client, answered here with the version
+/// it `requested`, never sees: one line each.
+fn unrelayed(requested: Option<&Value>, result: &Value) -> Vec<String> {
+    let mut notes = Vec::new();
+    if let (Some(requested), Some(version)) = (requested, result.get("protocolVersion"))
+        && requested != version
+    {
+        notes.push(format!("speaks MCP {version}; the client was answered {requested}"));
+    }
+    if result.get("instructions").and_then(Value::as_str).is_some_and(|text| !text.is_empty()) {
+        notes.push("has instructions, which the client never sees (it was answered before)".into());
+    }
+    notes
+}
+
+/// The answer to the client's `initialize`: the `version` it asked for, never the server's.
 fn initialized(version: Option<Value>) -> Value {
     let changes = json!({"listChanged": true});
     json!({

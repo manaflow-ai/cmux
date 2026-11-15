@@ -32,13 +32,18 @@ struct Client {
 
 impl Client {
     fn start(dir: &Path, exit: Option<&str>) -> Self {
+        Self::start_script(dir, SERVER, exit)
+    }
+
+    /// As `start`, the server `script` in sh, `$1` its `exit`.
+    fn start_script(dir: &Path, script: &str, exit: Option<&str>) -> Self {
         let (to, input) = UnixStream::pair().unwrap();
         let (output, from) = UnixStream::pair().unwrap();
         from.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let (ready, waits) = mpsc::channel::<io::Result<()>>();
         let (ends, ended) = mpsc::channel::<i32>();
         let cmd: Vec<String> =
-            ["sh", "-c", SERVER, "server"].into_iter().chain(exit).map(str::to_owned).collect();
+            ["sh", "-c", script, "server"].into_iter().chain(exit).map(str::to_owned).collect();
         let dir = dir.to_path_buf();
         let proxy = std::thread::spawn(move || {
             let out: Out = Arc::new(Mutex::new(output));
@@ -167,4 +172,54 @@ fn a_client_that_leaves_before_ready_ends_the_wait() {
     assert_eq!(proxy.join().unwrap(), 0);
     assert!(ready.send(Ok(())).is_err(), "nothing waits on the barrier any more");
     assert!(!dir.path().join("initialize-ids").exists(), "the server never ran");
+}
+
+/// The client leaves after the server started but before it answered `initialize`: the server
+/// (one that never reads stdin) ends, and the proxy returns.
+#[test]
+fn a_client_that_leaves_before_the_server_answers_ends_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = "echo started > started; exec sleep 1000";
+    let mut client = Client::start_script(dir.path(), script, None);
+    client.initialize();
+    client.ready.send(Ok(())).unwrap();
+    let started = dir.path().join("started");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !started.exists() {
+        assert!(std::time::Instant::now() < deadline, "the server never started");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let (done, returned) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(client.close());
+    });
+    assert_eq!(returned.recv_timeout(Duration::from_secs(10)), Ok(0), "the proxy returns");
+}
+
+/// The client's `initialize` is answered with the version it asked for, never the server's, and
+/// with no `instructions`: the server's would come too late.
+#[test]
+fn the_answer_echoes_the_clients_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::start(dir.path(), None);
+    let params = json!({"protocolVersion": "2099-01-01", "capabilities": {}});
+    client.send(json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": params}));
+    let answer = client.read();
+    assert_eq!(answer["result"]["protocolVersion"], "2099-01-01");
+    assert!(answer["result"].get("instructions").is_none());
+    assert_eq!(answer["result"]["serverInfo"]["name"], "cmux-mcp-lazy");
+    assert_eq!(client.close(), 0);
+}
+
+/// What the server's answer holds that the client never sees is said on stderr.
+#[test]
+fn a_lower_version_or_instructions_are_noted() {
+    let requested = json!("2025-06-18");
+    let same = json!({"protocolVersion": "2025-06-18", "capabilities": {}});
+    assert!(unrelayed(Some(&requested), &same).is_empty());
+    let lower = json!({"protocolVersion": "2024-11-05", "instructions": "Use search first."});
+    let notes = unrelayed(Some(&requested), &lower);
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert!(notes[0].contains("2024-11-05"));
+    assert!(notes[1].contains("instructions"));
 }
