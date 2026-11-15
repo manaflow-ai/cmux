@@ -94,9 +94,12 @@ fn process_info_probe(state: &mut ScannerState) {
     state.process_info_cache.entries.insert(HELD.to_string(), probe);
 }
 
+/// Puts one entry of one kind of state for `HELD`.
+type Hold = fn(&mut ScannerState);
+
 /// Each kind of state of `ScannerState` that has a terminal id as its key,
-/// with a function that puts one entry of that kind for `HELD`.
-const KINDS: [(&str, fn(&mut ScannerState)); 5] = [
+/// with the function that puts one entry of that kind for `HELD`.
+const KINDS: [(&str, Hold); 5] = [
     ("a tracker entry", tracker_entry),
     ("a journal request to send again", journal_request),
     ("an agent job", agent_job),
