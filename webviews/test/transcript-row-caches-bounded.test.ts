@@ -4,7 +4,7 @@
 // rows seen (VirtualTranscript `knownRows`). In the transcript-replay bench's god chat both held an
 // entry for every row from the first, part of its JS heap over the small chat's (36 MB against 30).
 import { expect, test } from "bun:test";
-import { DRAWN_ROWS_KEPT, keptKnownRows } from "../src/agent-session/acpmux/conversation/openBreakpoint";
+import { DRAWN_ROWS_KEPT, keepKnownRows } from "../src/agent-session/acpmux/conversation/openBreakpoint";
 import {
   REPOSITORY_CACHE_SLACK,
   transcriptRepositories,
@@ -44,18 +44,19 @@ test("the bare #N repository cache holds the rows of the window, not every row t
 
 test("a transcript's seen rows are let go of past the bound, keeping every row shown now", () => {
   const key = (each: AcpmuxRow) => each.id;
-  let known = new Set<string>();
+  const known = new Set<string>();
   let rows: AcpmuxRow[] = [];
   let peak = 0;
   for (let index = 0; index < 4 * DRAWN_ROWS_KEPT; index += 1) {
     rows = [...rows.slice(rows.length >= WINDOW ? 1 : 0), row(index)];
     known.add(key(rows.at(-1)!));
-    known = keptKnownRows(known, rows, key);
+    keepKnownRows(known, rows, key);
     peak = Math.max(peak, known.size);
   }
   expect(peak).toBeLessThanOrEqual(DRAWN_ROWS_KEPT + 1);
   for (const each of rows) expect(known.has(each.id)).toBe(true);
-  // Under the bound the same set comes back: nothing is copied.
+  // Under the bound nothing is let go of.
   const small = new Set(["a", "b"]);
-  expect(keptKnownRows(small, [{ id: "a" }], (each) => each.id)).toBe(small);
+  keepKnownRows(small, [{ id: "a" }], (each) => each.id);
+  expect([...small]).toEqual(["a", "b"]);
 });
