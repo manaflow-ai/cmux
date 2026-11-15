@@ -68,5 +68,7 @@ export function usePeerCloudMachine(peer: string | undefined, call: Call = postN
     // this Resume's own flag is cleared.
     void runCloudMachine(machine, call).finally(() => setResumingId((now) => (now === id ? undefined : now)));
   };
-  return { machine, state, resume };
+  // `asked`: the machine starts because of this banner's own Resume, so its spinner answers the person.
+  const asked = machine !== undefined && resumingId === machine.id;
+  return { machine, state, resume, asked };
 }
