@@ -259,6 +259,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(str(save["uses"]).startswith("./.github/actions/cache-save"))
         self.assertEqual(save["with"].get("backend"), "r2")
         self.assertEqual({**(job.get("env") or {}), **(save.get("env") or {})}.get("CI_CACHE_R2_NAMESPACE"), NAMESPACE)
+        # r2-cache.sh save treats a missing public URL as "nothing saved", and exits 0.
+        self.assertEqual({**(job.get("env") or {}), **(save.get("env") or {})}.get("CI_CACHE_R2_PUBLIC_URL"), NEXT_PUBLIC_URL)
+        # Only a push seeds: a dispatch can name any source (inputs.ref, even a
+        # fork's commit), and what it built would then be restored by every leg.
+        self.assertIn("github.event_name == 'push'", str(job.get("if", "")))
+        self.assertIn("github.event_name == 'push'", str(uploads[0].get("if", "")))
+        # A seed that fails never turns the push run red.
+        self.assertIs(job.get("continue-on-error"), True)
         # Only the save step reads the write credentials.
         for step in steps:
             if step is not save:
