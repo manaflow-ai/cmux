@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43713026729",
+  "recorded_at": "2026-11-15T12:25:00Z",
+  "reason": "cmux-tui a4c45640e31b changes the image's cmux-tui (pinned dea4cecffb7f)",
+  "dry_run": false,
+  "cmux_tui": "a4c45640e31b04b5471e2bb5bb69646e5000b6d1",
+  "fixes": [
+    {
+      "sha": "a4c45640e31b04b5471e2bb5bb69646e5000b6d1",
+      "mergedAt": "2026-11-15T03:59:19-08:00",
+      "subject": "ci: the remaining feat-cmux-next base reds (Toggle tours, dom-teardown, home_fs, short gate) (#43556)"
+    },
+    {
+      "sha": "f5547041076e51debf53959c9dd75625f3c6277b",
+      "mergedAt": "2026-11-15T03:56:52-08:00",
+      "subject": "acpmux: your own paired phone controls a Claude chat started on your Mac (D13) (#43251)"
+    },
+    {
+      "sha": "778cfddc5005cf83f920ec1d05459a10ff1a1a1f",
+      "mergedAt": "2026-11-15T03:52:41-08:00",
+      "subject": "Extensions run from CMUX_APPS_DIRS hot reload on save, like local ones (#43702)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T12:25:00Z",
+    "snapshot_id": "sh-a5309584c32540cba1d4b20d3695b7e4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43713026729): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e56bd2ab960d75aa9861b35c0f1c12ade3ecb698",
+    "image": "cloud-native-auto-a4c45640-43713026729-1",
+    "revision": "ci-43713026729-1",
+    "at": "2026-11-15T12:25:00Z"
+  },
+  "rolled_back": false
+}
