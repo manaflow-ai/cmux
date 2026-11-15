@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43733899948",
+  "recorded_at": "2026-11-15T16:18:14Z",
+  "reason": "cmux-tui 91c5821a578d changes the image's cmux-tui (pinned 3f75c558a758)",
+  "dry_run": false,
+  "cmux_tui": "91c5821a578d2b9ac82f9fec9b49358ca992637b",
+  "fixes": [
+    {
+      "sha": "91c5821a578d2b9ac82f9fec9b49358ca992637b",
+      "mergedAt": "2026-11-15T07:53:13-08:00",
+      "subject": "acpmux: each of the account's other machines is a workspace target with a local route (#43382)"
+    },
+    {
+      "sha": "888cc680cfa2536b29f12f93e68abfe5e56e8ed9",
+      "mergedAt": "2026-11-15T07:45:37-08:00",
+      "subject": "cmux-rd linux-host: review follow-ups (portal view-only, new id after removal, end bad tickets) (#43773)"
+    },
+    {
+      "sha": "157a976eb478c0cd6479615772420d048fddc876",
+      "mergedAt": "2026-11-15T07:44:21-08:00",
+      "subject": "Cloud: every picker harness on a fresh Cloud VM starts or says sign_in_required naming it (test, restacked) (#43643)"
+    },
+    {
+      "sha": "2728d0afd285266d11aeb2e587cdc67c44d948d3",
+      "mergedAt": "2026-11-15T07:44:08-08:00",
+      "subject": "perf(cmux-tui): the terminal host's title scan jumps whole CSIs; host stage 213 to 243 MB/s (CMUX-571) (#43776)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T16:18:14Z",
+    "snapshot_id": "sh-49ed11bbba34494190ba745ca2bb6c40",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43733899948): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5dbc5aa581bd5a5bb997acfcb6c0427fc03c31f3",
+    "image": "cloud-native-auto-91c5821a-43733899948-1",
+    "revision": "ci-43733899948-1",
+    "at": "2026-11-15T16:18:14Z"
+  },
+  "rolled_back": false
+}
