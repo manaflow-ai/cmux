@@ -32,6 +32,8 @@ fn row(origin: &str, id: String, activity: u64, closed: bool) -> Summary {
 /// newest, and the deepest full one, which starts after the local row before the run.
 struct Side {
     hub: Hub,
+    /// The sorted snapshot `disk` reads, for the seek probe.
+    path: std::path::PathBuf,
     /// The same rows read from a sorted snapshot on disk: every page reads snapshot pieces.
     disk: Hub,
     _dir: tempfile::TempDir,
@@ -86,12 +88,13 @@ fn fixture(closed: u64) -> Side {
     newest.max_bytes = u32::try_from(8192 + newest.sid.len() + ROWS * row_bytes).unwrap();
     let mut deep_page = newest.clone();
     deep_page.after = Some(Position::List(deep.expect("closed rows past one page")));
-    Side { hub, disk, _dir: dir, newest, deep: deep_page }
+    Side { hub, disk, path, _dir: dir, newest, deep: deep_page }
 }
 
 /// The page's rows, the pieces it read and their snapshot bytes.
 fn rows(hub: &Hub, page: &Page) -> (Vec<Value>, usize, usize) {
     PEER_PIECES.with(|read| read.set((0, 0)));
+    PEER_ANCHORS.with(|read| read.borrow_mut().clear());
     let frame = hub.peer_page(page).expect("a peer's all page");
     let (pieces, bytes) = PEER_PIECES.with(|read| read.get());
     let result: PageResult<Value> = frame.decode_json().expect("a page");
@@ -132,6 +135,20 @@ fn pr08b_serve_page() {
                 assert_eq!(pieces, 3, "{name} {part}: pieces read");
                 // Each side's snapshot bytes for the request, beside the clock's numbers.
                 eprintln!("SERVE_PAGE_BYTES side={name} part={part} pieces={pieces} bytes={bytes}");
+                // The records each piece's seek decodes from its checkpoint to its key.
+                let snapshot = DiskSnapshot::open(&side.path).expect("the snapshot opens");
+                for (n, (anchor, piece_bytes)) in
+                    PEER_ANCHORS.with(|read| read.borrow().clone()).into_iter().enumerate()
+                {
+                    let (scanned, at) = anchor.map_or((0, 0), |key| {
+                        let (offset, ordinal) = snapshot.seek(&key, false).expect("a seek");
+                        let (_, from) = snapshot.checkpoint_before(offset).expect("a checkpoint");
+                        (ordinal - from, ordinal)
+                    });
+                    eprintln!(
+                        "SERVE_PAGE_SEEK side={name} piece={n} ordinal={at} scanned={scanned} bytes={piece_bytes}"
+                    );
+                }
             }
             assert!(
                 rows.iter()

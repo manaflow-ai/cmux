@@ -1367,6 +1367,8 @@ impl Hub {
                 let (count, bytes) = read.get();
                 read.set((count + 1, bytes + page.bytes_read));
             });
+            #[cfg(test)]
+            PEER_ANCHORS.with(|read| read.borrow_mut().push((anchor.clone(), page.bytes_read)));
             let (more, next) = match side {
                 ReadSide::Before => (page.has_before, &page.before_key),
                 _ => (page.has_after, &page.after_key),
@@ -1723,6 +1725,9 @@ thread_local! {
     /// that count them.
     pub(crate) static PEER_PIECES: std::cell::Cell<(usize, usize)> =
         const { std::cell::Cell::new((0, 0)) };
+    /// Each piece's anchor and snapshot bytes, in the order read, for the gate's seek probe.
+    pub(crate) static PEER_ANCHORS: std::cell::RefCell<Vec<(Option<SortKey>, usize)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// A `local` position past `last`, the last candidate a peer's `all` walk read on `side`,
