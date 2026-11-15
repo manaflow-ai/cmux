@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43687474728",
+  "recorded_at": "2026-11-15T06:57:57Z",
+  "reason": "cmux-tui 7d563c1927f6 changes the image's cmux-tui (pinned 35fb9cda58c7)",
+  "dry_run": false,
+  "cmux_tui": "7d563c1927f6d2f8a386e9ee33fbe7a754331d53",
+  "fixes": [
+    {
+      "sha": "7d563c1927f6d2f8a386e9ee33fbe7a754331d53",
+      "mergedAt": "2026-11-14T22:38:30-08:00",
+      "subject": "cmux app try <PR|branch|sha>, undo, status: another commit's cmux in this app, live when it fits (#43540)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T06:57:57Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
