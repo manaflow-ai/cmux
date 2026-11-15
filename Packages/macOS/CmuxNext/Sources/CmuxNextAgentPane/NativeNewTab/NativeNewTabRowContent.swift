@@ -5,7 +5,7 @@ nonisolated struct NativeNewTabRowContent: Equatable {
     var detail: String?
     var hint: String?
 
-    init(_ row: NativeNewTabRow, strings: NativeNewTabStrings) {
+    init(_ row: NativeNewTabRow, strings: NativeNewTabStrings, home: String? = nil) {
         switch row {
         case .ask(let text): (symbol, title, detail, hint) = ("bubble.left", strings.ask(text), nil, "↩")
         case .run(let text): (symbol, title, detail, hint) = ("terminal", strings.run(text), nil, "↩")
@@ -18,6 +18,10 @@ nonisolated struct NativeNewTabRowContent: Equatable {
         case .action(let action):
             (symbol, title, detail) = ("command", action.title, action.detail)
             hint = action.keycaps.map { $0.joined() } ?? strings.command
+        case .chat(let chat):
+            (symbol, title, detail, hint) = ("bubble.left.and.bubble.right", chat.title ?? chat.key, NativeNewTabSources.agentName(chat.harness), strings.openChat)
+        case .start(let start):
+            (symbol, title, detail, hint) = ("folder", strings.start(start.agent, NativeNewTabSources.shown(start.folder, home: home)), nil, strings.startHint)
         }
         if detail?.isEmpty == true { detail = nil }
     }

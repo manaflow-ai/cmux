@@ -22,7 +22,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::code::{WebBase, WebTarget, read_object};
+use super::code::{CodeKind, WebBase, WebTarget, read_object};
+use super::overlay::{Overlay, now_ms};
 use super::text::one_line;
 use super::{Changed, Entry, web_top};
 use crate::{Customize, Error};
@@ -31,17 +32,22 @@ use crate::{Customize, Error};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ActiveLayer {
     pub name: String,
-    /// `pr` (an unmerged pull request's code), else what it sets:
-    /// `settings`, `files`, `settings+files`, or `empty`.
+    /// A code layer's kind (`pr`, `branch`, `sha`, `dir`, `fork`: code not in
+    /// your build), else what it sets: `settings`, `files`, `settings+files`,
+    /// or `empty`.
     pub kind: &'static str,
     /// The pull request a `pr` entry is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr: Option<u64>,
+    /// Where a code layer comes from, as a person says it: `#43496`, `branch
+    /// feat-x`, `commit dbb1e3e`, `folder /Users/me/cmux`, `fork me/cmux@main`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// Its head, short (7).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub head: Option<String>,
-    /// A `pr` entry's web layer is the one web-dev.json serves (`false`:
-    /// a higher PR's wins, or it has no web part).
+    /// A code entry's web layer is the one web-dev.json serves (`false`: a
+    /// higher code entry's wins, or it has no web part).
     pub web: bool,
     /// The entry's last note (a refresh's word, the reason it was turned off).
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -63,6 +69,10 @@ pub struct Layers {
     /// Why the library did not read; `cmux customize library reset` gets out.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+    /// The overlay web-dev.json names, as the app judges it: a hand-installed
+    /// one is no library entry, so this is where it shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_dev: Option<Overlay>,
 }
 
 /// What a recovery verb did.
@@ -84,8 +94,15 @@ pub struct Recovered {
 
 impl Customize {
     /// The entries that are on, with the one-line form a bug report carries.
-    /// Never fails: a library that does not read is the `problem`.
+    /// Never fails: a library that does not read is the `problem`. The app's
+    /// web ABI is not known here; [`Customize::layers_at`] takes it.
     pub fn layers(&self) -> Layers {
+        self.layers_at(None, now_ms())
+    }
+
+    /// [`Customize::layers`] for an app whose pages need web ABI `app_abi`
+    /// (so a refused overlay says so), at `now_ms` (for an overlay's age).
+    pub fn layers_at(&self, app_abi: Option<u32>, now_ms: u64) -> Layers {
         let overlay = self.overlay_now();
         let library = self.read_library();
         let (on, problem) = match &library {
@@ -99,11 +116,16 @@ impl Customize {
                 }),
                 Err(_) => true,
             };
-        let line = summary_line(&on, problem.is_some(), stray_overlay);
-        Layers { on, line, overlay, stray_overlay, problem }
+        let mut line = summary_line(&on, problem.is_some(), stray_overlay);
+        let web_dev = self.overlay(app_abi);
+        if let Some(words) = web_dev.as_ref().and_then(|overlay| overlay.words(now_ms)) {
+            line.push_str("; ");
+            line.push_str(&words);
+        }
+        Layers { on, line, overlay, stray_overlay, problem, web_dev }
     }
 
-    /// Turns every pull request entry off and records `reason` (one line) as
+    /// Turns every code entry off and records `reason` (one line) as
     /// the note of each one that was on. What the app runs when a layer's
     /// pages fail to load: `cmux customize library off --code --reason TEXT`.
     pub fn library_off_code(
@@ -115,7 +137,7 @@ impl Customize {
         let reason = reason.map(one_line).filter(|reason| !reason.is_empty());
         let mut turned_off = Vec::new();
         let mut notes = Vec::new();
-        let label = "library: every pull request off";
+        let label = "library: every code layer off";
         let change = match self.library_change(label, origin, now_ms, |library| {
             for entry in library.entries.iter_mut() {
                 let Some(code) = entry.code.as_mut() else { continue };
@@ -191,7 +213,7 @@ impl Customize {
             }
             Err(error) => {
                 out.notes.push(format!(
-                    "every pull request is off, but the other entries are still on: {error}"
+                    "every code layer is off, but the other entries are still on: {error}"
                 ));
                 out.complete = false;
             }
@@ -200,7 +222,7 @@ impl Customize {
         Ok(out)
     }
 
-    /// The pull request entries off without the store: library.json read as
+    /// The code entries off without the store: library.json read as
     /// plain JSON, its code entries turned off in place and its web base
     /// written back to web-dev.json.
     fn force_code_off(
@@ -287,23 +309,24 @@ impl Customize {
     }
 
     /// `path` is inside the library's layers folder.
-    fn is_layer_path(&self, path: &str) -> bool {
+    pub(crate) fn is_layer_path(&self, path: &str) -> bool {
         Path::new(path).starts_with(self.roots().state_dir.join("layers"))
     }
 }
 
 fn active(entries: &[Entry]) -> Vec<ActiveLayer> {
-    let serving = web_top(entries).map(|code| code.pr);
+    let serving = web_top(entries);
     entries
         .iter()
         .filter(|entry| entry.on)
         .map(|entry| match &entry.code {
             Some(code) => ActiveLayer {
                 name: entry.name().to_owned(),
-                kind: "pr",
-                pr: Some(code.pr),
+                kind: code.kind.as_str(),
+                pr: (code.kind == CodeKind::Pr).then_some(code.pr),
+                source: Some(code.source_label()),
                 head: Some(code.head.chars().take(7).collect()),
-                web: code.has_web() && serving == Some(code.pr),
+                web: code.has_web() && serving.is_some_and(|top| top.same_source(code)),
                 note: code.note.clone(),
             },
             None => ActiveLayer {
@@ -315,6 +338,7 @@ fn active(entries: &[Entry]) -> Vec<ActiveLayer> {
                     (true, true) => "empty",
                 },
                 pr: None,
+                source: None,
                 head: None,
                 web: false,
                 note: String::new(),
@@ -328,12 +352,12 @@ pub fn summary_line(on: &[ActiveLayer], unreadable: bool, stray_overlay: bool) -
     let mut line = if unreadable {
         "customize: library unreadable (`cmux customize library reset`)".to_owned()
     } else if on.is_empty() {
-        "customize: none on".to_owned()
+        "customize: 0 on".to_owned()
     } else {
         let names: Vec<String> = on
             .iter()
             .map(|layer| match (&layer.head, layer.kind) {
-                (Some(head), "pr") => {
+                (Some(head), _) => {
                     format!(
                         "{} @{head} ({})",
                         layer.name,

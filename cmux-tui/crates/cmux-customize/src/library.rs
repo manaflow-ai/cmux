@@ -47,11 +47,13 @@ use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod code;
+pub mod overlay;
 pub mod recover;
 mod text;
 
 use code::WebTarget;
-pub use code::{CodeLayer, WEB_KEY, WebBase};
+pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
+pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
 pub use text::thumbnail;
 use text::{one_line, redact_serde, slug, unique_name};
@@ -96,7 +98,7 @@ pub struct Entry {
     /// The generation it was saved from (local only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<u32>,
-    /// An unmerged pull request's code (`source` "pr"): its web part is the
+    /// Code not in your build (`source` "pr", "branch", "sha", "dir", "fork"): its web part is the
     /// stack key `code:web` ([`code`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<CodeLayer>,
@@ -110,7 +112,11 @@ impl Entry {
     fn same_content(&self, other: &Profile, code: Option<&CodeLayer>) -> bool {
         self.profile.settings == other.settings
             && self.profile.files == other.files
-            && self.code.as_ref().map(|c| (&c.repo, c.pr)) == code.map(|c| (&c.repo, c.pr))
+            && match (&self.code, code) {
+                (Some(mine), Some(theirs)) => mine.same_source(theirs),
+                (None, None) => true,
+                _ => false,
+            }
     }
 
     /// The layer folder this entry serves while it is on and on top, when it
@@ -173,7 +179,7 @@ pub struct Listed {
     /// Keys and files this entry sets that a higher entry that is on sets
     /// too, so this one's value is not the one in use.
     pub overridden: Vec<String>,
-    /// The pull request a `pr` entry is (absent for every other entry, so a
+    /// The code a code entry is (absent for every other entry, so a
     /// reader that does not know it is unaffected).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<CodeLayer>,
@@ -384,9 +390,10 @@ impl Customize {
         })
     }
 
-    /// Puts pull request `layer` on top of the library as entry `pr-N`, on
-    /// when it has a web part, and makes the stack live. An entry for the
-    /// same PR is replaced (a newer head, a new base), keeping its words.
+    /// Puts code layer `layer` on top of the library as entry
+    /// [`CodeLayer::name`] (`pr-N`, `branch-NAME`, ...), on when it has a web
+    /// part, and makes the stack live. An entry for the same source is
+    /// replaced (a newer head, a new base, a rebuilt folder), keeping its words.
     /// The layer's folder must be installed first ([`Customize::layer_dir`]).
     pub fn library_use_code(
         &self,
@@ -395,12 +402,13 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Changed, Error> {
-        let name = CodeLayer::entry_name(layer.pr);
+        let name = layer.name();
         let label = format!("library: use {name} ({})", short(&layer.head));
         self.library_change(&label, origin, now_ms, |library| {
-            let old = library.entries.iter().position(|entry| {
-                entry.code.as_ref().is_some_and(|c| c.repo == layer.repo && c.pr == layer.pr)
-            });
+            let old = library
+                .entries
+                .iter()
+                .position(|entry| entry.code.as_ref().is_some_and(|c| c.same_source(&layer)));
             let mut words: Vec<String> =
                 words.iter().map(|word| one_line(word)).filter(|w| !w.is_empty()).collect();
             let (name, added_ms) = match old {
@@ -418,7 +426,7 @@ impl Customize {
             let profile = Profile {
                 version: 1,
                 name,
-                description: one_line(&format!("#{} {}", layer.pr, layer.title)),
+                description: one_line(&layer.label()),
                 created_ms: now_ms,
                 settings: BTreeMap::new(),
                 files: BTreeMap::new(),
@@ -431,7 +439,7 @@ impl Customize {
                 0,
                 Entry {
                     on: layer.has_web(),
-                    source: "pr".to_owned(),
+                    source: layer.kind.as_str().to_owned(),
                     words: words.into_iter().take(MAX_WORDS).collect(),
                     thumbnail,
                     profile,
@@ -449,7 +457,35 @@ impl Customize {
         })
     }
 
-    /// Changes what entry `name` knows about its pull request (a settle's
+    /// Puts `layer` into the code entry with its source, in place: the entry
+    /// keeps its place in the stack, its name, its words and whether it is on
+    /// (a refresh or a watch rebuild; `use` is what moves one to the top). One
+    /// with nothing a running cmux can take is turned off.
+    pub fn library_update_code(
+        &self,
+        layer: CodeLayer,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        let label = format!("library: update {} ({})", layer.name(), short(&layer.head));
+        self.library_change(&label, origin, now_ms, |library| {
+            let entry = library
+                .entries
+                .iter_mut()
+                .find(|entry| entry.code.as_ref().is_some_and(|c| c.same_source(&layer)))
+                .ok_or_else(|| {
+                    Error::Library(format!("no library entry is {}", layer.source_label()))
+                })?;
+            entry.profile.description = one_line(&layer.label());
+            entry.thumbnail.keys =
+                if layer.has_web() { vec![WEB_KEY.to_owned()] } else { Vec::new() };
+            entry.on = entry.on && layer.has_web();
+            entry.code = Some(layer);
+            Ok(())
+        })
+    }
+
+    /// Changes what entry `name` knows about its code (a settle's
     /// note) and, with `on`, turns it on or off, making the stack live.
     pub fn library_settle_code(
         &self,
@@ -465,7 +501,7 @@ impl Customize {
             let code = entry
                 .code
                 .as_mut()
-                .ok_or_else(|| Error::Library(format!("{name} is not a pull request entry")))?;
+                .ok_or_else(|| Error::Library(format!("{name} is not a code entry")))?;
             code.note = one_line(note);
             if let Some(on) = on {
                 entry.on = on && entry.code.as_ref().is_some_and(CodeLayer::has_web);
@@ -722,9 +758,11 @@ impl Customize {
             && web_was.as_ref() != Some(key)
             && !self.layer_ready(key)
         {
-            let pr = web_top(&library.entries).map_or(0, |code| code.pr);
+            let (label, again) = web_top(&library.entries)
+                .map(|code| (code.source_label(), use_again(code)))
+                .unwrap_or_default();
             return Err(Error::Library(format!(
-                "pull request #{pr}'s web layer is not on this computer; `cmux customize use pr:{pr}` fetches it"
+                "{label}'s web layer is not on this computer; `{again}` fetches it"
             )));
         }
         let web_moves = web_was != web_will;
@@ -991,6 +1029,18 @@ fn setting_value(file: &Value, key: &str) -> Option<Value> {
 /// The highest entry that is on with a web part: the layer web-dev.json serves.
 fn web_top(entries: &[Entry]) -> Option<&CodeLayer> {
     entries.iter().filter(|entry| entry.on).find_map(Entry::web_layer)
+}
+
+/// The `use` that fetches or builds `code`'s layer again.
+fn use_again(code: &CodeLayer) -> String {
+    let source = match code.kind {
+        CodeKind::Pr => format!("pr:{}", code.pr),
+        CodeKind::Branch => format!("branch:{}", code.source),
+        CodeKind::Sha => format!("sha:{}", code.source),
+        CodeKind::Dir => format!("dir:{}", code.source),
+        CodeKind::Fork => code.source.clone(),
+    };
+    format!("cmux customize use {source}")
 }
 
 /// `needs a build: ...` for an entry with no web part.

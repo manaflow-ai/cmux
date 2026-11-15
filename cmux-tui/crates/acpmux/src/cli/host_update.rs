@@ -8,9 +8,10 @@
 use super::host_auto_update::take_auto_update_off;
 use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
-    IN_PLACE, LockLost, MIGRATING, OLD_SYSTEMD_UNITS, REFUSED, RESTORE_PREV, Remote, RemoteOut,
-    SYSTEMD_UNIT, SshRemote, connect_peer, daemon_unit, launchd_reload, linux_restart,
-    lock_updates, migrate, migrate_back, old_unit_check, push_update, run, ssh_host,
+    IN_PLACE, LockLost, MIGRATING, NEWER_INSTALLED, NewerInstalled, OLD_SYSTEMD_UNITS, REFUSED,
+    RESTORE_PREV, Remote, RemoteOut, SYSTEMD_UNIT, SshRemote, connect_peer, daemon_unit,
+    launchd_reload, linux_restart, lock_updates, migrate, migrate_back, old_unit_check,
+    push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -546,6 +547,9 @@ impl PeerUpdate {
                     None => line,
                 }
             }
+            Outcome::Current if self.reason.as_deref() == Some(NEWER_INSTALLED) => {
+                format!("kept: {error}")
+            }
             Outcome::Current => format!("current ({})", self.build.as_deref().unwrap_or("?")),
             Outcome::Busy => format!("busy, left alone: {error}"),
             Outcome::NeedsBinary => format!("needs a binary: {error}"),
@@ -565,6 +569,10 @@ pub(crate) struct UpdateOptions {
     /// Leave a peer on a later day's build or on a build with local changes
     /// alone (`current`, reason `newer` or `ownBuild`), checked under the lock.
     pub keep_newer: bool,
+    /// Install a binary built from an older commit than the host's
+    /// (`--allow-downgrade`); without it the host's install script refuses
+    /// one (`current`, reason `newerInstalled`), whatever else was asked.
+    pub allow_downgrade: bool,
     /// The session this command runs in, and its daemon.
     pub caller: Option<Caller>,
 }
@@ -730,10 +738,22 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     if let Some((reason, why)) = &probe.refused {
         return up.end(Outcome::Failed, reason, why.clone());
     }
+    // The host's install step refuses a binary of an older commit than its
+    // own (`downgrade_check`); ask first, so a refused push copies nothing.
+    if !opts.allow_downgrade
+        && let Some(why) = older_than_installed(remote, &binary)
+    {
+        return up.end(Outcome::Current, NEWER_INSTALLED, why);
+    }
     // From here on the peer changes.
     let running = probe.build.as_deref().and_then(build_commit);
-    let version = match push_update(remote, &binary, running) {
+    let version = match push_update(remote, &binary, running, opts.allow_downgrade) {
         Ok(version) => version,
+        // The host keeps a binary of a newer commit (`downgrade_check`):
+        // nothing changed, as `--keep-newer` leaves one.
+        Err(e) if e.is::<NewerInstalled>() => {
+            return up.end(Outcome::Current, NEWER_INSTALLED, e.to_string());
+        }
         // The install checks the pushed binary runs before it replaces
         // anything, so the installed one is still the old one.
         // A host that went away during the push (a GCP VM stopped while
@@ -880,6 +900,52 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             up.end(Outcome::Failed, &reason, format!("{why}; the rollback failed too: {again}"))
         }
     }
+}
+
+/// The commit time a binary's `acpmux-commit-time=<secs>;` stamp names
+/// (acpmux-build-id's `COMMIT_STAMP`), read from its bytes as the host's
+/// `acpmux_ct` reads it; None without one.
+fn embedded_commit_time(bytes: &[u8]) -> Option<u64> {
+    const KEY: &[u8] = b"acpmux-commit-time=";
+    let mut from = 0;
+    while let Some(i) = bytes.get(from..)?.windows(KEY.len()).position(|w| w == KEY) {
+        let start = from.saturating_add(i).saturating_add(KEY.len());
+        let rest = bytes.get(start..)?;
+        let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+        if digits > 0 && rest.get(digits) == Some(&b';') {
+            return std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok();
+        }
+        from = start;
+    }
+    None
+}
+
+/// Why the host would refuse `binary` as built from an older commit than
+/// its installed acpmux, by the rule its install step keeps
+/// ([`super::downgrade_check`]); None when it would take it, or when either
+/// side cannot be read (the install step still decides).
+fn older_than_installed(remote: &dyn Remote, binary: &Path) -> Option<String> {
+    let script = format!("{}acpmux_ct ~/.local/bin/acpmux", super::downgrade_check());
+    let out = remote.exec(&script, None).ok().filter(|o| o.ok)?;
+    let installed: u64 = out.stdout.trim().parse().ok().filter(|t| *t > 0)?;
+    let pushed = embedded_commit_time(&std::fs::read(binary).ok()?);
+    let at = |secs: u64| {
+        i64::try_from(secs)
+            .ok()
+            .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
+            .map_or_else(|| secs.to_string(), |t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    };
+    let pushed = match pushed {
+        None => "a commit from before acpmux stamped commit times".to_owned(),
+        Some(0) => return None,
+        Some(p) if p >= installed => return None,
+        Some(p) => format!("a commit of {}", at(p)),
+    };
+    Some(format!(
+        "{}: the installed acpmux is built from a newer commit ({}) than the pushed binary ({pushed}), so nothing was changed: pass --allow-downgrade to move it back",
+        remote.host(),
+        at(installed)
+    ))
 }
 
 /// Whether `e`, from a step of the push, is ssh or scp losing the host on
@@ -1033,7 +1099,9 @@ fn cut(mut text: String, max: usize) -> String {
 ///  "migratedFrom": "acpmux-agent-huge-blue.service"}
 /// ```
 ///
-/// - `outcome`: `updated`, `current` (already that commit), `busy`
+/// - `outcome`: `updated`, `current` (already that commit; or, reason
+///   `newerInstalled`, the host's install step kept its binary of a newer
+///   commit, unless `--allow-downgrade`), `busy`
 ///   (`--if-idle`), `held` (`host hold`: not reached at all),
 ///   `needsBinary` (`--binary-dir` lacks `acpmux-<target>`, or without it
 ///   this binary is for another target),
