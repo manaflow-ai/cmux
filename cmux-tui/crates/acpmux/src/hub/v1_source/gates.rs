@@ -1,11 +1,20 @@
 //! Row 3b's gate (`benches/v2/mod.rs`): the god chat caught up from nothing over the v1 source.
 //! Run: `cargo test --profile gate -p acpmux --lib v2_pr03b_ -- --ignored --nocapture`.
 //!
-//! One small catch-up nobody measures runs first, then small, then god, in one process. Each writes its chat's log through v1's store,
-//! returns free pages (`malloc_trim(0)`), takes its baseline, and catches the book up through the
-//! actor. Every stretch of [`STRETCH`] chunks (the same length at both sizes) starts with the
-//! kernel's high-water mark reset, and the peak is the largest rise over the baseline any stretch
-//! reached.
+//! One small catch-up nobody measures runs first, then small, then god, in one process. Each
+//! writes its chat's log through v1's store and catches the book up through the actor. The
+//! measure is bytes known allocated: the test allocator counts the actor thread's bytes from its
+//! first chunk (`peer_snapshot/disk_tests.rs`), and the peak is the most it held at once, over
+//! that start, in any stretch of [`STRETCH`] chunks (the same length at both sizes) or at the
+//! end. It counts what grows with the chat (a per-row map climbs every stretch) and nothing the
+//! allocator or the kernel keeps for it.
+//!
+//! The probe prints, per stretch, what resident size did: the high-water rise over a baseline
+//! taken after `malloc_trim(0)` (the kernel's mark reset at each stretch's start), anonymous and
+//! file-backed resident bytes, and glibc's heap in use and free. That rise is not the gate: on
+//! the same harness the small side's read 64 to 608 KiB from one run to the next with the same
+//! work, as it reused free heap pages glibc kept resident or not, and god's carried `rows.idx`'s
+//! mapped pages (page cache, 56 to 124 KiB). `CATCHUP_PROBE_SMAPS=1` adds the largest mappings.
 
 use super::tests::{Home, ID, book_rows, translated, wait_ready};
 use super::*;
@@ -17,7 +26,7 @@ const STRETCH: u64 = 8;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct CatchUp {
-    /// The largest rise of resident size over the baseline in any stretch, in KiB.
+    /// The probe: the largest rise of resident size over the baseline in any stretch, in KiB.
     peak_kib: u64,
     /// The most bytes the actor thread held at once over its first chunk's, in KiB.
     held_kib: u64,
@@ -236,21 +245,7 @@ impl RawSource for Measured {
 }
 
 fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
-    let home = match std::env::var("CATCHUP_SEGMENT_BYTES").ok().and_then(|s| s.parse().ok()) {
-        Some(segment_bytes) if shape.name == "small" => {
-            let home = Home::with_segments(segment_bytes);
-            let (_, last) = crate::god_fixture::append_log(
-                home.store.as_ref(),
-                ID,
-                shape.god_messages,
-                shape.god_bytes,
-            )
-            .unwrap();
-            home.last.store(last, Ordering::SeqCst);
-            home
-        }
-        _ => Home::with_chat(shape.god_messages, shape.god_bytes),
-    };
+    let home = Home::with_chat(shape.god_messages, shape.god_bytes);
     let log = home.log();
     let log_bytes = {
         let mut bytes = 0;
@@ -353,14 +348,7 @@ fn shape_from_env(case: &str) -> crate::god_fixture::Shape {
     if case == "god" {
         crate::god_fixture::Shape::god_from_env()
     } else {
-        let mut small = crate::god_fixture::Shape::small();
-        // Probe: the small chat's turns as large as god's (its largest row the same).
-        if std::env::var_os("CATCHUP_SMALL_GOD_ROWS").is_some() {
-            let god = crate::god_fixture::Shape::god();
-            let per_turn = god.god_bytes / god.god_messages.div_ceil(4) as u64;
-            small.god_bytes = per_turn * small.god_messages.div_ceil(4) as u64;
-        }
-        small
+        crate::god_fixture::Shape::small()
     }
 }
 
@@ -389,18 +377,19 @@ fn v2_pr03b_catchup_peak_rss() {
             run.log_bytes
         );
     }
-    let ratio = god.peak_kib as f64 / small.peak_kib.max(1) as f64;
+    // The probe: resident size's rise, which glibc's held free pages and the kernel's page cache
+    // move (printed, not gated).
     eprintln!(
-        "v2.pr03b.catchup_peak_rss small_kib={} god_kib={} ratio={ratio:.3} chunk_kib={}",
+        "v2.pr03b.catchup_peak_rss rss small_kib={} god_kib={} ratio={:.3} chunk_kib={}",
         small.peak_kib,
         god.peak_kib,
+        god.peak_kib as f64 / small.peak_kib.max(1) as f64,
         chunk / 1024
     );
+    let ratio = god.held_kib as f64 / small.held_kib.max(1) as f64;
     eprintln!(
-        "v2.pr03b.catchup_peak_rss held small_kib={} god_kib={} ratio={:.3}",
-        small.held_kib,
-        god.held_kib,
-        god.held_kib as f64 / small.held_kib.max(1) as f64
+        "v2.pr03b.catchup_peak_rss small_kib={} god_kib={} ratio={ratio:.3}",
+        small.held_kib, god.held_kib
     );
     if let Ok(path) = std::env::var("V2_GATE_OUT") {
         use std::io::Write;
@@ -408,9 +397,14 @@ fn v2_pr03b_catchup_peak_rss() {
         writeln!(
             output,
             "{{\"name\":\"v2.pr03b.catchup_peak_rss\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"KiB\"}}",
-            small.peak_kib, god.peak_kib
+            small.held_kib, god.held_kib
         )
         .unwrap();
     }
-    assert!(ratio <= 1.2, "god's peak {} KiB against small's {} KiB", god.peak_kib, small.peak_kib);
+    assert!(
+        ratio <= 1.2,
+        "god's actor held {} KiB at most against small's {} KiB",
+        god.held_kib,
+        small.held_kib
+    );
 }
