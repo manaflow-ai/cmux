@@ -120,6 +120,49 @@ def plan(repo: Path, app: Path | None, sha: str, base: str) -> dict:
     return {"source": source, "release": f"cmux-app-ffi-{source}", "app_pin_source": pinned}
 
 
+def pin_moved(repo: Path, base: str, sha: str) -> bool:
+    """SHA's commit pins another app FFI release than the app's commit BASE (False when either is not in REPO)."""
+    try:
+        return app_pin_source(repo, base) != app_pin_source(repo, sha)
+    except Exception:
+        return False
+
+
+def pin_plan(repo: Path, app: Path | None, sha: str, base: str) -> dict | None:
+    """The ffi part for SHA when no FFI source changed after the app's commit but SHA pins a newer release.
+
+    An app links the release its commit pins, and the pin lags the FFI sources until app-ffi-repin lands, so a
+    NIGHTLY's library is usually older than its commit's FFI sources: the commit that moves the pin is then the
+    one that brings the app's library up to date. None when SHA pins the app's release; Left when it cannot."""
+    pinned, want = app_pin_source(repo, base), app_pin_source(repo, sha)
+    if pinned == want:
+        return None
+    if app is not None and not carries_dylib(app):
+        raise Left(f"{app} links the app FFI statically (no {DYLIB}): it needs a new app")
+    # No ancestry check: an older pin (a reverted re-pin) is refused here when it drops what the app calls, and a
+    # shallow checkout cannot tell ancestry anyway.
+    changed = additive(repo, pinned, want)
+    if changed:
+        raise Left(f"the app FFI at {want[:12]} is not additive to the app's ({pinned[:12]}): " + "; ".join(changed[:3]))
+    return {"source": want, "release": f"cmux-app-ffi-{want}", "app_pin_source": pinned, "via": "pin"}
+
+
+PIN_CHECKSUM_LINE = "// app-ffi-pin-checksum:"
+PACKAGE_SWIFT = "Packages/macOS/CmuxNext/Package.swift"
+
+
+def pin_packaging(repo: Path, since: str, sha: str) -> set[str]:
+    """The changed paths between SINCE and SHA that only move the pin: app-ffi-pin.json, and Package.swift when
+    its only changed line is the pin checksum (repin-app-ffi.sh moves the two together). The ffi part covers them."""
+    out = {PIN_FILE}
+    diff = _git(repo, "diff", "-U0", since, sha, "--", PACKAGE_SWIFT)
+    changed = [line[1:].strip() for line in diff.splitlines()
+               if line[:1] in "+-" and not line.startswith(("+++", "---"))]
+    if all(line.startswith(PIN_CHECKSUM_LINE) for line in changed):
+        out.add(PACKAGE_SWIFT)
+    return out
+
+
 # ---------------------------------------------------------------- fetch
 
 

@@ -16,10 +16,23 @@ run_group() {
   printf 'v2 gate group %s: %d seconds\n' "$name" "$((SECONDS - started))"
 }
 
+# A filter that fails after writing its rows: every line its run appended gets
+# "gate_failed":true, and the v2 home reads those rows red with their numbers.
 run() {
+  local before=0
+  [[ -f $V2_GATE_OUT ]] && before=$(wc -l <"$V2_GATE_OUT")
   if ! "$@"; then
     failed=1
+    mark_failed "$before"
   fi
+}
+
+mark_failed() {
+  local marked
+  [[ -f $V2_GATE_OUT ]] && marked=$(mktemp) || return 0
+  sed "$(($1 + 1)),\$ s/}[[:space:]]*\$/,\"gate_failed\":true}/" "$V2_GATE_OUT" >"$marked" \
+    && cat "$marked" >"$V2_GATE_OUT"
+  rm -f "$marked"
 }
 
 run_book() {
