@@ -139,6 +139,15 @@ test("a browser layout shift that is the step's own expansion does not count; an
   const out = { node: $(".below"), previousRect: rect(560), currentRect: { x: 0, y: 0, width: 0, height: 0 } };
   below.getBoundingClientRect = () => rect(774) as DOMRect;
   expect(isExpansionShift([out], toggle)).toBe(true);
+  // The browser's rect is the visual rect, ink overflow and all: a finished turn's summary row read
+  // 12/732 there against its 16/728 border box, and pushed out of the view it is still straight down
+  // (#41892: an edit opened over it scored 0.36).
+  const inked = { ...out, previousRect: { x: 12, y: 260, width: 732, height: 32 } };
+  below.getBoundingClientRect = () => ({ x: 16, y: 708, width: 728, height: 32 }) as DOMRect;
+  expect(isExpansionShift([inked], toggle)).toBe(true);
+  below.getBoundingClientRect = () => ({ x: 20, y: 708, width: 728, height: 32 }) as DOMRect;
+  expect(isExpansionShift([inked], toggle)).toBe(false);
+  below.getBoundingClientRect = () => rect(774) as DOMRect;
   // Gone out of view any other way (up, or sideways) is still a shift, and a row before it is too.
   below.getBoundingClientRect = () => rect(-60) as DOMRect;
   expect(isExpansionShift([out], toggle)).toBe(false);
