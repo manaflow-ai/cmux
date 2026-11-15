@@ -139,7 +139,6 @@ impl Http {
             .build()
             .map_err(|error| failure(format!("could not start a network runtime: {error}")))?;
         let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(300))
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
             .build()
