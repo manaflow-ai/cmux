@@ -38,6 +38,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
+]
+
+[[package]]
 name = "cmux-rd-core"
 version = "0.1.0"
 dependencies = [
@@ -84,11 +92,13 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "cmux-encode",
+ "cmux-process",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-ffi",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "libc",
  "png",
  "serde",
  "serde_json",
@@ -135,6 +145,12 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "libc"
+version = "0.2.191"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "memchr"
@@ -281,6 +297,15 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "wait-timeout"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09ac3b126d3914f9849036f826e054cbabdc8519970b8998ddaf3b5bd3c65f11"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "windows"
