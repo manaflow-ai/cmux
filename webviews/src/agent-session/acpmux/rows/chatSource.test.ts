@@ -7,6 +7,7 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { ChatSource, HOLD_ATTACH_CAPABILITY, KEPT_WINDOWS, chatRowsState, resetChatRowsState } from "./chatSource";
 import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, OPEN_ANSWER_MS } from "./host";
+import { receiveChatRows } from "./receiver";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
 const HOLDS: ReadonlySet<string> = new Set([HOLD_ATTACH_CAPABILITY]);
@@ -281,4 +282,32 @@ test("window.cmuxChatRows routes each change to its store and takes a batch once
   expect(two.posts.at(-1)).toEqual({ method: "chat.rows.close", params: { sid: "two.1" } });
   receiver.receive({ batch: 8, changes: renamed(chat.get("ops")!, "two.1") });
   expect(one.posts.filter((post) => post.method === "chat.rows.taken").map((post) => post.params.batch)).toEqual([8]);
+});
+
+test("a batch is taken after the last client left the receiver", async () => {
+  const one = source(undefined, "one");
+  await one.rows.choose("chat-a", HOLDS);
+  one.rows.dispose();
+  const before = one.posts.length;
+  receiveChatRows({ batch: 9, changes: renamed(chat.get("ops")!, "one.1") });
+  expect(one.posts.slice(before)).toEqual([{ method: "chat.rows.taken", params: { batch: 9 } }]);
+});
+
+test("one store's throw leaves the other stores' changes applied and the batch taken once", async () => {
+  const one = source(undefined, "one");
+  const two = source(undefined, "two");
+  await one.rows.choose("chat-a", HOLDS);
+  await two.rows.choose("chat-b", HOLDS);
+  one.rows.host.store.applyBatch = () => {
+    throw new Error("broken store");
+  };
+  expect(() =>
+    receiveChatRows({
+      batch: 10,
+      changes: [...renamed(chat.get("window")!, "one.1"), ...renamed(chat.get("window")!, "two.1")],
+    }),
+  ).toThrow("broken store");
+  expect(two.rows.view("chat-b")!.rows.length).toBe(11);
+  const taken = [...one.posts, ...two.posts].filter((post) => post.method === "chat.rows.taken");
+  expect(taken).toEqual([{ method: "chat.rows.taken", params: { batch: 10 } }]);
 });

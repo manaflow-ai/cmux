@@ -7,8 +7,10 @@ import type { ChatRowsBatch, ChatRowsHost, ChatRowsPost } from "./host";
 import { changeSid, parseChange, type ChatChange } from "./wire";
 
 const hosts = new Set<ChatRowsHost>();
-/// The post that answers `taken`: the newest host's (every pane client's is `postNative`).
-const posts = new Map<ChatRowsHost, ChatRowsPost>();
+/// The post that answers `taken`, the document's: every pane client's is `postNative`. Kept after its
+/// host leaves, so a batch the host built before it read that client's `chat.rows.close` is still taken;
+/// the host sends no more changes until `taken` names the batch.
+let takenPost: ChatRowsPost | undefined;
 
 type ChatRowsGlobal = { cmuxChatRows?: { receive(event: ChatRowsBatch): void } };
 
@@ -16,19 +18,21 @@ type ChatRowsGlobal = { cmuxChatRows?: { receive(event: ChatRowsBatch): void } }
 /// `chat.rows.open`, so no batch comes with nothing to take it.
 export function addChatRowsHost(host: ChatRowsHost, post: ChatRowsPost): void {
   hosts.add(host);
-  posts.set(host, post);
+  takenPost = post;
   const scope = globalThis as ChatRowsGlobal;
   scope.cmuxChatRows ??= { receive: receiveChatRows };
 }
 
-/// A pane client the page dropped: its host takes no more batches.
+/// A pane client the page dropped: its host takes no more changes.
 export function removeChatRowsHost(host: ChatRowsHost): void {
   hosts.delete(host);
-  posts.delete(host);
 }
 
+/// Routes a batch's changes to their stores and takes it once. Each store applies its own changes
+/// even when another's throws; the first throw is rethrown after `taken` is posted.
 export function receiveChatRows(event: ChatRowsBatch): void {
   const byHost = new Map<ChatRowsHost, ChatChange[]>();
+  let failed: { error: unknown } | undefined;
   try {
     for (const line of event.changes) {
       const change = parseChange(line);
@@ -42,9 +46,14 @@ export function receiveChatRows(event: ChatRowsBatch): void {
           break;
         }
     }
-    for (const [host, changes] of byHost) host.store.applyBatch(changes);
+    for (const [host, changes] of byHost)
+      try {
+        host.store.applyBatch(changes);
+      } catch (error) {
+        failed ??= { error };
+      }
   } finally {
-    const post = [...posts.values()].at(-1);
-    if (post) void post("chat.rows.taken", { batch: event.batch }).catch(() => {});
+    if (takenPost) void takenPost("chat.rows.taken", { batch: event.batch }).catch(() => {});
   }
+  if (failed) throw failed.error;
 }
