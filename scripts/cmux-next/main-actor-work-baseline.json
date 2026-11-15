@@ -108,9 +108,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/DaemonPageValue.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/HarnessIconBook.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RemoteAcpmuxWire.swift": {
   "JSON / property-list decode": 1
  },

@@ -5,6 +5,7 @@
 //! proxy and their p95 line (`V2_GATE_OUT`).
 
 use crate::hub::Hub;
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::SummaryIndex;
 use acpmux_core::life::V2;
 use serde_json::{Value, json};
@@ -331,16 +332,11 @@ async fn relay(
     }
 }
 
-/// The 95th percentile of `values`.
-pub fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
-}
-
-/// The gate line of `name`: each side's best round p95, printed and appended to `V2_GATE_OUT`.
+/// The gate line of `name`: each side's best round p95, printed and appended to `V2_GATE_OUT`,
+/// after its rounds ([`gate_rounds::report`]).
 pub fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
-    let best = |rounds: &[Vec<u128>]| rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap_or(0);
-    let (small_p95, god_p95) = (best(small), best(god));
+    gate_rounds::report(name, &[("small", small), ("god", god)]);
+    let (small_p95, god_p95) = (best_p95(small), best_p95(god));
     write_line(json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}));
     (small_p95, god_p95)
 }
@@ -354,10 +350,8 @@ pub fn emit_with_all(
     god: &[Vec<u128>],
     unit: &str,
 ) -> (u128, u128, u128) {
-    let best = |rounds: &[Vec<u128>]| rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap_or(0);
-    let (small_p95, god_p95) = (best(small), best(god));
-    let mut all: Vec<u128> = god.iter().flatten().copied().collect();
-    let god_p95_all = if all.is_empty() { 0 } else { p95(&mut all) };
+    gate_rounds::report(name, &[("small", small), ("god", god)]);
+    let (small_p95, god_p95, god_p95_all) = (best_p95(small), best_p95(god), all_p95(god));
     write_line(json!({"name": name, "small_p95": small_p95, "god_p95": god_p95,
         "god_p95_all": god_p95_all, "unit": unit}));
     (small_p95, god_p95, god_p95_all)
