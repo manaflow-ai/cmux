@@ -211,7 +211,9 @@ public extension PageDescriptor {
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
-                  "import.card", "importFromBrowser"])
+                  "import.card", "importFromBrowser",
+                  // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
+                  "customize.open"])
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 

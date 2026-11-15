@@ -32,6 +32,12 @@ KEY_PREFIX = "ios-link-ffi-xcframework-"
 # cmux-next-ios-kit.yml checks the build script itself (that it runs and leaves
 # the generated Swift unchanged), so it always builds.
 ALWAYS_BUILDS = {"cmux-next-ios-kit.yml"}
+# The gate's legs read cmux NEXT's R2 bucket (cmux-next-fast-tier-seed.yml),
+# under a namespace of their own: the key already names the Xcode build and
+# the runner, and the Linux job that writes it is not the Mac that built it.
+NEXT_PUBLIC_URL = "https://ci-cache-next.cmux.com"
+NAMESPACE = "ios-link-ffi"
+HANDOFF = "ios-link-ffi-framework"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -139,6 +145,24 @@ def run_text(step: dict) -> str:
     return str(step.get("run", ""))
 
 
+def is_ffi_key(step: dict) -> bool:
+    return str(step.get("with", {}).get("key", "")).startswith(KEY_PREFIX)
+
+
+def is_restore(step: dict) -> bool:
+    uses = str(step.get("uses", ""))
+    return is_ffi_key(step) and (uses.startswith("actions/cache/restore@") or uses.startswith("./.github/actions/cache-restore"))
+
+
+def is_save(step: dict) -> bool:
+    uses = str(step.get("uses", ""))
+    return is_ffi_key(step) and (uses.startswith("actions/cache/save@") or uses.startswith("./.github/actions/cache-save"))
+
+
+def gate() -> dict:
+    return yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text(encoding="utf-8"))
+
+
 class WorkflowTests(unittest.TestCase):
     """Every job that builds the framework restores it first, builds only on a
     miss, and saves only outside pull requests."""
@@ -153,14 +177,6 @@ class WorkflowTests(unittest.TestCase):
                     found.append((path.name, name, steps))
         return found
 
-    def test_the_review_gate_legs_reuse_the_framework(self) -> None:
-        jobs = {(w, j): steps for w, j, steps in self.builders()}
-        self.assertIn(("ios-review-gate.yml", "reviewer-path"), jobs)
-        saves = [s for s in jobs[("ios-review-gate.yml", "reviewer-path")]
-                 if str(s.get("uses", "")).startswith("actions/cache/save@")
-                 and str(s.get("with", {}).get("key", "")).startswith(KEY_PREFIX)]
-        self.assertTrue(saves, "a feat-cmux-next push saves the framework its legs built")
-
     def test_every_builder_restores_by_the_input_key_and_builds_only_on_a_miss(self) -> None:
         for workflow, job, steps in self.builders():
             if workflow in ALWAYS_BUILDS:
@@ -168,9 +184,7 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(workflow=workflow, job=job):
                 build_at = next(i for i, s in enumerate(steps) if BUILD in run_text(s))
                 key_steps = [i for i, s in enumerate(steps) if "ios_link_ffi_key.py" in run_text(s)]
-                restores = [i for i, s in enumerate(steps)
-                            if str(s.get("uses", "")).startswith("actions/cache/restore@")
-                            and str(s.get("with", {}).get("key", "")).startswith(KEY_PREFIX)]
+                restores = [i for i, s in enumerate(steps) if is_restore(s)]
                 self.assertTrue(key_steps and key_steps[0] < build_at, "the key is computed before the build")
                 # A key that cannot be computed means a build, never a red job.
                 self.assertIn("::warning::", run_text(steps[key_steps[0]]), "a failed key falls back to building")
@@ -183,16 +197,80 @@ class WorkflowTests(unittest.TestCase):
                         self.assertIn(miss, str(step.get("if", "")), f"'{step.get('name')}' runs only on a miss")
 
     def test_a_pull_request_never_saves_the_framework(self) -> None:
-        for workflow, job, steps in self.builders():
-            for step in steps:
-                uses = str(step.get("uses", ""))
-                if not (uses.startswith("actions/cache/save@") or uses.startswith("./.github/actions/cache-save")):
-                    continue
-                if not str(step.get("with", {}).get("key", "")).startswith(KEY_PREFIX):
-                    continue
-                with self.subTest(workflow=workflow, job=job):
-                    self.assertIn("github.event_name != 'pull_request'", str(step.get("if", "")))
-                    self.assertIs(step.get("continue-on-error"), True, "a lost save race never fails the job")
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for job_name, job in (doc.get("jobs") or {}).items():
+                for step in job.get("steps") or []:
+                    if not is_save(step):
+                        continue
+                    with self.subTest(workflow=path.name, job=job_name):
+                        condition = f"{job.get('if', '')} {step.get('if', '')}"
+                        self.assertTrue("github.event_name != 'pull_request'" in condition
+                                        or "github.event_name == 'push'" in condition, condition)
+                        self.assertIs(step.get("continue-on-error"), True, "a lost save race never fails the job")
+
+    # The Blacksmith Macs' GitHub cache store kept none of the gate's saves
+    # for a later run (runs 43708277177, 43715850653, 43718931581 and
+    # 43721191135 each saved key 01bde7d8, and the next push missed it), so
+    # the legs read the repository's R2 store, which every runner reaches
+    # without a credential.
+    def test_the_review_gate_legs_read_the_framework_from_r2(self) -> None:
+        steps = gate()["jobs"]["reviewer-path"]["steps"]
+        restores = [s for s in steps if is_restore(s)]
+        self.assertEqual(len(restores), 1)
+        restore = restores[0]
+        self.assertTrue(str(restore["uses"]).startswith("./.github/actions/cache-restore"))
+        self.assertEqual(restore["with"].get("backend"), "r2")
+        env = restore.get("env") or {}
+        self.assertEqual(env.get("CI_CACHE_R2_PUBLIC_URL"), NEXT_PUBLIC_URL)
+        self.assertEqual(env.get("CI_CACHE_R2_NAMESPACE"), NAMESPACE)
+        # One directory per R2 entry: the framework and its generated Swift
+        # are restored beside each other and moved into place on a hit.
+        at = steps.index(restore)
+        build_at = next(i for i, s in enumerate(steps) if BUILD in run_text(s))
+        hit = f"steps.{restore['id']}.outputs.cache-hit == 'true'"
+        placed = [s for s in steps[at + 1:build_at] if hit in str(s.get("if", ""))]
+        self.assertTrue(placed and restore["with"]["path"].split("/")[-1] in run_text(placed[0])
+                        and "CmuxMobileLinkFFI.swift" in run_text(placed[0]) and ".xcframework" in run_text(placed[0]),
+                        "a hit moves the framework and its Swift into the app")
+        self.assertFalse([s for s in steps if is_save(s)],
+                         "the legs hold the agent pass's token, never the bucket's write credentials")
+
+    def test_a_feat_cmux_next_run_seeds_r2_from_a_linux_job(self) -> None:
+        jobs = gate()["jobs"]
+        legs = jobs["reviewer-path"]["steps"]
+        uploads = [s for s in legs if str(s.get("uses", "")).startswith("actions/upload-artifact@")
+                   and str(s.get("with", {}).get("name", "")) == HANDOFF]
+        self.assertEqual(len(uploads), 1, "a leg that built the framework hands it to the writer")
+        self.assertIn("cache-hit != 'true'", str(uploads[0].get("if", "")))
+        self.assertIs(uploads[0].get("continue-on-error"), True)
+        writers = [(name, job) for name, job in jobs.items() if any(is_save(s) for s in job.get("steps") or [])]
+        self.assertEqual(len(writers), 1)
+        name, job = writers[0]
+        self.assertIn("reviewer-path", job.get("needs", []))
+        self.assertNotIn("macos", str(job.get("runs-on", "")), "the writer takes no Mac")
+        self.assertEqual(job.get("environment"), "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}")
+        self.assertEqual((job.get("env") or {}).get("CI_CACHE_R2_BUCKET"), "cmux-ci-cache-next")
+        self.assertIn("refs/heads/feat-cmux-next", str(job.get("if", "")))
+        steps = job["steps"]
+        downloads = [s for s in steps if str(s.get("uses", "")).startswith("actions/download-artifact@")]
+        self.assertTrue(downloads and downloads[0].get("with", {}).get("name") == HANDOFF)
+        save = next(s for s in steps if is_save(s))
+        self.assertTrue(str(save["uses"]).startswith("./.github/actions/cache-save"))
+        self.assertEqual(save["with"].get("backend"), "r2")
+        self.assertEqual({**(job.get("env") or {}), **(save.get("env") or {})}.get("CI_CACHE_R2_NAMESPACE"), NAMESPACE)
+        # r2-cache.sh save treats a missing public URL as "nothing saved", and exits 0.
+        self.assertEqual({**(job.get("env") or {}), **(save.get("env") or {})}.get("CI_CACHE_R2_PUBLIC_URL"), NEXT_PUBLIC_URL)
+        # Only a push seeds: a dispatch can name any source (inputs.ref, even a
+        # fork's commit), and what it built would then be restored by every leg.
+        self.assertIn("github.event_name == 'push'", str(job.get("if", "")))
+        self.assertIn("github.event_name == 'push'", str(uploads[0].get("if", "")))
+        # A seed that fails never turns the push run red.
+        self.assertIs(job.get("continue-on-error"), True)
+        # Only the save step reads the write credentials.
+        for step in steps:
+            if step is not save:
+                self.assertNotIn("secrets.", str(step), f"'{step.get('name')}' reads no secret")
 
 
 if __name__ == "__main__":

@@ -782,6 +782,57 @@ fn remote_connect_step_opens_recovery_for_the_current_attempt_only() {
 }
 
 #[test]
+fn toggle_terminal_and_chat_places_answer_over_the_channel() {
+    let screen = "> fix the bug\n\n⏺ Done.\n\n> add a test\n\n⏺ Added.\n> ";
+    let prompts = json!(["fix the bug", "add a test"]);
+    let (_, body) = call_json(
+        c"window_tabs_terminal_place",
+        &json!({"prompts": prompts, "at": 1, "screen": screen, "columns": 80}),
+    );
+    assert_eq!(body, json!({"place": "row", "row": 4}));
+    let (_, body) =
+        call_json(c"window_tabs_terminal_place", &json!({"prompts": prompts, "screen": screen}));
+    assert_eq!(body, json!({"place": "latest"}));
+    let (_, body) = call_json(
+        c"window_tabs_chat_place",
+        &json!({"prompts": prompts, "screen": screen, "columns": 80, "top": 2}),
+    );
+    assert_eq!(body, json!({"place": "turn", "index": 0}));
+    let (_, body) = call_json(
+        c"window_tabs_chat_place",
+        &json!({"prompts": prompts, "screen": screen, "top": 2, "atBottom": true}),
+    );
+    assert_eq!(body, json!({"place": "latest"}));
+}
+
+#[test]
+fn toggle_terminal_and_chat_drafts_answer_over_the_channel() {
+    let typed: Vec<u8> = b"sent\rship it".to_vec();
+    let (code, body) = call_json(
+        c"window_tabs_draft_to_chat",
+        &json!({"typed": typed, "screen": "│ > ship it │\n", "composerEmpty": true}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"draft": "carry", "text": "ship it", "erase": 7}));
+    let (_, body) = call_json(
+        c"window_tabs_draft_to_chat",
+        &json!({"typed": typed, "screen": "│ > ship it │"}),
+    );
+    assert_eq!(body, json!({"draft": "none"}));
+    let (code, body) = call_json(
+        c"window_tabs_draft_to_terminal",
+        &json!({"chat": "add a test", "typed": [], "screen": "│ >  │"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"draft": "paste", "text": "add a test"}));
+    let (_, body) = call_json(
+        c"window_tabs_draft_to_terminal",
+        &json!({"chat": "add a test", "typed": b"mine".to_vec(), "screen": "│ > mine │"}),
+    );
+    assert_eq!(body, json!({"draft": "none"}));
+}
+
+#[test]
 fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
     let screen = " Bash command\n   touch /tmp/x\n Do you want to proceed?\n ❯ 1. Yes\n   2. No (esc)\n\n Esc to cancel";
     let (code, body) = call_json(c"window_tabs_terminal_approval", &json!({"screen": screen}));
