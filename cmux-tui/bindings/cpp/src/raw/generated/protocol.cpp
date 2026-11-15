@@ -4629,6 +4629,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_capabilities", std::move(encoded).value());
     }
+    if (value.machine_device) {
+        auto encoded = encode_value(*value.machine_device);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_device", std::move(encoded).value());
+    }
     if (value.machine_id) {
         auto encoded = encode_value(*value.machine_id);
         if (!encoded) return std::move(encoded).error();
@@ -4643,6 +4648,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         auto encoded = encode_value(*value.machine_platform);
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_platform", std::move(encoded).value());
+    }
+    if (value.machine_symbol) {
+        auto encoded = encode_value(*value.machine_symbol);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_symbol", std::move(encoded).value());
     }
     if (!value.min_api_revision.is_absent()) {
         auto encoded = encode_value(value.min_api_revision);
@@ -4822,6 +4832,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.machine_capabilities = std::move(decoded).value();
     }
+    const Json* field_machine_device = value.find("machine_device");
+    if (field_machine_device) {
+        auto decoded = decode_value<std::string>(*field_machine_device);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_device = std::move(decoded).value();
+    }
     const Json* field_machine_id = value.find("machine_id");
     if (field_machine_id) {
         auto decoded = decode_value<std::string>(*field_machine_id);
@@ -4839,6 +4855,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<MachinePlatform>(*field_machine_platform);
         if (!decoded) return std::move(decoded).error();
         result.machine_platform = std::move(decoded).value();
+    }
+    const Json* field_machine_symbol = value.find("machine_symbol");
+    if (field_machine_symbol) {
+        auto decoded = decode_value<std::string>(*field_machine_symbol);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_symbol = std::move(decoded).value();
     }
     const Json* field_min_api_revision = value.find("min_api_revision");
     if (field_min_api_revision) {
@@ -17171,10 +17193,20 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("mode", std::move(encoded).value());
     }
+    if (!value.output_coalesce_ms.is_absent()) {
+        auto encoded = encode_value(value.output_coalesce_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("output_coalesce_ms", std::move(encoded).value());
+    }
     if (!value.replay_history_rows.is_absent()) {
         auto encoded = encode_value(value.replay_history_rows);
         if (!encoded) return std::move(encoded).error();
         object.emplace("replay_history_rows", std::move(encoded).value());
+    }
+    if (!value.replay_history_start.is_absent()) {
+        auto encoded = encode_value(value.replay_history_start);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("replay_history_start", std::move(encoded).value());
     }
     if (!value.rows.is_absent()) {
         auto encoded = encode_value(value.rows);
@@ -17258,6 +17290,16 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             result.mode = Field<AttachSurfaceRequestMode>(std::move(decoded).value());
         }
     }
+    const Json* field_output_coalesce_ms = value.find("output_coalesce_ms");
+    if (field_output_coalesce_ms) {
+        if (field_output_coalesce_ms->is_null()) {
+            result.output_coalesce_ms = Field<std::uint32_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint32_t>(*field_output_coalesce_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.output_coalesce_ms = Field<std::uint32_t>(std::move(decoded).value());
+        }
+    }
     const Json* field_replay_history_rows = value.find("replay_history_rows");
     if (field_replay_history_rows) {
         if (field_replay_history_rows->is_null()) {
@@ -17266,6 +17308,16 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             auto decoded = decode_value<std::uint32_t>(*field_replay_history_rows);
             if (!decoded) return std::move(decoded).error();
             result.replay_history_rows = Field<std::uint32_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_replay_history_start = value.find("replay_history_start");
+    if (field_replay_history_start) {
+        if (field_replay_history_start->is_null()) {
+            result.replay_history_start = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_replay_history_start);
+            if (!decoded) return std::move(decoded).error();
+            result.replay_history_start = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_rows = value.find("rows");
@@ -41257,6 +41309,11 @@ Result<Json> Codec<ResizedEvent>::encode(const ResizedEvent& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("data", std::move(encoded).value());
     }
+    if (value.history_rows_omitted) {
+        auto encoded = encode_value(*value.history_rows_omitted);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("history_rows_omitted", std::move(encoded).value());
+    }
     if (value.kitty_graphics_state) {
         auto encoded = encode_value(*value.kitty_graphics_state);
         if (!encoded) return std::move(encoded).error();
@@ -41305,6 +41362,12 @@ Result<ResizedEvent> Codec<ResizedEvent>::decode(const Json& value) {
         auto decoded = decode_value<Base64>(*field_data);
         if (!decoded) return std::move(decoded).error();
         result.data = std::move(decoded).value();
+    }
+    const Json* field_history_rows_omitted = value.find("history_rows_omitted");
+    if (field_history_rows_omitted) {
+        auto decoded = decode_value<std::uint64_t>(*field_history_rows_omitted);
+        if (!decoded) return std::move(decoded).error();
+        result.history_rows_omitted = std::move(decoded).value();
     }
     const Json* field_kitty_graphics_state = value.find("kitty_graphics_state");
     if (field_kitty_graphics_state) {
@@ -43075,6 +43138,11 @@ Result<Json> Codec<VtStateEvent>::encode(const VtStateEvent& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("history_rows_omitted", std::move(encoded).value());
     }
+    if (value.history_rows_skipped) {
+        auto encoded = encode_value(*value.history_rows_skipped);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("history_rows_skipped", std::move(encoded).value());
+    }
     if (value.kitty_graphics_state) {
         auto encoded = encode_value(*value.kitty_graphics_state);
         if (!encoded) return std::move(encoded).error();
@@ -43127,6 +43195,12 @@ Result<VtStateEvent> Codec<VtStateEvent>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_history_rows_omitted);
         if (!decoded) return std::move(decoded).error();
         result.history_rows_omitted = std::move(decoded).value();
+    }
+    const Json* field_history_rows_skipped = value.find("history_rows_skipped");
+    if (field_history_rows_skipped) {
+        auto decoded = decode_value<std::uint64_t>(*field_history_rows_skipped);
+        if (!decoded) return std::move(decoded).error();
+        result.history_rows_skipped = std::move(decoded).value();
     }
     const Json* field_kitty_graphics_state = value.find("kitty_graphics_state");
     if (field_kitty_graphics_state) {
@@ -46035,12 +46109,14 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 11> kCommand4FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 13> kCommand4FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
     {"expected_generation", 0U, "attach-identity-v1"},
     {"expected_terminal_id", 0U, "attach-identity-v1"},
     {"mode", 7U, ""},
+    {"output_coalesce_ms", 0U, "attach-output-coalesce-v1"},
     {"replay_history_rows", 0U, "attach-replay-history-rows-v1"},
+    {"replay_history_start", 0U, "attach-replay-history-window-v1"},
     {"rows", 0U, "attach-initial-size"},
     {"snapshot", 0U, "terminal-snapshot-v1"},
     {"snapshot_images", 0U, "terminal-snapshot-images-v1"},

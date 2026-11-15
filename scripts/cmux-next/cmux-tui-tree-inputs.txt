@@ -123,3 +123,4 @@ blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
+blob schemas/build-identity/vectors.json

@@ -178,9 +178,10 @@ extension SidebarViewComponents {
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
-        // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.
+        // Minimal Mode or controls on hover too (``SidebarSectionsPreferences/hidesControlsUntilHover``): its
+        // controls fade to the new rule.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo
-            || lastState?.preferences.controlsOnHover != state.preferences.controlsOnHover {
+            || lastState?.preferences.hidesControlsUntilHover != state.preferences.hidesControlsUntilHover {
             setChromeRevealed(isChromeRevealed)
         }
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;

@@ -180,6 +180,14 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
         let file = entry.parent().unwrap().join(path);
         assert!(file.is_file(), "{path} is carried with the SDK ({})", file.display());
     }
+    // `cmux-extension-sdk/customize`, written from this build's schema.
+    let types = entry.parent().unwrap().join("generated/customize.ts");
+    let schema = cmux_customize::schema::Schema::current();
+    assert_eq!(
+        std::fs::read_to_string(&types).ok(),
+        Some(cmux_customize::schema::typescript(&schema)),
+        "the customize types are carried with the SDK"
+    );
 
     let Some(bun) = dev::find_bun() else {
         eprintln!("bun is not on PATH: the build half of this test needs it");
@@ -804,4 +812,17 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
     let (_, code) = shot::report(&broken, &dir, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+#[test]
+fn a_new_tab_page_is_placed_where_the_person_picks_it() {
+    let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
+    let placed = dev::placements(&manifest, true);
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0]["interface"], "cmux.newtab/1");
+    assert!(
+        placed[0]["where"].as_str().is_some_and(|w| w.contains("tabs.newTabApp")),
+        "{placed:?}"
+    );
 }

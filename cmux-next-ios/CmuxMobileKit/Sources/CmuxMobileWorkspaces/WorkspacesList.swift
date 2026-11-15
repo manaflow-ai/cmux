@@ -660,7 +660,7 @@ public struct WorkspacesList: View {
                 .padding(.bottom, 4)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         // From the screen edge, as the rows: the chevron in their gutter, the
         // name at their titles' x.
         .accessibilityAddTraits(.isHeader)
@@ -876,7 +876,7 @@ public struct WorkspacesList: View {
             .frame(minHeight: 32)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(fold.isForcedOpen || (fold.reason != .offline && reconnect == nil))
         .accessibilityValue(fold.reason == .offline && !fold.isForcedOpen ? (isOpen ? "Expanded" : "Collapsed") : "")
         .background { FrameProbe(id: "fold.\(fold.mac.id)") { rowFrames.rows["fold.\(fold.mac.id)"] = WeakProbe(view: $0) } }

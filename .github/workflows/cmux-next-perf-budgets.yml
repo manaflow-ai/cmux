@@ -310,7 +310,7 @@ jobs:
         with:
           name: tipguard-blacksmith-${{ inputs.tip_sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/tipguard-blacksmith
-          retention-days: 90
+          retention-days: 7
           if-no-files-found: warn
 
   plan:
@@ -468,7 +468,7 @@ jobs:
           name: perf-cron-part-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-part
           overwrite: true
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: ignore
 
   # The controller route (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go): with no gateway runner and
@@ -576,7 +576,7 @@ jobs:
           name: perf-cron-linux-${{ github.run_id }}
           path: ${{ runner.temp }}/perf-cron-linux
           overwrite: true
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: ignore
 
   report:
@@ -657,7 +657,7 @@ jobs:
           name: perf-cron-state
           path: ${{ runner.temp }}/perf-cron
           overwrite: true
-          retention-days: 90
+          retention-days: 7
           if-no-files-found: error
 
       # A part finished and the measurement has more: start the next tick now instead of at the dispatcher's next
