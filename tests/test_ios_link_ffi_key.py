@@ -92,6 +92,20 @@ class KeyTests(unittest.TestCase):
     def test_the_workspace_manifest_above_a_path_crate_changes_the_key(self) -> None:
         self.assertNotEqual(self.key(self.base), self.key(self.changed("core/Cargo.toml", '[workspace.package]\nedition = "2024"\n')))
 
+    def test_a_crate_inherited_from_the_workspace_by_path_changes_the_key(self) -> None:
+        # `name.workspace = true` (and the inline-table form) resolves through the
+        # workspace root's [workspace.dependencies], which may name a path.
+        self.changed("core/Cargo.toml", '[workspace]\nmembers = ["crates/*"]\n[workspace.dependencies]\n'
+                     'serde = "1"\nshared = { path = "crates/shared" }\n[workspace.dependencies.table]\npath = "crates/table"\n')
+        self.changed("core/crates/shared/src/lib.rs", "")
+        self.changed("core/crates/table/src/lib.rs", "")
+        rev = self.changed("core/crates/wire/Cargo.toml",
+                           '[package]\nname = "wire"\n[dependencies]\nshared.workspace = true\n'
+                           'table = { workspace = true, features = ["x"] }\nserde.workspace = true\n')
+        self.assertNotEqual(self.key(rev), self.key(self.changed("core/crates/shared/src/lib.rs", "fn f() {}")))
+        rev = git(self.repo, "rev-parse", "HEAD")
+        self.assertNotEqual(self.key(rev), self.key(self.changed("core/crates/table/src/lib.rs", "fn f() {}")))
+
     def test_a_toolchain_file_above_a_crate_changes_the_key(self) -> None:
         self.assertNotEqual(self.key(self.base), self.key(self.changed("rust-toolchain.toml", '[toolchain]\nchannel = "1.0"\n')))
 
@@ -155,6 +169,8 @@ class WorkflowTests(unittest.TestCase):
                             if str(s.get("uses", "")).startswith("actions/cache/restore@")
                             and str(s.get("with", {}).get("key", "")).startswith(KEY_PREFIX)]
                 self.assertTrue(key_steps and key_steps[0] < build_at, "the key is computed before the build")
+                # A key that cannot be computed means a build, never a red job.
+                self.assertIn("::warning::", run_text(steps[key_steps[0]]), "a failed key falls back to building")
                 self.assertTrue(restores and restores[0] < build_at, "the framework is restored before the build")
                 restore_id = steps[restores[0]].get("id")
                 self.assertTrue(restore_id, "the restore step has an id the build reads")
