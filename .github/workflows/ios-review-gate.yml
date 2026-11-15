@@ -17,7 +17,12 @@ run-name: >-
 # blocker not in cmux-next-ios/AppStoreReview/known-blockers.json: a change
 # that breaks the reviewer's path is red before it merges, not found by Apple.
 # A scheduled run would fire only from the default branch's copy of this file,
-# so there is none here.
+# so there is none here. Notes (*.md) and cmux-next-ios/verify/ evidence are
+# not the app: a change to only those walks no reviewer path (cmux#43251,
+# SECURITY.md and verify/parity-mac.md, took a Mac per device and the agent
+# pass's quota). AppStoreReview/ stays in: the agent pass follows
+# reviewer-setup.md. The last matching pattern wins, so the negations come
+# after the includes they narrow and before the one they re-include.
 # docs: cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md.
 on:
   push:
@@ -31,6 +36,9 @@ on:
       - ".github/workflows/ios-review-gate.yml"
       - ".github/ios-review-gate-devices.json"
       - ".github/scripts/ios_review_gate_devices.py"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/AppStoreReview/**"
   # Every app pull request walks the reviewer path (one macOS job per device,
   # side by side, about 30 minutes), so a change that breaks it is red before
   # it merges.
@@ -44,6 +52,9 @@ on:
       - ".github/workflows/ios-review-gate.yml"
       - ".github/ios-review-gate-devices.json"
       - ".github/scripts/ios_review_gate_devices.py"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/AppStoreReview/**"
   workflow_dispatch:
     inputs:
       ref:
