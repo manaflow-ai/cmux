@@ -623,7 +623,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             </p>
           ) : null}
           <ol
-            className="menu-preview"
+            className="menu-preview ui-popup ui-menu ui-glass"
             data-menu-preview=""
             data-reordering={dragging?.active ? "" : undefined}
             ref={list}
@@ -631,7 +631,12 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             {shown.map((row, flat) => drawRow(row, flat))}
           </ol>
           {picker ? (
-            <div className="menus-move-picker" role="menu" aria-label={t("settingsWindow.menus.moveTo")} data-picker="">
+            <div
+              className="menus-move-picker ui-popup ui-menu ui-glass"
+              role="menu"
+              aria-label={t("settingsWindow.menus.moveTo")}
+              data-picker=""
+            >
               {moveChoices(picker.path).map((choice) => (
                 <button
                   key={choice.id}

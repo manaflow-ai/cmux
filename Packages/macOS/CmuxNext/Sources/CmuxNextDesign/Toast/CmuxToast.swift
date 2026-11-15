@@ -44,7 +44,15 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     /// could not be stopped, and why).
     public var detail: String?
     public var action: Action?
+    /// A prompt's second choice (Later, Show Crash Log), drawn before ``action`` as the quieter
+    /// one; it runs the handle's `onSecondaryAction` and ends the toast. Nil on a toast.
+    public var secondaryAction: Action?
     public var duration: Duration
+    /// How things went (``CmuxToastTone``), which styles that mark it show. A refusal is an error.
+    public var tone: CmuxToastTone
+    /// The style this toast draws in whatever the pick is (the Toast Playground's Fire it); nil: the
+    /// picked style (``CmuxToastStyleStore``).
+    public var style: CmuxToastStyle?
     /// Shown in one window at a time: showing it in another window ends the one showing, which
     /// the same id replaces only within its window. A long run's working toast (Moving to Cloud,
     /// ``untilClosed``) whose result shows after the person switched windows ends with it.
@@ -58,8 +66,12 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     public static let untilClosed: Duration = .zero
 
     public init(id: String, kind: String? = nil, message: String, detail: String? = nil, action: Action? = nil,
-                duration: Duration = .seconds(6), oneWindow: Bool = false, keepsDuration: Bool = false) {
+                secondaryAction: Action? = nil, duration: Duration = .seconds(6), tone: CmuxToastTone? = nil,
+                oneWindow: Bool = false, keepsDuration: Bool = false, style: CmuxToastStyle? = nil) {
         self.id = id
+        self.secondaryAction = secondaryAction
+        self.tone = tone ?? (id == Self.refusalID ? .error : .neutral)
+        self.style = style
         self.kind = kind ?? id
         self.keepsDuration = keepsDuration
         self.oneWindow = oneWindow
@@ -73,9 +85,9 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
 extension CmuxToast {
     /// Whether the toast offers Don't Show Again: it ends on its own and is a notice (no action, or only
     /// Details). An Undo, Retry or Replace is the person's way back or forward, and a toast that waits
-    /// (``untilClosed``) asks for an answer; hiding either for good would take that away.
+    /// (``untilClosed``) or offers two choices asks for an answer; hiding either for good would take that away.
     public var offersNeverShow: Bool {
-        duration != Self.untilClosed && (action == nil || action?.revealsDetails == true)
+        duration != Self.untilClosed && secondaryAction == nil && (action == nil || action?.revealsDetails == true)
     }
 }
 

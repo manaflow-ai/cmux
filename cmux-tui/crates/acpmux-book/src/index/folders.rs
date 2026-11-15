@@ -6,43 +6,17 @@
 //! persistent-map paths touched by that folder, and returns the one operation a
 //! subscriber needs to observe.
 
-use super::{ListFilter, MAX_FIELD_BYTES, RowKey};
+#[cfg(test)]
+use super::MAX_FIELD_BYTES;
+use super::{ListFilter, RowKey};
 use imbl::OrdMap;
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::io;
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::sync::Arc;
 
-/// A folder's stable identity. The folder itself is bounded to 1,024 bytes by
-/// the index record contract; origins use the ordinary 256-byte row-key bound.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderKey {
-    pub origin: Arc<str>,
-    pub folder: Arc<str>,
-}
+pub use acpmux_list_types::folders::{FolderKey, MAX_FOLDER_BYTES};
 
-impl FolderKey {
-    pub fn new(origin: impl Into<Arc<str>>, folder: impl Into<Arc<str>>) -> Self {
-        Self { origin: origin.into(), folder: folder.into() }
-    }
-
-    pub fn validate(&self) -> io::Result<()> {
-        if self.origin.len() > MAX_FIELD_BYTES {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "folder origin exceeds 256 bytes",
-            ));
-        }
-        if self.folder.len() > MAX_FOLDER_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "folder exceeds 1024 bytes"));
-        }
-        Ok(())
-    }
-}
-
-pub const MAX_FOLDER_BYTES: usize = 1024;
 pub const MAX_FOLDER_ROWS: usize = 400;
 pub const MAX_FOLDER_PAGE_BYTES: usize = super::snapshot::PAGE_BYTES;
 
@@ -97,35 +71,16 @@ impl FolderEntry {
     }
 }
 
-/// One row in the folders view.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderRow {
-    pub origin: Arc<str>,
-    pub folder: Arc<str>,
-    pub newest: RowKey,
-    pub at: u64,
-    pub count: u32,
-}
+pub use acpmux_list_types::folders::FolderRow;
 
-impl FolderRow {
-    fn from_entry(entry: &FolderEntry) -> Option<Self> {
-        Some(Self {
-            origin: entry.key.origin.clone(),
-            folder: entry.key.folder.clone(),
-            newest: entry.newest.clone()?,
-            at: entry.at,
-            count: entry.count,
-        })
-    }
-
-    pub fn key(&self) -> FolderKey {
-        FolderKey::new(self.origin.clone(), self.folder.clone())
-    }
-
-    pub fn encoded_len(&self) -> usize {
-        serde_json::to_vec(self).map_or(0, |bytes| bytes.len())
-    }
+fn from_entry(entry: &FolderEntry) -> Option<FolderRow> {
+    Some(FolderRow {
+        origin: entry.key.origin.clone(),
+        folder: entry.key.folder.clone(),
+        newest: entry.newest.clone()?,
+        at: entry.at,
+        count: entry.count,
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -224,7 +179,7 @@ impl Folders {
     pub(crate) fn apply_validated(&self, entry: FolderEntry) -> (Self, Option<FolderOp>) {
         let mut next = self.clone();
         let old = self.by_key.get(&entry.key).cloned();
-        let Some(row) = FolderRow::from_entry(&entry).map(Arc::new) else {
+        let Some(row) = from_entry(&entry).map(Arc::new) else {
             if let Some(old) = old {
                 next.by_key.remove(&entry.key);
                 next.ordered.remove(&FolderSortKey { at: old.at, key: entry.key.clone() });

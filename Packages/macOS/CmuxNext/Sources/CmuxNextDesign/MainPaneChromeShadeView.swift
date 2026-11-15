@@ -19,8 +19,9 @@ public final class MainPaneChromeShadeView: NSView {
     private var squareTopCorners = false
     /// The selected folder tabs of the top row (``update(card:radius:alpha:squareTopCorners:folders:)``).
     private var folders: [CGPath] = []
-    /// The tab row's divider (``update(card:radius:alpha:squareTopCorners:folders:divider:)``): a line of no height.
-    private var divider: CGRect = .null
+    /// The tab row's divider (``update(card:radius:alpha:squareTopCorners:folders:dividers:)``): its segments, each a
+    /// line of no height.
+    private var dividers: [CGRect] = []
     /// The divider's line, in `Palette.chromeDivider` at ``Metrics/tabRowDividerStrength``, less the folders.
     private let dividerLayer = CAShapeLayer()
     private var cardsObservation: AnyObject?
@@ -74,19 +75,20 @@ public final class MainPaneChromeShadeView: NSView {
     /// `folders`: the selected folder tabs of the top row, in this view's coordinates (`CornerFlushChrome`).
     /// The shade leaves them out as it leaves out the card, so each folder tab shows the window's backdrop
     /// exactly as the content it opens does (``Palette/folderTabFill``).
-    /// `divider`: the tab row's bottom edge as a line of no height (`CornerFlushChrome.dividerLine`), or null for
-    /// none. It draws a hairline there in `Palette.separator` at ``Metrics/tabRowDividerStrength`` (nothing at the
-    /// full title area contrast), less the folder tabs, so the line runs under the unselected tabs only.
+    /// `dividers`: the tab row's bottom edge as lines of no height (`CornerFlushChrome.dividerLine`, less the panes
+    /// whose toolbar meets their tabs), or none. It draws a hairline there in `Palette.separator` at
+    /// ``Metrics/tabRowDividerStrength`` (nothing at the full title area contrast), less the folder tabs, so the line
+    /// runs under the unselected tabs only.
     public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, squareTopCorners: Bool = false, folders: [CGPath] = [],
-                       divider: CGRect = .null) {
+                       dividers: [CGRect] = []) {
         guard card != self.card || radius != self.radius || alpha != self.alpha || squareTopCorners != self.squareTopCorners
-            || folders != self.folders || divider != self.divider || shade.frame != bounds || Metrics.floatingPanes else { return }
+            || folders != self.folders || dividers != self.dividers || shade.frame != bounds || Metrics.floatingPanes else { return }
         self.card = card
         self.radius = radius
         self.alpha = alpha
         self.squareTopCorners = squareTopCorners
         self.folders = folders
-        self.divider = divider
+        self.dividers = dividers
         rebuild()
     }
 
@@ -95,18 +97,21 @@ public final class MainPaneChromeShadeView: NSView {
         rebuild()
     }
 
-    /// The divider's line: `Metrics.dividerThickness` above `divider` (maxY is the top, so it sits in the tab row),
+    /// The divider's line: `Metrics.dividerThickness` above each of `dividers` (maxY is the top, so it sits in the tab row),
     /// less the folder tabs; nil when there is no divider or the title area contrast leaves it no strength.
     private func rebuildDivider() {
         dividerLayer.frame = bounds
         let strength = Metrics.tabRowDividerStrength
-        guard !divider.isNull, divider.width > 0, strength > 0 else {
+        let segments = dividers.filter { !$0.isNull && $0.width > 0 }
+        guard !segments.isEmpty, strength > 0 else {
             dividerLayer.path = nil
             return
         }
         // The split panes' and the sidebar's line weight (`Metrics.dividerThickness`), so the three dividers match.
         let weight = Metrics.lineWidth(Metrics.dividerThickness)
-        var line: CGPath = CGPath(rect: CGRect(x: divider.minX, y: divider.minY, width: divider.width, height: weight), transform: nil)
+        let rects = CGMutablePath()
+        for segment in segments { rects.addRect(CGRect(x: segment.minX, y: segment.minY, width: segment.width, height: weight)) }
+        var line: CGPath = rects
         for folder in folders { line = line.subtracting(folder) }
         dividerLayer.path = line
         // In the window's theme scope, as the split lines and the tab separators read it: a workspace-specific theme's

@@ -1,9 +1,7 @@
 import { createRoute, lazyRouteComponent, redirect } from "@tanstack/react-router";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { isRefusal, refusalReason } from "../lib/refusal";
-import { cloudDevicesQuery } from "../queries/cloud";
 import { coderouterOverviewQuery } from "../queries/coderouter";
-import { CloudPageFrame, CloudRouteError } from "../screens/cloud/cloud-frame";
 import { CoderouterPageFrame, CoderouterRouteError } from "../screens/coderouter/coderouter-frame";
 import { shellRoute } from "./root";
 
@@ -33,21 +31,6 @@ const coderouterRoute = createRoute({
   component: lazyRouteComponent(() => import("../screens/coderouter/coderouter-screen"), "CoderouterScreen"),
 });
 
-const cloudRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: "/dashboard/cloud",
-  loader: ({ context }) => context.queryClient.ensureQueryData(cloudDevicesQuery),
-  pendingComponent: () => (
-    <CloudPageFrame>
-      <DashboardSectionSkeleton variant="devices" />
-    </CloudPageFrame>
-  ),
-  // A 503 here is the device list failing, not the session: it shows in the
-  // page like any other data failure, never as sign-in recovery.
-  errorComponent: CloudRouteError,
-  component: lazyRouteComponent(() => import("../screens/cloud/cloud-screen"), "CloudScreen"),
-});
-
 /** Needs only the session user, which the shell already loaded. */
 const mobileDevicesRoute = createRoute({
   getParentRoute: () => shellRoute,
@@ -58,4 +41,4 @@ const mobileDevicesRoute = createRoute({
   ),
 });
 
-export const coderouterRoutes = [coderouterRoute, cloudRoute, mobileDevicesRoute] as const;
+export const coderouterRoutes = [coderouterRoute, mobileDevicesRoute] as const;

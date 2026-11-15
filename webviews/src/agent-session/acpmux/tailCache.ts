@@ -144,7 +144,7 @@ export function shareReadAhead(sessionId: string): boolean {
 /// older than this one, and the client the pane makes next on a lost connection draws the map's
 /// tail while it connects (direct.ts `drawTailWhileConnecting`). Left behind, it drew the chat as
 /// it was when it was last left, then the attach drew it as it is, once per dropped connection.
-export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true): void {
+export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true, toHost = true): void {
   noteShown(sessionId, tail);
   if (!forThisPage && readAheadTails.has(sessionId)) readAheadTails.set(sessionId, tail);
   if (forThisPage || keptTails.has(sessionId)) {
@@ -153,7 +153,8 @@ export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = tr
     keptTails.set(sessionId, tail);
     while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
   }
-  writeHostTail(sessionId, tail);
+  // `toHost` false: the caller hands it over in a request of its own (`TailHandOver`).
+  if (toHost) writeHostTail(sessionId, tail);
 }
 
 /// A chat whose transcript this page no longer stands behind (acpmux purged it, or an attach of it
@@ -262,6 +263,26 @@ function callHost<T>(method: string, params: Record<string, unknown>): Promise<T
 /// `ifNewer` (a hover's hand-over, ``shareReadAhead``): the host keeps it only over an older tail,
 /// and a tail cut to nothing forgets nothing.
 function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void {
+  const bounded = hostTailOf(tail);
+  // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
+  // it on its own): the host forgets what it had rather than keeping an older tail under a chat
+  // this page has since read on.
+  if (!bounded) {
+    if (!ifNewer) void callHost("chat.tail", { sessionId }).catch(() => undefined);
+    return;
+  }
+  void callHost("chat.tail", { sessionId, ...(ifNewer ? { ifNewer: true } : {}), tail: bounded }).catch(
+    () => undefined,
+  );
+}
+
+/// A chat's tail handed to the host inside the request that opens a pane on it (`chat.subagentPane`
+/// `handOver`), as `chat.tail` hands it: one request, so the host holds the tail before it decides
+/// how the pane opens (#36650).
+export type TailHandOver = { sessionId: string; tail: KeptTail };
+
+/// `tail` as the host keeps it, under `writeHostTail`'s bounds; undefined when not one record fits.
+export function hostTailOf(tail: KeptTail): KeptTail | undefined {
   // The rest of the tail is counted first, because it is not bounded by a record count the way
   // `events` is: `queue` carries the whole text of every queued prompt, and a reader who queued a
   // pasted log would otherwise hand over megabytes that neither side counts.
@@ -270,24 +291,14 @@ function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void
   // ``KEPT_EVENTS`` records, which `keptEvents` counts this way.
   const packed = packStreamed(tail.events);
   const events = newestWithin(packed, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
-  // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
-  // it on its own): the host forgets what it had rather than keeping an older tail under a chat
-  // this page has since read on.
-  if (events.length === 0) {
-    if (!ifNewer) void callHost("chat.tail", { sessionId }).catch(() => undefined);
-    return;
-  }
-  void callHost("chat.tail", {
-    sessionId,
-    ...(ifNewer ? { ifNewer: true } : {}),
-    tail: {
-      ...tail,
-      events,
-      // Only a whole transcript is exhausted: a tail the byte bound cut has older events to read,
-      // and a tail that claimed otherwise would hide them (test/reopened-chat-history.test.ts).
-      historyExhausted: tail.historyExhausted && events.length === packed.length,
-    },
-  }).catch(() => undefined);
+  if (events.length === 0) return undefined;
+  return {
+    ...tail,
+    events,
+    // Only a whole transcript is exhausted: a tail the byte bound cut has older events to read,
+    // and a tail that claimed otherwise would hide them (test/reopened-chat-history.test.ts).
+    historyExhausted: tail.historyExhausted && events.length === packed.length,
+  };
 }
 
 /// What `value` costs the host, measured the one way both bounds are measured: its JSON's length.

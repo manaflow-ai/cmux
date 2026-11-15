@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -101,6 +101,30 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
         self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
 
+    def test_a_measurement_that_gave_the_bench_host_up_still_asks_it_while_github_is_busy(self):
+        # 2026-11-15 00:54Z: the measurement gave cmux20-bench up after 2 h without a part (two results were lost to
+        # the rate limit and the host ran other steps). The give-up kept the bench host from the "only on the bench
+        # host" rule for 2 h, a dev build waited for a Mac at every tick, and so no Mac part was asked for at all
+        # (01:13Z plan: "none"). Giving a host up is for trying another host; while only the bench host may be
+        # asked, it is asked.
+        busy = "cmux-next.yml waits for a Mac runner"
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, busy)
+        state["current"]["host"] = cron.BENCH_WORKER
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
+        late = at(1 + cron.HOST_WAIT_HOURS + 0.1)
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
+        self.assertEqual(state["current"]["gave_up"][0]["host"], cron.BENCH_WORKER)
+        self.assertEqual((d["action"], d.get("part"), d.get("worker")), ("part", "build", cron.BENCH_WORKER))
+        # Without a waiting build the measurement goes to any idle measure host, as before.
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, None)
+        self.assertEqual((d["action"], d.get("worker")), ("part", ""))
+        # A bench host the fleet check reported offline is not asked.
+        cron.mark_host(state, cron.BENCH_WORKER, unreachable_since=cron.iso(late))
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
+        self.assertEqual(d["action"], "none")
+
     def test_the_measurement_in_flight_goes_on_before_a_newer_tip(self):
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion", "sidebar"], None)
@@ -162,6 +186,20 @@ class RegressionTests(unittest.TestCase):
     def test_noise_under_the_floor_does_not(self):
         regs = cron.find_regressions({"x.input_to_commit": row(5.6)}, {"x.input_to_commit": row(5.0)}, 16.67, 16.67, budgets_mod)
         self.assertEqual(regs, [])
+
+    def test_terminal_throughput_rows_are_stored_never_judged(self):
+        # MB/s and the NEXT/Ghostty ratio are higher-is-better: a faster run must not read as a regression, and the
+        # rows stay reporting only (the CMUX-571 goal reads terminal.throughput.ratio).
+        now = {"terminal.throughput.next_mb_s@cmux20-bench": row(400.0, unit="MB/s", floor=40.0),
+               "terminal.throughput.ratio@cmux20-bench": row(2.0, unit="x", floor=0.1)}
+        base = {"terminal.throughput.next_mb_s@cmux20-bench": row(100.0, unit="MB/s", floor=10.0),
+                "terminal.throughput.ratio@cmux20-bench": row(0.5, unit="x", floor=0.1)}
+        self.assertEqual(cron.find_regressions(now, base, 8.33, 8.33, budgets_mod), [])
+        self.assertEqual(cron.part_for_row("terminal.throughput.ratio@cmux20-bench"), "throughput")
+        report = {"rows": [{"name": "terminal.throughput.ratio", "p50": 0.8, "p95": 0.8, "unit": "x", "budget": None,
+                            "floor": 0.1}]}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["throughput"], report, budgets_mod, {})
+        self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.8)
 
     def test_newly_over_target_regresses_under_ten_percent(self):
         # A frame row's target at 60 Hz is 20.8 ms: 20.0 -> 21.5 is +7.5 % but crosses it by more than the floor.
@@ -571,6 +609,31 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_config("diff-viewer"), "9c9749c7fe76", "the diff-viewer rows are not rebased")
         self.assertNotEqual(cron.part_config("web-ui"), cron.part_config("diff-viewer"))
 
+    def test_the_memory_agents_part_owns_its_rows_and_reads_its_suites_report(self):
+        """CMUX-571: goals ram-baseline and memory-per-chat read these rows (memory-agents-cron.py)."""
+        self.assertIn("memory-agents", FLEET, "a Mac part on the measure host")
+        self.assertEqual(cron.part_for_row("memory.app_agents.empty.total_footprint_mb@cmux20-bench"), "memory-agents")
+        self.assertEqual(cron.part_for_row("memory.app_agents.ratio_vs_empty@cmux20-bench"), "memory-agents")
+        self.assertEqual(cron.part_for_row("idle.terminals.app_cpu_pct@cmux20-bench"), "home-idle")
+        spec2 = importlib.util.spec_from_file_location("memory_agents", os.path.join(HERE, "..", "memory-agents-cron.py"))
+        mem = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(mem)
+        bench = {"samples": [
+            {"label": "idle-launch", "workspaces": 1, "total_footprint_mb": 904.2, "pane_failures": 0},
+            {"label": "idle-10", "workspaces": 10, "total_footprint_mb": 1500.0, "pane_failures": 0},
+            {"label": "idle-20", "workspaces": 17, "total_footprint_mb": 1900.0, "pane_failures": 0}]}  # partial
+        report = {"rows": mem.rows_from(bench)}
+        part = cron.PART_BY_NAME["memory-agents"]
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(rows["memory.app_agents.empty.total_footprint_mb"]["p95"], 904.2)
+        self.assertEqual(rows["memory.app_agents.10.total_footprint_mb"]["unit"], "MB")
+        self.assertNotIn("memory.app_agents.20.total_footprint_mb", rows, "a count whose chats did not all open")
+        self.assertEqual(rows["memory.app_agents.ratio_vs_empty"]["p95"], round(1500.0 / 904.2, 3),
+                         "the highest complete count over the empty app, from one run")
+        self.assertEqual(mem.rows_from({"samples": [{"label": "idle-10", "workspaces": 10, "total_footprint_mb": 1}]}), [],
+                         "no empty sample: no ratio either")
+        self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
+
     def test_the_update_one_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-scale"))
         self.assertEqual(cron.part_for_row("webui.update_one.home.status.n3000@linux"), "web-ui-scale")
@@ -586,6 +649,55 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.state_growth.god.chat_reopen.heap_bytes_per_op@linux"), "web-ui-growth")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-growth")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "state-growth"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_infinite_items_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("infinite-items"))
+        self.assertEqual(cron.part_for_row("webui.infinite_items.n1000.memory_vs_empty@linux"), "infinite-items")
+        self.assertEqual(cron.part_for_row("webui.infinite_items.n10.mb_per_day@linux"), "infinite-items")
+        runs = cron.linux_bench_runs("/r", "infinite-items")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only"])
+        argv, cwd, _ = runs["suite"]
+        self.assertEqual(argv[:2], ["bash", "/r/scripts/measure/infinite-items-linux.sh"])
+        self.assertIn("pages=0", argv)
+        self.assertEqual(cwd, "/r")
+        rows = cron.rows_of_part(cron.PART_BY_NAME["infinite-items"], {"rows": [
+            {"name": "infinite_items.n1000.memory_vs_empty", "p50": 1.4, "p95": 1.4, "unit": "x", "floor": 0.1}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.infinite_items.n1000.memory_vs_empty"]["p95"], 1.4)
+
+    def test_the_chat_100k_flat_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-flat"))
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.ratio_max@linux"), "web-ui-flat")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.long_x20.renderer_mb@linux"), "web-ui-flat")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.ratio_max@linux"), "web-ui-flat-grown")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.empty_x20.renderer_mb@linux"), "web-ui-flat-grown")
+        argv, _, _ = cron.linux_bench_runs("/r", "web-ui-flat-grown")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"])
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-flat")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_chat_disk_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("chat-disk"))
+        self.assertEqual(cron.part_for_row("webui.chat_disk.growth_ratio@linux"), "chat-disk")
+        self.assertEqual(cron.part_for_row("webui.chat_disk.long_mb_per_hour@linux"), "chat-disk")
+        runs = cron.linux_bench_runs("/r", "chat-disk")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/chat-disk-growth-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/chat-disk-growth-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["chat-disk"], {"rows": [
+            {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
+
+    def test_the_million_event_chat_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-million"))
+        self.assertEqual(cron.part_for_row("webui.million_event_chat.long.older_page@linux"), "web-ui-million")
+        self.assertEqual(cron.part_for_row("webui.million_event_chat.short.heap_mb@linux"), "web-ui-million")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-million")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "million-event-chat,million-event-chat-short"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
@@ -1854,6 +1966,56 @@ class RateLimitTests(unittest.TestCase):
             self.assertEqual(report["changed"], "false", "nothing is saved over the last trusted state")
             self.assertFalse(os.path.exists(os.path.join(d, "state.json")))
 
+    def test_a_result_run_waits_out_the_rate_limit_and_reads_the_state(self):
+        # A result run carries the controller's result of a part that ran: doing nothing drops it.
+        refused = cron.RateLimited("GET /repos/N/actions/artifacts: HTTP 403")
+        refused.wait = 240
+        slept = []
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(cron, "fetch_state", mock.Mock(side_effect=[refused, True])) as fetch, \
+                mock.patch.object(cron.time, "sleep", slept.append):
+            cron.cmd_fetch_state(argparse.Namespace(repo="o/r", dir=d, wait_limit=2700))
+            self.assertEqual(fetch.call_count, 2, "the state is read again after the wait")
+            self.assertFalse(os.path.exists(os.path.join(d, cron.RATE_LIMITED)))
+        self.assertEqual(len(slept), 1)
+        self.assertGreaterEqual(slept[0], 240)
+
+    def test_a_wait_past_the_limit_or_on_a_plain_tick_still_does_nothing(self):
+        for wait, limit in ((3000, 2700), (240, 0), (None, 2700)):
+            refused = cron.RateLimited("x")
+            refused.wait = wait
+            with tempfile.TemporaryDirectory() as d, \
+                    mock.patch.object(cron, "fetch_state", mock.Mock(side_effect=[refused, True])) as fetch, \
+                    mock.patch.object(cron.time, "sleep", mock.Mock(side_effect=AssertionError("no wait"))):
+                cron.cmd_fetch_state(argparse.Namespace(repo="o/r", dir=d, wait_limit=limit))
+                self.assertEqual(fetch.call_count, 1)
+                self.assertTrue(os.path.exists(os.path.join(d, cron.RATE_LIMITED)))
+
+    def test_a_refusal_says_how_long_until_github_takes_calls_again(self):
+        import email.message
+        for name, value, want in (("retry-after", "90", 90), ("x-ratelimit-reset", str(int(cron.time.time()) + 600), 600)):
+            headers = email.message.Message()
+            headers["x-ratelimit-remaining"] = "0"
+            headers[name] = value
+
+            def limited(*a, headers=headers, **k):
+                raise urllib.error.HTTPError("https://api.github.com/x", 403, "Forbidden", headers, io.BytesIO(b"{}"))
+            with mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), mock.patch.object(urllib.request, "urlopen", limited):
+                with self.assertRaises(cron.RateLimited) as ctx:
+                    cron.gh_request("/repos/o/r")
+            self.assertAlmostEqual(ctx.exception.wait, want, delta=5)
+
+    def test_the_workflow_calls_only_subcommands_the_cron_has(self):
+        # A lost space ("plan--repo") makes argparse exit 2 and the plan step fail on every tick.
+        import re
+        root = os.path.join(HERE, "..", "..", "..")
+        source = open(os.path.join(HERE, "..", "perf-cron.py")).read()
+        known = set(re.findall(r'add_parser\("([a-z-]+)"', source))
+        workflow = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
+        called = re.findall(r"python3 -I scripts/cmux-next/perf-cron\.py (\S+)", workflow)
+        self.assertIn("plan", called)
+        self.assertEqual([c for c in called if c not in known], [])
+
     def test_any_other_403_is_still_an_error(self):
         def forbidden(*a, **k):
             import email.message
@@ -1916,6 +2078,17 @@ class RateLimitTests(unittest.TestCase):
             ok2 = cron.commit_on_branch("o/r", "f" * 40, ok.verified())
             self.assertTrue(ok2("a" * 40))
         self.assertEqual(len(asked), 1, "the state's verified commits need no compare call")
+
+    def test_a_commit_the_shallow_checkout_cannot_place_is_asked_of_github(self):
+        # The partial clone fetched the commit alone (cat-file finds it), with no path to the tip.
+        asked = []
+        with mock.patch.object(cron, "gh_request", lambda p, *a, **k: asked.append(p) or {"status": "ahead"}), \
+                mock.patch.object(cron.subprocess, "run", lambda *a, **k: mock.Mock(returncode=0)), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False):
+            ok = cron.commit_on_branch("o/r", "f" * 40)
+            self.assertTrue(ok("a" * 40), "a bisect step older than the checkout's depth stays in the state")
+            self.assertEqual(ok.verified(), ["a" * 40])
+        self.assertEqual(len(asked), 1)
 
     def test_a_rate_limited_compare_is_raised_not_read_as_off_the_branch(self):
         with mock.patch.object(cron, "gh_request", mock.Mock(side_effect=cron.RateLimited("x"))), \

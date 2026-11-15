@@ -106,7 +106,7 @@ fn retain(value: Option<&mut Value>, keys: &[&str]) {
     }
 }
 
-fn selected_extra(row: &Map<String, Value>) -> Value {
+fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
         .filter(|(key, value)| {
@@ -115,6 +115,13 @@ fn selected_extra(row: &Map<String, Value>) -> Value {
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
+    // Status describes the session; state may instead say stuck or stopping.
+    // Ordinary rows need no second copy of the same string on the wire.
+    if let Some(status) = row.get("status").and_then(Value::as_str)
+        && status != state
+    {
+        values.insert("status".into(), Value::String(status.to_owned()));
+    }
     retain(values.get_mut("lastMessage"), &["role", "text"]);
     retain(values.get_mut("lane"), &["state", "since", "error", "step", "title", "requiresOpen"]);
     retain(
@@ -126,7 +133,16 @@ fn selected_extra(row: &Map<String, Value>) -> Value {
     retain(values.get_mut("coldArchive"), &["archivedAt", "messages"]);
     retain(
         values.get_mut("tags"),
-        &["notifications", "mux.parent", "mux.children", "cmux.chief.participant", "archived"],
+        // `cmux.chief` names the Home Chief that owns the chat: its readers (cmux-tui-core's
+        // `chief-work` and update plan, row 7c) find the Chief's roots by it.
+        &[
+            "notifications",
+            "mux.parent",
+            "mux.children",
+            "cmux.chief",
+            "cmux.chief.participant",
+            "archived",
+        ],
     );
     if let Some(Value::Array(warnings)) = values.get_mut("usageWarnings") {
         for warning in warnings {
@@ -136,8 +152,8 @@ fn selected_extra(row: &Map<String, Value>) -> Value {
     Value::Object(values)
 }
 
-fn extra(row: &Map<String, Value>) -> Value {
-    let mut value = selected_extra(row);
+fn extra(row: &Map<String, Value>, state: &str) -> Value {
+    let mut value = selected_extra(row, state);
     cut_values(&mut value);
     value
 }
@@ -219,7 +235,7 @@ impl Form {
     }
 }
 
-pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<Summary> {
+pub(crate) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<Summary> {
     let value = hub.session_list_summary(session);
     let row = value.as_object().ok_or_else(|| invalid("v1 summary is not an object"))?;
     let meta = session.meta();
@@ -261,13 +277,15 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     // Apply typed field bounds once, while extra is empty. Subsequent fitting
     // never uses the index's empty-extra fallback.
     summary = summary.prepare()?;
-    let mut local = Form { row: summary, extra: extra(row) };
+    let local_extra = extra(row, &summary.state);
+    let mut local = Form { row: summary, extra: local_extra };
 
     // Mask before cutting: a text boundary must not leave a partial secret.
     // v1 bounds the scan itself. It recognizes a summary by these three keys.
     // Keep them on the temporary
     // mask input, then convert the result to the same typed Summary shape.
-    let mut mask_input = selected_extra(row).as_object().cloned().unwrap_or_default();
+    let mut mask_input =
+        selected_extra(row, &local.row.state).as_object().cloned().unwrap_or_default();
     mask_input.insert("sessionId".into(), Value::String(local.row.chat_id.clone()));
     mask_input.insert("harness".into(), Value::String(local.row.harness.clone()));
     mask_input.insert("lastSeq".into(), row.get("lastSeq").cloned().unwrap_or(Value::from(0)));
@@ -287,7 +305,7 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
                 masked.get("title").and_then(Value::as_str).unwrap_or_default().to_owned();
             cut_title(&mut summary.title);
             summary = summary.prepare()?;
-            let peer_extra = extra(&masked);
+            let peer_extra = extra(&masked, &summary.state);
             if summary.title == local.row.title && peer_extra == local.extra {
                 None
             } else {
@@ -335,9 +353,10 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
         .to_owned();
     cut_title(&mut summary.title);
     summary.harness = row.harness().unwrap_or_default().to_owned();
-    summary.state = row
-        .status()
-        .or_else(|| value.get("state").and_then(Value::as_str))
+    summary.state = value
+        .get("state")
+        .and_then(Value::as_str)
+        .or_else(|| row.status())
         .unwrap_or("closed")
         .to_owned();
     summary.last_activity = row.updated_ms();
@@ -354,7 +373,7 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
     summary.pinned = value.get("pinned").and_then(Value::as_bool).unwrap_or(false);
     let mut opaque = value
         .as_object()
-        .map(extra)
+        .map(|row| extra(row, &summary.state))
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default();
     for key in ["stale", "lastSeen", "stuckReason", "stuckSince", "stuckError"] {
@@ -426,6 +445,36 @@ mod tests {
         assert_eq!(peer.chat_id, row.chat_id);
         assert_eq!(peer.archived, row.archived);
         assert!(peer.peer_form.is_none());
+    }
+
+    #[tokio::test]
+    async fn peer_form_keeps_stuck_details_but_masks_scanned_error_text() {
+        let (hub, session) = fixture(false).await;
+        hub.edit_test_meta(&session, |meta| {
+            meta.status = crate::store::SessionStatus::Running;
+            meta.last_prompt = None;
+            meta.preview = None;
+            let base = meta.harness_failures.through_seq;
+            for offset in 1..=3 {
+                let seq = base + offset;
+                meta.harness_failures.observe(
+                    &serde_json::json!({
+                        "status": "failed",
+                        "errorText": "HTTP 503 bearer ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
+                    }),
+                    seq,
+                    offset * 10,
+                );
+            }
+        });
+        let row = summary_from_session(&hub, &session).unwrap();
+        let local: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert_eq!(local["stuckSince"], 30);
+        assert_eq!(local["stuckError"], "HTTP 503 [redacted]");
+        let peer: Summary = serde_json::from_str(row.peer_form.as_ref().unwrap().get()).unwrap();
+        let peer_extra: Value = serde_json::from_str(peer.extra.get()).unwrap();
+        assert!(peer_extra.get("stuckSince").is_none());
+        assert!(peer_extra.get("stuckError").is_none());
     }
 
     #[tokio::test]
@@ -529,5 +578,23 @@ mod tests {
             );
         });
         assert!(!summary_from_session(&hub, &parent).unwrap().archived);
+    }
+
+    /// Row 7c: a Chief's chats are found by `cmux.chief` (the Home's id) and `mux.parent`
+    /// (`optchat-chief:<id>`) in their summaries; another tag is still left out.
+    #[tokio::test]
+    async fn a_summary_keeps_the_chief_tags_its_readers_find_the_chief_by() {
+        let (hub, session) = fixture(false).await;
+        let tag = |value: &str| crate::store::Tag { value: value.into(), expires_at: None };
+        hub.edit_test_meta(&session, |meta| {
+            meta.tags.insert("cmux.chief".into(), tag("0a1b2c3d"));
+            meta.tags.insert("mux.parent".into(), tag("optchat-chief:0a1b2c3d"));
+            meta.tags.insert("lane".into(), tag("x"));
+        });
+        let row = summary_from_session(&hub, &session).unwrap();
+        let extra: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert_eq!(extra["tags"]["cmux.chief"], "0a1b2c3d", "{extra}");
+        assert_eq!(extra["tags"]["mux.parent"], "optchat-chief:0a1b2c3d");
+        assert!(extra["tags"].get("lane").is_none());
     }
 }

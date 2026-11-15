@@ -26,7 +26,7 @@ window (trunk 283047940d8, Lawrence 2026-10-18; HomeUnfocusedAppearanceTests), s
 
 Usage: home-key-palette.py --tag <tag> [--out DIR]
 """
-import argparse, json, os, re, socket, subprocess, sys, time
+import argparse, json, os, re, signal, socket, subprocess, sys, time
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -296,7 +296,10 @@ finally:
         process.wait(timeout=30)  # `open -W` returns when the app it launched exits
     except subprocess.TimeoutExpired:
         safe_print("     the app did not quit in 30 s (run under nx-remote: its app stop ends the app)", flush=True)
-        process.kill()  # the `open -W` this script started
+        try:
+            os.killpg(process.pid, signal.SIGKILL)  # the `open -W` this script started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
