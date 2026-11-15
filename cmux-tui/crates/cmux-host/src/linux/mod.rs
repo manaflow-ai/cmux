@@ -500,17 +500,29 @@ impl LinuxPlatform {
 
     /// Writes the updater's deferral mark: the session host it adopted runs
     /// an older build and a person's session keeps it.
+    /// It carries when the build change was found (wall seconds), so an
+    /// agent restart during the deferral keeps the 24 h cap's start
+    /// ([`changed_at_in`]).
     fn mark_host_deferred(&mut self) -> io::Result<Option<Input>> {
         ensure_agent_dir(&self.cfg.paths)?;
         let since = self.build_changed_at.map_or(0, |at| at.elapsed().as_secs());
+        let changed_at = crate::updater::role::now().saturating_sub(since);
         let body =
-            format!("{{\"pid\":{},\"deferred_s\":{since}}}\n", self.daemon_pid().unwrap_or(0));
+            format!("{{\"pid\":{},\"changed_at\":{changed_at}}}\n", self.daemon_pid().unwrap_or(0));
         identity::write_atomic(&self.cfg.paths.at(HOST_DEFERRED_FILE), body.as_bytes(), 0o644)?;
         eprintln!(
             "cmux-host: the old-build session host serves an attached session: kept until it detaches, 10 min without input or 24 h"
         );
         Ok(None)
     }
+}
+
+/// The `changed_at` (wall seconds) of a deferral mark written for the host
+/// `pid`; `None` for another host's mark or an unreadable one.
+fn changed_at_in(text: &str, pid: u32) -> Option<u64> {
+    let v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    (v.get("pid")?.as_u64()? == u64::from(pid)).then_some(())?;
+    v.get("changed_at")?.as_u64()
 }
 
 /// The global addresses of the machine's own interfaces.
@@ -842,7 +854,18 @@ impl Platform for LinuxPlatform {
                 crate::updater::role::exe_of(&pid.to_string()),
                 fs::canonicalize(&bin).ok()
             );
-            self.build_changed_at = Some(Instant::now());
+            // A mark from an earlier agent run for this same host keeps the
+            // time the change was first found.
+            let earlier = fs::read_to_string(self.cfg.paths.at(HOST_DEFERRED_FILE))
+                .ok()
+                .and_then(|text| changed_at_in(&text, pid))
+                .map(|at| crate::updater::role::now().saturating_sub(at));
+            let now = Instant::now();
+            self.build_changed_at = Some(
+                earlier
+                    .and_then(|s| now.checked_sub(std::time::Duration::from_secs(s)))
+                    .unwrap_or(now),
+            );
             true
         } else {
             self.clear_host_deferred();
@@ -1191,5 +1214,21 @@ mod carrier_file_tests {
         let link = dir.path().join("link.json");
         std::os::unix::fs::symlink(&file, &link).unwrap();
         assert!(trusted_text(&link, "carrier.json", euid).is_err());
+    }
+}
+
+#[cfg(test)]
+mod deferral_mark_tests {
+    use super::changed_at_in;
+
+    /// An agent restart during a deferral reads back when the build change
+    /// was found, only from a mark for the same host.
+    #[test]
+    fn a_mark_for_the_same_host_keeps_its_build_change_time() {
+        let mark = "{\"pid\":4242,\"changed_at\":1794700000}\n";
+        assert_eq!(changed_at_in(mark, 4242), Some(1_794_700_000));
+        assert_eq!(changed_at_in(mark, 4243), None);
+        assert_eq!(changed_at_in("{\"pid\":4242}", 4242), None);
+        assert_eq!(changed_at_in("garbage", 4242), None);
     }
 }

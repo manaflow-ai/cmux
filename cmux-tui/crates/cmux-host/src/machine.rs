@@ -66,8 +66,6 @@ pub const HOST_INPUT_IDLE_MS: u64 = 10 * 60 * 1000;
 pub const HOST_MAX_DEFER_MS: u64 = 24 * 60 * 60 * 1000;
 /// How often the agent looks at a deferred old-build host's sessions.
 pub const HOST_LOOK_MS: u64 = 15_000;
-/// Failing-first record only: false turns the replacement off.
-pub const RED_STUB: bool = false;
 
 /// One look at the carrier sessions of an adopted session host of an older
 /// build ([`Input::HostLooked`]).
@@ -506,7 +504,7 @@ impl Machine {
                 }
             }
             Input::BuildChanged => {
-                if RED_STUB && self.replaceable() && self.old_host.is_none() {
+                if self.replaceable() && self.old_host.is_none() {
                     self.old_host = Some(OldHost::default());
                     out.push(Action::LookHost);
                 }

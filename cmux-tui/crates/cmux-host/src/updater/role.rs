@@ -81,7 +81,7 @@ fn log(line: &str) {
     eprintln!("cmux-host: updater: {line}");
 }
 
-pub(super) fn now() -> u64 {
+pub(crate) fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
@@ -1655,7 +1655,7 @@ pub(super) fn resolve_with(
             return Resolved::Healthy;
         }
         let now = elapsed();
-        if crate::machine::RED_STUB && deferred() {
+        if deferred() {
             let since = *deferred_since.get_or_insert_with(|| {
                 log("the old-build session host still serves a session: the health deadline starts at its replacement");
                 guard(GuardStep::Disarm);
