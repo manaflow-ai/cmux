@@ -534,7 +534,8 @@ async fn order_probe_daemon(fixture: &str, closed: usize) -> (ListDaemon, tempfi
 /// task's first step (`Hub::sort_list_order`, `daemon.rs`) ran, timed as `window`, then the
 /// reader. Readers: `_acpmux/info {usage:true}` and a first `_acpmux/sessions` page of 20. Then
 /// `recent_F`: a first usage pass with the order sorted, every closed chat a minute old (all
-/// candidates). One daemon alive at a time. Prints `PROBE` lines, asserts nothing of the times.
+/// candidates), and its candidates read as #43807 deduped them and as now (`recent_candidates`).
+/// One daemon alive at a time. Prints `PROBE` lines, asserts nothing of the times.
 #[ignore = "probe: the first reader in a deferred start's window at 1,100 and 110,000 closed chats"]
 #[tokio::test(flavor = "multi_thread")]
 async fn probe_order_at_start() {
@@ -578,9 +579,17 @@ async fn probe_order_at_start() {
     d.hub.sort_list_order();
     let at = Instant::now();
     d.hub.refresh_usage_stats().await;
+    let pass = us(at);
+    // Candidates both ways, each read three times on the same patched order.
+    for round in 1..=3 {
+        let (copied, live, count) = d.hub.usage_candidates_both_for_test();
+        eprintln!(
+            "PROBE closed=110000 part=recent_candidates round={round} copied_ids_us={copied} \
+             live_set_us={live} candidates={count}"
+        );
+    }
     eprintln!(
-        "PROBE closed=110000 part=recent_F first_us={} passes={:?}",
-        us(at),
+        "PROBE closed=110000 part=recent_F first_us={pass} passes={:?}",
         d.hub.usage_passes_for_test()
     );
     drop(d);
