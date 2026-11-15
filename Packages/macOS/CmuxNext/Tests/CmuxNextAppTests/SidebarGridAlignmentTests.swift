@@ -271,9 +271,12 @@ extension SidebarGridAlignmentTests {
             let section = try #require(Self.view(c, width: 304, height: height) as? SectionHeaderRowView)
             section.layout()
             // Without the add button the fold takes the column; with it, the add button takes the column and the
-            // fold steps one pitch left (base #27954, as a group header's + ⋮ ⌄ do).
+            // fold steps one pitch left (base #27954, as a group header's + ⋮ ⌄ do). This Mac's header also shows
+            // its Share Screen button (#42824) one pitch past the +, and the fold steps past it too.
             let fold = try #require(section.subviews.compactMap { $0 as? DecorativeImageView }.first { !$0.isHidden })
-            #expect(abs(fold.frame.midX - Self.column304(marks == 1 ? 0 : 1)) <= 0.5)
+            let screen = section.showsScreenButton ? 1 : 0
+            #expect(abs(fold.frame.midX - Self.column304((marks == 1 ? 0 : 1) + screen)) <= 0.5,
+                    "the fold sits at \(fold.frame.midX), not column \((marks == 1 ? 0 : 1) + screen)")
             #expect(abs(fold.frame.midY - height / 2) <= 0.5)
             #expect(section.addButton.isHidden == (marks == 1))
             if marks == 2 {
