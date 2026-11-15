@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (conn-quiet, remote): a machine whose link dropped, is coming up or is out of reach draws as connected
+  in its header and a remote group's header for the connecting grace (10 s, `SidebarPlaceholderGrace.connectingDelay`):
+  no spinner, no "Reconnecting…", "Unreachable" or "Offline" for a drop that heals on its own. Leo, verbatim: "i also
+  want all our connectivity stuff to shut the fuck up and load faster/percievably load faster / whatever it takes /
+  desktop gui, ios, remote, cloud, etc". Sign-in, install, update and start failures show at once; the tooltip and
+  VoiceOver keep the real state. `SectionHeaderRowView.drawn`; regression:
+  `DaemonStartupFailureStateTests.aDroppedLinkSaysNothingInItsHeaderUntilTheGrace`.
+
 - 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
 
 - 2026-11-14 (ask-0a91bcfdb0, carved from #42277): a machine header has a screen button beside its +. Leo, verbatim:
