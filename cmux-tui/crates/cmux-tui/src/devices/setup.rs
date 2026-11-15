@@ -71,7 +71,7 @@ pub(crate) fn pick(feed: &str) -> Result<Nightly, String> {
             let build = version.captures(item)?.get(1)?.as_str().parse::<u64>().ok()?;
             let enclosure = enclosures.captures(item)?;
             let channel = channels.captures(item).and_then(|c| c.get(1)).map(|c| c.as_str());
-            if !NIGHTLY_CHANNELS.iter().any(|offered| *offered == channel) {
+            if !NIGHTLY_CHANNELS.contains(&channel) {
                 return None;
             }
             let url = enclosure.get(1)?.as_str().to_owned();

@@ -6,9 +6,9 @@ use std::path::Path;
 use std::process::Child;
 
 use acpmux::cli::hosts::{Remote, RemoteOut};
-use serde_json::json;
+use serde_json::{Value, json};
 
-use super::super::model::{self, Device, Kind, Role, Sources, State, Via};
+use super::super::model::{Device, Kind, Role, Sources, State, Via};
 use super::super::network::{NetworkKind, NetworkStatus};
 use super::*;
 
@@ -207,7 +207,7 @@ impl Asking for Asker {
 struct FakeWorld {
     mac: FakeMac,
     asker: Asker,
-    audit: RefCell<Vec<(String, serde_json::Value)>>,
+    audit: RefCell<Vec<(String, Value)>>,
 }
 
 impl FakeWorld {
@@ -248,7 +248,7 @@ impl World for FakeWorld {
     fn asking(&self) -> &dyn Asking {
         &self.asker
     }
-    fn record(&self, event: &str, fields: serde_json::Value) {
+    fn record(&self, event: &str, fields: Value) {
         self.audit.borrow_mut().push((event.to_owned(), fields));
     }
 }
@@ -547,7 +547,7 @@ fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Devic
 #[test]
 fn all_selects_routed_macs_and_skips_phones_cloud_pool_and_unrouted_devices() {
     let peer = |n: &str| Via::Peer { name: n.into() };
-    let listing = model::Listing {
+    let listing = Listing {
         network: NetworkStatus { kind: NetworkKind::Tailscale, up: true, this: None, detail: None },
         devices: vec![
             device("peer:air-blue", "air-blue", Kind::Computer, Some("macOS"), peer("air-blue")),
@@ -674,9 +674,7 @@ fn the_daemon_op_and_the_cli_print_the_same_step_lines() {
     let mut cli = Vec::new();
     let run =
         run_one(&cli_world, "air-blue", Mode::Setup, Options::default(), &mut |device, line| {
-            cli.push(
-                serde_json::from_str::<serde_json::Value>(&cli_line(device, line, true)).unwrap(),
-            );
+            cli.push(serde_json::from_str::<Value>(&cli_line(device, line, true)).unwrap());
         });
     let cli_summary = run.summary_json();
 
