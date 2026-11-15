@@ -68,7 +68,32 @@ public final class PageInputReadiness {
     /// The page is about to move its focus itself: a command it got opens and focuses a field (Cmd-F's find bar) in the
     /// page's own turn. Until that focus comes, or ``focusMoveLimit``, the page counts as not ready, so keys typed
     /// meanwhile wait for the field (the key router's type-ahead), as before the document's first focus.
-    public func awaitFocusMove() {}
+    public func awaitFocusMove() {
+        guard isReady else { return }
+        isReady = false
+        awaitedFocus?.cancel()
+        let limit = focusMoveLimit
+        // task-owner: one-shot bound on this wait; a focus move or the next wait cancels it
+        awaitedFocus = Task { [weak self] in
+            // wakeup-allow: one-shot bound on a page's focus move after a command, cancelled when the focus comes first
+            do { try await Task.sleep(for: limit) } catch { return }
+            self?.focusMoved()
+        }
+        awaitedEpoch = focusEpoch
+    }
+
+    /// The bound of ``awaitFocusMove()`` and the epoch it waits past (nil: no wait).
+    private var awaitedFocus: Task<Void, Never>?
+    private var awaitedEpoch: Int?
+
+    /// The focus a command asked for came (or its bound passed): the page is ready, and the keys kept for it go on.
+    private func focusMoved() {
+        guard awaitedEpoch != nil else { return }
+        awaitedEpoch = nil
+        awaitedFocus?.cancel()
+        awaitedFocus = nil
+        report(true)
+    }
 
     /// A stable token for the editable element that owns a queued edit sequence. The page stores
     /// it on that element; later Deletes refuse a different focused element, so an async insert
@@ -78,7 +103,10 @@ public final class PageInputReadiness {
     /// One message of the readiness script (`true`/`false`, `{list}` or `{editing}`), from any engine.
     func receive(_ body: Any) {
         if let body = body as? [String: Any] {
-            if let epoch = body["epoch"] as? Int { focusEpoch = epoch }
+            if let epoch = body["epoch"] as? Int {
+                focusEpoch = epoch
+                if let awaited = awaitedEpoch, epoch != awaited { focusMoved() }
+            }
             if let ready = body["ready"] as? Bool { report(ready) }
             if let list = body["list"] as? Bool { reportList(list) }
             if let editing = body["editing"] as? Bool { reportEditing(editing) }
@@ -104,6 +132,9 @@ public final class PageInputReadiness {
         let turnedReady = ready && !isReady
         isReady = ready
         if !ready {
+            // A new document: its first editable focus makes it ready, not a focus move a command asked of the last one.
+            awaitedEpoch = nil
+            awaitedFocus?.cancel()
             isListFocused = false
             isEditableFocused = false
             isPointerOverSidewaysScroller = false
