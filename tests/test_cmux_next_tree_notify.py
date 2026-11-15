@@ -364,18 +364,22 @@ class Notify(unittest.TestCase):
                 self.assertEqual(body["inputs"]["same_tree_state"], "failed")
                 self.assertEqual(api.deleted, [])
 
-    def test_failed_pr_publication_is_a_named_skip_and_keeps_marker_for_recovery(self):
+    def test_failed_pr_publication_is_reported_red_and_keeps_marker_for_recovery(self):
+        # STATUS_FROM_OUTSIDE (cmux#43368): a notice alone left the PR's required status absent forever. The
+        # failed same-tree run's reporter posts it red (its same-tree-cmux-tui, which makes pin refs, skips a PR).
         api = FakeApi([pr_marker()])
         messages = []
         self.assertEqual(notify.notify(api, repo="o/r", key=KEY, state="failed", reason="HTTP 422",
-                                       log=messages.append, fetch_completion=lambda _key: None), 0)
-        self.assertEqual(api.dispatched, [])
+                                       log=messages.append, fetch_completion=lambda _key: None), 1)
+        [failed] = api.dispatched
+        self.assertEqual(failed["inputs"]["same_tree_state"], "failed")
+        self.assertEqual(failed["inputs"]["same_tree_origin"], "pull_request")
+        self.assertIn("HTTP 422", failed["inputs"]["same_tree_reason"])
         self.assertEqual(api.deleted, [])
-        self.assertIn("same-tree cmux-tui skipped", " ".join(messages))
         self.assertIn("no pin ref", " ".join(messages))
         # A later trusted publication can still start the PR's actual tests.
         self.assertEqual(run(api, state="ready"), 1)
-        self.assertEqual(api.dispatched[0]["inputs"]["same_tree_state"], "ready")
+        self.assertEqual(api.dispatched[-1]["inputs"]["same_tree_state"], "ready")
         self.assertEqual(api.deleted, [100])
 
     def test_a_ready_publish_does_not_read_the_completion_record(self):
