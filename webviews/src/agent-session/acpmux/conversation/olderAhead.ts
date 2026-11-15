@@ -56,6 +56,12 @@ export class OlderAhead {
     return Math.max(floor, Math.min(lead, viewport * OLDER_AHEAD_MAX_VIEWPORTS));
   }
 
+  /// Whether the reader is scrolling up now. An ask made while they are reads the big older page and
+  /// pages ahead (direct.ts `loadOlder`); one made at rest (an open filling the view) reads a short one.
+  rising(now: number): boolean {
+    return now - this.lastAt <= SCROLL_GAP_MS && this.speed > 0;
+  }
+
   /// A new chat: nothing read in another applies.
   reset(): void {
     this.speed = 0;

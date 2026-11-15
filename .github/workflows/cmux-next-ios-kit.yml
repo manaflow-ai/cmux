@@ -18,6 +18,13 @@ name: cmux-next-ios kit tests
 #   ambiguous type that only the iOS build saw.
 # The Linux picker offers an idle owned simulator Mac first, with Blacksmith
 # as fallback. The persistent-pool rescue watches stalled owned jobs.
+# Notes (*.md) and cmux-next-ios/verify/ evidence are not the kit: a change to
+# only those builds and tests nothing new (cmux#43251, SECURITY.md and
+# verify/parity-mac.md, took a simulator Mac and went red on kit tests it never
+# touched). A package's Resources/ stays in: SwiftPM bundles what is there.
+# The last matching pattern wins, so the negations come after the includes they
+# narrow and before the ones they re-include. Same rule as ios-review-gate.yml
+# (#43476).
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -44,6 +51,11 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
+      - "Packages/Shared/**/Resources/**"
+      - "Packages/iOS/**/Resources/**"
   push:
     branches: [feat-cmux-next]
     paths:
@@ -69,6 +81,11 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
+      - "Packages/Shared/**/Resources/**"
+      - "Packages/iOS/**/Resources/**"
   workflow_dispatch:
 
 permissions:
@@ -244,6 +261,9 @@ jobs:
       # the xcframework has.
       - name: xcodebuild test (iOS simulator)
         id: ios-sim
+        # About 3x its usual 10 min: a hung simulator ends the step, not the job's
+        # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
+        timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
         run: |
           set -euo pipefail
@@ -309,6 +329,8 @@ jobs:
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
         if: ${{ !cancelled() }}
+        # The same bound as the test step above: a hung simulator ends the step.
+        timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
         env:
           TEST_RUNNER_CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/ios-simulator.jsonl
