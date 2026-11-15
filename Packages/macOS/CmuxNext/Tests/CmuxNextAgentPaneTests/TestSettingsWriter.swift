@@ -49,7 +49,8 @@ nonisolated struct TestSettingsWriter: SettingsFileWriter {
             members[key] = nil
         } else {
             let pruned = removing(path.dropFirst(), in: child, pruning: pruning)
-            members[key] = pruning && pruned == .object([:]) ? nil : pruned
+            // Not `cond ? nil : pruned`: JSONValue takes a nil literal as `.null`, which keeps the key.
+            if pruning, pruned == .object([:]) { members.removeValue(forKey: key) } else { members[key] = pruned }
         }
         return .object(members)
     }
