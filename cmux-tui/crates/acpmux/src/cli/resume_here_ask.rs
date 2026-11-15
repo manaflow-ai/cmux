@@ -110,7 +110,7 @@ impl Ask {
         };
         let n = asked.choices.len();
         let picked = line.trim().parse::<usize>().ok().filter(|i| (1..=n).contains(i));
-        let Some(choice) = picked.map(|i| &asked.choices[i - 1]) else {
+        let Some(choice) = picked.and_then(|i| asked.choices.get(i.checked_sub(1)?)) else {
             return Err(format!("type a number from 1 to {n} and Enter\n"));
         };
         self.sent = Some((asked.permission_id.clone(), choice.name.clone()));
@@ -276,13 +276,15 @@ fn pending_of(v: Option<&Value>) -> Vec<Value> {
 }
 
 /// Runs [`follow`] for this terminal while it waits, when stdin is a terminal: prints to stdout
-/// and reads stdin's lines only while a question is up. Dropping it stops it.
-pub(crate) struct Prompt(Option<tokio::task::JoinHandle<()>>);
+/// and reads stdin's lines only while a question is up. Its tasks are its scope's: [`Prompt::end`]
+/// cancels and joins them; a drop without it cancels them.
+pub(crate) struct Prompt(Option<cmux_scope::Scope>);
 
-impl Drop for Prompt {
-    fn drop(&mut self) {
-        if let Some(task) = self.0.take() {
-            task.abort();
+impl Prompt {
+    /// Stops the prompt and waits for its tasks (a stdin read ends within its 250 ms poll).
+    pub(crate) async fn end(mut self) {
+        if let Some(scope) = self.0.take() {
+            let _ = scope.close(std::time::Duration::from_millis(500)).await;
         }
     }
 }
@@ -292,75 +294,86 @@ pub(crate) fn start(id: &str) -> Prompt {
     if !std::io::stdin().is_terminal() {
         return Prompt(None);
     }
+    let scope = cmux_scope::Scope::new("resume-here permission prompt");
     let id = id.to_owned();
-    Prompt(Some(tokio::spawn(async move {
+    let (asking, asked) = watch::channel(false);
+    let (tx, lines) = mpsc::channel(8);
+    scope.spawn_until_cancelled("resume-here stdin", stdin_lines(asked, tx));
+    scope.spawn_until_cancelled("resume-here prompt", async move {
         // Its own connection: the attach stream above owns the first one's notifications.
         let unasked =
             || println!("\x1b[2m-- a permission this turn asks for is answered in the chat\x1b[0m");
         let Ok(client) = crate::daemon::connect(true).await else { return unasked() };
-        let (asking, asked) = watch::channel(false);
         let (out, mut printed) = mpsc::unbounded_channel::<String>();
-        let lines = stdin_lines(asked);
-        tokio::spawn(async move {
+        // Prints until `follow` ends (it holds the only sender).
+        let print = async move {
             use std::io::Write as _;
             while let Some(text) = printed.recv().await {
                 print!("\n{text}");
                 let _ = std::io::stdout().flush();
             }
-        });
+        };
         // A chat this daemon only mirrors (a peer's: its hold attach is local only) or a lost
         // connection: say where it is answered instead.
-        if follow(client, &id, lines, asking, out).await.is_err() {
+        let ((), followed) = tokio::join!(print, follow(client, &id, lines, asking, out));
+        if followed.is_err() {
             unasked();
         }
-    })))
+    });
+    Prompt(Some(scope))
 }
 
-/// Stdin's lines, read only while `asking` is true. A thread of its own: a blocked read ends with
-/// the process (the exec into the harness), and nothing is read while no question is up.
+/// Stdin's lines into `tx`, read only while `asking` is true, so a line typed while no question
+/// is up stays for the harness. Each read is one bounded blocking call (a 250 ms poll, then a read
+/// of the line it found), awaited by this task: it ends with the prompt's scope.
 #[cfg(unix)]
-fn stdin_lines(mut asking: watch::Receiver<bool>) -> mpsc::Receiver<String> {
-    let (tx, rx) = mpsc::channel(8);
-    let handle = tokio::runtime::Handle::current();
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        loop {
-            // The prompt ended (the turn did, before its decision was read): stop reading, so a
-            // line typed now stays for the harness.
-            if asking.has_changed().is_err() {
+async fn stdin_lines(mut asking: watch::Receiver<bool>, tx: mpsc::Sender<String>) {
+    loop {
+        if !*asking.borrow_and_update() {
+            if asking.changed().await.is_err() {
                 return;
             }
-            if !*asking.borrow_and_update() {
-                if handle.block_on(asking.changed()).is_err() {
+            continue;
+        }
+        match tokio::task::spawn_blocking(read_line_within_250ms).await {
+            Ok(Read::Line(line)) => {
+                if tx.send(line).await.is_err() {
                     return;
                 }
-                continue;
             }
-            // Wakes at most every 250 ms while a question is up, to stop reading once it is not.
-            let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
-            // SAFETY: one valid pollfd for the duration of the call.
-            let ready = unsafe { libc::poll(&mut fd, 1, 250) };
-            if ready <= 0 || !*asking.borrow() || asking.has_changed().is_err() {
-                continue;
-            }
-            // SAFETY: reads into `buf`, at most its length. In cooked mode one read is one line.
-            let n = unsafe { libc::read(0, buf.as_mut_ptr().cast(), buf.len()) };
-            if n <= 0 {
-                return;
-            }
-            let line = String::from_utf8_lossy(&buf[..n as usize]).into_owned();
-            if tx.blocking_send(line).is_err() {
-                return;
-            }
+            Ok(Read::Nothing) => {}
+            // Stdin closed or failed: nothing more to read.
+            Ok(Read::Ended) | Err(_) => return,
         }
-    });
-    rx
+    }
+}
+
+#[cfg(unix)]
+enum Read {
+    Line(String),
+    Nothing,
+    Ended,
+}
+
+/// One line from stdin if one is ready within 250 ms. In cooked mode one read is one line.
+#[cfg(unix)]
+fn read_line_within_250ms() -> Read {
+    let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+    // SAFETY: one valid pollfd for the duration of the call.
+    if unsafe { libc::poll(&mut fd, 1, 250) } <= 0 {
+        return Read::Nothing;
+    }
+    let mut buf = [0u8; 4096];
+    // SAFETY: reads into `buf`, at most its length.
+    let n = unsafe { libc::read(0, buf.as_mut_ptr().cast(), buf.len()) };
+    match usize::try_from(n).ok().filter(|n| *n > 0).and_then(|n| buf.get(..n)) {
+        Some(read) => Read::Line(String::from_utf8_lossy(read).into_owned()),
+        None => Read::Ended,
+    }
 }
 
 #[cfg(not(unix))]
-fn stdin_lines(_asking: watch::Receiver<bool>) -> mpsc::Receiver<String> {
-    mpsc::channel(1).1
-}
+async fn stdin_lines(_asking: watch::Receiver<bool>, _tx: mpsc::Sender<String>) {}
 
 #[cfg(test)]
 #[path = "resume_here_ask_tests.rs"]
