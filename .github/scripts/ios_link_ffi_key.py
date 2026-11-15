@@ -33,7 +33,10 @@ import sys
 # `path = "..."` in any form Cargo reads: an inline table, a [dependencies.x]
 # table or a [patch] entry. Only relative paths inside the repository count.
 PATH_DEP = re.compile(r"""(?m)^[^#\n]*?\bpath\s*=\s*["']([^"']+)["']""")
-ANCESTOR_FILES = ("Cargo.toml", "rust-toolchain", "rust-toolchain.toml", ".cargo/config", ".cargo/config.toml")
+# A dependency inherited from the workspace: `name.workspace = true` or
+# `name = { workspace = true, ... }`.
+INHERITED = re.compile(r"""(?m)^\s*([A-Za-z0-9_-]+)\s*(?:\.\s*workspace\s*=\s*true|=\s*\{[^}\n]*\bworkspace\s*=\s*true)""")
+ANCESTOR_FILES =("Cargo.toml", "rust-toolchain", "rust-toolchain.toml", ".cargo/config", ".cargo/config.toml")
 
 
 def git(repo: str, *args: str) -> str:
@@ -49,6 +52,41 @@ def object_id(repo: str, rev: str, path: str) -> str | None:
 def manifests_under(repo: str, rev: str, directory: str) -> list[str]:
     names = git(repo, "ls-tree", "-r", "--name-only", rev, "--", directory).splitlines()
     return [n for n in names if posixpath.basename(n) == "Cargo.toml"]
+
+
+def workspace_root(repo: str, rev: str, manifest: str) -> tuple[str, str] | None:
+    """The nearest manifest at or above `manifest` that declares [workspace], with its text."""
+    directory = posixpath.dirname(manifest)
+    while True:
+        path = posixpath.join(directory, "Cargo.toml") if directory else "Cargo.toml"
+        if object_id(repo, rev, path) is not None:
+            text = git(repo, "show", f"{rev}:{path}")
+            if re.search(r"(?m)^\s*\[workspace\]", text):
+                return path, text
+        if not directory:
+            return None
+        directory = posixpath.dirname(directory)
+
+
+def workspace_path_deps(text: str) -> dict[str, str]:
+    """[workspace.dependencies] entries that name a path: inline tables and
+    [workspace.dependencies.name] tables."""
+    found: dict[str, str] = {}
+    section = None
+    for line in text.splitlines():
+        header = re.match(r"\s*\[([^\]]+)\]", line)
+        if header:
+            section = header.group(1).strip()
+            continue
+        if section == "workspace.dependencies":
+            entry = re.match(r"""\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=\s*["']([^"']+)["']""", line)
+            if entry:
+                found[entry.group(1)] = entry.group(2)
+        elif section and section.startswith("workspace.dependencies."):
+            entry = re.match(r"""\s*path\s*=\s*["']([^"']+)["']""", line)
+            if entry:
+                found[section[len("workspace.dependencies."):].strip()] = entry.group(1)
+    return found
 
 
 def crate_dirs(repo: str, rev: str, workspace: str) -> list[str]:
@@ -67,8 +105,16 @@ def crate_dirs(repo: str, rev: str, workspace: str) -> list[str]:
         for manifest in manifests_under(repo, rev, directory):
             text = git(repo, "show", f"{rev}:{manifest}")
             base = posixpath.dirname(manifest)
-            for target in PATH_DEP.findall(text):
-                dep = posixpath.normpath(posixpath.join(base, target))
+            targets = [posixpath.join(base, t) for t in PATH_DEP.findall(text)]
+            inherited = INHERITED.findall(text)
+            if inherited:
+                root = workspace_root(repo, rev, manifest)
+                if root is not None:
+                    paths = workspace_path_deps(root[1])
+                    root_dir = posixpath.dirname(root[0])
+                    targets += [posixpath.join(root_dir, paths[n]) for n in inherited if n in paths]
+            for target in targets:
+                dep = posixpath.normpath(target)
                 # A [[bin]] or [lib] `path` names a source file inside the
                 # crate, already in its tree.
                 if dep.endswith(".rs"):

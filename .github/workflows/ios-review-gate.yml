@@ -399,10 +399,11 @@ jobs:
         if: env.UDID != ''
         run: |
           set -euo pipefail
-          # A ref from before the key script builds, as before.
+          # A ref from before the key script, or a key that fails, builds as before.
           if [ -f .review-gate/.github/scripts/ios_link_ffi_key.py ]; then
             python3 -I .review-gate/.github/scripts/ios_link_ffi_key.py --repo . --explain \
-              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT"
+              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT" \
+              || echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
           fi
       - name: Restore the framework built from the same inputs
         id: ffi
