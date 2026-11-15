@@ -142,8 +142,11 @@ tui_core_native_ready() {
     # The installer exports CMUX_ZIG only to a GitHub job's later steps; this shell reads it back.
     local zig_env
     zig_env=$(mktemp)
-    (cd "$root" && GITHUB_ENV="$zig_env" GITHUB_PATH="$zig_env.path" ./scripts/install-zig-ci.sh) || {
-      rm -f "$zig_env" "$zig_env.path"
+    # ghostty-next names the Zig cmux-tui needs; the installer reads the classic tree's otherwise.
+    (cd "$root" && GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" \
+      GITHUB_PATH="$zig_env.path" ./scripts/install-zig-ci.sh > "$zig_env.log" 2>&1) || {
+      tail -n 5 "$zig_env.log" >&2
+      rm -f "$zig_env" "$zig_env.path" "$zig_env.log"
       echo "v2 gates: cannot install zig; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
       return 1
     }
@@ -157,7 +160,7 @@ tui_core_native_ready() {
     if [[ -n "$cmux_zig" ]]; then
       export CMUX_ZIG="$cmux_zig"
     fi
-    rm -f "$zig_env" "$zig_env.path"
+    rm -f "$zig_env" "$zig_env.path" "$zig_env.log"
   fi
   # bindgen loads libclang; fast-checks installs it with apt (sudo), which this script never does.
   if [[ -z "${LIBCLANG_PATH:-}" ]] && ! ldconfig -p 2>/dev/null | grep -q 'libclang'; then
