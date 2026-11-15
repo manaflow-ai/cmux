@@ -95,12 +95,12 @@ fn allowed_dmg(url: &str) -> bool {
 // The scripts (fixed text; data on stdin)
 
 /// What the target is: OS, user, who is at the screen, the installed NIGHTLY build, whether it
-/// runs. The `[p]` keeps pgrep from matching this script's own shell.
+/// runs: its control socket answers the bundled CLI (a socket connect; nothing lists processes).
 const PROBE: &str = r#"os=$(uname -s); echo "os=$os"; echo "uid=$(id -u)"; echo "user=$(id -un)"
 [ "$os" = Darwin ] || exit 0
 echo "console=$(stat -f%Su /dev/console 2>/dev/null)"
 echo "version=$(defaults read '/Applications/cmux NIGHTLY.app/Contents/Info' CFBundleVersion 2>/dev/null)"
-if pgrep -U "$(id -u)" -f '/Applications/cmux NIGHTLY.ap[p]/Contents/MacOS/' >/dev/null 2>&1; then echo running=1; else echo running=0; fi"#;
+case "$('/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux' version --json 2>/dev/null)" in *'"app_error":null'*) echo running=1 ;; *) echo running=0 ;; esac"#;
 
 /// Installs a NIGHTLY DMG. Stdin: the URL, its length, the Team ID, one per line. Refuses when
 /// the app runs (checked again before the swap); everything temporary is under one mktemp -d.
@@ -114,7 +114,7 @@ case "$url" in
 esac
 case "$length" in ''|*[!0-9]*) fail 'the feed length is not a number' ;; esac
 case "$team" in ''|*[!A-Z0-9]*) fail 'the Team ID is not one' ;; esac
-running() { pgrep -U "$(id -u)" -f '/Applications/cmux NIGHTLY.ap[p]/Contents/MacOS/' >/dev/null 2>&1; }
+running() { case "$("$APP/Contents/Resources/bin/cmux" version --json 2>/dev/null)" in *'"app_error":null'*) return 0 ;; esac; return 1; }
 running && fail 'cmux NIGHTLY is running; it is never replaced while it runs'
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/cmux-nightly.XXXXXX") || fail 'mktemp failed'
 mnt="$tmp/mnt"; new=''
@@ -202,10 +202,11 @@ case "$grant" in accessibility|screen-recording) ;; *) exit 2 ;; esac
 "$CLI" remote-host open-settings "$grant" >/dev/null 2>&1"#;
 
 /// The keepalive LaunchAgent: every 5 minutes (and at login), open NIGHTLY in the background
-/// when this user has no NIGHTLY process. It never kills anything.
+/// when its control socket does not answer the bundled CLI. It never kills anything.
 pub(crate) fn keepalive_plist() -> String {
-    let check = "pgrep -U \"$(id -u)\" -f '/Applications/cmux NIGHTLY.ap[p]/Contents/MacOS/' \
-                 &gt;/dev/null 2&gt;&amp;1 || open -g -j -a '/Applications/cmux NIGHTLY.app'";
+    let check = "case \"$('/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux' version --json \
+                 2&gt;/dev/null)\" in *'\"app_error\":null'*) ;; \
+                 *) open -g -j -a '/Applications/cmux NIGHTLY.app' ;; esac";
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

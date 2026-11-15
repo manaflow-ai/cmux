@@ -575,10 +575,12 @@ fn scripts_carry_no_data_and_no_sudo() {
         assert!(!script.contains("sudo"), "{script}");
         assert!(!script.contains("pkill") && !script.contains("killall"), "{script}");
     }
-    // pgrep never matches the shell running the script itself.
-    for script in [PROBE, INSTALL] {
-        assert!(script.contains("NIGHTLY.ap[p]/Contents/MacOS/"));
+    // Whether NIGHTLY runs is its control socket answering the bundled CLI, never a process list.
+    let plist = keepalive_plist();
+    for script in [PROBE, INSTALL, plist.as_str()] {
+        assert!(script.contains("version --json"), "{script}");
+        assert!(script.contains("app_error"), "{script}");
+        assert!(!script.contains("pgrep") && !script.contains(" ps "), "{script}");
     }
-    assert!(keepalive_plist().contains("NIGHTLY.ap[p]/Contents/MacOS/"));
     assert!(INSTALL.contains("mktemp -d") && INSTALL.contains("trap cleanup EXIT"));
 }
