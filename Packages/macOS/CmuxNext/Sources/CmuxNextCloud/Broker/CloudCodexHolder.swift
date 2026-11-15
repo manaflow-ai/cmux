@@ -50,7 +50,7 @@ public import Foundation
         public init(credential: @escaping @Sendable () async -> String?, acpmux: @escaping @Sendable () async -> URL?,
                     currentScope: @escaping @MainActor () -> CloudCodexBrokerScope?,
                     ownsMachine: @escaping @MainActor (String) async -> Bool, isLive: @escaping @MainActor (String) -> Bool,
-                    machineTeam: @escaping @Sendable () async -> String? = { nil }) {
+                    machineTeam: @escaping @Sendable () async -> String?) {
             self.credential = credential; self.acpmux = acpmux; self.currentScope = currentScope
             self.ownsMachine = ownsMachine; self.isLive = isLive; self.machineTeam = machineTeam
         }
