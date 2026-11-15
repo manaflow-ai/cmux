@@ -369,6 +369,7 @@ class Attribution:
         run_loop = wakeups.get("main_run_loop") or ""
         timers = [line.strip() for line in run_loop.splitlines() if "CFRunLoopTimer" in line]
         pages = (self.app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+        facts = page_facts(self.app, pages)
         stacks = {f"{kind}:{pid}": stack_sample(pid) for pid, kind in pids.items()}
         thread_wakes = _thread_wakes()
         # Each thread named: its pthread name, else its sample header or first frames (by thread id).
@@ -397,8 +398,39 @@ class Attribution:
                 "frame_clients": wakeups.get("active_frame_clients"),
                 "frame_schedulers": [s for s in wakeups.get("frame_schedulers") or [] if s.get("running") or s.get("has_link")],
                 "run_loop_timers": timers[:40],
-                "pages": [{k: p.get(k) for k in ("browser", "origin", "path", "hidden")} for p in pages],
+                "pages": [dict({k: p.get(k) for k in ("browser", "origin", "path", "hidden", "renderer_clients")},
+                               facts=facts.get(p.get("browser"))) for p in pages],
                 "stacks": stacks}
+
+
+# --attribute: what each live cmux page is and whether it animates (one DevTools Runtime.evaluate per page, after
+# the window, so it costs the window nothing): its URL with no query, title, visibility as the page sees it, the
+# focused element, and its running animations (CSS and Web Animations) by name and target.
+PAGE_FACTS_JS = r"""JSON.stringify((() => {
+  const tag = (el) => el ? (el.tagName || "").toLowerCase() + (el.id ? "#" + el.id : "") +
+    (typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).slice(0, 3).join(".") : "") : null;
+  const running = document.getAnimations().filter((a) => a.playState === "running");
+  return {url: location.origin + location.pathname + location.hash.slice(0, 60), title: document.title.slice(0, 80),
+          visibility: document.visibilityState, focused: tag(document.activeElement), animations: running.length,
+          names: running.slice(0, 10).map((a) => (a.animationName || a.transitionProperty || a.id || "animation") + " on " +
+                 tag(a.effect && a.effect.target)), body: tag(document.body && document.body.firstElementChild)};
+})())"""
+
+
+def page_facts(app: App, pages: list) -> dict:
+    """Each cmux page's PAGE_FACTS_JS answer by browser id ({"error": ...} when the read failed)."""
+    def read(page):
+        reply = app.call("debug.cef_page_devtools", {"browser": page["browser"], "method": "Runtime.evaluate",
+                                                     "params": {"expression": PAGE_FACTS_JS, "returnByValue": True}},
+                         timeout=20)
+        try:
+            value = json.loads(reply.get("result") or "{}").get("result", {}).get("value")
+            return page["browser"], json.loads(value) if isinstance(value, str) else {"error": str(reply)[:200]}
+        except (TypeError, ValueError, AttributeError):
+            return page["browser"], {"error": str(reply.get("error") or reply)[:200]}
+    cmux_pages = [p for p in pages if isinstance(p, dict) and str(p.get("origin", "")).startswith("cmux-page://")]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(pool.map(read, cmux_pages))
 
 
 def print_attribution(label: str, found: dict):
@@ -428,6 +460,9 @@ def print_attribution(label: str, found: dict):
     hidden = sum(1 for p in found["pages"] if p.get("hidden"))
     print(f"PERF-ATTR {label} pages n={len(found['pages'])} hidden={hidden} "
           f"shown={json.dumps([(p.get('origin'), p.get('path')) for p in found['pages'] if not p.get('hidden')])}")
+    for page in found["pages"]:
+        print(f"PERF-ATTR {label} page browser={page.get('browser')} hidden={page.get('hidden')} "
+              f"renderer={page.get('renderer_clients')} facts={json.dumps(page.get('facts'))[:700]}")
     for key, stack in found["stacks"].items():
         for line in stack.get("top_of_stack", [])[:25]:
             print(f"PERF-ATTR {label} top {key} {line}")
