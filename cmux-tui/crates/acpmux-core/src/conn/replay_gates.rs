@@ -223,6 +223,13 @@ async fn append_replay_sample(
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
+            while !copy_go_thread.load(Ordering::Acquire) {
+                if copy_stop.load(Ordering::Acquire) {
+                    return;
+                }
+                std::thread::yield_now();
+            }
+            copy_go_thread.store(false, Ordering::Release);
             let Some(RawRead::Span(span)) =
                 receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
             else {
@@ -315,18 +322,29 @@ fn timed_append_armed(
     target: u64,
     offset: usize,
     active: &AtomicBool,
-    arm: impl FnOnce(),
+    before_clock: impl FnOnce(),
+    after_clock: impl FnOnce(),
 ) -> Result<(HubWriter, u128), crate::hub::HubError> {
     // Arm the proof flag before any permit release, then start the clock only
-    // after the copier is allowed to enter its raw copy. The flag itself is
-    // outside the timed append path.
+    // after the copier is ready. The flag itself is outside the timed path;
+    // the after-clock hook releases the copier at the clock boundary.
     active.store(true, Ordering::Release);
-    arm();
+    before_clock();
     let started = Instant::now();
+    after_clock();
     let result = writer.apply(summary(format!("probe-append-{offset}"), target + 1, true));
     let elapsed = started.elapsed().as_nanos().max(1);
     active.store(false, Ordering::Release);
     result.map(|_| (writer, elapsed))
+}
+
+fn timed_append_plain(
+    writer: HubWriter,
+    target: u64,
+    offset: usize,
+    active: &AtomicBool,
+) -> Result<(HubWriter, u128), crate::hub::HubError> {
+    timed_append_armed(writer, target, offset, active, || {}, || {})
 }
 
 fn timed_append_plain(
@@ -369,6 +387,8 @@ async fn append_replay_unobserved_sample(
     let copy_stop = stop.clone();
     let copy_active = active.clone();
     let copy_overlap = overlap.clone();
+    let copy_go = Arc::new(AtomicBool::new(false));
+    let copy_go_thread = copy_go.clone();
     let copy_task = tokio::task::spawn_blocking(move || {
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
@@ -399,9 +419,14 @@ async fn append_replay_unobserved_sample(
     // Release the permit before the timed interval. The appending thread does
     // not read or write the history's permit/counter while its clock runs.
     hub.reset_history_raw_copies();
-    let result = timed_append_armed(writer, target, offset, &active, || {
-        permit.store(true, Ordering::Release);
-    })
+    let result = timed_append_armed(
+        writer,
+        target,
+        offset,
+        &active,
+        || permit.store(true, Ordering::Release),
+        || copy_go.store(true, Ordering::Release),
+    )
     .unwrap();
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
@@ -429,6 +454,8 @@ async fn append_foreign_hub_sample(
     let copy_stop = stop.clone();
     let copy_active = active.clone();
     let copy_overlap = overlap.clone();
+    let copy_go = Arc::new(AtomicBool::new(false));
+    let copy_go_thread = copy_go.clone();
     let copy_task = tokio::task::spawn_blocking(move || {
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
@@ -457,9 +484,14 @@ async fn append_foreign_hub_sample(
     .await;
     assert!(started.is_ok(), "foreign probe copier did not enter its copy");
     foreign.reset_history_raw_copies();
-    let result = timed_append_armed(writer, target, offset, &active, || {
-        permit.store(true, Ordering::Release);
-    })
+    let result = timed_append_armed(
+        writer,
+        target,
+        offset,
+        &active,
+        || permit.store(true, Ordering::Release),
+        || copy_go.store(true, Ordering::Release),
+    )
     .unwrap();
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
