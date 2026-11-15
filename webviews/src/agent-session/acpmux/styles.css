@@ -359,9 +359,8 @@
    fills change at once. Fills only, never size, so nothing shifts. */
 @media (prefers-reduced-motion:no-preference){.acpmux-newtab-kind,.acpmux-newtab-all,.acpmux-omni-row,.acpmux-newtab .acpmux-send{transition:background-color var(--acpmux-motion-hover) ease-out,color var(--acpmux-motion-hover) ease-out,box-shadow var(--acpmux-motion-hover) ease-out}.acpmux-omni-action{transition:opacity var(--acpmux-motion-hover) ease-out}}
 .acpmux-newtab-kind:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
-.acpmux-newtab-kind:not(.is-selected):active{background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text)}
+.acpmux-newtab-kind:not(.is-selected):active{background:color-mix(in srgb,var(--agent-text) 10%,transparent)}
 .acpmux-newtab-kind.is-selected:active{background:color-mix(in srgb,var(--agent-text) 4%,var(--acpmux-composer-bg))}
-.acpmux-newtab-all:active{color:var(--agent-soft)}
 .acpmux-omni-row:active{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
 @container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
 @container (max-width:460px){.acpmux-newtab-kind>span{display:none}}

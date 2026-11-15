@@ -204,7 +204,7 @@ html[data-cmux-page="changelog"] body {
   font: inherit;
   font-size: var(--text-detail);
 }
-.cl-compare-switch button[aria-pressed="true"] { background: var(--page-hover); color: var(--page-text); font-weight: 600; }
+.cl-compare-switch button[aria-pressed="true"] { background: var(--page-hover); color: var(--page-text); }
 .cl-compare-switch button:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
 /* Enlarge, in the pair's corner: the frame itself is the compare control. */
 .cl-compare-enlarge {
