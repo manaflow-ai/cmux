@@ -138,14 +138,16 @@ import Testing
         await serve.stop()
     }
 
-    /// A supervisor that exits fails the connects it held; the next connect starts another.
+    /// A supervisor that exits fails the connects it held with its status and last stderr line; the next
+    /// connect starts another.
     @Test func aSupervisorThatExitsFailsItsConnectsAndTheNextStartsAnother() async throws {
-        let cli = try Self.standIn(answer: "exit 3")
+        let cli = try Self.standIn(answer: "echo 'cmux: no such verb' >&2; exit 3")
         let folder = cli.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: folder) }
         let serve = CloudCarrierServe(connector: try Self.connector(cli), socket: Self.socket)
-        await #expect(throws: CloudLinkError.helperNotRunning(reason: "cmux carrier serve exited")) { try await serve.socketPath() }
-        await #expect(throws: CloudLinkError.helperNotRunning(reason: "cmux carrier serve exited")) { try await serve.socketPath() }
+        let exited = CloudLinkError.helperNotRunning(reason: "cmux carrier supervise exited with status 3; its last stderr line: cmux: no such verb")
+        await #expect(throws: exited) { try await serve.socketPath() }
+        await #expect(throws: exited) { try await serve.socketPath() }
         #expect(Self.text(folder, "launches").split(separator: "\n").count == 2)
         await serve.stop()
     }
