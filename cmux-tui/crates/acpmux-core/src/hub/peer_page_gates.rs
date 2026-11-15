@@ -39,7 +39,7 @@ fn row(origin: &str, id: String, activity: u64, closed: bool) -> Summary {
 struct Side {
     hub: Hub,
     /// The sorted snapshot `disk` reads, for the seek probe.
-    path: std::path::PathBuf,
+    path: PathBuf,
     /// The same rows read from a sorted snapshot on disk: every page reads snapshot pieces.
     disk: Hub,
     _dir: tempfile::TempDir,
