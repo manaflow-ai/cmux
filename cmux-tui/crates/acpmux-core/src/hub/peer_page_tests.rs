@@ -2,7 +2,7 @@
 //! answers empty with a `local` position, never another origin's row.
 
 use super::*;
-use crate::wire::{ListFilter, ListView, Page, PageResult};
+use crate::wire::{ListFilter, ListKey, ListView, Page, PageResult};
 use serde_json::Value;
 
 const LOCAL: u64 = 11_020;
@@ -120,4 +120,29 @@ fn the_unfiltered_walk_is_every_local_row_past_both_runs() {
     let (seen, _, most) = walk(&hub, None);
     assert_eq!(seen, local, "this machine's rows, newest first, each once");
     assert!(most <= PEER_PAGE_PIECES);
+}
+
+#[test]
+fn the_resume_key_is_a_local_position_past_the_last_candidate() {
+    let key = |at: u64, origin: &str, chat_id: &str| SortKey {
+        last_activity: at,
+        row: RowKey::new(origin, chat_id),
+    };
+    let local = key(50, "local", "b-1");
+    assert_eq!(peer_resume_after(&local), Some(local.clone()));
+    let before = key(50, "c-machine", "c-9");
+    assert_eq!(peer_resume_after(&before), Some(key(50, "local", "")));
+    assert!(peer_resume_after(&before).unwrap() > before);
+    let after = key(50, "z-machine", "z-9");
+    assert_eq!(peer_resume_after(&after), Some(key(49, "local", "")));
+    assert!(peer_resume_after(&after).unwrap() > after);
+    assert_eq!(peer_resume_after(&key(0, "z-machine", "z-9")), None, "no local row follows");
+    // The wire form of the key is one a peer may send back as an anchor.
+    let mut page = all_page(None);
+    page.after = Some(Position::List(ListKey {
+        last_activity: 50,
+        chat_id: String::new(),
+        origin: "local".into(),
+    }));
+    assert!(peer_page_shape(&page).is_some());
 }

@@ -1343,6 +1343,11 @@ impl Hub {
             let Some(next) = next.as_ref().filter(|_| more && page.rows.is_empty()) else {
                 break page;
             };
+            // Side `before` has no `local` position past a run of another origin at one
+            // activity time yet, so its walk is not capped.
+            if pieces == PEER_PAGE_PIECES && side == ReadSide::After {
+                return self.peer_resume_page(request, next, max);
+            }
             anchor = Some(next.clone());
         };
         let first = page.rows.first().map(|row| SortKey::of(row.as_ref()));
@@ -1358,6 +1363,38 @@ impl Hub {
             deeper: Vec::new(),
             before_key: first.map(wire_key),
             after_key: last.map(wire_key),
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > max {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(frame)
+    }
+
+    /// The empty `after` page a peer's `all` walk gets when PEER_PAGE_PIECES pieces held none
+    /// of its rows and more follows: `has_after` stays set, and `after_key` is a `local`
+    /// position ([`peer_resume_after`]) past `last`, the last candidate read, so the next
+    /// page moves on. When no `local` row can follow `last`, the walk ends here.
+    fn peer_resume_page(
+        &self,
+        request: &crate::wire::Page,
+        last: &SortKey,
+        max: usize,
+    ) -> Result<Frame, HubError> {
+        let resume = peer_resume_after(last);
+        let reply = crate::wire::PageResult::<PeerRow<'_>> {
+            sid: request.sid.clone(),
+            rows: Vec::new(),
+            // The request's own anchor is behind this page.
+            has_before: true,
+            has_after: resume.is_some(),
+            cold_unread: false,
+            deeper: Vec::new(),
+            before_key: None,
+            after_key: resume.map(wire_key),
             missing: Vec::new(),
             unknown: Vec::new(),
             rest: Vec::new(),
@@ -1636,6 +1673,20 @@ pub(crate) const PEER_PAGE_PIECES: usize = 4;
 thread_local! {
     /// The pieces this thread's peer `all` pages read, for the tests that count them.
     pub(crate) static PEER_PIECES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// A `local` position past `last` on side `after`, naming no other origin's row (decision
+/// 285). Keys sort newest first, then by origin, then by chat id, so with `last` = (T, o, c):
+/// `o` local is `last` itself; `o` before `local` is (T, local, ""), before every local row at
+/// T; `o` after `local` is (T - 1, local, ""), past every row at T. At T = 0 with `o` after
+/// `local` no local row follows, and the answer is `None`.
+fn peer_resume_after(last: &SortKey) -> Option<SortKey> {
+    let at = match last.row.origin.as_ref().cmp("local") {
+        std::cmp::Ordering::Equal => return Some(last.clone()),
+        std::cmp::Ordering::Less => last.last_activity,
+        std::cmp::Ordering::Greater => last.last_activity.checked_sub(1)?,
+    };
+    Some(SortKey { last_activity: at, row: RowKey::new("local", "") })
 }
 
 fn book_key(key: &crate::wire::ListKey) -> SortKey {
