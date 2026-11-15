@@ -48,7 +48,7 @@ struct CloudCarrierSuperviseRealTests {
         let cli = try #require(SuperviseBinary.url)
         let token = accessToken()
         return CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: machine, service: .mux))) {
-            let team = await MainActor.run { "team_test" }
+            let team = await MainActor.run { "team_0123456789abcdef0123" }
             try await read()
             return CloudCarrierDial.environment(platform: URL(string: "http://127.0.0.1:9")!, accessToken: token, team: team,
                                                 stateDirectory: state)
