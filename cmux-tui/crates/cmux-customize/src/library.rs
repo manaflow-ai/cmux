@@ -633,7 +633,7 @@ impl Customize {
             }
         }
         if !settings.is_empty() {
-            let mut text = live_text.clone().unwrap_or_default();
+            let mut text = live_text.unwrap_or_default();
             if text.trim().is_empty() {
                 text = "{}\n".to_owned();
             }
@@ -688,7 +688,7 @@ impl Customize {
         if !in_the_way.is_empty() {
             return Err(Error::Untracked(in_the_way));
         }
-        let mut check = written.clone();
+        let mut check = written;
         for path in scan.tree.keys() {
             if !writes.contains_key(path)
                 && let Some(bytes) = tree::read(self.roots(), path)?
@@ -883,7 +883,7 @@ fn listing(entries: &[Entry]) -> Listing {
         .iter()
         .filter(|(_, names)| names.len() > 1)
         .map(|((kind, key), names)| Conflict {
-            kind: *kind,
+            kind,
             key: (*key).to_owned(),
             winner: names[0].to_owned(),
             losers: names[1..].iter().map(|name| (*name).to_owned()).collect(),

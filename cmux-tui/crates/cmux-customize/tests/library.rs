@@ -169,7 +169,7 @@ fn two_entries_on_the_same_key_the_higher_one_wins_and_the_list_says_so() {
     let conflict = &listing.conflicts[0];
     assert_eq!((conflict.kind, conflict.key.as_str()), ("setting", "appearance.density"));
     assert_eq!(conflict.winner, roomy);
-    assert_eq!(conflict.losers, [compact.clone()]);
+    assert_eq!(conflict.losers, std::slice::from_ref(&compact));
     assert_eq!(listing.entries[1].overridden, ["appearance.density"]);
     assert!(listing.entries[0].overridden.is_empty());
 
