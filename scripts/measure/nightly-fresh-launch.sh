@@ -7,16 +7,18 @@
 #     --artifact .build/nightly-fresh-launch/report.tgz --timeout 1800
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   rounds=N     rounds of the three launches (1 to 5, default 2)
+#   arms=extra   also the pre-warm arms and the unified log around each fresh launch (nightly-fresh-launch.py --arms)
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/nightly-fresh-launch"
 rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-dmg=nightly rounds=2
+dmg=nightly rounds=2 arms=base
 for arg in "$@"; do
   case "$arg" in
     dmg=nightly|dmg=https://*) dmg="${arg#dmg=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
+    arms=base|arms=extra) arms="${arg#arms=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -32,7 +34,7 @@ curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-nightly-fresh-l
 source scripts/ci/lib/signing-runtime-guard.sh
 cmux_signing_runtime_guard || exit 3
 GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/measure/nightly-fresh-launch.py" \
-  --dmg "$out/in.dmg" --out "$out/run" --rounds "$rounds" 2>&1 | tee "$out/run.log"
+  --dmg "$out/in.dmg" --out "$out/run" --rounds "$rounds" --arms "$arms" 2>&1 | tee "$out/run.log"
 rc=${PIPESTATUS[0]}
 rm -f "$out/in.dmg"
 tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
