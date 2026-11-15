@@ -44,11 +44,12 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { useAttachedVideoPlayer } = await import("../src/agent-session/acpmux/composer/videoAttachmentTileModel");
+const { mediaStall } = await import("../src/agent-session/acpmux/chips/mediaStall");
 const { VideoAttachmentTile } = await import("../src/agent-session/acpmux/composer/VideoAttachmentTile");
 
 const PATH = "/home/dev/.cmux/uploads/acp_1/0/screen-demo.mp4";
 const host = dom.window.document.getElementById("root")!;
-const root = createRoot(host);
+let root = createRoot(host);
 const calls: string[] = [];
 let answer: (method: string) => unknown = () => null;
 setChipHost(async (method) => {
@@ -105,6 +106,76 @@ try {
       expect(host.querySelector(".acpmux-attachment-video-unplayable")).toBeNull();
     } finally {
       proto.play = original;
+    }
+  });
+
+  // Leo, 2026-11-08: "the video previews maybe don't work ? they don't load." The large player over
+  // the pane showed its controls, a pause button, 0:00 and a spinner that never ended: the granted
+  // URL's bytes never came, and a load that never fails fires no error. Past the stall time with no
+  // byte, the player falls back as a failed load does: Quick Look plays it.
+  test("a composer video whose stream never sends a byte goes to Quick Look, never a spinner forever", async () => {
+    act(() => root.unmount());
+    root = createRoot(host);
+    calls.length = 0;
+    answer = (method) => (method === "media.load" ? { src: "cmux-page://cmux.agent/__media/0123abcd.mov" } : null);
+    const proto = dom.window.HTMLMediaElement.prototype;
+    const original = proto.play;
+    proto.play = () => Promise.resolve();
+    const stallMs = mediaStall.ms;
+    mediaStall.ms = 40;
+    try {
+      await act(async () => root.render(<Chip />));
+      await act(async () => host.querySelector<HTMLElement>(".acpmux-attachment-video-open")!.click());
+      await settle();
+      expect(dom.window.document.querySelector(".acpmux-image-viewer video")).not.toBeNull();
+      // Bytes arriving start the wait again: a slow stream is not a stalled one.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        dom.window.document
+          .querySelector(".acpmux-image-viewer video")!
+          .dispatchEvent(new dom.window.Event("progress"));
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+      expect(calls).toEqual(["media.load"]);
+      // fixed-wait: the stall is the absence of any event; the wait is the stall time shortened.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      });
+      await settle();
+      expect(calls).toEqual(["media.load", "video.quickLook"]);
+      expect(dom.window.document.querySelector(".acpmux-image-viewer video")).toBeNull();
+      expect(host.querySelector(".acpmux-attachment-video-unplayable")).toBeNull();
+    } finally {
+      proto.play = original;
+      mediaStall.ms = stallMs;
+    }
+  });
+
+  test("a composer video whose first frame came keeps playing past the stall time", async () => {
+    act(() => root.unmount());
+    root = createRoot(host);
+    calls.length = 0;
+    answer = (method) => (method === "media.load" ? { src: "cmux-page://cmux.agent/__media/4567cdef.mov" } : null);
+    const proto = dom.window.HTMLMediaElement.prototype;
+    const original = proto.play;
+    proto.play = () => Promise.resolve();
+    const stallMs = mediaStall.ms;
+    mediaStall.ms = 40;
+    try {
+      await act(async () => root.render(<Chip />));
+      await act(async () => host.querySelector<HTMLElement>(".acpmux-attachment-video-open")!.click());
+      await settle();
+      await act(async () => {
+        dom.window.document
+          .querySelector(".acpmux-image-viewer video")!
+          .dispatchEvent(new dom.window.Event("loadeddata"));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
+      expect(calls).toEqual(["media.load"]);
+      expect(dom.window.document.querySelector(".acpmux-image-viewer video")).not.toBeNull();
+    } finally {
+      proto.play = original;
+      mediaStall.ms = stallMs;
     }
   });
 } finally {
