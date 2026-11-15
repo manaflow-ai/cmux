@@ -7566,7 +7566,7 @@ export class AcpmuxDirectClient {
 
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
-    if (this.chatRows.holds(event.sessionId) && !holdReads(event)) return;
+    if (event.sessionId && this.chatRows.holds(event.sessionId) && !holdReads(event)) return;
     // The chat's records reach the page: the quiet watch starts over from here.
     this.chatEventAt = Date.now();
     this.quietChecks = 0;

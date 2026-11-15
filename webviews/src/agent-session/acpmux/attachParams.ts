@@ -1,5 +1,6 @@
 // The kinds a v1 attach asks for by name, and its plain params (direct.ts `sendAttach`). A chat whose
 // rows come from the store asks its hold instead (rows/holdKinds.ts).
+import type { AttachParams } from "./protocol/generated/types";
 import { BOOKMARKS_KIND } from "./threadMinimap/bookmarks";
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
@@ -30,7 +31,7 @@ export const SUBSESSION_KIND = "subsession";
 export function plainAttach(
   sessionId: string,
   options: { settled: boolean; visible: boolean; local: boolean; maxBytes: number },
-): Record<string, unknown> {
+): AttachParams {
   return {
     sessionId,
     // The visible page must not wait for the daemon's restart-time full-log restoration. The
