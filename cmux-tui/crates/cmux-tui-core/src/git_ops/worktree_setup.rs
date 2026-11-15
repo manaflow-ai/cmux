@@ -17,7 +17,8 @@
 //! - `CMUX_WORKSPACE_PATH`: the worktree.
 //! - `CMUX_WORKSPACE_NAME`: the worktree's name (its folder's).
 //! - `CMUX_PORT`: the first of ten ports kept for this worktree
-//!   (`~/.cmux/worktree-ports.json`) until it is removed.
+//!   (`cmux-worktree-ports.json` in the repository's git folder) until it
+//!   is removed.
 //!
 //! Each also under the name an imported recipe may use
 //! (`cmux_conductor_import::VARIABLE_ALIASES`), so a script runs as written.
@@ -26,7 +27,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+use std::io::{Read as _, Write as _};
 use std::net::{Ipv4Addr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -400,7 +401,6 @@ fn exited(_pid: u32) -> bool {
 pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
     stop(place);
     let script = teardown?;
-    let path = place.git_dir.join(LOG_FILE);
     let log = open_log(&place.git_dir)?;
     let start = log.metadata().map_or(0, |metadata| metadata.len());
     let _ = writeln!(&log, "$ {script}");
@@ -412,7 +412,8 @@ pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
         TEARDOWN_DEADLINE,
         None,
     );
-    let (output, _, _) = tail(&path, start, MAX_TEARDOWN_OUTPUT_BYTES);
+    // The teardown's lines are read from the log that it wrote, not from the log's name.
+    let (output, _, _) = tail_of(&log, start, MAX_TEARDOWN_OUTPUT_BYTES);
     Some(match outcome {
         Outcome::Exited(code) => json!({
             "output": output,
@@ -513,17 +514,55 @@ fn same_folder(left: &Path, right: &Path) -> bool {
     }
 }
 
-/// The text of `path` from `since` (or from where the last `limit` bytes
-/// start, if later) to its end, with that start and end.
+/// The text of the log at `path` from `since` (or from where the last
+/// `limit` bytes start, if later) to its end, with that start and end. A log
+/// that has a second name gives no text: its text is the text of the file at
+/// that name.
 fn tail(path: &Path, since: u64, limit: u64) -> (String, u64, u64) {
-    let Some(mut file) = open_own(path) else { return (String::new(), 0, 0) };
+    match open_own(path).filter(|file| has_one_name(file, path)) {
+        Some(file) => tail_of(&file, since, limit),
+        None => (String::new(), 0, 0),
+    }
+}
+
+/// [`tail`] of the open log `file`.
+fn tail_of(file: &File, since: u64, limit: u64) -> (String, u64, u64) {
     let end = file.metadata().map_or(0, |metadata| metadata.len());
     let start = since.min(end).max(end.saturating_sub(limit));
+    let bytes = bytes_between(file, start, end);
+    (String::from_utf8_lossy(&bytes).into_owned(), start, start + bytes.len() as u64)
+}
+
+/// The bytes of the open file `file` from `start` to `end`, or to where a
+/// read ends. The read does not move the place of the open file: a process
+/// that writes the log shares that place.
+#[cfg(unix)]
+fn bytes_between(file: &File, start: u64, end: u64) -> Vec<u8> {
+    use std::os::unix::fs::FileExt as _;
+    let mut bytes = vec![0_u8; usize::try_from(end.saturating_sub(start)).unwrap_or(0)];
+    let mut read = 0_usize;
+    while let Some(rest) = bytes.get_mut(read..).filter(|rest| !rest.is_empty()) {
+        match file.read_at(rest, start.saturating_add(read as u64)) {
+            Ok(0) => break,
+            Ok(count) => read = read.saturating_add(count),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+    bytes.truncate(read);
+    bytes
+}
+
+/// Where a file has no read at a given place, the read moves the place of
+/// the open file.
+#[cfg(not(unix))]
+fn bytes_between(mut file: &File, start: u64, end: u64) -> Vec<u8> {
+    use std::io::{Seek as _, SeekFrom};
     let mut bytes = Vec::new();
     if file.seek(SeekFrom::Start(start)).is_ok() {
-        let _ = file.take(end - start).read_to_end(&mut bytes);
+        let _ = file.take(end.saturating_sub(start)).read_to_end(&mut bytes);
     }
-    (String::from_utf8_lossy(&bytes).into_owned(), start, start + bytes.len() as u64)
+    bytes
 }
 
 /// Stops the setup still running in `root`, and waits for it to end. This
@@ -541,11 +580,13 @@ fn stop(place: &Place) {
             status.is_some_and(|status| live(&status) && held(&place.git_dir))
         };
         // The marker goes first: a run whose status says copying may not
-        // hold its lock yet, and it checks the marker once it does.
+        // hold its lock yet, and it checks the marker once it does. Only the
+        // marker's name is used, so the marker is made with create-new: a
+        // file that is at the name is not opened.
         if read_status(&place.git_dir).is_some_and(|status| live(&status)) {
             let mut options = OpenOptions::new();
-            options.create(true).truncate(true).write(true);
-            drop(open_as_own(&mut options, &place.git_dir.join(CANCEL_FILE)));
+            let marker = place.git_dir.join(CANCEL_FILE);
+            drop(open_as_own(options.write(true).create_new(true), &marker));
         }
         if unfinished(read_status(&place.git_dir)) {
             let deadline = Instant::now() + STOP_WAIT;
@@ -605,10 +646,9 @@ fn running() -> &'static Mutex<HashMap<PathBuf, Arc<Run>>> {
 #[cfg(unix)]
 fn hold(git_dir: &Path) -> Option<File> {
     use std::os::fd::AsRawFd as _;
-    // A link or a named pipe in the lock's place is nobody's lock.
-    let mut options = OpenOptions::new();
-    let file =
-        open_as_own(options.create(true).truncate(false).write(true), &git_dir.join(LOCK_FILE))?;
+    // A link or a named pipe in the lock's place is nobody's lock, and a
+    // lock file that has a second name is made new.
+    let file = open_or_make_own(OpenOptions::new().write(true), &git_dir.join(LOCK_FILE))?;
     // SAFETY: a live descriptor; flock(2) only locks it.
     (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0).then_some(file)
 }
@@ -622,9 +662,11 @@ fn hold(_git_dir: &Path) -> Option<File> {
 /// holds the lock of the worktree whose git folder is `git_dir`.
 #[cfg(unix)]
 fn held(git_dir: &Path) -> bool {
-    // A link or a named pipe in the lock's place is nobody's lock.
-    let Some(file) = open_own(&git_dir.join(LOCK_FILE)) else { return false };
-    held_on(file)
+    // A link or a named pipe in the lock's place is nobody's lock, and so
+    // is a lock file that has a second name.
+    let path = git_dir.join(LOCK_FILE);
+    let lock = open_own(&path).filter(|file| has_one_name(file, &path));
+    lock.is_some_and(held_on)
 }
 
 /// [`held`] on the lock file opened as `file`.
@@ -701,6 +743,13 @@ fn open_own(path: &Path) -> Option<File> {
 /// nothing (a named pipe has no other end to wait for), and only a regular
 /// file is used (the open file is looked at, not its name).
 fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
+    try_open_as_own(options, path).ok()
+}
+
+/// [`open_as_own`], with the error of an open that fails. A thing at the
+/// name that is not a regular file gives `InvalidInput` when its open
+/// succeeds, and the error of its open when it does not.
+fn try_open_as_own(options: &mut OpenOptions, path: &Path) -> std::io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
@@ -710,31 +759,81 @@ fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
     #[cfg(not(unix))]
     {
         if fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_file()) {
-            return None;
+            return Err(std::io::ErrorKind::InvalidInput.into());
         }
     }
-    let file = options.open(path).ok()?;
-    file.metadata().ok()?.is_file().then_some(file)
+    let file = options.open(path)?;
+    if file.metadata()?.is_file() { Ok(file) } else { Err(std::io::ErrorKind::InvalidInput.into()) }
 }
 
 /// Opens the log of the worktree whose git folder is `git_dir`, for a read
 /// and for writes at its end, and makes it when there is none
-/// ([`open_as_own`]).
+/// ([`open_or_make_own`]).
 fn open_log(git_dir: &Path) -> Option<File> {
-    let mut options = OpenOptions::new();
-    open_as_own(options.create(true).read(true).append(true), &git_dir.join(LOG_FILE))
+    open_or_make_own(OpenOptions::new().read(true).append(true), &git_dir.join(LOG_FILE))
+}
+
+/// Opens with `options` a file that cmux writes or locks in a git folder (a
+/// setup's log, its run lock, the lock of the repository's ports), and makes
+/// it when there is none ([`open_as_own`]). A file that has a second name is
+/// not used: a line written to it, or a lock on it, would be in the file at
+/// that name too. A look at the name comes first, so such a file is not
+/// opened. Its name is removed and the file is made new with create-new, as
+/// the `.partial` file of a JSON file is ([`write_own`]): what comes to the
+/// name after the removal stops the open.
+fn open_or_make_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
+    if !has_a_second_name(path) {
+        let file = open_as_own(options.create(true), path)?;
+        // A second look, at the open file: a second name, or a different
+        // file, can come to the name after the first look.
+        if has_one_name(&file, path) {
+            return Some(file);
+        }
+    }
+    let _ = fs::remove_file(path);
+    open_as_own(options.create_new(true), path)
+}
+
+/// Whether the thing at `path` is a regular file that has a second name.
+#[cfg(unix)]
+fn has_a_second_name(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    fs::symlink_metadata(path).is_ok_and(|named| named.is_file() && named.nlink() > 1)
+}
+
+/// The count of a file's names is not read here.
+#[cfg(not(unix))]
+fn has_a_second_name(_path: &Path) -> bool {
+    false
+}
+
+/// Whether the open file `file` is the file at `path` and has no second
+/// name. One look at the name gives the file and the count of its names
+/// together, so no change between two looks is missed.
+#[cfg(unix)]
+fn has_one_name(file: &File, path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    let (Ok(open), Ok(named)) = (file.metadata(), fs::symlink_metadata(path)) else {
+        return false;
+    };
+    named.nlink() <= 1 && named.dev() == open.dev() && named.ino() == open.ino()
+}
+
+/// The count of a file's names is not read here.
+#[cfg(not(unix))]
+fn has_one_name(_file: &File, _path: &Path) -> bool {
+    true
 }
 
 /// Writes `bytes` as the whole of the JSON file `path` that cmux keeps in a
-/// git folder: to a second name beside it, which then takes its name. The
-/// second name is made new ([`open_as_own`]): what is at that name goes
-/// first, and a link that comes there after that stops the write.
+/// git folder: to the file `.json.partial` beside it, which then takes its
+/// name. The `.partial` file is made new ([`open_as_own`]): what is at its
+/// name goes first, and a link that comes there after that stops the write.
 fn write_own(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let partial = path.with_extension("json.partial");
     let _ = fs::remove_file(&partial);
     let mut options = OpenOptions::new();
-    let mut file = open_as_own(options.write(true).create_new(true), &partial)
-        .ok_or(std::io::ErrorKind::AlreadyExists)?;
+    let mut file = try_open_as_own(options.write(true).create_new(true), &partial)?;
     file.write_all(bytes)?;
     fs::rename(partial, path)
 }
@@ -747,151 +846,11 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
-/// The ports each worktree keeps, in `~/.cmux/worktree-ports.json`: the
-/// first port of a block of ten by worktree folder. A folder that is gone
-/// gives its block back on the next allocation.
-mod ports {
-    use super::*;
-
-    /// This process's lock, then the file lock every session host's
-    /// allocation for the repository takes. The drop unlocks the file before
-    /// it closes (a child another thread forked meanwhile shares it until it
-    /// execs), then lets go of this process's lock.
-    struct Lock {
-        _guard: std::sync::MutexGuard<'static, ()>,
-        file: Option<File>,
-    }
-
-    impl Drop for Lock {
-        fn drop(&mut self) {
-            if let Some(file) = &self.file {
-                let _ = file.unlock();
-            }
-        }
-    }
-
-    fn lock(path: &Path) -> Lock {
-        static LOCK: Mutex<()> = Mutex::new(());
-        let guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-        // No lock file is made through a link, and none is taken on a file
-        // that is not a regular one: the allocation then has this process's
-        // lock alone, as when the file cannot be made.
-        let mut options = OpenOptions::new();
-        options.create(true).truncate(false).write(true);
-        let file = open_as_own(&mut options, &path.with_extension("lock"));
-        #[cfg(unix)]
-        if let Some(file) = &file {
-            use std::os::fd::AsRawFd as _;
-            // SAFETY: flock(2) on a descriptor this process owns; it blocks
-            // until another session host's allocation is done.
-            unsafe {
-                libc::flock(file.as_raw_fd(), libc::LOCK_EX);
-            }
-        }
-        Lock { _guard: guard, file }
-    }
-
-    /// The repository's port list, in its shared git folder (`git_dir` is a
-    /// worktree's own, `<common>/worktrees/<name>`), so every session host
-    /// on the machine reads the same one.
-    fn path(git_dir: &Path) -> Option<PathBuf> {
-        let worktrees = git_dir.parent()?;
-        let common =
-            if worktrees.file_name()? == "worktrees" { worktrees.parent()? } else { git_dir };
-        Some(common.join("cmux-worktree-ports.json"))
-    }
-
-    /// The ports of each worktree. A ports file above the size limit is not
-    /// read, and it is not a list with no worktree: a port of a list that
-    /// starts empty can be the port of another worktree.
-    fn load(path: &Path) -> Result<BTreeMap<String, u16>, TooLarge> {
-        let bytes = read_own(path)?;
-        Ok(bytes.and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default())
-    }
-
-    fn save(path: &Path, ports: &BTreeMap<String, u16>) {
-        if let Ok(bytes) = serde_json::to_vec_pretty(ports) {
-            let _ = write_own(path, &bytes);
-        }
-    }
-
-    fn key(root: &Path) -> String {
-        root.to_string_lossy().into_owned()
-    }
-
-    #[cfg(all(test, unix))]
-    mod lock_tests {
-        use super::*;
-
-        /// An allocation lets go of the repository's port lock, also while a child the server
-        /// forked meanwhile has the descriptor: else every other session host's allocation for
-        /// the repository waits for that child.
-        #[test]
-        fn a_dropped_port_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
-            let dir = crate::fork_tests::Scratch::new("worktree_ports");
-            let path = dir.path().join("cmux-worktree-ports.json");
-            let held = lock(&path);
-            let keeper = crate::fork_tests::Keeper::fork();
-            drop(held);
-            let free = crate::fork_tests::free(&path.with_extension("lock"));
-            drop(keeper);
-            assert!(free, "a dropped port lock stayed held through a forked child's copy");
-        }
-    }
-
-    pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {
-        let path = path(git_dir)?;
-        let _guard = lock(&path);
-        load(&path).ok()?.get(&key(root)).copied()
-    }
-
-    /// The worktree's block, kept from before or the first free one: none
-    /// of its ports listens, and no other worktree of the repository has
-    /// it. A repository starts looking at a block its folder picks, so two
-    /// repositories rarely start at the same one.
-    ///
-    /// No port is given, and the file stays, when the ports file is above
-    /// the size limit.
-    pub(super) fn allocate(git_dir: &Path, root: &Path) -> Result<Option<u16>, TooLarge> {
-        let Some(path) = path(git_dir) else { return Ok(None) };
-        let _guard = lock(&path);
-        let mut ports = load(&path)?;
-        Ok(free_block(&path, &mut ports, root))
-    }
-
-    /// The block of `root` in `ports`, kept from before or the first free
-    /// one, which is then saved at `path`.
-    fn free_block(path: &Path, ports: &mut BTreeMap<String, u16>, root: &Path) -> Option<u16> {
-        use std::hash::{Hash as _, Hasher as _};
-        if let Some(port) = ports.get(&key(root)) {
-            return Some(*port);
-        }
-        ports.retain(|folder, _| Path::new(folder).exists());
-        let taken: std::collections::BTreeSet<u16> = ports.values().copied().collect();
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        path.hash(&mut hasher);
-        let first = u16::try_from(hasher.finish() % u64::from(PORT_BLOCKS)).unwrap_or(0);
-        let port = (0..PORT_BLOCKS)
-            .map(|step| FIRST_PORT + ((first + step) % PORT_BLOCKS) * PORT_BLOCK)
-            .find(|port| {
-                !taken.contains(port)
-                    && (*port..*port + PORT_BLOCK)
-                        .all(|port| TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok())
-            })?;
-        ports.insert(key(root), port);
-        save(path, ports);
-        Some(port)
-    }
-
-    pub(super) fn free(git_dir: &Path, root: &Path) {
-        let Some(path) = path(git_dir) else { return };
-        let _guard = lock(&path);
-        let Ok(mut ports) = load(&path) else { return };
-        if ports.remove(&key(root)).is_some() {
-            save(&path, &ports);
-        }
-    }
-}
+/// The ports each worktree keeps, in `cmux-worktree-ports.json` in the
+/// repository's git folder: the first port of a block of ten by worktree
+/// folder. A folder that is gone gives its block back on the next
+/// allocation.
+mod ports;
 
 #[cfg(test)]
 mod tests;

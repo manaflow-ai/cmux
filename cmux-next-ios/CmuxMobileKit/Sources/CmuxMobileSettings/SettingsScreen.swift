@@ -530,7 +530,7 @@ struct AppearanceTiles: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }

@@ -284,7 +284,7 @@ jobs:
           name: cmux-${{ needs.preflight.outputs.channel }}-notarization-poll-${{ needs.preflight.outputs.short_sha }}
           path: poll-reports/*
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   wait-and-staple:
     needs: [preflight, poll]
@@ -462,7 +462,7 @@ jobs:
           path: outer-recovery-staging/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload outer DMG polling metadata
         if: always() && steps.prepare-outer.outputs.prepared == 'true'
@@ -471,7 +471,7 @@ jobs:
           name: cmux-${{ needs.preflight.outputs.channel }}-outer-notarization-metadata-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
           path: outer-metadata-staging/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Generate verified Sparkle feed
         env:
@@ -516,7 +516,7 @@ jobs:
           # The accepted DMG is already compressed with LZMA.
           compression-level: 0
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Cleanup signing keychain
         if: always()
@@ -741,7 +741,7 @@ jobs:
           path: stapled-recovery-staging/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload stapled-app DMG polling metadata
         if: always() && steps.prepare-stapled.outputs.prepared == 'true'
@@ -750,7 +750,7 @@ jobs:
           name: cmux-${{ needs.preflight.outputs.channel }}-stapled-app-notarization-metadata-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
           path: stapled-metadata-staging/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Generate verified Sparkle feed
         env:
@@ -786,7 +786,7 @@ jobs:
           path: verified/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Cleanup signing keychain
         if: always()
@@ -963,7 +963,7 @@ jobs:
           path: verified/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
   verify-stapled:
     name: Verify stapled DMG (${{ matrix.variant }})
@@ -1027,7 +1027,7 @@ jobs:
           name: cmux-${{ needs.preflight.outputs.channel }}-verified-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
           path: tested/tested-${{ matrix.variant }}.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
   publish:
     needs: [preflight, wait-and-staple, staple-outer, staple-stapled, verify-stapled]
