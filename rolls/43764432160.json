@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43764432160",
+  "recorded_at": "2026-11-15T21:51:16Z",
+  "reason": "cmux-tui 5ef9e969a0e0 changes the image's cmux-tui (pinned 382877a7442b)",
+  "dry_run": false,
+  "cmux_tui": "5ef9e969a0e04ec9718bab320406746183d7ed6e",
+  "fixes": [
+    {
+      "sha": "5ef9e969a0e04ec9718bab320406746183d7ed6e",
+      "mergedAt": "2026-11-15T13:16:28-08:00",
+      "subject": "tabs.newTabApp accepts only ids an app manifest may have (#43420)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T21:51:16Z",
+    "snapshot_id": "sh-5e1367bcb2ec416fb040a0ed707cdad9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43764432160): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "782bb8d67a9b6054b7f1e348fe8074cced077615",
+    "image": "cloud-native-auto-5ef9e969-43764432160-1",
+    "revision": "ci-43764432160-1",
+    "at": "2026-11-15T21:51:16Z"
+  },
+  "rolled_back": false
+}
