@@ -27,6 +27,8 @@ const AWAITING_REPIN: &[&str] = &[
     "terminal.fixLastCommand",
     "terminal.sendLastOutputToChat",
     "terminal.sendSelectionToChat",
+    "sidebar.showHidden",
+    "sidebar.resetLayout",
     "workspace.unpinFromSpace",
 ];
 
