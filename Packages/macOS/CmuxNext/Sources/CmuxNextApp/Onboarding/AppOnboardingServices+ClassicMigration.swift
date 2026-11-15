@@ -62,7 +62,7 @@ extension AppOnboardingServices {
         guard classicMigrationRunsAtLaunch else { return }
         do {
             let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
-                                                   confirmation: confirmClassicImport)
+                                                   confirmation: { await self.confirmClassicImport($0, atLaunch: true) })
             guard let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
@@ -84,10 +84,11 @@ extension AppOnboardingServices {
         return try await run.value
     }
 
-    /// The one confirmation path for launch and manual migration.
-    func confirmClassicImport(_ preview: ClassicImportPreview) async -> ClassicImportAnswer {
+    /// The one confirmation path for launch and manual migration. The launch's prompt says where the
+    /// import waits, so its Not Now needs no toast after it.
+    func confirmClassicImport(_ preview: ClassicImportPreview, atLaunch: Bool = false) async -> ClassicImportAnswer {
         if let confirmation = owner.classicMigrationConfirmation { return await confirmation(preview) }
-        return await ClassicImportConfirmation(preview: preview, services: services).ask()
+        return await ClassicImportConfirmation(preview: preview, services: services, atLaunch: atLaunch).ask()
     }
 
     /// The daemon's classic import operations on this Mac's connection.
@@ -162,9 +163,10 @@ extension AppOnboardingServices {
             // The launch's No is kept: later launches stop asking. Import Workspaces from Classic cmux still runs.
             // A declined resume ends too (its half-made workspaces close on the next manual run).
             guard mode == .automatic else { return outcome }
+            // No toast after it: the prompt the person just answered said where the import waits (Settings › Import),
+            // and a toast repeating it right after an explicit Not Now is chatter (Leo 2026-11-15, on that toast:
+            // "the styling for that + this is just kinda awkward").
             try await client.record(.decline(source: source))
-            outcome.notice = ClassicImportStrings.declined
-            owner.classicImportNotice = outcome.notice
             return outcome
         case .unanswered:
             outcome.confirmed = false

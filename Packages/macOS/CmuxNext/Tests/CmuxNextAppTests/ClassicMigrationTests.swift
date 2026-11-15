@@ -168,7 +168,8 @@ struct ClassicMigrationTests {
             // Nothing that came over is recorded (at most the Cloud VM workspace, which never comes over).
             #expect(declined.workspaces.values.allSatisfy { $0.stage == "skipped" }, "\(declined.workspaces)")
             #expect(!FileManager.default.fileExists(atPath: mac.migration.appendingPathComponent("backups").path))
-            #expect(services.onboarding.classicImportNotice == ClassicImportStrings.declined)
+            // The prompt said where the import waits: no toast after its Not Now.
+            #expect(services.onboarding.classicImportNotice == nil)
             try mac.write { root in root["createdAt"] = 1_891_728_605.0 }
             let again = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in
                 Issue.record("a declined preview was asked again")

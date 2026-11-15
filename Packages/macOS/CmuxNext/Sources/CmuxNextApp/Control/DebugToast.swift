@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextSettings
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -20,6 +21,8 @@ import CmuxNextSettings
 /// - `{stop_all: {<chief.stop {all} answer>}, window?}` shows the Stop all
 ///   agents toast for that answer, decoded as the daemon's is, until closed
 ///   (captures of the toast with no Chief or subagents to stop).
+/// - `{classic_toast: "before" | "short" | "action" | "none", window?}` shows a gallery variant of the
+///   classic import's after-Cancel toast (`ClassicImportPromptGallery`).
 /// Every reply also has `undo_steps`: the sidebar and pin undo steps registered so far.
 @MainActor
 enum DebugToast {
@@ -58,6 +61,11 @@ enum DebugToast {
                 manager.undo()
                 return true
             } ?? false)
+        }
+        if let variant = params["classic_toast"]?.stringValue {
+            // `none` is the landed look: no toast after the prompt's Not Now.
+            if let window, let toast = ClassicImportPromptGallery.toasts[variant] { _ = CmuxToastCenter.shared.show(toast, in: window) }
+            result["classic_toast"] = .bool(ClassicImportPromptGallery.toasts[variant] != nil)
         }
         if let answer = params["stop_all"] {
             result["stop_all"] = showStopAll(answer, in: window)
