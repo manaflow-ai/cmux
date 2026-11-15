@@ -1159,6 +1159,13 @@ async fn hub_carrier_pipe_numbers() {
         let _ = within("an echo back", client.receive()).await.unwrap().unwrap();
         echoes.push(started.elapsed());
     }
+    eprintln!(
+        "PIPE-NUMBERS relayed connect_ms p50={:.1} p95={:.1} n=20; echo_ms p50={:.2} p95={:.2} n=20",
+        percentile(&mut connects, 0.5).as_secs_f64() * 1e3,
+        percentile(&mut connects, 0.95).as_secs_f64() * 1e3,
+        percentile(&mut echoes, 0.5).as_secs_f64() * 1e3,
+        percentile(&mut echoes, 0.95).as_secs_f64() * 1e3,
+    );
     let chunk = vec![0xa5u8; 32 * 1024];
     let total: usize = 16 << 20;
     let started = std::time::Instant::now();
@@ -1173,17 +1180,17 @@ async fn hub_carrier_pipe_numbers() {
     });
     let mut received = 0usize;
     while received < total {
-        received += within("a bulk frame", client.receive()).await.unwrap().unwrap().payload.len();
+        received += within(&format!("a bulk frame after {received} bytes"), client.receive())
+            .await
+            .unwrap()
+            .unwrap()
+            .payload
+            .len();
     }
     let elapsed = started.elapsed();
     let _ = sender.await;
     eprintln!(
-        "PIPE-NUMBERS relayed connect_ms p50={:.1} p95={:.1} n=20; echo_ms p50={:.2} p95={:.2} n=20; \
-         down_mibs={:.1} ({} MiB)",
-        percentile(&mut connects, 0.5).as_secs_f64() * 1e3,
-        percentile(&mut connects, 0.95).as_secs_f64() * 1e3,
-        percentile(&mut echoes, 0.5).as_secs_f64() * 1e3,
-        percentile(&mut echoes, 0.95).as_secs_f64() * 1e3,
+        "PIPE-NUMBERS relayed down_mibs={:.1} ({} MiB)",
         (total as f64 / (1 << 20) as f64) / elapsed.as_secs_f64(),
         total >> 20,
     );
