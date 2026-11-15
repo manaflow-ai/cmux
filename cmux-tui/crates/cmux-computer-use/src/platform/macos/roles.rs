@@ -104,6 +104,15 @@ pub fn press_shows_value(role: &str, subrole: Option<&str>, action: &str) -> boo
     value_role && matches!(action, "AXPress" | "AXIncrement" | "AXDecrement")
 }
 
+/// The digit `title` is, when it is exactly one ASCII digit.
+pub fn single_digit(title: &str) -> Option<char> {
+    let mut chars = title.trim().chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_ascii_digit() => Some(c),
+        _ => None,
+    }
+}
+
 /// Whether a press finds its effect already done: a radio button already on
 /// (value 1) stays on.
 pub fn press_already_done(role: &str, action: &str, before: &str) -> bool {

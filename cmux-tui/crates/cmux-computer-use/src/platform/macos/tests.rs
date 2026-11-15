@@ -2535,3 +2535,26 @@ fn detached_watches_are_capped_per_app() {
     assert!(watch::may_start(1));
     assert!(!watch::may_start(2));
 }
+
+/// Both priming defaults are one constant away: with the default off, only
+/// an explicit `1` (and a verified macOS) turns the scope on; `0` always
+/// turns it off.
+#[test]
+fn the_scope_default_is_one_constant_and_the_switch_overrides_it() {
+    assert!(activation::gate_with(true, "27.0.1", &[]));
+    assert!(!activation::gate_with(true, "27.0.1", &["0"]));
+    assert!(!activation::gate_with(false, "27.0.1", &[]));
+    assert!(activation::gate_with(false, "27.0.1", &["1"]));
+    assert!(!activation::gate_with(false, "27.0.1", &["1", "0"]));
+    assert!(!activation::gate_with(false, "26.5", &["1"]), "unverified macOS stays off");
+}
+
+/// A button's digit: its title (or description) is exactly one digit.
+#[test]
+fn a_digit_button_is_one_digit() {
+    assert_eq!(roles::single_digit("8"), Some('8'));
+    assert_eq!(roles::single_digit(" 0 "), Some('0'));
+    assert_eq!(roles::single_digit("10"), None);
+    assert_eq!(roles::single_digit("+"), None);
+    assert_eq!(roles::single_digit(""), None);
+}

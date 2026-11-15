@@ -52,7 +52,11 @@ fn outcome_after(
             out.expect = d.expect(Some(check), true);
             out
         }
-        _ => ActionOutcome::delivered(route),
+        _ => {
+            let mut out = ActionOutcome::delivered(route);
+            out.expect = d.expect(press_effects(el, &role, action), false);
+            out
+        }
     };
     // A value control (a checkbox, radio button, switch, disclosure
     // triangle, stepper, slider) pressed, incremented or decremented shows
@@ -598,6 +602,34 @@ fn ax_unprimed<T>(pid: i32, write: impl FnOnce() -> T) -> DResult<T> {
         .ok_or_else(|| DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
 }
 
+/// Read-backs of a delivered press on a button, after the settle: a sheet
+/// or popover opening in its window, the sheet it is in closing, or a
+/// digit button's digit ending the one text that changed (a calculator).
+fn press_effects(el: &Ax, role: &str, action: &str) -> Option<readback::Check> {
+    if role != "AXButton" || action != "AXPress" {
+        return None;
+    }
+    let mut checks = Vec::new();
+    if let Some(sheet) = readback::sheet_of(el) {
+        checks.push(readback::Check::Gone { sheet });
+    }
+    if let Some(win) = el.element("AXWindow") {
+        checks.push(readback::Check::Opened { before: readback::overlays(&win), win: win.clone() });
+        if let Some(ch) = digit_of(el) {
+            checks.push(readback::Check::EndsWith { texts: readback::texts(&win), ch });
+        }
+    }
+    (!checks.is_empty()).then_some(readback::Check::Any(checks))
+}
+
+/// The digit a button types: its title or description is one digit.
+fn digit_of(el: &Ax) -> Option<char> {
+    [el.string("AXTitle"), el.string("AXDescription")]
+        .into_iter()
+        .flatten()
+        .find_map(|t| roles::single_digit(&t))
+}
+
 /// What a pointer gesture done through AX writes (a caret, a text
 /// selection, a scroll, a slider) may do in `pid`'s app.
 #[derive(Debug, PartialEq, Eq)]
@@ -1039,6 +1071,23 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
     // again (the deny list, the protected apps and its place were checked
     // above and by prime_block_of, outside the scope).
     let mut title_before: Option<String> = None;
+    // A menu bar item's title and check mark before any scope: read back
+    // after the settle (a toggle changes one of them).
+    let item_before = in_menu_bar.then(|| (el.string("AXTitle"), el.string("AXMenuItemMarkChar")));
+    // A disabled item of an app that cannot be made to validate (the
+    // person's front app, or the scope off) is not pressed: the press would
+    // do nothing.
+    if spec.delivery == Delivery::Background
+        && in_menu_bar
+        && semantic
+        && el.bool("AXEnabled") == Some(false)
+        && d.is_persons_app(&t)
+    {
+        let title = el.string("AXTitle").unwrap_or_default();
+        return Err(DesktopError::Unsupported(format!(
+            "menu item {title:?} ({element_id}) is disabled, so nothing was pressed"
+        )));
+    }
     let mut menu_key = if spec.delivery == Delivery::Background
         && in_menu_bar
         && el.bool("AXEnabled") == Some(false)
@@ -1110,6 +1159,12 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         if in_menu_bar {
             out.cursor_at = None;
         }
+        if let Some((title, mark)) = item_before
+            && out.evidence != "confirmed"
+        {
+            let check = readback::Check::MenuItem { el: el.clone(), title, mark };
+            out.expect = d.expect(Some(check), false);
+        }
         // AXPress runs the item's action before it returns: hand back now.
         if let Some(key) = menu_key.take()
             && key.end() == super::activation::Ended::HandBackFailed
@@ -1136,7 +1191,7 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
     let before = el.value_text().unwrap_or_default();
     // A secure field hides its value; its length reads back the typing.
-    let count_before = el.number("AXNumberOfCharacters");
+    let count_before = readback::secure_count(el);
     let typed = text.encode_utf16().count() as f64;
     let wanted_count = count_before.map(|n| n + typed);
     let length_check =
@@ -1145,7 +1200,7 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
     let Some(cf) = Cf::string(text) else { return Ok(None) };
     if el.settable("AXSelectedText") && el.set("AXSelectedText", &cf).is_ok() {
         if secure {
-            let grew = wanted_count.is_some() && el.number("AXNumberOfCharacters") == wanted_count;
+            let grew = wanted_count.is_some() && readback::secure_count(el) == wanted_count;
             let mut out = if grew {
                 ActionOutcome::confirmed("ax_insert_text")
             } else {
@@ -1174,7 +1229,7 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
     let Some(value) = Cf::string(&wanted) else { return Ok(None) };
     el.set("AXValue", &value).map_err(|e| ax_error(e, "setting the value"))?;
     let reads_back = if secure {
-        wanted_count.is_some() && el.number("AXNumberOfCharacters") == wanted_count
+        wanted_count.is_some() && readback::secure_count(el) == wanted_count
     } else {
         el.value_text().as_deref() == Some(wanted.as_str())
     };
@@ -1283,15 +1338,30 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
-        return Ok(typed_outcome(route.name(), shows_text, d.expect(check, false)));
+        return Ok(nowhere(d, &t, typed_outcome(route.name(), shows_text, d.expect(check, false))));
     }
     unprimed(route, |p| input::type_text(p, text))?;
-    Ok(typed_outcome(route.name(), shows_text, d.expect(check, false)))
+    Ok(nowhere(d, &t, typed_outcome(route.name(), shows_text, d.expect(check, false))))
 }
 
 /// Whether `el` is a text element whose value shows what is typed into it.
 fn is_text_element(el: &Ax) -> bool {
     roles::is_text_input(&el.string("AXRole").unwrap_or_default())
+}
+
+/// Keys sent to an app with no focused element at all (not even its
+/// window) reach nothing that can take them: their effect, if any, can only
+/// show in the window or the app, all of which the engine watches.
+fn nowhere(d: &MacDesktop, t: &Target, out: ActionOutcome) -> ActionOutcome {
+    if out.shows.is_some() {
+        return out;
+    }
+    let no_focus = d.ax_window(t).ok().is_some_and(|(app, _)| {
+        app.element("AXFocusedUIElement").is_none_or(|el| {
+            matches!(el.string("AXRole").as_deref(), Some("AXWindow" | "AXApplication"))
+        })
+    });
+    if no_focus { out.showing("window") } else { out }
 }
 
 fn typed_outcome(route: &str, shows_text: bool, expect: Option<Expect>) -> ActionOutcome {
@@ -1384,10 +1454,21 @@ fn press_keys_inner(
     let denies_any = d.denies_any();
     // Command-A in a text element: read back as all of it selected, after
     // the settle; whether it already was, before the press.
+    // A list or table: all of its rows selected.
     let select_all = if roles::is_select_all(combo) {
-        d.focused_in(&t).filter(is_text_element).map(|el| {
-            let already = readback::Check::SelectAll { el: el.clone() }.holds() == Some(true);
-            (el, already)
+        d.focused_in(&t).and_then(|el| {
+            let check = if is_text_element(&el) {
+                readback::Check::SelectAll { el }
+            } else if matches!(
+                el.string("AXRole").as_deref(),
+                Some("AXTable" | "AXOutline" | "AXList")
+            ) {
+                readback::Check::AllRows { el }
+            } else {
+                return None;
+            };
+            let already = check.holds() == Some(true);
+            Some((check, already))
         })
     } else {
         None
@@ -1522,6 +1603,10 @@ fn press_keys_inner(
                 {
                     return Err(scope_refusal(primed.take(), why));
                 }
+                // A toggle's title and mark before (not read inside a scope).
+                let item_before = primed
+                    .is_none()
+                    .then(|| (el.string("AXTitle"), el.string("AXMenuItemMarkChar")));
                 let mut out = match press_outcome(el.perform("AXPress"), "ax_menu_shortcut") {
                     Ok(out) => out,
                     Err(e) => return Err(with_hand_back(e, primed.take())),
@@ -1536,9 +1621,12 @@ fn press_keys_inner(
                 }
                 // Command-A in a text element selects all of it: read back
                 // after the settle.
-                if let Some((el, already)) = select_all {
+                if let Some((check, already)) = select_all {
                     out = out.showing("selection");
-                    out.expect = d.expect(Some(readback::Check::SelectAll { el }), already);
+                    out.expect = d.expect(Some(check), already);
+                } else if let Some((title, mark)) = item_before {
+                    let check = readback::Check::MenuItem { el: el.clone(), title, mark };
+                    out.expect = d.expect(Some(check), false);
                 }
                 return Ok(out);
             }
@@ -1609,8 +1697,19 @@ fn press_keys_inner(
     let shows_text = focused.is_some();
     let check =
         focused.as_ref().zip(carries).and_then(|(el, c)| readback::Check::text(el, &c.to_string()));
+    // A digit into an app with no text element focused (a calculator):
+    // the one text that changed ends with it.
+    let check = check.or_else(|| {
+        let ch = carries.filter(|c| c.is_ascii_digit())?;
+        if focused.is_some() {
+            return None;
+        }
+        let (_, win) = d.ax_window(&t).ok()?;
+        Some(readback::Check::EndsWith { texts: readback::texts(&win), ch })
+    });
     unprimed(route, |p| input::key(p, code, flags, carries))?;
     let mut out = typed_outcome(route.name(), shows_text, d.expect(check, false));
+    out = nowhere(d, &t, out);
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
@@ -1914,7 +2013,7 @@ pub(super) fn set_value(
     // Before the write: whether the value (or a secure field's length)
     // already was the wanted one.
     let value_before = el.value_text();
-    let count_before = el.number("AXNumberOfCharacters");
+    let count_before = readback::secure_count(&el);
     let new_count = value.encode_utf16().count() as f64;
     el.set("AXValue", &value_for(&el, value)?)
         .map_err(|e| ax_error(e, &format!("element {element_id}")))?;
@@ -1922,7 +2021,7 @@ pub(super) fn set_value(
     let (already, holds) = if secure {
         // The length must have become the new one: an unchanged length
         // says nothing (the same count, or a field that ignored the write).
-        let count = el.number("AXNumberOfCharacters");
+        let count = readback::secure_count(&el);
         (count_before == Some(new_count), count == Some(new_count) && count != count_before)
     } else {
         (

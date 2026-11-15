@@ -36,6 +36,8 @@ pub(super) enum Check {
     Scroll { bars: Vec<Bar> },
     /// All of `el`'s text is selected.
     SelectAll { el: Ax },
+    /// All of the list or table `el`'s rows are selected.
+    AllRows { el: Ax },
     /// `el`'s value reads `wanted` (text, or a number within `tolerance`).
     Value { el: Ax, wanted: String, tolerance: f64 },
     /// `el`'s selected text range is `range`.
@@ -50,6 +52,89 @@ pub(super) enum Check {
     Bool { el: Ax, attr: String, value: bool },
     /// The menu `el` is still shown (left open for the next call).
     Shown { el: Ax },
+    /// A pressed menu item: its title or check mark changed (a toggle).
+    /// Unchanged says nothing (most items do not toggle).
+    MenuItem { el: Ax, title: Option<String>, mark: Option<String> },
+    /// A sheet or popover opened in window `win` (more of them than `before`).
+    Opened { win: Ax, before: usize },
+    /// The sheet `sheet` is gone (its button closed it).
+    Gone { sheet: Ax },
+    /// Exactly one text of window `win` changed, and it now ends with `ch`
+    /// (a calculator's display after a digit).
+    EndsWith { texts: Vec<(Ax, Option<String>)>, ch: char },
+    /// Any of these holds.
+    Any(Vec<Check>),
+}
+
+/// How deep and how many elements a window walk for sheets, popovers and
+/// texts reads.
+const WALK_DEPTH: usize = 12;
+const WALK_MAX: usize = 400;
+
+/// The window's elements, breadth first, bounded.
+fn walk(win: &Ax) -> Vec<(Ax, usize)> {
+    let mut out = Vec::new();
+    let mut queue = VecDeque::from([(win.clone(), 0usize)]);
+    while let Some((el, depth)) = queue.pop_front() {
+        if out.len() >= WALK_MAX {
+            break;
+        }
+        if depth < WALK_DEPTH {
+            for c in el.elements("AXChildren") {
+                queue.push_back((c, depth + 1));
+            }
+        }
+        out.push((el, depth));
+    }
+    out
+}
+
+/// Sheets and popovers open in `win` (its own and its descendants').
+pub(super) fn overlays(win: &Ax) -> usize {
+    walk(win)
+        .iter()
+        .filter(|(el, _)| matches!(el.string("AXRole").as_deref(), Some("AXSheet" | "AXPopover")))
+        .count()
+}
+
+/// The sheet `el` is in, when it is in one.
+pub(super) fn sheet_of(el: &Ax) -> Option<Ax> {
+    let mut cur = el.element("AXParent");
+    for _ in 0..16 {
+        let node = cur?;
+        match node.string("AXRole").as_deref() {
+            Some("AXSheet") => return Some(node),
+            Some("AXWindow" | "AXApplication") | None => return None,
+            _ => {}
+        }
+        cur = node.element("AXParent");
+    }
+    None
+}
+
+/// The static texts of `win` and their values.
+pub(super) fn texts(win: &Ax) -> Vec<(Ax, Option<String>)> {
+    walk(win)
+        .into_iter()
+        .filter(|(el, _)| el.string("AXRole").as_deref() == Some("AXStaticText"))
+        .map(|(el, _)| {
+            let v = el.value_text();
+            (el, v)
+        })
+        .collect()
+}
+
+/// Whether, of `before` and `after` values of the same texts, exactly one
+/// changed and it now ends with `ch` (spaces and group separators aside).
+pub(super) fn one_changed_ending(pairs: &[(Option<String>, Option<String>)], ch: char) -> bool {
+    let changed: Vec<&Option<String>> =
+        pairs.iter().filter(|(b, a)| b != a).map(|(_, a)| a).collect();
+    let [Some(after)] = changed.as_slice() else { return false };
+    let clean: String = after
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, ',' | '\u{2009}' | '\u{202F}'))
+        .collect();
+    clean.ends_with(ch)
 }
 
 #[derive(Default)]
@@ -65,9 +150,15 @@ impl Checks {
         let what = match &check {
             Check::Text { .. } | Check::Length { .. } => "text",
             Check::Scroll { .. } => "scroll",
-            Check::SelectAll { .. } | Check::Range { .. } | Check::Selected { .. } => "selection",
+            Check::SelectAll { .. }
+            | Check::AllRows { .. }
+            | Check::Range { .. }
+            | Check::Selected { .. } => "selection",
             Check::Value { .. } | Check::Title { .. } | Check::Bool { .. } => "value",
-            Check::Shown { .. } => "menu",
+            Check::Shown { .. } | Check::MenuItem { .. } => "menu",
+            Check::Opened { .. } | Check::Gone { .. } => "window",
+            Check::EndsWith { .. } => "text",
+            Check::Any(_) => "any",
         };
         self.pending.push_back((self.next, check));
         while self.pending.len() > KEPT {
@@ -92,6 +183,19 @@ fn occurrences(hay: &str, needle: &str) -> usize {
 /// it, does not count).
 pub(super) fn typed_shows(before: &str, after: &str, text: &str) -> bool {
     occurrences(after, text) > occurrences(before, text)
+}
+
+/// How many characters a (secure) text field holds: its
+/// `AXNumberOfCharacters`, else the length of a value it shows (bullets),
+/// else where its caret ends (AppKit's secure field on macOS 27.0.1 reads
+/// an empty value and no character count, but its selected range moves
+/// with what is typed or set).
+pub(super) fn secure_count(el: &Ax) -> Option<f64> {
+    el.number("AXNumberOfCharacters")
+        .or_else(|| {
+            el.value_text().filter(|v| !v.is_empty()).map(|v| v.encode_utf16().count() as f64)
+        })
+        .or_else(|| el.selected_range().map(|r| (r.location + r.length) as f64))
 }
 
 /// UTF-16 code units of `s`.
@@ -213,6 +317,11 @@ impl Check {
                 let r = el.selected_range()?;
                 Some(n > 0.0 && r.location == 0 && r.length as f64 == n)
             }
+            Check::AllRows { el } => {
+                let rows = el.elements("AXRows").len();
+                let selected = el.elements("AXSelectedRows").len();
+                Some(rows > 0 && selected == rows)
+            }
             Check::Value { el, wanted, tolerance } => {
                 Some(value_matches(&el.value_text()?, wanted, *tolerance))
             }
@@ -220,10 +329,26 @@ impl Check {
             Check::Selected { row } => {
                 Some(row.bool("AXSelected") == Some(true) && super::actions::only_selected(row))
             }
-            Check::Length { el, count } => Some(el.number("AXNumberOfCharacters")? == *count),
+            Check::Length { el, count } => Some(secure_count(el)? == *count),
             Check::Title { el, title } => Some(super::roles::same_title(&el.value_text()?, title)),
             Check::Bool { el, attr, value } => Some(el.bool(attr)? == *value),
             Check::Shown { el } => Some(el.string("AXRole").as_deref() == Some("AXMenu")),
+            Check::MenuItem { el, title, mark } => {
+                let changed = (title.is_some() && el.string("AXTitle") != *title)
+                    || el.string("AXMenuItemMarkChar") != *mark;
+                changed.then_some(true)
+            }
+            Check::Opened { win, before } => (overlays(win) > *before).then_some(true),
+            Check::Gone { sheet } => sheet.string("AXRole").is_none().then_some(true),
+            Check::EndsWith { texts, ch } => {
+                let pairs: Vec<_> =
+                    texts.iter().map(|(el, b)| (b.clone(), el.value_text())).collect();
+                one_changed_ending(&pairs, *ch).then_some(true)
+            }
+            Check::Any(all) => {
+                let reads: Vec<Option<bool>> = all.iter().map(Check::holds).collect();
+                if reads.contains(&Some(true)) { Some(true) } else { None }
+            }
         }
     }
 }
@@ -264,6 +389,18 @@ mod tests {
         assert!(!typed_at("ab", "ab", "Z", at(1, 0)), "nothing typed");
         assert!(!typed_at("ab", "aZZb", "Z", at(1, 0)), "typed twice");
         assert!(typed_at("é", "éZ", "Z", at(1, 0)), "UTF-16 offsets");
+    }
+
+    /// A calculator digit: exactly one text changed and it ends with the
+    /// digit; two changed texts, none, or another ending say nothing.
+    #[test]
+    fn one_text_changed_ending_with_the_digit() {
+        let p = |b: &str, a: &str| (Some(b.to_string()), Some(a.to_string()));
+        assert!(one_changed_ending(&[p("0", "8"), p("C", "C")], '8'));
+        assert!(one_changed_ending(&[p("1,23", "1,238")], '8'));
+        assert!(!one_changed_ending(&[p("0", "8"), p("a", "b")], '8'), "two changed");
+        assert!(!one_changed_ending(&[p("8", "8")], '8'), "none changed");
+        assert!(!one_changed_ending(&[p("0", "9")], '8'), "another digit");
     }
 
     #[test]

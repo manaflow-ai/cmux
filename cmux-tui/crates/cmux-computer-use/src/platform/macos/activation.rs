@@ -60,8 +60,17 @@ struct Calls {
 /// with the scope off.
 pub(super) const VERIFIED: &[(u32, u32, u32)] = &[(26, 6, 0), (27, 0, 1)];
 
-/// The environment variable that turns the scope off (`0`).
+/// The environment variable that sets the scope: `0` off, `1` on; unset,
+/// [`DEFAULT_ON`].
 pub(super) const OFF_ENV: &str = "CMUX_CU_BG_ACTIVATE";
+
+/// Whether the scope runs when no switch says otherwise. Making a
+/// background app's window key (the scope's window-server records) makes
+/// AppKit in that app post "did become active" for the scope's length
+/// (the window server's front app and the person's key window never
+/// change). `false`: menu items and chords that enable only with a key
+/// window are refused in a background app instead.
+pub(super) const DEFAULT_ON: bool = true;
 
 /// The longest a scope is open: validation plus one press, a hung app
 /// included (AX calls on the target are bounded inside it).
@@ -77,7 +86,16 @@ const POLL: Duration = Duration::from_millis(20);
 /// the values found (the worker's environment, the user's launchd
 /// environment); any `0` turns it off.
 pub(super) fn gate(os_version: &str, switches: &[&str]) -> bool {
+    gate_with(DEFAULT_ON, os_version, switches)
+}
+
+/// [`gate`] with the default given: any `0` turns it off; with the default
+/// off, a `1` turns it on.
+pub(super) fn gate_with(default_on: bool, os_version: &str, switches: &[&str]) -> bool {
     if switches.iter().any(|v| v.trim() == "0") {
+        return false;
+    }
+    if !default_on && !switches.iter().any(|v| v.trim() == "1") {
         return false;
     }
     let mut parts = os_version.split('.').map(|p| p.trim().parse::<u32>().ok());
