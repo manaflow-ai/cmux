@@ -289,10 +289,13 @@ cmd_bins() {
       cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
-      cargo build -p acpmux --bin acpmux --release --locked --target "$t" \
-        $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t"))
+      cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target "$t" \
+        $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t" acpmux))
     echo "bins $t: $(( $(date +%s) - start )) s"
     local r="$CARGO_TARGET_DIR/$t/release"
+    # acpmux-standalone is acpmux with its build id stamped in this binary only, so a new commit
+    # does not recompile the acpmux lib. Staged, and read by the package build, as acpmux.
+    cp "$r/acpmux-standalone" "$r/acpmux"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
@@ -332,9 +335,13 @@ cmd_all() {
       "cmux-agent-screen-detection" "cd $(q "$tui") && $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
       "cmux-relay" "cd $(q "$tui") && $stamps $build -p cmux-relay --bin cmux-relay" \
       "chatmux-relay" "cd $(q "$tui") && $stamps $build -p chatmux-relay --bin chatmux-relay" \
-      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t")"
+      "acpmux-standalone" "cd $(q "$tui") && $stamps $build -p acpmux-standalone --bin acpmux-standalone $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t" acpmux)"
     echo "all $t: $(( $(date +%s) - start )) s"
     local r="$target_dir/$t/release"
+    # acpmux-standalone is acpmux with its build id stamped in this binary only, so a new commit
+    # that leaves its sources alone does not recompile the acpmux lib (the lib took 390 s of this
+    # group's 678 s in run 43727128661). Staged, and read by "Stage binary", as acpmux.
+    cp "$r/acpmux-standalone" "$r/acpmux"
     cp "$r/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$r/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$r/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
