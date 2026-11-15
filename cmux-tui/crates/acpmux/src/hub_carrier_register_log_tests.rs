@@ -30,6 +30,10 @@ impl Tickets for Refusing {
     async fn connect(&self, _peer: &str) -> Result<CarrierAnswer, String> {
         Err("no connect here".into())
     }
+
+    fn shown(&self) -> String {
+        "https://hub.example".into()
+    }
 }
 
 #[derive(Clone, Default)]
@@ -80,6 +84,7 @@ async fn register_refusals_are_visible_at_info_and_rate_limited() {
     assert_eq!(asking.len(), 1, "no single start line:\n{log}");
     assert!(asking[0].contains(" INFO "), "the start line is not info:\n{log}");
     assert!(asking[0].contains("for a register ticket"), "{log}");
+    assert!(asking[0].contains("asking https://hub.example for"), "no hub origin:\n{log}");
 
     // The first refusal: a warn, with its error.
     let warns: Vec<&&str> = log_lines
