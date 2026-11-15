@@ -21,7 +21,10 @@
 //!
 //! For the daemon stages it also prints the busiest threads (CPU % of the
 //! burst) of the daemon and the terminal host, and the viewer's events, so the
-//! stage that caps the rate shows as a thread near 100 %.
+//! stage that caps the rate shows as a thread near 100 %. Linux cuts thread
+//! names to 15 bytes, so each carries its id: in a host, `terminal-host-p` with
+//! the lower id is the parser (`terminal-host-parser`, started first), the
+//! higher one the PTY reader (`terminal-host-pty`).
 //!
 //! Run (ignored in the normal test run):
 //! `cargo test --release -p cmux-tui --test terminal_throughput_stages -- --ignored --nocapture`.
@@ -295,7 +298,7 @@ fn busiest(
         .map(|((role, tid), (name, ticks))| {
             let start = before.get(&(role.clone(), *tid)).map_or(0, |(_, t)| *t);
             let pct = (ticks.saturating_sub(start)) as f64 / hz / seconds * 100.0;
-            (pct, role.clone(), name.clone())
+            (pct, role.clone(), format!("{name}#{tid}"))
         })
         .filter(|(pct, _, _)| *pct >= 1.0)
         .collect();
@@ -473,7 +476,7 @@ fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, view
         let stats = attached.finish();
         row["viewer"] = json!({
             "outputs": stats.outputs, "output_bytes": stats.output_bytes,
-            "bytes_per_output": if stats.outputs > 0 { stats.output_bytes / stats.outputs } else { 0 },
+            "bytes_per_output": stats.output_bytes.checked_div(stats.outputs).unwrap_or(0),
             "replays": stats.replays, "other_events": stats.other,
             "seconds_to_last_output": viewed, "mb_s_to_last_output": mb_s(stats.output_bytes as usize, viewed),
         });

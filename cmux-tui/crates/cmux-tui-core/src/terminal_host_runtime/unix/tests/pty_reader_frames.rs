@@ -6,12 +6,11 @@
 
 use super::super::super::shared::host_start::read_pty_output;
 use super::*;
-use std::io::Read as _;
 
 /// A PTY master as macOS reads one: at most 1 KiB per read.
 struct MacOsSizedReads(UnixStream);
 
-impl std::io::Read for MacOsSizedReads {
+impl Read for MacOsSizedReads {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         let end = buffer.len().min(1024);
         self.0.read(&mut buffer[..end])
@@ -36,7 +35,7 @@ fn start_reader() -> (Receiver<ParserCommand>, UnixStream, thread::JoinHandle<()
         .name("terminal-host-pty".into())
         .spawn(move || {
             host.mark_launch_owner_stream_ready();
-            read_pty_output(&host, Box::new(MacOsSizedReads(pty)), pty_fd, drain_waiter)
+            read_pty_output(&host, Box::new(MacOsSizedReads(pty)), pty_fd, drain_waiter);
         })
         .unwrap();
     (parsed, program, reader, drain_waker)
