@@ -411,6 +411,57 @@ impl Hub {
                 );
             }
         }
+        // Gemini and Grok on a cmux Cloud machine: the team's gateway when the person has no
+        // sign-in of their own and the gateway serves the agent (provider_cloud_auth.rs,
+        // hq#11225). A bound route, or a launcher that picks the provider itself, owns it instead.
+        // The probe waits at most `PROBE_DEADLINE`; any failure keeps own.
+        // The own-key check reads the env the child gets, as Claude's above does: the profile's
+        // references resolved (one that does not resolve keeps own), over the vault's and
+        // `machine.env`'s values (`provider_cloud_auth::LaunchEnv`, #43800); a remote-origin launch
+        // (the app's Cloud chat, over its peer link) gets none of those, only its profile.
+        // Only an owner Cloud machine's launch, so no other resolves its references twice.
+        let root = self.vm_marker_root();
+        let provider = crate::provider_cloud_auth::Provider::for_family(
+            &crate::config::derive_family(&meta.harness, &p),
+        )
+        .filter(|provider| {
+            !p.env.contains_key(crate::routes::NAME_KEY)
+                && crate::provider_cloud_auth::launches_itself(*provider, &p.argv)
+                && crate::codex_cloud_auth::owner_cloud_image_at(&root)
+        });
+        let resolved = provider.map(|provider| (provider, crate::agent::resolved_profile_env(&p)));
+        let provider = match resolved {
+            Some((provider, Ok(resolved))) => Some((provider, resolved)),
+            Some((provider, Err(error))) => {
+                tracing::info!(session = %meta.id, agent = provider.name(), %error, "agent profile env does not resolve; it keeps its own sign-in");
+                None
+            }
+            None => None,
+        };
+        if let Some((provider, resolved)) = provider {
+            let launch = crate::provider_cloud_auth::LaunchEnv::now(
+                provider.name(),
+                resolved,
+                meta.remote_origin,
+            );
+            match crate::provider_cloud_auth::decide_launch(
+                provider,
+                &launch,
+                &root,
+                crate::provider_cloud_auth::probe_providers,
+            )
+            .await
+            {
+                crate::provider_cloud_auth::Mode::LeftAlone => {}
+                crate::provider_cloud_auth::Mode::Own(reason) => {
+                    tracing::info!(session = %meta.id, agent = provider.name(), reason, "agent on this Cloud machine uses its own sign-in");
+                }
+                crate::provider_cloud_auth::Mode::Team(team) => {
+                    tracing::info!(session = %meta.id, agent = provider.name(), "agent on this Cloud machine uses the team's gateway");
+                    crate::provider_cloud_auth::apply_team(&mut p.env, team);
+                }
+            }
+        }
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher

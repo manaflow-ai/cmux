@@ -140,6 +140,9 @@ pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
 pub(crate) mod machine_info;
+/// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod machine_routes;
 pub mod machine_tunnel;
 pub mod machine_wake;
 pub mod mailbox;
@@ -185,6 +188,7 @@ pub mod prompt_provenance;
 pub mod prompt_uploads;
 pub mod protected_folders;
 pub mod protocol;
+mod provider_cloud_auth;
 pub mod qos;
 pub mod question_answer;
 #[cfg(target_os = "linux")]

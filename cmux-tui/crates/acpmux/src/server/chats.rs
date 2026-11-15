@@ -104,6 +104,10 @@ pub(super) async fn route(
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    #[cfg(feature = "hub-carrier")]
+    if let Some(reply) = super::machine_routes::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::vault::dispatch(conn, m).await {
         return reply;
     }
