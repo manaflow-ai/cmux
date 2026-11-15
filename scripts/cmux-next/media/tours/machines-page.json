@@ -5,6 +5,7 @@
     {"title": "Sample Cloud, SSH and server machines", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "machines.section.fixture", "value": true}}, "shot": false, "optional": "debug.tunables is DEBUG only"},
     {"title": "Joined machines; studio-mini (a Mac signed in to this account) with its controls shown", "rpc": {"method": "debug.joined_machines", "params": {"menu": "m_mini"}}, "wait": 1, "shot": false, "optional": "debug.joined_machines is DEBUG only"},
     {"title": "Machines in Sidebar on (Add to Sidebar: Machines)", "rpc": {"method": "action.run", "params": {"action": "sidebar.item.add", "args": {"item": "machines"}}}, "wait": 1.5},
-    {"title": "Cmd-1 selects the Machines item (Add to Sidebar puts it first) as a click does and opens the page on top: this Mac, Cloud, SSH, Servers and Joined; studio-mini shows New Workspace", "rpc": {"method": "action.run", "params": {"action": "selectWorkspaceByNumber", "args": {"index": 1}}}, "wait": 3}
+    {"title": "Cmd-1 selects the Machines item (Add to Sidebar puts it first) as a click does and opens the page on top: this Mac, Cloud, SSH, Servers and Joined; studio-mini shows New Workspace", "rpc": {"method": "action.run", "params": {"action": "selectWorkspaceByNumber", "args": {"index": 1}}}, "wait": 1, "shot": false},
+    {"title": "The page has drawn its rows", "rpc": {"method": "debug.page", "params": {"page": "cmux.machines", "action": "wait", "selector": "ul.machines", "timeout_ms": 15000}}, "wait": 1, "optional": "debug.page is DEBUG only"}
   ]
 }
