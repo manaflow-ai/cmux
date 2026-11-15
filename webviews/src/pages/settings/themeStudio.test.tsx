@@ -358,3 +358,38 @@ test("with an App Theme set, a space or workspace theme says it replaces the App
   await run(() => page!.store.reset("appearance.appTheme"));
   expect(theme(page).querySelector('[data-override="workspace"]')?.textContent).not.toContain("App Theme included");
 });
+
+test("Open Theme File, below the Theme File row, asks the host to open the theme file", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  const row = theme(page).querySelector<HTMLElement>('[data-theme-row="themeFileOpen"]')!;
+  expect(row.previousElementSibling?.getAttribute("data-row-key")).toBe("appearance.themeFile");
+  await click(row.querySelector<HTMLButtonElement>('[data-theme-file-action="open"]')!);
+  expect(ops(page.provider, "cmux.settings.theme.file.open")).toEqual([{}]);
+});
+
+test("an Open Theme File the host could not make says so on the Theme File row, its reason as the detail", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    setup: (provider) => {
+      provider.themeFileRefusal = "cmux theme export: cannot write themes/my-look.json";
+    },
+  });
+  const button = theme(page).querySelector<HTMLButtonElement>('[data-theme-file-action="open"]')!;
+  await click(button);
+  const row = theme(page).querySelector<HTMLElement>('[data-row-key="appearance.themeFile"]')!;
+  const error = row.querySelector<HTMLElement>(".row-error");
+  expect(error?.textContent).toBe("Could not open the theme file.");
+  expect(error?.title).toBe("cmux theme export: cannot write themes/my-look.json");
+  page.provider.themeFileRefusal = null;
+  await click(button);
+  expect(row.querySelector(".row-error")).toBeNull();
+});
+
+test("a second Open Theme File before the first answers sends nothing (both would race for one new name)", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  const store = page.store;
+  await run(() => Promise.all([store.openThemeFile(), store.openThemeFile()]));
+  expect(ops(page.provider, "cmux.settings.theme.file.open")).toEqual([{}]);
+  await run(() => store.openThemeFile());
+  expect(ops(page.provider, "cmux.settings.theme.file.open")).toEqual([{}, {}]);
+});

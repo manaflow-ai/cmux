@@ -31,6 +31,7 @@ pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
+pub use bg_tasks::{BgScope, bg_owner_words};
 mod bounded;
 mod btw;
 mod workflow_activity;
@@ -95,6 +96,8 @@ mod shutdown_scan_tests;
 mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
+#[cfg(test)]
+mod steer_on_start_tests;
 #[cfg(test)]
 mod time_breakdown_restore_tests;
 #[cfg(test)]
@@ -1009,6 +1012,8 @@ pub struct Hub {
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
+    /// One chat's adoption ended (`log_load.rs` `chat_adopted`): its waiting prompts look again.
+    pub(crate) chat_adopted_wake: Notify,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has served the model lists kept on disk: `_acpmux/models` waits for it.
@@ -1453,6 +1458,7 @@ impl Hub {
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
+            chat_adopted_wake: Notify::new(),
             catalog_ready: tokio::sync::watch::channel(true).0,
             model_caches_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -2121,7 +2127,7 @@ impl Hub {
         self.events.row_changed(session);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);

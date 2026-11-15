@@ -87,6 +87,19 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+try:
+    import chat_renderer_crash  # noqa: E402  (CMUX_BENCH_CHAT_RENDERER_CRASH: the chat renderer crash test)
+except ModuleNotFoundError:
+    # perf-idle-ab.sh copies this file alone and the frame-pacing job's sparse checkout omits the helper:
+    # without it the crash test is off, and asking for it is an error.
+    if os.environ.get("CMUX_BENCH_CHAT_RENDERER_CRASH") == "1":
+        raise
+
+    class chat_renderer_crash:  # noqa: N801
+        @staticmethod
+        def enabled() -> bool:
+            return False
+
 
 
 def _thread_wakes():
@@ -604,6 +617,12 @@ class FakeChats:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
         remember_chat_tab(created[0], response)
+        if chat_renderer_crash.enabled():
+            # A pinned chat keeps its hidden page (HiddenChatPages), so the crash test finds every chat live.
+            tab = CHAT_TABS.get(created[0]) or chat_tab_of(self.app, created[0])
+            pinned = self.app.run("palette.toggleTabPin", target=tab) if tab else {"error": "no chat tab"}
+            if pinned.get("error"):
+                print(f"   pin {created[0]}: {pinned['error']}", file=sys.stderr)
         return created[0]
 
 
@@ -1172,6 +1191,8 @@ def main():
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
         config = json.loads(args.config)
+        if chat_renderer_crash.enabled():
+            config = merged(config, chat_renderer_crash.CONFIG)
         launched, socket_path, scratch = launch(bundle, config, extra)
         app_pid = launched
     app = App(bundle, socket_path)
@@ -1250,7 +1271,10 @@ def main():
                 repository = os.path.join(os.path.realpath(diff_scratch), "diff-tab-repository")
                 diff_tab = {"repository": cells.make_repository(repository, args.diff_tab)}
                 diff_tab["open"] = cells.open_tab(app, repository)
-            settle_and_sample(f"idle-{count}", diff_tab)
+            result = settle_and_sample(f"idle-{count}", diff_tab)
+            if chat_renderer_crash.enabled() and chats:
+                result["chat_renderers"] = chat_renderer_crash.renderers(app)
+                print(f"CHAT-RENDERERS phase=open agents={count} {json.dumps(result['chat_renderers'])}", flush=True)
             if args.purge_hidden:
                 purge = purge_hidden_pages(app)
                 print(f"== purge at {count}: {json.dumps(purge)}", flush=True)
@@ -1271,6 +1295,8 @@ def main():
                 print(f"== released at {count}: cmux pages {json.dumps(result['cef_pages'])}", flush=True)
                 report["restore"] = restore_chats(app, opened, args.restore_chats)
                 print(f"== restore: {json.dumps({k: v for k, v in report['restore'].items() if k != 'opens'})}", flush=True)
+        if chat_renderer_crash.enabled() and chats:
+            report["chat_renderer_crash"] = chat_renderer_crash.crash(app)
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60
@@ -1314,6 +1340,9 @@ def main():
             shutil.rmtree(scratch, ignore_errors=True)
         if diff_scratch and diff_scratch != scratch:
             shutil.rmtree(diff_scratch, ignore_errors=True)
+    crash = report.get("chat_renderer_crash")
+    if crash is not None and not crash.get("pass"):
+        sys.exit(2 if crash.get("setup_failed") else 1)
 
 
 if __name__ == "__main__":

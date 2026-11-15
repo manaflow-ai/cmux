@@ -1406,7 +1406,239 @@ fn a_page_and_a_resume_asked_past_their_bounds_hold_them() {
     });
 }
 
+/// A sink that takes every frame and keeps what it was given: each frame's sid and kind, and
+/// the sids it was told were dropped.
+#[derive(Default)]
+struct Recorder {
+    offers: Mutex<Vec<(String, FrameKind)>>,
+    dropped: Mutex<Vec<String>>,
+}
+
+impl OfferSink for Recorder {
+    fn offer(&self, sid: &str, frame: Frame, _cursor: Cursor) -> Offer {
+        self.offers.lock().unwrap().push((sid.to_owned(), frame.kind));
+        Offer::Taken
+    }
+    fn fail(&self, _sid: &str) {}
+    fn dropped(&self, sid: &str) {
+        self.dropped.lock().unwrap().push(sid.to_owned());
+    }
+    fn control(&self, _sid: &str) -> Option<Arc<conn::SubscriptionControl>> {
+        Some(Arc::default())
+    }
+    fn metrics(&self) -> Arc<ConnectionMetrics> {
+        Arc::default()
+    }
+}
+
+/// An actor's state at its source's end, as the actor reads it, and ready.
+fn ready_state(chat: &Chat) -> ActorState {
+    let config = chat.config.lock().unwrap().clone();
+    let mut state = crate::chat::open_state(config).unwrap();
+    let stop = AtomicBool::new(false);
+    while !crate::chat::read_history(&mut state, &stop).unwrap() {}
+    state.ready = true;
+    crate::chat::checkpoint(&mut state).unwrap();
+    state
+}
+
+fn subscriber(state: &ActorState, sid: &str, sink: Arc<dyn OfferSink>, phase: Phase) -> Subscriber {
+    Subscriber {
+        conn: 1,
+        sid: sid.to_owned(),
+        sink,
+        person: person_id(None),
+        edition: state.edition,
+        phase,
+        taken: 0,
+    }
+}
+
+/// A resume whose way to the record after its cursor meets a header that is not the next
+/// record's: its size cannot be measured, so it gets a window, and the step ends in a rebuild
+/// from raw, as one that refused a record does. The record is 600 rows back, where the window
+/// never reads it, so only the measure meets the damage.
+#[test]
+fn a_resume_that_cannot_be_measured_past_a_damaged_header_ends_its_step_in_a_rebuild() {
+    let lines: Vec<String> = (1..=300).flat_map(|n| turn(n, &format!("reply {n}"))).collect();
+    let chat = Chat::new(&lines);
+    let mut state = ready_state(&chat);
+    assert!(state.log.last_seq() > 600, "{} records", state.log.last_seq());
+    // The header of a record at or before the cursor gets another seq.
+    let cursor = 10;
+    let segment = chat.book().join("rows/000001.seg");
+    let mut bytes = fs::read(&segment).unwrap();
+    let damaged = (1..=cursor)
+        .filter_map(|id| state.log.row(id))
+        .map(|row| row.off as usize - log::HEADER_LEN)
+        .find(|&at| {
+            let seq = u64::from_le_bytes(bytes[at + 4..at + 12].try_into().unwrap());
+            (2..=cursor).contains(&seq)
+        })
+        .expect("a record between seq.idx's first entry and the cursor");
+    bytes[damaged + 4..damaged + 12].copy_from_slice(&u64::MAX.to_le_bytes());
+    fs::write(&segment, &bytes).unwrap();
+    let sink = Arc::new(Recorder::default());
+    let resuming = Phase::Resuming { cursor, checked: false };
+    let sub = subscriber(&state, "r", sink.clone(), resuming);
+    state.subs.list.push(sub);
+    let stepped = step(&mut state);
+    assert_eq!(*sink.offers.lock().unwrap(), [("r".to_owned(), FrameKind::Window)]);
+    assert!(
+        matches!(stepped, Err(ChatError::Book(log::Error::Rebuild(_)))),
+        "the step did not end in a rebuild: {stepped:?}"
+    );
+}
+
+/// A live op that no frame can hold for one subscriber (its sid alone is past a frame's bound)
+/// drops that subscriber, which resumes from its cursor; the others take the op.
+#[test]
+fn a_frame_that_fails_to_build_drops_its_subscriber() {
+    let chat = Chat::new(&turn(1, "hello"));
+    let mut state = ready_state(&chat);
+    let sink = Arc::new(Recorder::default());
+    let huge = "s".repeat(crate::wire::MAX_FRAME_BYTES);
+    for sid in ["before", huge.as_str(), "after"] {
+        let sub = subscriber(&state, sid, sink.clone(), Phase::Live);
+        state.subs.list.push(sub);
+    }
+    let seq = state.log.last_seq();
+    offer_live(&mut state, br#"{"op":"text","seq":1,"rowId":1,"text":"x"}"#, seq);
+    let left: Vec<&str> = state.subs.list.iter().map(|sub| sub.sid.as_str()).collect();
+    assert_eq!(left, ["before", "after"]);
+    assert_eq!(*sink.dropped.lock().unwrap(), std::slice::from_ref(&huge));
+    let offers = sink.offers.lock().unwrap().clone();
+    let took = |sid: &str| (sid.to_owned(), FrameKind::Delta);
+    assert_eq!(offers, [took("before"), took("after")]);
+}
+
+/// A source whose `hint` blocks while `hold` is set, so a caught-up actor stops taking its
+/// mailbox; `parked` says it is blocked there.
+struct Parked {
+    inner: Box<dyn RawSource>,
+    hold: Arc<AtomicBool>,
+    parked: Arc<AtomicBool>,
+}
+
+impl RawSource for Parked {
+    fn read_chunk(&mut self, place: u64) -> std::io::Result<Chunk> {
+        self.inner.read_chunk(place)
+    }
+    fn holds(&mut self, place: u64) -> std::io::Result<bool> {
+        self.inner.holds(place)
+    }
+    fn hint(&self) -> std::io::Result<u64> {
+        while self.hold.load(Ordering::Acquire) {
+            self.parked.store(true, Ordering::Release);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        self.parked.store(false, Ordering::Release);
+        self.inner.hint()
+    }
+    fn sync_through(&mut self, place: u64) -> std::io::Result<()> {
+        self.inner.sync_through(place)
+    }
+    fn identity(&self) -> &[u8] {
+        self.inner.identity()
+    }
+    fn stamp(&self) -> u64 {
+        self.inner.stamp()
+    }
+    fn read_at(&mut self, place: u64, offset: u64, max: usize) -> std::io::Result<source::Piece> {
+        self.inner.read_at(place, offset, max)
+    }
+}
+
+/// A resume the actor's full mailbox refuses ends the subscription as `dropped`, so the client
+/// resumes instead of waiting, and a `sub` on the same sid gets its window. The actor still
+/// holds the old entry for the sid until then (the test below reads its replacement).
+#[test]
+fn a_resume_a_full_mailbox_refuses_ends_as_dropped_and_the_sid_subscribes_again() {
+    runtime().block_on(async {
+        let hold = Arc::new(AtomicBool::new(false));
+        let parked = Arc::new(AtomicBool::new(false));
+        let (gate, seen) = (hold.clone(), parked.clone());
+        let chat = Chat::with_source(
+            &turn(1, "hello"),
+            Arc::new(move |raw| {
+                let inner = source::FileSource::open(&raw)?;
+                Ok(Box::new(Parked {
+                    inner: Box::new(inner),
+                    hold: gate.clone(),
+                    parked: seen.clone(),
+                }) as Box<dyn RawSource>)
+            }),
+        );
+        let route = Arc::new(Mutex::new(None::<Arc<dyn Source>>));
+        let held = route.clone();
+        let mut client = chat.connect_with(1, &["chat"], move |inner| {
+            *held.lock().unwrap() = Some(inner.clone());
+            inner
+        });
+        client.hello(None).await;
+        client.sub("s", json!({})).await;
+        let window = client.window("s").await;
+        // The actor parks in its source's hint; its mailbox fills.
+        hold.store(true, Ordering::Release);
+        while !parked.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let handle = chat.registry.get("chat").unwrap();
+        while handle.wake().is_ok() {}
+        assert!(matches!(handle.wake(), Err(ChatError::MailboxFull)));
+        let route = route.lock().unwrap().clone().unwrap();
+        route.resume("s", Cursor(window.cursor));
+        let dropped = client
+            .until(&mut Vec::new(), |frame| {
+                let value = frame.decode_json::<Value>().ok()?;
+                (frame.kind == FrameKind::Dropped).then(|| value["sid"].as_str().map(str::to_owned))
+            })
+            .await;
+        assert_eq!(dropped.as_deref(), Some("s"));
+        // The actor takes its mailbox again; the `sub` waits until there is room for it.
+        hold.store(false, Ordering::Release);
+        while handle.queued() > 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        client.sub("s", json!({})).await;
+        client.window("s").await;
+    });
+}
+
+/// The entry a refused resume left for a sid is replaced by the next `sub` on it from the same
+/// connection: one entry, the new sink's, which gets the window and the live ops; the old sink
+/// gets nothing more. Read at the actor: a client on the socket does not see a kept entry.
+#[test]
+fn the_next_sub_on_a_sid_replaces_the_actors_entry_for_it() {
+    let chat = Chat::new(&turn(1, "hello"));
+    let mut state = ready_state(&chat);
+    let (old, new) = (Arc::new(Recorder::default()), Arc::new(Recorder::default()));
+    let kept = subscriber(&state, "s", old.clone(), Phase::Live);
+    state.subs.list.push(kept);
+    let sub = ChatSub {
+        sid: "s".to_owned(),
+        conn: 1,
+        cursor: None,
+        edition: None,
+        anchor: None,
+        window: 0,
+        person: person_id(None),
+    };
+    subscribe(&mut state, sub, Ticket::new("s".to_owned(), new.clone()));
+    assert_eq!(state.subs.list.len(), 1, "the old entry is kept beside the new one");
+    let seq = state.log.last_seq();
+    offer_live(&mut state, br#"{"op":"text","seq":1,"rowId":1,"text":"x"}"#, seq);
+    let took = |kind| ("s".to_owned(), kind);
+    assert_eq!(*new.offers.lock().unwrap(), [took(FrameKind::Window), took(FrameKind::Delta)]);
+    assert!(old.offers.lock().unwrap().is_empty(), "the replaced entry was offered a frame");
+    assert!(old.dropped.lock().unwrap().is_empty() && new.dropped.lock().unwrap().is_empty());
+}
+
 /// Row 3c's release gates, beside the tests whose chats and clients they use.
 #[cfg(target_os = "linux")]
 #[path = "gates_tests.rs"]
 mod gates;
+
+/// The parity corpus: the change strings a page gets for each raw log (decision 233).
+#[path = "parity_tests.rs"]
+mod parity;

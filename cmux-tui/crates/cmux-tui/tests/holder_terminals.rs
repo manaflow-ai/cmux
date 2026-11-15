@@ -1393,3 +1393,6 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+#[path = "holder_terminals/scale.rs"]
+mod scale;
