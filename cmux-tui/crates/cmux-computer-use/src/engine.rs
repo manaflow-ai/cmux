@@ -1846,7 +1846,13 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
 /// `observed` (the engine saw it; see the caller): no prior capture, a
 /// redraw, a single capture or a confirmed route leave the result as it is.
 fn mark_no_visible_change(body: &mut Value, observed: bool, waited_ms: u64) {
-    if !observed || body.get("evidence") != Some(&json!("delivered")) {
+    // A result that reports a menu it opened, picked from or closed had a
+    // visible effect, whatever the window's pixels show (a menu window can
+    // fall outside the window's capture).
+    if !observed
+        || body.get("evidence") != Some(&json!("delivered"))
+        || body.get("menu").is_some_and(|m| !m.is_null())
+    {
         return;
     }
     body["evidence"] = json!("no_visible_change");

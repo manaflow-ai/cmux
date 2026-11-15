@@ -299,6 +299,19 @@ fn a_window_of_another_process_over_the_target_is_a_visible_change() {
     assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
 }
 
+/// A result that reports a menu (a right-click that opened a context menu)
+/// is never marked no_visible_change: the menu is the effect (seen live on
+/// macOS 27.0.1: the menu opened, the window's pixels did not change).
+#[test]
+fn a_result_that_reports_a_menu_is_not_no_visible_change() {
+    let mut body = json!({"evidence": "delivered", "menu": {"items": [{"title": "Copy"}]}});
+    mark_no_visible_change(&mut body, true, 1000);
+    assert_eq!(body["evidence"], "delivered");
+    let mut plain = json!({"evidence": "delivered"});
+    mark_no_visible_change(&mut plain, true, 1000);
+    assert_eq!(plain["evidence"], "no_visible_change");
+}
+
 /// The rule claims only what the engine saw: a redraw, or no capture before
 /// the action to compare with, leaves `delivered`.
 #[test]
