@@ -753,9 +753,9 @@ pub struct Mux {
     /// The terminals whose live facts changed (`mux/terminal_live.rs`).
     terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
-    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
+    terminal_tail_pins: Arc<terminal_tail_pins::TerminalTailPins>,
     /// The terminals that printed, for their workspaces' `ports` entries.
-    terminal_port_watch: terminal_port_watch::TerminalPortWatch,
+    terminal_port_watch: Arc<terminal_port_watch::TerminalPortWatch>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -774,8 +774,8 @@ pub struct Mux {
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
-    /// Git HEAD lookups keyed by directory, with the time they were read.
-    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// Git HEAD lookups keyed by directory, with their background refresh.
+    git_heads: Arc<presentation::GitHeadCache>,
     /// One revision of everything `list-workspaces` shows (mux/tree_revision.rs).
     tree_revision: tree_revision::TreeRevision,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
