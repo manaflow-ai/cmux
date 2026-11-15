@@ -43,7 +43,12 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
                                               (`library off pr-N` puts back what was under it)
   cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
-  cmux customize library [VERB]               Everything you applied, kept as layers: list|on|off|order|export|import|remove
+  cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+
+If a layer broke cmux (no app needed, with cmux quit too):
+  cmux customize library status               Which layers are on, in one line (also in `cmux version`)
+  cmux customize library off --code           Every pull request layer off; cmux serves its own pages
+  cmux customize library reset                Every layer off: settings, files and web-dev.json as before any
 
 You can also edit the files yourself (`cmux customize paths`): every save shows in cmux at
 once, an agent you ask next keeps your edits, and apply, discard and rollback work the same.
