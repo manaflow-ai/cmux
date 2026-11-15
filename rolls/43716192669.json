@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43716192669",
+  "recorded_at": "2026-11-15T13:02:28Z",
+  "reason": "cmux-tui f04737750c2c changes the image's cmux-tui (pinned c5ef0b8c9473)",
+  "dry_run": false,
+  "cmux_tui": "f04737750c2c4f6e60f2b8a5740f05d85a45b9fe",
+  "fixes": [
+    {
+      "sha": "f04737750c2c4f6e60f2b8a5740f05d85a45b9fe",
+      "mergedAt": "2026-11-15T04:38:52-08:00",
+      "subject": "acpmux: split config operations into child module (#43620)"
+    },
+    {
+      "sha": "c223ee621ab13f9b6895a6f82da8706daf5022e8",
+      "mergedAt": "2026-11-15T04:21:35-08:00",
+      "subject": "acpmux: a carried turn is the owner phone's only when every line it reads is (#43718)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T13:02:28Z",
+    "snapshot_id": "sh-be1e65676680441b93751cb44f832fdb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43716192669): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7f0346df21dbd233b0691abcb9bc6efd295a7bdc",
+    "image": "cloud-native-auto-f0473775-43716192669-1",
+    "revision": "ci-43716192669-1",
+    "at": "2026-11-15T13:02:28Z"
+  },
+  "rolled_back": false
+}
