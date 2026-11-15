@@ -3316,3 +3316,7 @@ mod window_replay_tests;
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
+
+#[cfg(test)]
+#[path = "vt_write_breakdown_tests.rs"]
+mod vt_write_breakdown_tests;
