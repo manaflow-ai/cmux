@@ -1,7 +1,8 @@
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
-import CmuxNextDaemon
+// Only the runner: CmuxNextDaemon has a JSONValue of its own, and this file speaks the page's.
+import struct CmuxNextDaemon.ProcessRunner
 
 /// Settings' try-on bar (webviews `TryOnBar.tsx`): `cmux.settings.customize.run {verb}` runs
 /// `cmux --json customize VERB` for `status`, `keep` or `revert` through the bundled CLI and answers
@@ -33,10 +34,10 @@ public final class CustomizeTryOnPage: PageProvider {
         return (try? JSONValue.parse(status == 0 ? stdout : stderr)) ?? .object([:])
     }
 
-    /// The bundled CLI, off the main actor, with a deadline: a status is a few file reads.
+    /// The bundled CLI, off the main actor, with the agent-integrations card's deadline (a status is a few file reads).
     @concurrent public nonisolated static func run(_ cli: URL, _ arguments: [String]) async throws -> (Int32, Data, Data) {
         let ran = try await ProcessRunner.run(executable: cli, arguments: arguments, environment: nil,
-                                              timeout: .seconds(10), clock: ContinuousClock())
+                                              timeout: .seconds(60), clock: ContinuousClock())
         return (ran.status, ran.stdout, ran.stderr)
     }
 }
