@@ -92,7 +92,9 @@ impl ShellMarks {
 
 /// Write `data` to `term`, resetting a dead program's modes right before
 /// each prompt mark the shell prints at its prompt. Returns the bytes the
-/// terminal parsed, resets included, for mirrors and attach taps.
+/// terminal parsed, resets included, for mirrors and attach taps. The output
+/// paths call [`write_rewritten_output`] after their one shared scan.
+#[cfg(test)]
 pub(crate) fn write_output<'a>(
     term: &mut Terminal,
     data: &'a [u8],

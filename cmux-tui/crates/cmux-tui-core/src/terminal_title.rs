@@ -13,6 +13,7 @@
 //! [`TabTitle::terminal`] is the one rule for what a tab shows of it: the
 //! text without the leading status glyphs, and their [`TitleActivity`].
 
+#[cfg(test)]
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -235,7 +236,9 @@ pub(crate) struct TitleTracker {
 
 impl TitleTracker {
     /// `data` with the title sequences libghostty-vt cannot apply rewritten
-    /// into the `OSC 2` that applies them; borrowed when nothing changed.
+    /// into the `OSC 2` that applies them; borrowed when nothing changed. The
+    /// output paths run it inside `terminal_metadata`'s one shared scan.
+    #[cfg(test)]
     // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     pub(crate) fn rewrite<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut out: Option<Vec<u8>> = None;
