@@ -49,8 +49,8 @@ pub use edition::IndexEdition;
 pub use kin::{ChildSet, FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
 pub use snapshot::{
-    DiskSnapshot, FatalSnapshotRead, SnapshotMeta, SnapshotRows, SortedSnapshot,
-    is_corrupt_snapshot_row, is_fatal_snapshot_read,
+    CHECKPOINT_BYTES, DiskSnapshot, FatalSnapshotRead, PAGE_BYTES, SEEK_BYTES, SnapshotMeta,
+    SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row, is_fatal_snapshot_read,
 };
 
 use std::io;

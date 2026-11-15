@@ -89,13 +89,13 @@ fn fixture(closed: u64) -> Side {
     Side { hub, disk, _dir: dir, newest, deep: deep_page }
 }
 
-/// The page's rows and the pieces it read.
-fn rows(hub: &Hub, page: &Page) -> (Vec<Value>, usize) {
+/// The page's rows, the pieces it read and their snapshot bytes.
+fn rows(hub: &Hub, page: &Page) -> (Vec<Value>, usize, usize) {
     PEER_PIECES.with(|read| read.set((0, 0)));
     let frame = hub.peer_page(page).expect("a peer's all page");
-    let (pieces, _) = PEER_PIECES.with(|read| read.get());
+    let (pieces, bytes) = PEER_PIECES.with(|read| read.get());
     let result: PageResult<Value> = frame.decode_json().expect("a page");
-    (result.rows, pieces)
+    (result.rows, pieces, bytes)
 }
 
 fn sample(hub: &Hub, page: &Page) -> u128 {
@@ -125,11 +125,13 @@ fn pr08b_serve_page() {
             ("deep", &side.hub, &side.deep),
             ("snapshot_deep", &side.disk, &side.deep),
         ] {
-            let (rows, pieces) = rows(hub, page);
+            let (rows, pieces, bytes) = rows(hub, page);
             assert_eq!(rows.len(), ROWS, "{name} {part}: a full page");
             // From the snapshot the run is one budget piece and two full ones (decision 291).
             if part == "snapshot_deep" {
                 assert_eq!(pieces, 3, "{name} {part}: pieces read");
+                // Each side's snapshot bytes for the request, beside the clock's numbers.
+                eprintln!("SERVE_PAGE_BYTES side={name} part={part} pieces={pieces} bytes={bytes}");
             }
             assert!(
                 rows.iter()

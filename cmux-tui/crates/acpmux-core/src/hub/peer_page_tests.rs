@@ -324,9 +324,18 @@ fn a_snapshot_run_longer_than_the_cap_answers_empty_then_walks_on() {
         rows.push((1_000 - n, "local", format!("b-{n:05}")));
     }
     let (hub, local, _dir) = snapshot_hub(&rows);
-    let (result, pieces, _, _) = read_counted(&hub, &budget_page(PageSide::After, None));
+    let (result, pieces, bytes, _) = read_counted(&hub, &budget_page(PageSide::After, None));
     assert_eq!(pieces, PEER_PAGE_PIECES, "the first request reads exactly the cap");
     assert!(result.rows.is_empty() && result.has_after, "empty, with more to follow");
+    assert!(!result.has_before, "an unanchored page has nothing before the newest end");
+    // Decision 294: each piece is at most a full piece and its seek's block, plus the seek's
+    // checkpoint search: the last checkpoint and a binary search, under CHECKPOINT_STEPS reads.
+    const CHECKPOINT_STEPS: usize = 64;
+    let bound = PEER_PAGE_PIECES
+        * (acpmux_book::index::PAGE_BYTES
+            + acpmux_book::index::SEEK_BYTES
+            + CHECKPOINT_STEPS * acpmux_book::index::CHECKPOINT_BYTES);
+    assert!(bytes > 0 && bytes <= bound, "{bytes} snapshot bytes for one request, bound {bound}");
     for (side, from) in [(PageSide::After, None), (PageSide::Before, Some(past(0)))] {
         let (seen, _, most) = walk_page(&hub, side, budget_page(side, from));
         assert_eq!(seen, local, "{side:?}: every local row once, and the walk ends");

@@ -1407,8 +1407,9 @@ impl Hub {
         let reply = crate::wire::PageResult::<PeerRow<'_>> {
             sid: request.sid.clone(),
             rows: Vec::new(),
-            // The request's own anchor is behind this page, on the other side.
-            has_before: side != ReadSide::Before || more,
+            // The other side has rows only behind the request's own anchor: an unanchored page
+            // starts at the newest end and has none before it.
+            has_before: if side == ReadSide::Before { more } else { request.after.is_some() },
             has_after: side == ReadSide::Before || more,
             cold_unread: false,
             deeper: Vec::new(),
@@ -1690,11 +1691,14 @@ pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageSha
     }
 }
 
-/// The pieces one peer `all` page reads before it answers empty (decisions 285 and 291): the
-/// first at the asker's budget, as a local page reads it, and up to three full ones. Computed,
-/// not measured: in memory a piece is MAX_WINDOW_ROWS + 1 hot candidates, so about 1,600 a
-/// page; from a snapshot a full piece is snapshot::PAGE_BYTES (256 KiB) or 400 records, so a
-/// page reads under 1 MiB, about 1,250 candidates at the serve_page gate's row size.
+/// The pieces one peer `all` page reads before it answers empty (decisions 285, 291 and 294):
+/// the first at the asker's budget, as a local page reads it, and up to three full ones.
+/// Computed, not measured: in memory a piece is MAX_WINDOW_ROWS + 1 hot candidates, so about
+/// 1,600 a page. From a snapshot a full piece is snapshot::PAGE_BYTES (256 KiB) or 400
+/// records, about 1,250 candidates a page at the serve_page gate's row size; an anchored piece
+/// also seeks, one block of at most snapshot::SEEK_BYTES (64 KiB) and a binary search of
+/// 552-byte checkpoints. So a page reads at most PEER_PAGE_PIECES x (PAGE_BYTES + SEEK_BYTES),
+/// 1.25 MiB, plus the checkpoint steps.
 pub(crate) const PEER_PAGE_PIECES: usize = 4;
 
 #[cfg(test)]
