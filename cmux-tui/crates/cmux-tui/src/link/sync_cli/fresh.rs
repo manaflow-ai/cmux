@@ -70,7 +70,7 @@ impl Fresh {
         let below = parent.len() < folder.len() && folder.starts_with(&self.root);
         // Outside a made folder it is asked about first: what is there stays as `mkdir_all`
         // answers it (a folder is used, anything else refused).
-        if !(below && self.covers(parent)) && (!below || remote.kind(folder)?.is_some()) {
+        if !below || (!self.covers(parent) && remote.kind(folder)?.is_some()) {
             remote.mkdir_all(folder)?;
             self.there.insert(folder.to_owned());
             return Ok(());
