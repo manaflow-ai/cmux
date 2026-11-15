@@ -186,7 +186,9 @@ describe("editors", () => {
           op !== "cmux.settings.section.actions" &&
           op !== "cmux.settings.backdrop.image.screen_saver" &&
           // Personalization's theme studio reads its colors when the page opens.
-          op !== "cmux.settings.theme.colors",
+          op !== "cmux.settings.theme.colors" &&
+          // So does its Customization Library card, its list.
+          op !== "cmux.settings.customize.library",
       );
     expect(order).toEqual([
       "cmux.settings.preview",

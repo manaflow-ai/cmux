@@ -2313,10 +2313,10 @@ button.menu-disclosure {
   height: var(--ds-space-48);
 }
 
+/* The swatch's color is the entry's own, set inline as other swatches are. */
 .library-swatch {
   flex: 1;
   align-self: stretch;
-  background: var(--swatch);
 }
 
 .library-controls {

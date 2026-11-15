@@ -7,7 +7,7 @@
 // bundled CLI, so the card and the CLI never differ. The list is read with the section
 // (sectionQueries) and answered again by each change; it does not poll.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState, type CSSProperties } from "react";
+import { useId, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { beatenByEntry, beatenLine, entryDetail, sourceLabel, step, type Beaten } from "../customizeLibrary";
@@ -256,7 +256,7 @@ export function LibraryEntryRow({
           </span>
           {toggle}
         </div>
-        <div className="row-help library-detail">{entryDetail(entry)}</div>
+        <div className="row-help library-detail selectable">{entryDetail(entry)}</div>
         {lines}
         {order}
       </div>
@@ -291,7 +291,7 @@ export function LibraryEntryRow({
           <div className="row-title" id={labelId}>
             {entry.name}
           </div>
-          <div className="row-help library-detail">{entryDetail(entry)}</div>
+          <div className="row-help library-detail selectable">{entryDetail(entry)}</div>
           {lines}
         </div>
         <span className="row-control library-controls">
@@ -317,7 +317,7 @@ function LibrarySwatches({ entry, wide = false }: { entry: LibraryEntry; wide?: 
   return (
     <span className="library-mark" data-wide={wide ? "" : undefined} aria-hidden="true">
       {swatches.map((color, index) => (
-        <span className="library-swatch" key={`${color}-${index}`} style={{ "--swatch": color } as CSSProperties} />
+        <span className="library-swatch" key={`${color}-${index}`} style={{ background: color }} />
       ))}
     </span>
   );
