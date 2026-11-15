@@ -883,9 +883,30 @@ fn each_refused_new_connect_of_a_late_holder_costs_one_pause_and_keeps_the_termi
 /// the refusal for a link that another connect took keeps them.
 #[test]
 fn a_start_ends_a_terminal_whose_holder_refuses_the_token_of_the_daemon() {
-    let session = Session::new("holder-late-start-bad-token");
+    a_start_ends_a_terminal_whose_holder_refuses(
+        "holder-late-start-bad-token",
+        error_code::BAD_TOKEN,
+        "the token",
+    );
+}
+
+/// The same for a holder that has no protocol version in common with this
+/// daemon: it does not serve it, and its refusal ends the terminals too.
+#[test]
+fn a_start_ends_a_terminal_whose_holder_refuses_the_version_of_the_daemon() {
+    a_start_ends_a_terminal_whose_holder_refuses(
+        "holder-late-start-no-version",
+        error_code::NO_COMMON_VERSION,
+        "each protocol version",
+    );
+}
+
+/// One start at a holder whose answer to the one ask is the refusal `code`
+/// (it refuses `what` of this daemon) and no WELCOME.
+fn a_start_ends_a_terminal_whose_holder_refuses(name: &'static str, code: u16, what: &str) {
+    let session = Session::new(name);
     let holder = session.holder();
-    holder.order(Order::RefuseNext(error_code::BAD_TOKEN, 1));
+    holder.order(Order::RefuseNext(code, 1));
     // The stand-in read the order: it answers a count only after it.
     assert_eq!(holder.connects(), 0);
     let clock = StepClock::new(Duration::ZERO, AT_START);
@@ -904,8 +925,8 @@ fn a_start_ends_a_terminal_whose_holder_refuses_the_token_of_the_daemon() {
             mux.terminal_is_pending(TERMINAL),
         ),
         (TerminalLifecycle::Exited, true, false),
-        "(lifecycle, recorded end, adopting mark): a holder that refuses the token of this \
-         daemon does not run a shell for it"
+        "(lifecycle, recorded end, adopting mark): a holder that refuses {what} of this daemon \
+         (code {code}) does not run a shell for it"
     );
     session.end(mux, holder);
 }

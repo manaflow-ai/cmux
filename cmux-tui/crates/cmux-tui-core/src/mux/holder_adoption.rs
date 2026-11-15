@@ -129,8 +129,8 @@ impl Mux {
                 // that refused it because another connect took its link,
                 // may still run the shell, as a silent one: the late thread
                 // connects again. What ends the terminal is `Absent`: a
-                // connect that no holder takes, or a holder that refuses
-                // this daemon.
+                // connect that no holder takes, a holder that refuses this
+                // daemon, or another error of the ask.
                 HolderReach::Linked | HolderReach::Silent | HolderReach::Dropped => {
                     // The tab shows adopting until the late thread
                     // re-attaches the terminal.

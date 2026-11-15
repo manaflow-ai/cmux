@@ -569,7 +569,8 @@ impl PendingClient {
 /// The holder's refusal of a connect whose link another connect took before
 /// the holder answered this one (ERROR `SUPERSEDED` about the HELLO, with no
 /// WELCOME before it). A holder that writes it runs, and it still runs every
-/// terminal: it read a later HELLO in the turn in which it read this one.
+/// terminal: in the turn in which it read this HELLO it then read the HELLO
+/// of another connect (an older one: it reads the newest first).
 /// Inside the [`io::Error`] of [`PendingClient::welcomed`];
 /// [`link_taken_before_the_answer`] finds it.
 #[derive(Debug)]

@@ -252,7 +252,9 @@ fn a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal() {
     send(&daemon.socket, new_surface, "typed-in-the-new-terminal");
     screen_contains(&daemon.socket, new_surface, "typed-in-the-new-terminal");
 
-    // The holder did not give the link of the daemon that runs to another connect.
+    // The holder took no link that it had given to the daemon that runs. (It
+    // can refuse a connect of that daemon before its answer; the daemon then
+    // makes one new connect, and the line of that is printed below.)
     let text = fs::read_to_string(&log).unwrap();
     assert!(
         !text.contains("another daemon took the terminal holder"),
