@@ -127,9 +127,10 @@ def target(name: str, folder: Path, out: Path) -> None:
                     phases[row["phase"]] = row
         kbps, fps, sampled_fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        # Bytes are required, except from a viewer that says it cannot expose them (Screen
-        # Sharing.app's `bytes_method`); that one needs frame or sampled-change counts instead.
-        if "bytes_method" in (window.get("extra") or {}):
+        # Bytes are required, except from a viewer that marks them unavailable (Screen Sharing.app,
+        # `bytes_unavailable: true`); that one needs frame or sampled-change counts instead. A
+        # `bytes_method` alone (gui-viewer.sh's nettop) still owes bytes.
+        if (window.get("extra") or {}).get("bytes_unavailable") is True:
             missing = [k for k in WINDOW_PHASES if fps[k] is None and sampled_fps[k] is None]
         else:
             missing = [k for k in WINDOW_PHASES if kbps[k] is None]

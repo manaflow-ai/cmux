@@ -289,7 +289,7 @@ PY
     if (( cpu_count > 0 )); then
       cpu=$(awk -v sum="$cpu_sum" -v count="$cpu_count" 'BEGIN { printf "%.3f", sum / count }')
     fi
-    printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app","bytes_method":"Screen Sharing.app transport bytes are not exposed","readiness":%s}}\n' \
+    printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app","bytes_method":"Screen Sharing.app transport bytes are not exposed","bytes_unavailable":true,"readiness":%s}}\n' \
       "$(IFS=,; echo "${rows[*]-}")" "${first_ms:-null}" "${cpu:-null}" "$mode" "$(cat "$raw.readiness.json")" >"$raw"
     ;;
   window-report)
@@ -303,7 +303,10 @@ extra = raw.get("extra") or {}
 json.dump({"series": series, "extra": {"first_frame_ms": extra.get("first_frame_ms"),
                                          "cpu_pct": extra.get("cpu_pct"),
                                          "readiness": extra.get("readiness"),
-                                         "mode": extra.get("mode"), "viewer": extra.get("viewer")}}, open(sys.argv[2], "w"))
+                                         "mode": extra.get("mode"), "viewer": extra.get("viewer"),
+                                         "bytes_method": extra.get("bytes_method"),
+                                         "bytes_unavailable": extra.get("bytes_unavailable") is True}},
+          open(sys.argv[2], "w"))
 PY
     ;;
   *) echo "apple.sh: unknown verb $verb" >&2; exit 2 ;;

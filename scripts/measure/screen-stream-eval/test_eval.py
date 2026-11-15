@@ -131,23 +131,31 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(repeats[2]['window_netem_metrics'], {})
 
     def test_only_a_viewer_without_byte_access_may_report_sampled_changes(self):
+        row = {'unix_ms':2000,'duration_ms':1000,'bytes':None,'frames':None,'sampled_changes':30}
         with tempfile.TemporaryDirectory() as name:
             folder = Path(name)
             self.fixture(folder, missing_bytes=True)
+            # Screen Sharing.app: the real window-report output, as eval.py reads it.
+            raw = folder/'apple.raw'
+            raw.write_text(json.dumps({'series':[row], 'extra':{'first_frame_ms':300, 'cpu_pct':4,
+                'mode':'high', 'viewer':'Screen Sharing.app', 'readiness':{},
+                'bytes_method':'Screen Sharing.app transport bytes are not exposed', 'bytes_unavailable':True}}))
             for repeat in range(1, 4):
-                (folder/f'window-{repeat}.json').write_text(json.dumps({
-                    'series':[{'unix_ms':2000,'bytes':None,'frames':None,'sampled_changes':30}],
-                    'extra':{'bytes_method':'Screen Sharing.app transport bytes are not exposed'}}))
+                subprocess.run(['bash', str(HERE/'targets/apple.sh'), 'window-report', str(raw),
+                                str(folder/f'window-{repeat}.json')], check=True)
             report.target('apple', folder, folder/'out.json')
             result = json.loads((folder/'out.json').read_text())
             self.assertTrue(result['ok'], result['errors'])
             self.assertIsNone(result['kbps']['idle'])
             self.assertEqual(result['sampled_fps']['idle'], 30)
+            # gui-viewer.sh measures bytes with nettop (its own `bytes_method`): null bytes stay a failure.
             for repeat in range(1, 4):
-                (folder/f'window-{repeat}.json').write_text(json.dumps({
-                    'series':[{'unix_ms':2000,'bytes':None,'frames':None,'sampled_changes':30}]}))
-            report.target('rd', folder, folder/'out.json')
-            self.assertFalse(json.loads((folder/'out.json').read_text())['ok'])
+                (folder/f'window-{repeat}.json').write_text(json.dumps({'series':[row], 'extra':{
+                    'bytes_method':'nettop bytes_in of the viewer process, all sockets'}}))
+            report.target('moonlight', folder, folder/'out.json')
+            result = json.loads((folder/'out.json').read_text())
+            self.assertFalse(result['ok'])
+            self.assertTrue(any('no numbers' in e for e in result['errors']))
 
     def test_window_only_exemption_does_not_invent_window_data(self):
         with tempfile.TemporaryDirectory() as name:
