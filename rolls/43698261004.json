@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43698261004",
+  "recorded_at": "2026-11-15T09:21:00Z",
+  "reason": "cmux-tui 0e250d474be8 changes the image's cmux-tui (pinned b22d2aebe904)",
+  "dry_run": false,
+  "cmux_tui": "0e250d474be86d8c7c5e0a09aa1b068d7cfc0f95",
+  "fixes": [
+    {
+      "sha": "0e250d474be86d8c7c5e0a09aa1b068d7cfc0f95",
+      "mergedAt": "2026-11-15T08:58:13Z",
+      "subject": "acpmux: cmux-rich-output skill with an HTML deck template (strip, present, PDF, pptx) (#43606)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T09:21:00Z",
+    "snapshot_id": "sh-1e280d7c3463498885e5b9a9ae15fd61",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43698261004): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4dbef91927d3789fcdd6797de9d214be6cf72723",
+    "image": "cloud-native-auto-0e250d47-43698261004-1",
+    "revision": "ci-43698261004-1",
+    "at": "2026-11-15T09:21:00Z"
+  },
+  "rolled_back": false
+}
