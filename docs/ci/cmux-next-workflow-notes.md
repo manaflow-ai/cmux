@@ -262,12 +262,15 @@ App token's hour ends (it is minted just before the wait).
 
 A refused status post (`post()`, the same function in compile-status and compile-status-handoff) prints GitHub's
 answer (`HTTP 403: {"message":...}`) and waits out a rate limit: a 403 or 429 that says so waits its Retry-After or
-primary reset, at least 60 s and twice as long each try (a retry inside a secondary limit extends it), up to 600 s;
-a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
+primary reset, at least 60 s and twice as long each try (a retry inside a secondary limit extends it), up to the
+step's own end (`post_end`, 54 min after the step starts, inside the App token's hour; hq#11485: cmux#43659's success
+post met the cmux-bot installation's spent pool with its reset past the old 600 s budget, stopped after one try, and
+the passed check sat pending 2.5 h); a pending post's explicit budget still bounds its wait; a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
 post only shows the wait, so it gets 30 s and a refusal is a warning: on 2026-11-11 from 02:38Z a ten-minute 403 rate
 limit on cmux-bot failed this job on #40351, #40942, #41007 and the base push at the pending post, before any compile
-was read. A terminal post that still fails leaves the job's own `cmux-next/compile is not a pass for SHA (STATE)`
-line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
+was read. A terminal post that still fails prints `NO_VERDICT: GitHub refused the cmux-next/compile verdict ...;
+re-run this job, RUN_URL` (the status stays as last posted, so the line says what to do), then the job's own
+`cmux-next/compile is not a pass for SHA (STATE)` line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
 `test_every_cmux_next_compile_post_waits_out_a_rate_limit` fails on a job that posts cmux-next/compile any other way.
 
 Forks get no secret and no status: the job does not run, the gate is missing, and a missing
@@ -3107,6 +3110,18 @@ On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807) sat 
 placement, so the runs-on fell through to `fromJSON(vars.RUNNER_POOLS).macos_26`.
 `tests/test_ci_next_macos_cascade.py` `test_every_blacksmith_macos_job_is_behind_the_off_switch` refuses a
 Mac job whose runs-on can name a Blacksmith macOS label while the switch is off.
+
+The scoped value `pr-rescue` (hq#11523, 2026-11-15: `glaeda-side-std-xcode-26.6` had 76 jobs queued, the oldest
+150 min, and no owned Mac was free) is Blacksmith macOS for this workflow's pull-request jobs only. Its
+placement (`next_macos_cascade.pr_rescue()`, `rescue_open()`) opens the Blacksmith labels only when the event is
+`pull_request`, `GITHUB_WORKFLOW_REF` is this file, and the owned route's oldest queued job has waited
+`RESCUE_ROUTE_MINUTES` (45); the slots then go through the same cascade, `CAPACITY` and `MAX_PER_RUN` caps as `on`.
+In runs-on, a placement-listed Blacksmith job reads `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue'` (no fromJSON, so tests/runs_on_labels.py resolves it), and every
+owned fallback reads `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' ||
+github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on'`: a pull request's re-run (the bot's stall-move or
+refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; attempt 1 stays owned. Every other
+workflow compares the variable with exactly `on`, so nightly, promote, signing and release read `pr-rescue` as
+off; `BlacksmithPrRescue` in `tests/test_ci_next_macos_cascade.py` proves both. Unset or `on` behave as before.
 
 The repository's generic `vars.MACOS_RUNNER_26` is a Blacksmith macOS read too, and it sat ahead of the switch: a
 bot re-run past an attempt cap (`run_attempt <= 3`, #22565), or one carrying attempt 1's placement, took it. On

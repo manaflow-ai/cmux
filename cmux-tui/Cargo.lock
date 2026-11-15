@@ -2221,6 +2221,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
