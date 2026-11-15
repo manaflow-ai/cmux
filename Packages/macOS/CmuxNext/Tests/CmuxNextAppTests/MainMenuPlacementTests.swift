@@ -80,10 +80,24 @@ import Testing
         #expect(counts[.app] == 11)
         #expect(counts[.file] == 15)
         #expect(counts[.edit] == 7)
-        #expect(counts[.view] == 12)
+        #expect(counts[.view] == 10) // the right sidebar and Feed rows left with #41025
         #expect(counts[.server] == 2)
-        #expect(counts[.window] == 10) // Merge All Windows (Leo 2026-10-29)
+        #expect(counts[.window] == 13) // Merge All Windows (Leo 2026-10-29); New / Previous / Next Space (2026-11-15)
         #expect(counts[.help] == 5)
+    }
+
+    /// The space keys show where a person looks for them (Lawrence, Nov 15: "sidebar needs keyboard shortcuts
+    /// for making new spaces"): Window lists New Space, Previous Space and Next Space with their keys,
+    /// Ctrl-Opt-Cmd-N, -H and -L. The compact bar had left every space action out.
+    @Test func windowMenuShowsTheSpaceKeys() throws {
+        _ = NSApplication.shared
+        let registry = ActionRegistry.standard()
+        let window = try #require(Self.topMenu(.window, in: MainMenu.make(registry: registry)))
+        for (id, key) in [("space.new", "n"), ("space.previous", "h"), ("space.next", "l")] {
+            let row = try #require(window.items.first { $0.representedObject as? String == id }, "\(id) not in Window")
+            #expect(row.keyEquivalent == key, "\(id): \(row.keyEquivalent)")
+            #expect(row.keyEquivalentModifierMask.intersection([.control, .option, .shift, .command]) == [.control, .option, .command], "\(id)")
+        }
     }
 
     @Test func appMenuStartsWithOneAbout() throws {
