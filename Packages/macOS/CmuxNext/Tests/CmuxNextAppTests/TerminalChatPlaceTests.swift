@@ -39,6 +39,13 @@ struct TerminalChatPlaceTests {
             scrolls.append(row)
             top = min(row ?? bottom, bottom)
         }
+        var toggleDraftTyped: (bytes: [UInt8], truncated: Bool) { ([], false) }
+        var toggleDraftNothingTyped: Bool { true }
+        func toggleDraftScreen() -> String? { nil }
+        func toggleDraftPaste(_ text: String) {}
+        func toggleDraftSend(_ bytes: [UInt8]) {
+            Issue.record("a swap with no draft sent the terminal bytes")
+        }
     }
 
     final class Chat: TogglePlaceChat {
@@ -56,6 +63,13 @@ struct TerminalChatPlaceTests {
         func togglePlaceShow(prompt index: Int?, by deadline: ContinuousClock.Instant) async -> Bool {
             shows.append(index)
             at = index
+            return true
+        }
+        var toggleDraftFilled: Bool { false }
+        func toggleDraft(by deadline: ContinuousClock.Instant) async -> String? { nil }
+        func toggleDraftTake(_ text: String, by deadline: ContinuousClock.Instant) async -> Bool { false }
+        func toggleDraftPut(_ text: String, by deadline: ContinuousClock.Instant) async -> Bool {
+            Issue.record("a swap with no draft wrote the composer")
             return true
         }
     }

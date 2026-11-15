@@ -93,6 +93,12 @@ public protocol TogglePlaceTerminal: AnyObject, Sendable {
     func togglePlaceViewport() -> (top: Int, visible: Int, total: Int, atBottom: Bool)?
     func togglePlaceRead(fromViewportTop: Bool, throughViewportBottom: Bool) -> (screen: String, columns: Int)?
     func togglePlaceScroll(toRow row: Int?)
+    // The draft (`TerminalSession+ToggleDraft`, ``TerminalChatPlacing/carryToTerminal(by:)``).
+    var toggleDraftTyped: (bytes: [UInt8], truncated: Bool) { get }
+    var toggleDraftNothingTyped: Bool { get }
+    func toggleDraftScreen() -> String?
+    func toggleDraftPaste(_ text: String)
+    func toggleDraftSend(_ bytes: [UInt8])
 }
 
 /// The chat face of a pair, as a swap reads and moves it (`AgentPaneView+TogglePlace`).
@@ -101,6 +107,11 @@ public protocol TogglePlaceChat: AnyObject, Sendable {
     var togglePlaceAtLatest: Bool { get }
     func togglePlacePrompts(by deadline: ContinuousClock.Instant) async -> (prompts: [String], at: Int?)?
     @discardableResult func togglePlaceShow(prompt index: Int?, by deadline: ContinuousClock.Instant) async -> Bool
+    // The draft (`AgentPaneView+ToggleDraft`).
+    var toggleDraftFilled: Bool { get }
+    func toggleDraft(by deadline: ContinuousClock.Instant) async -> String?
+    func toggleDraftTake(_ text: String, by deadline: ContinuousClock.Instant) async -> Bool
+    func toggleDraftPut(_ text: String, by deadline: ContinuousClock.Instant) async -> Bool
 }
 
 /// Moves the face about to show to the turn the other one shows, before it shows, so the swap's
@@ -136,9 +147,8 @@ public struct TerminalChatPlacing {
     }
 
     /// Before the terminal shows (it is hidden): to the row of the chat's turn, or its newest rows.
-    public func placeTerminal() async {
+    public func placeTerminal(by deadline: ContinuousClock.Instant = .now + TerminalChatPlacing.budget) async {
         guard let chat, let terminal, let viewport = terminal.togglePlaceViewport() else { return }
-        let deadline = ContinuousClock.now + Self.budget
         guard let read = await chat.togglePlacePrompts(by: deadline) else { return }
         guard read.at != nil else { return terminal.togglePlaceScroll(toRow: nil) }
         // The newest `rowCap` rows: all of a short screen, else read with the viewport at their top.
@@ -157,9 +167,8 @@ public struct TerminalChatPlacing {
 
     /// Before the chat shows (the terminal still shows): to the turn of the terminal's top row, or
     /// its latest message.
-    public func placeChat() async {
+    public func placeChat(by deadline: ContinuousClock.Instant = .now + TerminalChatPlacing.budget) async {
         guard let chat, let terminal, let viewport = terminal.togglePlaceViewport() else { return }
-        let deadline = ContinuousClock.now + Self.budget
         if viewport.atBottom {
             if !chat.togglePlaceAtLatest { await chat.togglePlaceShow(prompt: nil, by: deadline) }
             return

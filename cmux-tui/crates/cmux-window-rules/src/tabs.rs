@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+#[path = "tabs_draft.rs"]
+pub mod draft;
 #[path = "tabs_panes.rs"]
 pub mod panes;
 #[path = "tabs_place.rs"]

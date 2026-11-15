@@ -208,6 +208,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     }
     case "pane.checkpointAvailability":
     case "pane.commandAvailability":
+    case "pane.composerFilled":
     case "pane.clientReady":
     case "pane.renderRate":
     case "pane.tabRowTools":

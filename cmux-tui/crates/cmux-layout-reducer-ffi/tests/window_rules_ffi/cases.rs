@@ -804,3 +804,28 @@ fn toggle_terminal_and_chat_places_answer_over_the_channel() {
     );
     assert_eq!(body, json!({"place": "latest"}));
 }
+
+#[test]
+fn toggle_terminal_and_chat_drafts_answer_over_the_channel() {
+    let typed: Vec<u8> = b"sent\rship it".to_vec();
+    let (code, body) = call_json(
+        c"window_tabs_draft_to_chat",
+        &json!({"typed": typed, "screen": "│ > ship it │\n", "composerEmpty": true}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"draft": "carry", "text": "ship it", "erase": 9}));
+    let (_, body) = call_json(
+        c"window_tabs_draft_to_chat",
+        &json!({"typed": typed, "screen": "│ > ship it │"}),
+    );
+    assert_eq!(body, json!({"draft": "none"}));
+    let (code, body) =
+        call_json(c"window_tabs_draft_to_terminal", &json!({"chat": "add a test", "typed": []}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"draft": "paste", "text": "add a test"}));
+    let (_, body) = call_json(
+        c"window_tabs_draft_to_terminal",
+        &json!({"chat": "add a test", "typed": b"mine".to_vec()}),
+    );
+    assert_eq!(body, json!({"draft": "none"}));
+}

@@ -56,6 +56,29 @@ each prompt's row in the terminal pairs the two.
 - The face about to show moves before it shows, so the first frame is already in place. The page gets 60 ms to
   answer. If it misses that, the view shows where it is.
 
+## Draft, both ways
+
+What the person typed and has not sent goes with the swap. A draft moves only into an empty input, so two drafts
+are never merged, and only when the rules are sure of it. Otherwise it stays where it is.
+
+- The terminal records every byte it sends its program, the newest 16 KB (`CmuxNextTerminal` `TerminalTypedTail`,
+  fed by `TerminalInputSink`: keys, IME text, pastes, the DELs below). A file paste resets it, because the daemon
+  types those paths. Swift only records.
+- Rust reads the input line out of those bytes (`cmux-window-rules` `tabs::draft`). It starts after the last Enter
+  outside a bracketed paste. Printable text and pastes append. Backspace deletes a character, Ctrl+U and Ctrl+C
+  clear, and Ctrl+W deletes a word. Focus and mouse reports and the terminal's own query answers are ignored. Any
+  other key (an arrow, Tab, Esc, history, Alt) makes the line unknown, and so do bytes that start mid-line.
+- To the chat: when the line is known and not blank, the composer is empty, and the terminal's bottom rows show the
+  draft's last 24 characters, the page puts it in the composer. This check catches a dialog that took the keys.
+  Only once the composer holds it does the terminal get DELs to erase it: its character count plus two.
+- To the terminal: when the composer holds plain text (no chips, no inline tokens) and the terminal's line is known
+  and empty, the text is pasted through Ghostty's paste path (bracketed when the program asked for it). Then the
+  composer gives it up. Pasting first means a late answer leaves the draft in both views, never in neither.
+- The page reports whether the composer holds anything (`pane.composerFilled`), so the host knows without a page
+  call. An empty composer with nothing typed in the terminal reads nothing, and the swap stays a plain tab
+  selection. The draft moves within the same 60 ms as the place, before the reveal. A page write that arrives past
+  that deadline does nothing.
+
 ## Placement
 
 - Native Swift chrome: the pane toolbar's trailing slot (`CmuxNextTabs/PaneTerminalChatToggleView`, in
