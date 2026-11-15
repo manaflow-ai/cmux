@@ -854,6 +854,13 @@ export class SettingsStore {
     return reply.value ?? {};
   }
 
+  /** A wish no setting answers: the Customize chat (`customize.open`, the palette's Customize…)
+   * opens with `/customize WORDS` in its composer, so Return sends it and the agent changes cmux
+   * while the person watches. */
+  async askCmux(words: string): Promise<Reply<unknown>> {
+    return this.runAction("customize.open", { draft: `/customize ${words.trim().replace(/\s+/g, " ")}` });
+  }
+
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
   async runAction(
     action: SettingsPageAction,
