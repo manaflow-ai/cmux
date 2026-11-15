@@ -5,8 +5,8 @@
   scripts/cmux-next/concentric-shots-live.py --app APP --tag TAG --out DIR
 
 GUI host only (cmux-lawrence-2); never on a laptop. Launches the tagged app (no activation, automation socket,
-isolated Chief), then for each surface and appearance writes a screen shot (`screencapture`, which composites the
-overlay panels that toasts and dialogs draw in) and the main window's frame:
+isolated Chief), then for each surface and appearance writes the app's own window image (`debug.window_snapshot`, the window server's
+composite with the overlay panels that toasts and dialogs draw in; no Screen Recording grant, so it works over SSH):
   playground   the Toast Playground: every toast style, the "Option or Shift + drag selects text" hint among them
   toast        the Stop all agents toast in the window (an action, Don't Show Again off, close)
   confirm      the confirm dialog card (Cancel, Close)
@@ -57,7 +57,22 @@ def wait(predicate, seconds):
     return None
 
 
-def shoot(name, prepare=None, cleanup=None):
+def snapshot(path, window=None):
+    """The app's own image of a window with its overlay panels (no Screen Recording grant needed over SSH)."""
+    params = {"path": path, "webviews": False}
+    params.update({"window": window} if window is not None else {"kind": "main"})
+    return rpc("debug.window_snapshot", params, timeout=40)
+
+
+def playground_window():
+    windows = (rpc("debug.window_list") or {}).get("windows") or []
+    pick = [w for w in windows if "playground" in (w.get("title") or "").lower()] or \
+        [w for w in windows if w.get("kind") not in ("main", "panel", "TUINSWindow") and w.get("visible")]
+    print("playground window", json.dumps(pick[:1]), flush=True)
+    return pick[0]["id"] if pick else None
+
+
+def shoot(name, prepare=None, cleanup=None, window=None):
     frames = {}
     for mode in ("light", "dark"):
         rpc("debug.appearance", {"mode": mode})
@@ -66,8 +81,7 @@ def shoot(name, prepare=None, cleanup=None):
             prepare()
             time.sleep(1.5)  # capture harness: the surface's entrance ends
         path = os.path.join(opts.out, f"{name}-{mode}.png")
-        subprocess.run(["screencapture", "-x", "-o", path], check=False)
-        frames[mode] = rpc("debug.window_frame")
+        frames[mode] = snapshot(path, window() if window else None)
         print("shot", path, os.path.exists(path), flush=True)
         if cleanup:
             cleanup()
@@ -109,7 +123,7 @@ try:
     rpc("debug.updater", {"action": "unstage"})
     print("playground", rpc("debug.toast", {"perform": "debug.toastPlayground"}), flush=True)
     time.sleep(3)  # capture harness: the playground window and its toasts come up
-    shoot("playground")
+    shoot("playground", window=playground_window)
     print("toasts", json.dumps(rpc("debug.toast"))[:600], flush=True)
 finally:
     rpc("debug.appearance", {"mode": "system"})
