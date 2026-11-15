@@ -63,6 +63,7 @@ mod relay;
 pub(super) use relay::relay;
 mod remote;
 mod seed_pull;
+mod timings;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
 pub(super) use seed_pull::{
@@ -1013,6 +1014,7 @@ fn push_inner(
     head_links: Option<&dyn Fn(&str) -> bool>,
     mut progress: Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<Summary> {
+    let mut stages = timings::Stages::new();
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
@@ -1058,6 +1060,7 @@ fn push_inner(
         packs::pack_loose(&mut set.files, &dirs.common, &base::packs_dir(&local, remote_root)?)?;
     }
     set.skips.unnamed(set.skipped);
+    stages.mark("list");
     let (skipped_files, skipped_counts) = set.skips.json();
     let mut summary =
         Summary { skipped: set.skips.total(), skipped_files, skipped_counts, ..Summary::default() };
@@ -1168,7 +1171,7 @@ fn push_inner(
     for (relative, file) in &set.files {
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
-        let sha256 = hash(file)?;
+        let sha256 = stages.hashing(|| hash(file))?;
         let bytes = size(file)?;
         if let Some(pushed) = previous.files.get(relative)
             && pushed.sha256 == sha256
@@ -1204,6 +1207,7 @@ fn push_inner(
             small.push(job);
         }
     }
+    stages.mark("prepare");
     // Through the store, the machine fetches first; what it did not write
     // goes over the link below, like every other write.
     let fetched = if via_store {
@@ -1236,11 +1240,13 @@ fn push_inner(
     write_parallel(socket, remote_root, small, connections(), &mut |job, written| {
         landed(job, written, &mut remote)
     })?;
+    stages.mark("small");
     let mut seen = BTreeMap::new();
     for job in alone {
         let written = write_checked(&mut remote, &mut seen, remote_root, &job);
         landed(job, written, &mut remote)?;
     }
+    stages.mark("large");
     let store_part = match fetched {
         Some((part, written)) => Some(finish_deferred(
             &mut remote,
@@ -1318,6 +1324,8 @@ fn push_inner(
     if head_links.is_none() {
         snapshot_push(&local, remote_root, &next, &set.files, git_record);
     }
+    stages.mark("finish");
+    stages.print();
     Ok(summary)
 }
 
