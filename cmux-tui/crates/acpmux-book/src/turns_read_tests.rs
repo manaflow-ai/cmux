@@ -248,8 +248,9 @@ fn a_page_of_turns_reads_its_group_rows_and_no_row_of_a_fold() {
         Edge::Before(turn_group(20) + 2),
         Edge::After(turn_group(7) + 1),
     ];
+    // Armed here; each page then takes its own reads.
+    log.take_segment_reads();
     for edge in edges {
-        log.take_segment_reads();
         let page = log.read_turns(edge, usize::MAX, &folds).unwrap();
         let mut reads = log.take_segment_reads();
         assert!(!page.rows.is_empty() && page.refused.is_empty(), "{edge:?}");
