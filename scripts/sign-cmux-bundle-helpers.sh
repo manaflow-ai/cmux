@@ -26,7 +26,6 @@ APP_PATH="$1"
 HELPER_ENTITLEMENTS="$2"
 IDENTITY="$3"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
 FILE_TOOL="${CMUX_FILE_TOOL:-/usr/bin/file}"
 if [[ "${CMUX_TIMESTAMP:-}" == "none" ]]; then
   TS_FLAG=(--timestamp=none)
@@ -57,10 +56,10 @@ for helper_dir in bin libexec; do
     if [[ "$helper_dir/$(basename "$helper")" == "libexec/cmux-server-helper" ]]; then
       # A root LaunchDaemon gets no entitlements (no JIT, no library validation opt-out).
       echo "==> signing root helper $helper_dir/cmux-server-helper (no entitlements)"
-      "$CODESIGN_TOOL" "${COMMON[@]}" --identifier cmux-server-helper "$helper"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --identifier cmux-server-helper "$helper"
       continue
     fi
     echo "==> signing helper $helper_dir/$(basename "$helper")"
-    "$CODESIGN_TOOL" "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+    "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
   done
 done
