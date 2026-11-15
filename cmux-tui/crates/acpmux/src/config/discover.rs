@@ -758,3 +758,32 @@ mod antigravity_tests {
         assert_eq!(found["antigravity"].argv, ["/Users/me/bin/my-agy", "acp"]);
     }
 }
+
+#[cfg(test)]
+mod pi_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// pi speaks ACP only through its adapter: with `pi-acp` on PATH (the
+    /// Cloud image bakes it beside `pi`), `pi` is an ACP harness that runs it,
+    /// so a Cloud chat can start pi (hq#11225).
+    #[test]
+    fn pi_acp_on_path_makes_pi_an_acp_harness() {
+        let found = discover_harnesses_from(None, &on_path(&["pi", "pi-acp"]));
+        let pi = found.get("pi").expect("pi-acp on PATH is the pi harness");
+        assert_eq!(pi.kind, HarnessKind::Acp);
+        assert_eq!(pi.argv, ["/opt/bin/pi-acp"]);
+        assert_eq!(crate::config::derive_family("pi", pi), "pi");
+    }
+
+    /// `pi` alone is not a chat harness: without the adapter the catalog has no
+    /// `pi`, which is why an image that shipped only `pi` refused the start.
+    #[test]
+    fn pi_without_the_adapter_is_not_offered() {
+        let found = discover_harnesses_from(None, &on_path(&["pi"]));
+        assert!(!found.contains_key("pi"));
+    }
+}

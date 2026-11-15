@@ -71,6 +71,20 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(claude?.url).toBe(`https://downloads.claude.ai/claude-code-releases/${pin}/linux-x64/claude`);
   });
 
+  test("pi ships with its ACP adapter, so acpmux lists pi and a Cloud chat can start it (hq#11225)", () => {
+    // acpmux offers `pi` only when `pi-acp` is on PATH (cmux-tui/crates/acpmux/src/config/discover.rs).
+    // A lock without the adapter baked an image whose pi start was refused.
+    expect(KNOWN_PROGRAMS as readonly string[]).toContain("pi-acp");
+    const lock = readInputsLock();
+    const adapter = lock.programs.find((p) => p.name === "pi-acp");
+    expect(adapter?.format).toBe("npm");
+    expect(adapter?.url).toBe(`https://registry.npmjs.org/pi-acp/-/pi-acp-${adapter?.version}.tgz`);
+    expect(profileLinks(lock).map((l) => l.command)).toEqual(expect.arrayContaining(["pi", "pi-acp"]));
+    const raw = fresh();
+    raw.programs = raw.programs.filter((p: { name: string }) => p.name !== "pi-acp");
+    expect(problemsOf(raw)).toContain("programs: pi-acp is missing");
+  });
+
   test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
     // Automation agent steps run `acpmux run`; cmux-tui runs acpmux when argv0 is `acpmux`.
     const lock = readInputsLock();
