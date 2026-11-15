@@ -41,6 +41,7 @@ run demonstrates that the agent on the Cloud machine drove its browser and read 
 Nothing here reads the credentials file; the app does.
 """
 import argparse
+import atexit
 import collections
 import hashlib
 import json
@@ -48,6 +49,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -224,11 +226,25 @@ def record(name: str, code: int, out: str, err: str, **extra) -> dict:
     return step
 
 
+def _remove_cached_logins_on_exit() -> None:
+    """The backstop for an exception or a cancelled job: a cached login never outlives the run."""
+    while CACHED_LOGINS:
+        code, err = claude_login_cache.remove(CLI, ENV, CACHED_LOGINS.pop())
+        if code != 0:
+            print(f"cached claude login NOT removed: exit {code} ({err.strip()[:200]})", file=sys.stderr, flush=True)
+
+
+atexit.register(_remove_cached_logins_on_exit)
+signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))  # a cancelled job skips atexit otherwise
+
+
 def finish(result: str) -> None:
     while CACHED_LOGINS:
         entry = CACHED_LOGINS.pop()
         code, err = claude_login_cache.remove(CLI, ENV, entry)
         record("remove cached claude login", code, "", err)
+        if code != 0 and result == "pass":
+            result = "fail: cached claude login not removed"
     if app_launcher is not None:
         # Quit only the bundle this proof identified, then wait for the open -W helper we started.
         # Its exit is the launch service's completion event, not a fixed sleep between backends.
@@ -323,7 +339,7 @@ def app_link_log(since: str, keep: int = 300) -> dict:
     try:
         proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--info", "--start", since,
                                  "--predicate", LINK_LOG_PREDICATE],
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
+                                env=ENV, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
     except OSError as error:
         return {"unavailable": clean(str(error), 300)}
     timer = threading.Timer(180, proc.kill)
@@ -594,7 +610,7 @@ launch.extend([app_path, "--args", "--cloud-backend", args.cloud_backend])
 launchable_cleanup = not args.cleanup_machine or Path(app_path, "Contents", "Info.plist").is_file()
 if launchable_cleanup:
     try:
-        app_launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        app_launcher = subprocess.Popen(launch, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         record("launch app", 1, "", str(error))
         finish("fail: launch app")

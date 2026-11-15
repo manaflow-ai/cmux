@@ -158,9 +158,12 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertEqual(len(configs), 1, "The CLI and the launch read one scratch cmux.json")
                 expected_launch += ["--env", f"CMUX_NEXT_CONFIG_FILE={configs[0]}"]
                 self.assertFalse(configs[0].parent.exists(), "The proof removes its scratch cmux.json")
-            launch.assert_called_once_with(
-                expected_launch + [str(app), "--args", "--cloud-backend", backend_name],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.assertEqual(launch.call_count, 1)
+            launch_args, launch_kwargs = launch.call_args
+            self.assertEqual(launch_args, (expected_launch + [str(app), "--args", "--cloud-backend", backend_name],))
+            self.assertEqual(launch_kwargs["stdout"], subprocess.DEVNULL)
+            self.assertEqual(launch_kwargs["stderr"], subprocess.DEVNULL)
+            self.assertNotIn(claude_login_cache.TOKEN_ENV, launch_kwargs["env"], "The launcher never inherits the Claude token")
             launcher.wait.assert_called_once_with(timeout=60)
             self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
             for folder in folders:

@@ -543,7 +543,7 @@ class Matrix:
         if args.app:
             launch = launch_argv(args.app, self.env["CMUX_NEXT_SOCKET_PATH"], args.credentials_file,
                                  args.cloud_backend, str(self.config))
-            self.launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.launcher = subprocess.Popen(launch, env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # As cloud-chat-proof.py waits: the launched app answers `app identify`, then `auth.status` says it
         # is signed in on the selected backend (the first CI run read `cloud list-machines` too early and
         # gave up at 300 s, run 42808502162). Then the machine list loads.
@@ -584,9 +584,19 @@ class Matrix:
                     return f"cache claude login: exit {code} ({clean(err, 300)})"
         return ""
 
-    def quit(self) -> None:
+    def remove_logins(self) -> list[str]:
+        """Removes every cached Claude login from the Keychain; answers the ones that could not be removed."""
+        left = []
         while self.cached_logins:
-            claude_login_cache.remove(self.cli, self.env, self.cached_logins.pop())
+            entry = self.cached_logins.pop()
+            code, err = claude_login_cache.remove(self.cli, self.env, entry)
+            if code != 0:
+                left.append(f"{entry}: exit {code} ({clean(err, 200)})")
+        return left
+
+    def quit(self) -> None:
+        for problem in self.remove_logins():  # the backstop of a cancelled or crashed run: never silent
+            print(f"cached claude login NOT removed: {problem}", file=sys.stderr, flush=True)
         if self.launcher is not None:
             self.cmux("app", "quit", "--json", timeout=30)
             try:
@@ -927,9 +937,12 @@ def main(argv=None) -> int:
         left = matrix.sweep()
         swept = True
         report["machines_left"] = left
+        logins_left = matrix.remove_logins()
+        report["claude_logins_left"] = logins_left
         failed = [cell for cell in report["cells"] if not cell["result"].startswith(("pass", "skipped"))]
-        report["result"] = "pass" if not failed and not left else f"fail: {len(failed)} cells" + (
-            f", {len(left)} machines left" if left else "")
+        report["result"] = "pass" if not failed and not left and not logins_left else f"fail: {len(failed)} cells" + (
+            f", {len(left)} machines left" if left else "") + (
+            f", {len(logins_left)} cached claude logins not removed" if logins_left else "")
         return finish(report, out, 0 if report["result"] == "pass" else 1)
     finally:
         if not swept:
