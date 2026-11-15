@@ -26,6 +26,8 @@ final class TerminalOpensOnTerminalUITests: XCTestCase {
         // Let the page settle as a person would see it on opening.
         Thread.sleep(forTimeInterval: 2.0) // test: hold the opening frame for the recording
         attach(app, "1-opened")
+        XCTAssertTrue(terminal.isSelected, "the tab opened on its terminal")
+        XCTAssertFalse(chat.isSelected, "not on its chat")
 
         chat.tap()
         XCTAssertTrue(waitUntil { chat.isSelected }, "one tap shows the chat")

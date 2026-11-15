@@ -11,8 +11,9 @@ import SwiftUI
 private let terminalChatLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal-chat")
 
 /// Toggle Terminal and Chat on the phone (Leo, 2026-11-12: terminal and GUI are two live views
-/// of one harness session, instant both ways, mid-turn; on iOS chat is the default for Claude
-/// Code and Codex, with a terminal toggle).
+/// of one harness session, instant both ways, mid-turn). A terminal opens on its terminal face,
+/// the chat one tap away (Leo, 2026-11-15: "can we not have it instantly drop you into the
+/// guinview of the terminal in iOS").
 ///
 /// A terminal tab whose agent is Claude Code or Codex has two faces: its terminal and a View
 /// Only chat of the session its agent runs (the chat the Mac's Toggle opens, acpmux `watch`).

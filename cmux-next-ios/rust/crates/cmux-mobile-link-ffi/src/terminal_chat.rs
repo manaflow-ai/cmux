@@ -1,6 +1,8 @@
 //! Toggle Terminal and Chat on the phone: one tab, two live views of one Claude Code or
 //! Codex session (Leo, 2026-11-12: terminal and GUI are two live views of one harness
-//! session, instant both ways, mid-turn; on iOS chat is the default with a terminal toggle).
+//! session, instant both ways, mid-turn). A tab opens on its own kind: a terminal on its
+//! terminal, the chat one tap away (Leo, 2026-11-15: "can we not have it instantly drop you
+//! into the guinview of the terminal in iOS").
 //!
 //! The Mac's route decides whether a tab is half of a terminal and chat pair
 //! (`cmux-window-rules` `tabs::terminal_chat_toggle`, the one the Mac's
@@ -49,8 +51,8 @@ pub struct TerminalChatFacts {
 pub struct TerminalChatFaces {
     /// The tab shows the Chat | Terminal control and its page menu's Toggle row.
     pub offered: bool,
-    /// The face the tab opens on: chat for a Claude Code or Codex session (Leo's iOS
-    /// default), else the tab's own kind.
+    /// The face the tab opens on when the person has not picked one: the tab's own kind (a
+    /// terminal opens on its terminal, a chat on its chat), else the face that can show.
     pub default_face: TabFace,
     pub chat_enabled: bool,
     pub terminal_enabled: bool,
@@ -125,7 +127,11 @@ pub fn terminal_chat_faces(facts: TerminalChatFacts) -> TerminalChatFaces {
     };
     let pair = |harness: String, session: String, terminal_enabled: bool| TerminalChatFaces {
         offered: true,
-        default_face: TabFace::Chat,
+        default_face: if own == TabFace::Terminal && terminal_enabled {
+            TabFace::Terminal
+        } else {
+            TabFace::Chat
+        },
         chat_enabled: true,
         terminal_enabled,
         disabled_reason: (!terminal_enabled).then(|| NO_TERMINAL.to_owned()),
@@ -263,11 +269,11 @@ mod tests {
     }
 
     #[test]
-    fn a_terminal_running_claude_code_or_codex_opens_on_its_chat() {
+    fn a_terminal_running_claude_code_or_codex_opens_on_its_terminal_with_the_chat_offered() {
         for (agent, harness) in [("claude", "claude"), ("claude-code", "claude"), ("Codex", "codex")] {
             let faces = terminal_chat_faces(terminal(Some(agent), Some("h-1")));
             assert!(faces.offered, "{agent}");
-            assert_eq!(faces.default_face, TabFace::Chat, "{agent}");
+            assert_eq!(faces.default_face, TabFace::Terminal, "{agent}");
             assert!(faces.chat_enabled && faces.terminal_enabled, "{agent}");
             assert_eq!(faces.disabled_reason, None);
             assert_eq!(faces.harness.as_deref(), Some(harness));
