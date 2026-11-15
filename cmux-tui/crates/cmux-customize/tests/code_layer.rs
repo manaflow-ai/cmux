@@ -95,9 +95,8 @@ fn keys_that_were_absent_are_removed_again() {
     customize.library_use_code(layer(1, 1), vec![], "cli", 1).unwrap();
     assert!(home.web_dev().unwrap().get("overlay").is_some());
     customize.library_remove("pr-1", "cli", 2).unwrap();
-    // There was no web-dev.json: it is left with neither key.
-    let after = home.web_dev().unwrap_or(json!({}));
-    assert_eq!(after, json!({}));
+    // There was no web-dev.json: there is none again.
+    assert!(!home.web_dev_path().exists(), "{:?}", home.web_dev());
     assert!(customize.library().unwrap().entries.is_empty());
 }
 

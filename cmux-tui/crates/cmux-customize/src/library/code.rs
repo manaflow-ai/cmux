@@ -91,6 +91,10 @@ pub struct WebBase {
     pub overlay: Option<Value>,
     #[serde(default)]
     pub enabled: Option<Value>,
+    /// There was no web-dev.json at all, so putting the base back removes the
+    /// file again instead of leaving `{}`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_file: bool,
 }
 
 /// Where web-dev.json points now, as the stack decides it.
@@ -119,10 +123,12 @@ impl Customize {
 
     /// `overlay` and `enabled` as web-dev.json has them now.
     pub(crate) fn web_dev_now(&self) -> Result<WebBase, Error> {
-        let object = read_object(&self.web_dev_path())?;
+        let path = self.web_dev_path();
+        let object = read_object(&path)?;
         Ok(WebBase {
             overlay: object.get("overlay").cloned(),
             enabled: object.get("enabled").cloned(),
+            no_file: !path.exists(),
         })
     }
 
@@ -153,6 +159,10 @@ impl Customize {
                 };
             }
             if object.is_empty() && !path.exists() {
+                return Ok(());
+            }
+            if object.is_empty() && matches!(target, WebTarget::Base) && base.no_file {
+                std::fs::remove_file(&path)?;
                 return Ok(());
             }
             let mut text = serde_json::to_string_pretty(&Value::Object(object))
