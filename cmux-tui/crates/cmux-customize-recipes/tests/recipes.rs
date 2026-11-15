@@ -127,3 +127,25 @@ fn written_recipes_are_the_profiles_and_the_guide_points_at_them() {
     write_all(dir.path()).unwrap();
     assert_eq!(std::fs::metadata(&written.guide).unwrap().modified().unwrap(), before);
 }
+
+#[test]
+fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("my recipes; touch pwn #'x");
+    let page = guide(&dir);
+    for recipe in RECIPES {
+        let path = dir.join(format!("{}.json", recipe.name)).display().to_string();
+        let line = page
+            .lines()
+            .find(|line| line.starts_with("cmux customize use ") && line.contains(recipe.name))
+            .unwrap_or_else(|| panic!("no Run command for {}", recipe.name));
+        let argument = line.strip_prefix("cmux customize use ").unwrap();
+        // The shell reads the argument back as exactly the path, as one word.
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("printf '%s\\n' {argument}"))
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(out.stdout).unwrap(), format!("{path}\n"), "{line}");
+    }
+}
