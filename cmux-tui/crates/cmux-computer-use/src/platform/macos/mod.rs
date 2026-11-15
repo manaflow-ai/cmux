@@ -488,7 +488,7 @@ impl Desktop for MacDesktop {
                 (0..=101).contains(&w.layer)
                     && w.frame.width >= 2.0
                     && w.alpha > 0.0
-                    && crate::desktop::intersects(&w.frame, frame)
+                    && w.frame.intersects(frame)
             })
             .map(|w| w.id.to_string())
             .collect();

@@ -375,7 +375,7 @@ impl Desktop for FakeDesktop {
             .windows
             .iter()
             .chain(opened.iter())
-            .filter(|w| w.on_screen && !w.minimized && crate::desktop::intersects(&w.frame, frame))
+            .filter(|w| w.on_screen && !w.minimized && w.frame.intersects(frame))
             .map(|w| w.id.clone())
             .collect();
         ids.sort();

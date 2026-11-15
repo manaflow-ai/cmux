@@ -359,7 +359,7 @@ pub trait Desktop: Send + Sync {
         let mut ids: Vec<String> = self
             .list_windows()?
             .into_iter()
-            .filter(|w| w.on_screen && !w.minimized && intersects(&w.frame, frame))
+            .filter(|w| w.on_screen && !w.minimized && w.frame.intersects(frame))
             .map(|w| w.id)
             .collect();
         ids.sort();
