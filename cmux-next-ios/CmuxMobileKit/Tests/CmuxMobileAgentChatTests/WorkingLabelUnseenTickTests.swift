@@ -110,9 +110,12 @@ import UIKit
         WorkingLabel.redrawCounts[since] = 0
         defer { WorkingLabel.redrawCounts[since] = nil }
         list.since = since
+        // As the transcript does when a row's model changes off screen.
+        view.reloadItems(at: [first])
         view.setContentOffset(.zero, animated: false)
         view.layoutIfNeeded()
         #expect(parked != nil && view.cellForItem(at: first) === parked, "the working row came back in its parked cell")
+        #expect(list.configured == since, "the row came back configured with the new turn")
         await Self.wait(7.2)
         let ticks = Self.redraws(since)
         print("WorkingLabelUnseenTickTests: reused row, new turn: \(ticks) redraws in 7.2 s")
@@ -127,6 +130,8 @@ import UIKit
 final class HostedRowsController: UIViewController, UICollectionViewDataSource {
     /// The working row's turn start; a new turn reconfigures the row in the same cell.
     var since: Date
+    /// The turn start the working row was last configured with.
+    private(set) var configured: Date?
     let rows: Int
     let collectionView: UICollectionView
 
@@ -161,6 +166,7 @@ final class HostedRowsController: UIViewController, UICollectionViewDataSource {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: indexPath.item == 0 ? "working" : "row", for: indexPath)
         let since = since
         if indexPath.item == 0 {
+            configured = since
             cell.contentConfiguration = UIHostingConfiguration { WorkingLabel("Working", since: since) }
         } else {
             cell.contentConfiguration = UIHostingConfiguration { Text("Row \(indexPath.item)") }
