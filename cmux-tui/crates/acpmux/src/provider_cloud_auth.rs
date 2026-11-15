@@ -214,6 +214,56 @@ where
     }
 }
 
+/// What the own-key check reads for one Gemini or Grok launch (`hub/spawn.rs`).
+#[derive(Debug, Clone, Default)]
+pub struct LaunchEnv {
+    profile: BTreeMap<String, String>,
+    daemon: BTreeMap<String, String>,
+}
+
+impl LaunchEnv {
+    /// The view of a launch of `family` with the profile env `profile`, over the daemon's own env
+    /// `daemon`, the vault's entries `vault`, `machine.env`'s values `machine`, and the login
+    /// shell's secret names this daemon does not hold yet `pending`.
+    pub fn new(
+        _family: &str,
+        profile: BTreeMap<String, String>,
+        daemon: BTreeMap<String, String>,
+        _vault: Vec<(String, String)>,
+        _machine: BTreeMap<String, String>,
+        _pending: Vec<String>,
+    ) -> LaunchEnv {
+        LaunchEnv { profile, daemon }
+    }
+
+    /// The launch's value of `k`; None when unset or empty.
+    pub fn var(&self, k: &str) -> Option<String> {
+        self.profile
+            .get(k)
+            .cloned()
+            .or_else(|| crate::login_env::var(k))
+            .or_else(|| self.daemon.get(k).cloned())
+            .filter(|v| !v.is_empty())
+    }
+}
+
+/// [`decide`] for one launch: its `HOME` (else this user's), the machine root `root`.
+pub async fn decide_launch<F, Fut>(
+    provider: Provider,
+    launch: &LaunchEnv,
+    root: &std::path::Path,
+    probe: F,
+) -> Mode
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Option<Providers>>,
+{
+    let var = |k: &str| launch.var(k);
+    let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    let inputs = Inputs { root, home: &home, var: &var, broker: false };
+    decide(provider, &inputs, probe).await
+}
+
 /// Put team mode in a launch's profile env: [`Provider::team_env`] over whatever it had.
 pub fn apply_team(env: &mut BTreeMap<String, String>, team: Vec<(String, String)>) {
     env.extend(team);
@@ -491,6 +541,87 @@ mod tests {
         let plain = machine("owner");
         std::fs::remove_file(plain.root.join("etc/cmux/agent-auth.sh")).unwrap();
         assert_eq!(mode(&plain, Provider::Gemini, &[], Some(BOTH)).await, Mode::LeftAlone);
+    }
+
+    /// The view a launch's own-key check reads, with no daemon or login value but `HOME`.
+    fn launch(
+        m: &Machine,
+        p: Provider,
+        vault: &[(&str, &str)],
+        machine: &[(&str, &str)],
+        pending: &[&str],
+    ) -> LaunchEnv {
+        let pairs = |v: &[(&str, &str)]| -> Vec<(String, String)> {
+            v.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        };
+        let daemon = BTreeMap::from([("HOME".to_owned(), m.home.to_string_lossy().into_owned())]);
+        LaunchEnv::new(
+            p.name(),
+            BTreeMap::new(),
+            daemon,
+            pairs(vault),
+            pairs(machine).into_iter().collect(),
+            pending.iter().map(|n| (*n).to_owned()).collect(),
+        )
+    }
+
+    async fn launch_mode(m: &Machine, p: Provider, launch: &LaunchEnv) -> Mode {
+        decide_launch(p, launch, &m.root, |origin| async move {
+            assert_eq!(origin, "https://coderouter.cmux.internal");
+            Some(BOTH)
+        })
+        .await
+    }
+
+    /// #43800: a key of the person's own that only the vault or `machine.env` holds, or one the
+    /// login shell sets that this daemon has not read yet, keeps own mode; the gateway's
+    /// placeholder never replaces it.
+    #[tokio::test]
+    async fn a_vault_or_machine_env_key_keeps_own_mode() {
+        let m = machine("owner");
+        for (p, k) in [
+            (Provider::Gemini, "GEMINI_API_KEY"),
+            (Provider::Gemini, "GOOGLE_API_KEY"),
+            (Provider::Grok, "XAI_API_KEY"),
+            (Provider::Grok, "GROK_CODE_XAI_API_KEY"),
+        ] {
+            // A vault entry the egress proxy fills: the launch holds its `cmux-secret://` name.
+            let held = cmux_vault_egress::placeholder(k);
+            let got = launch_mode(&m, p, &launch(&m, p, &[(k, &held)], &[], &[])).await;
+            assert_eq!(got, Mode::Own("key"), "vault proxy {k}");
+            // A vault entry delivered as its value.
+            let got = launch_mode(&m, p, &launch(&m, p, &[(k, "real-key-123")], &[], &[])).await;
+            assert_eq!(got, Mode::Own("key"), "vault value {k}");
+            // `machine.env`, which `login_env::var` never shows.
+            let got = launch_mode(&m, p, &launch(&m, p, &[], &[(k, "real-key-123")], &[])).await;
+            assert_eq!(got, Mode::Own("key"), "machine.env {k}");
+            // The login shell sets it; this daemon has not read it yet.
+            let got = launch_mode(&m, p, &launch(&m, p, &[], &[], &[k])).await;
+            assert_eq!(got, Mode::Own("key"), "pending {k}");
+        }
+    }
+
+    /// No key anywhere, or only a reference nothing fills, still goes to the team's gateway.
+    #[tokio::test]
+    async fn no_own_key_anywhere_still_goes_to_team_mode() {
+        let m = machine("owner");
+        for p in [Provider::Gemini, Provider::Grok] {
+            assert_eq!(launch_mode(&m, p, &launch(&m, p, &[], &[], &[])).await, team(p));
+            let k = p.key_vars()[0];
+            for v in [PLACEHOLDER_KEY, "cmux-secret://vault/XAI_API_KEY", ""] {
+                let got = launch_mode(&m, p, &launch(&m, p, &[], &[(k, v)], &[])).await;
+                assert_eq!(got, team(p), "machine.env {k}={v}");
+                let got = launch_mode(&m, p, &launch(&m, p, &[(k, v)], &[], &[])).await;
+                assert_eq!(got, team(p), "vault {k}={v}");
+            }
+            // The vault's placeholder for another name, and a secret the shell has not given yet
+            // for an unrelated name.
+            let other = cmux_vault_egress::placeholder("OTHER_API_KEY");
+            let got = launch_mode(&m, p, &launch(&m, p, &[(k, &other)], &[], &[])).await;
+            assert_eq!(got, team(p), "{k}={other}");
+            let got = launch_mode(&m, p, &launch(&m, p, &[], &[], &["OTHER_API_KEY"])).await;
+            assert_eq!(got, team(p));
+        }
     }
 
     #[test]

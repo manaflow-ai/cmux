@@ -423,25 +423,19 @@ impl Hub {
                 && crate::provider_cloud_auth::launches_itself(*provider, &p.argv)
         });
         if let Some(provider) = provider {
-            let env = p.env.clone();
-            let var = move |k: &str| {
-                env.get(k)
-                    .cloned()
-                    .or_else(|| crate::login_env::var(k))
-                    .or_else(|| std::env::var(k).ok())
-                    .filter(|v| !v.is_empty())
-            };
-            let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+            let launch = crate::provider_cloud_auth::LaunchEnv::new(
+                provider.name(),
+                p.env.clone(),
+                std::env::vars().collect(),
+                Vec::new(),
+                Default::default(),
+                Vec::new(),
+            );
             let root = self.vm_marker_root();
-            let inputs = crate::codex_cloud_auth::Inputs {
-                root: &root,
-                home: &home,
-                var: &var,
-                broker: false,
-            };
-            match crate::provider_cloud_auth::decide(
+            match crate::provider_cloud_auth::decide_launch(
                 provider,
-                &inputs,
+                &launch,
+                &root,
                 crate::provider_cloud_auth::probe_providers,
             )
             .await
