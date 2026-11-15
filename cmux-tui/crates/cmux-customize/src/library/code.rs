@@ -137,7 +137,7 @@ impl Customize {
             .append(true)
             .open(self.roots().config_dir.join(".web-dev.lock"))?;
         let _lock = cmux_file_lock::FileLock::take(lock, cmux_file_lock::Kind::Exclusive)?;
-        let result = (|| {
+        (|| {
             let mut object = read_object(&path)?;
             let (overlay, enabled) = match target {
                 WebTarget::Layer(dir) => (
@@ -160,8 +160,7 @@ impl Customize {
             text.push('\n');
             cmux_config::fsio::write_atomic(&path, text.as_bytes())?;
             Ok(())
-        })();
-        result
+        })()
     }
 }
 
