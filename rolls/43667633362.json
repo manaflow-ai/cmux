@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43667633362",
+  "recorded_at": "2026-11-15T02:31:47Z",
+  "reason": "cmux-tui cd91fdcc7d44 changes the image's cmux-tui (pinned 455cb12de01f)",
+  "dry_run": false,
+  "cmux_tui": "cd91fdcc7d44c3865b5259cfa174fb61ed52a0a3",
+  "fixes": [
+    {
+      "sha": "cd91fdcc7d44c3865b5259cfa174fb61ed52a0a3",
+      "mergedAt": "2026-11-14T18:07:30-08:00",
+      "subject": "acpmux: recover machine gaps quietly without repeated chat notices (#42988)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T02:31:47Z",
+    "snapshot_id": "sh-efbe90fd1bb74ff4a277b75b6b69f575",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43667633362): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2df80065165962f3645363f55e7251f992f0ed3e",
+    "image": "cloud-native-auto-cd91fdcc-43667633362-1",
+    "revision": "ci-43667633362-1",
+    "at": "2026-11-15T02:31:47Z"
+  },
+  "rolled_back": false
+}
