@@ -808,6 +808,8 @@ notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
 notification clear [--terminal <term_id> | --workspace <ws_id> | --notification <notification_id>]
 notification ack --client <id> <notification-id>...
+notification banners
+notification open <banner-id>
 attention request --tab <tab_…> --reason <text>
 attention clear --tab <tab_…>
 attention next [--after <tab_…>] [--focus]
@@ -893,6 +895,16 @@ keeps its own unread state. The shared `unread` marker on the console tree is
 unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
 returned under `unknown`, not rejected, so a late acknowledgement after
 eviction is complete.
+
+`notification banners` and `notification open <banner-id>` ask the cmux app
+(its `notifications.banners` and `notifications.open` methods), not the
+daemon. `banners` lists the macOS banners the app asked for, newest last and
+bounded: `{banners: [{id, title, subtitle, body, surface, reply, approval,
+category}], authorization}`, an incognito window's banner as it showed. It
+moves no focus. `open` runs that banner's click on the banner's own tab (never
+a caller-chosen one), so it moves the app's focus there, and answers `{opened,
+surface}`; an id the app does not list is `not_found` and opens nothing. Release
+builds serve both, so a probe can check a Nightly's banners from outside the app.
 
 `terminal <selector> output read` returns a bounded plain-text window of the
 terminal's journaled output stream: `{text, start_offset, next_offset,

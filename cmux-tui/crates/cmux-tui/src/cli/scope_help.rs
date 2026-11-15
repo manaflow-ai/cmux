@@ -45,11 +45,20 @@ USAGE
   cmux notification clear [--terminal <term_id> | --workspace <ws_id> |
     --notification <notification_id>]
   cmux notification ack --client <id> <notification_id>...
+  cmux notification banners
+  cmux notification open <banner-id>
 
 clear without a scope clears every notification of the session;
 --workspace clears that workspace's rows and those of its terminals;
 --notification clears that one row. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
+
+banners and open ask the cmux app, not the session. banners lists the macOS
+banners the app asked for, newest last, as JSON {banners: [{id, title,
+subtitle, body, surface, reply, approval, category}], authorization}; it
+moves no focus. open runs one banner's click, as the person's click does: it
+shows that banner's tab and moves the app's focus there, then answers
+{opened, surface}. An id banners does not list is not_found and opens nothing.
 ";
 
 pub(super) const ATTENTION_HELP: &str = "\
