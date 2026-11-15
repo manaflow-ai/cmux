@@ -106,7 +106,8 @@ public final class HomeDock {
 
     private func ensureDock(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async throws -> String {
         let workspace: @MainActor @Sendable () -> WorkspaceModel? = { store.workspaces.first { $0.resourceID == home } }
-        guard let first = await shown(workspace) else { return "home workspace gone" }
+        let mark = { (step: String) in DaemonLaunchTimings.shared.mark("home.dock.\(step)") }  // CMUX-571: where the dock step waits
+        mark("start"); guard let first = await shown(workspace) else { return "home workspace gone" }; mark("workspace_shown")
         if Self.pageTab(in: first) == nil {
             // Always the workspace (its active pane, or a first pane of an empty home), so a
             // retry under the same key names the same target and replays.
@@ -116,10 +117,10 @@ public final class HomeDock {
                                                                            mutationID: mutationID))
             }
         } else {
-            key.settle()
+            key.settle(); mark("page_present")
         }
         // The tree reports a just-created tab after its event.
-        guard let placed = await shown({ workspace().flatMap(Self.pageTab(in:)) }), !Task.isCancelled else { return "page tab not shown" }
+        mark("page_sent"); guard let placed = await shown({ workspace().flatMap(Self.pageTab(in:)) }), !Task.isCancelled else { return "page tab not shown" }; mark("page_shown")
         let chiefs = Set((workspace()?.screens ?? []).flatMap { screen in
             screen.panes.flatMap { pane in pane.tabs.filter { Self.isChiefTab($0) || Self.isLegacyDockTab($0, in: pane, on: screen) } }
         }.map(\.surface))
@@ -130,25 +131,25 @@ public final class HomeDock {
         // What stays on the dock's screen once the page and the Chief tabs leave it: an older
         // daemon undocks a screen without a scrolling column, so there the move leaves a terminal.
         let stays = placed.screen.panes.flatMap(\.tabs).contains { $0.surface != placed.tab.surface && !chiefs.contains($0.surface) }
-        if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false) }
+        if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false); mark("chiefs_closed") }
         if docked {
             let pinned = try await pin(connection, store: store, workspace: workspace)
             let tabs = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: pinned != nil)
             let cleared = alone ? try await closePlaceholder(connection, workspace: workspace) : nil
-            let steps = [pinned, tabs, cleared].compactMap { $0 }
+            let steps = [pinned, tabs, cleared].compactMap { $0 }; mark("present_done")
             return steps.isEmpty ? "home dock present" : steps.joined(separator: ", ")
         }
         let respawn: SplitRespawn? = stays || alone ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
-        moveInFlight = true
+        mark("move_sent"); moveInFlight = true
         defer { moveInFlight = false }
         let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             dock(placed.tab, placed.pane, respawn, alone) { done.resume(returning: $0) }
         }
-        guard moved else { return "home dock move failed (see the app log)" }
+        mark("moved"); guard moved else { return "home dock move failed (see the app log)" }
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
-        _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
-        _ = try await pin(connection, store: store, workspace: workspace)
-        _ = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: true)
+        _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }; mark("docked_shown")
+        _ = try await pin(connection, store: store, workspace: workspace); mark("pinned")
+        _ = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: true); mark("made_done")
         return "home dock made"
     }
 
