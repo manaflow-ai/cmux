@@ -493,10 +493,31 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   can't be read, is left;
   `--acpmux-home H` restarts one by its home. Without either, the receipt lists the acpmux daemons
   left on the old build (`acpmux_left_on_old_build`), and `rollback` restarts the ones it restarted.
+  Another session's terminal daemon that runs from the same `bin/cmux` (a Chief's) keeps the build it
+  mapped and is listed in `left_on_old_build`, unless `--restart-sessions` is given. With it, each one is
+  handed to the new build by `server restart` on its socket. Its terminals are kept, and its session,
+  launch flags and environment carry over. It's checked like the app's own: a new owner must answer,
+  running the swapped file. `rollback` hands them back the same way. From ssh on macOS they're left and
+  the receipt says why.
 - **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
   the app's.
-- **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as
-  cmux-mobile-host still need the nightly. `plan` lists them under `left`.
+- **App FFI:** Rust the app links (its FFI crates) swaps warm when the app carries it as one library,
+  `Contents/Frameworks/libcmux_app_ffi.dylib`. The library of SHA's `cmux-app-ffi-<commit>` release
+  (the newest commit at or before SHA that changed an FFI input) replaces it, the app quits with
+  `cmux app quit --keep-sessions` and opens again, and the part is done once the app's control socket
+  answers from a new pid that stays up. The daemon and its terminals never stop. The release must only
+  add to the FFI the app's pin was built from (`scripts/cmux-next/app_ffi_additive.py`), and the
+  library must export every symbol the app imports. An ad hoc app takes the released (ad hoc)
+  library as is, and so does a NIGHTLY: its signature carries
+  `com.apple.security.cs.disable-library-validation`. A Developer ID app without that entitlement
+  loads only libraries signed by its team: `--sign-identity ID` signs with that team's identity, and
+  `--reseal` signs the app ad hoc too, so it starts signed out of its Keychain items until
+  `rollback`. Without either, the part and the Rust part are left, with why. An app that links the FFI statically (built
+  before the library) leaves it for a nightly.
+- **Neither:** Swift, resources, Rust the app links statically, and helpers such as
+  cmux-mobile-host still need the nightly. `plan` lists them under `left`. C, Objective-C and Zig
+  sources inside `cmux-tui/` (a companion's shim, the Zig binding) are not resources: the tree build
+  compiles them, so they go with the Rust part unless they sit in an app FFI crate.
 
 Each part is checked after it goes in: `bin/cmux` hashes to the published sha256 and a new daemon
 answers from it, and the overlay names SHA. A part that fails its check is put back. SHA must come
@@ -506,7 +527,7 @@ breaks the bundle's seal until `rollback` or the next update. The running app do
 fleet Mac.
 
 Every receipt has `phases`, the seconds spent in plan, key, fetch, verify, backup, find, swap, reload
-and rollback. stderr prints them, largest first. `apply SHA --dry-run` plans, fetches and verifies
+and rollback (and quit and launch, for the ffi part). stderr prints them, largest first. `apply SHA --dry-run` plans, fetches and verifies
 without changing the app, and its receipt goes only to `history.jsonl`. `--base COMMIT` stands in for
 the app's commit, so `plan` and `--dry-run` also work on a host with no app.
 

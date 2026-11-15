@@ -46,7 +46,7 @@ final class SettingsPageProvider: PageProvider {
     var sharesList: (@MainActor () async throws -> JSONValue)?
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
-    /// Parts another package serves whole, by op (Agent integrations, Customization Library); empty in tests without an app.
+    /// Parts another package serves whole, by op (Agent integrations, try on, Customization Library); empty in tests without an app.
     var parts: [String: any PageProvider] = [:]
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
