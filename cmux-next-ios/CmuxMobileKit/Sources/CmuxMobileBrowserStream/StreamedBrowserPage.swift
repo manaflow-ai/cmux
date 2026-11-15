@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -53,7 +54,7 @@ public struct StreamedBrowserPage: View {
                         .font(.system(size: 17, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .accessibilityLabel(Text("Keyboard"))
@@ -163,7 +164,7 @@ public struct StreamedBrowserPage: View {
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14).padding(.vertical, 10)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
         .padding(.horizontal, 16).padding(.top, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -845,7 +846,7 @@ struct StreamedSelectSheet: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .disabled(!item.enabled)
             .accessibilityAddTraits(picked.contains(index) ? .isSelected : [])
             .accessibilityIdentifier("browser.select.option.\(index)")
