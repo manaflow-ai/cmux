@@ -275,6 +275,7 @@ on:
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_same_tree_status_never_silent.py
+      - scripts/ci/cmux_next_same_tree_status.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
       - tests/test_cmux_next_same_tree_failed.py
@@ -605,6 +606,7 @@ on:
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_same_tree_status_never_silent.py
+      - scripts/ci/cmux_next_same_tree_status.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
       - tests/test_cmux_next_same_tree_failed.py
@@ -4577,8 +4579,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-242
-      statuses: write
     timeout-minutes: 60
     outputs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-243
@@ -4962,34 +4962,6 @@ jobs:
           retention-days: 3
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-59
-
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-264
-      - name: Report the same-tree result on the tested commit
-        if: ${{ always() && inputs.same_tree_status_sha != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          STATUS_SHA: ${{ inputs.same_tree_status_sha }}
-          JOB_STATUS: ${{ job.status }}
-          CONTEXT: cmux-next daemon tests (same-tree)
-          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          [[ "$STATUS_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::warning::not a commit: $STATUS_SHA"; exit 0; }
-          case "$JOB_STATUS" in success) state=success ;; cancelled) state=error ;; *) state=failure ;; esac
-          body="$(python3 -c 'import json,sys; print(json.dumps({"state": sys.argv[1], "context": sys.argv[2], "target_url": sys.argv[3], "description": "same-tree cmux-tui run: " + sys.argv[4]}))' "$state" "$CONTEXT" "$TARGET_URL" "$JOB_STATUS")"
-          # SAME_TREE_STATUS_NEVER_SILENT: a status that cannot be posted is this step's red, never a warning
-          # (2026-11-14, cmux#43335: the daemon tests passed, this post got HTTP 403, and the required status
-          # never posted). Three tries, then red: a re-run of the failed job posts it.
-          for wait in 0 20 60; do
-            sleep "$wait"
-            if curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-                "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -d "$body"; then
-              exit 0
-            fi
-          done
-          echo "::error title=same-tree status not posted::could not post the $CONTEXT status on $STATUS_SHA; re-run this job to post it"
-          exit 1
-
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-265
@@ -6554,32 +6526,73 @@ jobs:
   # The post-merge backstop: every feat-cmux-next push runs its push tiers (a
   # Why: docs/ci/cmux-next-workflow-notes.md#note-80
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-327
-      - name: Report the same-tree result on the tested commit
-        if: ${{ always() && inputs.same_tree_status_sha != '' }}
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-352
+  same-tree-status-daemon:
+    needs: [same-tree-cmux-tui, daemon-test]
+    if: ${{ always() && inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'daemon') }}
+    name: same-tree status (daemon)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      statuses: write
+    steps:
+      - name: Check out the status script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Post the same-tree status
         env:
           GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
-          JOB_STATUS: ${{ job.status }}
-          CONTEXT: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile (same-tree)' || 'cmux app scheme compile (Debug) (same-tree)' }}
-          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATE: ${{ inputs.same_tree_state }}
+          REASON: ${{ inputs.same_tree_reason }}
+          DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          [[ "$STATUS_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::warning::not a commit: $STATUS_SHA"; exit 0; }
-          case "$JOB_STATUS" in success) state=success ;; cancelled) state=error ;; *) state=failure ;; esac
-          body="$(python3 -c 'import json,sys; print(json.dumps({"state": sys.argv[1], "context": sys.argv[2], "target_url": sys.argv[3], "description": "same-tree cmux-tui run: " + sys.argv[4]}))' "$state" "$CONTEXT" "$TARGET_URL" "$JOB_STATUS")"
-          # SAME_TREE_STATUS_NEVER_SILENT: a status that cannot be posted is this step's red, never a warning
-          # (2026-11-14, cmux#43335: the daemon tests passed, this post got HTTP 403, and the required status
-          # never posted). Three tries, then red: a re-run of the failed job posts it.
-          for wait in 0 20 60; do
-            sleep "$wait"
-            if curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-                "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -d "$body"; then
-              exit 0
-            fi
-          done
-          echo "::error title=same-tree status not posted::could not post the $CONTEXT status on $STATUS_SHA; re-run this job to post it"
-          exit 1
+          dev=()
+          [[ "$DEV_DAILY" == true ]] && dev=(--dev-daily)
+          python3 -I scripts/ci/cmux_next_same_tree_status.py --tier daemon --repo "$GITHUB_REPOSITORY" \
+            --status-sha "$STATUS_SHA" --state "$STATE" --needs "$NEEDS" --reason "$REASON" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" ${dev[@]+"${dev[@]}"}
+
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-352
+  same-tree-status-scheme:
+    needs: [same-tree-cmux-tui, cmux-scheme-compile, crash-ends-app]
+    if: ${{ always() && inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'scheme') }}
+    name: same-tree status (scheme)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      statuses: write
+    steps:
+      - name: Check out the status script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Post the same-tree status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          STATUS_SHA: ${{ inputs.same_tree_status_sha }}
+          STATE: ${{ inputs.same_tree_state }}
+          REASON: ${{ inputs.same_tree_reason }}
+          DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          dev=()
+          [[ "$DEV_DAILY" == true ]] && dev=(--dev-daily)
+          python3 -I scripts/ci/cmux_next_same_tree_status.py --tier scheme --repo "$GITHUB_REPOSITORY" \
+            --status-sha "$STATUS_SHA" --state "$STATE" --needs "$NEEDS" --reason "$REASON" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" ${dev[@]+"${dev[@]}"}
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-9 (dev-landing-place)
   dev-landing-place:
