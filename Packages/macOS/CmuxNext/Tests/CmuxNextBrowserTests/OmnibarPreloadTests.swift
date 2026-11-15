@@ -119,6 +119,22 @@ struct OmnibarPreloadTests {
         #expect(recorder.log.dropFirst() == ["ended https://github.com/ learn true", "load https://github.com/"])
     }
 
+    /// Escape that reverts typed text has no end effect; it is still Chrome's OnRevert: every match missed.
+    @Test func escapeThatRevertsTypedTextCountsTheMatchesAsMissed() throws {
+        let bar = AddressBarView()
+        let recorder = Recorder()
+        bar.update(url: URL(string: "https://example.com/a"), security: .secure)
+        bar.controller.setPreloader(recorder)
+        bar.controller.send(.focusGained(.keyboard))
+        bar.controller.send(.dropped("swift.org"))
+        bar.controller.send(.suggestions(generation: bar.controller.state.generation, rows: [try row(.navigate, "https://swift.org/")]))
+        bar.controller.send(.key(.escape))
+        if bar.controller.state.phase == .editing { bar.controller.send(.key(.escape)) }
+        #expect(recorder.log.count == 2)
+        #expect(recorder.log.last == "ended nil learn true")
+        #expect(bar.controller.lastPreload == nil)
+    }
+
     @Test func aTabThatLosesTheOmnibarMidEditForgetsTheEdit() throws {
         let bar = AddressBarView()
         let first = Recorder(), second = Recorder()
