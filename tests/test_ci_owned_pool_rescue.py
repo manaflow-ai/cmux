@@ -2473,8 +2473,11 @@ def run_rerun(api, clock, env_extra=None):
     with tempfile.TemporaryDirectory() as tmp:
         summary = Path(tmp, "summary")
         env["GITHUB_STEP_SUMMARY"] = str(summary)
-        with unittest.mock.patch("sys.stdout", io.StringIO()):
-            code = rescue.main([], env, api=api, now=clock.now, sleep=clock.sleep)
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as out:
+            try:
+                code = rescue.main([], env, api=api, now=clock.now, sleep=clock.sleep)
+            finally:
+                api.out = out.getvalue()
         return code, summary.read_text() if summary.exists() else ""
 
 
@@ -2549,6 +2552,40 @@ class RerunInput(unittest.TestCase):
         _, summary = run_rerun(api, clock)
         self.assertNotIn("cancel", api.calls)
         self.assertIn("started before the cancel", summary)
+
+    def test_a_job_created_before_the_cancel_keeps_the_run(self):
+        # The placement re-run was weighed on the first read: a job created since could stay cancelled.
+        clock = Clock()
+        api = RerunAPI(clock)
+        original = api.jobs
+
+        def jobs(run_id, attempt):
+            found = original(run_id, attempt)
+            if api.calls.count(f"jobs:{attempt}") > 1:
+                found.append({**job("cmux-next lint", labels=["ubuntu-24.04"]), "id": 9})
+            return found
+        api.jobs = jobs
+        _, summary = run_rerun(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("appeared before the cancel", summary)
+
+    def test_a_failed_re_run_request_leaves_the_cancel_unsettled(self):
+        # CANCEL_SENT without CANCEL_SETTLED is what a successor sweeper resumes (rerun_intended()).
+        clock = Clock()
+        api = RerunAPI(clock)
+
+        def refused(run_id, job_id, next_attempt):
+            raise urllib.error.HTTPError("rerun", 500, "server error", {}, None)
+        api.rerun_job = refused
+        code, summary = run_rerun(api, clock)
+        self.assertEqual(code, 1)
+        self.assertIn("could not re-run", summary)
+        self.assertIn(rescue.CANCEL_SENT, api.out)
+        self.assertNotIn(rescue.CANCEL_SETTLED, api.out)
+        clock = Clock()
+        api = RerunAPI(clock)
+        run_rerun(api, clock)
+        self.assertIn(rescue.CANCEL_SETTLED, api.out)
 
     def test_a_running_job_a_moved_head_or_another_workflow_is_left_alone(self):
         clock = Clock()
