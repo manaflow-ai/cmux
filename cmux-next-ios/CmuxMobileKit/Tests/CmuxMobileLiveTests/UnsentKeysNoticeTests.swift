@@ -97,8 +97,13 @@ final class UnsentKeysClock {
         window.makeKeyAndVisible()
         let rig = Rig(daemon: daemon, channels: channels, session: session, model: model, screen: screen, window: window, clock: clock)
         try await waitUntil { session.isAttached && model.isTUI && screen.surface.capturesMouse }
-        try #require(session.isAttached, "the session never attached")
-        try #require(screen.surface.capturesMouse, "the app's mouse mode never reached Ghostty")
+        // Where the setup stands when it fails (the kit-test job's red only).
+        let state = "started=\(screen.started) surface=\(screen.surface.surface != nil) shown=\(screen.surface.isShown) "
+            + "appState=\(UIApplication.shared.applicationState.rawValue) attached=\(session.isAttached) tui=\(model.isTUI) "
+            + "pending=\(screen.outputPendingBytes) counts=\(screen.outputCounts) frame=\(screen.surface.frame) "
+            + "cmds=\(daemon.recorded.compactMap { $0["cmd"] as? String })"
+        try #require(session.isAttached, "the session never attached: \(state)")
+        try #require(screen.surface.capturesMouse, "the app's mouse mode never reached Ghostty: \(state)")
         return rig
     }
 
