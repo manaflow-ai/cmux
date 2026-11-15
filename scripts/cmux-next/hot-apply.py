@@ -201,10 +201,6 @@ SHA = re.compile(r"[0-9a-f]{40}")
 # What a temporary checkout of SHA needs to compute its web source key (web-bundle-key.py reads
 # the files): everything but the large folders no web bundle imports.
 WEB_KEY_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghostty/"]
-# Native sources under cmux-tui/ (a companion's shim, the Zig binding): live_apply.py files them as "resource or
-# manifest", but the cmux-tui tree build compiles them, so they go with the Rust part, and linked_rust keeps an app
-# FFI crate's out of it (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
-NATIVE_IN_TUI = re.compile(r"^cmux-tui/.+\.(c|h|m|mm|zig)$")
 
 
 class Phases:
@@ -540,9 +536,9 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
         meta, path = entry.split("\t", 1)
         blobs[path] = meta.split()[2]
     files = live_apply.classify([("M", p) for p in blobs], {})["files"]
-    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    shell = [p for p in files.get("rebuild", []) if p not in native] + files.get("swift-live", [])
-    daemon = files.get("daemon", []) + native
+    # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
+    shell = files.get("rebuild", []) + files.get("swift-live", [])
+    daemon = files.get("daemon", [])
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
@@ -669,9 +665,8 @@ def pins_daemon(repo: Path, commit: str) -> list[str]:
     if not SHA.fullmatch(parent or ""):
         return [f"{commit} has no parent here"]
     files = live_apply.classify_range(str(repo), parent, commit)["files"]
-    # The same files `plan` checks: its daemon part, with cmux-tui's own native sources moved onto it.
-    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    return linked_rust(repo, sorted(set(rust)))
+    # The same files `plan` checks: its daemon part, cmux-tui's own native sources included.
+    return linked_rust(repo, sorted(set(files.get("daemon", []))))
 
 
 def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
@@ -728,10 +723,6 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    if native:
-        files["rebuild"] = [p for p in files["rebuild"] if p not in native]
-        files["daemon"] = sorted(set(files.get("daemon", [])) | set(native))
     for kind in ("swift-live", "rebuild"):
         if files.get(kind):
             out["left"][kind] = files[kind]
