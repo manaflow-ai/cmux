@@ -80,6 +80,10 @@ ALLOWED_RULES = {
     # The thumbnail grid links system frameworks only, so it pins overlay with its own twin of
     # OverlayScrollView (FileGridScrollView).
     "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridView.swift": {"style": "OverlayScrollView twin, system frameworks only", "scroll-view": "is the OverlayScrollView twin"},
+    # The terminal's scroller pins overlay in its own scrollerStyle override (the first such pin).
+    # As an OverlayScrollView subclass its nonisolated deinit and its clip observer's weak self
+    # failed Swift 6's sending check, so it stays an NSScrollView with the same override.
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalScroller.swift": {"scroll-view": "pins overlay with its own override"},
     # The vendored MessagesLab compose box, overlay as SCROLLBARS-THIN asks (as NativeScroll.swift).
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift": {"style": "Home compose, vendored"},
     # Gallery only (PathPicker parity, #19533): a fixed gutter keeps the field's width the same

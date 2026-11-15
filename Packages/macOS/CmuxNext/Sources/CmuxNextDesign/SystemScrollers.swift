@@ -129,7 +129,7 @@ public struct SystemScrollers {
 /// the style back from an observer of the notification came after AppKit's reset, so at least one
 /// frame drew the narrow layout. The setter here
 /// takes no other style, AppKit's reset included, so the clip's width never depends on the setting
-/// (the terminal's scroller pinned it this way first). Detectors: `OverlayScrollViewTests` and
+/// (the terminal's scroller pins it the same way in its own override). Detectors: `OverlayScrollViewTests` and
 /// `scripts/cmux-next/check-scrollbars.sh` (rule `scroll-view`: a NEXT scroll view is one of these).
 @MainActor
 open class OverlayScrollView: NSScrollView {
