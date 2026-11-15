@@ -295,3 +295,6 @@ fn generated_name() -> String {
     }
     format!("chat-{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2])
 }
+
+#[cfg(test)]
+mod tests;

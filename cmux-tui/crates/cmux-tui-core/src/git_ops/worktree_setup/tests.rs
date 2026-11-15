@@ -592,14 +592,20 @@ fn own_tree_a_port_allocation_makes_no_file_through_a_link_in_the_place_of_the_p
 /// lock, and the path of the pipe. No end of the pipe is open.
 #[cfg(unix)]
 fn folder_with_a_named_pipe_in_the_place_of_the_port_lock() -> (PathBuf, PathBuf) {
-    use std::os::unix::ffi::OsStrExt as _;
     let top = folder_with_a_port_of_its_root();
     let lock_file = top.join("git-folder/cmux-worktree-ports.lock");
-    let name = std::ffi::CString::new(lock_file.as_os_str().as_bytes()).unwrap();
+    named_pipe(&lock_file);
+    (top, lock_file)
+}
+
+/// Makes a named pipe at `path`. No end of the pipe is open.
+#[cfg(unix)]
+fn named_pipe(path: &Path) {
+    use std::os::unix::ffi::OsStrExt as _;
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
     // SAFETY: mkfifo(2) with a path that `name` keeps to the end of the call.
     let made = unsafe { libc::mkfifo(name.as_ptr(), 0o600) };
     assert_eq!(made, 0, "the test did not make the named pipe");
-    (top, lock_file)
 }
 
 /// Whether the thing at `path` is a named pipe.
@@ -743,4 +749,116 @@ fn the_read_of_an_open_log_does_not_move_the_place_of_the_open_file() {
     let place = log.stream_position().unwrap();
     fs::remove_dir_all(top).unwrap();
     assert_eq!((text, place), (("456789".to_string(), 4, 10), 2));
+}
+
+/// A new folder with the folders `repository/worktrees/name` (the git folder of a repository
+/// with the git folder of one work tree in it), `elsewhere` and `root` in it.
+#[cfg(unix)]
+fn folder_with_a_work_tree_of_a_repository() -> PathBuf {
+    let mut bytes = [0_u8; 6];
+    getrandom::fill(&mut bytes).unwrap();
+    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let top = std::env::temp_dir().join(format!("cmux-setup-kept-{hex}"));
+    fs::create_dir_all(top.join("repository/worktrees/name")).unwrap();
+    fs::create_dir_all(top.join("elsewhere")).unwrap();
+    fs::create_dir_all(top.join("root")).unwrap();
+    top
+}
+
+/// The names of the entries of `folder`, in their order.
+#[cfg(unix)]
+fn names_in(folder: &Path) -> Vec<String> {
+    let name = |entry: fs::DirEntry| entry.file_name().to_string_lossy().into_owned();
+    let mut names: Vec<String> = fs::read_dir(folder)
+        .map(|entries| entries.flatten().map(name).collect())
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// A setup keeps the git folder that it has at its start. The setup's command waits for a line
+/// of a named pipe. While it waits, the name of the git folder goes to a different folder.
+/// Then the command gets its line and ends: the last status of the setup is in the git folder
+/// of its start, and the different folder gets no file.
+///
+/// The open of the pipe for a write runs on a thread of its own: it ends when the command has
+/// the pipe open for its read. `None`: it did not end in 10 s. The 10 s are not a time that
+/// the setup is measured against: they only make a failed test from a command that does not
+/// come to the pipe. The run is stopped then, and the test opens the pipe for a read before
+/// the join, so the open for a write goes on.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_keeps_the_folder_that_it_opened() {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let top = folder_with_a_work_tree_of_a_repository();
+    let git_dir = top.join("repository/worktrees/name");
+    let gate = top.join("root/gate");
+    named_pipe(&gate);
+    let place = Place { root: top.join("root"), main_root: None, git_dir: git_dir.clone() };
+    let command = r#"read line < "$CMUX_WORKSPACE_PATH/gate""#;
+    let recipe = Recipe { setup: Some(command.into()), ..Recipe::default() };
+    let handle = Arc::new(Run::default());
+    let setup = {
+        let handle = handle.clone();
+        std::thread::spawn(move || {
+            let mut status = Status::default();
+            run(&place, &recipe, &mut status, &handle, None);
+            status.state
+        })
+    };
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let opener = {
+        let gate = gate.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(OpenOptions::new().write(true).open(gate));
+        })
+    };
+    let end = receiver.recv_timeout(Duration::from_secs(10)).ok().and_then(Result::ok);
+    let waits = end.is_some();
+    let release = if let Some(mut end) = end {
+        fs::rename(&git_dir, top.join("repository/worktrees/kept")).unwrap();
+        std::os::unix::fs::symlink(top.join("elsewhere"), &git_dir).unwrap();
+        let _ = std::io::Write::write_all(&mut end, b"go\n");
+        None
+    } else {
+        handle.cancelled.store(true, Ordering::SeqCst);
+        Some(OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&gate))
+    };
+    let joined = opener.join().is_ok();
+    drop(release);
+
+    let state = setup.join().unwrap_or_default();
+
+    let kept = read_status(&top.join("repository/worktrees/kept")).map(|status| status.state);
+    let elsewhere = names_in(&top.join("elsewhere"));
+    fs::remove_dir_all(top).unwrap();
+    assert!(waits && joined, "the setup's command did not come to the pipe");
+    assert_eq!(
+        (state.as_str(), kept.as_deref(), elsewhere),
+        ("succeeded", Some("succeeded"), Vec::new())
+    );
+}
+
+/// A setup keeps the ports file of the repository whose git folder it has at its start. The
+/// name of that git folder goes to a different folder before the setup starts: the work tree
+/// has its block of ports from the repository's ports file, and the different folder gets no
+/// file.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_keeps_the_ports_file_of_the_folder_that_it_opened() {
+    let top = folder_with_a_work_tree_of_a_repository();
+    let root = top.join("root");
+    let own = root.to_str().unwrap();
+    let ports = json!({own: 40_010}).to_string();
+    fs::write(top.join("repository/cmux-worktree-ports.json"), ports).unwrap();
+    let place = Place { root, main_root: None, git_dir: top.join("repository/worktrees/name") };
+    fs::rename(top.join("repository"), top.join("kept")).unwrap();
+    std::os::unix::fs::symlink(top.join("elsewhere"), top.join("repository")).unwrap();
+
+    // A recipe with no file list and no command: the start gives the work tree its ports only.
+    let reply = start(place, Recipe::default());
+
+    let elsewhere = names_in(&top.join("elsewhere"));
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((reply, elsewhere), (json!({"state": "none", "port": 40_010}), Vec::new()));
 }
