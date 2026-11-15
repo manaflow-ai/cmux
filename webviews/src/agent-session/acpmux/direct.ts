@@ -494,9 +494,9 @@ const sentByChief = (msg: { promptId?: unknown }) =>
 /// scroll up waited on a daemon round trip every few screens (Leo, 2026-11-10: "the infinite
 /// scrolling does kind of work, but it's too slow. It needs to do more. It needs to do a lot").
 const OPEN_PAGE_BYTES = 128 * 1024;
-const OLDER_PAGE_BYTES = 1024 * 1024;
+const OLDER_PAGE_BYTES = 256 * 1024;
 /// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES.
-const OLDER_PAGE_RECORDS = 2000;
+const OLDER_PAGE_RECORDS = 400;
 /// The prompt index's byte cap (`loadPromptIndex`), as it was before older pages grew.
 const PROMPT_INDEX_BYTES = 256 * 1024;
 /// Pages read ahead of the reader once an older read lands (`readOlderAhead`): the next ask at the top
