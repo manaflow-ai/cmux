@@ -89,7 +89,7 @@ fetch() { # fetch <sha256:hex> <dest>: from the controller store (or a local tes
 }
 fetch "$PACKAGE" "$WORK/in/package.tar.xz"
 fetch "$SOURCES" "$WORK/in/sources.tar.gz"
-tar -C "$WORK/cef" -xJf "$WORK/in/package.tar.xz"
+tar -C "$WORK/cef" -xf "$WORK/in/package.tar.xz"  # a release .tar.xz or a fleet build's plain cef.tar
 tar -C "$WORK" -xzf "$WORK/in/sources.tar.gz"
 [[ "$(tr -d '[:space:]' <"$WORK/src/REF" 2>/dev/null)" == "$FORK_REF" ]] ||
   die "the test-source archive's REF is $(tr -d '[:space:]' <"$WORK/src/REF" 2>/dev/null || echo missing), not $FORK_REF"
