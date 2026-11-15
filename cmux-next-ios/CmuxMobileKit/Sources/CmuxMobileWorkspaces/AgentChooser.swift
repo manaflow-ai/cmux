@@ -100,7 +100,7 @@ struct AgentChooser: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!harness.canStart)
         .accessibilityIdentifier("agentChooser.harness.\(harness.id)")
     }
@@ -127,7 +127,7 @@ struct AgentChooser: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(reason != nil)
         .accessibilityIdentifier("agentChooser.model.\(id ?? "default")")
     }
