@@ -269,7 +269,6 @@ body {
   );
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
 }
 .ui-tooltip.ui-card[data-tooltip-card] {
   pointer-events: auto;
