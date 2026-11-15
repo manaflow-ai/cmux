@@ -78,7 +78,7 @@ minutes), when any of these holds:
 | `chief_activation_milestone_reached` | First time per install | `milestone`, `days_since_install` |
 | `chief_daily_active` | First completed turn of a UTC day | none |
 | `chief_message_received` | A message reaches the Chief (its own chat or a side chat) | `sender` (`human`, `agent`, `other`), `images`, `files`, `remote`, `side` |
-| `chief_turn_completed` | A Chief turn ends | `status` (`ok`, `error`, `cancelled`, `stopped`, `owner_stopped`, `superseded`, `refused`), `error_class`, `replied`, `harness`, `harness_kind`, `model`, `effort`, `tier`, `duration_ms`, `start_ms`, `ttft_ms`, `headers_ms`, `first_draft_ms`, `posted_to_first_draft_ms`, `requests`, `tools`, `tool_errors`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cache_hit_rate`, `cost_usd`, `harness_refused` |
+| `chief_turn_completed` | A Chief turn ends | `turn_status` (`ok`, `error`, `cancelled`, `stopped`, `owner_stopped`, `superseded`, `refused`), `error_class`, `replied`, `harness`, `harness_kind`, `model`, `effort`, `tier`, `duration_ms`, `start_ms`, `ttft_ms`, `headers_ms`, `first_draft_ms`, `posted_to_first_draft_ms`, `requests`, `tools`, `tool_errors`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cache_hit_rate`, `cost_usd`, `harness_refused` |
 | `chief_tool_used` | First use of a tool per UTC day | `tool` (the Chief's tools by name, harness built-ins by name, `mcp_cmux`, `mcp_other`, `other`) |
 | `chief_subagents_spawned` | One `spawn` call | `count`, `harness`, `here`, `cloud`, `peer`, `settle_ms` |
 | `chief_subagent_started` | A subagent's session starts | `harness`, `harness_kind`, `goal`, `peer`, `start_ms` |
@@ -96,7 +96,9 @@ ok turn with a reply), `first_subagent`, `first_subagent_done`, `first_landed_wo
 `first_day_7_return` (a turn 7 to 13 days after install).
 
 Costs are what the harness reports (Claude Code's `total_cost_usd`): list price, not what cmux
-pays. Latency fields are milliseconds, so insights can use p50/p90/p95 directly.
+pays. Latency fields are milliseconds, so insights can use p50/p90/p95 directly. Property names avoid
+ones the project already types as numbers for other products (`status` is an HTTP code there),
+hence `turn_status`.
 
 ## Errors and crashes (Sentry)
 
