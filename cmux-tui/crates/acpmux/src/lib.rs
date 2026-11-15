@@ -61,6 +61,10 @@ mod codex_cloud_auth;
 pub mod codex_desktop;
 pub mod complete;
 pub mod config;
+/// Control and Screen switched from the owner's app on another machine, over the hub carrier
+/// (`consent_grant_service.rs`, `cli/consent_grant.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod consent_grant_service;
 pub mod context_inventory;
 pub mod cpu_class;
 pub mod cua_socket;

@@ -877,6 +877,13 @@ pub mod method {
     pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
+    /// Another machine's Control and Screen through the carrier (`server/consent_grant.rs`):
+    /// `{daemonId}` -> its status plus `self`. The person's local connection only.
+    pub const MUX_CONSENT_REMOTE_STATUS: &str = "_acpmux/consent_remote_status";
+    /// `{daemonId, grant}`: a grant the app signed, carried to that machine; its answer.
+    pub const MUX_CONSENT_REMOTE_SET: &str = "_acpmux/consent_remote_set";
+    /// `{id, trusted}` on the machine a grant reached: pins the pending ask's key, or unpins.
+    pub const MUX_CONSENT_GRANTOR_TRUST: &str = "_acpmux/consent_grantor_trust";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     /// The person's other machines' workspace routes (`machine_routes.rs`): `{}` ->
     /// `{machines: [{host, daemonId, via, route, socket, state, refusal}]}`. Local socket only.

@@ -9,7 +9,7 @@ use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-pub(super) struct Authority {
+pub(crate) struct Authority {
     root: PathBuf,
     legacy: PathBuf,
 }
@@ -17,6 +17,17 @@ pub(super) struct Authority {
 impl Authority {
     pub(super) fn current(legacy: PathBuf) -> Result<Self> {
         Ok(Self { root: account_home()?.join(".acpmux/machine-consent"), legacy })
+    }
+
+    /// The authority kept in `root`, with `legacy` as the daemon's own state: a test's, or a
+    /// carrier test's machine (`consent_grant_service.rs`), never the OS account's.
+    pub(crate) fn at(root: PathBuf, legacy: PathBuf) -> Self {
+        Self { root, legacy }
+    }
+
+    /// The directory the authority's files are in.
+    pub(super) fn root(&self) -> &Path {
+        &self.root
     }
 
     fn validate_namespace(&self) -> Result<()> {
@@ -36,7 +47,7 @@ impl Authority {
         Ok(())
     }
 
-    fn prepare(&self) -> Result<()> {
+    pub(super) fn prepare(&self) -> Result<()> {
         self.validate_namespace()?;
         crate::config::private_state_dir(&self.root)?;
         self.validate_namespace()
@@ -147,7 +158,7 @@ impl Authority {
         Ok(exists(&self.root.join("enrolled.json"))? || exists(&self.root.join("consent.json"))?)
     }
 
-    fn consent(&self) -> Consent {
+    pub(super) fn consent(&self) -> Consent {
         crate::config::private_state_file(&self.root.join("consent.json"))
             .ok()
             .and_then(|file| serde_json::from_reader(file).ok())
@@ -193,9 +204,16 @@ impl Authority {
         let _lock = self.lock()?;
         let mut consent = self.consent();
         let state = if granted { ConsentState::Granted } else { ConsentState::None };
+        // A local change is the person's own here: the surface no longer holds a remote grant.
         match surface {
-            "screen" => consent.screen = state,
-            "control" => consent.control = state,
+            "screen" => {
+                consent.screen = state;
+                consent.screen_granted_by = None;
+            }
+            "control" => {
+                consent.control = state;
+                consent.control_granted_by = None;
+            }
             super::cloud_join::SIGNED_IN_MACHINES => {
                 anyhow::ensure!(
                     !granted || user.is_some(),
@@ -216,6 +234,8 @@ impl Authority {
             &self.root.join("consent.json"),
             &serde_json::to_vec(&consent)?,
         )?;
+        // The change is made; a log that cannot be written does not undo it.
+        let _ = super::consent_grant::log_local(self, surface, granted);
         Ok(consent)
     }
 
@@ -255,7 +275,7 @@ impl Authority {
     }
 
     #[cfg(unix)]
-    fn lock(&self) -> Result<HeldLock> {
+    pub(super) fn lock(&self) -> Result<HeldLock> {
         use std::os::fd::AsRawFd;
         let file = crate::config::private_state_rw(&self.root.join("write.lock"))?;
         // SAFETY: file is a live owned descriptor. Nonblocking avoids stalling
@@ -267,7 +287,7 @@ impl Authority {
         Ok(HeldLock(file))
     }
     #[cfg(not(unix))]
-    fn lock(&self) -> Result<HeldLock> {
+    pub(super) fn lock(&self) -> Result<HeldLock> {
         anyhow::bail!("consent unavailable")
     }
 }
@@ -276,10 +296,20 @@ impl Authority {
 /// as now: a `signedInMachines` grant or answer given for another account (or for none) reads as
 /// not given, and a `signedInMachines` ask made for another account is dropped, so after a
 /// switch nothing is granted, the app shows no old ask, and the next request is asked again.
-/// `signedInMachinesUser` is left as written. Screen and control are unchanged.
+/// `signedInMachinesUser` is left as written. Screen or control the owner's app turned on from
+/// elsewhere (`controlGrantedBy`, `screenGrantedBy`, `consent_grant.rs`) for another account reads
+/// `none`; one granted here is unchanged.
 pub(crate) fn for_account(mut status: Value, account: Option<&str>) -> Value {
     let sim = super::cloud_join::SIGNED_IN_MACHINES;
     let mine = |user: Option<&Value>| account.is_some() && user.and_then(Value::as_str) == account;
+    if let Some(consent) = status.get_mut("consent").and_then(Value::as_object_mut) {
+        for (surface, by) in [("control", "controlGrantedBy"), ("screen", "screenGrantedBy")] {
+            let remote = consent.get(by).filter(|by| !by.is_null());
+            if remote.is_some_and(|by| !mine(by.get("account"))) {
+                consent.insert(surface.into(), json!("none"));
+            }
+        }
+    }
     if let Some(consent) = status.get_mut("consent").and_then(Value::as_object_mut)
         && !mine(consent.get("signedInMachinesUser"))
     {

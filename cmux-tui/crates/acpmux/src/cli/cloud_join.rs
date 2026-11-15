@@ -203,6 +203,23 @@ pub struct Consent {
     pub signed_in_machines_user: Option<String>,
     #[serde(rename = "grantedAt", skip_serializing_if = "Option::is_none")]
     pub granted_at: Option<String>,
+    /// The owner's app on another machine turned [`Self::control`] on with a signed grant
+    /// (`consent_grant.rs`). Cleared by any Off and by any local change of the surface.
+    #[serde(rename = "controlGrantedBy", default, skip_serializing_if = "Option::is_none")]
+    pub control_granted_by: Option<GrantedBy>,
+    /// [`Self::control_granted_by`] for [`Self::screen`].
+    #[serde(rename = "screenGrantedBy", default, skip_serializing_if = "Option::is_none")]
+    pub screen_granted_by: Option<GrantedBy>,
+}
+
+/// Who turned a surface on from elsewhere: the pinned grantor (a Mac approver id), the account
+/// (hub user id) the grant was signed for, and when it was applied here (ms). A grant for another
+/// account than this machine's current one reads as not given (`machine_consent::for_account`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrantedBy {
+    pub grantor: String,
+    pub account: String,
+    pub at: u64,
 }
 
 /// The consent surface "control for my other machines signed in to this account" (Leo,
@@ -752,7 +769,7 @@ pub(crate) fn read_join_credential(hub_origin: &str) -> Result<String> {
     Ok(record.credential)
 }
 
-fn authority() -> Result<super::machine_consent::Authority> {
+pub(crate) fn authority() -> Result<super::machine_consent::Authority> {
     super::machine_consent::Authority::current(consent_home())
 }
 
@@ -1029,7 +1046,18 @@ pub(crate) fn consent_status() -> Value {
     )
 }
 
-/// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking
+/// `_acpmux/machine_consent_get`'s answer: [`consent_status_for`] plus the pinned grantors, the
+/// pending grantor ask and the last lines of the grant log (`consent_grant.rs`).
+pub(crate) fn consent_status_with_grants(params: &Value) -> Value {
+    let mut status = consent_status_for(params);
+    if let (Ok(authority), Some(fields)) = (authority(), status.as_object_mut()) {
+        let account = machine_user_id();
+        fields.extend(super::consent_grant::status_fields(&authority, account.as_deref()));
+    }
+    status
+}
+
+/// The consent status the gates read. With `{"use": "localComputerUse"}` (the app asking
 /// for its Computer Use helper, which serves only this Mac's own sessions), a requirement only
 /// sign-in joins made gates nothing ([`machine_consent::Authority::status_for`]); every other
 /// caller gets the requirement as it is.
@@ -1043,7 +1071,8 @@ pub(crate) fn consent_status_for(params: &Value) -> Value {
 }
 
 pub fn require_consent(surface: &str) -> Result<()> {
-    let status = consent_status();
+    // A surface granted from elsewhere for another account than this machine's reads as none.
+    let status = for_this_account(consent_status());
     if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {
         Ok(())
     } else {

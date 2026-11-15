@@ -2398,6 +2398,7 @@ pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
 mod chats;
 pub mod conn_auth;
+mod consent_grant;
 mod durable_gate;
 mod ephemeral;
 mod fanout;

@@ -138,7 +138,13 @@ pub enum CircuitService {
     /// "control for my other machines signed in to this account" on that machine
     /// ([`SessionGate`], `cmux_tui_service.rs`); refused by default.
     CmuxTuiSession,
+    /// The machine's consent service: one request, one answer (`consent_grant_service.rs`).
+    /// Hello `{"service":"consent"}`.
+    Consent,
 }
+
+/// The service name a hello gives [`CircuitService::Consent`].
+pub const CONSENT_SERVICE: &str = "consent";
 
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
 pub const SESSION_TARGET: &str = "session";
@@ -197,6 +203,7 @@ fn service_hello(service: CircuitService) -> Option<Bytes> {
         CircuitService::CmuxTuiSession => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
         }
+        CircuitService::Consent => serde_json::json!({"service": CONSENT_SERVICE}),
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
@@ -225,6 +232,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
             Ok(CircuitService::CmuxTuiSession)
+        }
+        (Some(CONSENT_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::Consent)
         }
         _ => Err(unknown()),
     })
@@ -322,6 +332,8 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Whether a circuit may reach this machine's consent service; none refuses it.
+    consent: RwLock<Option<Arc<dyn crate::consent_grant_service::ConsentGate>>>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -348,6 +360,7 @@ impl HubCarrier {
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            consent: RwLock::new(None),
         })
     }
 
@@ -372,6 +385,7 @@ impl HubCarrier {
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            consent: RwLock::new(None),
         })
     }
 
@@ -451,6 +465,11 @@ impl HubCarrier {
 
     fn session_gate(&self) -> Option<Arc<dyn SessionGate>> {
         self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Let circuits reach this machine's consent service as `gate` decides.
+    pub fn set_consent_gate(&self, gate: Arc<dyn crate::consent_grant_service::ConsentGate>) {
+        *self.consent.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
     }
 
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
@@ -851,6 +870,13 @@ impl RelayIncoming for Incoming {
                 return;
             }
         };
+        if named_service(&first) == Some(Ok(CircuitService::Consent)) {
+            drop(listener);
+            let gate = self.carrier.consent.read().unwrap_or_else(|e| e.into_inner()).clone();
+            let wait = self.carrier.timings.handshake;
+            crate::consent_grant_service::serve(gate, from, link, wait).await;
+            return;
+        }
         if named_service(&first) == Some(Ok(CircuitService::CmuxTuiSession)) {
             // A session circuit reaches the cmux-tui session socket; the acpmux listener's
             // connection closes unused.
@@ -903,7 +929,7 @@ impl RelayIncoming for Incoming {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
                     // Served above; never reaches a TCP target.
-                    Ok(CircuitService::CmuxTuiSession) => {
+                    Ok(CircuitService::CmuxTuiSession | CircuitService::Consent) => {
                         Err(ServiceRefusal::new("service.unknown", "no such service"))
                     }
                     Err(refusal) => Err(refusal),
@@ -1220,6 +1246,9 @@ pub async fn start_configured(
     carrier.set_cmux_tui_gate(Arc::new(crate::cmux_tui_service::ConfiguredGate::new(hub)));
     // Off unless the person on this machine allowed its other signed-in machines in.
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
+    // Switches only by a grant a key pinned here signed (`consent_grant_service.rs`).
+    carrier
+        .set_consent_gate(Arc::new(crate::consent_grant_service::ConfiguredConsentGate::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
