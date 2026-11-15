@@ -108464,127 +108464,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تظهر أزرار الشريط الجانبي وأشرطة علامات التبويب والمساحات وزر الملف الشخصي فقط أثناء وجود المؤشر فوقها. تعرض صفوف مساحات العمل أيقونتها واسمها وعلامة غير المقروء فقط، وتصبح عناوين الأقسام خطوطًا رفيعة."
+            "value": "تظهر أزرار الشريط الجانبي وأشرطة علامات التبويب والمساحات وزر الملف الشخصي فقط أثناء وجود المؤشر فوقها. لا تتغير الصفوف والمسافات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dugmad bočne trake i traka kartica, prostori i dugme profila prikazuju se samo dok je pokazivač iznad njih. Redovi radnih prostora prikazuju samo ikonu, naziv i oznaku nepročitanog, a naslovi odjeljaka postaju tanke linije."
+            "value": "Dugmad bočne trake i traka kartica, prostori i dugme profila prikazuju se samo dok je pokazivač iznad njih. Redovi i razmaci se ne mijenjaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sidepanelets og fanelinjernes knapper, rum og profilknap vises kun, mens markøren er over dem. Rækker for arbejdsområder viser kun ikon, navn og ulæst-mærke, og sektionstitler bliver til tynde linjer."
+            "value": "Sidepanelets og fanelinjernes knapper, rum og profilknap vises kun, mens markøren er over dem. Rækker og afstande ændres ikke."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Tasten, Bereiche und die Profiltaste der Seitenleiste und der Tableisten erscheinen nur, solange der Zeiger darüber ist. Arbeitsbereichszeilen zeigen nur Symbol, Name und Ungelesen-Markierung, und Abschnittstitel werden zu dünnen Linien."
+            "value": "Die Tasten, Bereiche und die Profiltaste der Seitenleiste und der Tableisten erscheinen nur, solange der Zeiger darüber ist. Zeilen und Abstände ändern sich nicht."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+            "value": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Los botones, los espacios y el botón de perfil de la barra lateral y de las barras de pestañas solo se muestran mientras el puntero está sobre ellos. Las filas de espacios de trabajo muestran solo su icono, nombre y marca de no leído, y los títulos de sección se vuelven líneas finas."
+            "value": "Los botones, los espacios y el botón de perfil de la barra lateral y de las barras de pestañas solo se muestran mientras el puntero está sobre ellos. Las filas y el espaciado no cambian."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les boutons, les espaces et le bouton de profil de la barre latérale et des barres d’onglets ne s’affichent que lorsque le pointeur les survole. Les lignes d’espace de travail n’affichent que leur icône, leur nom et leur marque non lu, et les titres de section deviennent de fines lignes."
+            "value": "Les boutons, les espaces et le bouton de profil de la barre latérale et des barres d’onglets ne s’affichent que lorsque le pointeur les survole. Les lignes et l’espacement ne changent pas."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "I pulsanti, gli spazi e il pulsante del profilo della barra laterale e delle barre delle schede si vedono solo mentre il puntatore è sopra di essi. Le righe dei workspace mostrano solo icona, nome e segno di non letto, e i titoli delle sezioni diventano linee sottili."
+            "value": "I pulsanti, gli spazi e il pulsante del profilo della barra laterale e delle barre delle schede si vedono solo mentre il puntatore è sopra di essi. Righe e spaziatura non cambiano."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーとタブバーのボタン、スペース、プロフィールボタンは、ポインタを置いている間だけ表示されます。ワークスペースの行はアイコン、名前、未読マークだけを表示し、セクションの見出しは細い線になります。"
+            "value": "サイドバーとタブバーのボタン、スペース、プロフィールボタンは、ポインタを置いている間だけ表示されます。行と間隔は変わりません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប៊ូតុង ចន្លោះ និងប៊ូតុងប្រវត្តិរូបនៃរបារចំហៀង និងរបារផ្ទាំង បង្ហាញតែពេលទស្សន៍ទ្រនិចនៅលើពួកវាប៉ុណ្ណោះ។ ជួរកន្លែងធ្វើការបង្ហាញតែរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន ហើយចំណងជើងផ្នែកក្លាយជាបន្ទាត់ស្ដើង។"
+            "value": "ប៊ូតុង ចន្លោះ និងប៊ូតុងប្រវត្តិរូបនៃរបារចំហៀង និងរបារផ្ទាំង បង្ហាញតែពេលទស្សន៍ទ្រនិចនៅលើពួកវាប៉ុណ្ណោះ។ ជួរ និងគម្លាតមិនផ្លាស់ប្ដូរទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "사이드바와 탭 막대의 버튼, 스페이스, 프로필 버튼은 포인터가 그 위에 있을 때만 표시됩니다. 워크스페이스 행에는 아이콘, 이름, 읽지 않음 표시만 나오고 섹션 제목은 가는 선이 됩니다."
+            "value": "사이드바와 탭 막대의 버튼, 스페이스, 프로필 버튼은 포인터가 그 위에 있을 때만 표시됩니다. 행과 간격은 바뀌지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Knappene, rommene og profilknappen i sidefeltet og fanelinjene vises bare mens pekeren er over dem. Rader for arbeidsområder viser bare ikon, navn og ulest-merke, og seksjonstitler blir tynne linjer."
+            "value": "Knappene, rommene og profilknappen i sidefeltet og fanelinjene vises bare mens pekeren er over dem. Rader og avstander endres ikke."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przyciski, przestrzenie i przycisk profilu paska bocznego oraz pasków kart są widoczne tylko, gdy wskaźnik jest nad nimi. Wiersze przestrzeni roboczych pokazują tylko ikonę, nazwę i znacznik nieprzeczytanych, a tytuły sekcji stają się cienkimi liniami."
+            "value": "Przyciski, przestrzenie i przycisk profilu paska bocznego oraz pasków kart są widoczne tylko, gdy wskaźnik jest nad nimi. Wiersze i odstępy się nie zmieniają."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Os botões, os espaços e o botão de perfil da barra lateral e das barras de abas aparecem só enquanto o ponteiro está sobre eles. As linhas de espaços de trabalho mostram só o ícone, o nome e a marca de não lido, e os títulos de seção viram linhas finas."
+            "value": "Os botões, os espaços e o botão de perfil da barra lateral e das barras de abas aparecem só enquanto o ponteiro está sobre eles. As linhas e o espaçamento não mudam."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кнопки, пространства и кнопка профиля боковой панели и панелей вкладок видны, только пока указатель над ними. Строки рабочих пространств показывают только значок, имя и отметку непрочитанного, а заголовки разделов становятся тонкими линиями."
+            "value": "Кнопки, пространства и кнопка профиля боковой панели и панелей вкладок видны, только пока указатель над ними. Строки и отступы не меняются."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปุ่ม สเปซ และปุ่มโปรไฟล์ของแถบด้านข้างและแถบแท็บจะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือสิ่งเหล่านั้น แถวพื้นที่ทำงานแสดงเฉพาะไอคอน ชื่อ และเครื่องหมายยังไม่ได้อ่าน และชื่อส่วนจะกลายเป็นเส้นบาง"
+            "value": "ปุ่ม สเปซ และปุ่มโปรไฟล์ของแถบด้านข้างและแถบแท็บจะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือสิ่งเหล่านั้น แถวและระยะห่างไม่เปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kenar çubuğunun ve sekme çubuklarının düğmeleri, alanları ve profil düğmesi yalnızca işaretçi üzerlerindeyken görünür. Çalışma alanı satırları yalnızca simgelerini, adlarını ve okunmamış işaretini gösterir, bölüm başlıkları ince çizgilere dönüşür."
+            "value": "Kenar çubuğunun ve sekme çubuklarının düğmeleri, alanları ve profil düğmesi yalnızca işaretçi üzerlerindeyken görünür. Satırlar ve aralıklar değişmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кнопки, простори та кнопка профілю бічної панелі й панелей вкладок видні, лише поки вказівник над ними. Рядки робочих просторів показують лише значок, назву й позначку непрочитаного, а заголовки розділів стають тонкими лініями."
+            "value": "Кнопки, простори та кнопка профілю бічної панелі й панелей вкладок видні, лише поки вказівник над ними. Рядки та відступи не змінюються."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các nút, không gian và nút hồ sơ của thanh bên và thanh thẻ chỉ hiện khi con trỏ ở trên chúng. Các hàng không gian làm việc chỉ hiện biểu tượng, tên và dấu chưa đọc, còn tiêu đề mục trở thành đường mảnh."
+            "value": "Các nút, không gian và nút hồ sơ của thanh bên và thanh thẻ chỉ hiện khi con trỏ ở trên chúng. Các hàng và khoảng cách không thay đổi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "边栏和标签栏的按钮、空间和个人资料按钮仅在指针位于其上方时显示。工作区行仅显示图标、名称和未读标记，分区标题变为细线。"
+            "value": "边栏和标签栏的按钮、空间和个人资料按钮仅在指针位于其上方时显示。行和间距不会改变。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "側邊欄和分頁列的按鈕、空間和個人檔案按鈕僅在指標位於其上方時顯示。工作區列僅顯示圖示、名稱和未讀標記，區段標題變為細線。"
+            "value": "側邊欄和分頁列的按鈕、空間和個人檔案按鈕僅在指標位於其上方時顯示。列和間距不會改變。"
           }
         }
       }
@@ -115423,134 +115423,134 @@
         }
       }
     },
-    "settings.sidebar.minimal.summary": {
+"settings.sidebar.minimal.summary": {
       "comment": "Settings row summary: one short line under the setting's title.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buttons show on hover; rows show icon, name and unread mark"
+            "value": "Buttons show only on hover"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الأزرار عند التمرير؛ الصفوف: أيقونة واسم وعلامة غير مقروء"
+            "value": "تظهر الأزرار عند التمرير فقط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dugmad na prelazu; redovi: ikona, naziv, oznaka nepročitanog"
+            "value": "Dugmad se prikazuju samo pri prelasku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Knapper ved markør; rækker viser ikon, navn og ulæst-mærke"
+            "value": "Knapper vises kun ved markør"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasten beim Darüberfahren; Zeilen: Symbol, Name, Ungelesen"
+            "value": "Tasten erscheinen nur beim Darüberfahren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Botones al pasar el puntero; filas: icono, nombre y no leído"
+            "value": "Los botones solo aparecen al pasar el puntero"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Boutons au survol ; lignes : icône, nom et marque non lu"
+            "value": "Boutons au survol uniquement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsanti al passaggio; righe: icona, nome e segno non letto"
+            "value": "Pulsanti solo al passaggio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ボタンはポインタを置いたときに表示、行はアイコン・名前・未読マークのみ"
+            "value": "ボタンはポインタを置いたときだけ表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប៊ូតុងបង្ហាញពេលដាក់ទស្សន៍ទ្រនិច ជួរបង្ហាញរូបតំណាង ឈ្មោះ និងសញ្ញាមិនទាន់អាន"
+            "value": "ប៊ូតុងបង្ហាញតែពេលដាក់ទស្សន៍ទ្រនិច"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "버튼은 마우스를 올릴 때 표시, 행은 아이콘·이름·읽지 않음 표시만"
+            "value": "버튼은 마우스를 올릴 때만 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Knapper ved peker; rader viser ikon, navn og ulest-merke"
+            "value": "Knapper vises bare ved peker"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przyciski po najechaniu; wiersze: ikona, nazwa, nowe"
+            "value": "Przyciski tylko po najechaniu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Botões ao passar o ponteiro; linhas: ícone, nome e não lido"
+            "value": "Botões aparecem só ao passar o ponteiro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Кнопки при наведении; строки: значок, имя, непрочитанное"
+            "value": "Кнопки только при наведении"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปุ่มแสดงเมื่อวางเมาส์ แถวแสดงไอคอน ชื่อ และเครื่องหมายยังไม่ได้อ่าน"
+            "value": "ปุ่มแสดงเฉพาะเมื่อวางเมาส์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Düğmeler üzerine gelince; satırlar: simge, ad, okunmamış"
+            "value": "Düğmeler yalnızca üzerine gelince görünür"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Кнопки при наведенні; рядки: значок, назва, непрочитане"
+            "value": "Кнопки лише при наведенні"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nút hiện khi di chuột; hàng: biểu tượng, tên, dấu chưa đọc"
+            "value": "Nút chỉ hiện khi di chuột"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按钮悬停时显示；行仅显示图标、名称和未读标记"
+            "value": "按钮仅在悬停时显示"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "按鈕懸停時顯示；列僅顯示圖示、名稱和未讀標記"
+            "value": "按鈕僅在懸停時顯示"
           }
         }
       }
