@@ -81,6 +81,10 @@ pub struct Record {
     pub hidden_access: HiddenAccess,
     pub sandboxed: bool,
     pub grants: BTreeSet<String>,
+    /// The values the person set for the manifest's `settings` (Settings > Extensions); a key
+    /// left out takes the manifest default. Validated against the manifest before it is stored.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub settings: BTreeMap<String, serde_json::Value>,
 }
 
 /// What the catalog knows about an app; the reducer needs it to apply tier rules.
@@ -246,6 +250,11 @@ pub struct SetOp {
     pub sandboxed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant: Option<(String, bool)>,
+    /// Extension settings to merge into the record: a value sets the key, `null` resets it to
+    /// the manifest default. The supervisor validates them against the manifest first; any
+    /// origin may change them (as `cmux settings set` may).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -272,6 +281,8 @@ pub enum Effect {
     ClearStorage(String),
     /// Stop the app's host (uninstall or disable).
     StopHost(String),
+    /// The app's own settings changed: a running host gets the new values live.
+    SettingsChanged(String),
     /// Grants or sandbox changed: a running host restarts with the new grant.
     GrantsChanged(String),
 }
@@ -350,6 +361,7 @@ fn fresh(facts: &Facts, source: Source) -> Record {
         enabled: true,
         hidden: false,
         hidden_access: HiddenAccess::default(),
+        settings: BTreeMap::new(),
         sandboxed,
         grants,
     }
@@ -363,6 +375,7 @@ pub fn absent(source: Source, facts: Option<&Facts>) -> Record {
         enabled: false,
         hidden: false,
         hidden_access: HiddenAccess::default(),
+        settings: BTreeMap::new(),
         sandboxed: facts.is_some_and(|f| f.tier == Tier::Unverified),
         grants: BTreeSet::new(),
     }
@@ -442,7 +455,8 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
             && set.hidden.is_none()
             && set.hidden_access.is_none()
             && set.sandboxed.is_none()
-            && set.grant.is_none();
+            && set.grant.is_none()
+            && set.settings.is_none();
         let Some(current) = current.filter(|_| only_uninstall) else {
             return Err(Reject::UnknownApp);
         };
@@ -510,7 +524,8 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
         || set.hidden.is_some()
         || set.hidden_access.is_some()
         || set.sandboxed.is_some()
-        || set.grant.is_some();
+        || set.grant.is_some()
+        || set.settings.is_some();
     if !record.installed && touches_installed_state {
         return Err(if uninstalling {
             Reject::BadRequest("an uninstall cannot change other fields")
@@ -550,6 +565,19 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
         };
         if changed {
             effects.push(Effect::GrantsChanged(set.app.clone()));
+        }
+    }
+    if let Some(settings) = &set.settings {
+        let before_settings = record.settings.clone();
+        for (key, value) in settings {
+            if value.is_null() {
+                record.settings.remove(key);
+            } else {
+                record.settings.insert(key.clone(), value.clone());
+            }
+        }
+        if record.settings != before_settings {
+            effects.push(Effect::SettingsChanged(set.app.clone()));
         }
     }
     Ok(commit(mirror, set, &print, &before, record, effects))

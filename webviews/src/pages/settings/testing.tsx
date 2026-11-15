@@ -1,9 +1,10 @@
 // Test helpers: the page rendered on the mock provider (over the pane-protocol mock transport
 // pair) with memory history. Import it after installDom() (./testDom). Not shipped.
-import { createMemoryHistory } from "@tanstack/react-router";
-import { act } from "react";
+import { createMemoryHistory, type AnyRouter } from "@tanstack/react-router";
+import { act, type ReactNode } from "react";
 import { fileURLToPath } from "node:url";
 import type { Root } from "react-dom/client";
+import { SettingsContext } from "./context";
 import { SettingsPage } from "./components/SettingsPage";
 import { createMockClient, type MockOptions, type MockSettingsProvider } from "./mockProvider";
 import { SettingsStore } from "./store";
@@ -166,4 +167,35 @@ export async function run<T>(work: () => T | Promise<T>): Promise<T> {
   });
   await settle();
   return result as T;
+}
+
+/** One card drawn alone over the mock provider's store, outside a category (a card is tested on its
+ * own before the exported schema's layout lists its category). */
+export async function renderCard(card: ReactNode, setup?: (provider: MockSettingsProvider) => void): Promise<Rendered> {
+  setLocale("en");
+  const mock = createMockClient();
+  setup?.(mock.provider);
+  const store = new SettingsStore(mock.client);
+  await act(async () => await store.start());
+  const history = createMemoryHistory({ initialEntries: ["/settings/general"] });
+  const container = document.createElement("div");
+  document.body.append(container);
+  let root: Root | null = null;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SettingsContext.Provider value={{ store, router: {} as AnyRouter }}>{card}</SettingsContext.Provider>);
+  });
+  await settle();
+  return {
+    provider: mock.provider,
+    store,
+    container,
+    history,
+    unmount() {
+      act(() => root?.unmount());
+      container.remove();
+      store.dispose();
+      mock.close();
+    },
+  };
 }

@@ -940,6 +940,18 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
+  "extensions-edited": variant("extensions", {
+    note: "Settings > Extensions: an extension's declared settings (switch, choice, text, number), Compact rows just turned on.",
+    steps: [
+      wait('[data-extension-setting="compact"] [role="switch"]'),
+      click('[data-extension-setting="compact"] [role="switch"]'),
+    ],
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="extensions"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
   "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
@@ -1836,6 +1848,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/components/ExtensionsCard.tsx",
     "pages/settings/components/WorktreeSetupCard.tsx",
     "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
