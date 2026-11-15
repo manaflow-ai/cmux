@@ -17,6 +17,13 @@ use crate::{PaneId, State, SurfaceId};
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
 
+#[cfg(test)]
+thread_local! {
+    /// Whole state clones that [`ResourceMutationPlan::stage`] made on this
+    /// thread for a closure step.
+    static STAGED_STATE_CLONES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// State rows written in the plan's transaction after its patch applies.
 /// It may finalize the result and add changes (state resources and fresh
 /// upserts of resources whose only change is a state field).
@@ -115,6 +122,8 @@ impl ResourceMutationPlan {
     pub(crate) fn stage(&mut self, state: &mut State) -> State {
         match std::mem::replace(&mut self.state_step, StateStep::Staged) {
             StateStep::Apply(apply) => {
+                #[cfg(test)]
+                STAGED_STATE_CLONES.with(|clones| clones.set(clones.get() + 1));
                 let before = state.clone();
                 apply(state);
                 before
@@ -125,6 +134,13 @@ impl ResourceMutationPlan {
                 state.clone()
             }
         }
+    }
+
+    /// Whole state clones that [`Self::stage`] made on this thread for a
+    /// closure step (test hook).
+    #[cfg(test)]
+    pub(crate) fn staged_state_clones_for_test() -> u64 {
+        STAGED_STATE_CLONES.with(std::cell::Cell::get)
     }
 
     /// Declare that the state step changes only focus: the active
