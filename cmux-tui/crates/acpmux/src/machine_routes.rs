@@ -75,8 +75,9 @@ impl Drop for Route {
 }
 
 /// The socket of the route to the machine whose hub `daemonId` is `key`, beside `daemon_socket`
-/// (this daemon's own `acpmux.sock`): a short name from the key's hash, so every path fits a
-/// unix socket address the daemon's own does.
+/// (this daemon's own `acpmux.sock`): `m` and the key's hash, no longer than the daemon's own
+/// file name, so a route's path fits a unix socket address whenever the daemon's does (at least
+/// 8 hex digits, at most 24).
 /// The hash covers the daemon's socket too, so two daemons of one user that share a socket
 /// folder (`/tmp/acpmux-UID`) never name the same route.
 pub fn socket_for(daemon_socket: &Path, key: &str) -> PathBuf {
@@ -84,7 +85,9 @@ pub fn socket_for(daemon_socket: &Path, key: &str) -> PathBuf {
     input.push(0);
     input.extend_from_slice(key.as_bytes());
     let digest = crate::sha256::sha256_hex(&input);
-    let name = format!("acpmux-m-{}.sock", digest.get(..12).unwrap_or(&digest));
+    let own = daemon_socket.file_name().map_or(0, |name| name.len());
+    let digits = own.saturating_sub(1).clamp(8, 24);
+    let name = format!("m{}", digest.get(..digits).unwrap_or(&digest));
     daemon_socket.with_file_name(name)
 }
 
@@ -310,7 +313,7 @@ mod tests {
         assert!(socket.file_name().unwrap().len() <= 32);
         // Never longer than the daemon's own: a socket path that fits for the daemon fits for
         // each route (sockaddr_un holds 107 bytes).
-        // A daemon socket 105 bytes long, as a deep test home makes it (the route used to be 108).
+        // A daemon socket 106 bytes long, as a deep test home makes it (its route was 121).
         let deep = format!("/{}/acpmux.sock", "d".repeat(93));
         for daemon in ["/tmp/acpmux-501/acpmux.sock", deep.as_str(), "/run/a.sock"] {
             let daemon = Path::new(daemon);
