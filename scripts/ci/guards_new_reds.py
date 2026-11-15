@@ -150,6 +150,8 @@ _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
 # ResourceWarning adds a tracemalloc hint line: all three go.
 _INTERPRETER_WARNING = re.compile(r"(?:\bsys|<[^>\n]+>|(?:[^\s:]*/)?[\w.-]+\.py):\d+: \w*Warning: .*$")
 _WARNING_HINT = re.compile(r"^\s*\w*Warning: Enable tracemalloc\b")
+# A line a runner prints for a failure: never a warning's source line, even indented right after one.
+_FAILURE_LINE = re.compile(r"^\s*(?:FAIL|ERROR|FAILED|Traceback|AssertionError|\w*Error\b|\w*Exception\b|not ok\b)")
 
 
 def failure_names(lines: list[str]) -> set[str]:
@@ -157,8 +159,10 @@ def failure_names(lines: list[str]) -> set[str]:
     names: set[str] = set()
     after_warning = False
     for line in lines:
-        if _WARNING_HINT.match(line) or (after_warning and line[:1].isspace()):
-            continue  # the hint, or the warning's own source line
+        source_line = after_warning and line[:1].isspace() and not _FAILURE_LINE.match(line)
+        after_warning = False
+        if _WARNING_HINT.match(line) or source_line:
+            continue  # the hint, or the warning's own source line (only the one line right after it)
         line, warned = _INTERPRETER_WARNING.subn("", line)
         after_warning = bool(warned)
         line = _NUMBER.sub("0", _HEX.sub("<hex>", _TEMP.sub("<tmp>", line)))

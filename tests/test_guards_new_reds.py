@@ -487,6 +487,13 @@ class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
         self.assertEqual(reds.failure_names(logged), reds.failure_names([failure]))
         # An indented line that follows no warning is still read.
         self.assertIn("test_two", reds.failure_names([failure, "  FAIL: test_two"]))
+        # A failure printed indented right after a warning is a failure, not its source line (review of #43558 r3),
+        # and only the one line after a warning is ever taken for its source.
+        warning = "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=5>"
+        for real in ("  FAIL: test_real_failure", "  AssertionError: test_real_failure differs",
+                     "  ERROR: test_real_failure"):
+            self.assertIn("test_real_failure", reds.failure_names([warning, real]), real)
+        self.assertIn("test_later", reds.failure_names([warning, "  return f()", "  test_later broke"]))
         # A failure line that names a Warning class is still a name.
         self.assertIn("DeprecationWarning", reds.failure_names(["FAIL: test_x raised DeprecationWarning"]))
 
