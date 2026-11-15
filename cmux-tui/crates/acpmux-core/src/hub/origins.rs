@@ -2,7 +2,8 @@
 use super::*;
 use std::collections::VecDeque;
 
-const MAX_ORIGINS: usize = 256;
+/// The most origins the index admits: a window carries every origin record.
+pub const MAX_ORIGINS: usize = 256;
 const MAX_HELD_ROWS: usize = 16_384;
 static REFUSED_HELD_ROWS: AtomicU64 = AtomicU64::new(0);
 
@@ -363,7 +364,7 @@ impl HubWriter {
                 self.origins.releasing = true;
                 let result = self.dispatch_update(key, update);
                 self.origins.releasing = false;
-                if result.is_err() {
+                if let Err(HubError::Log(_)) = result {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
                 }
                 used += 1;
