@@ -179,7 +179,7 @@ class FleetCacheTests(unittest.TestCase):
             "#!/bin/bash\n"
             f"count=0; [[ -f '{count}' ]] && count=$(cat '{count}'); count=$((count + 1)); echo $count > '{count}'\n"
             f"printf '%s\\n' --- >> '{args_log}'; printf '%s\\n' \"$@\" >> '{args_log}'\n"
-            f"if [[ $count -eq 1 || -n \"${{STUB_FAIL_EVERY_BUILD:-}}\" ]]; then echo {diagnostic!r}; exit 65; fi\n"
+            f"if [[ $count -eq 1 || -n \"${{STUB_FAIL_EVERY_BUILD:-}}\" ]]; then echo {diagnostic!r}; exit ${{STUB_BUILD_STATUS:-65}}; fi\n"
         )
         xcode.chmod(0o755)
         env = {**self.env, "PATH": str(self.root) + os.pathsep + self.env["PATH"],
@@ -233,6 +233,19 @@ class FleetCacheTests(unittest.TestCase):
         result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'",
                                                           STUB_FAIL_EVERY_BUILD="1")
         self.assertEqual(result.returncode, 65)
+        self.assertEqual(count.read_text().strip(), "2")
+
+    def test_a_stalled_build_retries_once_without_the_fleet_cache_too(self):
+        """Status 124 is run-xcodebuild-with-diagnostics.sh ending a build that stopped (run 43673773157's
+        build service deadlocked for hours). That build gets one more try, also on a cold-cache run, and
+        there is no third build."""
+        result, count, _ = self._run_nightly_release_stub("", DECIDE_COLD_CACHE_DISABLE="1", STUB_BUILD_STATUS="124")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count.read_text().strip(), "2")
+        self.assertIn("the Release build stalled", result.stdout + result.stderr)
+        result, count, _ = self._run_nightly_release_stub("", DECIDE_COLD_CACHE_DISABLE="1", STUB_BUILD_STATUS="124",
+                                                          STUB_FAIL_EVERY_BUILD="1")
+        self.assertEqual(result.returncode, 124)
         self.assertEqual(count.read_text().strip(), "2")
 
     def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
