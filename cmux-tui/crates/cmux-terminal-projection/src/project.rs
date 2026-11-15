@@ -99,7 +99,9 @@ pub fn wrap_line(
                 Some(place(&mut out, &mut col, 1.max(if *offset == target { width } else { 1 })));
         }
         let (row, _) = place(&mut out, &mut col, width);
-        out[row].cells.push(*cell);
+        if let Some(out_row) = out.get_mut(row) {
+            out_row.cells.push(*cell);
+        }
         col += width;
         end_offset = offset + width;
     }
@@ -122,7 +124,7 @@ pub const TAIL_SCREENS: usize = 2;
 /// history row `index` (`history.len()`: the screen's first line).
 pub fn line_start(term: &Terminal, index: usize) -> usize {
     let mut i = index.min(term.history.len());
-    while i > 0 && term.history[i - 1].wrapped {
+    while i > 0 && term.history.get(i - 1).is_some_and(|r| r.wrapped) {
         i -= 1;
     }
     i
@@ -135,7 +137,7 @@ pub fn rows_back(term: &Terminal, end: usize, cols: usize, want: usize) -> usize
     let mut rows = 0;
     while start > 0 && rows < want {
         let first = line_start(term, start - 1);
-        let line: Vec<&Row> = (first..start).map(|i| &term.history[i]).collect();
+        let line: Vec<&Row> = term.history.iter().take(start).skip(first).collect();
         rows += wrap_line(term, &line, term.cols, cols, None).rows.len();
         start = first;
     }
@@ -297,7 +299,7 @@ impl View {
             let mut count = 0;
             loop {
                 let mut last = first;
-                while last < history_len && term.history[last].wrapped {
+                while last < history_len && term.history.get(last).is_some_and(|r| r.wrapped) {
                     last += 1;
                 }
                 if last >= history_len {
@@ -305,7 +307,8 @@ impl View {
                 }
                 let (bytes, rows) =
                     self.line_cache.entry(base + first as u64).or_insert_with(|| {
-                        let rows: Vec<&Row> = (first..=last).map(|i| &term.history[i]).collect();
+                        let rows: Vec<&Row> =
+                            term.history.iter().take(last + 1).skip(first).collect();
                         encode_line(term, &rows, cols)
                     });
                 out.extend_from_slice(bytes);
@@ -318,13 +321,13 @@ impl View {
         // Otherwise they settle as rows the phone's terminal already has.
         while !reset && first < history_len {
             let mut last = first;
-            while last < history_len && term.history[last].wrapped {
+            while last < history_len && term.history.get(last).is_some_and(|r| r.wrapped) {
                 last += 1;
             }
             if last >= history_len {
                 break;
             }
-            let rows: Vec<&Row> = (first..=last).map(|i| &term.history[i]).collect();
+            let rows: Vec<&Row> = term.history.iter().take(last + 1).skip(first).collect();
             newly.extend(wrap_line(term, &rows, term.cols, self.cols, None).rows);
             first = last + 1;
         }
@@ -332,8 +335,7 @@ impl View {
         // 2. The live lines: the unsettled scrollback tail and the screen.
         let (cursor_x, cursor_y) = term.primary_cursor();
         let screen = term.primary_rows();
-        let live_rows: Vec<&Row> =
-            (first..history_len).map(|i| &term.history[i]).chain(screen.iter()).collect();
+        let live_rows: Vec<&Row> = term.history.iter().skip(first).chain(screen.iter()).collect();
         let cursor_row = live_rows.len() - screen.len() + cursor_y;
         let mut live: Vec<ProjectedRow> = Vec::new();
         let mut cursor: Option<(usize, usize)> = None;
@@ -342,12 +344,13 @@ impl View {
         let mut start = 0;
         while start < live_rows.len() {
             let mut end = start;
-            while end + 1 < live_rows.len() && live_rows[end].wrapped {
+            while end + 1 < live_rows.len() && live_rows.get(end).is_some_and(|r| r.wrapped) {
                 end += 1;
             }
             let in_line =
                 (start..=end).contains(&cursor_row).then(|| (cursor_row - start, cursor_x));
-            let wrapped = wrap_line(term, &live_rows[start..=end], term.cols, self.cols, in_line);
+            let line = live_rows.get(start..=end).unwrap_or_default();
+            let wrapped = wrap_line(term, line, term.cols, self.cols, in_line);
             if let Some((row, col)) = wrapped.cursor {
                 cursor = Some((live.len() + row, col));
             }
@@ -409,15 +412,16 @@ impl View {
             // (copy, its own reflow) is the host's.
             let i = (row - from) as usize;
             // (Only when that row is still on the phone's screen.)
-            if i > 0 && i <= self.shown.len() && row > self.top() {
-                let previous = &tail[i - 1];
-                if previous.wrapped
-                    && previous.width() + 1 >= self.cols
-                    && !previous.cells.is_empty()
-                    && tail.get(i).is_some_and(|r| !r.cells.is_empty())
-                {
-                    first_changed = Some((row - 1, previous.cells.len() - 1));
-                }
+            if i > 0
+                && i <= self.shown.len()
+                && row > self.top()
+                && let Some(previous) = tail.get(i - 1)
+                && previous.wrapped
+                && previous.width() + 1 >= self.cols
+                && !previous.cells.is_empty()
+                && tail.get(i).is_some_and(|r| !r.cells.is_empty())
+            {
+                first_changed = Some((row - 1, previous.cells.len() - 1));
             }
         }
         if let Some((row, common)) = first_changed {
@@ -438,9 +442,8 @@ impl View {
             let i = (row - from) as usize;
             let old_row = self.shown.get(i);
             let mut common = common;
-            let mut unit_col: usize = tail.get(i).map_or(0, |r| {
-                r.cells[..common.min(r.cells.len())].iter().map(|c| c.width()).sum()
-            });
+            let mut unit_col: usize =
+                tail.get(i).map_or(0, |r| r.cells.iter().take(common).map(|c| c.width()).sum());
             // Blank cells up to where the phone's cursor already is (the
             // space after a prompt) need not be written: an echo is the key.
             if let (Some(new_row), true) =
@@ -484,20 +487,20 @@ impl View {
             let last = if new_end > physical_end {
                 tail.len() - 1 - i
             } else {
-                tail[i..].iter().rposition(|r| !r.cells.is_empty()).unwrap_or(0)
+                tail.get(i..).and_then(|t| t.iter().rposition(|r| !r.cells.is_empty())).unwrap_or(0)
             };
-            for (k, projected) in tail[i..=i + last].iter().enumerate() {
+            for (k, projected) in tail.get(i..=i + last).unwrap_or_default().iter().enumerate() {
                 let skip = if k == 0 { common.min(projected.cells.len()) } else { 0 };
                 if k > 0 {
                     // A soft wrap is the phone's own autowrap (a wrapped row
                     // is full, or one short of a wide glyph that follows).
-                    if !tail[i + k - 1].wrapped {
+                    if !tail.get(i + k - 1).is_some_and(|r| r.wrapped) {
                         out.extend_from_slice(b"\r\n");
                     }
                     abs += 1;
                     col = 0;
                 }
-                for cell in &projected.cells[skip..] {
+                for cell in projected.cells.iter().skip(skip) {
                     let style = term.styles.get(cell.style);
                     if self.phone_style != Some(style) {
                         write_style(term, &mut out, self.phone_style, style);

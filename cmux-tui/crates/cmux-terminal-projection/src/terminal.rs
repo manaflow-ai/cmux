@@ -367,13 +367,16 @@ impl Terminal {
     fn ground(&mut self, byte: u8) {
         if self.utf8_need > 0 {
             if byte & 0xc0 == 0x80 {
-                self.utf8[self.utf8_len] = byte;
+                if let Some(slot) = self.utf8.get_mut(self.utf8_len) {
+                    *slot = byte;
+                }
                 self.utf8_len += 1;
                 if self.utf8_len == self.utf8_need {
-                    let ch = std::str::from_utf8(&self.utf8[..self.utf8_len])
-                        .ok()
-                        .and_then(|s| s.chars().next())
-                        .unwrap_or('\u{fffd}');
+                    let ch =
+                        std::str::from_utf8(self.utf8.get(..self.utf8_len).unwrap_or_default())
+                            .ok()
+                            .and_then(|s| s.chars().next())
+                            .unwrap_or('\u{fffd}');
                     self.utf8_need = 0;
                     self.utf8_len = 0;
                     self.print(ch);
@@ -442,7 +445,8 @@ impl Terminal {
             _ => {}
         }
         self.state = State::Ground;
-        let intermediate = if self.seq.len() > 2 { self.seq[1] } else { 0 };
+        let intermediate =
+            if self.seq.len() > 2 { self.seq.get(1).copied().unwrap_or(0) } else { 0 };
         match (intermediate, byte) {
             (b'(', b'0') => self.charsets[0] = true,
             (b'(', _) => self.charsets[0] = false,
@@ -502,11 +506,10 @@ impl Terminal {
         let seq = std::mem::take(&mut self.seq);
         // `ESC ]` .. body .. (BEL | ESC \)
         let end = if seq.ends_with(b"\x07") { seq.len() - 1 } else { seq.len() - 2 };
-        let body = &seq[2..end.max(2)];
-        let (number, rest) = match body.iter().position(|&b| b == b';') {
-            Some(i) => (&body[..i], &body[i + 1..]),
-            None => (body, &b""[..]),
-        };
+        let body = seq.get(2..end.max(2)).unwrap_or_default();
+        let mut parts = body.splitn(2, |&b| b == b';');
+        let number = parts.next().unwrap_or_default();
+        let rest = parts.next().unwrap_or_default();
         match number {
             b"8" => {
                 // `8;params;uri`: the link the next cells are in.
@@ -527,7 +530,7 @@ impl Terminal {
 
     fn csi(&mut self, seq: &[u8]) {
         // ESC [ (private marker) params (intermediates) final
-        let body = &seq[2..];
+        let Some(body) = seq.get(2..) else { return };
         let Some((&last, head)) = body.split_last() else { return };
         let mut start = 0;
         let private = match head.first() {
@@ -538,12 +541,13 @@ impl Terminal {
             _ => 0,
         };
         let mut end = head.len();
-        while end > start && (0x20..=0x2f).contains(&head[end - 1]) {
+        while end > start && head.get(end - 1).is_some_and(|b| (0x20..=0x2f).contains(b)) {
             end -= 1;
         }
         let intermediate = head.get(end).copied().unwrap_or(0);
         let params: Vec<Vec<u16>> = if end > start {
-            head[start..end]
+            head.get(start..end)
+                .unwrap_or_default()
                 .split(|&b| b == b';')
                 .map(|group| {
                     group
@@ -836,7 +840,7 @@ impl Terminal {
 
     fn save_cursor(&mut self) {
         let slot = usize::from(self.alt_active);
-        self.saved[slot] = Saved {
+        let saved = Saved {
             x: self.cursor.x,
             y: self.cursor.y,
             pending_wrap: self.cursor.pending_wrap,
@@ -845,10 +849,13 @@ impl Terminal {
             charsets: self.charsets,
             shift_out: self.shift_out,
         };
+        if let Some(slot) = self.saved.get_mut(slot) {
+            *slot = saved;
+        }
     }
 
     fn restore_cursor(&mut self) {
-        let saved = self.saved[usize::from(self.alt_active)];
+        let saved = self.saved.get(usize::from(self.alt_active)).copied().unwrap_or_default();
         self.cursor.x = saved.x.min(self.cols - 1);
         self.cursor.y = saved.y.min(self.rows - 1);
         self.cursor.pending_wrap = saved.pending_wrap;
@@ -870,7 +877,8 @@ impl Terminal {
     }
 
     fn print(&mut self, ch: char) {
-        let ch = if self.charsets[usize::from(self.shift_out)] { dec_special(ch) } else { ch };
+        let special = self.charsets.get(usize::from(self.shift_out)).copied().unwrap_or(false);
+        let ch = if special { dec_special(ch) } else { ch };
         let width = ch.width().unwrap_or(0);
         if width == 0 {
             self.combine(ch);
@@ -879,7 +887,9 @@ impl Terminal {
         let cols = self.cols;
         if self.cursor.pending_wrap && self.autowrap {
             let y = self.cursor.y;
-            self.screen()[y].wrapped = true;
+            if let Some(row) = self.screen().get_mut(y) {
+                row.wrapped = true;
+            }
             self.linefeed();
             self.cursor.x = 0;
         }
@@ -894,16 +904,20 @@ impl Terminal {
             let (x, y) = (self.cursor.x, self.cursor.y);
             let erased = self.erased_id();
             self.clear_wide(y, x);
-            let row = &mut self.screen()[y];
-            row.cells[x] = Cell { ch: 0, style: erased, kind: SPACER_HEAD };
-            row.wrapped = true;
+            if let Some(row) = self.screen().get_mut(y) {
+                if let Some(cell) = row.cells.get_mut(x) {
+                    *cell = Cell { ch: 0, style: erased, kind: SPACER_HEAD };
+                }
+                row.wrapped = true;
+            }
             self.linefeed();
             self.cursor.x = 0;
         }
         let style = self.styles.id(self.cursor.style);
         let (x, y) = (self.cursor.x, self.cursor.y);
-        if self.insert {
-            let row = &mut self.screen()[y];
+        if self.insert
+            && let Some(row) = self.screen().get_mut(y)
+        {
             for _ in 0..width {
                 row.cells.insert(x, Cell::blank(0));
             }
@@ -913,11 +927,16 @@ impl Terminal {
         if width == 2 {
             self.clear_wide(y, x + 1);
         }
-        let row = &mut self.screen()[y];
-        row.cells[x] =
-            Cell { ch: u32::from(ch), style, kind: if width == 2 { WIDE } else { NARROW } };
-        if width == 2 {
-            row.cells[x + 1] = Cell { ch: 0, style, kind: WIDE_TAIL };
+        if let Some(row) = self.screen().get_mut(y) {
+            if let Some(cell) = row.cells.get_mut(x) {
+                *cell =
+                    Cell { ch: u32::from(ch), style, kind: if width == 2 { WIDE } else { NARROW } };
+            }
+            if width == 2
+                && let Some(cell) = row.cells.get_mut(x + 1)
+            {
+                *cell = Cell { ch: 0, style, kind: WIDE_TAIL };
+            }
         }
         self.last_printed = Some((u32::from(ch), width));
         let next = x + width;
@@ -939,17 +958,20 @@ impl Terminal {
         } else {
             return;
         };
-        if self.screen()[y].cells[x].kind == WIDE_TAIL && x > 0 {
+        let Some(row) = self.screen().get(y) else { return };
+        if row.cells.get(x).is_some_and(|c| c.kind == WIDE_TAIL) && x > 0 {
             x -= 1;
         }
-        let cell = self.screen()[y].cells[x];
+        let Some(&cell) = row.cells.get(x) else { return };
         if cell.ch == 0 {
             return;
         }
         let mut text = self.cell_text(cell);
         text.push(ch);
         let id = self.graphemes.id(&text);
-        self.screen()[y].cells[x].ch = GRAPHEME | id;
+        if let Some(cell) = self.screen().get_mut(y).and_then(|r| r.cells.get_mut(x)) {
+            cell.ch = GRAPHEME | id;
+        }
     }
 
     /// A cell's UTF-8 bytes, appended without allocating.
@@ -975,20 +997,15 @@ impl Terminal {
     /// Writing over half of a wide glyph clears its other half.
     fn clear_wide(&mut self, y: usize, x: usize) {
         let cols = self.cols;
-        let row = &mut self.screen()[y];
-        if x >= row.cells.len() {
-            return;
-        }
-        match row.cells[x].kind {
-            WIDE_TAIL if x > 0 => {
-                let style = row.cells[x - 1].style;
-                row.cells[x - 1] = Cell::blank(style);
-            }
-            WIDE if x + 1 < cols => {
-                let style = row.cells[x + 1].style;
-                row.cells[x + 1] = Cell::blank(style);
-            }
-            _ => {}
+        let Some(row) = self.screen().get_mut(y) else { return };
+        let Some(kind) = row.cells.get(x).map(|c| c.kind) else { return };
+        let other = match kind {
+            WIDE_TAIL if x > 0 => row.cells.get_mut(x - 1),
+            WIDE if x + 1 < cols => row.cells.get_mut(x + 1),
+            _ => None,
+        };
+        if let Some(cell) = other {
+            *cell = Cell::blank(cell.style);
         }
     }
 
@@ -1053,17 +1070,19 @@ impl Terminal {
         match mode {
             0 => {
                 self.erase_line(0);
-                for row in &mut self.screen()[y + 1..rows] {
+                for row in self.screen().get_mut(y + 1..rows).unwrap_or_default() {
                     *row = blank_row(cols, erased);
                 }
             }
             1 => {
-                for row in &mut self.screen()[..y] {
+                for row in self.screen().iter_mut().take(y) {
                     *row = blank_row(cols, erased);
                 }
                 self.clear_wide(y, x);
-                for cell in &mut self.screen()[y].cells[..=x] {
-                    *cell = Cell::blank(erased);
+                if let Some(row) = self.screen().get_mut(y) {
+                    for cell in row.cells.get_mut(..=x).unwrap_or_default() {
+                        *cell = Cell::blank(erased);
+                    }
                 }
             }
             2 => {
@@ -1075,8 +1094,10 @@ impl Terminal {
                     });
                     if let Some(last) = last {
                         for i in 0..=last {
-                            let row = std::mem::take(&mut self.primary[i]);
-                            self.push_history(row);
+                            if let Some(row) = self.primary.get_mut(i) {
+                                let row = std::mem::take(row);
+                                self.push_history(row);
+                            }
                         }
                     }
                 }
@@ -1105,12 +1126,13 @@ impl Terminal {
         };
         self.clear_wide(y, range.start);
         self.clear_wide(y, range.end - 1);
-        let row = &mut self.screen()[y];
-        for cell in &mut row.cells[range] {
-            *cell = Cell::blank(erased);
-        }
-        if mode != 1 {
-            row.wrapped = false;
+        if let Some(row) = self.screen().get_mut(y) {
+            for cell in row.cells.get_mut(range).unwrap_or_default() {
+                *cell = Cell::blank(erased);
+            }
+            if mode != 1 {
+                row.wrapped = false;
+            }
         }
         self.cursor.pending_wrap = false;
     }
@@ -1121,8 +1143,10 @@ impl Terminal {
         let end = (x + n).min(cols);
         self.clear_wide(y, x);
         self.clear_wide(y, end - 1);
-        for cell in &mut self.screen()[y].cells[x..end] {
-            *cell = Cell::blank(erased);
+        if let Some(cells) = self.screen().get_mut(y).and_then(|r| r.cells.get_mut(x..end)) {
+            for cell in cells {
+                *cell = Cell::blank(erased);
+            }
         }
         self.cursor.pending_wrap = false;
     }
@@ -1131,13 +1155,15 @@ impl Terminal {
         let erased = self.erased_id();
         let (x, y, cols) = (self.cursor.x, self.cursor.y, self.cols);
         self.clear_wide(y, x);
-        let row = &mut self.screen()[y];
+        let Some(row) = self.screen().get_mut(y) else { return };
         for _ in 0..n.min(cols - x) {
             row.cells.insert(x, Cell::blank(erased));
         }
         row.cells.truncate(cols);
-        if row.cells[cols - 1].kind == WIDE {
-            row.cells[cols - 1] = Cell::blank(erased);
+        if let Some(cell) = row.cells.get_mut(cols - 1)
+            && cell.kind == WIDE
+        {
+            *cell = Cell::blank(erased);
         }
         self.cursor.pending_wrap = false;
     }
@@ -1147,13 +1173,15 @@ impl Terminal {
         let (x, y, cols) = (self.cursor.x, self.cursor.y, self.cols);
         self.clear_wide(y, x);
         let n = n.min(cols - x);
-        let row = &mut self.screen()[y];
+        let Some(row) = self.screen().get_mut(y) else { return };
         row.cells.drain(x..x + n);
         while row.cells.len() < cols {
             row.cells.push(Cell::blank(erased));
         }
-        if row.cells[x].kind == WIDE_TAIL {
-            row.cells[x] = Cell::blank(erased);
+        if let Some(cell) = row.cells.get_mut(x)
+            && cell.kind == WIDE_TAIL
+        {
+            *cell = Cell::blank(erased);
         }
         self.cursor.pending_wrap = false;
     }

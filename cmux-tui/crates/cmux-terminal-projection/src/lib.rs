@@ -171,7 +171,7 @@ impl Projection {
                 raw_start = Some(i + 1);
             } else {
                 let start = raw_start.take().unwrap_or(0);
-                segments.push(Segment::Raw(bytes[start..=i].to_vec()));
+                segments.push(Segment::Raw(bytes.get(start..=i).unwrap_or_default().to_vec()));
                 self.term.passthrough.clear();
                 segments.push(Segment::Alternate(false));
                 // The phone's primary screen was drawn at another grid meanwhile.
@@ -180,7 +180,7 @@ impl Projection {
         }
         if let Some(start) = raw_start {
             if start < bytes.len() {
-                segments.push(Segment::Raw(bytes[start..].to_vec()));
+                segments.push(Segment::Raw(bytes.get(start..).unwrap_or_default().to_vec()));
             }
             self.term.passthrough.clear();
         } else if paint && let Some(paint) = self.paint() {

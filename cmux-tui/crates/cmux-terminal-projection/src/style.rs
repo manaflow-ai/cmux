@@ -54,8 +54,7 @@ impl Style {
             return;
         }
         let mut i = 0;
-        while i < params.len() {
-            let group = &params[i];
+        while let Some(group) = params.get(i) {
             let code = group.first().copied().unwrap_or(0);
             match code {
                 0 => *self = Style { link: self.link, ..Style::default() },
@@ -91,10 +90,11 @@ impl Style {
                 100..=107 => self.bg = Color::Indexed((code - 100 + 8) as u8),
                 38 | 48 | 58 => {
                     let (color, used) = if group.len() > 1 {
-                        (extended_color(&group[1..], true), 0)
+                        (extended_color(group.get(1..).unwrap_or_default(), true), 0)
                     } else {
-                        let rest: Vec<u16> = params[i + 1..]
+                        let rest: Vec<u16> = params
                             .iter()
+                            .skip(i + 1)
                             .map(|g| g.first().copied().unwrap_or(0))
                             .collect();
                         let used = match rest.first() {
@@ -183,9 +183,10 @@ fn extended_color(rest: &[u16], colon: bool) -> Option<Color> {
         5 => Some(Color::Indexed((*rest.get(1)?).min(255) as u8)),
         2 => {
             // `38:2::r:g:b` carries a color space id first.
-            let rgb = if colon && rest.len() >= 5 { &rest[2..5] } else { rest.get(1..4)? };
+            let rgb = if colon && rest.len() >= 5 { rest.get(2..5)? } else { rest.get(1..4)? };
             let c = |v: u16| v.min(255) as u8;
-            Some(Color::Rgb(c(rgb[0]), c(rgb[1]), c(rgb[2])))
+            let &[r, g, b] = rgb else { return None };
+            Some(Color::Rgb(c(r), c(g), c(b)))
         }
         _ => None,
     }
