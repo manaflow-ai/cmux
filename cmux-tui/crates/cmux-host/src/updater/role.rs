@@ -1687,14 +1687,51 @@ pub(super) fn disarm_guard() {
 /// acpmux, the other `cmux-*` system services, and last `cmux-host.service`.
 /// First it tells the Cloud the machine is stopping, within
 /// [`crate::cloud::role::STOPPING_REPORT_BOUND`] ([`report_then_restart`]).
-fn restart_after_flip(paths: &Paths, old: &Path) {
+pub(super) fn restart_after_flip(paths: &Paths, old: &Path) {
     report_then_restart(
-        || crate::cloud::role::report_stopping(paths, crate::cloud::role::STOPPING_REPORT_BOUND),
-        || {
-            restart_others(old);
-            let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
-        },
+        || after_flip::report_stopping(paths),
+        || after_flip::restart_services(old),
     );
+}
+
+/// [`restart_after_flip`]'s two effects. Tests swap them for a record of the calls, so a test
+/// drives the real `restart_after_flip` and never restarts a unit or reaches the Cloud.
+#[cfg(not(test))]
+mod after_flip {
+    use std::path::Path;
+
+    use crate::config::Paths;
+
+    pub(super) fn report_stopping(paths: &Paths) -> Result<(), String> {
+        crate::cloud::role::report_stopping(paths, crate::cloud::role::STOPPING_REPORT_BOUND)
+    }
+
+    pub(super) fn restart_services(old: &Path) {
+        super::restart_others(old);
+        let _ = super::systemctl(&["restart", "--no-block", super::HOST_UNIT]);
+    }
+}
+
+#[cfg(test)]
+pub(super) mod after_flip {
+    use std::cell::RefCell;
+    use std::path::Path;
+
+    use crate::config::Paths;
+
+    thread_local! {
+        /// What [`super::restart_after_flip`] did on this thread, in order.
+        pub(in crate::updater) static CALLS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub(super) fn report_stopping(paths: &Paths) -> Result<(), String> {
+        CALLS.with(|c| c.borrow_mut().push(format!("stopping {}", paths.at("/").display())));
+        Ok(())
+    }
+
+    pub(super) fn restart_services(old: &Path) {
+        CALLS.with(|c| c.borrow_mut().push(format!("restart {}", old.display())));
+    }
 }
 
 /// A restart of the services after a flip: `report` (the bounded `stopping` report, so the Cloud
