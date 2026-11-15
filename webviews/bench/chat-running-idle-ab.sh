@@ -61,7 +61,7 @@ done
 # idle window lines: "  running_x1: idle window N C % cpu; wakes/s: switches S, timers T, raf R, posts P, mutations M"
 summary() {
   local side=$1 sha=$2
-  cat "$out"/ab-"$side"-*.log | grep "running_x1: idle window" |
+  cat "$out"/ab-"$side"-*.log | grep -E "running_x1: idle window [0-9]+ " |
     sed -E 's/.*idle window [0-9]+ ([0-9.]+) % cpu; wakes\/s: switches ([0-9.]+), timers ([0-9.]+), raf ([0-9.]+), posts ([0-9.]+), mutations ([0-9.]+)/\1 \2 \3 \4 \5 \6/' |
     awk -v side="$side" -v sha="${sha:0:10}" '
       { n++; for (i = 1; i <= 6; i++) v[i, n] = $i }
@@ -83,6 +83,6 @@ echo "chat-running-idle-ab: running_x1 idle, every window (rows $rows, $rounds r
 summary a "$a_sha" | tee "$out/ab-summary.txt"
 summary b "$b_sha" | tee -a "$out/ab-summary.txt"
 for side in a b; do
-  echo "chat-running-idle-ab: side $side windows (cpu %):" $(cat "$out"/ab-"$side"-*.log | grep "running_x1: idle window" | sed -E 's/.*idle window [0-9]+ ([0-9.]+) % cpu.*/\1/')
+  echo "chat-running-idle-ab: side $side windows (cpu %):" $(cat "$out"/ab-"$side"-*.log | grep -E "running_x1: idle window [0-9]+ " | sed -E 's/.*idle window [0-9]+ ([0-9.]+) % cpu.*/\1/')
   echo "chat-running-idle-ab: side $side empty_x1 idle medians:" $(grep -h "^empty_x1 |" "$out"/ab-"$side"-*.log | awk -F'|' '{print $3}')
 done
