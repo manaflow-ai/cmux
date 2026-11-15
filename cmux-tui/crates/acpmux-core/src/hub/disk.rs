@@ -256,7 +256,8 @@ impl HubWriter {
         let arrival_budget = 256 - retry_budget;
         let used = self.advance_origins(if queued { arrival_budget / 2 } else { arrival_budget });
         for (key, update) in self.updates.take_batch_limit(arrival_budget.saturating_sub(used)) {
-            if self.dispatch_update(key, update).is_err() {
+            // A refusal has its own counter; only storage counts here.
+            if let Err(HubError::Log(_)) = self.dispatch_update(key, update) {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -271,5 +272,7 @@ impl HubWriter {
             .then(std::time::Instant::now);
             self.maybe_compact();
         }
+        // A retry written or an origin that finished leaving settles it.
+        self.mirror.counters.wake();
     }
 }
