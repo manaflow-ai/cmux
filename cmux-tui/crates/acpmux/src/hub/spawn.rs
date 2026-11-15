@@ -400,6 +400,51 @@ impl Hub {
                 );
             }
         }
+        // Gemini and Grok on a cmux Cloud machine: the team's gateway when the person has no
+        // sign-in of their own and the gateway serves the agent (provider_cloud_auth.rs,
+        // hq#11225). A bound route, or a launcher that picks the provider itself, owns it instead.
+        // The probe waits at most `PROBE_DEADLINE`; any failure keeps own.
+        let provider = crate::provider_cloud_auth::Provider::for_family(
+            &crate::config::derive_family(&meta.harness, &p),
+        )
+        .filter(|provider| {
+            !p.env.contains_key(crate::routes::NAME_KEY)
+                && crate::provider_cloud_auth::launches_itself(*provider, &p.argv)
+        });
+        if let Some(provider) = provider {
+            let env = p.env.clone();
+            let var = move |k: &str| {
+                env.get(k)
+                    .cloned()
+                    .or_else(|| crate::login_env::var(k))
+                    .or_else(|| std::env::var(k).ok())
+                    .filter(|v| !v.is_empty())
+            };
+            let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+            let root = self.vm_marker_root();
+            let inputs = crate::codex_cloud_auth::Inputs {
+                root: &root,
+                home: &home,
+                var: &var,
+                broker: false,
+            };
+            match crate::provider_cloud_auth::decide(
+                provider,
+                &inputs,
+                crate::provider_cloud_auth::probe_providers,
+            )
+            .await
+            {
+                crate::provider_cloud_auth::Mode::LeftAlone => {}
+                crate::provider_cloud_auth::Mode::Own(reason) => {
+                    tracing::info!(session = %meta.id, agent = provider.name(), reason, "agent on this Cloud machine uses its own sign-in");
+                }
+                crate::provider_cloud_auth::Mode::Team(team) => {
+                    tracing::info!(session = %meta.id, agent = provider.name(), "agent on this Cloud machine uses the team's gateway");
+                    crate::provider_cloud_auth::apply_team(&mut p.env, team);
+                }
+            }
+        }
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
