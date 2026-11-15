@@ -122,23 +122,37 @@ struct McpLaunch<'a> {
 /// merge into (acpmux codex_cmux_entry.rs): then none, and nothing is said.
 ///
 /// Without the yes, a stdio `cmux` entry of the person's own that Codex surely
-/// loads (`codex_cmux_entry::stdio_cmux_entry`) gets one env key only,
-/// `CMUX_AGENT_TOOLS_ANSWER` = `off`: its `cmux mcp serve` then follows the
-/// answer as an agent cmux started (`cli/mcp.rs` `refusal`), not
-/// `mcp.enabled` as a caller outside cmux. An HTTP entry has no env: none.
+/// loads (`codex_cmux_entry::stdio_cmux_entry`) gets the env key
+/// `CMUX_AGENT_TOOLS_ANSWER` = `off`, with its own `command` and `args` as the
+/// config layers give them (the same entry where it loads; a whole stdio
+/// server where a guess that it loads is wrong, never env alone, which Codex
+/// refuses): its `cmux mcp serve` then follows the answer as an agent cmux
+/// started (`cli/mcp.rs` `refusal`), not `mcp.enabled` as a caller outside
+/// cmux. An HTTP entry has no env: none.
 fn mcp_settings(
     launch: &McpLaunch<'_>,
     choice: cmux_tui_core::user_settings::AgentsCmuxMcp,
     getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> Vec<OsString> {
     if !choice.injects() {
-        if acpmux::codex_cmux_entry::stdio_cmux_entry(launch.args, launch.cwd, getenv) {
-            return vec![OsString::from(format!(
-                "mcp_servers.cmux.env.{}=\"off\"",
-                acpmux::agent_tools::TOOLS_ANSWER_ENV
-            ))];
+        let Some(entry) =
+            acpmux::codex_cmux_entry::stdio_cmux_entry(launch.args, launch.cwd, getenv)
+        else {
+            return Vec::new();
+        };
+        let string = |value: &str| toml::Value::String(value.to_owned());
+        let mut values = vec![("command".to_owned(), string(&entry.command))];
+        if let Some(args) = &entry.args {
+            values.push((
+                "args".to_owned(),
+                toml::Value::Array(args.iter().map(|arg| string(arg)).collect()),
+            ));
         }
-        return Vec::new();
+        values.push((format!("env.{}", acpmux::agent_tools::TOOLS_ANSWER_ENV), string("off")));
+        return values
+            .into_iter()
+            .map(|(key, value)| OsString::from(format!("mcp_servers.cmux.{key}={value}")))
+            .collect();
     }
     if acpmux::codex_cmux_entry::http_cmux_entry(launch.args, launch.cwd, getenv) {
         return Vec::new();
@@ -430,16 +444,30 @@ mod tests {
     }
 
     /// Without the yes, a person's own stdio `cmux` entry Codex surely loads (here their own
-    /// `-c`) gets the answer and nothing else, so its `cmux mcp serve` follows it; an HTTP one,
-    /// which has no env, and no entry get nothing.
+    /// `-c`) gets the answer, with its own command (and args, when set) beside it so the entry is
+    /// whole either way; an HTTP one, which has no env, and no entry get nothing.
     #[test]
-    fn without_the_yes_a_persons_stdio_entry_gets_the_answer_only() {
+    fn without_the_yes_a_persons_stdio_entry_gets_the_answer_and_stays_whole() {
         let stdio = ["-c", "mcp_servers.cmux.command=\"/opt/cmux\"", "exec", "hi"];
         for choice in [AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
             assert_eq!(
                 launch(choice, &stdio),
-                ["mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER=\"off\""],
+                [
+                    "mcp_servers.cmux.command=\"/opt/cmux\"",
+                    "mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER=\"off\""
+                ],
                 "{choice:?}"
+            );
+            assert_eq!(
+                launch(
+                    choice,
+                    &["-c", "mcp_servers.cmux={command=\"/c\", args=[\"a b\"]}", "exec", "hi"]
+                ),
+                [
+                    "mcp_servers.cmux.command=\"/c\"",
+                    "mcp_servers.cmux.args=[\"a b\"]",
+                    "mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER=\"off\""
+                ],
             );
             assert!(launch(choice, &["-c", "mcp_servers.cmux.url=\"http://x\""]).is_empty());
             assert!(launch(choice, &["exec", "hi"]).is_empty());

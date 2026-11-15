@@ -723,13 +723,12 @@ fn a_persons_own_stdio_cmux_entry_learns_which_chat_starts_it() {
     .unwrap();
     assert_eq!(
         super::person_entry_env(&without, launch, &env, "s-1"),
-        Some(
-            serde_json::json!({"cmux": {"CMUX_AGENT_SESSION": "s-1", "CMUX_AGENT_TOOLS_ANSWER": "off"}})
-        )
+        Some(serde_json::json!({"cmux": {"command": "/opt/cmux", "args": ["mcp", "serve"],
+                "env": {"CMUX_AGENT_SESSION": "s-1", "CMUX_AGENT_TOOLS_ANSWER": "off"}}}))
     );
     env.insert(super::TOOLS_ANSWER_ENV.to_owned(), "on".to_owned());
     assert_eq!(
-        super::person_entry_env(&without, launch, &env, "s-2").unwrap()["cmux"]["CMUX_AGENT_TOOLS_ANSWER"],
+        super::person_entry_env(&without, launch, &env, "s-2").unwrap()["cmux"]["env"]["CMUX_AGENT_TOOLS_ANSWER"],
         "on"
     );
     assert_eq!(
@@ -739,7 +738,7 @@ fn a_persons_own_stdio_cmux_entry_learns_which_chat_starts_it() {
     );
     // A session cut off from cmux's tools: off, whatever the answer.
     let answer_of = |env: &std::collections::BTreeMap<String, String>| {
-        super::person_entry_env(&without, launch, env, "s-3").unwrap()["cmux"]["CMUX_AGENT_TOOLS_ANSWER"]
+        super::person_entry_env(&without, launch, env, "s-3").unwrap()["cmux"]["env"]["CMUX_AGENT_TOOLS_ANSWER"]
             .clone()
     };
     for (key, value) in [(super::SWITCH_ENV, "0"), (super::SERVERS_ENV, "acpmux,cmux-forum")] {
@@ -756,10 +755,10 @@ fn a_persons_own_stdio_cmux_entry_learns_which_chat_starts_it() {
         None,
         "an HTTP entry has no env"
     );
-    // On the ACP params: `_meta.cmux.mcpServerEnv`, beside what is there.
+    // On the ACP params: `_meta.cmux.mcpServerEntry`, beside what is there.
     let mut params = serde_json::json!({"cwd": "/w", "_meta": {"cmux": {"generateTitle": false}}});
     super::send_person_entry_env(&mut params, Some(serde_json::json!({"cmux": {"K": "v"}})));
-    assert_eq!(params["_meta"]["cmux"]["mcpServerEnv"]["cmux"]["K"], "v");
+    assert_eq!(params["_meta"]["cmux"]["mcpServerEntry"]["cmux"]["K"], "v");
     assert_eq!(params["_meta"]["cmux"]["generateTitle"], false);
     let mut bare = serde_json::json!({"cwd": "/w"});
     super::send_person_entry_env(&mut bare, None);

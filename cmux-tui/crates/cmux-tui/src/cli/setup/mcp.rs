@@ -685,10 +685,22 @@ fn redact_secrets(args: &[String]) -> Vec<String> {
         }
         if let Some((flag, value)) = arg.split_once('=')
             && flag.starts_with('-')
-            && let Some(shown) = header(value)
         {
-            out.push(format!("{flag}={shown}"));
-            continue;
+            // `--header=Authorization:` or `--header=Authorization: Bearer`: the credential is next.
+            if header_continues(value) {
+                next_is_secret = true;
+                let name = value.split_once(':').map_or(value.trim(), |(n, _)| n.trim());
+                out.push(if value.contains(':') {
+                    format!("{flag}={name}: <redacted>")
+                } else {
+                    arg.clone()
+                });
+                continue;
+            }
+            if let Some(shown) = header(value) {
+                out.push(format!("{flag}={shown}"));
+                continue;
+            }
         }
         if !arg.starts_with('-') && bare(&arg) {
             out.push("<redacted>".to_owned());
@@ -867,6 +879,14 @@ mod tests {
             ["-H", "Authorization: <redacted>", "<redacted>"]
         );
         assert_eq!(r(&["Bearer", "xyz", "mcp"]), ["Bearer", "<redacted>", "mcp"]);
+        assert_eq!(
+            r(&["--header=Authorization: Bearer", "xyz", "mcp"]),
+            ["--header=Authorization: <redacted>", "<redacted>", "mcp"]
+        );
+        assert_eq!(
+            r(&["--header=Authorization:", "Bearer xyz"]),
+            ["--header=Authorization: <redacted>", "<redacted>"]
+        );
         for plain in [
             &["npx", "-y", "cmux", "mcp", "serve"][..],
             &["/Applications/cmux.app/Contents/Resources/bin/cmux", "mcp", "serve", "--all-tools"],

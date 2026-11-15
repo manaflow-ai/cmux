@@ -288,11 +288,17 @@ fn tool_servers(
     if let Some(entry) =
         codex.and_then(|launch| crate::agent_tools::person_entry_env(&listed, launch, env, ""))
     {
-        let answer = entry[crate::agent_tools::CMUX_SERVER][crate::agent_tools::TOOLS_ANSWER_ENV]
+        let cmux = &entry[crate::agent_tools::CMUX_SERVER];
+        let answer = cmux["env"][crate::agent_tools::TOOLS_ANSWER_ENV]
             .as_str()
             .unwrap_or_default()
             .to_owned();
         names.push(format!("cmux-entry-env:{answer}"));
+        // The entry's command and args, sent back with the keys: a spare started before the person
+        // changed them is not served.
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&(cmux["command"].to_string(), cmux["args"].to_string()), &mut h);
+        names.push(format!("cmux-entry-cmd:{:016x}", std::hash::Hasher::finish(&h)));
     }
     names.join(",")
 }

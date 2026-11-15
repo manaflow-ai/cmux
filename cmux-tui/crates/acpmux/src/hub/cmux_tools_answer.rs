@@ -31,6 +31,11 @@ pub fn asked(auth: crate::server::ConnAuth, params: &Value) -> Option<&'static s
     if !auth.peer_daemon() {
         return None;
     }
+    // A peer daemon forwarding for a Web client of its own (`via: web`): that client's request,
+    // not the Mac's, as `vm_boundary::forwards` holds it.
+    if params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("web") {
+        return None;
+    }
     match params.pointer(&format!("/_meta/acpmux/{FIELD}")).and_then(Value::as_str) {
         Some("on") => Some("on"),
         Some("off") => Some("off"),
@@ -82,6 +87,12 @@ mod tests {
         ] {
             assert_eq!(asked(auth, &p), None, "{auth:?}");
         }
+        // A peer daemon or the Cloud carrier forwarding for its Web client.
+        let for_web = json!({"_meta": {"acpmux": {"cmuxTools": "on", "via": "web"}}});
+        assert_eq!(asked(ConnAuth::CarrierOwner, &for_web), None);
+        assert_eq!(asked(ConnAuth::PeerToken, &for_web), None);
+        let for_app = json!({"_meta": {"acpmux": {"cmuxTools": "on", "via": "app"}}});
+        assert_eq!(asked(ConnAuth::CarrierOwner, &for_app), Some("on"));
         let other = json!({"_meta": {"acpmux": {"cmuxTools": "yes"}}});
         assert_eq!(asked(ConnAuth::PeerToken, &other), None);
         assert_eq!(asked(ConnAuth::PeerToken, &json!({})), None);

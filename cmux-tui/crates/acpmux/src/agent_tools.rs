@@ -563,9 +563,7 @@ pub fn person_entry_env(
     let getenv = |key: &str| effective.get(key).map(std::ffi::OsString::from);
     let args: Vec<std::ffi::OsString> =
         launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect();
-    if !crate::codex_cmux_entry::stdio_cmux_entry(&args, launch.cwd, &getenv) {
-        return None;
-    }
+    let entry = crate::codex_cmux_entry::stdio_cmux_entry(&args, launch.cwd, &getenv)?;
     // A session cut off from cmux's tools gets the off server from the person's entry too.
     let answer = match env.get(TOOLS_ANSWER_ENV).map(String::as_str) {
         _ if cut_off(env) => "off",
@@ -574,7 +572,16 @@ pub fn person_entry_env(
         None if agents_get_cmux(crate::user_settings::text().as_deref()) => "on",
         None => "off",
     };
-    Some(json!({CMUX_SERVER: {AGENT_SESSION_ENV: session_id, TOOLS_ANSWER_ENV: answer}}))
+    // Whole: the entry's own command and args with the keys, so a wrong guess that it loads still
+    // gives Codex a stdio server, never env keys with no command (`codex_cmux_entry`).
+    let mut whole = json!({
+        "command": entry.command,
+        "env": {AGENT_SESSION_ENV: session_id, TOOLS_ANSWER_ENV: answer},
+    });
+    if let Some(args) = entry.args {
+        whole["args"] = json!(args);
+    }
+    Some(json!({CMUX_SERVER: whole}))
 }
 
 /// Whether a session whose profile, preset and session env is `env` is cut off from cmux's
@@ -598,7 +605,8 @@ pub fn remote_origin_answer(env: &mut BTreeMap<String, String>, remote_origin: b
     }
 }
 
-/// Puts [`person_entry_env`]'s keys on ACP session params as `_meta.cmux.mcpServerEnv`.
+/// Puts [`person_entry_env`]'s entry on ACP session params as `_meta.cmux.mcpServerEntry`
+/// (cmux-codex-acp: `mcp_servers.cmux.{command,args,env.KEY}`).
 pub fn send_person_entry_env(params: &mut Value, entry_env: Option<Value>) {
     let Some(entry_env) = entry_env else { return };
     if !params.get("_meta").is_some_and(Value::is_object) {
@@ -607,7 +615,7 @@ pub fn send_person_entry_env(params: &mut Value, entry_env: Option<Value>) {
     if !params["_meta"].get("cmux").is_some_and(Value::is_object) {
         params["_meta"]["cmux"] = json!({});
     }
-    params["_meta"]["cmux"]["mcpServerEnv"] = entry_env;
+    params["_meta"]["cmux"]["mcpServerEntry"] = entry_env;
 }
 
 /// A Codex session's launch, for [`AgentTools::without_cmux_beside_an_http_entry`]: its folder and

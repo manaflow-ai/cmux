@@ -181,8 +181,8 @@ fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     let off = tool_servers(tools(), &env("off"), codex());
     let on = tool_servers(tools(), &env("on"), codex());
     assert_eq!(before, "answer:off");
-    assert_eq!(off, "answer:off,cmux-entry-env:off");
-    assert_eq!(on, "answer:on,cmux-entry-env:on");
+    assert!(off.starts_with("answer:off,cmux-entry-env:off,cmux-entry-cmd:"), "{off}");
+    assert!(on.starts_with("answer:on,cmux-entry-env:on,cmux-entry-cmd:"), "{on}");
     let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
     assert!(!served(with(&before), &with(&off)));
     assert!(!served(with(&off), &with(&on)));
@@ -191,7 +191,15 @@ fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     let mut cut = env("on");
     cut.insert(crate::agent_tools::SWITCH_ENV.to_owned(), "0".to_owned());
     let cut_off = tool_servers(tools(), &cut, codex());
-    assert_eq!(cut_off, "answer:off,cmux-entry-env:off");
+    assert!(cut_off.starts_with("answer:off,cmux-entry-env:off,cmux-entry-cmd:"), "{cut_off}");
+    // Another command in the person's entry: another key, so the spare is not served.
+    std::fs::write(
+        codex_home.join("config.toml"),
+        "[mcp_servers.cmux]\ncommand = \"/opt/other\"\n",
+    )
+    .unwrap();
+    let moved = tool_servers(tools(), &env("off"), codex());
+    assert!(!served(with(&off), &with(&moved)), "{off} / {moved}");
     assert!(!served(with(&on), &with(&cut_off)));
 }
 
