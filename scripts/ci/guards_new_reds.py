@@ -146,15 +146,21 @@ _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
 # An interpreter warning printed beside a failure, which one run prints and the next does not (Python's
 # `sys:1: ResourceWarning: unclosed file ...` when the collector closes a file late). It names no failure:
 # counted, it made a red the base shares look new (cmux#43558: "names what the base's does not: sys:0").
-_INTERPRETER_WARNING = re.compile(r"^\s*(?:sys|<\w+>|\S+\.py):\d+: \w*Warning: ")
+# It lands anywhere in a line (after unittest's progress dots), its source line follows it indented, and a
+# ResourceWarning adds a tracemalloc hint line: all three go.
+_INTERPRETER_WARNING = re.compile(r"(?:\bsys|<[^>\n]+>|(?:[^\s:]*/)?[\w.-]+\.py):\d+: \w*Warning: .*$")
+_WARNING_HINT = re.compile(r"^\s*\w*Warning: Enable tracemalloc\b")
 
 
 def failure_names(lines: list[str]) -> set[str]:
     """The names a red step's output holds (paths, tests, items), order and run-to-run noise aside."""
     names: set[str] = set()
+    after_warning = False
     for line in lines:
-        if _INTERPRETER_WARNING.match(line):
-            continue
+        if _WARNING_HINT.match(line) or (after_warning and line[:1].isspace()):
+            continue  # the hint, or the warning's own source line
+        line, warned = _INTERPRETER_WARNING.subn("", line)
+        after_warning = bool(warned)
         line = _NUMBER.sub("0", _HEX.sub("<hex>", _TEMP.sub("<tmp>", line)))
         names.update(name.strip(".:-") for name in _NAME.findall(line))
     names.discard("")

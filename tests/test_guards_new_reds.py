@@ -475,6 +475,18 @@ class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
         head = [failure, "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=5>",
                 "/usr/lib/python3.12/subprocess.py:1127: ResourceWarning: subprocess 42 is still running"]
         self.assertEqual(reds.failure_names(head), reds.failure_names([failure]))
+        # As run 43694446885 printed them: after unittest's dots, with the warning's source line and the
+        # tracemalloc hint after it, and a frozen module's name with a space in it (review of #43558, F1).
+        logged = [failure,
+                  "........./home/runner/_work/cmux/cmux/scripts/ci/base_red_excuse.py:404: ResourceWarning: "
+                  "unclosed file <_io.BufferedReader name=7>",
+                  "  return self.artifact_file_whole(repo, artifact, member)",
+                  "ResourceWarning: Enable tracemalloc to get the object allocation traceback",
+                  "..sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=5>",
+                  "<frozen runpy>:128: RuntimeWarning: 'x' found in sys.modules after import"]
+        self.assertEqual(reds.failure_names(logged), reds.failure_names([failure]))
+        # An indented line that follows no warning is still read.
+        self.assertIn("test_two", reds.failure_names([failure, "  FAIL: test_two"]))
         # A failure line that names a Warning class is still a name.
         self.assertIn("DeprecationWarning", reds.failure_names(["FAIL: test_x raised DeprecationWarning"]))
 
