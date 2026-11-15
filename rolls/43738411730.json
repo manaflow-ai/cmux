@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43738411730",
+  "recorded_at": "2026-11-15T17:12:13Z",
+  "reason": "cmux-tui eddc31b0a854 changes the image's cmux-tui (pinned d51faead6012)",
+  "dry_run": false,
+  "cmux_tui": "eddc31b0a85458603bd6cfdfdb5c34f4d04cb749",
+  "fixes": [
+    {
+      "sha": "eddc31b0a85458603bd6cfdfdb5c34f4d04cb749",
+      "mergedAt": "2026-11-15T08:42:57-08:00",
+      "subject": "customize use: any code source (branch, commit, folder, fork), not only a PR (#43708)"
+    },
+    {
+      "sha": "bb72055adbb4bc9285b3b8dd2e87d89b7697f0f5",
+      "mergedAt": "2026-11-15T16:16:07Z",
+      "subject": "Audit and mark unmeasured v2 gate rows (#43358)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T17:12:13Z",
+    "snapshot_id": "sh-cd38bfb310d646289575e356d430f648",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43738411730): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ebf8d69c1610f34dfb5f209dae97ac42d2c5a7d1",
+    "image": "cloud-native-auto-eddc31b0-43738411730-1",
+    "revision": "ci-43738411730-1",
+    "at": "2026-11-15T17:12:13Z"
+  },
+  "rolled_back": false
+}
