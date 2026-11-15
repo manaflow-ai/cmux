@@ -451,12 +451,17 @@ pub struct JoinedDevice {
 
 /// This box's join in acpmux home `home`, when it is one the tunnel may run for: a live record
 /// (not revoked, not a copy of another box's, its node key not a copied one) of a `machine_` id,
-/// with no sign-out leave or queued revoke pending. None otherwise: the tunnel stops then.
+/// with no sign-out leave pending and no queued revoke of its own. None otherwise: the tunnel
+/// stops then. A queued revoke of an earlier join does not stop it (`to_revoke::names`): the
+/// sign-in that cleared that sign-out's leave mark enrolled this join, and the old revoke is asked
+/// again at each start and sign-in, as the daemon's own start already reads it
+/// (`finish_leave_at_start`: no mark is `signedIn`). On a Mac that signs in and out often, one
+/// such revoke the hub never took kept the tunnel off for every join after it.
 pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
     let record = load_at(home).ok().flatten()?;
     let current = host_fingerprint::current();
     let left = std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok()
-        || to_revoke::any_queued(home);
+        || to_revoke::names(home, &record);
     if record.revoked
         || record.cloned
         || left
@@ -1097,7 +1102,7 @@ mod tests {
     }
 
     /// The cmux link's Cloud tunnel runs only for a live join of this box: a sign-out's leave
-    /// mark, a queued revoke, a revoked record or no record at all stop it.
+    /// mark, a queued revoke of its own, a revoked record or no record at all stop it.
     #[test]
     #[cfg(unix)]
     fn the_tunnel_runs_only_for_a_live_join_of_this_box() {
