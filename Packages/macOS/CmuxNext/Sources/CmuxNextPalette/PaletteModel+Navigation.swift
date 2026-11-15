@@ -156,6 +156,7 @@ extension PaletteModel {
             fieldHint = page.hint
             pageCrumbs = page.crumbs.map(\.title)
             pageTokens = page.tokens
+            if fontTuner !== page.fontTuner { fontTuner = page.fontTuner }
         case .textInput(let spec):
             pageTitle = spec.title
             placeholder = spec.placeholder
@@ -164,6 +165,7 @@ extension PaletteModel {
             fieldHint = nil
             pageCrumbs = []
             pageTokens = []
+            fontTuner = nil
         }
     }
 

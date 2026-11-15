@@ -59,9 +59,12 @@ public struct PaletteSettingRow: Identifiable {
     public var isEnabled: Bool
     /// A font family setting: its values are installed fonts (Change Font… lists it).
     public var isFontFamily: Bool
+    /// A number setting's range and value, for a slider (the font picker's size and line height).
+    public var number: PaletteSettingNumber?
 
     public init(id: String, title: String, group: String, value: String, kind: Kind, keywords: [String] = [],
-                swatches: [ThemeRGB] = [], isEnabled: Bool = true, isFontFamily: Bool = false) {
+                swatches: [ThemeRGB] = [], isEnabled: Bool = true, isFontFamily: Bool = false,
+                number: PaletteSettingNumber? = nil) {
         self.id = id
         self.title = title
         self.group = group
@@ -71,5 +74,37 @@ public struct PaletteSettingRow: Identifiable {
         self.swatches = swatches
         self.isEnabled = isEnabled
         self.isFontFamily = isFontFamily
+        self.number = number
+    }
+}
+
+/// A number setting as a slider sees it: its range on its step grid, the value in effect (the
+/// stored one, else the default, else `placeholder`) and how a value reads ("13 pt", "160%").
+public struct PaletteSettingNumber: Sendable {
+    public var range: ClosedRange<Double>
+    public var step: Double
+    /// The value in effect now.
+    public var value: Double
+    /// The value an unset key means (nil: derived at run time, such as the Ghostty config's size).
+    public var defaultValue: Double?
+    public var format: @Sendable (Double) -> String
+
+    public init(range: ClosedRange<Double>, step: Double, value: Double, defaultValue: Double? = nil,
+                format: @escaping @Sendable (Double) -> String) {
+        self.range = range
+        self.step = step
+        self.value = value
+        self.defaultValue = defaultValue
+        self.format = format
+    }
+
+    /// `value` clamped to the range and put on the step grid from its low end.
+    public func snapped(_ value: Double) -> Double {
+        let clamped = min(max(value, range.lowerBound), range.upperBound)
+        guard step > 0 else { return clamped }
+        let steps = ((clamped - range.lowerBound) / step).rounded()
+        // Rounded to the step's own decimals, so 1.2 + 9 * 0.05 is 1.65 and not 1.6500000000000001.
+        let snapped = range.lowerBound + steps * step
+        return min(range.upperBound, (snapped * 10_000).rounded() / 10_000)
     }
 }

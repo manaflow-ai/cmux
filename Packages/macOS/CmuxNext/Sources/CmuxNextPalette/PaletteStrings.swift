@@ -76,6 +76,28 @@ nonisolated enum PaletteStrings {
     static var on: String { String(localized: "palette.accessory.on", defaultValue: "On", bundle: .module) }
     static var off: String { String(localized: "palette.accessory.off", defaultValue: "Off", bundle: .module) }
     static var changeFont: String { String(localized: "palette.setting.changeFont", defaultValue: "Change Font…", bundle: .module) }
+    static var changeFontTitle: String { String(localized: "palette.font.title", defaultValue: "Change Font", bundle: .module) }
+    static func searchFonts(_ target: String) -> String {
+        String(format: String(localized: "palette.font.search", defaultValue: "Search %@ fonts…", bundle: .module), target)
+    }
+    static var useFont: String { String(localized: "palette.font.use", defaultValue: "Use Font", bundle: .module) }
+    static var fontSize: String { String(localized: "palette.font.size", defaultValue: "Size", bundle: .module) }
+    static var fontLineHeight: String { String(localized: "palette.font.lineHeight", defaultValue: "Line Height", bundle: .module) }
+    static func fontSectionAll(_ sample: PaletteFontSample) -> String {
+        switch sample {
+        case .code: String(localized: "palette.font.section.monospaced", defaultValue: "Monospaced Fonts", bundle: .module)
+        case .prose: String(localized: "palette.font.section.all", defaultValue: "Fonts", bundle: .module)
+        }
+    }
+    static var fontTargetTerminal: String { String(localized: "palette.font.target.terminal", defaultValue: "Terminal", bundle: .module) }
+    static var fontTargetApp: String { String(localized: "palette.font.target.app", defaultValue: "App", bundle: .module) }
+    static var fontTargetEditor: String { String(localized: "palette.font.target.editor", defaultValue: "Editor", bundle: .module) }
+    static var fontTargetChat: String { String(localized: "palette.font.target.chat", defaultValue: "Chat", bundle: .module) }
+    static var fontTargetChatCode: String { String(localized: "palette.font.target.chatCode", defaultValue: "Chat Code", bundle: .module) }
+    static var fontTargetMarkdown: String { String(localized: "palette.font.target.markdown", defaultValue: "Markdown", bundle: .module) }
+    static var fontTargetMarkdownCode: String {
+        String(localized: "palette.font.target.markdownCode", defaultValue: "Markdown Code", bundle: .module)
+    }
     static var customValue: String { String(localized: "palette.setting.customValue", defaultValue: "Custom Value…", bundle: .module) }
     static var turnOn: String { String(localized: "palette.command.turnOn", defaultValue: "Turn On", bundle: .module) }
     static var turnOff: String { String(localized: "palette.command.turnOff", defaultValue: "Turn Off", bundle: .module) }

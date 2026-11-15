@@ -34,6 +34,10 @@ final class PaletteContentView: NSView {
     private let footer = PaletteFooterView()
     let actionsMenuView = PaletteActionsMenuView()
     private let recorderView = PaletteShortcutRecorderView()
+    /// The font picker's dock (``PaletteFontTuner``), shown with its page.
+    private let tunerView = PaletteFontTunerView()
+    private let tunerRule = NSView()
+    private var tunerStyle: PaletteFontPickerStyle?
     private var recorderHeight: CGFloat = 0
     /// A click on a shortcut recorder choice.
     var onRecorderOption: ((PaletteShortcutOption) -> Void)? {
@@ -60,9 +64,11 @@ final class PaletteContentView: NSView {
         emptyHint.stringValue = PaletteStrings.noResultsHint
         emptyTitle.alignment = .center
         emptyHint.alignment = .center
-        [topRule, bottomRule].forEach { $0.wantsLayer = true }
+        [topRule, bottomRule, tunerRule].forEach { $0.wantsLayer = true }
+        tunerView.isHidden = true
+        tunerRule.isHidden = true
         fieldHint.isHidden = true
-        [searchBar, fieldHint, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
+        [searchBar, fieldHint, topRule, listHost, emptyTitle, emptyHint, tunerRule, tunerView, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
@@ -114,6 +120,7 @@ final class PaletteContentView: NSView {
         footer.onClose = { model.handle(.closeItem) }
         actionsMenuView.onRun = { model.runActionsMenuCommand(at: $0) }
         actionsMenuView.onHover = { model.hoverActionsMenuCommand(at: $0) }
+        tunerView.onSelectTarget = { model.selectFontTarget($0) }
     }
 
     // MARK: Rendering
@@ -136,6 +143,7 @@ final class PaletteContentView: NSView {
         let pageToken = model.pageToken
         let menuState = model.actionsMenu
         let recorderState = model.shortcutRecorder
+        let tuner = model.fontTuner
         let size = PaletteLayout.windowSize
         let textSizes = PaletteLayout.textSizes
 
@@ -196,6 +204,7 @@ final class PaletteContentView: NSView {
         }
         updateMenu(menuState)
         updateRecorder(recorderState)
+        updateTuner(tuner)
         if textSizes != appliedTextSizes {
             // Labels keep the font they were made with; a text size or density change while the
             // palette exists resizes them (#26606).
@@ -220,6 +229,18 @@ final class PaletteContentView: NSView {
         recorderView.update(state)
         recorderHeight = PaletteShortcutRecorderView.height(for: state)
         recorderView.isHidden = false
+        needsLayout = true
+    }
+
+    /// The font picker's dock comes and goes with its page, in the same frame as the page's rows:
+    /// the list gives it its room at once, so nothing slides in after the rows.
+    private func updateTuner(_ tuner: PaletteFontTuner?) {
+        let style = tuner?.style
+        if let tuner { tunerView.update(tuner) }
+        guard style != tunerStyle else { return }
+        tunerStyle = style
+        tunerView.isHidden = tuner == nil
+        tunerRule.isHidden = tuner == nil
         needsLayout = true
     }
 
@@ -257,7 +278,18 @@ final class PaletteContentView: NSView {
         y += fieldHintHeight
         topRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
-        let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight - fieldHintHeight)
+        let tunerHeight = tunerStyle.map(PaletteFontTunerView.height(for:)) ?? 0
+        let tunerWidth = tunerStyle == .side ? PaletteFontTunerView.sideWidth : 0
+        let listAreaHeight = PaletteLayout.listHeight - fieldHintHeight
+        let listFrame = NSRect(x: 0, y: y, width: width - tunerWidth - (tunerWidth > 0 ? Metrics.dividerThickness : 0),
+                               height: listAreaHeight - tunerHeight - (tunerHeight > 0 ? Metrics.dividerThickness : 0))
+        if tunerWidth > 0 {
+            tunerRule.frame = NSRect(x: listFrame.maxX, y: y, width: Metrics.dividerThickness, height: listAreaHeight)
+            tunerView.frame = NSRect(x: tunerRule.frame.maxX, y: y, width: tunerWidth, height: listAreaHeight)
+        } else if tunerHeight > 0 {
+            tunerRule.frame = NSRect(x: 0, y: listFrame.maxY, width: width, height: Metrics.dividerThickness)
+            tunerView.frame = NSRect(x: 0, y: tunerRule.frame.maxY, width: width, height: tunerHeight)
+        }
         listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = PaletteText.height(emptyTitle)
@@ -301,6 +333,7 @@ final class PaletteContentView: NSView {
             glass.applyTheme()
             topRule.layer?.backgroundColor = Palette.separator.cgColor
             bottomRule.layer?.backgroundColor = Palette.separator.cgColor
+            tunerRule.layer?.backgroundColor = Palette.separator.cgColor
             // The one popup elevation (POLISH: subtle shadows): its own, darker and wider, made the
             // palette heavier than every other popup.
             stage.shadow = PopupStyle.elevation2.shadow()

@@ -73,6 +73,51 @@ extension SettingsController {
         validatedWrites[descriptor.id, default: 0] += 1
     }
 
+    /// Writes several schema settings in one atomic publish and one reload, each checked as
+    /// `setSetting` checks it (managed, writer, schema; a default's own value removes the key). A
+    /// set holding a key with a renamed legacy key, linked keys or the theme file's entries is
+    /// written one key at a time through `setSetting`, which knows those. Refused as a whole: no
+    /// key is written when one is refused.
+    public func setSettings(_ edits: [(descriptor: SettingDescriptor, value: JSONValue?)], by writer: SettingWriter) async throws {
+        guard edits.count > 1 else {
+            if let edit = edits.first { try await setSetting(edit.descriptor, to: edit.value, by: writer) }
+            return
+        }
+        var writes: [(path: [String], value: JSONValue?)] = []
+        for (descriptor, value) in edits {
+            if let source = managedKeys[descriptor.id] { throw SettingManaged(key: descriptor.id, source: source) }
+            guard writer.mayWrite(descriptor) else { throw SettingUserOnly(key: descriptor.id, writer: writer) }
+            if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
+            let simple = RenamedSettingKeys.legacyPath(for: descriptor.path) == nil
+                && strippingThemeFileEntries(descriptor, value) == value
+                && windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: snapshot.root).isEmpty
+                && descriptor.path != DensitySetting.configPath
+            guard simple else {
+                for edit in edits { try await setSetting(edit.descriptor, to: edit.value, by: writer) }
+                return
+            }
+            let stored = value.flatMap { isUnsetValue($0, of: descriptor) ? nil : $0 }
+            writes.append((path: descriptor.path, value: stored))
+        }
+        let undos = writer == .user ? edits.compactMap { userWillWrite?($0.descriptor, $0.value) } : []
+        do {
+            try await file.apply(writes)
+        } catch {
+            undos.forEach { $0() }
+            throw error
+        }
+        for (descriptor, value) in edits where descriptor.kind == .fontFamily {
+            if let family = value?.stringValue { recentFonts.record(family) }
+        }
+        // A removal can leave its parent object empty.
+        for write in writes where write.value == nil {
+            var parent = Array(write.path.dropLast())
+            while !parent.isEmpty, try await pruneEmpty(parent) { parent.removeLast() }
+        }
+        await reloadAfterWrite()
+        for (descriptor, _) in edits { validatedWrites[descriptor.id, default: 0] += 1 }
+    }
+
     /// `setSetting` for the schema key at `path`: the one write path of the
     /// palette's typed setters and handlers. Throws `SettingRetired` for a
     /// removed key and `SettingNotInSchema` when the schema lists no such key.

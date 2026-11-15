@@ -13,7 +13,7 @@ import os
 /// write goes through `SettingsController.setSetting` (the managed guard
 /// and the schema check).
 @MainActor
-final class SettingsPaletteSource: PaletteSettingsSource {
+final class SettingsPaletteSource: PaletteSettingsBatchSource {
     private let settings: SettingsController
     /// The theme colors of the window the palette serves (its theme scope).
     private let themeColors: @MainActor () -> [ThemeRGB]
@@ -52,6 +52,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             settings.endPreview()
             return
         }
+        settings.previewsTerminalFont = false
         settings.preview(descriptor, Self.value(option))
     }
 
@@ -63,6 +64,35 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         default: Self.value(option)
         }
         commitValue(descriptor, value)
+    }
+
+    /// The font picker's preview: family, size and line height in one applied snapshot; the
+    /// terminal shows its font's edits too (`SettingsController.previewsTerminalFont`).
+    func preview(_ edits: [PaletteSettingEdit], terminal: Bool) {
+        let resolved = edits.compactMap { edit in descriptor(edit.row).map { (descriptor: $0, value: Self.value(edit.option)) } }
+        guard !resolved.isEmpty else { return settings.endPreview() }
+        settings.previewsTerminalFont = terminal
+        if !settings.preview(resolved) { settings.previewsTerminalFont = false }
+    }
+
+    /// The font picker's Return: every edit in one write, so the surfaces change once.
+    func commit(_ edits: [PaletteSettingEdit]) {
+        let resolved = edits.compactMap { edit in descriptor(edit.row).map { (descriptor: $0, value: Self.value(edit.option)) } }
+        guard !resolved.isEmpty else { return }
+        let settings = settings
+        writeCount += 1
+        let token = writeCount
+        for edit in resolved { pending[edit.descriptor.id] = (token, edit.value) }
+        Task { [weak self] in
+            do {
+                try await settings.commitPreview(resolved)
+            } catch {
+                Self.logger.error("palette font settings failed: \(String(describing: error), privacy: .public)")
+            }
+            guard let self else { return }
+            for edit in resolved where self.pending[edit.descriptor.id]?.token == token { self.pending[edit.descriptor.id] = nil }
+            self.onChange?()
+        }
     }
 
     func commit(row: String, text: String) {
@@ -111,15 +141,42 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             kind = .toggle(isOn: current?.boolValue ?? false)
         } else {
             let custom = Self.customInput(for: descriptor)
-            kind = .options(options.map { PaletteSettingOption(id: $0.id, title: $0.title, swatches: $0.swatches, isCurrent: $0.isCurrent,
-                                                               fontFamily: isFont ? $0.value?.stringValue : nil, isRecent: $0.isRecent) }, customInput: custom)
+            let faces = Self.choiceFaces[descriptor.id]
+            kind = .options(options.map { option in
+                let face = isFont ? option.value?.stringValue : option.value?.stringValue.flatMap { faces?[$0] }
+                return PaletteSettingOption(id: option.id, title: option.title, swatches: option.swatches, isCurrent: option.isCurrent,
+                                            fontFamily: face, isRecent: option.isRecent)
+            }, customInput: custom)
         }
         return PaletteSettingRow(
             id: descriptor.id, title: descriptor.title, group: descriptor.group, value: label, kind: kind,
             keywords: descriptor.keywords + [descriptor.id, descriptor.section.title, descriptor.group],
-            swatches: currentOption?.swatches ?? [], isEnabled: settings.managedKeys[descriptor.id] == nil, isFontFamily: isFont
+            swatches: currentOption?.swatches ?? [], isEnabled: settings.managedKeys[descriptor.id] == nil, isFontFamily: isFont,
+            number: Self.number(descriptor, current: current)
         )
     }
+
+    /// A number setting's range and value for a slider (the font picker's size and line height).
+    static func number(_ descriptor: SettingDescriptor, current: JSONValue?) -> PaletteSettingNumber? {
+        guard case .number(let number) = descriptor.kind else { return nil }
+        let unit = number.unit
+        return PaletteSettingNumber(range: number.range, step: number.step,
+                                    value: current?.doubleValue ?? descriptor.defaultValue?.doubleValue ?? number.placeholder,
+                                    defaultValue: descriptor.defaultValue?.doubleValue,
+                                    format: { SettingDescriptor.format($0, unit) })
+    }
+
+    /// The face each value of a choice of fonts draws in, in the font picker (the chat's interface
+    /// font, the Markdown viewer's font). `.system`, `.serif` and `.mono` are the system's own faces
+    /// (`PaletteFontFaces`); a face only the web pages bundle draws in the body font here.
+    static let choiceFaces: [String: [String: String]] = [
+        "agentPane.display.font.ui": [
+            "system-ui": ".system", "system-ui-tight": ".system", "inter-tuned": "Inter", "inter": "Inter", "verdana": "Verdana",
+            "roboto": "Roboto", "plex": "IBM Plex Sans", "source-sans": "Source Sans 3", "geist": "Geist", "cmux-sans": "cmux Sans",
+            "hanken": "Hanken Grotesk", "atkinson": "Atkinson Hyperlegible Next",
+        ],
+        "markdown.font.preset": ["system": ".system", "serif": ".serif", "mono": ".mono"],
+    ]
 
     /// Typed text for kinds whose value is not in a list: a number off the
     /// steps, a hex color, a font, a sound, an address.
