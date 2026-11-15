@@ -413,7 +413,7 @@ try {
     } finally {
       await context.close().catch(() => undefined);
       await server.close().catch(() => undefined);
-      daemon.stop(true);
+      await daemon.stop(true);
     }
   };
 
