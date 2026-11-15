@@ -78,7 +78,7 @@ enum NewTabSlot {
     /// The creating commit's slot for a person's new tab right after `target`'s anchor (``NewTabInsertion``), nil when the tab is made at the end and moves.
     static func insertion(_ target: Target?, services: AppServices) -> NewTabInsertion? {
         guard case .after(let anchor, false)? = target, let pane = home(of: anchor, services), let controller = services.paneController(for: pane) else { return nil }
-        return NewTabInsertion(after: anchor, in: pane, daemon: services.daemon(for: pane), line: controller.creations)
+        return NewTabInsertion(after: anchor, in: pane, shown: controller.orderedIDs.map(\.rawValue), daemon: services.daemon(for: pane), line: controller.creations)
     }
 
     @discardableResult

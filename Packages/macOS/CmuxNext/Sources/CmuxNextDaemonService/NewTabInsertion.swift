@@ -19,7 +19,7 @@ public import CmuxNextWakeups
 /// was refused before it was sent, or whose work ended), or after ``answerLimit`` as a safety (``WorkTurn``).
 ///
 /// ```swift
-/// let insertion = NewTabInsertion(after: anchor, in: pane, daemon: controller.daemon, line: controller.creations)
+/// let insertion = NewTabInsertion(after: anchor, in: pane, shown: controller.orderedIDs.map(\.rawValue), daemon: controller.daemon, line: controller.creations)
 /// // in the creation's work, before its request:
 /// request.after = await insertion.after()
 /// // once its answer is applied (ProvisionalTab.created) or it failed:
@@ -32,7 +32,7 @@ public final class NewTabInsertion {
     public static let answerLimit: Duration = .seconds(10)
 
     private let anchor: TabModel
-    /// The pane's tabs on the anchor's left at the press, nearest first: where the tab goes once the anchor left.
+    /// The tabs the pane's strip showed on the anchor's left at the press, nearest first: where the tab goes once the anchor left.
     private let earlier: [TabModel]
     private weak var pane: PaneModel?
     private let store: DaemonStore
@@ -47,10 +47,12 @@ public final class NewTabInsertion {
     ///   - pane: the pane the tab is made in.
     ///   - daemon: the pane's daemon; its store knows the daemon tab each answered stand-in became.
     ///   - line: the pane's creation line (`PaneController.creations`).
-    public init?(after anchor: TabModel, in pane: PaneModel, daemon: DaemonService, line: WorkLine<ActionWorkFailure?>) {
+    ///   - shown: the ids of the pane's tabs in the order its strip shows them at the press (the store lists a stand-in at
+    ///     the end until the daemon answers; the strip shows it in its slot).
+    public init?(after anchor: TabModel, in pane: PaneModel, shown: [String], daemon: DaemonService, line: WorkLine<ActionWorkFailure?>) {
         guard ActionRunScope.viewChangeAllowed(), daemon.supports(DaemonCapability.tabInsertAfter.rawValue) else { return nil }
         self.anchor = anchor
-        earlier = pane.tabs.firstIndex { $0 === anchor || $0.id == anchor.id }.map { Array(pane.tabs[..<$0].reversed()) } ?? []
+        earlier = shown.firstIndex(of: anchor.id).map { shown[..<$0].reversed().compactMap { id in pane.tabs.first { $0.id == id } } } ?? []
         self.pane = pane
         store = daemon.store
         turn = line.next(limit: Self.answerLimit, owner: "NewTabInsertion.answer", passing: nil)
