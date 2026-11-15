@@ -151,6 +151,8 @@ ring.workspace = true
 # start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
 acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
+# A device row's kind and glyph (`devices/model.rs`).
+cmux-device-kind = { path = "../cmux-device-kind" }
 
 [target.'cfg(unix)'.dependencies]
 # The browser host and the app host run from this binary, chosen by argv[0]

@@ -30,6 +30,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-command-class",
  "cmux-config",
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1548,6 +1549,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-device-kind"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-encode"
 version = "0.1.0"
 dependencies = [
@@ -2240,6 +2250,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-customize",
  "cmux-customize-recipes",
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
@@ -2367,6 +2378,7 @@ dependencies = [
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
+ "cmux-device-kind",
  "cmux-feed-core",
  "cmux-file-lock",
  "cmux-flow-trace",

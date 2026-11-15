@@ -67,6 +67,11 @@ Ask options:
 Every verb takes --json. Exit codes: 0 ok, 1 refused (the error's code says why), 2 bad arguments.
 Nothing here needs the app but an ask: generations are files, so rollback works with cmux
 quit and in safe mode.
+
+If a layer breaks the window itself, quit cmux and open it once on its built-in web UI:
+  open -a \"cmux NIGHTLY\" --args --no-customizations
+(or CMUX_NO_CUSTOMIZATIONS=1, or hold Option and Shift as it starts). It edits no file. A page that
+does not start from a layer falls back on its own and turns the layer off, saying why.
 ";
 
 /// Every verb, for \"did you mean\".
