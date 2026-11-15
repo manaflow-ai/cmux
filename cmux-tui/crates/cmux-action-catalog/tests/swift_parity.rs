@@ -21,8 +21,10 @@ fn repo() -> PathBuf {
 
 /// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
 /// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
-/// these rows with the re-pin, which takes them off this list (#38644, #41954).
-const AWAITING_REPIN: &[&str] = &[];
+/// these rows with the re-pin, which takes them off this list (#38644, #41954, and the first
+/// catalog request rows).
+const AWAITING_REPIN: &[&str] =
+    &["history.removeSite", "closed.clear", "closed.delete", "errors.clear"];
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
 /// lists) does not have yet: once the export has it, it comes off the list.
@@ -44,7 +46,7 @@ fn check_awaiting_repin(export: &[Value], file: &str) {
 /// catalog, so until the re-pin they show no shortcut for these rows. An export may show
 /// either no shortcut or this crate's; any other value still fails. Take an id off once both
 /// exports carry its shortcut.
-const SHORTCUT_AWAITING_REPIN: &[&str] = &[];
+const SHORTCUT_AWAITING_REPIN: &[&str] = &["space.new"];
 
 /// Whether `id`'s exported shortcut may be `null` while the crate has one (see
 /// [`SHORTCUT_AWAITING_REPIN`]).
@@ -65,7 +67,7 @@ fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
 /// an app FFI change, docs/ci/app-ffi-release.md): until the re-pin the exports still show the
 /// old shortcut. Leo, 2026-11-15, on Toggle Terminal and Chat: "idk if the terminal gui should
 /// even get a hotkey by default".
-const SHORTCUT_REMOVAL_AWAITING_REPIN: &[&str] = &[];
+const SHORTCUT_REMOVAL_AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
 
 /// Whether `id`'s exported shortcut may still be the pinned app's while the crate has none.
 fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
@@ -77,7 +79,8 @@ fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
 /// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
 /// field of the row is still compared. A listed field the dump already shows as this crate has
 /// it fails: the re-pin landed, so take it off.
-const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[];
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] =
+    &[("palette.toggleTerminalChat", &["/defaultShortcut"])];
 
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.
