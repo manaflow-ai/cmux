@@ -16,7 +16,7 @@ import Testing
         defer { withExtendedLifetime(home) {} }
         let settings = try ThemeFileTests.controller(home, config: #"{ "terminal": { "fontFamily": "Menlo", "fontSize": 12 } }"#)
         await settings.reload()
-        #expect(settings.preview([(Self.family, "Monaco"), (Self.size, 15)]))
+        #expect(settings.preview([(Self.family, .string("Monaco")), (Self.size, .number(15))]))
         #expect(settings.applied.terminalFontFamily == "Monaco")
         #expect(settings.applied.terminalFontSize == 15)
         #expect(settings.previewingKeys == ["terminal.fontFamily", "terminal.fontSize"])
@@ -33,10 +33,10 @@ import Testing
         defer { withExtendedLifetime(home) {} }
         let settings = try ThemeFileTests.controller(home, config: #"{ "terminal": { "fontSize": 12 } }"#)
         await settings.reload()
-        #expect(settings.preview([(Self.size, 20)]))
+        #expect(settings.preview([(Self.size, .number(20))]))
         #expect(settings.lookFollowed.terminalFontSize == 12)
         settings.previewsTerminalFont = true
-        #expect(settings.preview([(Self.family, "Monaco"), (Self.size, 20)]))
+        #expect(settings.preview([(Self.family, .string("Monaco")), (Self.size, .number(20))]))
         #expect(settings.lookFollowed.terminalFontSize == 20)
         #expect(settings.lookFollowed.terminalFontFamily == "Monaco")
         settings.endPreview()
@@ -49,7 +49,7 @@ import Testing
         defer { withExtendedLifetime(home) {} }
         let settings = try ThemeFileTests.controller(home, config: "{}")
         await settings.reload()
-        #expect(!settings.preview([(Self.family, "Monaco"), (Self.size, 400)]))
+        #expect(!settings.preview([(Self.family, .string("Monaco")), (Self.size, .number(400))]))
         #expect(settings.previewingKey == nil)
     }
 
@@ -58,8 +58,8 @@ import Testing
         defer { withExtendedLifetime(home) {} }
         let settings = try ThemeFileTests.controller(home, config: #"{ "terminal": { "fontSize": 12 } }"#)
         await settings.reload()
-        #expect(settings.preview([(Self.family, "Monaco"), (Self.size, 16)]))
-        try await settings.commitPreview([(Self.family, "Monaco"), (Self.size, 16)])
+        #expect(settings.preview([(Self.family, .string("Monaco")), (Self.size, .number(16))]))
+        try await settings.commitPreview([(Self.family, .string("Monaco")), (Self.size, .number(16))])
         #expect(settings.previewSnapshot == nil)
         #expect(settings.snapshot.terminalFontFamily == "Monaco")
         #expect(settings.snapshot.terminalFontSize == 16)
