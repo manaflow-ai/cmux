@@ -91,7 +91,8 @@ pub fn wrapped(
     }
     for config in claude.configs.iter().filter_map(|file| read(file)) {
         for folder in cwd.ancestors() {
-            let Some(project) = folder.to_str().and_then(|key| config["projects"].get(key)) else {
+            let Some(project) = folder.to_str().and_then(|key| config.get("projects")?.get(key))
+            else {
                 continue;
             };
             disabled.extend(disabled_in(project));
@@ -121,9 +122,11 @@ pub fn wrapped(
             wrapper.push(cwd.to_string_lossy().into_owned());
             wrapper.push("--".to_owned());
             wrapper.extend(line.iter().map(|word| (*word).to_owned()));
-            let mut entry = json!({"type": "stdio", "command": cmux, "args": wrapper});
-            entry["env"] = server.get("env").cloned().unwrap_or_else(|| json!({}));
-            out.insert(name.clone(), entry);
+            let env = server.get("env").cloned().unwrap_or_else(|| json!({}));
+            out.insert(
+                name.clone(),
+                json!({"type": "stdio", "command": cmux, "args": wrapper, "env": env}),
+            );
         }
     }
     out
@@ -157,8 +160,9 @@ fn read(file: &Path) -> Option<Value> {
 }
 
 fn disabled_in(value: &Value) -> Vec<String> {
-    value["disabledMcpjsonServers"]
-        .as_array()
+    value
+        .get("disabledMcpjsonServers")
+        .and_then(Value::as_array)
         .map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect())
         .unwrap_or_default()
 }
@@ -167,10 +171,10 @@ fn disabled_in(value: &Value) -> Vec<String> {
 /// entry names it, and an `allowedMcpServers` list, if any, does.
 fn permits(policy: &Value, name: &str, line: &[&str]) -> bool {
     let listed = |key: &str| {
-        policy[key].as_array().map(|entries| {
+        policy.get(key).and_then(Value::as_array).map(|entries| {
             entries.iter().any(|entry| {
-                entry["serverName"].as_str() == Some(name)
-                    || entry["serverCommand"].as_array().is_some_and(|words| {
+                entry.get("serverName").and_then(Value::as_str) == Some(name)
+                    || entry.get("serverCommand").and_then(Value::as_array).is_some_and(|words| {
                         words.iter().map(Value::as_str).eq(line.iter().map(|w| Some(*w)))
                     })
             })
