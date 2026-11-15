@@ -202,7 +202,7 @@ const RESTARTED: &str = "ACPMUX_RESTARTED=";
 pub(crate) const RESTART_STAMP: &str = "update.restarted";
 
 /// An update restarts a host's running daemon at most once in this many
-/// seconds (gcp-codex-swarm-08, 2026-11-15: its timer and a `host update`
+/// seconds (a 2 vCPU fleet host, 2026-11-15: its timer and a `host update`
 /// from another machine restarted it 13 times in 160 minutes, each waking
 /// every harness at once). An update inside the window changes nothing
 /// (`busy`, reason `restartWindow`); the first one after it brings the

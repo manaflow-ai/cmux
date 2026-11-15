@@ -562,8 +562,8 @@ fn host_update(peer: &FakePeer, build: &str, window: Option<u64>) -> PeerUpdate 
     .expect("the lock is free")
 }
 
-/// gcp-codex-swarm-08, 2026-11-15: its acpmux-update.timer restarted the
-/// daemon for each new build, and a `host update` from gcp-agent-lane-1 1-3
+/// A 2 vCPU fleet host, 2026-11-15: its acpmux-update.timer restarted the
+/// daemon for each new build, and a `host update` from another machine 1-3
 /// minutes later restarted it again: 13 restarts in 160 minutes, each waking
 /// every harness at once. Whichever comes first restarts it; the other, within
 /// the hour, changes nothing, both ways round.
