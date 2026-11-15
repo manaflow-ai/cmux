@@ -439,6 +439,10 @@ def page_facts(app: App, pages: list) -> dict:
         browser = entry.get("browser")
         if browser in out and isinstance(out[browser], dict):
             out[browser]["owner"] = entry.get("owner")
+    # The app's own view of its pages: the New Tab spares, the shown page windows, the windows.
+    for method in ("debug.new_tab", "debug.cef", "debug.window_list"):
+        reply = app.call(method, {}, timeout=30)
+        print(f"PERF-ATTR raw {method} {json.dumps(reply)[:6000]}", flush=True)
     return out
 
 
