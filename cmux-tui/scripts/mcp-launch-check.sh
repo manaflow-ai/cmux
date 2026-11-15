@@ -409,16 +409,6 @@ PY
 
   # 16 to 21. Skip on doubt, with the answer on.
   http_entry() { printf '[mcp_servers.cmux]\nurl = "http://127.0.0.1:9/mcp"\n'; }
-  shim_session() { # FOLDER ARGS...: `session` through this build's shim and the real Codex
-    local at=$1; shift; : > "$L"
-    (cd "$at" && DEAD_KEY=x CODEX_API_KEY=sk-test timeout 30 env "${shim_env[@]}" PATH="$base_path" \
-       "$CMUX" agent codex-wrapper exec --json --skip-git-repo-check "${dead[@]}" "$@" "say hi" \
-       < /dev/null > "$D/session.out" 2>&1)
-    local refused=0 reached=0
-    grep -qiE 'invalid transport|failed to load|not supported for stdio' "$D/session.out" && refused=1
-    grep -q '"type":"turn.started"' "$D/session.out" && grep -qE '"type":"(turn.failed|error)"' "$D/session.out" && reached=1
-    printf '%s|%s|%s' "$(sort -u "$L" | tr '\n' ' ')" "$refused" "$reached"
-  }
   : > "$CODEX_HOME/config.toml"
   # Signed in with an API key (scratch CODEX_HOME), so the TUI's only first-run step is the trust prompt.
   printf '{"OPENAI_API_KEY":"sk-test"}\n' > "$CODEX_HOME/auth.json"
@@ -460,13 +450,24 @@ PY
   else
     check "doubt [trust prompt]: tmux is missing" 1
   fi
+  # 17 and 18 record the shim's launch (the fake `codex` asks the real one), then run the real
+  # Codex with what the shim gave (none of the hooks, whose socket here answers nothing) and the
+  # person's own arguments.
+  fake_codex > "$D/bin/codex"; chmod +x "$D/bin/codex"
+  replay_with() { # FOLDER ARGS...: the recorded launch's -c settings, with ARGS, as a real session
+    local at=$1 recorded=() a v; shift
+    while IFS= read -r a; do [ "$a" = -c ] && { IFS= read -r v; case "$v" in hooks*) ;; *) recorded+=(-c "$v") ;; esac; }; done < "$D/codex-args"
+    session "$at" "$@" ${recorded[@]+"${recorded[@]}"}
+  }
   # 17. `exec --trust` in a new folder with the same project file.
   T17=$D/doubt/trust; mkdir -p "$T17/.codex"; git -C "$T17" init -q; http_entry > "$T17/.codex/config.toml"
   : > "$CODEX_HOME/config.toml"
   if "$CODEX" exec --help 2>/dev/null | grep -q -- '--trust'; then
-    result=$(shim_session "$T17" --trust)
-    [ "$result" = "|0|1" ]
-    rc=$?; check "doubt [exec --trust]: no server, Codex starts with the HTTP project entry ($result)" $rc
+    record "$T17" exec --trust "say hi"
+    given=$(grep -c '^mcp_servers\.' "$D/codex-args")
+    result=$(replay_with "$T17" --trust)
+    [ "$given" = 0 ] && [ ! -s "$D/shim.err" ] && [ "$result" = "|0|1" ]
+    rc=$?; check "doubt [exec --trust]: no MCP setting ($given), nothing said, Codex trusts the folder and starts with its HTTP entry ($result)" $rc
   else
     echo "SKIP doubt [exec --trust]: this Codex has no --trust"
   fi
@@ -474,12 +475,13 @@ PY
   R18=$D/doubt/real; mkdir -p "$R18/.codex"; git -C "$R18" init -q; http_entry > "$R18/.codex/config.toml"
   ln -s "$R18" "$D/doubt/link"
   printf '[projects."%s"]\ntrust_level = "trusted"\n' "$D/doubt/link" > "$CODEX_HOME/config.toml"
-  result=$(shim_session "$D" -C "$D/doubt/link")
-  [ "$result" = "|0|1" ]
-  rc=$?; check "doubt [exec -C <link>]: no server, Codex starts with the HTTP project entry ($result)" $rc
+  record "$D" exec -C "$D/doubt/link" "say hi"
+  given=$(grep -c '^mcp_servers\.' "$D/codex-args")
+  result=$(replay_with "$D" -C "$D/doubt/link")
+  [ "$given" = 0 ] && [ ! -s "$D/shim.err" ] && [ "$result" = "|0|1" ]
+  rc=$?; check "doubt [exec -C <link>]: no MCP setting ($given), nothing said, Codex starts with the link's HTTP entry ($result)" $rc
   : > "$CODEX_HOME/config.toml"
   # 19. Launches whose loaded config can differ from the question: nothing recorded, nothing said.
-  fake_codex > "$D/bin/codex"; chmod +x "$D/bin/codex"
   sent=""
   for launch in "resume --last" "fork --last" "exec resume --last" "--worktree" "exec --trust hi" "--ignore-user-config exec hi" "--remote ws://127.0.0.1:9" "mcp list"; do
     # shellcheck disable=SC2086
