@@ -2350,3 +2350,75 @@ mod lock;
 #[cfg(unix)]
 #[path = "host_self_update_tests.rs"]
 mod self_update;
+
+/// The line of `script` that has a `case` inside a `$( )`, if any. macOS's
+/// `/bin/sh` (bash 3.2) reads a case pattern's `)` there as the end of the
+/// substitution and refuses the whole script ("syntax error near unexpected
+/// token `;;'"), while dash and newer bash take it, so a parse on Linux
+/// misses it. Quotes (each `$( )` has its own double quotes), backslashes
+/// and `#` comments are read as sh reads them.
+fn case_in_substitution(script: &str) -> Option<&str> {
+    let bytes = script.as_bytes();
+    // One frame per open `(`: whether it is a `$( )`, and whether a double
+    // quote is open inside it. The bottom frame is the script itself.
+    let mut frames = vec![(false, false)];
+    let mut single = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        let double = frames.last().is_some_and(|f| f.1);
+        let word_start = i == 0 || matches!(bytes[i - 1], b' ' | b'\t' | b'\n' | b';' | b'(');
+        if single {
+            single = b != b'\'';
+        } else if b == b'\\' {
+            i += 1;
+        } else if b == b'\'' && !double {
+            single = true;
+        } else if b == b'"' {
+            if let Some(f) = frames.last_mut() {
+                f.1 = !f.1;
+            }
+        } else if b == b'#' && !double && word_start {
+            i = script[i..].find('\n').map_or(bytes.len(), |n| i + n);
+        } else if b == b'(' && (!double || (i > 0 && bytes[i - 1] == b'$')) {
+            let subst = i > 0 && bytes[i - 1] == b'$' && bytes.get(i + 1) != Some(&b'(');
+            frames.push((subst, false));
+        } else if b == b')' && !double && frames.len() > 1 {
+            frames.pop();
+        } else if !double
+            && script[i..].starts_with("case ")
+            && word_start
+            && frames.iter().any(|f| f.0)
+        {
+            let start = script[..i].rfind('\n').map_or(0, |n| n + 1);
+            let end = script[i..].find('\n').map_or(script.len(), |n| i + n);
+            return Some(&script[start..end]);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Every script an update, setup or enroll runs on a host parses under
+/// macOS's `/bin/sh`: nightly 2b74e78's restart window check had a `case`
+/// in a `$( )`, so every push to a Mac failed before it changed anything
+/// (`machine enroll`'s install step: "syntax error near unexpected token").
+#[test]
+fn the_host_scripts_keep_case_out_of_command_substitutions() {
+    assert!(case_in_substitution("x=$(case a in a) echo;; esac)").is_some(), "the detector");
+    assert!(case_in_substitution("case \"$(uname)\" in Linux*) x=$(date);; esac").is_none());
+    // An apostrophe in a comment or a double-quoted string hides nothing.
+    let hidden = "  # macOS's sh\n  x=$(case \"$(uname)\" in Linux*) date;; esac) || x='?'";
+    assert!(case_in_substitution(hidden).is_some(), "past a comment's apostrophe");
+    assert!(case_in_substitution("echo \"it's\"; x=$(case a in a) :;; esac)").is_some());
+    assert!(case_in_substitution("x=\"$(echo \"a\")\"; case b in b) :;; esac").is_none());
+    for (name, script) in [
+        ("restart window", restart_window_check()),
+        ("downgrade", downgrade_check()),
+        ("probe", probe_script(false, false)),
+        ("probe if idle", probe_script(true, false)),
+        ("install pushed", INSTALL_PUSHED.to_owned()),
+    ] {
+        assert_eq!(case_in_substitution(&script), None, "{name}");
+    }
+}
