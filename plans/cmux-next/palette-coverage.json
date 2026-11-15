@@ -427,6 +427,10 @@
       "palette": "device.add"
     },
     {
+      "verb": "app mac-screens",
+      "reason": "keep: a read for scripts and agents (Mac Screen viewer speed: first frame, fps, round trip); the tab's stats line shows the same"
+    },
+    {
       "verb": "app machines",
       "reason": "keep: a read for scripts and agents (the Machines section's link state); the app shows the same state on screen"
     },
