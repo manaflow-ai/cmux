@@ -1180,31 +1180,10 @@ async fn hub_carrier_pipe_numbers() {
         percentile(&mut echoes, 0.5).as_secs_f64() * 1e3,
         percentile(&mut echoes, 0.95).as_secs_f64() * 1e3,
     );
-    let chunk = vec![0xa5u8; 32 * 1024];
-    let total: usize = 16 << 20;
-    let started = std::time::Instant::now();
-    let sender = tokio::spawn(async move {
-        for i in 0..(total / chunk.len()) as u64 {
-            daemon_client
-                .send(Lane::Bulk, i, bytes::Bytes::from(chunk.clone()), FrameFlags::empty())
-                .await
-                .unwrap();
-        }
-        daemon_client
-    });
-    let mut received = 0usize;
-    while received < total {
-        received += within(&format!("a bulk frame after {received} bytes"), client.receive())
-            .await
-            .unwrap()
-            .unwrap()
-            .payload
-            .len();
-    }
-    let elapsed = started.elapsed();
-    let _ = sender.await;
+    let total: usize = 64 << 20;
+    let elapsed = bulk_down(&client, &daemon_client, total, true).await.unwrap();
     eprintln!(
-        "PIPE-NUMBERS relayed down_mibs={:.1} ({} MiB)",
+        "PIPE-NUMBERS relayed down_mibs={:.1} ({} MiB, every frame checked)",
         (total as f64 / (1 << 20) as f64) / elapsed.as_secs_f64(),
         total >> 20,
     );
@@ -1222,10 +1201,20 @@ async fn bulk_down(
     client: &Arc<cmux_remote::connection::ClientConnection>,
     daemon_client: &Arc<cmux_remote::daemon::ServerConnection>,
     total: usize,
+    daemon_reads: bool,
 ) -> Result<Duration, String> {
     use cmux_remote_protocol::{FrameFlags, Lane};
     const FRAME: usize = 32 * 1024;
     let frames = (total / FRAME) as u64;
+    // The daemon reads while it sends, as a served connection always does (its service
+    // multiplexer): acknowledgements are applied as it reads, and only they open its delivery
+    // window. A sender that never reads stalls at each full window until a reconnect.
+    let reader = {
+        let daemon_client = daemon_client.clone();
+        tokio::spawn(async move {
+            while daemon_reads && matches!(daemon_client.receive().await, Ok(Some(_))) {}
+        })
+    };
     let started = std::time::Instant::now();
     let sender = {
         let daemon_client = daemon_client.clone();
@@ -1266,6 +1255,7 @@ async fn bulk_down(
     }
     let elapsed = started.elapsed();
     sender.await.map_err(|e| e.to_string())??;
+    reader.abort();
     Ok(elapsed)
 }
 
@@ -1279,7 +1269,7 @@ async fn hub_carrier_the_pipe_carries_16_mib_whole_and_in_time() {
     let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
     let client = connect_through_pipe(&fixture, &identity, true).await;
     let daemon_client = within("the connect", fixture.accepted.recv()).await.unwrap();
-    let elapsed = bulk_down(&client, &daemon_client, 16 << 20).await.unwrap();
+    let elapsed = bulk_down(&client, &daemon_client, 16 << 20, true).await.unwrap();
     assert!(elapsed < Duration::from_secs(60), "16 MiB took {elapsed:?}");
 }
 
@@ -1299,7 +1289,7 @@ async fn hub_carrier_pipe_bulk_layers() {
     let tcp = Arc::new(cmux_remote::provider::OsTcpDialer);
     let client = connect_over(&fixture, &identity, true, tcp.clone()).await;
     let daemon_client = within("the tcp connect", fixture.accepted.recv()).await.unwrap();
-    let result = bulk_down(&client, &daemon_client, TOTAL).await;
+    let result = bulk_down(&client, &daemon_client, TOTAL, true).await;
     eprintln!("LAYER remote-over-tcp {result:?} generation {}", client.snapshot().await.generation);
     let _ = client.close().await;
 
@@ -1350,9 +1340,26 @@ async fn hub_carrier_pipe_bulk_layers() {
 
     let client = connect_through_pipe(&fixture, &identity, false).await;
     let daemon_client = within("the pipe connect", fixture.accepted.recv()).await.unwrap();
-    let result = bulk_down(&client, &daemon_client, TOTAL).await;
+    let result = bulk_down(&client, &daemon_client, TOTAL, true).await;
     eprintln!(
         "LAYER remote-over-pipe {result:?} generation {}",
         client.snapshot().await.generation
     );
+}
+
+/// A frame sent while the session reconnects is sent, not dropped. A daemon that sends without
+/// reading never applies its acknowledgements, so each full delivery window ends in a liveness
+/// reconnect; the frame a send held across one went missing and the next took its sequence
+/// (frame 7 of 32 arrived as 8 before the fix), here over plain TCP and through the pipe alike.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
+    let _ = HERMETIC;
+    let mut fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
+    let tcp = Arc::new(cmux_remote::provider::OsTcpDialer);
+    let client = connect_over(&fixture, &identity, true, tcp).await;
+    let daemon_client = within("the connect", fixture.accepted.recv()).await.unwrap();
+    bulk_down(&client, &daemon_client, 1 << 20, false).await.unwrap();
+    assert!(client.snapshot().await.generation > 1, "the transfer never crossed a reconnect");
 }
