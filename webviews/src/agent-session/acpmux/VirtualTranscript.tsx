@@ -207,7 +207,14 @@ import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrolle
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { OlderAhead } from "./conversation/olderAhead";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
-import { type ChatOpen, type ChatRows, drawnKey, happenedAfterOpen, openChat } from "./conversation/openBreakpoint";
+import {
+  type ChatOpen,
+  type ChatRows,
+  drawnKey,
+  happenedAfterOpen,
+  keptKnownRows,
+  openChat,
+} from "./conversation/openBreakpoint";
 import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/transcriptHeights";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
@@ -2733,6 +2740,7 @@ function TranscriptView({
       const entering = enteringRows.current;
       for (const row of arrived) if (live || row.below || isLineRow(row)) entering.add(rowFrameKey(row));
     }
+    knownRows.current = keptKnownRows(knownRows.current, rows, rowFrameKey);
   }
   knownFor.current = rows;
   // The rows a commit drew are the page's (openBreakpoint.ts `ChatDrawn`): those from the first one
