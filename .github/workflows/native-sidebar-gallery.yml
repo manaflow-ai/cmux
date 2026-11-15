@@ -4,14 +4,15 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
+      - 'Packages/macOS/CmuxNativeSidebarGallery/**'
+      - 'Packages/macOS/CmuxNext/Package.swift'
       - 'Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/**'
       - 'Packages/macOS/CmuxNext/Sources/CmuxNextDesign/**'
       - 'Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/**'
+      - 'Packages/macOS/CmuxNext/Tests/Support/CmuxNextTestExitTrace/**'
       - 'Packages/Shared/CmuxTheme/**'
       - 'Resources/cmux-themes/**'
       - 'Resources/ghostty/themes/**'
-      - 'Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NativeSidebarGalleryTests.swift'
-      - 'Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AANestedGroupsGalleryTests.swift'
       - 'Packages/macOS/CmuxNext/Tests/Fixtures/SidebarGallery/**'
       - 'webviews/src/sidebar/SidebarNativeGallery.gallery.ts'
       - 'scripts/ci/native-sidebar-gallery.sh'
@@ -53,7 +54,7 @@ jobs:
             receipt="$("$client" run --class light --display --script scripts/ci/package-test-lane.sh \
               --ref "$REF" --key "native-sidebar-gallery-$REF-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
               --timeout 3600 --queue-timeout 1200 --env CMUX_TEST_REQUIRE_GUI=1 \
-              --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests.NativeSidebarGalleryTests \
+              --arg suite --arg Packages/macOS/CmuxNativeSidebarGallery --arg CmuxNativeSidebarGalleryTests.NativeSidebarGalleryTests \
               --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar 2>&1 1>&3)" || status=$?
           } 3>&1
           id=""

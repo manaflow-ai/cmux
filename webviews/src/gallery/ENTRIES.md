@@ -52,7 +52,8 @@ so `minutesAgo(5)` reads "5m" in every run.
 `sidebar.native-gallery` points to JSON fixtures in
 `Packages/macOS/CmuxNext/Tests/Fixtures/SidebarGallery`. The DEBUG-only
 `SidebarGalleryFixture` builds the real sidebar model and session-tree state;
-`NativeSidebarGalleryTests` renders the native views in light and dark appearances.
+`CmuxNativeSidebarGallery` is a standalone test package that renders the native views
+in light and dark appearances without compiling unrelated app test targets.
 From a checkout whose committed head has been pushed, run:
 
 ```sh
@@ -72,7 +73,7 @@ An app compile alone does not validate this renderer: compile and execute the te
 target, then inspect the downloaded images. Even a cancelled or advisory fleet job
 can contain compiler errors; inspect its full log before attributing it to routing.
 The parameterized `loadFixture` test checks fixture loading without requiring a GUI.
-Both entrypoints select `CmuxNextAppTests.NativeSidebarGalleryTests`: SwiftPM lists
+Both entrypoints select `CmuxNativeSidebarGalleryTests.NativeSidebarGalleryTests`: SwiftPM lists
 tests as `Target.Suite/test`. `tests/test_native_sidebar_gallery.py` checks that the
 submitted filter matches the renderer and fixture tests; `Target/Suite` matches neither.
 The gateway keeps client stderr in memory and forwards worker stdout to the job log;

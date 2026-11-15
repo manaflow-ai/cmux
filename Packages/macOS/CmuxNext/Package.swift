@@ -252,6 +252,8 @@ let uiLayerPreviewTargets: [Target] = [
 ]
 
 let packageProducts: [Product] = [
+    // Only the standalone native gallery harness consumes these existing modules.
+    .library(name: "CmuxNextNativeGallerySupport", targets: ["CmuxNextDesign", "CmuxNextSidebar", "CmuxNextTestSupport"]),
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
@@ -2536,7 +2538,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             path: "Tests/Support/CmuxNextTestExitTrace",
             linkerSettings: [.linkedFramework("CoreFoundation")]
         ),
-        // Helpers test targets share, linked into no product: FrameBudgetCalibration, which
+        // Helpers test targets and the native gallery harness share: FrameBudgetCalibration, which
         // scales a main-thread frame budget to the runner a suite runs on. CmuxNextTestExitTrace
         // holds the window census `.closesItsWindows` reads, so every target that has the trait links it.
         .target(

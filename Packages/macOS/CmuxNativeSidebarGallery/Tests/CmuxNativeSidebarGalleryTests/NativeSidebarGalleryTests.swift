@@ -23,9 +23,24 @@ import Testing
         let entries: [Entry]
     }
 
-    static let packageRoot = URL(fileURLWithPath: #filePath)
+    static let harnessRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    static let packageRoot = harnessRoot.deletingLastPathComponent().appending(path: "CmuxNext")
+    static let repoRoot = packageRoot.deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
     static let fixtureRoot = packageRoot.appending(path: "Tests/Fixtures/SidebarGallery")
+
+    static func themeInput(_ name: String) throws -> ThemeInput {
+        let path = repoRoot.appending(path: "Resources/cmux-themes/\(name)")
+        let text = try String(contentsOf: path, encoding: .utf8)
+        let file = try #require(ThemeFileColors(name: name, themeFile: text))
+        var input = ThemeInput(background: file.background, foreground: file.foreground,
+                               palette: file.palette.compactMap { $0 },
+                               selectionBackground: file.selectionBackground,
+                               selectionForeground: file.selectionForeground)
+        input.accentColor = file.accent
+        return input
+    }
 
     static func fixture(_ name: String) throws -> SidebarGalleryFixture {
         let url = fixtureRoot.appending(path: name + ".json")
@@ -50,7 +65,7 @@ import Testing
         root.wantsLayer = true
         root.appearance = window.appearance
         window.contentView = root
-        let input = try AANestedGroupsGalleryTests.input(theme)
+        let input = try themeInput(theme)
         _ = ThemeScope.app.store.apply(input)
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: input, animated: false)
@@ -105,6 +120,7 @@ import Testing
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
+        #expect(WindowLeaks.isInstalled)
         let out = Self.packageRoot.appending(path: "native-sidebar-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
