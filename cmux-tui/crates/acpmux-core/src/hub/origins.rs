@@ -2,7 +2,8 @@
 use super::*;
 use std::collections::VecDeque;
 
-const MAX_ORIGINS: usize = 256;
+/// The most origins the index admits: a window carries every origin record.
+pub const MAX_ORIGINS: usize = 256;
 const MAX_HELD_ROWS: usize = 16_384;
 static REFUSED_HELD_ROWS: AtomicU64 = AtomicU64::new(0);
 
@@ -363,7 +364,7 @@ impl HubWriter {
                 self.origins.releasing = true;
                 let result = self.dispatch_update(key, update);
                 self.origins.releasing = false;
-                if result.is_err() {
+                if let Err(HubError::Log(_)) = result {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
                 }
                 used += 1;
@@ -403,15 +404,32 @@ impl HubWriter {
             && !self.origins.held.contains_key(id)
         {
             let mut sources = self.sources.load_full().as_ref().clone();
-            sources.remove(id);
+            let dropped = sources.remove(id).is_some();
             self.sources.store(Arc::new(sources));
             self.origins.ended.remove(id);
+            if dropped {
+                self.origin_slot_freed();
+            }
         }
     }
 
-    pub(super) fn retire_origin_sources(&mut self, old: &SummaryIndex, next: &SummaryIndex) {
+    /// A source or record was dropped: a slot of `MAX_ORIGINS` may be free
+    /// (`Hub::origin_slots_freed`). Called after the index without it is published.
+    pub(super) fn origin_slot_freed(&self) {
+        self.origin_slots_freed.fetch_add(1, Ordering::Release);
+    }
+
+    /// Answers whether `next` dropped a removed origin's record (a compaction
+    /// does), which frees its slot whether or not a source goes with it.
+    pub(super) fn retire_origin_sources(
+        &mut self,
+        old: &SummaryIndex,
+        next: &SummaryIndex,
+    ) -> bool {
         let mut sources = None;
+        let mut freed = false;
         for origin in old.origins() {
+            freed |= next.origin(&origin.id).is_none();
             if origin.state == OriginState::Removed
                 && next.origin(&origin.id).is_none()
                 && !next.has_origin_rows(&origin.id)
@@ -426,5 +444,6 @@ impl HubWriter {
         if let Some(sources) = sources {
             self.sources.store(Arc::new(sources));
         }
+        freed
     }
 }
