@@ -8,6 +8,7 @@
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   rounds=N     rounds of the three launches (1 to 5, default 2)
 #   arms=extra   also the pre-warm arms and the unified log around each fresh launch (nightly-fresh-launch.py --arms)
+#   arms=prewarm also only the pre-warm arms (PREWARM_ARMS)
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
@@ -18,7 +19,7 @@ for arg in "$@"; do
   case "$arg" in
     dmg=nightly|dmg=https://*) dmg="${arg#dmg=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
-    arms=base|arms=extra) arms="${arg#arms=}" ;;
+    arms=base|arms=extra|arms=prewarm) arms="${arg#arms=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done

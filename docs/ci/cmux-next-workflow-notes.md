@@ -379,8 +379,11 @@ run_attempt too; a carried reading, whoever re-ran the run, sends it to the movi
 (vars.MACOS_RUNNER_26, else RUNNER_POOLS.macos_26), as a push Release compile's fallback does.
 cmux#38484's run 42728317341 (2026-11-10) kept `cmux app scheme compile (Debug)` on
 glaeda-side-std-xcode-26.6 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
-(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs only on attempt 1 and the
-rescue's attempts 2 and 3, so attempt 4 and later never take an owned label; fast-tier-handback-placement's
+(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs on attempt 1 and on every
+rescue bot attempt, placed afresh (next_macos_cascade.bot_rerun()); a person's re-run past attempt 1 carries
+attempt 1's reading and never takes an owned label. Run 43716323834's attempt 5 (#43733, 2026-11-15) queued
+on glaeda-side-std-xcode-26.6 while glaeda-gui-std-xcode-26.6 had nothing queued, because placement then ran only
+up to the bot's attempt 3; fast-tier-handback-placement's
 reading is gated on its own placed_attempt the same way.
 
 ## note-20

@@ -166,6 +166,8 @@ fn first_contact_argv(host: &str, accept_new_host_key: bool) -> Result<Vec<Strin
         // OpenSSH records only an unknown key; a mismatch or revoked key still fails closed.
         argv.extend(["-o", "StrictHostKeyChecking=accept-new"].map(str::to_owned));
     }
+    // Recovery depends on SSH's diagnostic, even when the user's config is quiet.
+    argv.extend(["-o", "LogLevel=ERROR"].map(str::to_owned));
     argv.extend(ssh_argv(host, "true")?);
     Ok(argv)
 }
@@ -1186,10 +1188,12 @@ mod tests {
     #[test]
     fn first_contact_only_accepts_new_keys_when_requested() {
         let normal = ssh_argv("user@box", "true").unwrap();
-        assert_eq!(first_contact_argv("user@box", false).unwrap(), normal);
+        let diagnostic: Vec<_> =
+            ["-o", "LogLevel=ERROR"].map(str::to_owned).into_iter().chain(normal.clone()).collect();
+        assert_eq!(first_contact_argv("user@box", false).unwrap(), diagnostic);
         let opted_in = first_contact_argv("user@box", true).unwrap();
         assert_eq!(&opted_in[..2], ["-o", "StrictHostKeyChecking=accept-new"]);
-        assert_eq!(&opted_in[2..], normal);
+        assert_eq!(&opted_in[2..], diagnostic);
         assert!(first_contact_argv("-oProxyCommand=bad", true).is_err());
         // A later command or copy keeps the user's policy, even after an opted-in reach.
         assert_eq!(ssh_argv("user@box", "true").unwrap(), normal);
@@ -1914,3 +1918,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "hosts_first_contact_tests.rs"]
+mod first_contact_tests;
