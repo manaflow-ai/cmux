@@ -22,6 +22,7 @@ pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
 mod events;
+pub(in crate::cli) use events::follow as follow_events;
 pub(super) mod turn;
 mod wait;
 

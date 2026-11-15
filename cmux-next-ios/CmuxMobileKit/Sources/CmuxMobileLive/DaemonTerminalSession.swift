@@ -88,6 +88,15 @@ public final class DaemonTerminalSession: TerminalSession {
     }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
+
+    /// The raw failure for `lastError`, which goes to the log only (never on
+    /// screen): the Mac's own words, so a log reads "unknown surface 9" and not
+    /// the sentence a person sees.
+    nonisolated static func diagnostic(_ error: any Error) -> String {
+        if let error = error as? LinkError { return error.message.isEmpty ? error.code : String(error.message.prefix(160)) }
+        return String(error.localizedDescription.prefix(160))
+    }
+
     /// The terminal's shared size state, live while attached to a daemon
     /// with `shared-sizing-v1`.
     public let sizing = TerminalSizingLive()
@@ -200,6 +209,9 @@ public final class DaemonTerminalSession: TerminalSession {
     private var reclaimDeadline: Task<Void, Never>?
     /// How long a claim may take (tests shorten it).
     var reclaimWait: Duration = TerminalReclaimHold.reclaimWait
+    /// When the page last claimed again after a release: for `reclaimWait`,
+    /// the Mac's grid from before the claim is held (`TerminalReclaimHold`).
+    private var claimSentAt: ContinuousClock.Instant?
     /// The Mac holds a size of this session's now (a sized attach or a
     /// `resize-surface` went out, and no release after it).
     private var sizeClaimed = false
@@ -394,6 +406,7 @@ public final class DaemonTerminalSession: TerminalSession {
         claimsSize = claims
         outbox.removeAll { if case .size = $0 { true } else { false } }
         if claims {
+            claimSentAt = ContinuousClock.now
             if attached, let size = lastSize {
                 log.notice("surface \(self.surface, privacy: .public): shown again, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public)")
                 enqueue(.size(columns: size.columns, rows: size.rows))
@@ -547,31 +560,6 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// The Mac terminal's foreground program (`process-info`
-    /// `foreground_program`, the foreground job's program: its leader, or the
-    /// script a leading shell runs, as `man` on macOS), nil while
-    /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
-    /// read, asked when the screen enters the alternate screen and when a drag
-    /// begins there (``TerminalPanRoute``).
-    public func foregroundProgram() async -> String? {
-        guard attached, let client else { return nil }
-        let surface = surface
-        do {
-            let reply = try await client.request("process-info", params: ["surface": surface], deadline: Self.processInfoDeadline)
-            if let error = Self.error(in: reply) {
-                log.notice("surface \(surface, privacy: .public): process-info refused: \(error, privacy: .public)")
-                return nil
-            }
-            return TerminalAlternateScroll.program(processInfo: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:])
-        } catch {
-            log.notice("surface \(surface, privacy: .public): process-info failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-    }
-
-    /// How long a drag's `process-info` may take (the Mac answers in one PTY query).
-    nonisolated static let processInfoDeadline: Duration = .seconds(1)
-
     /// The reader scrolled up to the mirror's oldest row and the Mac has
     /// older ones (``historyRowsOmitted``): a second attach with
     /// ``historyChunkRows`` more rows of history (all of them when that many
@@ -580,13 +568,30 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reattach, but the connection stays attached throughout. One at a time;
     /// a no-op while a key is on its way (it must not be sent twice), and
     /// against a daemon without `attach-replay-history-rows-v1`.
-    public func loadOlderHistory() {
+    /// Returns whether the fetch was sent (its reset and replay follow).
+    @discardableResult
+    public func loadOlderHistory() -> Bool {
         guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
-              let allowance = historyAllowance, inputInFlight == 0, let client else { return }
+              let allowance = historyAllowance, inputInFlight == 0, let client else { return false }
         historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
         log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
         replacing = client
         Task { await attach() }
+        return true
+    }
+
+    /// The most history ``requestHistoryRows(_:)`` asks for ahead of time.
+    static let maxRequestedHistoryRows = 5 * historyChunkRows
+
+    /// A tab back from the warm set will put its reader back `rows` rows above
+    /// the end: the next attach asks for that much history, in whole
+    /// ``historyChunkRows`` (up to ``maxRequestedHistoryRows``), so the first
+    /// replay holds the reader's rows instead of the screen alone and a
+    /// second fetch.
+    public func requestHistoryRows(_ rows: Int) {
+        guard let allowance = historyAllowance, rows > allowance else { return }
+        let chunks = (rows + Self.historyChunkRows - 1) / Self.historyChunkRows
+        historyAllowance = max(allowance, min(Self.maxRequestedHistoryRows, chunks * Self.historyChunkRows))
     }
 
     /// The size state and own participant of an attach reply (shared sizing).
@@ -808,7 +813,7 @@ public final class DaemonTerminalSession: TerminalSession {
             openInputLane(for: client)
         } catch {
             heldEvents = nil
-            lastError = LinkController.reason(error)
+            lastError = Self.diagnostic(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
             if let old = replacing {
                 // A failed fetch of older rows: the old attach no longer
@@ -953,12 +958,18 @@ public final class DaemonTerminalSession: TerminalSession {
     private func show(_ event: TerminalSessionEvent) {
         let phoneGrid = lastSize.map { TerminalReclaimHold.Grid(columns: $0.columns, rows: $0.rows) }
         let wasHolding = reclaimHold.isHolding
-        let events = reclaimHold.take(event, claims: claimsSize, phoneGrid: phoneGrid, alternate: isAlternateScreen)
+        let awaitingClaim = claimSentAt.map { ContinuousClock.now < $0.advanced(by: reclaimWait) } ?? false
+        let events = reclaimHold.take(event, claims: claimsSize, phoneGrid: phoneGrid, alternate: isAlternateScreen,
+                                      awaitingClaim: awaitingClaim)
         if wasHolding != reclaimHold.isHolding {
-            log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : "hidden: holding the Mac's grid", privacy: .public)")
+            log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : "holding the Mac's grid", privacy: .public)")
             if wasHolding {
                 reclaimDeadline?.cancel()
                 reclaimDeadline = nil
+                claimSentAt = nil
+            } else if claimsSize {
+                // Held after the claim went out: the claim's wait, as for a page shown again.
+                settleReclaimHold()
             }
         }
         for event in events { handler?(event) }
@@ -1052,7 +1063,7 @@ public final class DaemonTerminalSession: TerminalSession {
             } catch {
                 // The channel failed under the request (a dead link): keep the
                 // keystrokes for the reattach instead of dropping them.
-                lastError = LinkController.reason(error)
+                lastError = Self.diagnostic(error)
                 if self.client === client {
                     self.client = nil
                     attached = false
@@ -1176,7 +1187,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
             } catch {
                 if !written { inputWriting = false }
-                lastError = LinkController.reason(error)
+                lastError = Self.diagnostic(error)
                 inputRecovering = true
                 if written || target === abandonedInputLane || Self.inputDeliveryUncertain(error) {
                     inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes))
@@ -1412,6 +1423,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private func stopLeaseRefresh() {
         leaseTask?.cancel()
         leaseTask = nil
+    }
+
+    public func renewSizeClaim() {
+        refreshLease()
     }
 
     private func refreshLease() {

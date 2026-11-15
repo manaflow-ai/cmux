@@ -107,7 +107,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                       session: hubHost.session, lastError: hubHost.lastError)
                 }
             } else {
-                devices = Self.setupDevices(configured: source.box.configured)
+                devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured)
             }
         }
         if let shortcuts = home.systemShortcuts {

@@ -90,6 +90,8 @@ mod coderouter;
 mod codex_app_server;
 mod command;
 mod completion;
+#[cfg(unix)]
+mod key_broker;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod customize;
@@ -135,10 +137,11 @@ mod vm_words;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
+pub(crate) use auth_token::app_token;
+#[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
-#[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
 
@@ -193,10 +196,15 @@ mod status;
 mod stream_output;
 mod surface;
 mod tab_capabilities;
+// `cmux theme` (16-color schemes); dispatched with the other Unix scopes in `run`.
 #[cfg(unix)]
 mod terminal_lifecycle;
 #[cfg(unix)]
 mod terminal_talk;
+#[cfg(unix)]
+mod theme_file;
+#[cfg(unix)]
+mod theme_scheme;
 mod topology_help;
 mod wire;
 #[cfg(unix)]
@@ -257,6 +265,8 @@ const REMOTE_COMMANDS: &[&str] = &[
     "dial-tcp",
     "browser-proxy",
     "rpc",
+    "remote-exec",
+    "remote-cp",
     "enroll",
     "known-daemons",
     "remote-probe",
@@ -264,6 +274,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-sidecar",
     "remote-stop",
     "remote-update-need",
+    "remote-device-key",
     "install-self",
     "wg",
 ];
@@ -279,10 +290,13 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "dial-tcp" => Some("dial-tcp"),
         "browser-proxy" => Some("browser-proxy"),
         "rpc" => Some("rpc"),
+        "exec" => Some("remote-exec"),
+        "cp" => Some("remote-cp"),
         "enroll" => Some("enroll"),
         "known-daemons" => Some("known-daemons"),
         "stop" => Some("remote-stop"),
         "update-need" => Some("remote-update-need"),
+        "device-key" => Some("remote-device-key"),
         _ => None,
     }
 }
@@ -810,6 +824,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
@@ -828,6 +843,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
+        .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))

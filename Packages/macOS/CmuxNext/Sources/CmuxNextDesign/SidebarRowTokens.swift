@@ -119,16 +119,22 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             closeSide: rowHeight - 2 * base.space2)
     }
 
-    /// A list row's height, corner and content inset as `--cmux-sidebar-row-*` CSS px of a page zoomed
-    /// by `pageZoom`: pages whose rows match the sidebar's (Settings) read them. The values are the
-    /// list row's (``listRowHeight``, ``listRowCornerRadius``, ``contentInset``), so at Default a page
-    /// row is Codex's 30 px row with Chrome's 8 px corner and an 8 px content inset, as the sidebar draws it.
+    /// The gap between two list rows as the sidebar stacks them: ``rowGap`` at every density
+    /// (`SidebarDensityTokens.rowSpacing`, plans/cmux-next/sidebar-owner.md "2 pt between list rows").
+    public var listRowGap: CGFloat { rowGap }
+
+    /// A list row's height, corner, content inset, title size and gap as `--cmux-sidebar-row-*` CSS
+    /// px of a page zoomed by `pageZoom`: pages whose rows match the sidebar's (Settings) read them. The values
+    /// are the list row's (``listRowHeight``, ``listRowCornerRadius``, ``contentInset``, ``titleSize``,
+    /// ``listRowGap``), so a page row is the sidebar's row at every density (Lucas 2026-11-13).
     public func rowCSSVariables(pageZoom: CGFloat) -> [String: String] {
         let zoom = max(pageZoom, 0.01)
         return [
             "--cmux-sidebar-row-height": SidebarCardMetrics.px(listRowHeight / zoom),
             "--cmux-sidebar-row-radius": SidebarCardMetrics.px(listRowCornerRadius / zoom),
             "--cmux-sidebar-row-inset": SidebarCardMetrics.px(contentInset / zoom),
+            "--cmux-sidebar-row-font-size": SidebarCardMetrics.px(titleSize / zoom),
+            "--cmux-sidebar-row-gap": SidebarCardMetrics.px(listRowGap / zoom),
         ]
     }
 

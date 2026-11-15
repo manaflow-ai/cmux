@@ -62,7 +62,7 @@ extension CloudHandlers {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if !captured { CloudPresenter.failure(error, in: window(context)) } else if (error as? CloudMachineCreateFlow.Failure) != .declined,
                     let late = progress.lateFailure(CloudStrings.errorText(error), label: label) { registry.refuse(failure: late) }
-                return .failure(ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error)))
+                return .failure((error as? ActionWorkFailure).flatMap { $0.code == nil ? nil : $0 } ?? ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error))) // a coded refusal (`agent.limit_reached`) keeps its code
             }
         }
         guard let pendingAfter else { return registry.track(result: inner) }

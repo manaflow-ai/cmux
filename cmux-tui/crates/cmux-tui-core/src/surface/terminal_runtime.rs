@@ -47,14 +47,32 @@ impl ReaderCompletion {
 /// runtime from here to its drop. It is taken when the runtime is made, which
 /// is before the terminal enters the session state: the accept loop counts
 /// the terminal's connections as a terminal's from this moment, and asks no
-/// session state for it (`diagnostics/terminal_seats.rs`).
+/// session state for it (`diagnostics/terminal_seats.rs`). The seat names
+/// `terminal`, so the accept also reads from it which terminal a client is in.
 pub(super) fn terminal_seat(
     mux: &Weak<Mux>,
     process: Option<u32>,
+    terminal: &Option<TerminalPublicId>,
 ) -> crate::diagnostics::TerminalSeat {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
     match mux.upgrade() {
-        Some(mux) => mux.connection_stats().seat_terminal(process),
+        Some(mux) => mux.connection_stats().seat_terminal(process, terminal),
         None => crate::diagnostics::TerminalSeat::unseated(process),
+    }
+}
+
+/// Where the host that starts a terminal of `mux` takes its seat
+/// (`diagnostics/terminal_seats.rs`, `HostSeating`): before the host starts
+/// the terminal's child, so that child's first connection is the terminal's.
+#[cfg(any(unix, windows))]
+pub(super) fn host_seating(
+    mux: &Weak<Mux>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::HostSeating {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => crate::diagnostics::HostSeating::of(mux.connection_stats().clone(), terminal),
+        None => crate::diagnostics::HostSeating::default(),
     }
 }
 
@@ -132,6 +150,13 @@ impl PtyTerminalRuntime {
             && let Some(mux) = self.mux.upgrade()
         {
             mux.queue_terminal_tail(self.event_surface_id);
+        }
+        // Mark and wake: the ports pass reads the screen later, off the reader.
+        if !bytes.is_empty()
+            && self.port_mark.mark()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.queue_terminal_ports(self.event_surface_id);
         }
         metadata.take_admitted_notifications(Instant::now())
     }
@@ -311,6 +336,9 @@ pub struct PtyTerminalRuntime {
     /// The last line of a pinned terminal (`terminal-tail-pin-v1`); idle
     /// unless the terminal is pinned.
     pub(crate) tail_pin: crate::terminal_tail::TailPinSlot,
+    /// Set when the terminal printed since the last ports pass
+    /// (`mux/terminal_port_watch.rs`); the reader only sets it.
+    pub(crate) port_mark: crate::mux::PortMark,
     /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,

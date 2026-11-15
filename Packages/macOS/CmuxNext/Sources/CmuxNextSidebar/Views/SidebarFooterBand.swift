@@ -12,7 +12,9 @@ import CmuxNextDesign
 final class SidebarFooterBand {
     private weak var host: SidebarView?
     /// Opens the profile menu over its anchor (tests swap it).
-    var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarFooterBand.popUpProfileMenu($0, from: $1) }
+    lazy var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { [weak self] in self?.popUpProfileMenu($0, from: $1) }
+    /// The account menu open now on the glass (``GlassMenu``): a second click on the control closes it.
+    private weak var openProfileMenu: GlassMenu?
 
     init(host: SidebarView) { self.host = host }
 
@@ -334,31 +336,33 @@ final class SidebarFooterBand {
         return true
     }
 
-    /// Pops `menu` up so it opens upward from the control's top edge (the
-    /// control sits at the window's bottom), its leading edge on the
-    /// control's. The open happens on a later pass of the main run loop, so a
-    /// caller (a socket action, a palette run) returns before the menu's
-    /// modal tracking starts. A run-loop callout, not a main-actor Task: a
-    /// menu that tracks inside a main-queue job holds the main queue until it
-    /// closes, so the click that closes it waited on everything queued
-    /// meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is
-    /// sometimes slow").
-    static func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
-        MainRunLoopBlock.perform {
+    /// Opens `menu` upward from the control's top edge (the control sits at the window's bottom),
+    /// its leading edge on the control's, on cmux's own glass (``GlassMenu``): the one floating
+    /// material the web menus are, not AppKit's menu material beside them (Leo, 2026-11-11: "The
+    /// point is, the styles mix and they don't look good. So they need to look good." and, of
+    /// drawing this menu on our own glass: "Well, that's the whole point, right? Like that's what
+    /// we wanted to do anyways. have better design (systems too)"). A click on the control while
+    /// the menu is open closes it. The control holds its selected fill until the menu closes.
+    ///
+    /// The open happens on a later pass of the main run loop, so a caller (a socket action, a
+    /// palette run) returns first (Leo, 2026-10-29: "clicking out of a ... context menu is
+    /// sometimes slow"). Without an anchor (a hidden sidebar) the plain menu opens at the pointer.
+    func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
+        if let open = openProfileMenu, open.isShown {
+            open.close()
+            return
+        }
+        MainRunLoopBlock.perform { [weak self] in
             guard let anchor, anchor.window != nil else {
                 menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
                 return
             }
-            let gap = Metrics.space1
-            // Flipped anchor: the menu's top-left goes above the control by
-            // the menu's height, so the whole menu shows over the footer.
-            let origin = NSPoint(x: 0, y: anchor.isFlipped ? -menu.size.height - gap : anchor.bounds.height + menu.size.height + gap)
-            // The control holds its selected fill while the menu is open
-            // (popUp returns when the menu closes).
+            let glass = GlassMenu(menu: menu)
             let control = anchor as? SidebarItemRowView
+            glass.onClose = { control?.showsMenu = false }
+            guard glass.show(from: anchor, preferred: .above) else { return }
             control?.showsMenu = true
-            defer { control?.showsMenu = false }
-            menu.popUp(positioning: nil, at: origin, in: anchor)
+            self?.openProfileMenu = glass
         }
     }
 }

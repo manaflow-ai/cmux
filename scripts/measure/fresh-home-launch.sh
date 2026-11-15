@@ -13,26 +13,37 @@
 #                   stopped when the smoke ends: "a busy machine makes things slower, never makes them
 #                   fail" (cmuxterm-hq#7063).
 #   --arg=startup=S how long Home may take to render (default 90; the smoke's --startup-timeout)
+#   --arg=warm=N    after the first launch (which fills the home's caches), launch the app N more times
+#                   (0 to 10, default 0) from the same HOME, each up warm_seconds=S (default 15): the next
+#                   launches of a person's app, whose Home cache is there at the first frame. Their marks
+#                   are in the smoke's report.json under `warm`; the home is removed with the run.
 # It builds a tagged Debug app (scripts/reload.sh, as crash-gate.sh does) and runs
 # scripts/ci/fresh_home_launch_smoke.py --app on it in the console session: an empty HOME, no
 # defaults, Home must render and the app must stay up. The verdict is the smoke's: exit 0 passed,
-# 1 crashed or never rendered Home, 3 could not run. Prints FRESH-HOME lines.
+# 1 crashed or never rendered Home, 3 could not run, 5 the launch left files in $TMPDIR. Prints FRESH-HOME lines.
+# The build's tools (xcodebuild and SwiftPM, and cargo build scripts that run `swift build`) leave lock files
+# and TemporaryDirectory.* folders in whatever TMPDIR they get, so the build runs with a private TMPDIR that
+# the EXIT trap removes; the app gets its own (the smoke's), whose leftovers the smoke prints (FRESH-HOME app-tmp).
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
-ref="" seconds=30 load=0 startup=90
+ref="" seconds=30 load=0 startup=90 warm=0 warm_seconds=15
 for arg in "$@"; do
   case "$arg" in
     ref=*) ref="${arg#ref=}" ;;
     seconds=*) seconds="${arg#seconds=}" ;;
     load=*) load="${arg#load=}" ;;
     startup=*) startup="${arg#startup=}" ;;
+    warm=*) warm="${arg#warm=}" ;;
+    warm_seconds=*) warm_seconds="${arg#warm_seconds=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "seconds= must be a number" >&2; exit 2; }
 [[ "$startup" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "startup= must be a number" >&2; exit 2; }
 [[ "$load" == 0 || "$load" == 1 ]] || { echo "load= must be 0 or 1" >&2; exit 2; }
+[[ "$warm" =~ ^[0-9]+$ ]] && (( warm <= 10 )) || { echo "warm= must be 0 to 10" >&2; exit 2; }
+[[ "$warm_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "warm_seconds= must be a number" >&2; exit 2; }
 # The load's workers, each in its own process group (set -m in start_load), so stop_load ends their
 # dd and find children too. Only this script's own jobs are signalled.
 load_pgids=() load_dir=""
@@ -45,6 +56,37 @@ stop_load() {
 # exit on it so the EXIT traps below stop the load (its workers are in their own process groups, so
 # the step's own group signal never reaches them) and remove the worktree.
 trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
+# Everything a launch makes outside the step's checkout and HOME goes in the one EXIT trap below, set
+# before the first of them is made: the ref's worktree ($scratch), the private bun ($work, about
+# 100 MB per launch), the tagged app's processes ($app). A launch that leaves a new entry in $TMPDIR
+# fails (exit 5): one fresh-home A/B step took the bench Mac from 45 GiB free to 5-18 GiB.
+scratch="" work="" app="" build_tmp=""
+tmp_root="${TMPDIR:-/tmp}"; tmp_root="${tmp_root%/}"
+tmp_before="$(ls -A "$tmp_root" 2>/dev/null | sort)"
+cleanup() {
+  local code=$?
+  stop_load
+  [ -n "$app" ] && [ -d "$app" ] && python3 "$here/scripts/cmux-next/tag_teardown.py" "$app" >/dev/null 2>&1
+  if [ -n "$scratch" ]; then
+    git -C "$here" worktree remove --force "$src" >/dev/null 2>&1
+    rm -rf "$scratch"
+  fi
+  [ -n "$work" ] && rm -rf "$work"
+  [ -n "$build_tmp" ] && rm -rf "$build_tmp"
+  local left
+  left="$(comm -13 <(printf '%s\n' "$tmp_before") <(ls -A "$tmp_root" 2>/dev/null | sort) | sed '/^$/d')"
+  if [ -n "$left" ]; then
+    echo "FRESH-HOME leak: the launch left in $tmp_root: $(echo "$left" | head -n 20 | tr '\n' ' ')" >&2
+    [ "$code" = 0 ] && code=5
+  fi
+  echo "FRESH-HOME disk free after: $(df -h "$here" | awk 'NR==2 {print $4}')"
+  exit "$code"
+}
+trap cleanup EXIT
+# The build tools' temp files go in a folder of this run's own, which the trap removes (see the header).
+build_tmp="$(mktemp -d "$tmp_root/fresh-home-build.XXXXXX")" || exit 3
+export TMPDIR="$build_tmp/"
+echo "FRESH-HOME disk free before: $(df -h "$here" | awk 'NR==2 {print $4}')"
 out="$here/.build/fresh-home-launch"
 rm -rf "$out" && mkdir -p "$out"
 src="$here"
@@ -65,8 +107,7 @@ if [[ -n "$ref" && "$ref" != "$(git rev-parse HEAD)" ]]; then
   fi
   scratch="$(mktemp -d)"
   src="$scratch/src"
-  git worktree add --quiet --detach "$src" "$ref" || { rm -rf "$scratch"; exit 3; }
-  trap 'stop_load; git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"' EXIT
+  git worktree add --quiet --detach "$src" "$ref" || exit 3
 fi
 cd "$src"
 sha="$(git rev-parse HEAD)"
@@ -128,8 +169,7 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   exit 3
 fi
 # The harness and the teardown come from this script's checkout, never the launched ref's (which
-# may predate them); the teardown also runs when the step is killed mid-smoke.
-trap 'stop_load; python3 "$here/scripts/cmux-next/tag_teardown.py" "$app" >/dev/null 2>&1; [ -n "${scratch:-}" ] && { git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"; }' EXIT
+# may predate them); the EXIT trap's teardown of "$app" also runs when the step is killed mid-smoke.
 if [ "$load" = 1 ]; then
   # The same load as qos-load-bench.sh's load_default cell, at the default priority, from this
   # script's checkout. Started after the build so the build's own time is not what it measures.
@@ -148,13 +188,14 @@ if [ "$load" = 1 ]; then
   sleep 5
   echo "FRESH-HOME load on: $(sysctl -n hw.ncpu) cores, load averages $(uptime | sed 's/.*averages: //')"
 fi
-python3 -I "$here/scripts/ci/fresh_home_launch_smoke.py" --app "$app" --seconds "$seconds" --startup-timeout "$startup" --out "$out/smoke"
+python3 -I "$here/scripts/ci/fresh_home_launch_smoke.py" --app "$app" --seconds "$seconds" --startup-timeout "$startup" --warm "$warm" --warm-seconds "$warm_seconds" --out "$out/smoke"
 status=$?
 if [ "$load" = 1 ]; then
   echo "FRESH-HOME load at the end: load averages $(uptime | sed 's/.*averages: //')"
   stop_load
 fi
 case $status in 0) verdict=passed ;; 1) verdict=failed ;; *) verdict=cannot-run; status=3 ;; esac
-echo "FRESH-HOME verdict $verdict commit $sha load $load (exit $status)"
-tar -czf "$out/report.tgz" -C "$out" .
+echo "FRESH-HOME verdict $verdict commit $sha load $load warm $warm (exit $status)"
+# Packed beside the folder, then moved in: a tar of the folder it writes into reads its own output.
+tar -czf "$out.tgz" -C "$out" . && mv "$out.tgz" "$out/report.tgz"
 exit $status

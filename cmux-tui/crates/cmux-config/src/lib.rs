@@ -29,6 +29,7 @@ pub mod render;
 pub mod schema;
 pub mod store;
 pub mod text;
+pub mod theme_file;
 pub mod value;
 pub mod watch;
 
@@ -45,7 +46,8 @@ pub use owner::{ApplyResult, ConfigStore};
 pub use refusal::Refusal;
 pub use schema::{Row, Schema};
 pub use store::{
-    Change, Edit, EditKind, FileRead, MAX_EDITS, Op, Origin, Outcome, State, Target, WriteMeta,
-    apply,
+    Change, Edit, EditKind, FileRead, MAX_EDITS, Op, Origin, Outcome, State, Target, ThemeRead,
+    WriteMeta, apply,
 };
+pub use theme_file::{ThemeDiagnostic, ThemeDiagnosticKind, ThemeFile};
 pub use watch::{Watcher, watch_store};
