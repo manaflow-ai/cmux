@@ -187,7 +187,7 @@ public final class TabCloseSelection {
         var swapped: Set<String> = []
         for item in held {
             let shown = shownAs[item] ?? item
-            if !live.contains(shown), let now = became(shown) { adopt(now, inPlaceOf: shown); swapped.insert(item) }
+            if !tabs.contains(shown), let now = became(shown) { adopt(now, inPlaceOf: shown); swapped.insert(item) } // before the pick too: a close in the update that swaps its opener's stand-in picks that opener
         }
         let gone = held.filter { !swapped.contains($0) && !live.contains(shownAs[$0] ?? $0) }
         if !gone.isEmpty {

@@ -63,6 +63,17 @@ import Foundation
         return pane.tabs.first { $0.surface == surface }
     }
 
+    /// The id the close-selection rule knows stand-in tab `id` by now: the daemon tab it became in `pane`, else `id` itself
+    /// while its creation is under way (a guess hides the stand-in for a moment) or its daemon tab is named but not listed
+    /// yet. Nil once it is gone for good: closed by the person, refused, or its daemon tab closed. A burst's closes went to
+    /// the wrong tab when a stand-in out of the strip for one update lost its opener relations (Lawrence 2026-11-13).
+    public func successor(ofStandIn id: String, in pane: PaneModel) -> String? {
+        if let tab = replacement(ofStandIn: id, in: pane) { return tab.id }
+        if isUnderway(standIn: id) { return id }
+        guard let surface = replacementSurface(ofStandIn: id), !store.closedLately(surface) else { return nil }
+        return store.intentLog.entries.contains { $0.createdSurface == surface && ($0.closeWhenCreated || $0.standInClosed) } ? nil : id
+    }
+
     /// The daemon surface stand-in tab `id` became, once a confirmed reply or echo named it, whether or not a pane lists that
     /// tab yet: the tab the next new tab of a burst names as its `after` (`NewTabInsertion`; the daemon knows its own tab
     /// before this app's records show it). Nil for any other id, and for a stand-in still under way, closed or refused.

@@ -357,7 +357,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs) // once listed (OutboundTab)
         if let selectNew { state?.selection.selectMade(selectNew, in: paneKey, inPlaceOf: stripModel.successors[StripTabID(selectNew)]?.rawValue, tabs: snapshot.items.map(\.id.rawValue)) }
         // Members of a collapsed group are hidden (`hiddenTabs`): a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, groups: stripModel.tabGroups, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs }, became: { [pane, daemon] in daemon.store.creations.replacement(ofStandIn: $0, in: pane)?.id ?? (daemon.store.creations.isUnderway(standIn: $0) ? $0 : nil) }) // a stand-in a guess hides is still its tab
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, groups: stripModel.tabGroups, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs }, became: { [pane, daemon] in daemon.store.creations.successor(ofStandIn: $0, in: pane) })
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)

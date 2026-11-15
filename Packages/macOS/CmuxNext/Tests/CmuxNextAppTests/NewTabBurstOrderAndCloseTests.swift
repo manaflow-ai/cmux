@@ -152,7 +152,9 @@ struct NewTabBurstOrderAndCloseTests {
                 frames.sample("close \(close)", pane, store: daemonTabs())
                 let now = pane.orderedIDs.map(\.rawValue)
                 if now.count != left + 2 || now.first != a || now.last != b { wrong.append("close \(close): the strip is not a, \(left) new, b") }
-                if pane.stripModel.selectedID?.rawValue != expected {
+                // The tab on the left, or the daemon's tab its stand-in became in this same update.
+                let became = expected.flatMap { store.creations.replacement(ofStandIn: $0, in: pane.pane)?.id }
+                if pane.stripModel.selectedID?.rawValue != expected, became == nil || pane.stripModel.selectedID?.rawValue != became {
                     // What the store knew of the stand-ins the strip showed at the close.
                     let known = strip.filter(ProvisionalTab.isProvisional).map { "\(frames.name($0)) became \(store.creations.replacement(ofStandIn: $0, in: pane.pane).map { frames.name($0.id) } ?? "-") underway \(store.creations.isUnderway(standIn: $0))" }
                     wrong.append("close \(close): the selection did not go to the tab on the left (\(known.joined(separator: ", ")))")
