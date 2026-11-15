@@ -82,7 +82,7 @@ nonisolated enum TabSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.plusButton", "+ Button Visibility"),
-                help: SettingsText.keyed("settings.tabs.plusButton.help", "On Hover shows each tab bar's + only while the pointer is over that tab bar."),
+                help: SettingsText.keyed("settings.tabs.plusButton.help", "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."),
                 kind: .choice([
                     SettingChoice(PlusButtonMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                     SettingChoice(PlusButtonMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
