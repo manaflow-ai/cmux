@@ -554,5 +554,113 @@ class LinuxReleasePoint(unittest.TestCase):
         self.assertEqual(self.verified(self.POINTER)["purpose"], "cmux-linux-release")
 
 
+MAC_COMMIT = "d" * 40
+
+
+class MacLivePayload(unittest.TestCase):
+    """--purpose mac-live: cmux-tui/<sha>/mac-live.json, the file `cmux app try SHA` takes live, and its channel."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.served = self.tmp / "served"
+        self.served.mkdir()
+        binaries = {}
+        # Every darwin daemon binary but the browser host, plus two the app's bin/ does not take from here.
+        for name in [n for n in channel.MAC_LIVE_NAMES if n != "cmux-tui-browser-host"] + ["cmux-tui-acpmux",
+                                                                                          "cmux-tui-hook"]:
+            published = f"{name}-aarch64-apple-darwin"
+            data = f"{published} bytes".encode()
+            (self.served / published).write_bytes(data)
+            binaries[published] = hashlib.sha256(data).hexdigest()
+        self.manifest = self.tmp / "manifest.json"
+        self.manifest.write_text(json.dumps({"commit": MAC_COMMIT, "binaries": binaries}))
+        self.live = self.tmp / "live-from.json"
+        self.live.write_text(json.dumps({"sha": MAC_COMMIT, "live_from": [MAC_COMMIT, "e" * 40], "floor": "e" * 40}))
+
+    def download(self, argv, check):
+        url, out = argv[-1], argv[argv.index("-o") + 1]
+        self.assertTrue(url.startswith(f"{channel.FILES}/{MAC_COMMIT}/"), url)
+        shutil.copyfile(self.served / url.split("/")[-1].split("?")[0], out)
+
+    def run_payload(self, *extra):
+        out = self.tmp / "payload.json"
+        argv = ["cmux-machine-channel.py", "payload", "--purpose", "mac-live", "--manifest", str(self.manifest),
+                "--live-from", str(self.live), "--commit", MAC_COMMIT, "--committed-at", str(COMMITTED_AT),
+                "--download-dir", str(self.tmp / "dl"), "--out", str(out), *extra]
+        with mock.patch.object(channel.subprocess, "run", side_effect=self.download):
+            channel.main(argv)
+        return json.loads(out.read_text())
+
+    def test_the_payload_names_the_bin_files_app_try_places_and_live_from(self):
+        value = self.run_payload()
+        self.assertEqual((value["purpose"], value["channel"], value["commit"]),
+                         ("cmux-mac-live-update", "nightly-live", MAC_COMMIT))
+        self.assertEqual(value["live_from"], [MAC_COMMIT, "e" * 40])
+        files = value["targets"]["aarch64-apple-darwin"]
+        # acpmux and the hook are not the app's bin/ files; a companion the build lacks is left out.
+        self.assertEqual(sorted(files), sorted(n for n in channel.MAC_LIVE_NAMES if n != "cmux-tui-browser-host"))
+        self.assertEqual(files["cmux-tui"]["url"], f"{channel.FILES}/{MAC_COMMIT}/cmux-tui-aarch64-apple-darwin")
+        self.assertEqual(files["cmux-tui"]["size"], len(b"cmux-tui-aarch64-apple-darwin bytes"))
+
+    def test_refusals(self):
+        (self.served / "cmux-tui-host-aarch64-apple-darwin").write_bytes(b"other bytes")
+        with self.assertRaises(SystemExit):
+            self.run_payload()  # served bytes that differ from the manifest
+        (self.served / "cmux-tui-host-aarch64-apple-darwin").write_bytes(b"cmux-tui-host-aarch64-apple-darwin bytes")
+        for live in ({"live_from": ["e" * 40]}, {"live_from": [MAC_COMMIT, "short"]},
+                     {"live_from": [MAC_COMMIT] * 2}, {"live_from": [MAC_COMMIT] + ["%040x" % i for i in range(400)]}):
+            self.live.write_text(json.dumps(live))
+            with self.subTest(live=str(live)[:60]), self.assertRaises(SystemExit):
+                self.run_payload()
+        self.live.write_text(json.dumps({"live_from": [MAC_COMMIT]}))
+        with self.assertRaises(SystemExit):
+            self.run_payload("--machine-path")
+
+
+class MacLivePoint(LinuxReleasePoint):
+    """cmux-machine-channel-point.sh with a Mac live update payload: the per-commit file is written once, the
+    channel moves forward only, and a Linux release or Cloud machine file never stands in for it."""
+
+    RELEASE = f"cmux-tui/{RELEASE_COMMIT}/mac-live.json"
+    POINTER = "cmux-tui/channels/mac-live.json"
+
+    def payload(self, commit=RELEASE_COMMIT, committed_at=COMMITTED_AT, published_at=1794208000, sha="d" * 64,
+                purpose="cmux-mac-live-update"):
+        if purpose != "cmux-mac-live-update":
+            return super().payload(commit, committed_at, published_at, sha, purpose)
+        value = {"schema": 1, "purpose": purpose, "channel": "nightly-live", "commit": commit,
+                 "committed_at": committed_at, "published_at": published_at, "expires_at": int(time.time()) + 86400,
+                 "live_from": [commit],
+                 "targets": {"aarch64-apple-darwin": {"cmux-tui": {
+                     "url": f"https://files.cmux.com/cmux-tui/{commit}/cmux-tui-aarch64-apple-darwin",
+                     "sha256": sha, "size": 5}}}}
+        path = self.tmp / f"payload-{len(list(self.tmp.iterdir()))}.json"
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return path
+
+    def test_a_build_writes_its_release_file_and_moves_the_pointer(self):
+        self.assert_ok(self.point(self.payload()))
+        self.assertEqual(self.served(self.RELEASE), self.served(self.POINTER))
+        value = self.verified(self.POINTER, "nightly-live", "cmux-mac-live-update")
+        self.assertEqual((value["commit"], value["live_from"]), (RELEASE_COMMIT, [RELEASE_COMMIT]))
+        self.assertIsNone(self.served(f"cmux-tui/{RELEASE_COMMIT}/release.json"))
+
+    def test_the_pointer_only_moves_forward(self):
+        newer = "e" * 40
+        self.assert_ok(self.point(self.payload(commit=newer, committed_at=COMMITTED_AT + 60)))
+        self.assert_ok(self.point(self.payload(), run_id="2"))
+        self.assertEqual(self.verified(self.RELEASE, None, "cmux-mac-live-update", False)["commit"], RELEASE_COMMIT)
+        self.assertEqual(self.verified(self.POINTER)["commit"], newer)
+
+    def test_a_cloud_machine_file_never_stands_in_for_the_pointer(self):
+        self.assert_ok(self.point(super().payload(purpose="cmux-cloud-machine-update",
+                                                  committed_at=COMMITTED_AT + 600)))
+        (self.r2 / self.POINTER).write_bytes(self.served("cmux-tui/channels/cloud-machine.json"))
+        self.assertIsNone(self.served(self.RELEASE))
+        self.assert_ok(self.point(self.payload(), run_id="2"))
+        self.assertEqual(self.verified(self.POINTER)["purpose"], "cmux-mac-live-update")
+
+
 if __name__ == "__main__":
     unittest.main()
