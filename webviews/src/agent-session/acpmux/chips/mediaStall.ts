@@ -17,19 +17,21 @@ const HAVE_CURRENT_DATA = 2;
 /// byte of it arrives for `mediaStall.ms`.
 export function usePlaybackStall(media: RefObject<HTMLMediaElement | null>, asked: boolean, onStall: () => void): void {
   const stall = useRef(onStall);
-  stall.current = onStall;
+  useEffect(() => {
+    stall.current = onStall;
+  }, [onStall]);
   useEffect(() => {
     const element = media.current;
     if (!asked || !element || element.readyState >= HAVE_CURRENT_DATA) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let ended = false;
     const done = () => {
+      ended = true;
       clearTimeout(timer);
       timer = undefined;
-      for (const name of ARRIVED) element.removeEventListener(name, done);
-      element.removeEventListener("progress", wait);
-      element.removeEventListener("error", done);
     };
     const wait = () => {
+      if (ended) return;
       clearTimeout(timer);
       // timeout: a load that fires no event has no other end
       timer = setTimeout(() => {
@@ -38,14 +40,20 @@ export function usePlaybackStall(media: RefObject<HTMLMediaElement | null>, aske
         if (stalled) stall.current();
       }, mediaStall.ms);
     };
-    for (const name of ARRIVED) element.addEventListener(name, done);
+    element.addEventListener("loadeddata", done);
+    element.addEventListener("canplay", done);
+    element.addEventListener("playing", done);
     // The load's own error goes to the player's onError; this wait ends with it.
     element.addEventListener("error", done);
     element.addEventListener("progress", wait);
     wait();
-    return done;
+    return () => {
+      done();
+      element.removeEventListener("loadeddata", done);
+      element.removeEventListener("canplay", done);
+      element.removeEventListener("playing", done);
+      element.removeEventListener("error", done);
+      element.removeEventListener("progress", wait);
+    };
   }, [asked, media]);
 }
-
-/// The events that say the first frame is there.
-const ARRIVED = ["loadeddata", "canplay", "playing"] as const;
