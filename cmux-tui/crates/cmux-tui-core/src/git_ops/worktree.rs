@@ -210,20 +210,37 @@ fn create(
 }
 
 /// Starts the new worktree's setup from the project's recipe; what the
-/// reply says of it.
+/// reply says of it. The ports of the worktree are in `common_dir`, the
+/// repository's git folder. No setup starts and no port is given when the
+/// folder that the worktree's `.git` file names is not the git folder that
+/// this repository keeps for the worktree
+/// ([`worktree_setup::Place::is_of`]): a line on stderr says so. The check
+/// is of the folder that the place opened, and the setup keeps that folder.
 fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     let main = main_root(common_dir).map(Path::to_path_buf);
     let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
-    let resolved =
-        worktree_recipe::resolve(mux, main.as_deref(), main.as_deref().unwrap_or(common_dir));
     let root = worktree_setup::resolved(&attempt.root);
-    let place = worktree_setup::Place { root, main_root: main, git_dir };
+    let place = worktree_setup::Place::new(root, main, &git_dir, common_dir);
+    if !place.is_of(common_dir) {
+        eprintln!(
+            "cmux-tui: {}: no setup starts: the folder that the `.git` file names is not the \
+             git folder that {} keeps for this worktree",
+            attempt.root.display(),
+            common_dir.display()
+        );
+        return json!({"state": "none"});
+    }
+    let main = place.main_root.as_deref();
+    let resolved = worktree_recipe::resolve(mux, main, main.unwrap_or(common_dir));
     worktree_setup::start(place, resolved.recipe)
 }
 
-/// A linked worktree's own git folder, from its `.git` file.
+/// A linked worktree's own git folder, from its `.git` file. The file is
+/// read as a file that cmux keeps in a git folder is read
+/// ([`worktree_setup::read_small`]): a regular file only, at most 1 MiB of
+/// it, with no wait, and a link in its place is not followed.
 pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
-    let link = std::fs::read_to_string(root.join(".git")).ok()?;
+    let link = String::from_utf8(worktree_setup::read_small(root, ".git")?).ok()?;
     let admin = link.trim().strip_prefix("gitdir:")?.trim();
     let admin = root.join(admin);
     admin.is_dir().then_some(admin)
@@ -295,3 +312,6 @@ fn generated_name() -> String {
     }
     format!("chat-{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2])
 }
+
+#[cfg(test)]
+mod tests;

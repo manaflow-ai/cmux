@@ -150,7 +150,7 @@ class CandidateTests(unittest.TestCase):
 class CommandTests(unittest.TestCase):
     """Runs the script with a fake gh on PATH."""
 
-    def run_handoff(self, state, token="t", spare=""):
+    def run_handoff(self, state, token="t", spare="", extra=()):
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
             gh.write_text(FAKE_GH)
@@ -160,7 +160,7 @@ class CommandTests(unittest.TestCase):
                    "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log"))}
             if not token:
                 env.pop("GH_TOKEN")
-            result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY],
+            result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY, *extra],
                                     capture_output=True, text=True, env=env)
             log_path, tokens_path = Path(tmp, "log"), Path(tmp, "log.tokens")
             calls = [json.loads(line) for line in log_path.read_text().splitlines()] if log_path.exists() else []
@@ -192,6 +192,37 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("tree hand-off skipped", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+
+    # 2026-11-13: f8a39fdd's run 43425734678 deferred tree 77865e8e to its owner at attempt 3, built nothing,
+    # and the owner published only its own commit's manifest: f8a39fdd answered 404. A published tree
+    # re-runs every run that deferred to it (not one), past the build hand-off's cap, so each writes its
+    # own commit manifest; a live run keeps its marker.
+    def test_published_reruns_every_deferred_run_and_keeps_a_live_ones_marker(self):
+        state = {"artifacts": [marker(31, 12), marker(32, 13), marker(33, 10, "lane/x"), marker(34, 14)],
+                 "runs": {"13": {"status": "completed", "run_attempt": 3},
+                          "12": {"status": "completed", "run_attempt": 1},
+                          "10": {"status": "completed", "run_attempt": 2},
+                          "14": {"status": "in_progress", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        reruns = [c[2] for c in calls if c[:2] == ["run", "rerun"]]
+        self.assertEqual(sorted(reruns), ["10", "12", "13"])
+        deletes = [c[-1] for c in calls if "-X" in c]
+        self.assertEqual(sorted(deletes), [f"repos/o/r/actions/artifacts/{a}" for a in (31, 32, 33)])
+        self.assertIn("Not re-running run 14", result.stdout)
+        # The published hand-off does not read the owner's jobs: it re-runs whether or not the owner failed.
+        self.assertFalse(any("/jobs?" in c[-1] for c in calls if c[0] == "api"))
+
+    def test_published_rerun_failure_fails_the_step(self):
+        state = {"artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}},
+                 "rerun_fails": ["12"]}
+        result, _ = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=deferred runs not re-run::", result.stdout)
+
+    def test_published_cap_is_a_backstop(self):
+        self.assertTrue(handoff.may_rerun({"status": "completed", "run_attempt": 3}, handoff.PUBLISHED_MAX_ATTEMPT)[0])
+        self.assertFalse(handoff.may_rerun({"status": "completed", "run_attempt": 5}, handoff.PUBLISHED_MAX_ATTEMPT)[0])
 
     def test_every_candidate_capped_warns(self):
         state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]],

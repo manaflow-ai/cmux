@@ -896,12 +896,21 @@ test("New Tab, previews on: New Worktree starts the chat in the worktree the hos
   expect(folderName()).toContain("fox");
 });
 
-test("New Tab, previews on: the host's refusal shows above the card, and the folder stays", async () => {
+test("New Tab, previews on: a refused worktree says so above the card, and the folder stays", async () => {
   await mountNewTab(async () => {
     throw new Error("not a git repository");
   });
   await newWorktreeFromMenu();
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
+  // Said plainly; the host's own words (git's) go to the log (Leo, 2026-11-12: "we want good error
+  // states. We don't want busted errors.").
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(t("worktree.failedPlain"));
+  expect(host.textContent).not.toContain("not a git repository");
+  // Retry asks for the same folder's worktree again.
+  expect(
+    [...host.querySelectorAll<HTMLButtonElement>(".acpmux-folder-choice-button")].some(
+      (button) => button.textContent === t("project.retry"),
+    ),
+  ).toBe(true);
   expect(folderName()).toBe("app");
 });
 

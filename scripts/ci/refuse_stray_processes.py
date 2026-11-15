@@ -21,6 +21,14 @@ first one-job nightly (run 43366166125) counted those two and refused its secret
 the script its interpreter runs, sits in the directory of a hook the job's Runner.Worker was started with is
 spared. The directory is read from the Worker's own environment, which no step can change, and one inside _work
 or $RUNNER_TEMP, where the job writes, is not taken.
+
+Xcode's build daemons are the build step's to end, not this check's to spare. actool (the asset catalogs) starts
+ibtoold, which re-parents to launchd, keeps the job's environment and idles about a minute after xcodebuild returns.
+Run 43431310245 reached this check 80 s after the Release build's last actool call and refused on two ibtoolds;
+run 43425913710 reached it 2.5 min after and passed. So "Build nightly app (Release)" ends its own with
+`--end-build-daemons` when it exits: only processes this check would count (this job's tracking id or a cwd under
+its roots) whose program is one of BUILD_DAEMONS in the selected Xcode's Developer directory. It never spares
+anything here: one that will not end still fails this check.
 """
 from __future__ import annotations
 
@@ -37,6 +45,8 @@ HOOK_VARIABLES = ("ACTIONS_RUNNER_HOOK_JOB_STARTED", "ACTIONS_RUNNER_HOOK_JOB_CO
 HOOK_IN_PS = re.compile(rf"(?:^| )(?:{'|'.join(HOOK_VARIABLES)})=(/\S+)")  # ps -E: the environment after the arguments
 GRACE_S = 20.0
 POLL_S = 1.0
+# Xcode's per-build daemons (the program in $DEVELOPER_DIR/usr/bin) a build step may end once xcodebuild returns.
+BUILD_DAEMONS = ("ibtoold",)
 
 
 @dataclass(frozen=True)
@@ -160,13 +170,68 @@ def mac_table(tracking: str) -> dict[int, Proc] | None:
     return table if os.getpid() in table else None
 
 
+def build_daemons(table: dict[int, Proc], found: list[int], developer_dir: str) -> list[int]:
+    """The pids in `found` (strays) whose program (argv[0]) is a BUILD_DAEMONS binary of developer_dir."""
+    if not developer_dir.startswith("/"):
+        return []
+    programs = {os.path.join(os.path.normpath(developer_dir), "usr/bin", name) for name in BUILD_DAEMONS}
+    return [pid for pid in found if os.path.normpath(table[pid].command.split(" ", 1)[0]) in programs]
+
+
+def developer_dir() -> str:
+    chosen = os.environ.get("DEVELOPER_DIR", "")
+    if chosen:
+        return chosen
+    try:
+        return subprocess.run(["/usr/bin/xcode-select", "-p"], stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, timeout=20).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def end_build_daemons(read, tracking: str, roots: list[str], wait_s: float = 10.0) -> int:
+    """SIGTERM this job's Xcode build daemons, then SIGKILL any still running after wait_s. Never fails the step:
+    the check before the secrets still counts whatever is left."""
+    import signal
+    table = read(tracking)
+    if table is None:
+        print("::warning::end-build-daemons: could not read this user's processes; the check before the secrets will")
+        return 0
+    devdir = developer_dir()
+    pids = build_daemons(table, strays(table, os.getpid(), roots, hook_dirs(table, os.getpid(), roots)), devdir)
+    if not pids:
+        print(f"No Xcode build daemon of this job is running (Developer directory {devdir or 'unknown'}).")
+        return 0
+    commands = {pid: table[pid].command for pid in pids}
+    for pid in pids:
+        print("Ending this job's Xcode build daemon:" + describe(table, pid)[1:])
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + wait_s
+    while True:
+        table = read(tracking)
+        left = pids if table is None else [pid for pid in pids if pid in table and table[pid].command == commands[pid]]
+        if not left or time.monotonic() >= deadline:
+            break
+        time.sleep(POLL_S)
+    for pid in left:
+        print(f"::warning::Xcode build daemon {pid} outlived SIGTERM by {wait_s:.0f} s; sending SIGKILL")
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    return 0
+
+
 def describe(table: dict[int, Proc], pid: int) -> str:
     proc = table[pid]
     command = proc.command.split(" RUNNER_TRACKING_ID=", 1)[0][:400]
     return f"  pid {pid} (parent {proc.ppid}){' tracked' if proc.tracked else ''} cwd {proc.cwd}: {command}"
 
 
-def main() -> int:
+def main(end_daemons: bool = False) -> int:
     tracking = os.environ.get("RUNNER_TRACKING_ID", "")
     temp = os.environ.get("RUNNER_TEMP", "")
     workspace = os.environ.get("RUNNER_WORKSPACE", "")
@@ -175,6 +240,8 @@ def main() -> int:
         return 1
     roots = sorted({os.path.realpath(os.path.dirname(workspace.rstrip("/"))), os.path.realpath(temp)})
     read = linux_table if sys.platform.startswith("linux") else mac_table
+    if end_daemons:
+        return end_build_daemons(read, tracking, roots)
     deadline = time.monotonic() + GRACE_S
     while True:
         table = read(tracking)
@@ -200,4 +267,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if sys.argv[1:] not in ([], ["--end-build-daemons"]):
+        print(f"usage: {sys.argv[0]} [--end-build-daemons]")
+        sys.exit(2)
+    sys.exit(main(end_daemons=sys.argv[1:] == ["--end-build-daemons"]))

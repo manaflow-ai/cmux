@@ -9,8 +9,8 @@ the author reran twice and stopped. `scripts/cmux-next/cargo-locks.py explain LO
 cargo's words; each wrapper asks it on its failure path.
 
 What this holds:
-- explain itself: each spelling, a path with a space, stdin, the GitHub annotation, silence on anything else, and a
-  5 MB log in well under 2 s.
+- explain itself: each spelling, a path with a space, stdin, the GitHub annotation, silence on anything else, a
+  5 MB log answered, and a scan that reads a line a fixed number of times, as a count.
 - The Python and shell wrappers, run against a fake cargo: a refusal prints the stale-lock block and not the old
   cause, with the old exit code; any other failure prints the old cause.
 - The four workflow steps ask explain before their own ::error.
@@ -29,11 +29,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 import yaml
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/cargo-locks.py"
@@ -72,11 +79,77 @@ GIT_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUT
 
 
 def clean_env(**extra: str) -> dict[str, str]:
-    """os.environ without GitHub's variables (a run on CI must not change what explain prints) and git's."""
+    """os.environ without GitHub's variables (a run on CI must not change what explain prints) and git's, then
+    through the git fixture helper: dropping GIT_* drops the helper's opt-out too, and fixture_env puts it back, so
+    git starts no detached auto maintenance in a repository under a folder the test removes."""
     env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "GIT_", "FAKE_"))}
     env.update(GIT_ENV)
     env.update(extra)
-    return env
+    return git_fixture_env.fixture_env(env)
+
+
+# The scan's cost as a count, with no clock: refused_locks on one line of about CHARS characters and on one with 4
+# times as many repeats, in a child process (this test file loads no script module itself). The line is a str that
+# counts the characters each of its own calls reads: a find reads from its start to the end of what it found (to
+# the end of its range on a miss), a startswith or endswith reads the words it compares, a slice reads what it
+# returns. The same line gives the same count on every host. The common other str calls that read the line (in,
+# iteration, count, index, split, partition, replace, strip, encode, str(), line + x) raise, so that work fails the
+# child and never passes as cheap. The count has limits: it does not see a copy by case or padding (lower,
+# casefold, ljust), line * n, line % x, x + line, a comparison, a call through str itself (str.count(line, x)),
+# bytes(line, "utf-8") or a regex. A scan by one of those alone reads nothing here and fails the test's "half a
+# pass" floor; one of those beside the counted calls is not seen. The child prints, for each size, the line's
+# length and the count.
+COUNT_CHILD = r"""
+import importlib, json, pathlib, sys
+sys.path.insert(0, sys.argv[1])
+scan = importlib.import_module(sys.argv[2]).refused_locks
+repo, unit, chars = pathlib.Path(sys.argv[3]), sys.argv[4], int(sys.argv[5])
+read = [0]
+class Counted(str):
+    def _range(self, start, end):
+        low, high, _ = slice(start, end).indices(len(self))
+        return low, max(high, low)
+    def find(self, sub, start=None, end=None):
+        at, (low, high) = str.find(self, sub, start, end), self._range(start, end)
+        read[0] += high - low if at == -1 else at + len(sub) - low
+        return at
+    def rfind(self, sub, start=None, end=None):
+        at, (low, high) = str.rfind(self, sub, start, end), self._range(start, end)
+        read[0] += high - low if at == -1 else high - at
+        return at
+    def startswith(self, prefix, start=None, end=None):
+        read[0] += len(prefix) if isinstance(prefix, str) else sum(map(len, prefix))
+        return str.startswith(self, prefix, start, end)
+    def endswith(self, suffix, start=None, end=None):
+        read[0] += len(suffix) if isinstance(suffix, str) else sum(map(len, suffix))
+        return str.endswith(self, suffix, start, end)
+    def __getitem__(self, key):
+        part = str.__getitem__(self, key)
+        read[0] += len(part)
+        return part
+    def _uncounted(self, *args, **kwargs):
+        raise AssertionError("the scan read the line through a str call this test does not count; count it here")
+    __contains__ = __iter__ = count = index = rindex = split = rsplit = splitlines = _uncounted
+    partition = rpartition = replace = strip = lstrip = rstrip = __str__ = __add__ = encode = _uncounted
+counts = []
+for units in (chars // len(unit), 4 * (chars // len(unit))):
+    line = Counted(unit * units + "--locked was passed\n")
+    read[0] = 0
+    scan([line], repo)
+    counts.append({"chars": len(line), "read": read[0]})
+print(json.dumps(counts))
+"""
+# What one hostile line repeats: a lock named again and again before cargo's last words, and cargo's last words
+# again and again, each after a lock that is named (both from cmux#42375 review F2); then cargo's last words with
+# no lock named (from the review of this test).
+COUNT_UNITS = ("the lock file ", "the lock file x is fine, --locked was passed ", "--locked was passed ")
+# A line's length at the small size: 70 times cargo-locks.py's REFUSAL_WINDOW, so a scan that reads the window
+# again for each match reads far more than COUNT_LIMIT times the line.
+COUNT_CHARS = 300_000
+# The most characters the scan may read for each character of the line. It reads about 3 today (one pass for
+# cargo's last words, about two for the lock's name: each find starts one character after the last hit), and a
+# scan that reads its window again for each match reads 94.
+COUNT_LIMIT = 8
 
 
 class Scratch(unittest.TestCase):
@@ -169,7 +242,7 @@ class ExplainTests(Scratch):
                 result = self.explain(str(path), GITHUB_ACTIONS="true")
                 self.assertEqual((result.returncode, result.stdout, result.stderr), (1, "", ""))
 
-    def test_a_5_mb_log_answers_in_under_2_s(self) -> None:
+    def test_a_5_mb_log_is_answered(self) -> None:
         noise = ("   Compiling serde v1.0.0 (registry+https://github.com/rust-lang/crates.io-index)\n"
                  "warning: the lock file is fine, but --locked was passed and this is not cargo's sentence\n")
         long_line = ("the lock file " * 80000) + "--locked was passed\n"
@@ -181,11 +254,32 @@ class ExplainTests(Scratch):
             with self.subTest(refusal=bool(refusal)):
                 log = self.log(body + refusal, "big.log")
                 self.assertGreater(log.stat().st_size, 5_000_000)
-                started = time.monotonic()
+                # explain's own 60 s timeout is the hang guard here. What the scan costs is the next test's.
                 result = self.explain(str(log))
-                elapsed = time.monotonic() - started
                 self.assertEqual(result.returncode, 0 if refusal else 1)
-                self.assertLess(elapsed, 2.0)
+
+    def test_the_scan_reads_a_line_a_fixed_number_of_times(self) -> None:
+        """cmux#42375 review F2, as a count (a bound of 2 s was here: on a loaded runner that measures the runner).
+        "One long line costs its length, not its length times a window": the characters the scan reads through
+        the str calls COUNT_CHILD counts (the common other str calls fail the child) are at most COUNT_LIMIT for each
+        character of the line, at a length and at 4 times that length, and 4 times the line is at most 4 times
+        the reads, with 1% for a linear scan's constant part."""
+        for unit in COUNT_UNITS:
+            with self.subTest(unit=unit):
+                result = subprocess.run(
+                    [sys.executable, "-I", "-c", COUNT_CHILD, str(SCRIPT.parent), SCRIPT.stem, str(ROOT), unit,
+                     str(COUNT_CHARS)], capture_output=True, text=True, env=clean_env(), timeout=120)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                small, large = json.loads(result.stdout)
+                self.assertEqual(large["chars"] - len("--locked was passed\n"),
+                                 4 * (small["chars"] - len("--locked was passed\n")))
+                for line in (small, large):
+                    self.assertGreaterEqual(
+                        2 * line["read"], line["chars"],
+                        "the counting line saw less than half a pass: the scan no longer reads the line through "
+                        "the str calls COUNT_CHILD counts, so this count proves nothing; count what it reads now")
+                    self.assertLessEqual(line["read"], COUNT_LIMIT * line["chars"], (small, large))
+                self.assertLessEqual(100 * large["read"], 404 * small["read"], (small, large))
 
 
 class PythonAndShellSiteTests(Scratch):
@@ -238,7 +332,7 @@ class PythonAndShellSiteTests(Scratch):
         repo = self.tmp / "repo"
         (repo / "cmux-tui/crates/a/src").mkdir(parents=True)
         (repo / "cmux-tui/crates/a/src/lib.rs").write_text("")
-        self.git(self.tmp, "init", "-q", str(repo))
+        git_fixture_env.init_repo(repo, env=clean_env())
         self.git(repo, "add", "-A")
         self.git(repo, "commit", "-qm", "base")
         metadata = self.tmp / "metadata.json"
@@ -269,7 +363,7 @@ class PythonAndShellSiteTests(Scratch):
         """A repository that is its own origin, with a base commit and a head commit above it."""
         repo = self.tmp / "repo"
         repo.mkdir()
-        self.git(self.tmp, "init", "-q", "-b", "main", str(repo))
+        git_fixture_env.init_repo(repo, "-b", "main", env=clean_env())
         for commit in (files, head_files):
             for relative, text in commit.items():
                 path = repo / relative

@@ -89,7 +89,12 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
           }),
         );
         for (const row of rows) {
-          expect(row.buttons.length).toBeGreaterThanOrEqual(2);
+          // A prompt's row keeps Copy alone here since its inline resend went to the message menu
+          // (#42247); the failed footer has Copy and Retry at least.
+          expect([row.selector, row.buttons.length >= (row.selector === ".cv-user__actions" ? 1 : 2)]).toEqual([
+            row.selector,
+            true,
+          ]);
           for (const { button, glyph } of row.buttons) {
             expect([row.selector, button.width, button.height]).toEqual([row.selector, 24, 24]);
             expect([row.selector, glyph.width, glyph.height]).toEqual([row.selector, 16, 16]);

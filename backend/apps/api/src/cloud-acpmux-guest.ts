@@ -30,7 +30,7 @@ export const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\
 const WORK_USER = "cmux"
 const WORK_HOME = `/home/${WORK_USER}`
 const LEGACY_HOME = "/root"
-const DAEMON_TERMINAL_ENV = 'TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)"'
+const DAEMON_TERMINAL_ENV = 'TERM=xterm-256color TERM_PROGRAM=cmux'
 
 /** CMUX_TUI_USER, _HOME, _BIN and _LAYOUT of the layout this machine serves (web cmuxTuiLayoutSelector). */
 export const layoutSelector = (): string =>

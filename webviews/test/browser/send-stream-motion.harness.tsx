@@ -59,6 +59,10 @@ if (arm || liveTurnWork)
     ...(arm ? { "follow-motion": arm } : {}),
     ...(liveTurnWork ? { "live-turn-work": liveTurnWork } : {}),
   };
+// The page measures the motion itself: a loaded runner's frames never turn the chat's minimal motion
+// on under it (frameBudget.ts FULL_MOTION), unless `?budget=on` asks for the product's budget.
+if (query.get("budget") !== "on") document.documentElement.setAttribute("data-chat-motion", "full");
+else Object.assign(window, { cmuxFrameBudget: "on" });
 if (query.get("motion") === "off") {
   document.documentElement.dataset.agentMotion = "off";
   document.documentElement.dataset.cmuxMotion = "off";
@@ -503,11 +507,14 @@ async function heldFold({ settleMs = 450 }: { settleMs?: number } = {}): Promise
   if (sampleRows && !lateSampler) (lateSampler = new ResizeObserver(sampleFrame)).observe(sentinel);
   sampling = true;
   const base = history(historyTurns);
+  // The turn happens now, after the chat was opened: a row from before the open never enters
+  // (openBreakpoint.ts). The script's times stay relative to its prompt at 100_000.
+  const now = Date.now() - 100_000;
   const paragraphs = REPLY.split("\n\n");
   const prompt = {
     id: SCRIPTED_PROMPT_ID,
     version: 1,
-    at: 100_000,
+    at: 100_000 + now,
     kind: "user",
     text: "Why does the relay fall over?",
   } as AcpmuxRow;
@@ -517,7 +524,7 @@ async function heldFold({ settleMs = 450 }: { settleMs?: number } = {}): Promise
   let scheduled = false;
   const put = (row: Omit<AcpmuxRow, "version">) => {
     version += 1;
-    turn.set(row.id, { ...row, version } as AcpmuxRow);
+    turn.set(row.id, { ...row, at: row.at + now, version } as AcpmuxRow);
   };
   const emit = () => {
     if (scheduled) return;

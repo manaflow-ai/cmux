@@ -2,10 +2,11 @@
 // read, not only within the fixed six viewports: a flick reached the loaded rows' top while the page
 // was still out and stopped there with nothing above (Leo 2026-11-12: "I'm just getting some blanks
 // in between loads as I scroll up. Like, it just doesn't catch up to my speed of scrolling").
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -74,7 +75,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -95,6 +97,9 @@ const turn = (index: number) => [
   row(`t${index}-answer`, "assistant", { text: `Answer ${index}.` }),
   row(`t${index}-end`, "turnSummary", { status: "completed", durationMs: 1_000 }),
 ];
+
+/// One display frame at 60 Hz (ms).
+const FRAME_MS = 1000 / 60;
 
 async function scrollUp(step: number) {
   const history = Array.from({ length: 120 }, (_, index) => turn(index + 1000)).flat();
@@ -119,8 +124,14 @@ async function scrollUp(step: number) {
     ),
   );
   // The reader's scroll: the offset moves up by `step`, then one scroll event, a display frame apart.
+  // The frame is on the test's clock, not the host's: the transcript reads the reader's speed (px/ms)
+  // from `performance.now()`, and on a busy runner jsdom's frames came a millisecond or two apart, so
+  // 40 px a frame read as a flick and asked far above six viewports (base red, cmux run 43607255887).
+  let clock = performance.now();
+  const now = spyOn(performance, "now").mockImplementation(() => clock);
   const scrollBy = async (delta: number) =>
     act(async () => {
+      clock += FRAME_MS;
       scroller().scrollTop = Math.max(0, scroller().scrollTop + delta);
       scroller().dispatchEvent(new dom.window.Event("scroll"));
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -139,6 +150,7 @@ async function scrollUp(step: number) {
     return askedAt;
   } finally {
     console.log(`step ${step}: ${trace.join(" ")} asked at ${askedAt.map(Math.round).join(",")}`);
+    now.mockRestore();
     await act(async () => root.unmount());
   }
 }

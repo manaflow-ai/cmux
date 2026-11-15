@@ -284,11 +284,12 @@ pub(crate) struct Repo {
 /// The git working copies directly in `folder`, and one level further down (`work/api`), by name,
 /// at most `limit`, and whether there were more. Only `.git` is looked for: no folder below a
 /// repository or two levels down is read, hidden folders are skipped and symlinks never followed,
-/// and at most [`MAX_ENTRIES`] entries of any one folder are read.
+/// and at most [`MAX_ENTRIES`] entries of any one folder are read (a folder with more answers "more",
+/// since a repository may be among the unread ones).
 pub(crate) fn child_repos(folder: &Path, limit: usize) -> (Vec<Repo>, bool) {
     let mut found = Vec::new();
     let mut more = false;
-    let children = folders_in(folder);
+    let (children, mut unread) = folders_in(folder);
     let mut plain = Vec::new();
     for child in children {
         if is_repo(&child) {
@@ -301,14 +302,16 @@ pub(crate) fn child_repos(folder: &Path, limit: usize) -> (Vec<Repo>, bool) {
         if more {
             break;
         }
-        for grandchild in folders_in(&child) {
+        let (grandchildren, cut) = folders_in(&child);
+        unread |= cut;
+        for grandchild in grandchildren {
             if is_repo(&grandchild) {
                 push(&mut found, &mut more, folder, grandchild, limit);
             }
         }
     }
     found.sort_by(|a, b| a.name.cmp(&b.name));
-    (found, more)
+    (found, more || unread)
 }
 
 fn push(found: &mut Vec<Repo>, more: &mut bool, folder: &Path, path: PathBuf, limit: usize) {
@@ -322,10 +325,13 @@ fn push(found: &mut Vec<Repo>, more: &mut bool, folder: &Path, path: PathBuf, li
     found.push(Repo { name, path });
 }
 
-/// The visible folders right in `folder` (no symlinks), by name, at most [`MAX_ENTRIES`] read.
-fn folders_in(folder: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(folder) else { return Vec::new() };
+/// The visible folders right in `folder` (no symlinks), by name, at most [`MAX_ENTRIES`] entries
+/// read, and whether entries were left unread (so a repository among them may be missing: the
+/// caller says "and more").
+fn folders_in(folder: &Path) -> (Vec<PathBuf>, bool) {
+    let Ok(mut entries) = std::fs::read_dir(folder) else { return (Vec::new(), false) };
     let mut folders: Vec<PathBuf> = entries
+        .by_ref()
         .take(MAX_ENTRIES)
         .filter_map(Result::ok)
         .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
@@ -333,7 +339,8 @@ fn folders_in(folder: &Path) -> Vec<PathBuf> {
         .map(|entry| entry.path())
         .collect();
     folders.sort();
-    folders
+    let cut = entries.next().is_some();
+    (folders, cut)
 }
 
 /// Whether `folder` is a working copy's top: it holds `.git` (a folder, or a worktree's file).
@@ -353,8 +360,17 @@ pub(crate) fn repos_hint(folder: &Path) -> String {
     format!(
         "; the repositories inside it: {}{more} (start in one: --from-folder {})",
         names.join(", "),
-        shown(&first.path)
+        shell_word(&shown(&first.path))
     )
+}
+
+/// `path` (as [`shown`] writes it) as one shell word a person can paste: quoted when a shell would
+/// split or expand it, with a leading `~/` left outside the quotes so the shell still expands it.
+fn shell_word(path: &str) -> String {
+    let (home, rest) = path.strip_prefix("~/").map_or(("", path), |rest| ("~/", rest));
+    let plain = !rest.is_empty()
+        && rest.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c));
+    if plain { format!("{home}{rest}") } else { format!("{home}'{}'", rest.replace('\'', "'\\''")) }
 }
 
 /// Runs `run` with a copy's limits at `bytes` and `files` on this thread (other modules' tests).

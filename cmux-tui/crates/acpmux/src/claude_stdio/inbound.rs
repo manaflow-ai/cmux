@@ -173,6 +173,17 @@ impl Translator {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
                             Some("text_delta") => {
+                                // Claude Code emits the chat's text as stream events (rather than
+                                // a whole `assistant` line). Mark real streamed output before the
+                                // result arrives, so a text-only turn whose result reports zero
+                                // API turns is not mistaken for resumed-process startup noise.
+                                if parent.is_none()
+                                    && d.get("text")
+                                        .and_then(Value::as_str)
+                                        .is_some_and(|text| !text.is_empty())
+                                {
+                                    self.turn_output.store(true, Ordering::SeqCst);
+                                }
                                 if let Some(p) = parent {
                                     self.streamed_subagents.lock().await.insert(p.to_owned());
                                 }

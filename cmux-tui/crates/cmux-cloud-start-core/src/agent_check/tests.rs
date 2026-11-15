@@ -45,6 +45,9 @@ fn a_spent_weekly_limit_refuses_before_the_lease_with_its_reset_and_the_way_on()
         "Claude's weekly limit is used up until Nov 14, 1pm UTC. Pick Codex, or start after then."
     );
     assert_eq!(answer.limit, Some(Limit { window: Window::Weekly, resets_at: Some(NOV_14_1PM) }));
+    // The reset as a time a caller reads without the words (the CLI's JSON error carries it).
+    assert_eq!(refusal.until_at.as_deref(), Some("2026-11-14T13:00:00Z"));
+    assert_eq!(serde_json::to_value(&refusal).unwrap()["untilAt"], "2026-11-14T13:00:00Z");
     // The answer stands until the reset: no start before then asks Anthropic again.
     assert_eq!(answer.fresh_until, NOV_14_1PM);
 }
@@ -95,10 +98,14 @@ fn the_window_falls_back_to_the_rejected_one_and_the_reset_to_the_unified_one() 
     ));
     assert_eq!(found, Some(Limit { window: Window::Weekly, resets_at: Some(NOV_14_1PM) }));
     let unknown = check(&claude(probe(429, &[("anthropic-ratelimit-unified-status", "rejected")])));
+    let unknown_refusal = unknown.refusal.clone().unwrap();
     assert_eq!(
-        unknown.refusal.unwrap().message,
+        unknown_refusal.message,
         "Claude's usage limit is used up. Pick Codex, or start once it resets."
     );
+    // No reset named: no time to hand on, and the JSON leaves the key out.
+    assert_eq!(unknown_refusal.until_at, None);
+    assert!(!serde_json::to_string(&unknown_refusal).unwrap().contains("untilAt"));
     assert_eq!(unknown.fresh_until, NOW + SPENT_UNKNOWN_RESET_SECONDS);
 }
 
@@ -196,4 +203,12 @@ fn the_answer_crosses_the_ffi_in_camel_case() {
     assert_eq!(answer["limit"]["window"], "weekly");
     assert_eq!(answer["limit"]["resetsAt"], NOV_14_1PM);
     assert_eq!(answer["freshUntil"], NOV_14_1PM);
+}
+
+#[test]
+fn utc_iso_is_rfc3339_to_the_second() {
+    assert_eq!(utc_iso(NOV_14_1PM), "2026-11-14T13:00:00Z");
+    assert_eq!(utc_iso(0), "1970-01-01T00:00:00Z");
+    assert_eq!(utc_iso(1_794_382_245), "2026-11-11T07:30:45Z");
+    assert_eq!(utc_iso(951_782_400), "2000-02-29T00:00:00Z");
 }

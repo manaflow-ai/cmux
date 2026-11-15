@@ -22,6 +22,8 @@ final class PaletteContentView: NSView {
     private let topRule = NSView()
     private let bottomRule = NSView()
     private let list = PaletteListView()
+    /// The list's insets above the first row and below the last (tests: the rows' gap to the panel).
+    var listContentInsets: NSEdgeInsets { list.contentInsets }
     /// Hosts the results and fades them out at the top or bottom while more
     /// are hidden there.
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)

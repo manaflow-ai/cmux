@@ -13,7 +13,6 @@
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
-    "CmuxIrxTransport": "Packages/Shared/CmuxIrxTransport",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
@@ -474,6 +473,7 @@
         "CmuxNextSessionTransfer",
         "CmuxNextSettings",
         "CmuxNextSidebar",
+        "CmuxNextSidebarActions",
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
@@ -536,6 +536,7 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -953,6 +954,7 @@
       "targets": [
         "CCmuxAppFFI",
         "CmuxNextActions",
+        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextProcessEnvironment",
@@ -1123,6 +1125,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDevices",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
@@ -1263,6 +1266,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextSignposts"
       ],
@@ -1560,6 +1564,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -1580,8 +1585,11 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMacScreenTests",
       "targets": [
+        "CmuxNextCompat",
+        "CmuxNextControl",
         "CmuxNextMacScreen",
-        "CmuxNextRemoteView"
+        "CmuxNextRemoteView",
+        "CmuxNextSettings"
       ],
       "packages": [],
       "reads": [
@@ -1603,8 +1611,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CMUXMobileCore",
-        "CmuxIrxTransport"
+        "CMUXMobileCore"
       ]
     },
     "CmuxNextMobileHost": {
@@ -1785,10 +1792,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
-        "CmuxNextKeepAwake",
         "CmuxNextMobile",
         "CmuxNextSettings"
       ],
@@ -1978,11 +1983,13 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextServer",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextPages",
+        "CmuxNextPalette",
         "CmuxNextRemote",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -2083,6 +2090,7 @@
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
         "CmuxNextSettings",
+        "CmuxNextSettingsWindow",
         "CmuxNextSidebar"
       ],
       "packages": []

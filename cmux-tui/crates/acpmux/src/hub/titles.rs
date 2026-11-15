@@ -235,7 +235,10 @@ impl Hub {
     pub(super) fn title_after_prompt(self: &Arc<Self>, session: &Arc<Session>) {
         let request = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if m.title_source.as_deref() != Some(PROMPT) || m.title_asking {
+            // A throwaway session (a Chief compactor node, purged minutes after its one prompt)
+            // is no one's chat: a title for it is one haiku call per node, about 55 a minute on
+            // Leo's laptop (2026-11-15).
+            if m.throwaway || m.title_source.as_deref() != Some(PROMPT) || m.title_asking {
                 return;
             }
             // `title_prompt` is ephemeral. A daemon restart before the request was written can
@@ -264,7 +267,8 @@ impl Hub {
                 && m.title_prompt.is_none()
                 && m.title_failures == 0
                 && !m.title_asking;
-            if m.title_source.as_deref() != Some(ASKED)
+            if m.throwaway
+                || m.title_source.as_deref() != Some(ASKED)
                 || (!thin_retry && !restarted_request)
                 || m.title_asking
                 || m.turn_count == 0
@@ -325,7 +329,10 @@ impl Hub {
             return Some(cmd);
         }
         // The chat's own Claude Code: the sign-in and route its turn just used.
-        let profile = cfg.harnesses.get(harness)?;
+        // A copy: the lock is let go before the login shell's environment is awaited below (up
+        // to a few seconds cold), or a config writer queued behind it would stall every reader,
+        // `_acpmux/status` too (ask-64cfa32e34).
+        let profile = cfg.harnesses.get(harness)?.clone();
         if profile.kind != crate::config::HarnessKind::ClaudeStdio {
             return None;
         }
@@ -352,9 +359,10 @@ impl Hub {
             ]
             .map(str::to_owned),
         );
+        drop(cfg);
         match crate::agent::harness_command_ready(
             harness,
-            profile,
+            &profile,
             &cwd,
             Some((program, args)),
             None,

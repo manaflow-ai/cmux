@@ -246,15 +246,23 @@ class PeerDaemon:
         agents running for a next daemon (hub/shutdown.rs), and they run outside the app bundle,
         where bench_memory.end_bundle never looks: `daemon shutdown --end-agents` ends them, then
         sweeps any host still running. Whatever it left under the daemon is killed last."""
-        if self.process and self.process.poll() is None:
-            left = self.pids()
+        if self.process:
+            running = self.process.poll() is None
+            left = self.pids() if running else set()
+            if running:
+                try:
+                    done = self.acpmux("daemon", "shutdown", "--end-agents", timeout=60)
+                    if done.returncode != 0:
+                        safe_print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:2000]}", file=sys.stderr)
+                    self.process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    pass
+            # Its whole group (it leads one, start_new_session), whatever the daemon's state: an exited daemon can
+            # leave a child running in it (cmux#41767 review F1).
             try:
-                done = self.acpmux("daemon", "shutdown", "--end-agents", timeout=60)
-                if done.returncode != 0:
-                    safe_print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:2000]}", file=sys.stderr)
-                self.process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
             for pid in left - {self.process.pid}:
                 try:
                     os.kill(pid, signal.SIGKILL)  # this run's own peer processes only

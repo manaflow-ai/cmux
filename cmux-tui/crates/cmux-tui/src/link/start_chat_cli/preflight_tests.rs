@@ -131,3 +131,25 @@ fn a_terminal_refusal_names_the_repositories_to_start_in() {
     );
     assert!(hint.ends_with("/cmux)"), "{hint}");
 }
+
+#[test]
+fn a_folder_with_more_entries_than_are_read_says_more() {
+    let (_root, top) = canonical();
+    repo(&top, "work/api");
+    for index in 0..2_001 {
+        std::fs::write(top.join("work").join(format!("f{index:04}")), b"").unwrap();
+    }
+    let (repos, more) = child_repos(&top, MAX_REPOS);
+    // Whether `api` was among the entries read depends on the listing's order; the cut is said either way.
+    assert!(repos.len() <= 1);
+    assert!(more, "a folder cut at its entry limit may hide repositories");
+}
+
+#[test]
+fn the_terminal_hint_quotes_a_path_a_shell_would_split() {
+    let (_root, top) = canonical();
+    repo(&top, "my repo's");
+    let hint = size_cap::repos_hint(&top);
+    assert!(hint.ends_with("/my repo'\\''s')"), "{hint}");
+    assert!(hint.contains("--from-folder '") || hint.contains("--from-folder ~/'"), "{hint}");
+}

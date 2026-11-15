@@ -3,13 +3,13 @@
 // Leo, 2026-11-07 (ask-bc3f176943): "there's space that's given to the user's message, and then the
 // user's prompt, like, fades in from the right and, like, grows to the left. And yeah, and then
 // there's the, like, space that accounts for with the thinking for whatever seconds and the push-up
-// and the prompt. Like, it's all just one unified motion." A prompt sent from the latest row: its
-// room is laid out at once, and on one clock (the send motion, 180 ms on its settling curve) the
-// thread rises into it, the bubble opens leftward from its right edge with its text fading in behind
-// the edge, and the thinking row fades in. Every frame from the send is read in the agent pane's dev
-// entry, with the agent's answer held back as a real agent's is. Sent from the latest row, the
-// composer's prompt becomes the bubble instead (Leo, 2026-11-08, ask-157340f908; sendMorph.ts,
-// agent-pane-send-morph.test.ts), on the same clock: the first case reads the bubble's own entrance
+// and the prompt. Like, it's all just one unified motion." Then Leo, 2026-11-11: "that slow settle
+// animation is just so bad. Like, just do it." The one motion's clock (the send step,
+// MOTION_SEND_MS) is 0: a prompt sent from the latest row has its room, its bubble and the thinking
+// row in place, whole, in the frame the composer empties, and the thread does not rise; no flight
+// (sendMorph.ts), rise (followGlide.ts `sent`) or entrance (conversation.css SEND-ENTRANCE) plays
+// on a clock above 0. Every frame from the send is read in the agent pane's dev entry, with the
+// agent's answer held back as a real agent's is. The second case reads the bubble's own entrance
 // (a prompt from another device, a send while scrolled up) through the gallery's `inplace` switch.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -149,8 +149,13 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
   /// The thread's rise follows the follow-motion experiment (#37614): its default arms chase each
   /// move on a spring, and its eased arm is the glide this send clock drives (followGlide `sent`).
   /// The rise's clock is read in that arm; the bubble and thinking row take the send clock in every arm.
-  const openTurns = async (page: Page) => {
-    await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"follow-motion":"eased"}'));
+  /// `follow`: the follow-motion arm; the product's is `blocks`.
+  const openTurns = async (page: Page, follow: string | undefined = "eased") => {
+    if (follow)
+      await page.addInitScript(
+        (arm) => localStorage.setItem("cmux.experiments", JSON.stringify({ "follow-motion": arm })),
+        follow,
+      );
     await openPane(page);
     for (const line of ["first question", "second question", "third question"]) {
       await send(page, line);
@@ -165,30 +170,76 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
     );
   };
 
-  test("from the latest row, the composer's prompt moves into the bubble on the clock the thread rises and the thinking row fades on", async () => {
+  /// Lands at once: no animation the send started (the thread's rise, the flight, the bubble's
+  /// opening, the thinking row's fade) runs a clock above 0, and from the bubble's first frame the
+  /// thread is not drawn back, the bubble is open and its text, its row and the thinking row are whole.
+  const expectLanded = (frames: Frame[], clocks: Clock[], label: string) => {
+    expect(MOTION_SEND_MS, "the scale's send step").toBe(0);
+    for (const clock of clocks)
+      expect(clock.duration, `${label}: the ${clock.target}'s clock (${JSON.stringify(clocks)})`).toBe(0);
+    expect(frames.length, `${label}: the sent prompt was never drawn`).toBeGreaterThan(5);
+    for (const frame of frames) {
+      expect(frame.thread, `${label}: the thread is not drawn back at ${frame.at} ms`).toBeLessThan(0.5);
+      expect(frame.clip, `${label}: the bubble is open at ${frame.at} ms`).toBeLessThan(0.05);
+      expect(frame.text, `${label}: the text is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
+      expect(frame.row, `${label}: the prompt is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
+      // -1: no thinking row drawn in that frame.
+      if (frame.thinking >= 0)
+        expect(frame.thinking, `${label}: the thinking row is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
+    }
+  };
+
+  test("from the latest row, the composer's prompt is the bubble at once: nothing flies, rises or fades", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
     try {
       await openTurns(page);
       const line = "what else do you think would be good across the project";
       await watchSend(page, line);
       await send(page, line);
-      const { clocks } = await sendFrames(page);
-      for (const target of ["thread", "morph", "thinking"]) {
-        const clock = clocks.find((entry) => entry.target === target);
-        expect(clock, `${target}: no animation started with the send (${JSON.stringify(clocks)})`).toBeDefined();
-        expect(clock!.duration, `${target}'s duration`).toBe(MOTION_SEND_MS);
-        expect(clock!.easing.replace(/\s/g, ""), `${target}'s curve`).toBe("cubic-bezier(0.16,1,0.3,1)");
-      }
+      const { frames, clocks } = await sendFrames(page);
+      expectLanded(frames, clocks, "from the latest row");
       expect(
-        clocks.some((entry) => entry.target === "bubble"),
-        "the bubble's own entrance does not also play",
+        clocks.some((entry) => entry.target === "morph"),
+        "no copy of the composer's prompt moves into the bubble",
       ).toBe(false);
     } finally {
       await page.close();
     }
   });
 
-  test("a prompt's own entrance: room, bubble, thinking row and rise are one motion on one clock", async () => {
+  // The product's follow motion chases each move of the rows on a spring (followChase.ts): a send on
+  // the 0 clock is in place in its own pass, with nothing left to chase (review of #41550, F1).
+  test("with the default follow motion, the sent prompt and the thread are in place at once", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
+    try {
+      await openTurns(page, "blocks");
+      const line = "what else do you think would be good across the project";
+      await watchSend(page, line);
+      await send(page, line);
+      const { frames, clocks } = await sendFrames(page);
+      expectLanded(frames, clocks, "default follow motion");
+    } finally {
+      await page.close();
+    }
+  });
+
+  // System Reduce Motion fades arrivals; a sent prompt and its thinking row still take the send clock
+  // (review of #41550, F2).
+  test("with Reduce Motion, the sent prompt and its thinking row are whole at once, no fade", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 520 }, reducedMotion: "reduce" });
+    try {
+      await openTurns(page, "blocks");
+      const line = "what else do you think would be good across the project";
+      await watchSend(page, line);
+      await send(page, line);
+      const { frames, clocks } = await sendFrames(page);
+      expectLanded(frames, clocks, "Reduce Motion");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a prompt's own entrance: room, bubble, thinking row and thread are in place at once", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
     try {
       await openTurns(page);
@@ -199,40 +250,7 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       await watchSend(page, line);
       await send(page, line);
       const { frames, clocks } = await sendFrames(page);
-      expect(frames.length, "the sent prompt was never drawn").toBeGreaterThan(5);
-      const [first, last] = [frames[0]!, frames.at(-1)!];
-
-      // One clock: the thread's rise, the bubble's opening and the thinking row's fade all run the
-      // send motion (180 ms, its settling curve).
-      for (const target of ["thread", "bubble", "thinking"]) {
-        const clock = clocks.find((entry) => entry.target === target);
-        expect(clock, `${target}: no animation started with the send (${JSON.stringify(clocks)})`).toBeDefined();
-        expect(clock!.duration, `${target}'s duration`).toBe(MOTION_SEND_MS);
-        expect(clock!.easing.replace(/\s/g, ""), `${target}'s curve`).toBe("cubic-bezier(0.16,1,0.3,1)");
-      }
-
-      // Its first frame: the room is there and the thread is drawn back by it, the bubble is open only
-      // at its right part with its text not yet in, and the thinking row has not faded in.
-      expect(first.thread, "the thread starts drawn back by the new rows").toBeGreaterThan(40);
-      expect(first.clip, "the bubble starts open only from its right edge").toBeGreaterThan(30);
-      expect(first.text, "the text comes in behind the bubble's edge").toBeLessThan(0.05);
-      expect(first.row, "the prompt fades in").toBeLessThan(0.5);
-      expect(first.thinking, "the thinking row fades in with it").toBeLessThan(0.5);
-      // It opens leftward without stepping back, and the thread only rises.
-      for (let index = 1; index < frames.length; index += 1) {
-        expect(frames[index]!.clip, `the bubble's edge at ${frames[index]!.at} ms`).toBeLessThanOrEqual(
-          frames[index - 1]!.clip + 0.01,
-        );
-        expect(frames[index]!.thread, `the thread at ${frames[index]!.at} ms`).toBeLessThanOrEqual(
-          frames[index - 1]!.thread + 0.01,
-        );
-      }
-      // And it settles: open, in place, every part fully in.
-      expect(last.clip).toBeLessThan(0.05);
-      expect(last.thread).toBeLessThan(0.5);
-      expect(last.text).toBeGreaterThan(0.99);
-      expect(last.row).toBeGreaterThan(0.99);
-      expect(last.thinking).toBeGreaterThan(0.99);
+      expectLanded(frames, clocks, "its own entrance");
     } finally {
       await page.close();
     }

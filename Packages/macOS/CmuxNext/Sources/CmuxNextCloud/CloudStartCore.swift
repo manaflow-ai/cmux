@@ -81,6 +81,31 @@ public nonisolated struct CloudStartCore: Sendable {
         return reply.check
     }
 
+    /// What a start does with the machine list it read while it waits for the app's first one.
+    public enum ListWait: Sendable, Equatable {
+        /// Go on: the list is loaded, or nobody is signed in (that refuses at once).
+        case proceed
+        /// Pause `ms`, then read the list again when `readAfter`, and ask again.
+        case pause(ms: Int, readAfter: Bool)
+        /// Still not loaded once the wait is over: the account check refuses it as unread.
+        case unread
+    }
+
+    /// The step of the wait for the app's first machine list (`list_wait`, the same wait as `cmux cloud
+    /// start-chat`'s): `elapsedMs` into the wait, `deadlineLeftMs` of the start's own deadline. An FFI that
+    /// does not answer waits no more.
+    public func listWait(elapsedMs: Int, deadlineLeftMs: Int? = nil, loaded: Bool, signedIn: Bool) -> ListWait {
+        struct Request: Encodable { var elapsedMs: Int, deadlineLeftMs: Int?, loaded: Bool, signedIn: Bool }
+        struct Reply: Decodable { var next: String, pauseMs: Int?, readAfter: Bool? }
+        let request = Request(elapsedMs: max(elapsedMs, 0), deadlineLeftMs: deadlineLeftMs.map { max($0, 0) }, loaded: loaded, signedIn: signedIn)
+        guard let reply = call("cloud_start_list_wait", request, as: Reply.self) else { return .unread }
+        switch (reply.next, reply.pauseMs) {
+        case ("proceed", _): return .proceed
+        case ("pause", let ms?) where ms > 0: return .pause(ms: ms, readAfter: reply.readAfter ?? false)
+        default: return .unread
+        }
+    }
+
     /// Whether `root` is the disk's root or the home folder `home` (each as `standardizedFileURL`
     /// spells it): never copied to a machine. An FFI that does not answer counts it too broad.
     public func isTooBroad(root: String, home: String) -> Bool {

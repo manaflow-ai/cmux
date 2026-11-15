@@ -50,6 +50,7 @@ mod run;
 mod settings;
 mod skew;
 mod space;
+mod try_cmd;
 mod version;
 pub(super) mod wait;
 
@@ -201,6 +202,7 @@ pub(super) enum AppCommand {
     Nightly(nightly::Command),
     /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
     Live(live::Command),
+    Try(try_cmd::Command), // `cmux app try <PR|branch|sha>|undo|status` (app/try_cmd.rs)
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -242,13 +244,11 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
         return Ok(Some(AppCommand::Version));
     }
-    if scope == "nightly" {
-        return nightly::parse(args.get(1..).unwrap_or_default())
-            .map(|command| Some(AppCommand::Nightly(command)));
-    }
-    if scope == "live" {
-        return live::parse(args.get(1..).unwrap_or_default())
-            .map(|command| Some(AppCommand::Live(command)));
+    let tail = args.get(1..).unwrap_or_default();
+    match scope.as_str() {
+        "nightly" => return nightly::parse(tail).map(|command| Some(AppCommand::Nightly(command))),
+        "live" => return live::parse(tail).map(|command| Some(AppCommand::Live(command))),
+        _ => {}
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -302,6 +302,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
+        ("app", Some("try")) => AppCommand::Try(try_cmd::parse(rest.get(1..).unwrap_or_default())?),
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
@@ -837,14 +838,12 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let AppCommand::Settings(command) = command {
         return Ran::Done(command.run(global));
     }
-    if matches!(command, AppCommand::Version) {
-        return Ran::Done(version::run(global));
-    }
-    if let AppCommand::Nightly(command) = &command {
-        return Ran::Done(nightly::run(global, command));
-    }
-    if let AppCommand::Live(command) = &command {
-        return Ran::Done(live::run(command));
+    match &command {
+        AppCommand::Version => return Ran::Done(version::run(global)),
+        AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, command)),
+        AppCommand::Live(command) => return Ran::Done(live::run(command)),
+        AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
+        _ => {}
     }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
@@ -974,6 +973,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
         AppCommand::Live(command) => return Ran::Done(live::run(&command)),
+        AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

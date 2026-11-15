@@ -152,7 +152,8 @@ final class SendLaterClockView: UIView {
             CATransaction.setDisableActions(true)
             hand.setValue(angle, forKeyPath: "transform.rotation.z")
             CATransaction.commit()
-            guard animated, abs(angle - from) > 0.001 else { continue }
+            // Under Reduce Motion the hand is already at its new angle (set above).
+            guard animated, !UIView.reducesMotion, abs(angle - from) > 0.001 else { continue }
             let sweep = CABasicAnimation(keyPath: "transform.rotation.z")
             sweep.fromValue = from
             sweep.toValue = angle

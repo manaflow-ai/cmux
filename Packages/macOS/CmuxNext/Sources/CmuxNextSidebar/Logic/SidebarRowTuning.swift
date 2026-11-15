@@ -60,7 +60,12 @@ public nonisolated struct SidebarRowTuning {
     public static let glyphSize = ComputedTunable(
         "sidebarRows.glyphSize", section, "Glyph size",
         help: "The size every leading glyph's ink fills along its larger side: Home's house, a pin, a globe, a favicon.",
-        range: 8...28, code: "SidebarRowTuning.glyphSize") { (SidebarStyle.kindGlyphSize * SidebarStyle.workspaceGlyphScale).rounded() }
+        range: 8...28, code: "SidebarRowTuning.glyphSize") {
+            // A tab's icon box at the sidebar's defaults (Compact density, standard text), grown with its text size and
+            // density as the workspace favicon grows (Lucas 2026-11-13: Helium's 16 pt favicon beside 12 pt text).
+            let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.body.pointSize)
+            return (Metrics.iconSize * SidebarStyle.workspaceFaviconSide / max(1, atDefaults)).rounded()
+        }
     /// The leading icon column's width: a title after a glyph starts one gap after it.
     public static let iconColumn = ComputedTunable(
         "sidebarRows.iconColumn", section, "Icon column width",

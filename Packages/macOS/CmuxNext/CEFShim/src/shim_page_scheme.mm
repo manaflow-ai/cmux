@@ -314,7 +314,10 @@ class PageFactory : public CefSchemeHandlerFactory {
     if ((path.empty() || path == "/") && !entry_.empty()) path = "/" + entry_;
     if (parsed && ResolvePagePath(root_, path, &file, &mime)) {
       if (CefRefPtr<CefStreamReader> stream = CefStreamReader::CreateForFile(file)) {
-        return new CefStreamResourceHandler(200, "OK", mime, Headers(), stream);
+        CefResponse::HeaderMap headers = Headers();
+        // A file named by its content (pane.css?h=...): every page of the renderer shares its parse.
+        if (IsContentHashedQuery(CefString(&parts.query).ToString())) headers.emplace("Cache-Control", kImmutableCacheControl);
+        return new CefStreamResourceHandler(200, "OK", mime, headers, stream);
       }
     }
     static char kBody[] = "Not Found";

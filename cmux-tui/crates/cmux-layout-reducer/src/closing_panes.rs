@@ -667,6 +667,30 @@ impl ClosingPanes {
         &self.placed
     }
 
+    /// The land rule's question (Swift `ClosingPanes.landingMovesAClosingPane`): would a landing now, which puts every
+    /// live frame on its target, move a side of a closing pane more than `snap`? The panes are placed two times on copies
+    /// of the state, from `frames` (where this frame's step put the live panes, not shown yet) and from the same frames on
+    /// their targets (`now` the target, not moving), and the answer is whether any side of the two placements differs by
+    /// more than `snap`. The cameras are taken at rest (the strip's view shift `rest_strip` for both, no row travel). The
+    /// state is not changed: [`ClosingPanes::rects`] moves sides, so it runs on the copies only.
+    pub fn landing_moves(&self, frames: &[FrameFact], rest_strip: f64, snap: f64) -> bool {
+        if self.entries.is_empty() {
+            return false;
+        }
+        let landed_frames: Vec<FrameFact> =
+            frames.iter().map(|f| FrameFact { now: f.target, moving: false, ..*f }).collect();
+        let (mut stepped, mut landed) = (self.clone(), self.clone());
+        let now = stepped.rects(frames, &[], rest_strip, rest_strip);
+        let then = landed.rects(&landed_frames, &[], rest_strip, rest_strip);
+        // Both lists are in the placing order (the same entries, the same order).
+        now.iter().zip(then).any(|((_, a), (_, b))| {
+            (a.x - b.x).abs() > snap
+                || (a.x + a.width - b.x - b.width).abs() > snap
+                || (a.y - b.y).abs() > snap
+                || (a.y + a.height - b.y - b.height).abs() > snap
+        })
+    }
+
     /// A new layout carried the strip by `drift`; `view_shift` is the new layout's view shift (none: nothing carried).
     pub fn carry(&mut self, drift: f64, view_shift: Option<f64>) {
         for entry in self.entries.values_mut() {
@@ -873,6 +897,26 @@ mod tests {
         assert_eq!(
             closing.rects(&rest, &[], 0.0, 0.0),
             &[(2, Placed { x: 200.0, y: 0.0, width: 0.0, height: 300.0 })]
+        );
+    }
+
+    /// p1 springs over the closing p2 (its trailing edge at 150 of 200): a landing would move p2's leading side 50 pt,
+    /// more than a quarter point; with p1 a tenth of a point from rest it moves less. Asking changes nothing.
+    #[test]
+    fn a_landing_that_moves_a_closing_side_past_snap_is_held_and_asking_changes_nothing() {
+        let (mut closing, _) = three();
+        let rest3 = e(204.0, 300.0, 0.0, 300.0);
+        let far =
+            [live(1, e(0.0, 150.0, 0.0, 300.0), e(0.0, 200.0, 0.0, 300.0)), live(3, rest3, rest3)];
+        closing.settle(&far, &[]);
+        let before = closing.state_hash();
+        assert!(closing.landing_moves(&far, 0.0, 0.25));
+        assert_eq!(closing.state_hash(), before, "the question runs on copies");
+        let near = [live(1, e(0.0, 199.9, 0.0, 300.0), e(0.0, 200.0, 0.0, 300.0)), far[1]];
+        assert!(!closing.landing_moves(&near, 0.0, 0.25));
+        assert!(
+            !ClosingPanes::new().landing_moves(&far, 0.0, 0.25),
+            "no closing pane: nothing to hold"
         );
     }
 

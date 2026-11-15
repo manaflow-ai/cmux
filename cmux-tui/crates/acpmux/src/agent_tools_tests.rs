@@ -77,6 +77,7 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         displays: None,
         hosted: false,
         github: false,
+        desktop_lease: None,
     }
 }
 
@@ -496,6 +497,24 @@ fn the_claude_guidance_switch_also_leaves_the_chat_skill_out_of_the_plugin() {
     assert!(off.join("skills/cmux-browser/SKILL.md").is_file(), "other skills stay");
 }
 
+#[test]
+fn cmux_cua_still_resolves_after_automatic_enrollment() {
+    // Only signing in joined this Mac: its own sessions keep computer use, and no refusal is
+    // recorded for asking.
+    let asked = std::cell::Cell::new(false);
+    assert!(super::computer_use_allowed(
+        || true,
+        || {
+            asked.set(true);
+            false
+        }
+    ));
+    assert!(!asked.get());
+    // Any other join: only with the local control consent.
+    assert!(!super::computer_use_allowed(|| false, || false));
+    assert!(super::computer_use_allowed(|| false, || true));
+}
+
 /// A chat without computer use or the secrets server is not told about their skills: the
 /// fitted plugin leaves out `cmux-cua` and `cmux-sudo`, keeps the rest (the chat skill
 /// as the full plugin had it), and the tool rows and context sources say the same.
@@ -678,5 +697,22 @@ fn a_cloud_machine_session_gets_the_github_mcp_server_with_no_token_in_its_confi
     )
     .unwrap();
     assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == name));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn leased_desktops_are_off_until_the_env_names_a_binary_and_owned_by_the_session() {
+    let root = std::env::temp_dir().join(format!("acpmux-desktop-lease-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let name = super::DESKTOP_LEASE_SERVER;
+    assert!(resolve(&memory_inputs(&root, None)).servers.iter().all(|s| s.name != name));
+    let lease = root.join("desktop-lease");
+    let inputs = super::Inputs { desktop_lease: Some(lease.clone()), ..memory_inputs(&root, None) };
+    let tools = resolve(&inputs).for_session("s1").for_session("s2");
+    let server = tools.servers.iter().find(|s| s.name == name).expect("the leased-desktop server");
+    assert_eq!(server.command, lease);
+    assert_eq!(server.args, ["mcp"]);
+    let owners: Vec<_> = server.env.iter().filter(|(k, _)| k == "DESKTOP_LEASE_OWNER").collect();
+    assert_eq!(owners, [&("DESKTOP_LEASE_OWNER".to_owned(), "s2".to_owned())]);
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -32,7 +32,7 @@ extension CmuxRemoteService {
         deviceHub.makeRemoteHub = { [weak self] url, _ in
             guard let self else { return nil }
             remoteHub = nil
-            guard await waitAvailable() else { return nil }
+            guard try await configuredAvailability() else { return nil }
             do {
                 let identity = try await devices.identity()
                 let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens))

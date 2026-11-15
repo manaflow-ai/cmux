@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Overview, OVERVIEW_PREVIEW_LIMIT, scenarioHref } from "../src/gallery/parity/Overview";
 import { SCENARIOS, scenarioFrame } from "../src/gallery/parity/scenarios";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -87,6 +88,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  await settleReact();
   dom.window.close();
   for (const [key, descriptor] of saved) {
     if (descriptor) Object.defineProperty(scope, key, descriptor);

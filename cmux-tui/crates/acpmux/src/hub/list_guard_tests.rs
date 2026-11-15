@@ -27,7 +27,7 @@ fn a_page_and_a_whole_read_are_the_bytes_the_summaries_write() {
     );
     let built = serialize_in_order(&rows);
     assert_eq!(built.0, json!({"sessions": rows}).to_string());
-    assert_eq!(serialize_in_order(&[]).0, r#"{"sessions":[]}"#);
+    assert_eq!(serialize_in_order::<Value>(&[]).0, r#"{"sessions":[]}"#);
     let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
     let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
     for params in [

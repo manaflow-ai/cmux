@@ -34,7 +34,7 @@ final class CmuxDialogKeycapView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = max(0, CmuxDialogMetrics.keycapButtonCornerRadius - CmuxDialogMetrics.keycapInset)
+        layer?.cornerRadius = Metrics.buttonCornerRadius(nestedIn: CmuxDialogMetrics.keycapButtonCornerRadius, inset: CmuxDialogMetrics.keycapInset)
         let size = label.naturalSize
         label.frame = NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
                              width: size.width, height: size.height)

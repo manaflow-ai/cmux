@@ -11,7 +11,7 @@
   --ui-notice-ink: var(--agent-text, var(--cmux-text, CanvasText));
   --ui-notice-ink-2: var(--agent-soft, var(--cmux-text-secondary, GrayText));
   --ui-notice-mark: var(--ui-notice-ink-2);
-  --glass-tint: var(--surface-toast-veil);
+  --glass-tint: var(--transient-surface-veil);
   --glass-elevation: 0 0 transparent;
   position: relative;
   display: grid;
@@ -20,7 +20,7 @@
   box-sizing: border-box;
   min-width: 0;
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--surface-toast-radius);
+  border-radius: var(--transient-surface-radius);
   color: var(--ui-notice-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -378,7 +378,7 @@
   width: min(96px, 30%);
   height: var(--ds-space-6, 32px);
   border: 1px dashed color-mix(in srgb, var(--agent-text, var(--cmux-text, CanvasText)) 28%, transparent);
-  border-radius: var(--surface-toast-radius);
+  border-radius: var(--transient-surface-radius);
   pointer-events: none;
   transition:
     background-color var(--cmux-motion-quick, 80ms),

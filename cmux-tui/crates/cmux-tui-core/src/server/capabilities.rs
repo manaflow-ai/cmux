@@ -62,6 +62,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_BTW_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
@@ -290,6 +291,8 @@ pub(super) fn advertised_capabilities(
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
+        ATTACH_OUTPUT_COALESCE_CAPABILITY,
+        ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
@@ -359,6 +362,7 @@ pub(super) fn advertised_capabilities(
         BOOKMARKS_CAPABILITY,
         BOOKMARK_ICON_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
+        crate::mux::settings::SETTINGS_EDIT_CAPABILITY,
         crate::mux::keybindings::KEYBINDINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         crate::feed_client::FEED_CLIENT_CAPABILITY,
@@ -368,6 +372,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
+        SCREEN_DEVICE_IDENTITY_CAPABILITY,
         TREE_SELECTION_DELTAS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
@@ -397,6 +402,8 @@ pub(super) fn advertised_capabilities(
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         SCREEN_TERMINAL_ENV_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
+        LIST_WORKSPACES_KNOWN_CAPABILITY,
+        LIST_WORKSPACES_LIMIT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         TERMINAL_STATE_CAPABILITY,
@@ -426,7 +433,9 @@ pub(super) fn advertised_capabilities(
         crate::state::classic_import_router::CAPABILITY,
         crate::state::conductor_import_router::CAPABILITY,
         crate::resource_router::palette_rank::CAPABILITY,
+        crate::resource_router::browser_import::CAPABILITY,
         crate::resource_router::palette_rank::BATCH_CAPABILITY,
+        crate::resource_router::theme_scheme::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
@@ -453,6 +462,7 @@ pub(super) fn advertised_capabilities(
         crate::history_ops::CAPABILITY,
         crate::history_ops::CLEAR_UNTIL_CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
+        crate::git_ops::FINGERPRINT_CAPABILITY,
         crate::git_ops::BRANCHES_CAPABILITY,
         crate::git_ops::COMMIT_CAPABILITY,
         crate::git_ops::PUSH_CAPABILITY,
@@ -460,6 +470,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,

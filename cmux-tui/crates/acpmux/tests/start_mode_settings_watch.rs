@@ -60,8 +60,10 @@ async fn settle(rx: &mut mpsc::Receiver<String>, m: &str) -> bool {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_settings_file_change_to_the_default_permission_mode_reaches_watchers() {
     let root = scratch();
-    let settings = root.join("settings").join("cmux-next.json");
-    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    // The settings file's folder, and the one that holds it, do not exist yet when the watch
+    // starts: the nearest folder that exists is watched, and each one on the way as it is made.
+    let folder = root.join("settings").join("later").join("cmux");
+    let settings = folder.join("cmux-next.json");
     // SAFETY: the only test in this binary, set before the hub starts.
     unsafe { std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings) };
     std::fs::write(root.join("home").join("config.json"), "{}").unwrap();
@@ -83,8 +85,17 @@ async fn a_settings_file_change_to_the_default_permission_mode_reaches_watchers(
     let changed = method::MUX_START_MODE_CHANGED;
     assert!(settle(&mut rx, changed).await, "start_mode_changed never stopped before any write");
 
+    // The folders are made and the file written: watchers are told.
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    assert!(
+        told(&mut rx, changed, Duration::from_secs(10)).await,
+        "no start_mode_changed after the settings file's folders were made and it was written"
+    );
+    assert!(settle(&mut rx, changed).await, "start_mode_changed never stopped after one change");
+
     // Settings writes the new value (atomically, as the app's settings owner does).
-    let next = root.join("settings").join(".cmux-next.json.tmp");
+    let next = folder.join(".cmux-next.json.tmp");
     std::fs::write(&next, r#"{"agents": {"defaultPermissionMode": "ask"}}"#).unwrap();
     std::fs::rename(&next, &settings).unwrap();
     assert!(

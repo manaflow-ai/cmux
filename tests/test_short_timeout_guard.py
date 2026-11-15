@@ -22,7 +22,26 @@ class ShortTimeoutGuardTests(unittest.TestCase):
     def test_checked_in_tree_matches_its_ratchet(self) -> None:
         allow = json.loads((ROOT / "tests/short-timeout-allowlist.json").read_text(encoding="utf-8"))
         found = guard.scan_tree(ROOT)
-        self.assertEqual(guard.problems(found, allow), [])
+        problems = guard.problems(found, allow)
+        guard.report_guard_checks(problems)
+        self.assertEqual(problems, [])
+
+    def test_each_problem_is_its_own_guard_check(self) -> None:
+        import os
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp) / "checks"
+            errors = guard.problems({"a.rs:rust-duration": 3, "b.rs:rust-duration": 1},
+                                    {"allow": {"a.rs:rust-duration": {"count": 2, "reason": "r"}}})
+            with mock.patch.dict(os.environ, {guard.GUARD_CHECK_RESULTS_ENV: str(results)}):
+                guard.report_guard_checks(errors)
+            self.assertEqual(results.read_text().splitlines(), [
+                "0\ta.rs:rust-duration: 3 hits, allowlist says 2; a new short timeout was added",
+                "0\tb.rs:rust-duration: 1 new short timeout(s); add a reason or remove the timeout",
+            ])
+        with mock.patch.dict(os.environ, {guard.GUARD_CHECK_RESULTS_ENV: ""}):
+            guard.report_guard_checks(errors)  # no results file: nothing to write, no error
 
     def test_new_two_second_deadline_fails_and_reasoned_comment_passes(self) -> None:
         source = "func request() { call(deadline: .seconds(2)) }\n"

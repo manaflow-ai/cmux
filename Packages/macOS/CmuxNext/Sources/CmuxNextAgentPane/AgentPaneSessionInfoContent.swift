@@ -1110,7 +1110,7 @@ final class SessionInfoButtonView: NSView {
         }
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.controlCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         addSubview(content)
         themedToolTip = button.label
         setAccessibilityElement(true)
@@ -1154,7 +1154,7 @@ final class SessionInfoButtonView: NSView {
     override var acceptsFirstResponder: Bool { enabled }
     override var canBecomeKeyView: Bool { enabled && NSApp.isFullKeyboardAccessEnabled }
     override var focusRingMaskBounds: NSRect { bounds }
-    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: Metrics.controlCornerRadius, yRadius: Metrics.controlCornerRadius).fill() }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: Metrics.buttonCornerRadius, yRadius: Metrics.buttonCornerRadius).fill() }
     override func keyDown(with event: NSEvent) {
         if SessionInfoKeys.presses(event), press() { return }
         super.keyDown(with: event)
@@ -1226,7 +1226,7 @@ final class SessionInfoSegmentsView: NSView {
         for value in values {
             let width = bounds.width * CGFloat(max(0, value.share) / total)
             colors.color(for: value.color).setFill()
-            NSBezierPath(roundedRect: CGRect(x: x, y: bounds.minY, width: width, height: bounds.height), xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
+            NSBezierPath(roundedRect: CGRect(x: x, y: bounds.minY, width: width, height: bounds.height), xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill() // radius-allow: a capsule meter segment, not a button
             x += width
         }
     }
@@ -1251,8 +1251,8 @@ final class SessionInfoMeterView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
-        fill.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = bounds.height / 2 // radius-allow: a capsule meter track, not a button
+        fill.cornerRadius = bounds.height / 2 // radius-allow: the meter's capsule fill
         // motion: allow the fill's frame is set, never animated (layout, not an animation)
         CATransaction.begin()
         CATransaction.setDisableActions(true)

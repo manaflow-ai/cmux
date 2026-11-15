@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
 export type MuseumArtResult = {
@@ -177,20 +178,23 @@ export type DevicesHostState = {
   activity: Array<{ time: string; what: string; subject: string }>;
 };
 
-/** This Mac joined to a team with the one-line join: its consent switches, both off until the person turns them on. */
+/** A consent this joined Mac keeps (acpmux's machine consent): `signedInMachines` lets the person's other Macs signed in to this account open workspaces here. */
+export type JoinConsentSurface = "screen" | "control" | "signedInMachines";
+
+/** This Mac joined to a team with the one-line join: its consent switches, all off until the person turns them on. */
 export type DevicesJoinState = {
   title: string;
   /** "Joined to <team> as <name>". */
   joined: string;
   help: string;
   error: string | null;
-  /** A consent write is in flight: both switches are disabled until it ends. */
+  /** A consent write is in flight: the switches are disabled until it ends. */
   busy: boolean;
-  /** acpmux's record is known: without it both switches are disabled (an off nobody confirmed). */
+  /** acpmux's record is known: without it the switches are disabled (an off nobody confirmed). */
   known: boolean;
-  /** The label of the action that turns both off while the record is unknown; null while it is known. */
+  /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
-  switches: Array<{ surface: "screen" | "control"; title: string; help: string; on: boolean }>;
+  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
 };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
@@ -838,6 +842,22 @@ export type TailnetState = {
   error?: string;
 };
 
+/** A customization being tried on (`cmux customize try`; cmux-customize `try_on.rs`): applied now,
+ * back to generation `revert_to` by itself at `expires_ms` unless the person keeps it. */
+export type CustomizeTryOn = {
+  generation: number;
+  revert_to: number | null;
+  started_ms: number;
+  expires_ms: number;
+  /** What is tried on, in one line (the profile, or what was asked for). */
+  label: string;
+  origin: string;
+};
+
+/** `cmux --json customize status|keep|revert` as the host answers it: a status carries `try_on`; a
+ * refusal is the CLI's error envelope (`code`, `message`). */
+export type CustomizeAnswer = { try_on?: CustomizeTryOn | null; code?: string; message?: string };
+
 /** Settings > Privacy and Security > Shared Links (`cmux.settings.shares.list`): this Mac's daemon's
  * chat shares as `agent-session-share-list` answers them (cmux-tui server/agent_session_shares.rs),
  * and each chat's tab title by surface number. Times are milliseconds since the epoch. */
@@ -1177,8 +1197,8 @@ export type SettingsOps = {
   "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
   /** Native: Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (on: the person's gesture only). */
   "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
-  /** Native: Settings > Devices' Screen sharing or Control switch of this joined Mac (on: the person's gesture only). */
-  "cmux.settings.devices.join_consent": [{ surface: "screen" | "control"; on: boolean }, { error?: string }];
+  /** Native: Settings > Devices' consent switch of this joined Mac (Screen sharing, Control, Your other Macs) (on: the person's gesture only). */
+  "cmux.settings.devices.join_consent": [{ surface: JoinConsentSurface; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */
@@ -1223,6 +1243,8 @@ export type SettingsOps = {
   "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: signs the node out and closes its listeners. */
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
+  /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
+  "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
@@ -1253,6 +1275,9 @@ export type SettingsOps = {
   "cmux.settings.theme.overrides.release": [Record<string, never>, { files: number }];
   /** Native: open the file of the first `theme_overrides` line in cmux's editor, at that line. */
   "cmux.settings.theme.overrides.open": [Record<string, never>, unknown];
+  /** Native, person only: open the active theme file (`appearance.themeFile`) in the default editor;
+   * with none active the bundled `cmux theme export --save my-look --use` makes one from the current look. */
+  "cmux.settings.theme.file.open": [Record<string, never>, unknown];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
@@ -1359,7 +1384,15 @@ export type ErrorCode =
 
 const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable", "cmux.protocol.auth_refused"]);
 
-/** The error a call rejected with, as a plain record. */
+/** Refusals the host words for the person: the updater's (Go Back, Switch, Update) and a
+ * person-only action's (RefusalStrings). Any other failure shows the plain sentence. */
+export const SETTINGS_SENTENCES = {
+  "cmux.page.refused": OWNER_SENTENCE,
+  "cmux.app.user_only": OWNER_SENTENCE,
+} as const;
+
+/** The error a call rejected with, as a plain record (its `message` is for logs; the page shows
+ * `userMessage(error)`). */
 export function wireError(error: unknown): WireError {
   if (typeof error === "object" && error !== null && typeof (error as WireError).code === "string") {
     const { code, message, details } = error as WireError;
@@ -1404,6 +1437,8 @@ export const settingsPageActions = [
   "importFromBrowser",
   // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).
   "palette.auth.signIn",
+  // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
+  "customize.open",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];

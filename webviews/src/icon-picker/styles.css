@@ -95,7 +95,7 @@
   gap: 6px;
   height: 30px;
   padding: 0 8px;
-  border-radius: 7px;
+  border-radius: var(--ds-radius-control);
   color: var(--page-text-2);
 }
 
@@ -402,7 +402,7 @@
   height: 30px;
   padding: 0 8px;
   border: 0;
-  border-radius: 15px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--page-text);
   font-size: 14px;
@@ -493,7 +493,7 @@
 
 .icon-asset-url button {
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   padding: 0 12px;
   background: var(--page-selection);
 }

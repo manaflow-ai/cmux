@@ -248,7 +248,8 @@ extension CmuxDialogButtonView {
 enum CmuxDialogMetrics {
     static var buttonHeight: CGFloat { 26 * Typography.userScale }
     static var buttonMinWidth: CGFloat { 72 * Typography.userScale }
-    static var buttonCornerRadius: CGFloat { 7 }
+    /// A dialog button rounds as a tab (`Metrics.buttonCornerRadius`; Lawrence 2026-11-12).
+    static var buttonCornerRadius: CGFloat { Metrics.buttonCornerRadius }
     static var padding: CGFloat { Metrics.space5 }
     /// The dialog card (``CmuxDialogView``): its width, wider with an icon so the text column keeps its width.
     static var width: CGFloat { 380 * Typography.userScale }
@@ -266,7 +267,7 @@ enum CmuxDialogMetrics {
     static let scrollingCharacterCount = 600
     /// A keyed card button: taller and rounder, with the keycap plate one inset from its top, bottom and end.
     static var keycapButtonHeight: CGFloat { 28 * Typography.userScale }
-    static var keycapButtonCornerRadius: CGFloat { 9 * Typography.userScale }
+    static var keycapButtonCornerRadius: CGFloat { Metrics.buttonCornerRadius }
     static var keycapInset: CGFloat { 5 * Typography.userScale }
     static var keycapPadding: CGFloat { 4 * Typography.userScale }
     static var keycapLeading: CGFloat { 12 * Typography.userScale }

@@ -33,7 +33,7 @@
     { "name": "2xl", "px": 16, "for": "code blocks (named exception)" }
   ],
   "namedRadii": [
-    { "name": "control", "px": 6 },
+    { "name": "control", "var": "var(--cmux-button-radius, 8px)", "for": "every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs)" },
     { "name": "popup", "px": 8 },
     { "name": "card", "px": 14, "for": "today's card radius; grid.md moves it to 12 after a gallery comparison" },
     { "name": "composer", "px": 18, "for": "today's composer radius; grid.md moves it to 12 after a gallery comparison" },
@@ -42,7 +42,7 @@
   "glass": [
     { "name": "chrome", "kind": "level", "tint": 60, "blur": "blur(20px) saturate(1.4)", "for": "chrome docked on the window: panes, the sidebar, bars, rails, side tabs, sticky headers and the minimap" },
     { "name": "popover", "kind": "level", "tint": 70, "artTint": 50, "blur": "blur(24px) saturate(1.25)", "for": "floating surfaces over dense text: popovers, hover cards and link cards, the composer, Session Info, the running tray, viewers and sheets (artTint over art or a see-through window)" },
-    { "name": "menu", "kind": "level", "tint": 78, "blur": "blur(32px) saturate(1.6)", "for": "menus, context menus, pickers and a select's menu over a dense settings row (design/settings.md, Glass)" },
+    { "name": "menu", "kind": "level", "tint": 78, "veil": 40, "blur": "blur(32px) saturate(1.6)", "for": "every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers)" },
     { "name": "chip", "kind": "level", "tint": 60, "blur": "blur(24px) saturate(1.6)", "for": "small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks" },
     { "name": "lens", "kind": "mode", "tint": 40, "blur": "blur(6px) saturate(1.3)", "for": "a mode, not a level: while the lens draws the wallpaper behind the glass, every level takes this tint and frost" },
     { "name": "fisheye", "kind": "mode", "tint": 50, "blur": "blur(2.5px) saturate(1.15)", "blurName": "frost", "for": "a mode, not a level: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it" }

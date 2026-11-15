@@ -313,19 +313,11 @@ export function useDictation(
         requested.current = true;
         void call("dictation.toggle").catch((error: unknown) => {
           requested.current = false;
-          setNotice({
-            state: "failed",
-            text: "",
-            level: 0,
-            cancelled: false,
-            // A page with no host to ask says so plainly rather than "Request failed".
-            message:
-              error instanceof Error &&
-              error.message &&
-              !(error instanceof NativeError && error.code === "native.not_connected")
-                ? error.message
-                : t("dictation.unavailable"),
-          });
+          // The host's refusal reads as "Dictation is not available." (its words go to the log);
+          // a page with no host to ask says the same, never "Request failed".
+          if (!(error instanceof NativeError && error.code === "native.not_connected"))
+            console.warn("agent pane: dictation did not start", error);
+          setNotice({ state: "failed", text: "", level: 0, cancelled: false, message: t("dictation.unavailable") });
         });
       },
       finish(then) {

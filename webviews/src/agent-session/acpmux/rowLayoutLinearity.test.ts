@@ -85,3 +85,54 @@ test("a 192k-record-shaped transcript keeps its tail geometry on steady updates"
     max: samples[31],
   });
 }, 30_000);
+
+// A divider drag (Leo, 2026-11-11: "the dragging responsiveness is slow for agent chat but fast for
+// browser hmmm"): each frame at a new width measures only the rows around the view, so a frame's cost
+// does not grow with the chat; the rows out of view keep the last width's heights until it settles.
+test("a live resize frame measures only the rows around the view", () => {
+  const rows: AcpmuxRow[] = Array.from({ length: 600 }, (_, i) => ({
+    ...row(`r${i}`, i % 2 === 0 ? "user" : "assistant"),
+    text: `Message ${i}: ${"a few words that wrap at a narrow width ".repeat(1 + (i % 5))}`,
+  }));
+  const wide = layoutConversation(rows, 900);
+  let measured = 0;
+  const counting = (width: number) =>
+    layoutConversation(
+      rows,
+      width,
+      undefined,
+      () => {
+        measured += 1;
+        return undefined;
+      },
+      undefined,
+      undefined,
+      undefined,
+      { rows, layout: wide, from: 560, to: 600 },
+    );
+  const narrow = counting(500);
+  expect(measured).toBe(40);
+  // Out of view: the last width's heights; in view: this width's, as a full layout has them.
+  const full = layoutConversation(rows, 500);
+  expect(narrow.heights.slice(0, 560)).toEqual(wide.heights.slice(0, 560));
+  expect(narrow.heights.slice(560)).toEqual(full.heights.slice(560));
+  expect(full.heights.slice(560)).not.toEqual(wide.heights.slice(560));
+  // A row that changed during the drag (a streamed reply) is measured wherever it is.
+  measured = 0;
+  const changed = [...rows];
+  changed[3] = { ...rows[3]!, version: 2, text: "Changed." };
+  layoutConversation(
+    changed,
+    500,
+    undefined,
+    () => {
+      measured += 1;
+      return undefined;
+    },
+    undefined,
+    undefined,
+    undefined,
+    { rows, layout: wide, from: 560, to: 600 },
+  );
+  expect(measured).toBe(41);
+});

@@ -61,7 +61,7 @@ pub use terminal::{
     ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState, PtyWriteFn, Rgb,
     SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
     TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
-    VtReplayTail, parse_color, parse_palette_entry,
+    VtReplayTail, VtReplayWindow, parse_color, parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

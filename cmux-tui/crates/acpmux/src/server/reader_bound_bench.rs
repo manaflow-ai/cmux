@@ -60,6 +60,7 @@ async fn stopped_reader(hub: &Arc<crate::hub::Hub>, id: &str) -> Reader {
             None,
             false,
             crate::sender_harness::SocketPeer::Unknown,
+            None,
         ),
     );
     let (rd, mut wr) = client.into_split();

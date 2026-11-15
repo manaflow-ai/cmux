@@ -1,6 +1,7 @@
 //! Agent chat notifications (cx-sg1qz). One watch of this machine's acpmux
 //! (`_acpmux/watch`, then its `_acpmux/session_changed` pushes) turns what a
-//! chat does into notifications on every agent tab bound to it:
+//! chat does into one notification per event, on one agent tab bound to it
+//! (one chat open in two tabs is still one chat: one banner, one push):
 //!
 //! - its turn ended: "<chat> finished" with the reply's last line, or
 //!   "<chat> failed" (level error) when the turn failed;
@@ -331,31 +332,39 @@ impl Mux {
         } else {
             Vec::new()
         };
-        for (surface, content) in self.agent_chat_tabs(session) {
-            if unread.iter().any(|(row, acknowledged)| {
-                !acknowledged
-                    && row.surface == Some(surface)
-                    && row.title == notice.title
-                    && row.body == notice.body
-            }) {
-                continue;
-            }
-            // Hashed: an adopted session's id is the agent's own, of any length.
-            let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
-            let key = format!("acpmux-{digest:x}");
-            let posted = self.create_durable_notification(
-                &Actor::Daemon,
-                &key,
-                notice.title.clone(),
-                notice.subtitle.clone(),
-                notice.body.clone(),
-                notice.level,
-                Some(surface),
-                NotificationSource::Agent,
-            );
-            if posted.is_err() {
-                self.report_internal_diagnostic("agent chat notification not posted");
-            }
+        // One tab takes the notice: the one with the least durable content id, so a daemon
+        // restart (which may number surfaces anew) picks the same tab and its key again.
+        // The other tabs keep acpmux's own unread, and a read on any of them reads it.
+        let tabs = self.agent_chat_tabs(session);
+        let Some((surface, content)) = tabs.iter().min_by(|a, b| a.1.cmp(&b.1)) else {
+            return;
+        };
+        // Any bound tab: a daemon before one-tab notices posted the wait on each of them.
+        if unread.iter().any(|(row, acknowledged)| {
+            !acknowledged
+                && row
+                    .surface
+                    .is_some_and(|row_surface| tabs.iter().any(|(tab, _)| *tab == row_surface))
+                && row.title == notice.title
+                && row.body == notice.body
+        }) {
+            return;
+        }
+        // Hashed: an adopted session's id is the agent's own, of any length.
+        let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
+        let key = format!("acpmux-{digest:x}");
+        let posted = self.create_durable_notification(
+            &Actor::Daemon,
+            &key,
+            notice.title.clone(),
+            notice.subtitle.clone(),
+            notice.body.clone(),
+            notice.level,
+            Some(*surface),
+            NotificationSource::Agent,
+        );
+        if posted.is_err() {
+            self.report_internal_diagnostic("agent chat notification not posted");
         }
     }
 
@@ -728,13 +737,15 @@ fn follows(initialized: &Value) -> bool {
         .is_some_and(|ids| ids.iter().any(|id| id == ACPMUX_LIST_FOLLOW))
 }
 
-/// Whether a `session_changed` is older than the row the watch holds: its list position is
-/// lower than the one the row came with.
-fn older_than_held(held: Option<&Chat>, params: &Value) -> bool {
+/// Whether a `session_changed` is older than what the watch holds: its list position is lower
+/// than the one the row came with, or than `floor`, the position of the list or follow last read
+/// on this connection. That reply holds every change up to it, a chat's removal too, so a late
+/// push from before it brings back no chat the reply left out.
+fn older_than_held(held: Option<&Chat>, floor: u64, params: &Value) -> bool {
     params
         .get("listSeq")
         .and_then(Value::as_u64)
-        .is_some_and(|seq| held.is_some_and(|chat| chat.list_seq > seq))
+        .is_some_and(|seq| held.map_or(floor, |chat| chat.list_seq.max(floor)) > seq)
 }
 
 /// Reads one connection to its end; when the watch's list came whole. The
@@ -772,6 +783,13 @@ fn read_watch(
     // the list is too old to name.
     let before = mux.upgrade().map(|mux| crate::server::open_chat_shares(&mux)).unwrap_or_default();
     writer.write_all(format!("{initialize}\n{watch}\n").as_bytes())?;
+    // The chat index (`chat_index.rs`) follows the same list, follows and pushes.
+    if let Some(mux) = mux.upgrade() {
+        mux.change_chats(|chats| {
+            chats.connect();
+            false
+        });
+    }
     let mut reader = BufReader::new(stream);
     // The reply that carries the next page; none once the list is whole.
     let mut page = Some(2_u64);
@@ -815,6 +833,14 @@ fn read_watch(
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
             let followed = page_is_watch && result["follow"] == true;
+            // The index: a whole list (not a follow) starts over, and drops at its end what it
+            // left out.
+            mux.change_chats(|chats| {
+                if page_is_watch && !followed {
+                    chats.begin();
+                }
+                chats.page(sessions)
+            });
             if page_is_watch {
                 let position = result["listSeq"].as_u64().zip(result["listEpoch"].as_str());
                 match position {
@@ -840,7 +866,7 @@ fn read_watch(
                 }
                 if !followed {
                     // A first list (also a follow acpmux reset): every row held is compared with
-                    // it, and one it leaves out is gone; positions held are another list's.
+                    // it, and one it leaves out is gone; a row held is as of this list's position.
                     let held: Vec<String> = chats
                         .keys()
                         .filter(|session| !pushed.contains(*session))
@@ -852,7 +878,7 @@ fn read_watch(
                         }
                     }
                     for chat in unlisted.values_mut() {
-                        chat.list_seq = 0;
+                        chat.list_seq = list_seq;
                     }
                 }
             }
@@ -885,6 +911,9 @@ fn read_watch(
                 apply(&mux, known.as_ref(), next, chats);
             }
             if followed {
+                if let Some(gone) = result["gone"].as_array() {
+                    mux.change_chats(|chats| chats.gone(gone));
+                }
                 for gone in result["gone"].as_array().into_iter().flatten() {
                     if !gone["peer"].is_null() {
                         continue;
@@ -930,6 +959,7 @@ fn read_watch(
                             mux.remove_cache_ttl_timer(session);
                         }
                         unlisted.clear();
+                        mux.change_chats(super::chat_index::Chats::end);
                         whole.get_or_insert_with(Instant::now);
                         *cursor = pending.take();
                         None
@@ -970,7 +1000,11 @@ fn read_watch(
                 if gate
                     && params["peer"].is_null()
                     && let Some(session) = params["sessionId"].as_str()
-                    && older_than_held(chats.get(session).or_else(|| unlisted.get(session)), params)
+                    && older_than_held(
+                        chats.get(session).or_else(|| unlisted.get(session)),
+                        list_seq,
+                        params,
+                    )
                 {
                     continue;
                 }
@@ -980,6 +1014,7 @@ fn read_watch(
                 {
                     at.seq = at.seq.max(seq);
                 }
+                mux.change_chats(|chats| chats.push(params));
             }
             if params["peer"].is_null()
                 && let Some(session) = params["sessionId"].as_str()
@@ -1626,10 +1661,11 @@ mod tests {
         assert!(!chats.contains_key("chat-2"), "a row gone goes");
         assert_eq!(chats["chat-3"].indicator, "working", "an older push does not undo the follow");
         assert_eq!(cursor, cursor_at(9));
-        assert!(older_than_held(chats.get("chat-3"), &json!({"listSeq": 8})));
-        assert!(!older_than_held(chats.get("chat-3"), &json!({"listSeq": 9})));
-        assert!(!older_than_held(chats.get("chat-3"), &json!({})), "no position: as before");
-        assert!(!older_than_held(None, &json!({"listSeq": 1})));
+        assert!(older_than_held(chats.get("chat-3"), 0, &json!({"listSeq": 8})));
+        assert!(!older_than_held(chats.get("chat-3"), 0, &json!({"listSeq": 9})));
+        assert!(!older_than_held(chats.get("chat-3"), 0, &json!({})), "no position: as before");
+        assert!(!older_than_held(None, 0, &json!({"listSeq": 1})));
+        assert!(older_than_held(None, 9, &json!({"listSeq": 8})), "the list's position holds it");
     }
 
     /// A follow cut at its size (`more`) goes on from the position it reached, and a watch acpmux
@@ -1679,6 +1715,41 @@ mod tests {
         assert!(!chats.contains_key("chat-1"), "the reset list left it out");
         assert_eq!(chats["chat-2"].list_seq, 3);
         assert_eq!(cursor, Some(ListCursor { epoch: "run-2".to_owned(), seq: 3 }));
+    }
+
+    /// A reset list at position 5 leaves out chat-1, removed before it. Pushes about chat-1 from
+    /// before it (positions 3 and 4) come late, one while the list is still paging and one after
+    /// it is whole: neither brings it back. A push past the list's position still counts.
+    #[test]
+    fn a_push_older_than_a_reset_list_does_not_bring_back_a_chat_it_left_out() {
+        let mux = test_mux("notices-follow-reset-race");
+        let mut chats = held(&["chat-1"], 4);
+        let mut cursor = cursor_at(7);
+        let push = |session: &str, seq: u64| {
+            format!(
+                "{}\n",
+                json!({"jsonrpc": "2.0", "method": "_acpmux/session_changed",
+                "params": {"sessionId": session, "kind": "updated", "session": local(session),
+                    "listSeq": seq}})
+            )
+        };
+        let first = format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"reset": true, "listEpoch": "run-2",
+                "listSeq": 5, "sessions": [local("chat-2")], "nextCursor": "page-2"}})
+        );
+        let (client, serve) = fake_acpmux(vec![
+            format!("{}{first}{}", initialized(true), push("chat-1", 3)),
+            format!("{}{}{}", list_reply(3, &[], None), push("chat-1", 4), push("chat-3", 6)),
+        ]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        serve.join().expect("the fake acpmux");
+        assert!(
+            !chats.contains_key("chat-1"),
+            "an older push brought back a chat the list left out"
+        );
+        assert!(chats.contains_key("chat-2"));
+        assert!(chats.contains_key("chat-3"), "a push past the list's position counts");
     }
 
     /// An acpmux without the capability keeps no cursor: the next connection reads the list

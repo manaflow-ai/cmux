@@ -120,6 +120,29 @@ class Strays(unittest.TestCase):
         self.assertEqual(stray.HOOK_IN_PS.findall("sh ACTIONS_RUNNER_HOOK_JOB_STARTED=relative/y.sh"), [])
 
 
+DEV = "/Applications/Xcode_26.6.app/Contents/Developer"
+
+
+class BuildDaemons(unittest.TestCase):
+    """Run 43431310245: actool's two ibtoolds, detached with the job's environment, refused the signing secrets."""
+
+    def test_only_this_jobs_ibtoold_of_the_selected_xcode_is_ended(self):
+        table = Strays.table(Strays())
+        table[61313] = P(1, f"{DEV}/usr/bin/ibtoold --sending-client-environment LLBUILD_BUILD_ID=1", True, "/")
+        table[61315] = P(1, f"{DEV}/usr/bin/ibtoold --sending-client-environment LLBUILD_BUILD_ID=1", True, "/")
+        table[61400] = P(1, "/Applications/Xcode_26.5.app/Contents/Developer/usr/bin/ibtoold", True, "/")
+        table[61401] = P(1, f"{DEV}/usr/bin/ibtoold", False, "/")  # another job's or the user's: not a stray
+        table[61402] = P(1, f"{WORK}/_temp/usr/bin/ibtoold", True, "/")
+        table[61403] = P(1, "ibtoold", True, "/")
+        table[61404] = P(1, f"{DEV}/usr/bin/actool --compile x", True, "/")
+        table[61405] = P(1, "node build-helper.js", True, "/")
+        found = stray.strays(table, 400, [WORK])
+        self.assertEqual(found, [61313, 61315, 61400, 61402, 61403, 61404, 61405])
+        self.assertEqual(stray.build_daemons(table, found, DEV), [61313, 61315])
+        self.assertEqual(stray.build_daemons(table, found, DEV + "/"), [61313, 61315])
+        self.assertEqual(stray.build_daemons(table, found, ""), [], "no Developer directory, nothing ended")
+
+
 @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
 class LiveCheck(unittest.TestCase):
     def run_check(self, env):
@@ -178,6 +201,42 @@ class LiveCheck(unittest.TestCase):
             finally:
                 child.kill()
                 child.wait()
+
+    def test_the_build_step_ends_its_build_daemon_and_the_check_then_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, dev = Path(tmp) / "_work", Path(tmp) / "Developer"
+            for made in (work / "_temp", work / "cmux", dev / "usr/bin"):
+                made.mkdir(parents=True)
+            daemon = dev / "usr/bin/ibtoold"
+            daemon.symlink_to(Path(subprocess.run(["which", "sleep"], capture_output=True, text=True).stdout.strip()))
+            env = dict(os.environ, RUNNER_TRACKING_ID=f"test-daemon-{os.getpid()}", RUNNER_TEMP=str(work / "_temp"),
+                       RUNNER_WORKSPACE=str(work / "cmux"), DEVELOPER_DIR=str(dev))
+            check = [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import refuse_stray_processes "
+                     "as s; s.GRACE_S = 0; sys.exit(s.main())", str(SCRIPT.parent)]
+            child = subprocess.Popen([str(daemon), "300"], env=env, cwd="/", start_new_session=True)
+            other = subprocess.Popen(["sleep", "300"], env=env, cwd="/", start_new_session=True)
+            try:
+                refused = subprocess.run(check, env=env, capture_output=True, text=True, timeout=120)
+                self.assertEqual(refused.returncode, 1, refused.stdout)
+                ended = subprocess.run([sys.executable, str(SCRIPT), "--end-build-daemons"], env=env,
+                                       capture_output=True, text=True, timeout=120)
+                self.assertEqual(ended.returncode, 0, ended.stdout + ended.stderr)
+                self.assertIn(f"pid {child.pid}", ended.stdout)
+                child.wait(timeout=30)
+                self.assertIsNone(other.poll(), "a stray that is not a build daemon is left for the check")
+                still = subprocess.run(check, env=env, capture_output=True, text=True, timeout=120)
+                self.assertEqual(still.returncode, 1, still.stdout)
+                self.assertIn(f"pid {other.pid}", still.stdout)
+                self.assertNotIn(f"pid {child.pid}", still.stdout)
+                other.kill()
+                other.wait()
+                self.assertEqual(subprocess.run(check, env=env, capture_output=True, text=True,
+                                                timeout=120).returncode, 0)
+            finally:
+                for proc in (child, other):
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait()
 
 
 if __name__ == "__main__":

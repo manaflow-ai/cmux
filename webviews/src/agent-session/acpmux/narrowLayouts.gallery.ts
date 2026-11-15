@@ -421,9 +421,11 @@ export default agentPaneEntry({
     },
     "controls-single-row": {
       note: "The chat composer with plain footer styling off: the model and mode keep the shared footer, while mic and Send stay in the box.",
+      // Claude's look: Codex's (the default) draws the model and mode inside the box (composerLook.ts).
+      composerLook: "claude",
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
-        // The legacy variant id stays stable, but both looks now anchor model and mode in the footer.
+        // The legacy variant id stays stable; Claude's look anchors the model and mode in the footer.
         setComposerSettings({ plainFooter: false });
         await ctx.waitFor(() => {
           const footer = ctx.document.querySelector(".acpmux-composer-foot");

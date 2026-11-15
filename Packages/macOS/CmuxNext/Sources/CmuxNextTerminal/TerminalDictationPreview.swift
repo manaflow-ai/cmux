@@ -11,7 +11,8 @@ public final class TerminalDictationPreview: NSView {
         super.init(frame: .zero)
         glass.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
-        label.ink = .secondary
+        // Fitted to the toast glass it draws on, in the theme's tint.
+        label.themeColor = { Palette.toastText(.secondary) }
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false

@@ -32,7 +32,7 @@
 .timeline-recovery div { flex: 1; min-width: 0; }
 .timeline-recovery strong { display: block; font-size: var(--text-detail); font-weight: 500; letter-spacing: var(--text-detail--letter-spacing); }
 .timeline-recovery p { margin: 4px 0 0; color: var(--page-text-3); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
-.timeline-recovery button, .timeline-attach { flex-shrink: 0; padding: 7px 11px; border: 1px solid var(--page-separator); border-radius: 5px; background: transparent; color: var(--page-text); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
+.timeline-recovery button, .timeline-attach { flex-shrink: 0; padding: 7px 11px; border: 1px solid var(--page-separator); border-radius: var(--ds-radius-control); background: transparent; color: var(--page-text); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .timeline-error { margin: 0 0 13px; padding: 9px 11px; border-left: 2px solid var(--timeline-bad); color: var(--timeline-bad); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .timeline-filmstrip { margin-top: 18px; }
 .timeline-filmstrip-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
@@ -130,7 +130,7 @@
 .timeline-approval p { margin: 4px 0 0; color: var(--page-text-3); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .timeline-approval label { display: flex; align-items: center; gap: 7px; flex-shrink: 0; color: var(--page-text-2); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .timeline-approval input { margin: 0; }
-.timeline-approval > button { flex-shrink: 0; padding: 8px 12px; border: 0; border-radius: 5px; background: var(--page-text); color: var(--cmux-surface-solid, Canvas); font-size: var(--text-caption); font-weight: 500; letter-spacing: var(--text-caption--letter-spacing); }
+.timeline-approval > button { flex-shrink: 0; padding: 8px 12px; border: 0; border-radius: var(--ds-radius-control); background: var(--page-text); color: var(--cmux-surface-solid, Canvas); font-size: var(--text-caption); font-weight: 500; letter-spacing: var(--text-caption--letter-spacing); }
 .timeline-footnote { display: flex; justify-content: space-between; gap: 14px; margin-top: 13px; color: var(--page-text-3); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .timeline-board [data-verdict="passed"] { color: var(--timeline-ok); }
 .timeline-board [data-verdict="failed"] { color: var(--timeline-bad); }

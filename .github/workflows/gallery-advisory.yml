@@ -412,7 +412,7 @@ jobs:
           name: gallery-advisory-${{ github.event.pull_request.number || 0 }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/gallery-advisory
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
 
   # The PR status comment's `gallery` section, from the artifact's data only:
   # base-branch scripts, no pull request code, plain ids (gallery_select.py).

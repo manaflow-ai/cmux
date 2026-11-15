@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -238,6 +239,22 @@ def problems(found: dict[str, int], allow: dict) -> list[str]:
         if not isinstance(entry, dict) or not str(entry.get("reason", "")).strip():
             errors.append(f"{key}: allowlist entry needs a non-empty reason")
     return errors
+
+
+GUARD_CHECK_RESULTS_ENV = "CMUX_GUARD_CHECK_RESULTS"
+
+
+def report_guard_checks(errors: list[str]) -> None:
+    """One red guard check per problem line, in the guard runner's "<passed 0|1><TAB><check>" format, so a base
+    red on this step excuses only the problems the base has (a count line changes when a change adds another
+    timeout to the same file). Without it, cmux#42296's new acpmux hub/shutdown.rs timeout landed as "red on the
+    base too" (cmuxterm-hq docs/handbook/base-red-excused-for-ever.md)."""
+    path = os.environ.get(GUARD_CHECK_RESULTS_ENV, "")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as handle:
+        for error in errors:
+            handle.write("0\t" + " ".join(error.split()) + "\n")
 
 
 def update(path: Path, found: dict[str, int], previous: dict) -> None:

@@ -527,5 +527,38 @@ class ATestSpawnedGuardRunLeavesTheCallersFilesAlone(unittest.TestCase):
                     self.assertEqual(after[name], before[name])
 
 
+class DeterminismGateReportsEachFinding(unittest.TestCase):
+    """The determinism gate's --guard-checks reports one red guard check per (path, rule), with no line number, so a
+    base already red on the step excuses only the findings the base has (cmux#42416 landed two new findings behind
+    test_cargo_locks_explain.py's base reds)."""
+
+    def test_each_active_path_and_rule_is_one_red_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            (repo / "tests").mkdir(parents=True)
+            # Built from parts so this file's own text holds no duration assert for the gate to find.
+            check = "self.assert" + "Less(elapsed, {})"
+            (repo / "tests" / "test_timing.py").write_text(
+                "import unittest\n\nclass T(unittest.TestCase):\n"
+                "    def test_a(self):\n        elapsed = 1.0\n        " + check.format("2.0") + "\n\n"
+                "    def test_b(self):\n        elapsed = 1.0\n        " + check.format("3.0") + "\n"
+            )
+            allowlist = Path(tmp) / "allowlist.txt"
+            allowlist.write_text("")
+            results = Path(tmp) / "checks"
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_GUARD_")}
+            env["CMUX_GUARD_CHECK_RESULTS"] = str(results)
+            argv = [sys.executable, str(ROOT / "scripts" / "check-test-determinism.py"), "--repo-root", str(repo),
+                    "--allowlist", str(allowlist), "--roots", "tests", "--strict"]
+            plain = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(plain.returncode, 1, plain.stdout + plain.stderr)
+            self.assertFalse(results.exists(), "without --guard-checks the gate writes no checks")
+            reported = subprocess.run(argv + ["--guard-checks"], env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(reported.returncode, 1, reported.stdout + reported.stderr)
+            self.assertEqual(results.read_text().splitlines(), ["0\ttests/test_timing.py: assert-on-duration"])
+            self.assertEqual(run_ci_guards.read_check_results(results),
+                             {"tests/test_timing.py: assert-on-duration": False})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -570,6 +570,8 @@ for step in "Gate distribution with syspolicy_check" "Generate Sparkle appcasts 
   step_if="$(awk -v name="      - name: $step" '$0 == name { found=1; next } found && /^        if: / { sub(/^        if: /, ""); print; exit }' "$WORKFLOW_FILE")"
   expected="$ACCEPTED_ONLY"
   [ "$step" = "Gate distribution with syspolicy_check" ] || expected="$NOT_NOTARY_TEST"
+  # Shared with nightly-next-one, whose steps also skip once its run left the push slot (LEFT_SLOT).
+  step_if="${step_if% && !env.LEFT_SLOT}"
   if [ "$step_if" != "$expected" ]; then
     echo "FAIL: $step must run only for an Accepted build: $step_if"
     exit 1

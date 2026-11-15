@@ -251,6 +251,9 @@ pub struct Conn {
     /// daemon's own link over the WebSocket listener (its peer token proven at the upgrade) has
     /// one. Every other connection's `dualId` is ignored.
     pub(crate) dual_principal: Option<&'static str>,
+    /// This link carries the v2 list stream: its `initialize` reply names `listStream`
+    /// (`link_v2.rs`).
+    pub(crate) list_stream: bool,
 }
 
 /// The only authority a trigger connection carries after platform admission.
@@ -791,6 +794,15 @@ pub(crate) fn accept_ends_listener(error: &std::io::Error) -> bool {
 
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
+    serve_unix_with_v2(hub, listener, None).await
+}
+
+#[cfg(unix)]
+pub async fn serve_unix_with_v2(
+    hub: Arc<Hub>,
+    listener: UnixListener,
+    v2: Option<Arc<acpmux_core::life::V2>>,
+) -> Result<()> {
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
@@ -801,6 +813,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             }
         };
         let hub = hub.clone();
+        let v2 = v2.clone();
         tokio::spawn(async move {
             // Named by its audit token, read once here, never by pid.
             let peer = {
@@ -815,7 +828,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 .and_then(|c| c.pid())
                 .and_then(|p| u32::try_from(p).ok())
                 .map_or(SocketPeer::Unknown, SocketPeer::Pid);
-            stream::serve_stream(hub, stream, peer, provisioner, socket_peer).await;
+            stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
         });
     }
 }
@@ -869,6 +882,21 @@ pub async fn check_listen_address(addr: &str, allow_network: bool) -> Result<()>
     let addrs: Vec<std::net::SocketAddr> = match addr.parse() {
         Ok(one) => vec![one],
         Err(_) => tokio::net::lookup_host(addr).await.map(Iterator::collect).unwrap_or_default(),
+    };
+    ws_auth::check_listen(addr, &addrs, false)
+}
+
+/// [`check_listen_address`] for a caller off the async executor (`Config::start_refusal`, which
+/// `config --set` and `_acpmux/reload_config` run): the same rule, a name resolved the same way.
+pub fn check_listen_address_blocking(addr: &str, allow_network: bool) -> Result<()> {
+    if allow_network {
+        return Ok(());
+    }
+    let addrs: Vec<std::net::SocketAddr> = match addr.parse() {
+        Ok(one) => vec![one],
+        Err(_) => std::net::ToSocketAddrs::to_socket_addrs(addr)
+            .map(Iterator::collect)
+            .unwrap_or_default(),
     };
     ws_auth::check_listen(addr, &addrs, false)
 }
@@ -1192,9 +1220,12 @@ pub async fn serve_ws_until(
             let mut children = ws_shutdown::Children::new();
             let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
             let wire = Arc::new(crate::frame_compress::Wire::default());
-            let writer = tokio::spawn(ws_shutdown::write(
+            // A peer link's slot for the v2 list stream; any other connection never fills it.
+            let slot = hub.link_v2.slot();
+            let writer = tokio::spawn(ws_shutdown::write_link(
                 sink,
                 out_rx,
+                slot.clone(),
                 stopped,
                 shutdown.clone(),
                 wire.clone(),
@@ -1259,7 +1290,9 @@ pub async fn serve_ws_until(
             let (uploads, replies) = tokio::sync::watch::channel(None);
             let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
             let read_shutdown = shutdown.clone();
+            let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
             let reader = tokio::spawn(async move {
+                let _reader_end = reader_end;
                 tokio::select! {
                     biased;
                     () = read_shutdown.closing() => {},
@@ -1333,6 +1366,7 @@ pub async fn serve_ws_until(
                 Some(wire),
                 None,
                 Some(uploads),
+                slot,
             )
             .await;
             if let Some(watcher) = watcher {
@@ -1520,6 +1554,7 @@ pub(super) async fn serve_outbox_connection(
         None,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1547,8 +1582,64 @@ pub async fn serve_connection_authed(
         None,
         None,
         None,
+        None,
     )
     .await
+}
+
+/// A peer daemon's link served in-process, its writer draining `slot` (`link_v2_tests.rs`).
+#[cfg(test)]
+pub(crate) async fn serve_peer_link(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    slot: Arc<crate::link_v2::Slot>,
+) {
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        Origin::Peer,
+        ConnAuth::PeerToken,
+        None,
+        false,
+        SocketPeer::Unknown,
+        None,
+        None,
+        None,
+        None,
+        Some(slot),
+    )
+    .await;
+}
+
+/// A paired machine's link served in-process as the WebSocket listener serves it: its role's
+/// origin and proof, its writer draining `slot` (`link_v2_tests.rs`).
+#[cfg(test)]
+pub(crate) async fn serve_device_link(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    slot: Arc<crate::link_v2::Slot>,
+    device: crate::pairing::DeviceAuth,
+) {
+    let (origin, auth) = pairing::origin_of(&device);
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        SocketPeer::Unknown,
+        Some(device.id),
+        None,
+        None,
+        None,
+        Some(slot),
+    )
+    .await;
 }
 
 /// The usage-patterns key of a listener.
@@ -1575,6 +1666,7 @@ async fn serve_connection_from(
     wire: Option<Arc<crate::frame_compress::Wire>>,
     carrier: Option<carrier::Attested>,
     uploads: Option<upload_frames::Replies>,
+    link: Option<Arc<crate::link_v2::Slot>>,
 ) {
     // A carrier proof comes with the person the carrier socket read, and only with it.
     let carried = matches!(auth, ConnAuth::CarrierOwner | ConnAuth::CarrierTeam);
@@ -1596,6 +1688,11 @@ async fn serve_connection_from(
     // and a peer token checked at its upgrade; not a paired machine, nor an in-process carrier.
     let dual_principal = (wire.is_some() && auth == ConnAuth::PeerToken && device.is_none())
         .then_some(dual_requests::PEER_LINK);
+    // The v2 list stream rides a link transport's connection that v1 answers a peer's watch
+    // for, with `list` and `peers` on (`link_v2.rs`). Every other connection drops its frames.
+    let mut link_v2 = link
+        .filter(|_| origin == Origin::Peer)
+        .and_then(|slot| crate::link_v2::Link::serving(&hub, slot));
     // Opt-in usage patterns: connections by listener, and distinct paired machines (an opaque
     // stand-in for the device id, never the id).
     if cmux_usage_patterns::enabled() {
@@ -1651,6 +1748,7 @@ async fn serve_connection_from(
         chat_windows: Default::default(),
         wire,
         dual_principal,
+        list_stream: link_v2.is_some(),
     });
     queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
@@ -1689,6 +1787,27 @@ async fn serve_connection_from(
         };
         let Some(line) = line else { break };
         if line.trim().is_empty() {
+            continue;
+        }
+        // A v2 frame, known by its first bytes and never parsed into a `Value` (`link_v2.rs`).
+        // Its wait for the connection to read the frame before it ends when the link does.
+        if crate::link_v2::is_frame_line(&line) {
+            // The wait also ends when the transport's reader does (a revoked credential).
+            match link_v2.as_mut() {
+                Some(link) => {
+                    let slot = link.slot();
+                    let reader_ended = tokio::select! {
+                        biased;
+                        () = conn.out.closed() => break,
+                        () = slot.reader_ended() => true,
+                        () = link.take(&line) => false,
+                    };
+                    if reader_ended {
+                        link.end();
+                    }
+                }
+                None => hub.link_v2.counters.drop_one(),
+            }
             continue;
         }
         let msg = match Message::parse(&line) {
@@ -1873,6 +1992,11 @@ async fn serve_connection_from(
                     conn.send_replying(&Message::err(id.clone(), error), Some(&cancelled));
                 }
             }
+            // A `_acpmux/v2` notification not in a frame line's form is no frame (`link_v2.rs`).
+            Message::Notification { method: m, .. } if m == method::MUX_V2 => {
+                hub.link_v2.counters.value_parses.fetch_add(1, Ordering::Relaxed);
+                hub.link_v2.counters.drop_one();
+            }
             // A read-only machine's other notifications (a session cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             // A teammate through the carrier stops a turn, nothing else (`carrier.rs`).
@@ -1933,6 +2057,8 @@ async fn serve_connection_from(
         }
     }
     conn.ended.send_replace(true);
+    // The link's v2 connection ends with it.
+    drop(link_v2);
     let preparations: Vec<_> =
         conn.preparation_cancels.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
     for (session, cancel) in preparations {
@@ -2081,6 +2207,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let owner = ev.remote.as_ref().map(|r| r.peer.as_str());
             !conn.message_notices.lock_or_recover().live(owner, &ev.session_id, rec.seq)
         };
+        // Whether this record went out (or a replay sent it): a peer daemon's link hears of one
+        // that did not by its seq alone (`MUX_UNSENT`).
+        let mut sent = repeat || sub.event_stream;
         if repeat {
             // Sent by the replay.
         } else if sub.event_stream {
@@ -2121,13 +2250,25 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                         None => conn.send(&message()),
                     }
                 }
+                sent = true;
             }
             if rec.dir == "mux" {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
                     routed(event_value(&ev.session_id, rec)),
                 ));
+                sent = true;
             }
+        }
+        // The owner's copy of this chat takes a live record only next to what it covers
+        // (`hub/peer_snapshot.rs` `take_record`): without this, the turn's own `session/prompt`
+        // stopped it until the next page, so a move during a long turn found a copy without
+        // the running turn or the prompts queued behind it.
+        if !sent && rec.seq > 0 && conn.origin == Origin::Peer && ev.remote.is_none() {
+            conn.send(&Message::notification(
+                method::MUX_UNSENT,
+                json!({"sessionId": ev.session_id, "seq": rec.seq}),
+            ));
         }
         if message && heard && !repeat {
             // Routed as the event beside it: a peer's chat id alone may match one here.
@@ -2281,7 +2422,10 @@ use lane_parent::lane_parent;
 mod bg_tasks;
 mod goal;
 pub mod local_app;
+pub(crate) mod machine_enroll;
 pub(crate) mod machine_health;
+#[cfg(feature = "hub-carrier")]
+mod machine_routes;
 mod machine_tunnel;
 mod memory_inbox;
 mod models_fanout;
@@ -2295,6 +2439,7 @@ mod prompt_coach;
 pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
+mod sign_in_follow;
 pub use pairing::serve_connection_device;
 pub mod peer_auth;
 mod peer_forward;

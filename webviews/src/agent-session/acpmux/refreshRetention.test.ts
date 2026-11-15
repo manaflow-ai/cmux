@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -14,7 +15,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 afterEach(() => jest.useRealTimers());
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.window) scope.window = saved.values.window;
   else delete scope.window;
   if (saved.document) scope.document = saved.values.document;

@@ -1,0 +1,9 @@
+{
+  "name": "@cmux-first-party/skills",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "description": "Test dependencies of the cmux/skills app: the public extension SDK, as a fork gets it.",
+  "devDependencies": {
+    "cmux-extension-sdk": "file:../../cmux-tui/crates/cmux-extension-sdk/typescript"
+  }
+}

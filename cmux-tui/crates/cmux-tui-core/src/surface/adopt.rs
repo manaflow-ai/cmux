@@ -240,6 +240,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
@@ -260,7 +261,7 @@ impl Surface {
                 host_identity: Some(identity),
                 pending_host_binding: Mutex::new(None),
                 host_exit_record_path: None,
-                pid: None,
+                pid: Default::default(),
                 command,
                 cwd: opts.cwd,
                 exit: Mutex::new(None),

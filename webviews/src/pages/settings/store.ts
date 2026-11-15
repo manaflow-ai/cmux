@@ -7,6 +7,7 @@
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import { userMessage } from "../shared/userMessage";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
@@ -62,6 +63,7 @@ import {
   type HostLists,
   type IntegrationsRun,
   type IntegrationsState,
+  type JoinConsentSurface,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -72,6 +74,8 @@ import {
   type SettingsStreams,
   type WireError,
   type WorkspaceBackground,
+  SETTINGS_SENTENCES,
+  type CustomizeTryOn,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -198,6 +202,7 @@ export class SettingsStore {
   private readonly unsubscribers: Array<() => void> = [];
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
   private disposed = false;
+  private openingThemeFile = false;
   private themeColorsRequested = false;
   /** The last composed state and what it was composed from (getSnapshot answers it while equal). */
   private composed: { ui: UiState; cache: CacheView; state: SettingsState } | null = null;
@@ -398,6 +403,25 @@ export class SettingsStore {
     void this.request("cmux.settings.theme.overrides.open", {});
   }
 
+  /** Open Theme File: the host opens the active theme file, making one from the current look first;
+   * a failure shows on the Theme File row as "Could not open the theme file." ("could not be changed"
+   * would be wrong for an open), the CLI's reason as its detail. */
+  async openThemeFile(): Promise<void> {
+    // One at a time: a second click before the first answers would race it for the same new name
+    // (`my-look`) and report "exists" for a file the first one made and opened.
+    if (this.openingThemeFile) return;
+    this.openingThemeFile = true;
+    try {
+      const reply = await this.request("cmux.settings.theme.file.open", {});
+      this.setError(
+        "appearance.themeFile",
+        reply.ok ? null : { ...rowError(reply.error), message: t("settingsPage.theme.file.openFailed") },
+      );
+    } finally {
+      this.openingThemeFile = false;
+    }
+  }
+
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
   private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
     if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
@@ -574,8 +598,8 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
-  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists. */
+  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<void> {
     await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
   }
@@ -647,7 +671,7 @@ export class SettingsStore {
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
     await this.refreshAccounts();
-    if (!reply.ok) return reply.error.message;
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
     return reply.value.error ?? null;
   }
 
@@ -667,21 +691,21 @@ export class SettingsStore {
   /** Settings > Updates' Go Back: the app restarts into the kept build; else the host's reason. */
   async channelsGoBack(ring: string, build: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.go_back", { ring, build });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** A build row's Switch in Settings > Updates' Channels card; answers the host's refusal, else
    * null (success quits the app into that build). */
   async channelsSwitchBuild(build: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.switch_build", { build });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** The Update button of a machine in Settings > Updates' row of other machines; answers the
    * host's refusal, else null (the row's push then shows it updating). */
   async channelsUpdateMachine(id: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.update_machine", { id });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** Settings > Agents' state; null when the host has no Agents part. */
@@ -734,14 +758,19 @@ export class SettingsStore {
    * or the host's refusal (a build whose page relay does not reach `project.list`). */
   async worktreeProjects(): Promise<{ projects: WorktreeProject[]; error: string | null; unavailable: boolean }> {
     const reply = await this.request("cmux.settings.worktree.list", { limit: 200 });
-    if (!reply.ok) return { projects: [], error: reply.error.message, unavailable: isUnsupported(reply.error) };
+    if (!reply.ok)
+      return {
+        projects: [],
+        error: userMessage(reply.error, SETTINGS_SENTENCES),
+        unavailable: isUnsupported(reply.error),
+      };
     return { projects: readWorktreeProjects(reply.value), error: null, unavailable: false };
   }
 
   /** The recipe a new worktree of the project at `path` gets, and what each source says. */
   async worktreeRecipe(path: string): Promise<{ recipe: ResolvedWorktreeRecipe | null; error: string | null }> {
     const reply = await this.request("cmux.settings.worktree.read", { path });
-    if (!reply.ok) return { recipe: null, error: reply.error.message };
+    if (!reply.ok) return { recipe: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
     return { recipe: readSetupReply(reply.value)?.recipe ?? null, error: null };
   }
 
@@ -752,7 +781,7 @@ export class SettingsStore {
       worktree,
       idempotency_key: newIdempotencyKey(),
     });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
@@ -761,8 +790,16 @@ export class SettingsStore {
   ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
     const reply = await this.request("cmux.settings.environments.run", run);
     const state = await this.environments();
-    if (!reply.ok) return { state, error: reply.error.message };
+    if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
     return { state, error: reply.value?.error ?? null };
+  }
+
+  /** The customization being tried on, after running `verb` (Keep, Revert Now); null when none is,
+   * or the host has no CLI. A status read is also the look that reverts a try-on whose time is up. */
+  async customize(verb: "status" | "keep" | "revert"): Promise<CustomizeTryOn | null> {
+    if (verb !== "status") await this.request("cmux.settings.customize.run", { verb });
+    const reply = await this.request("cmux.settings.customize.run", { verb: "status" });
+    return reply.ok ? (reply.value?.try_on ?? null) : null;
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has
@@ -786,7 +823,7 @@ export class SettingsStore {
     let error: string | null = null;
     for (const id of ids) {
       const reply = await this.request("cmux.settings.shares.revoke", { share_id: id });
-      if (!reply.ok) error ??= reply.error.message;
+      if (!reply.ok) error ??= userMessage(reply.error, SETTINGS_SENTENCES);
     }
     return error;
   }
@@ -796,8 +833,15 @@ export class SettingsStore {
   async runDevices(run: DevicesRun): Promise<DevicesRunResult> {
     const reply = await this.request("cmux.settings.devices.run", run);
     await this.refreshDevices();
-    if (!reply.ok) return { error: reply.error.message, ok: false };
+    if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES), ok: false };
     return reply.value ?? {};
+  }
+
+  /** A wish no setting answers: the Customize chat (`customize.open`, the palette's Customize…)
+   * opens with `/customize WORDS` in its composer, so Return sends it and the agent changes cmux
+   * while the person watches. */
+  async askCmux(words: string): Promise<Reply<unknown>> {
+    return this.runAction("customize.open", { draft: `/customize ${words.trim().replace(/\s+/g, " ")}` });
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */

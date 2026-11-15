@@ -401,3 +401,60 @@ fn the_wire_shape_is_snake_case() {
         serde_json::json!({"decision": "first_run"})
     );
 }
+
+/// Cancel on the launch's preview stands, whatever classic saves later; a
+/// run cut off midway still resumes; with the No cleared a new save merges.
+#[test]
+fn a_declined_preview_is_not_asked_again() {
+    let mut ledger = Ledger::new(State::Completed);
+    ledger.source = Some(source(1.0));
+    ledger.declined_at = Some(10.0);
+    let nightly = Source { bundle_id: "com.cmuxterm.app.nightly".into(), ..source(2.0) };
+    for later in [source(2.0), nightly] {
+        assert_eq!(
+            plan::decision(&Load::Ledger(ledger.clone()), Some(&later), false),
+            Decision::Skip(SkipReason::Declined)
+        );
+    }
+    ledger.state = State::InProgress;
+    assert_eq!(
+        plan::decision(&Load::Ledger(ledger.clone()), Some(&source(2.0)), false),
+        Decision::Resume
+    );
+    ledger.state = State::Completed;
+    ledger.declined_at = None;
+    assert_eq!(plan::decision(&Load::Ledger(ledger), Some(&source(2.0)), false), Decision::Merge);
+    assert_eq!(
+        serde_json::to_value(Decision::Skip(SkipReason::Declined)).unwrap(),
+        serde_json::json!({"decision": "skip", "reason": "declined"})
+    );
+}
+
+/// An older ledger has no `declinedAt`; one with it round-trips in the same schema.
+#[test]
+fn declined_at_is_optional_in_the_ledger() {
+    let old =
+        r#"{"schema":1,"state":"completed","workspaces":{},"groups":{},"runs":1,"updatedAt":5}"#;
+    let ledger: Ledger = serde_json::from_str(old).unwrap();
+    assert_eq!((ledger.declined_at, ledger.runs), (None, 1));
+    assert!(serde_json::to_value(&ledger).unwrap().get("declinedAt").is_none());
+    let mut declined = Ledger::new(State::Completed);
+    declined.declined_at = Some(7.0);
+    let value = serde_json::to_value(&declined).unwrap();
+    assert_eq!(value["declinedAt"], 7.0);
+    assert_eq!(serde_json::from_value::<Ledger>(value).unwrap(), declined);
+}
+
+/// An outline is the same plan with no terminal's scrollback.
+#[test]
+fn an_outline_drops_only_scrollback() {
+    let snapshot = snapshot_with(|root| {
+        root["windows"][0]["tabManager"]["workspaces"][0]["panels"][0]["terminal"]["scrollback"] =
+            Value::from("saved");
+    });
+    let full = plan::plan(&snapshot, None, &set(&[]), &set(&[]), Mode::Manual);
+    assert!(full.workspaces().flat_map(|w| w.layout.tabs()).any(|tab| tab.scrollback.is_some()));
+    let outline = full.clone().outline();
+    assert_eq!(keys(&outline), keys(&full));
+    assert!(outline.workspaces().flat_map(|w| w.layout.tabs()).all(|tab| tab.scrollback.is_none()));
+}
