@@ -716,6 +716,32 @@ pub fn unlanded(report: &str) -> bool {
         })
 }
 
+/// Whether `report` says its work landed: a commit range (`OLD..NEW`, two
+/// shas of 7 to 40 hex digits) or "landed" next to a commit sha, and no
+/// [`unlanded`] words.
+pub fn landed(report: &str) -> bool {
+    if unlanded(report) {
+        return false;
+    }
+    let sha = |w: &str| {
+        (7..=40).contains(&w.len())
+            && w.chars().all(|c| c.is_ascii_hexdigit())
+            && w.chars().any(|c| c.is_ascii_digit())
+            && w.chars().any(|c| c.is_ascii_alphabetic())
+    };
+    let range = report
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '.'))
+        .any(|w| {
+            w.split_once("..")
+                .is_some_and(|(a, b)| sha(a) && sha(b.trim_start_matches('.')))
+        });
+    if range {
+        return true;
+    }
+    let text = report.to_lowercase();
+    text.contains("landed") && text.split(|c: char| !c.is_ascii_alphanumeric()).any(sha)
+}
+
 pub fn minutes(ms: u64) -> String {
     let s = ms / 1000;
     if s < 60 {

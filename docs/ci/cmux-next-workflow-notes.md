@@ -3147,3 +3147,113 @@ passes it as GH_TOKEN_SPARE. github.token shares one hourly budget with every wo
 2026-11-15 ~750 queued runs had spent it, and run 43660624788's post got HTTP 403 three times over. The first
 rate-limited call moves to the App token, which has its own budget. The App key is a repository secret, so the
 reporters run in the secrets-only `ci-routing-agent` environment off pull_request events, like compile-status.
+
+## note-353
+
+Above `- docs/remote-agents-and-cloud.md` in `.github/workflows/cmux-next.yml`.
+
+cmux-tui's help-contract tests include_str! this one (acpmux and
+cmux-tui both check their help against it), so it is in the tree key
+and a change to it has to rebuild and re-run them.
+
+## note-354
+
+Above `- Packages/macOS/**` in `.github/workflows/cmux-next.yml`.
+
+Keep the workflow eligible for every cmux-next product and CI input.
+The router still selects the exact tier; this list only decides whether
+the workflow starts at all.
+
+## note-355
+
+Above `no_reuse:` in `.github/workflows/cmux-next.yml`.
+
+The safety net under CI_NEXT_JOB_REUSE: a dispatch with no_reuse runs every job
+in full, reusing no recorded pass (it still records its own). A nightly one on
+feat-cmux-next re-checks what the day's reused results stood on.
+
+## note-356
+
+Above `CMUX_NEXT_STYLE_GUARDS: warn` in `.github/workflows/cmux-next.yml`.
+
+Structural, style, size and drift guards (god files, size caps, package
+conventions, motion tokens, type scale, scrollbars, icons, copy lints,
+generated-doc drift) still run and print their findings, but only warn
+(Leo, 2026-10-19: they failed pull requests for reasons unrelated to the
+change). Correctness and safety checks still fail. Set to `fail` to make
+the style guards block again.
+
+## note-357
+
+Above `CMUX_NEXT_SIDE_ROUTE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26'` in `.github/workflows/cmux-next.yml`.
+
+The label attempt 1's macOS jobs take when macos-placement finds an idle
+owned runner for them: a glaeda-* label means a mini. Each macOS job's
+runs-on, and its own CMUX_NEXT_RUNNER, restate it with the placement.
+
+## note-358
+
+Above `runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || githu` in `.github/workflows/cmux-next.yml`.
+
+The run's router: a declared light job (.github/runners.json hosted_light_jobs), 30-50 s of work
+(a depth-2 checkout, the path classifier, a read-only tree probe). A fresh placement observation
+takes fleet Linux or an idle mini first; a hosted/paid route remains the fail-open fallback.
+
+## note-359
+
+Above `- name: Probe the same-tree cmux-tui` in `.github/workflows/cmux-next.yml`.
+
+One look (and one short re-check of a missing run list), no wait.
+Fails open: the tiers above are already routed, so a probe that errs or
+passes its 2 minutes leaves tree_state empty (the tree jobs skip) and
+every other routed job still runs (2026-10-27: per-run fetches of a
+lane-branch push burst held this step past the job limit, and the
+cancelled job skipped the Release compiles and swift test).
+
+## note-360
+
+Above `run: |` in `.github/workflows/cmux-next.yml`.
+
+A pull request or push that does not grow the App's source passes even
+over the cap: a pull request compares with its merge commit's first
+parent, a push with the commit before it (fetched: checkout is depth 2).
+A push with no before commit (a new branch) keeps the plain cap.
+
+## note-361
+
+Above `- name: Ghostty resources bundle` in `.github/workflows/cmux-next.yml`.
+
+The app's Ghostty shell integration comes from ghostty-next (the
+Ghostty of GhosttyNextKit and libghostty-vt): the bundle phase output
+must equal its source tree.
+
+## note-362
+
+Above `CMUX_NEXT_TEST_HANG_SECONDS: "1500"` in `.github/workflows/cmux-next.yml`.
+
+Whole-run limit per pass. The hang guard is the stall rule (no test
+finished in CMUX_NEXT_TEST_STUCK_SECONDS, default 300), so a real
+hang ends in ~5 min; this only caps a slow healthy pass (~860 s).
+Both passes share one deadline below the step's 40 minutes. On a
+6-vCPU overflow Mac the shards run one at a time (width 1): the
+broad pass took 1,266-1,371 s over four runs and 1,725 s in run
+41372093339, where the last shard (CmuxNextAppTests.Cloud, ~90 s
+alone) started with 33 s left and was cut at its 60 s floor.
+
+## note-363
+
+Above `concurrency:` in `.github/workflows/cmux-next.yml`.
+
+A push's Mac fallback waits only when the fleet compile check gives no verdict.
+It is never cancelled once it runs; a newer push is filtered by the head
+preflight before it can take a runner.
+
+## note-364
+
+Above `outputs:` in `.github/workflows/cmux-next.yml`.
+
+The crash gate step's outcome, for the crash-ends-app job (that job is the red check, so a
+crash freeze never fails the app-producing job the dogfood and daily publishers read).
+No perf step runs here (Lawrence 2026-10-23: nothing perf-related blocks or slows a push or a
+pull request): the launch-time budget and the perf counter gate run in the perf cron,
+.github/workflows/cmux-next-perf-budgets.yml, on the bench host.
