@@ -245,13 +245,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.firstFrame.open()
             }
         }
-        // At idle after the first terminal frame: the palette panel (native) and the icon catalog (off the main actor). The icon picker and
+        // At idle after the first terminal frame: the palette panel (native), the icon catalog (off the main actor), then the hover card. The icon picker and
         // group editor (WebKit, ~60 MB of processes) wait for the first menu or palette open, where every Set Icon and Rename Group is.
-        // Then, in its own idle turn, the hover card's window and the sidebar's card body, so the first card after launch builds nothing.
-        launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0); services?.iconPicker.prepare(page: false)
-            IdleOnce.schedule { services?.hoverCards.warm() }
-        }
+        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0); services?.iconPicker.prepare(page: false); IdleOnce.schedule { services?.hoverCards.warm() } }
         let warmOverlays = { @MainActor [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
         services.keyRouter.menuPickKeys.tracking.onFirstMenu(warmOverlays); services.palette.onFirstShow(warmOverlays)
         // Temporary download files a crash left in an earlier run (only the
