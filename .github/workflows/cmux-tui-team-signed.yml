@@ -101,7 +101,7 @@ jobs:
       name: release-next
       deployment: false
     # A literal ephemeral label (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7):
-    # the release signers' Blacksmith macOS runner. It never takes a mini from the nightly.
+    # the release signers' ephemeral macOS runner. It never takes a fleet Mac from the nightly.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
