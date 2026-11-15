@@ -385,6 +385,97 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
 }
 
+// PROBE (diagnostic, not for merge): process CPU time (user + system), in microseconds.
+fn probe_cpu_us() -> u64 {
+    // SAFETY: getrusage writes the struct it is given and reads nothing else.
+    let usage = unsafe {
+        let mut usage = std::mem::zeroed::<libc::rusage>();
+        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+        usage
+    };
+    let us = |t: libc::timeval| t.tv_sec as u64 * 1_000_000 + t.tv_usec as u64;
+    us(usage.ru_utime) + us(usage.ru_stime)
+}
+
+// PROBE: one `ls` sample on a new client of `proxy`, as `gate_run` times it: its wall, the
+// elapsed time at each stage `ls::output` marked, and the CPU time the process spent.
+async fn probe_sample(proxy: &Counted, argv: &[&str], json_out: bool) -> (u128, String, u64) {
+    let client = Client::connect(&proxy.path).await.unwrap();
+    let via = Via::List(proxy.path.clone());
+    super::ls::PROBE_MARKS.lock().unwrap().clear();
+    let cpu = probe_cpu_us();
+    let started = Instant::now();
+    super::ls::output(ls_args(argv), json_out, &client, via, crate::store::now_ms()).await.unwrap();
+    let wall = started.elapsed().as_nanos();
+    let cpu = probe_cpu_us() - cpu;
+    drop(client);
+    let stages = super::ls::PROBE_MARKS
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(at, when)| format!("{at}_us={}", when.duration_since(started).as_micros()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    (wall, stages, cpu)
+}
+
+// PROBE: round one of `ls` (small and god in turn, 20 each) on `pass`, each sample's line when
+// `lines`, then both sides' samples and god's slowest.
+async fn probe_round(
+    pass: &str,
+    small: &Counted,
+    god: &Counted,
+    argv: &[&str],
+    json_out: bool,
+    lines: bool,
+) {
+    let us = |samples: &[u128]| {
+        samples.iter().map(|ns| (ns / 1_000).to_string()).collect::<Vec<_>>().join(",")
+    };
+    let (mut sw, mut gw) = (Vec::new(), Vec::new());
+    for n in 1..=20 {
+        for (side, proxy, walls) in [("small", small, &mut sw), ("god", god, &mut gw)] {
+            let (wall, stages, cpu) = probe_sample(proxy, argv, json_out).await;
+            if lines {
+                eprintln!(
+                    "PROBE pass={pass} side={side} n={n} wall_us={} {stages} cpu_us={cpu}",
+                    wall / 1_000
+                );
+            }
+            walls.push(wall);
+        }
+    }
+    eprintln!("PROBE pass={pass} samples side=god us=[{}]", us(&gw));
+    eprintln!("PROBE pass={pass} samples side=small us=[{}]", us(&sw));
+    let (n, slowest) = gw.iter().enumerate().max_by_key(|(_, wall)| **wall).unwrap();
+    eprintln!("PROBE pass={pass} god_slowest n={} ms={:.3}", n + 1, *slowest as f64 / 1_000_000.0);
+}
+
+// PROBE: where god's 7th `ls` sample of round one stalls. One small daemon; a new god daemon
+// for each pass, the last one dropped first.
+#[ignore = "diagnostic probe of ls_wall round one"]
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_ls_stall() {
+    let small = gate_daemon(0).await;
+    let small_proxy = counted(small.path.clone()).await;
+    for (pass, closed, pause, argv, json_out, lines) in [
+        ("stages_11000", 11_000, false, &[][..], false, true),
+        ("pause_11000", 11_000, true, &[][..], false, false),
+        ("size_1100", 1_100, false, &[][..], false, false),
+        ("size_110000", 110_000, false, &[][..], false, false),
+        ("no_status_11000", 11_000, false, &["--live"][..], true, true),
+    ] {
+        let god = gate_daemon(closed).await;
+        if pause {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        let god_proxy = counted(god.path.clone()).await;
+        probe_round(pass, &small_proxy, &god_proxy, argv, json_out, lines).await;
+        drop(god_proxy);
+        drop(god);
+    }
+}
+
 /// Each caller through the v2 list: 20 live chats with 11,000 closed beside them against 20 live
 /// alone, bytes received and wall time within 1.2x. Both daemons first, then their rounds in
 /// turn (decision 185). A read's pages not handed out stay at one or fewer (`unhanded_peak`).

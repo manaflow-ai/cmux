@@ -102,6 +102,22 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     Ok(())
 }
 
+// PROBE (diagnostic, not for merge): the stages of the last `output`, in order.
+#[cfg(test)]
+pub(crate) static PROBE_MARKS: std::sync::Mutex<Vec<(&'static str, std::time::Instant)>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn probe_mark(at: &'static str) {
+    PROBE_MARKS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((at, std::time::Instant::now()));
+}
+
+#[cfg(not(test))]
+fn probe_mark(_: &'static str) {}
+
 /// What `acpmux ls` prints for `args`, read from `client`'s daemon `via` the v2 list or v1's
 /// pages, with ages as of `now`.
 pub(crate) async fn output(
@@ -238,6 +254,7 @@ pub(crate) async fn output(
         && let Some(read) = peers.take()
     {
         status_read = Some(read.await.ok().and_then(Result::ok));
+        probe_mark("status");
     }
     if walks_all && status_read.is_none() {
         status_read = Some(client.request(method::MUX_STATUS, json!({})).await.ok());
@@ -254,7 +271,9 @@ pub(crate) async fn output(
     let remote_closed =
         walks_all && list_read::closed_remote_listed(status_read.as_ref().and_then(Option::as_ref));
     let source = if !one_page && !remote_closed && (!compact || closed_listed.is_some()) {
-        via.open_knowing(client, known_peers.as_deref()).await?
+        let opened = via.open_knowing(client, known_peers.as_deref()).await?;
+        probe_mark("open");
+        opened
     } else {
         None
     };
@@ -319,6 +338,7 @@ pub(crate) async fn output(
             (read, 0)
         }
     };
+    probe_mark("read");
     let mut sessions = read.rows;
     // A peer's row comes without its tools (`ls_tools.rs`): each is read from the peer, for
     // the views that print them.
@@ -353,6 +373,7 @@ pub(crate) async fn output(
             })
             .collect();
         merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
+        probe_mark("relay");
     }
     if leads {
         sessions = super::ls_leads::leaders(&sessions);
