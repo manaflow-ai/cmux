@@ -20,7 +20,7 @@ import {
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
-import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
@@ -415,8 +415,6 @@ export type TurnView = {
   /// (`settleNextSteps`).
   nextSteps: NextStepAt[];
   rows: AcpmuxRow[];
-  /// Visible assistant source ids, used to detect a partial refresh without rescanning unchanged rows.
-  visibleReplyIds: ReadonlySet<string>;
 };
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
@@ -430,14 +428,16 @@ const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 
 /// A refresh can publish a tool row before the assistant body that was already on screen. Keep
 /// that settled body in the source until a later snapshot carries it again, so shaping cannot turn
-/// a visible reply into a tool-only "Worked for" line during the gap.
+/// a visible reply into a tool-only "Worked for" line during the gap. A reply was on screen when the
+/// previous source held it as an assistant row that is not visibly empty: read off that row itself,
+/// with no set of every visible reply's id kept beside the view, which each snapshot copied (a god
+/// chat's thousands of replies on every streamed token, bench/transcript-replay.bench.ts).
 const retainVisibleReplies = (
   rows: readonly AcpmuxRow[],
   previous: readonly AcpmuxRow[] | undefined,
-  previousVisibleIds: ReadonlySet<string> | undefined,
   supersededReplyIds: ReadonlySet<string> | undefined,
 ): readonly AcpmuxRow[] => {
-  if (!previous || !previousVisibleIds) return rows;
+  if (!previous) return rows;
   const changedAt = Math.max(0, keptPrefix(previous, rows) - 1);
   const changedRows = rows.slice(changedAt);
   if (!changedRows.some((row) => row.kind === "activity")) return rows;
@@ -445,12 +445,7 @@ const retainVisibleReplies = (
   const missingReplyIds = new Set<string>();
   for (let index = changedAt; index < previous.length; index += 1) {
     const row = previous[index]!;
-    if (
-      row.kind === "assistant" &&
-      previousVisibleIds.has(row.id) &&
-      !supersededReplyIds?.has(row.id) &&
-      !isVisiblyEmptyMessage(row)
-    )
+    if (row.kind === "assistant" && !supersededReplyIds?.has(row.id) && !isVisiblyEmptyMessage(row))
       missingReplyIds.add(row.id);
   }
   for (const row of changedRows)
@@ -529,24 +524,6 @@ const retainVisibleReplies = (
   );
 };
 
-const visibleReplyIdsFor = (rows: readonly AcpmuxRow[], previous: TurnView | undefined): ReadonlySet<string> => {
-  if (!previous) {
-    return new Set(rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).map((row) => row.id));
-  }
-  const changedAt = keptPrefix(previous.source, rows);
-  if (changedAt === rows.length && rows.length === previous.source.length) return previous.visibleReplyIds;
-  const ids = new Set(previous.visibleReplyIds);
-  for (let index = changedAt; index < previous.source.length; index += 1) {
-    const row = previous.source[index]!;
-    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) ids.delete(row.id);
-  }
-  for (let index = changedAt; index < rows.length; index += 1) {
-    const row = rows[index]!;
-    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) ids.add(row.id);
-  }
-  return ids;
-};
-
 const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
   showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
@@ -600,7 +577,7 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  const retainedRows = retainVisibleReplies(rows, previous?.source, previous?.visibleReplyIds, supersededReplyIds);
+  const retainedRows = retainVisibleReplies(rows, previous?.source, supersededReplyIds);
   if (retainedRows !== rows)
     return turnViewFrom(
       retainedRows,
@@ -796,6 +773,8 @@ export function turnViewFrom(
   while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
+  // The next passes (inbox projection, subagents, the transcript) start past the reused rows.
+  if (previous && reusedRows > 0) noteKeptPrefix(out, previous.rows, reusedRows);
   return {
     source: rows,
     expanded,
@@ -819,7 +798,6 @@ export function turnViewFrom(
     ends,
     nextSteps,
     rows: out,
-    visibleReplyIds: visibleReplyIdsFor(rows, previous),
   };
 }
 
