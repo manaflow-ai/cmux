@@ -292,8 +292,9 @@ mod tests {
     /// Rows intentionally left without a source writer while a later PR owns their gate.
     const WAITS_ON_ANOTHER_PR: &[&str] = &[];
 
-    /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
-    const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";
+    /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`. A PR's
+    /// part is its number and then any letters and digits (`03a3`).
+    const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z0-9]*\.(?:[a-z0-9_]|\{[^{}]*\})+";
 
     fn rust_sources(dir: &Path, found: &mut Vec<PathBuf>) {
         let entries = fs::read_dir(dir).unwrap_or_else(|e| panic!("{dir:?}: {e}"));
@@ -353,6 +354,21 @@ mod tests {
         regex::Regex::new(&format!("^{}$", hole.replace_all(&escaped, "[a-z0-9_]+")))
             .unwrap()
             .is_match(row)
+    }
+
+    /// The scan finds a row's name in a source only when the pattern matches it whole. A row it
+    /// cannot spell reads as a row no source writes and no script line reaches, however the
+    /// source and the script are written, so the row fails here, in the PR that adds it.
+    #[test]
+    fn every_registry_name_is_one_the_source_scan_can_spell() {
+        let pattern = regex::Regex::new(&format!("^(?:{NAME_IN_SOURCE})$")).unwrap();
+        for row in GATE_ROWS {
+            assert!(
+                pattern.is_match(row.name),
+                "the source scan's pattern cannot spell the registry name {}",
+                row.name
+            );
+        }
     }
 
     #[test]

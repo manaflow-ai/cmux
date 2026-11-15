@@ -52,6 +52,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -63,7 +64,6 @@ import {
   type HostLists,
   type IntegrationsRun,
   type IntegrationsState,
-  type JoinConsentSurface,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -76,6 +76,7 @@ import {
   type WorkspaceBackground,
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
+  type JoinConsentSurface,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -259,6 +260,10 @@ export class SettingsStore {
       ),
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
+      ),
+      // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
+      this.listen("cmux.settings.keys.changed", () =>
+        this.queryClient.invalidateQueries({ queryKey: [...settingsKeys.all, "keys"] }),
       ),
       // A machine's update failing while Updates shows (its toast's Details shows the reason in the toast) shows in
       // the Channels card's row at once, in every channel's read.
@@ -807,6 +812,32 @@ export class SettingsStore {
   async shares(): Promise<SharesState | null> {
     const reply = await this.request("cmux.settings.shares.list", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host
+   * has no keys part or the read failed. */
+  async keys(): Promise<KeysState | null> {
+    const reply = await this.request("cmux.settings.keys.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Answers key request `requestID` with `value`, which goes to the host and nowhere else (the
+   * store keeps no copy); the host's refusal text, else null. */
+  async answerKeyRequest(requestID: string, value: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.keys.answer", { request_id: requestID, value });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
+  /** Declines key request `requestID`; the host's refusal text, else null. */
+  async declineKeyRequest(requestID: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.keys.decline", { request_id: requestID });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
+  /** Revokes key `id`; the host's refusal text, else null. */
+  async revokeKey(id: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.keys.revoke", { id });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** Settings > Server > This Mac on Your Tailnet: one `_acpmux/tailnet/<verb>` the app relays; the node's
