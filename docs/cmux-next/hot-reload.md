@@ -17,12 +17,15 @@ a video, click through it; compile checks, CI and suites come after the look. Of
 | Layer | Put it in | Take it out |
 |---|---|---|
 | Web, a PR | `cmux customize use pr:N` | `cmux customize library off pr-N` |
-| Web, your checkout | `cmux live start` ([below](#start-in-30-seconds)) | `cmux live stop` |
+| Web, a pushed branch or commit | `cmux customize use branch:NAME` or `sha:SHA` | `cmux customize library off NAME` |
+| Web, your working copy | `cmux customize use dir:PATH --watch` (again about 19 s after each save, on a fleet Mac), or `cmux live start` ([below](#start-in-30-seconds)) | `library off NAME`, `cmux live stop` |
+| Web, a fork's branch | `cmux customize use OWNER/REPO@REF`, from the fork's own workflow, never our CI | `library off NAME` |
 | Terminal daemon and acpmux Rust | `scripts/cmux-next/hot-apply.py apply SHA` ([below](#a-merged-commit-in-the-running-app-before-the-nightly)), about 2.7 s | `hot-apply.py rollback` |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
 | Swift, Rust the app links, resources | a build: `hot-apply.py plan SHA` says which | |
 
-`cmux customize use branch:`, `sha:` and `dir:` are coming. Rust hot-apply into a Developer ID NIGHTLY takes the
+`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build, and
+`library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
 tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
 cmuxterm-hq [docs/design/cmux-next-hot-swap-layers.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/design/cmux-next-hot-swap-layers.md)
@@ -523,7 +526,8 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   the app's.
 - **App FFI:** Rust the app links (its FFI crates) swaps warm when the app carries it as one library,
   `Contents/Frameworks/libcmux_app_ffi.dylib`. The library of SHA's `cmux-app-ffi-<commit>` release
-  (the newest commit at or before SHA that changed an FFI input) replaces it, the app quits with
+  (the newest commit at or before SHA that changed an FFI input; for a commit that only moves the pin,
+  the release SHA pins, since an app links its commit's pin, which lags the sources) replaces it, the app quits with
   `cmux app quit --keep-sessions` and opens again, and the part is done once the app's control socket
   answers from a new pid that stays up. The daemon and its terminals never stop. The release must only
   add to the FFI the app's pin was built from (`scripts/cmux-next/app_ffi_additive.py`), and the
