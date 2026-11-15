@@ -1,0 +1,19 @@
+﻿2026-11-11T23:26:53.0995170Z Current runner version: '2.338.2'
+2026-11-11T23:26:53.0997490Z Runner name: 'mini-1-glaeda-3'
+2026-11-11T23:26:53.0997780Z Runner group name: 'glaeda-minis'
+2026-11-11T23:27:22.0838590Z ##[group]Run python3 -I scripts/cmux-next/fast-tier.py --root "/Users/cmux/actions-runner-glaeda-3/_work/cmux/cmux" --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+2026-11-11T23:27:22.0839090Z [36;1mpython3 -I scripts/cmux-next/fast-tier.py --root "/Users/cmux/actions-runner-glaeda-3/_work/cmux/cmux" --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"[0m
+2026-11-11T23:27:22.0841400Z shell: /opt/homebrew/bin/bash -e {0}
+2026-11-11T23:27:22.0843120Z ##[endgroup]
+2026-11-11T23:27:23.6860020Z [Packages/Shared/CmuxHomeRender] [0/12] /Users/cmux/actions-runner-glaeda-3/_work/cmux/cmux/Packages/Shared/CmuxHomeRender/.build/arm64-apple-macosx/debug/CmuxHomeRenderPackageTests.derived/runner.swift
+2026-11-11T23:39:53.7670240Z [Packages/macOS/CmuxNext] [15100/15102] Compiling CmuxNextPackageTests runner.swift
+2026-11-11T23:39:53.7670960Z [Packages/macOS/CmuxNext] [15100/15102] Write Objects.LinkFileList
+2026-11-11T23:39:53.7671190Z [Packages/macOS/CmuxNext] error: link command failed with exit code 1 (use -v to see invocation)
+2026-11-11T23:39:53.7671510Z [Packages/macOS/CmuxNext] ld: write() failed, errno=28 (No space left on device)
+2026-11-11T23:39:53.7671910Z [Packages/macOS/CmuxNext] clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-11-11T23:39:53.7672160Z [Packages/macOS/CmuxNext] [15101/15102] Linking CmuxNextPackageTests
+2026-11-11T23:39:53.7932630Z FAST-TIER FAIL build:Packages/macOS/CmuxNext: the tests do not build
+2026-11-11T23:39:53.8094300Z ##[error]Process completed with exit code 1.
+2026-11-11T23:39:53.8235180Z ##[group]Run home="$RUNNER_TEMP/acpmux-home"
+2026-11-11T23:39:53.8235330Z [36;1mhome="$RUNNER_TEMP/acpmux-home"[0m
+2026-11-11T23:39:53.8235450Z [36;1m[[ -d "$home" ]] || exit 0[0m
