@@ -422,9 +422,14 @@ jobs:
           path: ${{ runner.temp }}/link-ffi
           key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
       - name: Put the restored framework in place
+        id: ffi-place
         if: env.UDID != '' && steps.ffi.outputs.cache-hit == 'true'
+        # An incomplete entry builds the framework instead of failing the leg.
+        continue-on-error: true
         run: |
           set -euo pipefail
+          test -d "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework"
+          test -f "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift"
           kit=cmux-next-ios/CmuxMobileKit
           rm -rf "$kit/Frameworks/CmuxMobileLinkFFI.xcframework"
           mkdir -p "$kit/Frameworks" "$kit/Sources/CmuxMobileLinkFFI"
@@ -432,17 +437,17 @@ jobs:
           cp "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift" "$kit/Sources/CmuxMobileLinkFFI/"
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Cache cargo
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: ios-review-gate
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
@@ -450,7 +455,7 @@ jobs:
       # credentials: one leg hands what it built to seed-link-ffi.
       - name: Stage the framework for the cache writer
         id: ffi-out
-        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && matrix.family == 'iphone'
+        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push' && matrix.family == 'iphone'
         continue-on-error: true
         env:
           FFI_KEY: ${{ steps.ffi-key.outputs.key }}
@@ -463,7 +468,7 @@ jobs:
           cp "$kit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift" "$out/framework/"
           printf '%s\n' "$FFI_KEY" > "$out/key"
       - name: Hand the framework to the cache writer
-        if: steps.ffi-out.outcome == 'success' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        if: steps.ffi-out.outcome == 'success' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -686,12 +691,16 @@ jobs:
   # job alone (tests/test_ci_pull_request_caches_are_read_only.py).
   seed-link-ffi:
     needs: reviewer-path
-    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next'
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    # A seed that fails never turns the push run red; the report does not need it.
+    continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      # r2-cache.sh saves nothing without it.
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
       CI_CACHE_R2_NAMESPACE: ios-link-ffi
     steps:
       - name: Fetch the framework a leg built

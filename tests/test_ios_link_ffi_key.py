@@ -205,7 +205,8 @@ class WorkflowTests(unittest.TestCase):
                         continue
                     with self.subTest(workflow=path.name, job=job_name):
                         condition = f"{job.get('if', '')} {step.get('if', '')}"
-                        self.assertIn("github.event_name != 'pull_request'", condition)
+                        self.assertTrue("github.event_name != 'pull_request'" in condition
+                                        or "github.event_name == 'push'" in condition, condition)
                         self.assertIs(step.get("continue-on-error"), True, "a lost save race never fails the job")
 
     # The Blacksmith Macs' GitHub cache store kept none of the gate's saves
