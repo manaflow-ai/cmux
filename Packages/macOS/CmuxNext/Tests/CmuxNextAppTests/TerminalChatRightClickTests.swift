@@ -8,11 +8,18 @@ import Foundation
 import Testing
 
 /// Toggle Terminal and Chat without the pane toolbar's `>_ | bubble` control (user 2026-11-13: "get rid of these
-/// buttons"): its key (Opt-Cmd-`), the Command Palette, and a row of the tab's right-click on half of a terminal and
+/// buttons"): a key a person binds (none by default), the Command Palette, and a row of the tab's right-click on half of a terminal and
 /// chat pair, which runs `palette.toggleTerminalChat` on that tab through the registry, one path with the key.
 @MainActor @Suite(.serialized)
 struct TerminalChatRightClickTests {
     static let toggle: ActionID = "palette.toggleTerminalChat"
+
+    /// Leo, 2026-11-15: "idk if the terminal gui should even get a hotkey by default". It ships unbound (its old
+    /// Opt-Cmd-` was macOS's "Move focus to the window drawer"); a person binds one in Settings > Keyboard Shortcuts.
+    @Test func theToggleHasNoDefaultKey() {
+        let table = RegistryKeyBindings(ActionRegistry.standard()).table
+        #expect(table.entries.filter { $0.command == Self.toggle }.allSatisfy { $0.keys.isEmpty })
+    }
 
     // Pair membership is the Rust route's answer (cmux-window-rules `tabs::terminal_chat_toggle`) for the facts the
     // action builds: a refusal offers no row.
