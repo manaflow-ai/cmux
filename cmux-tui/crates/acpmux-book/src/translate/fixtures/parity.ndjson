@@ -48,3 +48,9 @@
 {"seq":48,"at":1794480048000,"dir":"mux","kind":"queued","msg":{"text":"And open an issue for the timeout","promptId":"q2"}}
 {"seq":49,"at":1794480049000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Two deploys today, both green after the retry ✓"}}}}}
 {"seq":50,"at":1794480050000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t8","promptId":"p8","status":"completed"}}
+{"seq":51,"at":1794480051000,"dir":"mux","kind":"user_message","msg":{"promptId":"p9","turnId":"t9","text":"Tag the release"}}
+{"seq":52,"at":1794480052000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t9","promptId":"p9"}}
+{"seq":53,"at":1794480053000,"dir":"mux","kind":"permission_request","msg":{"permissionId":"perm3","groupId":null,"turnId":"t9","agentRequestId":6,"request":{"toolCall":{"toolCallId":"c9","title":"Push the tag","kind":"execute"},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"},{"optionId":"no","name":"Deny","kind":"reject_once"}]}}}
+{"seq":54,"at":1794480054000,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"perm3","outcome":{"outcome":"selected","optionId":"once"}}}
+{"seq":55,"at":1794480055000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Tagged the release."}}}}}
+{"seq":56,"at":1794480056000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t9","promptId":"p9","status":"completed"}}

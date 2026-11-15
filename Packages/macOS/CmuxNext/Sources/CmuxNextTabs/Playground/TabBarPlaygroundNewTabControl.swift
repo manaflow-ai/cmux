@@ -36,7 +36,7 @@ final class TabBarPlaygroundNewTabControl: NSView {
     init(style: Style, model: TabStripModel) {
         self.style = style
         self.model = model
-        plus = TitlebarBandButton(symbol: "plus", text: style == .labeled ? Strings.axNewTab : nil)
+        plus = TitlebarBandButton(symbol: "plus", text: style == .labeled ? Strings.axNewTab : nil) // plus-button-allow: a Debug prototype of an older candidate
         super.init(frame: .zero)
         wantsLayer = true
         plus.target = self
