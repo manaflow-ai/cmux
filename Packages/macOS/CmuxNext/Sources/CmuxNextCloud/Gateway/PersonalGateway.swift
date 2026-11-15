@@ -206,8 +206,8 @@ public final class PersonalGateway {
         var environment = ProcessInfo.processInfo.environment
         environment.removeValue(forKey: "CMUX_CLOUD_ACCESS_TOKEN")
         let process = ChildProcess(executable: binary,
-                                   arguments: arguments(api: api, marker: folder.appendingPathComponent("personal-gateway-on")),
-                                   environment: environment, stderrLog: folder.appendingPathComponent("inference-gateway.log"))
+                                   arguments: arguments(api: api, marker: folder.appendingPathComponent("personal-gateway-on", isDirectory: false)),
+                                   environment: environment, stderrLog: folder.appendingPathComponent("inference-gateway.log", isDirectory: false))
         do { try process.startHoldingInput() } catch { return nil }
         return Child(events: process.lines, exited: { await process.waitForExit() }, stop: { process.closeInput() })
     }
