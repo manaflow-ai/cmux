@@ -426,6 +426,15 @@ export class ChatClient {
 
   /** Dial, make the chat tab and start the chat in it; the first attach sets the baseline seq. */
   async open(harness: string): Promise<void> {
+    await this.openTab(harness);
+    const started = answerOf(await this.start(harness));
+    this.session = String(started.session ?? "");
+    if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
+    await this.attach(undefined);
+  }
+
+  /** Dial and make the chat tab for `harness`, as the app does for a new Cloud chat, before any start. */
+  async openTab(harness: string): Promise<void> {
     this.dial.start();
     await Promise.race([this.ready, sleep(90_000).then(() => { throw new Error("the client's dial never connected"); })]);
     const id = answerOf(await this.dial.request({ cmd: "identify" }));
@@ -436,10 +445,16 @@ export class ChatClient {
     if (typeof tab.surface !== "number") throw new Error(`new-conversation-tab gave no surface: ${JSON.stringify(tab).slice(0, 200)}`);
     this.surface = tab.surface;
     this.tab = typeof tab.tab_resource_id === "string" ? tab.tab_resource_id : "";
-    const started = answerOf(await this.dial.request({ cmd: "agent-session-start", surface: tab.surface, harness, vm_kind: "owner" }, 120_000));
-    this.session = String(started.session ?? "");
-    if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
-    await this.attach(undefined);
+  }
+
+  /**
+   * The app's start of the tab's chat with `harness` on the caller's own machine (`vm_kind: "owner"`), the daemon's
+   * answer as it came: `ok` with `data.session`, or a refusal with its `error_code` and `data` (a signed-out agent:
+   * `agent_session.sign_in_required` with `data.harness`, hq#11225).
+   */
+  async start(harness: string): Promise<any> {
+    if (this.surface === null) throw new Error("start before openTab");
+    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner" }, 120_000);
   }
 
   /**
