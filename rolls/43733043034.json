@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43733043034",
+  "recorded_at": "2026-11-15T16:03:49Z",
+  "reason": "cmux-tui 2728d0afd285 changes the image's cmux-tui (pinned 3f75c558a758)",
+  "dry_run": false,
+  "cmux_tui": "2728d0afd285266d11aeb2e587cdc67c44d948d3",
+  "fixes": [
+    {
+      "sha": "2728d0afd285266d11aeb2e587cdc67c44d948d3",
+      "mergedAt": "2026-11-15T07:44:08-08:00",
+      "subject": "perf(cmux-tui): the terminal host's title scan jumps whole CSIs; host stage 213 to 243 MB/s (CMUX-571) (#43776)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T16:03:49Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
