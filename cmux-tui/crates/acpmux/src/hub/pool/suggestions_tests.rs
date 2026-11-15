@@ -109,18 +109,19 @@ fn another_settings_file_leaves_a_pooled_key_unmatched() {
     assert!(served(at("/tmp/tagged/cmux-next.json"), &at("/tmp/tagged/cmux-next.json")));
 }
 
-/// A Codex spare started before the person added their own HTTP server named `cmux` to Codex's
-/// config would still run cmux's server under that name: its key no longer matches.
+/// A Codex spare started before the person added their own HTTP server named `cmux` (as Codex
+/// itself answers) would still run cmux's server under that name: its key no longer matches.
 #[test]
 fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
+    use crate::agent_tools::tests_support::{codex_answers, fake_codex};
     use std::os::unix::fs::PermissionsExt as _;
     let root = tempfile::tempdir().unwrap();
     let cmux = root.path().join("cmux");
     std::fs::write(&cmux, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let (codex_home, work) = (root.path().join("codex-home"), root.path().join("work"));
-    std::fs::create_dir_all(&codex_home).unwrap();
+    let work = root.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
+    let fake = fake_codex(root.path());
     let tools = || {
         crate::agent_tools::resolve(&crate::agent_tools::Inputs {
             enabled: true,
@@ -135,21 +136,14 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
             hosted: false,
         })
     };
-    let env = std::collections::BTreeMap::from([(
-        "CODEX_HOME".to_owned(),
-        codex_home.to_string_lossy().into_owned(),
-    )]);
-    let argv = vec!["codex".to_owned(), "app-server".to_owned()];
+    let env = std::collections::BTreeMap::new();
+    let argv = vec![fake.to_string_lossy().into_owned(), "app-server".to_owned()];
     let codex = || Some(crate::agent_tools::CodexLaunch { cwd: &work, argv: &argv });
     let before = tool_servers(tools(), &env, codex());
-    std::fs::write(
-        codex_home.join("config.toml"),
-        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
-    )
-    .unwrap();
+    codex_answers(root.path(), Some("http"));
     let after = tool_servers(tools(), &env, codex());
-    assert_eq!(before, "cmux,answer:on");
-    assert_eq!(after, "answer:on");
+    assert!(before.starts_with("cmux,answer:on,cmux-entry:"), "{before}");
+    assert!(after.starts_with("answer:on,cmux-entry:"), "{after}");
     // Through the pool: the spare started before the entry is discarded, not served.
     let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
     assert!(!served(with(&before), &with(&after)));
@@ -157,50 +151,51 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     assert_eq!(tool_servers(tools(), &env, None), "cmux,answer:on");
 }
 
-/// A Codex spare started before the person added their own stdio `cmux` entry got no env keys for
-/// it (`agent_tools::person_entry_env`): once the entry is there, or the answer it would carry
-/// changes, its key no longer matches and it is discarded.
+/// A Codex spare keys on Codex's answer for the person's own `cmux` entry (none, a stdio entry
+/// with its command and args, HTTP) and on the answer its env keys carry: a change to either
+/// since it started leaves its key unmatched, and it is discarded.
 #[test]
 fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
+    use crate::agent_tools::tests_support::{codex_answers, fake_codex};
     let root = tempfile::tempdir().unwrap();
-    let (codex_home, work) = (root.path().join("codex-home"), root.path().join("work"));
-    std::fs::create_dir_all(&codex_home).unwrap();
+    let work = root.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
+    let fake = fake_codex(root.path());
     let tools = || crate::agent_tools::AgentTools::default();
     let env = |answer: &str| {
-        std::collections::BTreeMap::from([
-            ("CODEX_HOME".to_owned(), codex_home.to_string_lossy().into_owned()),
-            (crate::agent_tools::TOOLS_ANSWER_ENV.to_owned(), answer.to_owned()),
-        ])
+        std::collections::BTreeMap::from([(
+            crate::agent_tools::TOOLS_ANSWER_ENV.to_owned(),
+            answer.to_owned(),
+        )])
     };
-    let argv = vec!["codex".to_owned(), "app-server".to_owned()];
+    let argv = vec![fake.to_string_lossy().into_owned(), "app-server".to_owned()];
     let codex = || Some(crate::agent_tools::CodexLaunch { cwd: &work, argv: &argv });
     let before = tool_servers(tools(), &env("off"), codex());
-    std::fs::write(codex_home.join("config.toml"), "[mcp_servers.cmux]\ncommand = \"/opt/cmux\"\n")
-        .unwrap();
+    codex_answers(root.path(), Some("/opt/cmux"));
     let off = tool_servers(tools(), &env("off"), codex());
     let on = tool_servers(tools(), &env("on"), codex());
-    assert_eq!(before, "answer:off");
-    assert!(off.starts_with("answer:off,cmux-entry-env:off,cmux-entry-cmd:"), "{off}");
-    assert!(on.starts_with("answer:on,cmux-entry-env:on,cmux-entry-cmd:"), "{on}");
+    assert!(
+        before.starts_with("answer:off,cmux-entry:") && !before.contains("entry-env"),
+        "{before}"
+    );
+    assert!(off.ends_with(",cmux-entry-env:off"), "{off}");
+    assert!(on.ends_with(",cmux-entry-env:on"), "{on}");
     let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
     assert!(!served(with(&before), &with(&off)));
     assert!(!served(with(&off), &with(&on)));
-    // A session cut off from cmux's tools carries `off` whatever the answer: a spare started
-    // without the cut-off is not served to one with it.
+    // A session cut off from cmux's tools carries `off` whatever the answer.
     let mut cut = env("on");
     cut.insert(crate::agent_tools::SWITCH_ENV.to_owned(), "0".to_owned());
     let cut_off = tool_servers(tools(), &cut, codex());
-    assert!(cut_off.starts_with("answer:off,cmux-entry-env:off,cmux-entry-cmd:"), "{cut_off}");
-    // Another command in the person's entry: another key, so the spare is not served.
-    std::fs::write(
-        codex_home.join("config.toml"),
-        "[mcp_servers.cmux]\ncommand = \"/opt/other\"\n",
-    )
-    .unwrap();
+    assert!(
+        cut_off.starts_with("answer:off,") && cut_off.ends_with(",cmux-entry-env:off"),
+        "{cut_off}"
+    );
+    assert!(!served(with(&on), &with(&cut_off)));
+    // Another command in the person's entry, as Codex answers: another key.
+    codex_answers(root.path(), Some("/opt/other"));
     let moved = tool_servers(tools(), &env("off"), codex());
     assert!(!served(with(&off), &with(&moved)), "{off} / {moved}");
-    assert!(!served(with(&on), &with(&cut_off)));
 }
 
 /// A Claude spare when no `cmux` server resolves (no cmux CLI here): its key still carries the

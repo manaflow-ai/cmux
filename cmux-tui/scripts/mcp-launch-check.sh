@@ -39,12 +39,13 @@
 #      the entry's own command and args and
 #      `-c mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER="off"`, a real Codex
 #      starts, and the entry is the off server;
-#  10. a trust key on the launch folder only: the repository root's entry gets
-#      nothing, and Codex starts without starting it (marker file);
-#  11. a submodule of a trusted repository: its entry gets nothing, Codex starts;
-#  12. Codex itself: env keys alone for an entry it does not load make it
-#      refuse to start, and the whole entry (command and args beside them)
-#      starts.
+#  10-14. the review's five probes (an untrusted sub-folder, only a middle
+#      folder trusted, a profile beside a project, a launch-folder key, a
+#      submodule), with marker files: Codex with the shim's -c starts exactly
+#      the server Codex alone starts, and starts; and the shim's question to
+#      Codex (`mcp get`) per launch, timed;
+#  15. Codex itself: env keys alone for an entry it does not load make it
+#      refuse to start.
 # JSON is read from stdout only: an agent may warn on stderr.
 # Prints PASS or FAIL per check and exits 1 on any FAIL.
 set -u
@@ -208,7 +209,13 @@ if [ -n "$CMUX" ]; then
   # 5. Codex. A fake `codex` first on PATH records the launch's arguments.
   # Quoted for sh (single quotes; a ' inside becomes '\''): printf %q is bash's.
   sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
-  printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' "$(sq "$D/codex-args")" > "$D/bin/codex.tmp"
+  # A fake `codex` first on PATH that records a launch's arguments; the shim's own question to
+  # Codex (`mcp get cmux --json`, the person's own entry) goes to the real one.
+  fake_codex() {
+    printf '#!/bin/sh\ncase " $* " in *" mcp get cmux --json "*) exec %s "$@";; esac\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' \
+      "$(sq "$CODEX")" "$(sq "$D/codex-args")"
+  }
+  fake_codex > "$D/bin/codex.tmp"
   chmod +x "$D/bin/codex.tmp"; mv "$D/bin/codex.tmp" "$D/bin/codex"
   shim_path="$D/bin:$base_path"
   record() { # FOLDER ARGS...: the shim's launch, recorded in $D/codex-args
@@ -302,7 +309,7 @@ PY
   # 9. A real Codex with the shim's env-only -c, the entry in its user config.
   rm -f "$D/entry.env"
   printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = []\n' "$D/entry/cmux" > "$CODEX_HOME/config.toml"
-  printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' "$(sq "$D/codex-args")" > "$D/bin/codex"
+  fake_codex > "$D/bin/codex"
   chmod +x "$D/bin/codex"
   record "$P/sub" exec "say hi"
   rm -f "$D/bin/codex"
@@ -316,41 +323,70 @@ PY
   rc=$?; check "codex shim, answer off, the person's stdio cmux entry in the user config: its own command and args and the env key go in ($given), Codex starts ($result), the entry starts with the answer ($keys) and is the off server ($got)" $rc
   : > "$CODEX_HOME/config.toml"
 
-  # 10 to 12. Entries Codex does not load (the review's marker files: an entry's server writes
-  # `started <label>` to $L when Codex starts it). Codex must start either way.
-  shim_case() { # FOLDER: the shim's -c values (one line), then the replayed session's result
-    printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' "$(sq "$D/codex-args")" > "$D/bin/codex"
-    chmod +x "$D/bin/codex"
-    record "$1" exec "say hi"
-    rm -f "$D/bin/codex"
-    given=$(grep '^mcp_servers\.' "$D/codex-args" | tr '\n' ' ')
-    result=$(replay "$1")
-  }
+  # 10 to 14. The review's five probes, with marker files: a person's own entry's server writes
+  # `started <label>` to $L when Codex starts it. For each, Codex alone starts some server or
+  # none; with the shim's -c (answer off) it must start exactly the same, and still start. The
+  # shim asks Codex itself which entry loads, so it sends that entry back (its command and args,
+  # with the env key) or nothing. Each probe also times the shim's question to Codex.
   marker_entry() { printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["%s", "%s", "%s"]\n' "$NODE" "$F" "$1" "$L"; }
-  # 10. A trust key on the launch folder only (a subfolder of a repository): Codex loads that
-  # folder's own file alone, never the root's. The root's entry gets nothing; Codex starts.
-  R=$D/trustsub; rm -rf "$R"; mkdir -p "$R/sub" "$R/.codex"; git -C "$R" init -q
-  marker_entry root > "$R/.codex/config.toml"
-  printf '[projects."%s"]\ntrust_level = "trusted"\n' "$(cd "$R/sub" && pwd -P)" > "$CODEX_HOME/config.toml"
-  shim_case "$R/sub"
-  [ -z "$given" ] && [ "${result#*|}" = "0|1" ] && ! grep -qx "started root" "$L"
-  rc=$?; check "codex shim, a trust key on the launch folder only: the repository root's entry gets nothing (${given:-none}), Codex starts and never starts it ($result)" $rc
-  # 11. A submodule of a trusted repository is its own project: its entry gets nothing.
-  M=$D/super; rm -rf "$M"; mkdir -p "$M/module/.codex" "$M/.git/modules/module"; git -C "$M" init -q
-  printf 'gitdir: ../.git/modules/module\n' > "$M/module/.git"
-  marker_entry module > "$M/module/.codex/config.toml"
-  printf '[projects."%s"]\ntrust_level = "trusted"\n' "$(cd "$M" && pwd -P)" > "$CODEX_HOME/config.toml"
-  shim_case "$M/module"
-  [ -z "$given" ] && [ "${result#*|}" = "0|1" ]
-  rc=$?; check "codex shim, a submodule of a trusted repository: its entry gets nothing (${given:-none}), Codex starts ($result)" $rc
+  trust() { printf '[projects."%s"]\ntrust_level = "%s"\n' "$(cd "$1" && pwd -P)" "${2:-trusted}"; }
+  probe() { # NAME FOLDER [ARGS...]: Codex alone vs Codex with the shim's -c, in FOLDER
+    local name=$1 folder=$2; shift 2
+    local alone with recorded=() a v ms
+    alone=$(session "$folder" "$@")
+    fake_codex > "$D/bin/codex"; chmod +x "$D/bin/codex"
+    rm -f "$D/codex-args"
+    (cd "$folder" && env "${shim_env[@]}" CMUX_TUI_MCP_RESOLVE_TRACE=1 PATH="$shim_path" "$CMUX" agent codex-wrapper "$@" exec "say hi" >/dev/null 2>"$D/shim.err")
+    rm -f "$D/bin/codex"
+    ms=$(sed -n 's/^cmux-tui: codex mcp get cmux: \([0-9]*\) ms.*/\1/p' "$D/shim.err" | head -1)
+    resolve_ms+=" ${ms:-?}"
+    while IFS= read -r a; do [ "$a" = -c ] && { IFS= read -r v; recorded+=(-c "$v"); }; done < "$D/codex-args"
+    with=$(session "$folder" "$@" ${recorded[@]+"${recorded[@]}"})
+    given=$(printf '%s\n' ${recorded[@]+"${recorded[@]}"} | grep '^mcp_servers\.' | tr '\n' ' ')
+    local started=${alone%%|*}
+    [ "$with" = "$alone" ] && [ "${alone#*|}" = "0|1" ] \
+      && if [ -n "$started" ]; then case "$given" in *CMUX_AGENT_TOOLS_ANSWER*) true ;; *) false ;; esac; else [ -z "$given" ]; fi
+    rc=$?; check "probe [$name]: Codex alone ($alone) = with the shim's -c ($with); sent: ${given:-nothing}; codex mcp get took ${ms:-?} ms" $rc
+  }
+  resolve_ms=""
+  Q=$D/probes; rm -rf "$Q"; mkdir -p "$Q"
+  # (1) An untrusted sub-folder of a trusted repository, with an entry of its own.
+  mkdir -p "$Q/p1/sub/.codex"; git -C "$Q/p1" init -q
+  marker_entry p1-sub > "$Q/p1/sub/.codex/config.toml"
+  { trust "$Q/p1"; trust "$Q/p1/sub" untrusted; } > "$CODEX_HOME/config.toml"
+  probe "untrusted sub-folder" "$Q/p1/sub"
+  # (2) Only a middle folder trusted: a user-config entry and one in the middle folder's project file.
+  mkdir -p "$Q/p2/mid/leaf" "$Q/p2/mid/.codex"; git -C "$Q/p2" init -q
+  marker_entry p2-mid > "$Q/p2/mid/.codex/config.toml"
+  { marker_entry p2-user; trust "$Q/p2/mid"; } > "$CODEX_HOME/config.toml"
+  probe "middle-only trust" "$Q/p2/mid/leaf"
+  # (3) A --profile file's entry beside a trusted project's.
+  mkdir -p "$Q/p3/.codex"; git -C "$Q/p3" init -q
+  marker_entry p3-project > "$Q/p3/.codex/config.toml"
+  trust "$Q/p3" > "$CODEX_HOME/config.toml"
+  marker_entry p3-profile > "$CODEX_HOME/work.config.toml"
+  probe "profile vs project" "$Q/p3" -p work
+  rm -f "$CODEX_HOME/work.config.toml"
+  # (4) A trust key on the launch folder only, the entry at the repository root.
+  mkdir -p "$Q/p4/sub" "$Q/p4/.codex"; git -C "$Q/p4" init -q
+  marker_entry p4-root > "$Q/p4/.codex/config.toml"
+  trust "$Q/p4/sub" > "$CODEX_HOME/config.toml"
+  probe "launch-folder key" "$Q/p4/sub"
+  # (5) A submodule of a trusted repository, with an entry of its own.
+  mkdir -p "$Q/p5/module/.codex" "$Q/p5/.git/modules/module"; git -C "$Q/p5" init -q
+  printf 'gitdir: ../.git/modules/module\n' > "$Q/p5/module/.git"
+  marker_entry p5-module > "$Q/p5/module/.codex/config.toml"
+  trust "$Q/p5" > "$CODEX_HOME/config.toml"
+  probe "submodule" "$Q/p5/module"
   : > "$CODEX_HOME/config.toml"
-  # 12. The class: what the shim sends for an entry it wrongly thinks loads. Env keys alone make
-  # Codex refuse to start; the whole entry (its command and args beside them) starts.
+  # The shim's question to Codex, per terminal launch: under the 2 s limit each time.
+  slow=0; for ms in $resolve_ms; do case "$ms" in ''|*[!0-9]*) slow=1 ;; *) [ "$ms" -lt 2000 ] || slow=1 ;; esac; done
+  check "codex mcp get per terminal launch (ms):$resolve_ms" $slow
+  # (6) The class Codex itself shows: env keys alone for an entry it does not load make it refuse
+  # to start, the reason cmux sends only an entry Codex answers, and sends it whole.
   alone=$(session "$D" -c 'mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER="off"')
-  whole=$(session "$D" -c "mcp_servers.cmux.command=\"$NODE\"" -c "mcp_servers.cmux.args=[\"$F\", \"whole\", \"$L\"]" \
-    -c 'mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER="off"')
-  [ "${alone#*|}" != "0|1" ] && [ "$whole" = "started whole |0|1" ]
-  rc=$?; check "codex, an entry it does not load: env keys alone make it refuse ($alone), the whole entry starts ($whole)" $rc
+  [ "${alone#*|}" != "0|1" ]
+  rc=$?; check "codex: env keys alone for an entry it does not load make it refuse ($alone)" $rc
   answer on
 
   # 7. cmux setup mcp, with the real agents installed: a report, no write.

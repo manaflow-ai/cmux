@@ -51,7 +51,21 @@ impl Launch {
         listener.set_nonblocking(true).unwrap();
         let bin = root.path().join("bin");
         fs::create_dir(&bin).unwrap();
-        fs::write(bin.join("codex"), "#!/bin/sh\nprintf '%s\\0' \"$@\"\n").unwrap();
+        // A stand-in Codex: it prints the launch's arguments, and answers `mcp get cmux --json`
+        // (the shim asks it for the person's own `cmux` entry) with the file `$FAKE_MCP_GET`, or
+        // Codex's "no server" when there is none, logging where and how it was asked.
+        fs::write(
+            bin.join("codex"),
+            concat!(
+                "#!/bin/sh\n",
+                "case \" $* \" in *' mcp get cmux --json ') ",
+                "printf '%s|%s\\n' \"$(pwd -P)\" \"$*\" >> \"${FAKE_MCP_GET_LOG:-/dev/null}\"; ",
+                "if [ -n \"$FAKE_MCP_GET\" ]; then cat \"$FAKE_MCP_GET\"; exit 0; fi; ",
+                "echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1;; esac\n",
+                "printf '%s\\0' \"$@\"\n",
+            ),
+        )
+        .unwrap();
         fs::set_permissions(bin.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
         Self { root, socket, listener }
     }
@@ -423,65 +437,47 @@ fn codex_wrapper_gives_codex_one_server_named_cmux() {
     }
 }
 
-/// Codex refuses a server with both a command and a `url` (or another HTTP-only field): a
-/// person's own HTTP server named `cmux`, in the user config, a `--profile` file or a project's
-/// `.codex/config.toml`, would merge with this build's command and Codex would not start. There
-/// the shim passes no MCP server (the hooks still go), and says nothing: the person's own server
-/// keeps the name.
+/// Codex refuses a server with both a command and a `url`: where the person's own server named
+/// `cmux` is HTTP, as the launch's Codex itself answers (`codex <their config options> mcp get
+/// cmux --json`, in the launch folder), the shim passes no MCP server (the hooks still go) and
+/// says nothing: the person's own server keeps the name. A stdio entry, none, or no answer from
+/// Codex: this build's server goes in.
 #[test]
 fn codex_wrapper_leaves_an_http_cmux_entry_alone() {
     let launch = Launch::new();
     let root = launch.root.path();
     let settings_file = root.join("settings.json");
     fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
-    let codex_home = root.join("codex-home");
     let project = root.join("project/sub");
-    fs::create_dir_all(&codex_home).unwrap();
     fs::create_dir_all(&project).unwrap();
-    let run = |args: &[&str]| {
-        launch.argv(
-            launch
-                .command()
-                .current_dir(&project)
-                .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
-                .env("CODEX_HOME", &codex_home)
-                .args(args),
-        )
+    let (answer, log) = (root.join("mcp-get.json"), root.join("mcp-get.log"));
+    let run = |args: &[&str], answering: Option<&str>| {
+        let mut command = launch.command();
+        command
+            .current_dir(&project)
+            .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+            .env("FAKE_MCP_GET_LOG", &log)
+            .args(args);
+        if let Some(text) = answering {
+            fs::write(&answer, text).unwrap();
+            command.env("FAKE_MCP_GET", &answer);
+        }
+        launch.argv(&mut command)
     };
     let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
-    let http = [
-        "url = \"http://127.0.0.1:1/mcp\"",
-        "bearer_token_env_var = \"TOKEN\"",
-        "http_headers = { a = \"b\" }",
-        "env_http_headers = { a = \"B\" }",
-        "oauth_resource = \"r\"",
-    ];
-    for field in http {
-        let entry = format!("[mcp_servers.cmux]\n{field}\n");
-        // The user config.
-        fs::write(codex_home.join("config.toml"), &entry).unwrap();
-        let argv = run(&["exec", "fix the bug"]);
-        assert!(!has_server(&argv), "{field}: {argv:?}");
-        assert!(settings(&argv).get("hooks").is_some(), "{argv:?}");
-        fs::write(codex_home.join("config.toml"), "").unwrap();
-        // A project's config above the launch folder.
-        fs::create_dir_all(root.join("project/.codex")).unwrap();
-        fs::write(root.join("project/.codex/config.toml"), &entry).unwrap();
-        assert!(!has_server(&run(&["fix the bug"])), "{field}");
-        fs::remove_dir_all(root.join("project/.codex")).unwrap();
-        // A profile file, only when that profile is used.
-        fs::write(codex_home.join("work.config.toml"), &entry).unwrap();
-        assert!(!has_server(&run(&["-p", "work", "exec", "hi there"])), "{field}");
-        assert!(has_server(&run(&["exec", "hi there"])), "{field}");
-        fs::remove_file(codex_home.join("work.config.toml")).unwrap();
-    }
-    // A stdio entry with other fields is no conflict: this build's server goes in.
-    fs::write(
-        codex_home.join("config.toml"),
-        "[mcp_servers.cmux]\ncommand = \"/opt/x\"\ncwd = \"/x\"\nstartup_timeout_sec = 7\n",
-    )
-    .unwrap();
-    assert!(has_server(&run(&["exec", "fix the bug"])));
+    let http = r#"{"transport":{"type":"streamable_http","url":"http://127.0.0.1:1/mcp"}}"#;
+    let stdio = r#"{"transport":{"type":"stdio","command":"/opt/x","args":[]}}"#;
+    let argv = run(&["-p", "work", "exec", "fix the bug"], Some(http));
+    assert!(!has_server(&argv), "{argv:?}");
+    assert!(settings(&argv).get("hooks").is_some(), "{argv:?}");
+    assert!(has_server(&run(&["exec", "fix the bug"], Some(stdio))));
+    assert!(has_server(&run(&["exec", "fix the bug"], None)));
+    assert!(has_server(&run(&["exec", "fix the bug"], Some("not json"))));
+    // Codex was asked in the launch folder, with the person's own config options only.
+    let asked = fs::read_to_string(&log).unwrap();
+    let first = asked.lines().next().unwrap();
+    let folder = project.canonicalize().unwrap();
+    assert_eq!(first, format!("{}|-p work mcp get cmux --json", folder.display()), "{asked}");
 }
 
 #[test]

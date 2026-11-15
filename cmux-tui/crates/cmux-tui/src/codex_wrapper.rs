@@ -51,7 +51,8 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         .env(crate::claude_wrapper::AGENT_ARGS_ENV, crate::claude_wrapper::agent_args_json(args));
     let mut launch_args = args.to_vec();
     if should_inject(args, |name| std::env::var_os(name)) {
-        match prepare_hooks(args) {
+        let child_path = path_without_shims(&path, shim_dir.as_deref());
+        match prepare_hooks(args, &codex, &child_path) {
             Ok(Some(injected)) => {
                 launch_args = injected;
                 command.env("CMUX_TUI_CODEX_WRAPPER_ACTIVE", "1");
@@ -70,7 +71,13 @@ fn current_executable() -> anyhow::Result<PathBuf> {
     Ok(executable.canonicalize().unwrap_or(executable))
 }
 
-fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
+/// `codex` is the real Codex this launch runs, and `child_path` its `PATH`: the person's own
+/// `cmux` entry is what that Codex answers (`acpmux::codex_cmux_entry::resolve`).
+fn prepare_hooks(
+    args: &[OsString],
+    codex: &Path,
+    child_path: &OsStr,
+) -> anyhow::Result<Option<Vec<OsString>>> {
     // A tool command of a Codex session in the shared daemon has the
     // daemon's inherited environment, which names some other terminal.
     if cmux_tui_core::platform::descends_from_codex_app_server_daemon() {
@@ -93,10 +100,20 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
     // person said yes to cmux's tools in agents started in cmux
     // (agent_mcp_choice.rs).
     let cwd = std::env::current_dir().unwrap_or_default();
+    // The Codex child's environment: this one, with the shims off PATH.
+    let child_env: Vec<(OsString, OsString)> = std::env::vars_os()
+        .filter(|(key, _)| key != "PATH")
+        .chain([(OsString::from("PATH"), child_path.to_owned())])
+        .collect();
+    let (entry, took) = acpmux::codex_cmux_entry::resolve(codex, args, &cwd, &child_env);
+    if std::env::var_os("CMUX_TUI_MCP_RESOLVE_TRACE").is_some() {
+        eprintln!("cmux-tui: codex mcp get cmux: {} ms ({entry:?})", took.as_millis());
+    }
     let settings = mcp_settings(
-        &McpLaunch { args, cwd: &cwd, executable: &executable, socket: &socket },
+        &McpLaunch { cwd: &cwd, executable: &executable, socket: &socket },
         cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
         &|name| std::env::var_os(name),
+        &entry,
     );
     for setting in settings {
         launch.push(OsString::from("-c"));
@@ -106,10 +123,9 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
     Ok(Some(launch))
 }
 
-/// What [`mcp_settings`] needs of the launch: the person's Codex arguments,
-/// the launch folder, this build's CLI and the pane's daemon socket.
+/// What [`mcp_settings`] needs of the launch: the launch folder, this
+/// build's CLI and the pane's daemon socket.
 struct McpLaunch<'a> {
-    args: &'a [OsString],
     cwd: &'a Path,
     executable: &'a Path,
     socket: &'a Path,
@@ -117,44 +133,37 @@ struct McpLaunch<'a> {
 
 /// The `-c` values that give this launch this build's server as `cmux`
 /// (agent_computer_use.rs) when the person said yes to cmux's tools in agents
-/// started in cmux (`choice`), unless a config Codex may load has the
-/// person's own HTTP server named `cmux`, which this build's command cannot
-/// merge into (acpmux codex_cmux_entry.rs): then none, and nothing is said.
+/// started in cmux (`choice`), unless the person's own `cmux` entry, as the
+/// launch's Codex answers it (`entry`, `acpmux::codex_cmux_entry`), is HTTP:
+/// this build's command cannot merge into it, so none, and nothing is said.
 ///
-/// Without the yes, a stdio `cmux` entry of the person's own that Codex surely
-/// loads (`codex_cmux_entry::stdio_cmux_entry`) gets the env key
-/// `CMUX_AGENT_TOOLS_ANSWER` = `off`, with its own `command` and `args` as the
-/// config layers give them (the same entry where it loads; a whole stdio
-/// server where a guess that it loads is wrong, never env alone, which Codex
-/// refuses): its `cmux mcp serve` then follows the answer as an agent cmux
-/// started (`cli/mcp.rs` `refusal`), not `mcp.enabled` as a caller outside
-/// cmux. An HTTP entry has no env: none.
+/// Without the yes, a stdio `cmux` entry of the person's own, as Codex answers
+/// it, gets the env key `CMUX_AGENT_TOOLS_ANSWER` = `off` with exactly its own
+/// `command` and `args` beside it (the same entry, with the key added): its
+/// `cmux mcp serve` then follows the answer as an agent cmux started
+/// (`cli/mcp.rs` `refusal`), not `mcp.enabled` as a caller outside cmux. No
+/// entry, an HTTP one (no env), or no answer from Codex: nothing.
 fn mcp_settings(
     launch: &McpLaunch<'_>,
     choice: cmux_tui_core::user_settings::AgentsCmuxMcp,
     getenv: &dyn Fn(&str) -> Option<OsString>,
+    entry: &acpmux::codex_cmux_entry::CmuxEntry,
 ) -> Vec<OsString> {
+    use acpmux::codex_cmux_entry::CmuxEntry;
     if !choice.injects() {
-        let Some(entry) =
-            acpmux::codex_cmux_entry::stdio_cmux_entry(launch.args, launch.cwd, getenv)
-        else {
-            return Vec::new();
-        };
+        let CmuxEntry::Stdio { command, args } = entry else { return Vec::new() };
         let string = |value: &str| toml::Value::String(value.to_owned());
-        let mut values = vec![("command".to_owned(), string(&entry.command))];
-        if let Some(args) = &entry.args {
-            values.push((
-                "args".to_owned(),
-                toml::Value::Array(args.iter().map(|arg| string(arg)).collect()),
-            ));
-        }
-        values.push((format!("env.{}", acpmux::agent_tools::TOOLS_ANSWER_ENV), string("off")));
+        let values = [
+            ("command".to_owned(), string(command)),
+            ("args".to_owned(), toml::Value::Array(args.iter().map(|arg| string(arg)).collect())),
+            (format!("env.{}", acpmux::agent_tools::TOOLS_ANSWER_ENV), string("off")),
+        ];
         return values
             .into_iter()
             .map(|(key, value)| OsString::from(format!("mcp_servers.cmux.{key}={value}")))
             .collect();
     }
-    if acpmux::codex_cmux_entry::http_cmux_entry(launch.args, launch.cwd, getenv) {
+    if entry.is_http() {
         return Vec::new();
     }
     crate::agent_mcp_choice::codex_settings(
@@ -403,17 +412,27 @@ mod tests {
 
     /// The settings one launch in `/work` gets.
     fn launch(choice: AgentsCmuxMcp, args: &[&str]) -> Vec<String> {
+        launch_with(choice, args, &acpmux::codex_cmux_entry::CmuxEntry::None)
+    }
+
+    /// The settings one launch in `/work` gets when Codex answers `entry` for the person's own
+    /// `cmux` entry.
+    /// (The person's arguments go to Codex's own answer, `entry`, not to these settings.)
+    fn launch_with(
+        choice: AgentsCmuxMcp,
+        _args: &[&str],
+        entry: &acpmux::codex_cmux_entry::CmuxEntry,
+    ) -> Vec<String> {
         let pane = |name: &str| (name == "CMUX_TUI_TERMINAL_ID").then(|| OsString::from("term_1"));
-        let args = os(args);
         let settings = mcp_settings(
             &McpLaunch {
-                args: &args,
                 cwd: Path::new("/work"),
                 executable: Path::new("/A/cmux"),
                 socket: Path::new("/tmp/s.sock"),
             },
             choice,
             &pane,
+            entry,
         );
         settings.iter().map(|s| s.to_string_lossy().into_owned()).collect()
     }
@@ -443,39 +462,31 @@ mod tests {
         }
     }
 
-    /// Without the yes, a person's own stdio `cmux` entry Codex surely loads (here their own
-    /// `-c`) gets the answer, with its own command (and args, when set) beside it so the entry is
-    /// whole either way; an HTTP one, which has no env, and no entry get nothing.
+    /// Without the yes, a person's own stdio `cmux` entry, as Codex answers it, gets the answer
+    /// with exactly its command and args beside it (the same entry); an HTTP one (no env), none,
+    /// and no answer get nothing. With the yes, an HTTP entry keeps cmux's server out.
     #[test]
     fn without_the_yes_a_persons_stdio_entry_gets_the_answer_and_stays_whole() {
-        let stdio = ["-c", "mcp_servers.cmux.command=\"/opt/cmux\"", "exec", "hi"];
+        use acpmux::codex_cmux_entry::CmuxEntry;
+        let stdio = CmuxEntry::Stdio { command: "/c".into(), args: vec!["a b".into()] };
         for choice in [AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
             assert_eq!(
-                launch(choice, &stdio),
-                [
-                    "mcp_servers.cmux.command=\"/opt/cmux\"",
-                    "mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER=\"off\""
-                ],
-                "{choice:?}"
-            );
-            assert_eq!(
-                launch(
-                    choice,
-                    &["-c", "mcp_servers.cmux={command=\"/c\", args=[\"a b\"]}", "exec", "hi"]
-                ),
+                launch_with(choice, &["exec", "hi"], &stdio),
                 [
                     "mcp_servers.cmux.command=\"/c\"",
                     "mcp_servers.cmux.args=[\"a b\"]",
                     "mcp_servers.cmux.env.CMUX_AGENT_TOOLS_ANSWER=\"off\""
                 ],
+                "{choice:?}"
             );
-            assert!(launch(choice, &["-c", "mcp_servers.cmux.url=\"http://x\""]).is_empty());
-            assert!(launch(choice, &["exec", "hi"]).is_empty());
+            for nothing in [CmuxEntry::None, CmuxEntry::Http, CmuxEntry::Unknown] {
+                assert!(launch_with(choice, &["exec", "hi"], &nothing).is_empty(), "{nothing:?}");
+            }
         }
-        // With the yes, cmux's own server goes in as before.
-        assert!(
-            launch(AgentsCmuxMcp::On, &stdio).contains(&"mcp_servers.cmux.enabled=true".to_owned())
-        );
+        let on = |entry| launch_with(AgentsCmuxMcp::On, &["exec", "hi"], &entry);
+        assert!(on(stdio).contains(&"mcp_servers.cmux.enabled=true".to_owned()));
+        assert!(on(CmuxEntry::Unknown).contains(&"mcp_servers.cmux.enabled=true".to_owned()));
+        assert!(on(CmuxEntry::Http).is_empty(), "an HTTP entry keeps the name");
     }
 
     /// Codex 0.160.1 keeps only the deepest list of a clap global (`-c`,

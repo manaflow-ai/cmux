@@ -281,24 +281,23 @@ fn tool_servers(
     };
     let mut names: Vec<String> = tools.servers.iter().map(|s| s.name.clone()).collect();
     names.push(format!("answer:{answer}"));
-    // The env keys a Codex chat sends the person's own stdio `cmux` entry
-    // (`agent_tools::person_entry_env`), with the answer they carry: a spare started before the
-    // entry appeared, or under another answer, is never served.
-    let listed = serde_json::Value::Array(names.iter().map(|n| json!({"name": n})).collect());
-    if let Some(entry) =
-        codex.and_then(|launch| crate::agent_tools::person_entry_env(&listed, launch, env, ""))
-    {
-        let cmux = &entry[crate::agent_tools::CMUX_SERVER];
-        let answer = cmux["env"][crate::agent_tools::TOOLS_ANSWER_ENV]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
-        names.push(format!("cmux-entry-env:{answer}"));
-        // The entry's command and args, sent back with the keys: a spare started before the person
-        // changed them is not served.
+    // The person's own `cmux` entry as Codex answers for this launch (none, stdio with its command
+    // and args, HTTP, no answer), and the answer its env keys carry: a spare started before either
+    // changed is never served.
+    if let Some(launch) = codex {
+        let entry = crate::agent_tools::persons_cmux_entry(launch, env);
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        std::hash::Hash::hash(&(cmux["command"].to_string(), cmux["args"].to_string()), &mut h);
-        names.push(format!("cmux-entry-cmd:{:016x}", std::hash::Hasher::finish(&h)));
+        std::hash::Hash::hash(&entry, &mut h);
+        names.push(format!("cmux-entry:{:016x}", std::hash::Hasher::finish(&h)));
+        let listed = serde_json::Value::Array(names.iter().map(|n| json!({"name": n})).collect());
+        if let Some(sent) = crate::agent_tools::person_entry_env(&listed, launch, env, "") {
+            let answer = sent[crate::agent_tools::CMUX_SERVER]["env"]
+                [crate::agent_tools::TOOLS_ANSWER_ENV]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            names.push(format!("cmux-entry-env:{answer}"));
+        }
     }
     names.join(",")
 }

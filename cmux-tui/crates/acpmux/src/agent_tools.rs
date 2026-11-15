@@ -536,18 +536,19 @@ pub fn acp_servers_for(
     acp_servers_with(current(), env, session_id, all_tools, codex)
 }
 
-/// The env keys a Codex chat sends the person's own stdio `cmux` entry when the chat's servers
+/// The person's own stdio `cmux` entry, whole, with the env keys, for a Codex chat whose servers
 /// (`servers`, as [`acp_servers_for`] gave them) hold no `cmux` of cmux's own (the answer is not
-/// on, the HTTP rule, or a chat started from another machine): `{"cmux": {CMUX_AGENT_SESSION,
-/// CMUX_AGENT_TOOLS_ANSWER}}`, which cmux-codex-acp (`_meta.cmux.mcpServerEnv`) sends as
-/// `mcp_servers.cmux.env.*` overrides that Codex merges into that entry. Codex passes a stdio
+/// on, the HTTP rule, or a chat started from another machine): `{"cmux": {command, args, env:
+/// {CMUX_AGENT_SESSION, CMUX_AGENT_TOOLS_ANSWER}}}`, which cmux-codex-acp
+/// (`_meta.cmux.mcpServerEntry`) sends as `mcp_servers.cmux.{command,args,env.*}` overrides. The
+/// command and args are exactly the ones Codex itself loads for the launch
+/// ([`persons_cmux_entry`]), so it is the same entry with the keys added. Codex passes a stdio
 /// server only its own env and an allowlist, so without them the entry's `cmux mcp serve` cannot
 /// tell it runs in a chat, and counts as a caller outside cmux (cmux-tui `cli/mcp.rs`
-/// `refusal`). The answer is `off` for a session cut off from cmux's tools,
-/// else the session's own (a chat another Mac started, `TOOLS_ANSWER_ENV`),
-/// else this machine's. The pool key carries it (`hub/pool` `tool_servers`). `None` where no such entry surely loads
-/// ([`crate::codex_cmux_entry::stdio_cmux_entry`]): keys with no entry to merge into would be a
-/// server with no command, which Codex refuses.
+/// `refusal`). The answer is `off` for a session cut off from cmux's tools, else the session's
+/// own (a chat another Mac started, `TOOLS_ANSWER_ENV`), else this machine's. The pool key
+/// carries it (`hub/pool` `tool_servers`). `None` unless Codex answers a stdio entry (none, HTTP,
+/// an error or no answer in time: nothing is sent).
 pub fn person_entry_env(
     servers: &Value,
     launch: CodexLaunch<'_>,
@@ -559,11 +560,11 @@ pub fn person_entry_env(
     if gives_cmux {
         return None;
     }
-    let effective = crate::login_env::effective_for(Some("codex"), env);
-    let getenv = |key: &str| effective.get(key).map(std::ffi::OsString::from);
-    let args: Vec<std::ffi::OsString> =
-        launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect();
-    let entry = crate::codex_cmux_entry::stdio_cmux_entry(&args, launch.cwd, &getenv)?;
+    let crate::codex_cmux_entry::CmuxEntry::Stdio { command, args } =
+        persons_cmux_entry(launch, env)
+    else {
+        return None;
+    };
     // A session cut off from cmux's tools gets the off server from the person's entry too.
     let answer = match env.get(TOOLS_ANSWER_ENV).map(String::as_str) {
         _ if cut_off(env) => "off",
@@ -572,17 +573,73 @@ pub fn person_entry_env(
         None if agents_get_cmux(crate::user_settings::text().as_deref()) => "on",
         None => "off",
     };
-    // Whole: the entry's own command and args with the keys, so a wrong guess that it loads still
-    // gives Codex a stdio server, never env keys with no command (`codex_cmux_entry`).
-    let mut whole = json!({
-        "command": entry.command,
+    // The entry Codex loads, as Codex itself gives it, with the keys: the same entry, never env
+    // keys with no command (`codex_cmux_entry`).
+    Some(json!({CMUX_SERVER: {
+        "command": command,
+        "args": args,
         "env": {AGENT_SESSION_ENV: session_id, TOOLS_ANSWER_ENV: answer},
-    });
-    if let Some(args) = entry.args {
-        whole["args"] = json!(args);
-    }
-    Some(json!({CMUX_SERVER: whole}))
+    }}))
 }
+
+/// The person's own `cmux` entry for a Codex chat's `launch`, as Codex itself answers it
+/// (`codex_cmux_entry::resolve`): the launch's program (the profile's `CODEX_PATH`, else its argv's
+/// program), its config options, the chat's folder and the Codex child's environment
+/// (`login_env::effective_for`). Only for a `codex ... app-server` launch; another program (an ACP
+/// adapter) is no answer. One chat start asks several times (its tool rows, its pool key, its
+/// `session/new`), so an answer is kept for [`RESOLVED_FOR`]; how long Codex took is logged.
+pub fn persons_cmux_entry(
+    launch: CodexLaunch<'_>,
+    env: &BTreeMap<String, String>,
+) -> crate::codex_cmux_entry::CmuxEntry {
+    use crate::codex_cmux_entry::CmuxEntry;
+    if !crate::codex_app_server::is_profile_launch(launch.argv) {
+        return CmuxEntry::Unknown;
+    }
+    let effective = crate::login_env::effective_for(Some("codex"), env);
+    let program = effective
+        .get("CODEX_PATH")
+        .filter(|p| !p.is_empty())
+        .cloned()
+        .or_else(|| launch.argv.first().cloned())
+        .unwrap_or_default();
+    let args: Vec<std::ffi::OsString> =
+        launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect();
+    let child_env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
+        effective.iter().map(|(k, v)| (k.into(), v.into())).collect();
+    let key = format!("{program}\0{:?}\0{}\0{:?}", launch.argv, launch.cwd.display(), effective);
+    static ANSWERS: std::sync::Mutex<Vec<(String, std::time::Instant, CmuxEntry)>> =
+        std::sync::Mutex::new(Vec::new());
+    let mut answers = ANSWERS.lock().unwrap_or_else(|e| e.into_inner());
+    // Unit tests change a fake Codex's answer between asks: they read it each time.
+    let keep = if cfg!(test) { std::time::Duration::ZERO } else { RESOLVED_FOR };
+    answers.retain(|(_, at, _)| at.elapsed() < keep);
+    if let Some((_, _, entry)) = answers.iter().find(|(k, _, _)| *k == key) {
+        return entry.clone();
+    }
+    drop(answers);
+    let (entry, took) = crate::codex_cmux_entry::resolve(
+        std::path::Path::new(&program),
+        &args,
+        launch.cwd,
+        &child_env,
+    );
+    tracing::info!(
+        target: "acpmux::codex_cmux_entry",
+        ms = took.as_millis() as u64,
+        entry = ?entry,
+        "codex mcp get cmux"
+    );
+    ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).push((
+        key,
+        std::time::Instant::now(),
+        entry.clone(),
+    ));
+    entry
+}
+
+/// How long [`persons_cmux_entry`] keeps an answer: one chat start's several asks.
+pub const RESOLVED_FOR: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Whether a session whose profile, preset and session env is `env` is cut off from cmux's
 /// tools: `ACPMUX_AGENT_TOOLS=0` ([`SWITCH_ENV`]), or a server list ([`SERVERS_ENV`]) that leaves
@@ -1080,23 +1137,16 @@ impl AgentTools {
         self
     }
 
-    /// Without the `cmux` server for a Codex chat whose config holds the person's own HTTP server
-    /// named `cmux` (`codex_cmux_entry`, the rule the `codex` terminal shim follows): in a config
-    /// layer for its folder, or in its profile's own arguments (`-c mcp_servers.cmux.url=…`,
-    /// `--profile`, `-C`; `launch.argv`). Codex would refuse the merged entry and the chat would
-    /// not start. The person's server keeps the name; the session's other servers stay,
-    /// standalone. `CODEX_HOME` and `HOME` are the ones the Codex child gets: this daemon's, the
-    /// login shell's over them, then the session's `env` (`login_env::effective_for`).
+    /// Without the `cmux` server for a Codex chat whose person's own server named `cmux` is HTTP,
+    /// as Codex itself answers for the launch ([`persons_cmux_entry`], the rule the `codex`
+    /// terminal shim follows): Codex would refuse the merged entry and the chat would not start.
+    /// The person's server keeps the name; the session's other servers stay, standalone.
     pub fn without_cmux_beside_an_http_entry(
         mut self,
         launch: CodexLaunch<'_>,
         env: &BTreeMap<String, String>,
     ) -> Self {
-        let effective = crate::login_env::effective_for(Some("codex"), env);
-        let getenv = |key: &str| effective.get(key).map(std::ffi::OsString::from);
-        let args: Vec<std::ffi::OsString> =
-            launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect();
-        if crate::codex_cmux_entry::http_cmux_entry(&args, launch.cwd, &getenv) {
+        if persons_cmux_entry(launch, env).is_http() {
             self.servers.retain(|s| s.name != CMUX_SERVER);
         }
         self
@@ -1393,3 +1443,9 @@ fn home_env() -> String {
 #[cfg(all(test, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;
+
+/// The fake Codex resolver other unit tests use (`agent_tools_tests.rs`).
+#[cfg(all(test, unix))]
+pub(crate) mod tests_support {
+    pub(crate) use super::tests::{codex_answers, fake_codex};
+}

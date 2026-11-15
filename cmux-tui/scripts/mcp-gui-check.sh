@@ -36,6 +36,8 @@
 #      chat no `cmux`, Codex starts the person's entry, and cmux tells it the
 #      chat's CMUX_AGENT_SESSION and CMUX_AGENT_TOOLS_ANSWER=off: it is the
 #      off server;
+#  11. the daemon's question to Codex (`codex mcp get cmux`) per Codex chat
+#      start, from its log: each under 2 s;
 #  10. the same off with "mcp": {"enabled": true}, and the person's own stdio
 #      `cmux` entry in Claude Code's user config: a real Claude chat starts it
 #      with the chat's CMUX_AGENT_SESSION, and it is the off server, as a
@@ -454,5 +456,10 @@ assert len(tools) == 1 and "agents.cmuxMcp on --confirm" in text, (tools, text)
 PY
 check "agents.cmuxMcp off: the old entry's cmux mcp serve, started for an agent chat, is the off server" $?
 rm -f "$CLAUDE_CONFIG_DIR/.claude.json"
+# The daemon's question to Codex per Codex chat start (`codex mcp get cmux`, logged with its time).
+times=$(cat "$D"/daemon*.log 2>/dev/null | grep 'codex mcp get cmux' | sed -n 's/.*ms=\([0-9]*\).*/\1/p' | tr '\n' ' ')
+slow=1; [ -n "$times" ] && slow=0
+for ms in $times; do [ "$ms" -lt 2000 ] || slow=1; done
+check "codex mcp get per Codex chat start (ms): ${times:-none logged}" $slow
 echo "scratch: $D"
 exit $failed

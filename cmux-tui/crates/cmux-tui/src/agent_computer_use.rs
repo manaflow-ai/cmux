@@ -35,10 +35,10 @@
 //!   `environment_id` (which sends the server to a remote executor),
 //!   `required` and `scopes`. The acpmux guest mode a `cmux acp desktop
 //!   link` entry carries in its env is sent empty (`cmux_server`). A
-//!   person's own HTTP server named `cmux` (`url` or another HTTP-only
-//!   field) cannot merge: Codex refuses a command with a url, so there the
-//!   shim passes no server and the person's keeps the name
-//!   (acpmux codex_cmux_entry.rs). An agent chat's Codex follows the same
+//!   person's own HTTP server named `cmux`, as the launch's Codex itself
+//!   answers (`codex mcp get cmux --json`; acpmux codex_cmux_entry.rs),
+//!   cannot merge: Codex refuses a command with a url, so there the shim
+//!   passes no server and the person's keeps the name. An agent chat's Codex follows the same
 //!   rule (acpmux agent_tools.rs `acp_servers_for`).
 //!
 //! In a cmux terminal, with the person's yes to cmux's tools in agents
