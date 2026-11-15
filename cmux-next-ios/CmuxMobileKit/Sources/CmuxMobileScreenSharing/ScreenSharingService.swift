@@ -330,8 +330,8 @@ public final class ScreenSharingService {
     /// A tap on a Mac in the list: connect, or say in the alert why it can't be shared.
     public func select(_ mac: HubDevice, scope: SessionScope? = nil) {
         let scope = scope ?? preferences.defaultScope
-        if discovery == .finding {
-            // A Mac from the last read list: its state may be old, so the tap waits for this list.
+        if discovery == .finding, preferences.lastMacs(for: configuration.accountID).contains(where: { $0.id == mac.id }) {
+            // A Mac drawn from the last read list: its state may be old, so the tap waits for this list.
             pendingSelection = PendingSelection(hostID: mac.id, hostName: mac.name, scope: scope)
             return
         }
