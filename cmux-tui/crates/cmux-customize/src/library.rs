@@ -47,10 +47,14 @@ use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod code;
+pub mod overlay;
+pub mod recover;
 mod text;
 
 use code::WebTarget;
 pub use code::{CodeLayer, WEB_KEY, WebBase};
+pub use overlay::Overlay;
+pub use recover::{ActiveLayer, Layers, Recovered};
 pub use text::thumbnail;
 use text::{one_line, redact_serde, slug, unique_name};
 

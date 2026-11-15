@@ -249,6 +249,16 @@
         "Packages/macOS/CmuxNext/Sources/**/*.swift",
         "webviews/src/**"
       ]
+    },
+    {
+      "path": ".github/review-bot-rules/pressed-state.md",
+      "description": "Source-of-truth cmux review rule: a pressed button changes only its background fill (no bold, size, scale, opacity or icon change).",
+      "scope": [
+        "Packages/macOS/CmuxNext/Sources/**/*.swift",
+        "cmux-next-ios/**/*.swift",
+        "webviews/src/**",
+        "agent-chat/src/**"
+      ]
     }
   ]
 }

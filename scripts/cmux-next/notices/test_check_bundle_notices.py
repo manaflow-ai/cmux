@@ -227,8 +227,9 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux-diff-sidecar",
         "Contents/Resources/bin/cmux-mobile-host",
         "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
-        # The app binary links CCmuxAppFFI (static Rust, cmux-app-ffi).
-        "Contents/MacOS/cmux",
+        # CCmuxAppFFI (cmux-app-ffi), a dynamic library (Xcode embeds it from the dynamic xcframework).
+        # The app binary links no Rust since then, so it is not here.
+        "Contents/Frameworks/libcmux_app_ffi.dylib",
     )
     ZIG_BINARIES = (
         "Contents/MacOS/cmux",  # GhosttyNextKit (static)

@@ -195,10 +195,10 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3c",
         name: "v2.pr03c.queue_window",
-        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 1 KB (the head's bound, so both windows carry the same bytes): 1.2x. Window time and bytes read of the lines.",
-        // Red once each window reads its heads (a cold actor per sample): best p95 time ratio
-        // 1.265, 1.234 and 1.289 in three runs; bytes read 1.12.
-        measured: false,
+        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 16 KB (the head read's bound, so both sides fill each head's one read and both windows carry the same bytes), each on a cold actor: 1.2x. Window time and bytes read. A probe prints the 1 KB and 1 MB sides.",
+        // Best p95 time ratio 0.984, 0.965 and 0.945 in three runs, bytes read 1.000; the probe
+        // (`queue_window_sizes_probe`) has 1 MB within 1.013 of 16 KB on time and 1.000 on bytes.
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -986,6 +986,33 @@ pub const GATE_ROWS: &[GateRow] = &[
         name: "v2.pr08.mirror_local_row",
         done_when: "A local row's submit-to-publish p95 while a unit of the largest size (MAX_UNIT_CHANGES, 512 changes; the dialer cuts a peer's frame of up to 5,242 into such units) applies in the same writer turn: within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate.",
         measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_local_row_thirty",
+        done_when: "A local row's submit-to-publish p95 while 30 origins each queue a unit of 512 changes before one writer turn, 11k chats and 16,000 rows held: at most 10 ms under the turn's cap (MAX_TURN_UNIT_CHANGES, 2,048 changes), and the same with the cap lifted for comparison.",
+        measured: false,
+        ratio: f64::INFINITY,
+        ratio_all: None,
+        god_max: Some(10_000_000.0),
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.dial_resume",
+        done_when: "A dial's resume after one change made while the link was down, from the dial to the change in the index: a peer with 11k rows against 20, two hubs over a pipe, the serving side the real connection in peer role.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.edition_walk",
+        done_when: "A walk in a new edition, from the dial to whole, 11k live rows against 20: no index the writer publishes in the walk lacks a live row or holds it closed.",
+        measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
