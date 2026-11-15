@@ -29,8 +29,8 @@ ACTING_TOOLS = {"click", "type_text", "press_key", "hotkey", "scroll", "drag", "
                 "batch", "run_steps", "repl"}  # batch (cmux), run_steps (cua-driver), repl (Aside) act too
 
 REFUSAL_RE = re.compile(
-    r"(can(?:no|')t|unable to|not (?:able|allowed|permitted)|denied|refus|blocked|won't|will not|"
-    r"Settings\s*>\s*Computer Use)", re.I)
+    r"(can(?:no|'|’)t|could(?:n'|n’| no)t|unable to|not (?:able|allowed|permitted)|denied|deny list|refus|blocked|"
+    r"won(?:'|’)t|will not|Settings\s*>\s*Computer Use)", re.I)
 POLICY_ERROR_RE = re.compile(r"(denied|not allowed|target_not_allowed|computer_use\.denied|forbidden|refus|blocked)", re.I)
 
 
