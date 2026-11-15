@@ -16,8 +16,9 @@
 //!
 //! Holder to app: `{"reply":id,"ok":true,"value":V}` or
 //! `{"reply":id,"ok":false,"error":code,"message":text}`, and questions
-//! `{"ask":"credential"|"owner"|"live"|"consent"|"local_sign_in"|"device_code","id",...}` the
-//! app answers; `{"cancel_ask":id}` ends one (its prompt closes).
+//! `{"ask":"credential"|"team"|"owner"|"live"|"consent"|"local_sign_in"|"device_code","id",...}` the
+//! app answers (`team`: the cmux team the machine routes act in, `null` for the scope's own);
+//! `{"cancel_ask":id}` ends one (its prompt closes).
 //!
 //! End of input (the app quit or died) detaches: delivered access stays on each machine.
 
@@ -140,6 +141,9 @@ impl Questions for AppQuestions {
     }
     async fn live(&self, machine: &str) -> Result<bool, Error> {
         self.0.flag(&Cx::never(), "live", json!({ "machine": machine })).await
+    }
+    async fn machine_team(&self) -> Option<String> {
+        self.0.ask(&Cx::never(), "team", json!({})).await?.as_str().map(str::to_owned)
     }
 }
 

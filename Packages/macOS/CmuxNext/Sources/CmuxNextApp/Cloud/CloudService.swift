@@ -213,7 +213,7 @@ final class CloudService {
                     guard let link = machines?.session(machineID)?.appLink else { return false }
                     return await link.ownerLink != nil
                 },
-                isLive: { [weak machines] machineID in machines?.session(machineID)?.machine.status.isLive ?? false }))
+                isLive: { [weak machines] machineID in machines?.session(machineID)?.machine.status.isLive ?? false }, machineTeam: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })) // machine routes in the cmux team `machineAPI` sends, never the Stack team
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()), clientVersion: clientVersion,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
             invalidate: { [installIdentity] in await installIdentity.invalidate() })
