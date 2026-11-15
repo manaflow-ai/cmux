@@ -194,10 +194,11 @@ class Scene(bm.Scene):
         """The covered scene: the Person window above every other window (window-server z-order), Person frontmost
         and key. Re-activating an app that is already active does not reorder its windows, so raise the window."""
         ppid = self.person_pid()
-        s = {}
-        for _ in range(30):
-            bm.probe("raise", ppid, "Person")
-            s = bm.probe("state")
+        s = bm.probe("state")
+        for i in range(30):
+            if i:
+                bm.probe("raise", ppid, "Person")
+                s = bm.probe("state")
             z = s.get("zorder") or []
             if z and z[0].get("pid") == ppid and s.get("front_pid") == ppid and s.get("key_window_title") == "Person":
                 return True
