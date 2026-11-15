@@ -4,6 +4,8 @@
 //! the host process or the app that launched it.
 
 pub(crate) mod capture;
+#[cfg(feature = "bench")]
+pub(crate) mod cpu;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
@@ -44,6 +46,8 @@ pub struct MacDesktop {
     encoder: VideoToolbox,
     injector: Injector,
     name: String,
+    #[cfg(feature = "bench")]
+    quality: Option<crate::eval::Quality>,
 }
 
 impl MacDesktop {
@@ -68,7 +72,16 @@ impl MacDesktop {
         let name =
             format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
         let injector = Injector::new(capture.bounds(), (width, height))?;
-        Ok(Self { capture, picked: None, picked_times: None, encoder, injector, name })
+        Ok(Self {
+            capture,
+            picked: None,
+            picked_times: None,
+            encoder,
+            injector,
+            name,
+            #[cfg(feature = "bench")]
+            quality: crate::eval::Quality::from_env(),
+        })
     }
 }
 
@@ -109,7 +122,16 @@ impl Desktop for MacDesktop {
         };
         let hint =
             SurfaceRect { x: damage.x, y: damage.y, width: damage.width, height: damage.height };
-        self.encoder.encode_surface(&picture, hint, force_idr, pts_us, out)
+        let idr = self.encoder.encode_surface(&picture, hint, force_idr, pts_us, out)?;
+        #[cfg(feature = "bench")]
+        if let Some(quality) = self.quality.as_mut() {
+            if quality.wants_source(pts_us as u64, out) {
+                if let Some(pixels) = frame.eval_roi() {
+                    quality.source(pts_us as u64, out, &pixels);
+                }
+            }
+        }
+        Ok(idr)
     }
 
     fn set_bitrate(&mut self, kbps: u32) {

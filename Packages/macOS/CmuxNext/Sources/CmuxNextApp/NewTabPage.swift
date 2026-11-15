@@ -130,7 +130,7 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
     }
@@ -143,7 +143,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
     }
 

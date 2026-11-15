@@ -104,7 +104,7 @@ impl Mux {
         let mut deferred: Vec<(
             crate::terminal_host_runtime::TerminalHostRecord,
             std::path::PathBuf,
-            crate::diagnostics::KeptHostSeat,
+            terminal_host_records::KeptHostHold,
         )> = Vec::new();
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
@@ -380,6 +380,9 @@ impl Mux {
         // without a host-owned record therefore represents a closed crash
         // window, not permission to spawn a replacement shell.
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        // The terminal holder is asked one time, and it gets one deadline
+        // for all its terminals together (mux/holder_adoption.rs).
+        let mut holder_pass = self.holder_pass(&options);
         for terminal in snapshot.terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned
                 || handled_terminals.contains(&terminal.terminal_id)
@@ -391,9 +394,9 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.adopt_from_holder_or_end(&terminal, &options)?;
+            self.adopt_from_holder_or_end(&terminal, &options, &mut holder_pass)?;
         }
-        self.release_unclaimed_holder_terminals(&options);
+        self.finish_holder_pass(holder_pass, &options);
         Ok(())
     }
 
@@ -897,7 +900,7 @@ impl Mux {
             record_path,
             Duration::from_millis(100),
             None,
-            crate::diagnostics::KeptHostSeat::default(),
+            terminal_host_records::KeptHostHold::default(),
         );
     }
 
@@ -914,7 +917,7 @@ impl Mux {
         record_path: std::path::PathBuf,
         first_delay: Duration,
         kitty_expectation: Option<KittyImageAdoptionExpectation>,
-        host_seat: crate::diagnostics::KeptHostSeat,
+        host_seat: terminal_host_records::KeptHostHold,
     ) {
         let terminal_id = record.terminal_id.clone();
         if !self.terminal_adoptions.lock().unwrap().insert(terminal_id.clone()) {

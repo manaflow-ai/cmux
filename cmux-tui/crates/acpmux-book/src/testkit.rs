@@ -65,6 +65,46 @@ pub(crate) fn folded_book(path: &Path, rows: u64) -> (Log, crate::folds::Folds) 
     (log, folds)
 }
 
+/// Rows per turn of [`folded_turns`]: the group, two hidden rows, the visible reply.
+pub(crate) const TURN_ROWS: u64 = 4;
+/// The text of a [`folded_turns`] reply row.
+pub(crate) const REPLY: &[u8] = br#"{"body":{"md":["the reply"]}}"#;
+
+/// The group row of turn `turn` in [`folded_turns`].
+pub(crate) fn turn_group(turn: u64) -> u64 {
+    turn * TURN_ROWS + 1
+}
+
+/// The group text of turn `turn` in [`folded_turns`]: its `out` names the reply row.
+pub(crate) fn turn_group_text(turn: u64) -> Vec<u8> {
+    let reply = turn_group(turn) + TURN_ROWS - 1;
+    format!(r#"{{"body":{{"out":[[{reply},{reply}]]}}}}"#).into_bytes()
+}
+
+/// A settled book of closed folded turns `first..first + turns`, in row order: each turn is
+/// a group row, two hidden rows and a visible reply row named by the group's `out`, and one
+/// `folds.idx` entry. Turn numbers fix the row ids and texts, so two books that end at the
+/// same turn have the same last turns, row for row, whatever number of turns comes before.
+pub(crate) fn folded_turns(path: &Path, first: u64, turns: u64) -> (Log, crate::folds::Folds) {
+    let (mut log, _) = Log::open(path, Options::default()).expect("the folded book opens");
+    // A raw range on every row spares an fsync per append, as a translated book does.
+    let raw_file = log.append_raw_file(b"fixture/folded-turns.ndjson").expect("raw source");
+    let mut folds = crate::folds::Folds::open(&path.join("folds.idx"), 0).expect("fold index");
+    for turn in first..first + turns {
+        let group = turn_group(turn);
+        let group_text = turn_group_text(turn);
+        let texts: [&[u8]; 4] = [&group_text, b"{}", b"{}", REPLY];
+        for (id, text) in (group..).zip(texts) {
+            log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, text)
+                .expect("the turn's row appends");
+        }
+        folds.append(group, group + TURN_ROWS - 1).expect("the turn's fold appends");
+    }
+    log.sync().expect("the turns sync");
+    folds.sync().expect("the folds sync");
+    (log, folds)
+}
+
 pub(crate) struct BlobFixture {
     pub(crate) log: Log,
     pub(crate) blobs: Blobs,

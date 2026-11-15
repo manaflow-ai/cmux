@@ -42,7 +42,7 @@ public final class AgentChatSurface {
         heldChangePending = true
         onHeldChange?()
     }
-    var attachments: [AgentAttachment] = []
+    public var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the
     /// binding, and an unconditional invalidation there can feed back into
@@ -587,8 +587,9 @@ struct AgentChatEmptyState: View {
     let store: AgentChatStore
 
     var body: some View {
-        if store.isLoadingHistory, !store.hasTurns {
-            // An existing chat whose history is on its way: never the new-chat prompt.
+        if store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt {
+            // An existing chat whose history is on its way, or a new one whose first message
+            // (New Task's) is on its way: never the new-chat prompt.
             AgentChatLoadingState(store: store)
         } else if store.isNewChat {
             VStack(spacing: 12) {
@@ -610,12 +611,12 @@ struct AgentChatEmptyState: View {
 struct AgentChatLoadingState: View {
     let store: AgentChatStore
 
+    static func text(_ store: AgentChatStore) -> String { store.loadingText }
+
     var body: some View {
         VStack(spacing: 12) {
             CmuxSpinner()
-            Text(store.summary.status == .disconnected
-                 ? "Connecting to \(store.summary.macName)…"
-                 : "Loading chat…")
+            Text(Self.text(store))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -678,7 +679,7 @@ struct AgentChatJumpButton: View {
                         }
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
@@ -729,7 +730,7 @@ public struct AgentChatBottomStack: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .glassEffect(.regular, in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")

@@ -47,11 +47,25 @@ final class ComposerGrowUpUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
         field.typeText("one")
         let oneLine = field.frame
+        if name == "terminal" {
+            // The text view runs the field's whole height (user report
+            // 2026-11-13: a scrolled draft was cut 6 pt inside the glass):
+            // one line is the field's 40 pt.
+            XCTAssertEqual(oneLine.height, 40, accuracy: 1, "terminal: the text view is the field's full height")
+        }
+        // The send circle rides the last line: its distance from the field's
+        // bottom never changes as the field grows. (Its accessibility frame is
+        // not the drawn circle, so the distance is compared, not a fixed 6 pt.)
+        let sendGap = name == "terminal" ? oneLine.maxY - app.buttons["terminal.composer.send"].firstMatch.frame.maxY : 0
         attach(app, "\(name)-1-line")
         var frames: [Int: CGRect] = [1: oneLine]
         for count in 2...9 {
             field.typeText("\n\(Self.line)")
             frames[count] = field.frame
+            if name == "terminal" {
+                let send = app.buttons["terminal.composer.send"].firstMatch.frame
+                XCTAssertEqual(field.frame.maxY - send.maxY, sendGap, accuracy: 1, "terminal: the send circle keeps its place on the last line at \(count) lines")
+            }
             if [3, 6, 9].contains(count) { attach(app, "\(name)-\(count)-lines") }
         }
         // A keystroke on the last line, as in the report ("when i y").
@@ -62,9 +76,11 @@ final class ComposerGrowUpUITests: XCTestCase {
             print("composer-grow \(name) lines=\(count) frame=\(frame)")
             XCTAssertEqual(frame.maxY, oneLine.maxY, accuracy: 1, "\(name): the bottom edge stays put at \(count) lines")
         }
-        let nine = try XCTUnwrap(frames[9]), six = try XCTUnwrap(frames[6]), three = try XCTUnwrap(frames[3])
+        // Each typed line after the first wraps to two, so eight entries are 15
+        // lines: past both maximums (the chat's six, the terminal's 14).
+        let nine = try XCTUnwrap(frames[9]), eight = try XCTUnwrap(frames[8]), three = try XCTUnwrap(frames[3])
         XCTAssertGreaterThan(three.height, oneLine.height, "\(name): grows with its lines")
-        XCTAssertEqual(nine.height, six.height, accuracy: 1, "\(name): stops growing at six lines and scrolls")
+        XCTAssertEqual(nine.height, eight.height, accuracy: 1, "\(name): stops growing at its maximum and scrolls")
         XCTAssertEqual(afterKey.minY, nine.minY, accuracy: 0.5, "\(name): a key on the same line moves nothing")
         XCTAssertEqual(afterKey.height, nine.height, accuracy: 0.5, "\(name): a key on the same line keeps the height")
     }

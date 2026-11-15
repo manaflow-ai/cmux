@@ -102,7 +102,9 @@ and repeat until both look right.
 2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`).
 3. Build: `--build CMD` when given; else, with `src/main.ts` and `bun` on PATH, the packer every
    sample uses (`cmux-app-host/tools/pack.ts`, built into the CLI) writes `dist/main.js`; a plain
-   `dist/main.js` needs no build. A build may run 120 s (`--build-timeout SECS` changes it);
+   `dist/main.js` needs no build. `cmux-extension-sdk` resolves to the folder's own copy
+   (`node_modules`, or `tsconfig.json` `paths`) when it has one, else to the SDK built into the
+   CLI, so a folder needs no install. A build may run 120 s (`--build-timeout SECS` changes it);
    past that it and what it started are stopped, and the reload ends at phase build.
 4. The files cmux loads (the manifest and its `files`) are copied into the local apps folder
    cmux watches (`<state>/apps/local/<name>`, which `apps-list` names as `local_dir`). cmux
@@ -115,3 +117,10 @@ leads out of the folder, is refused by name.
 
 `ext dev` refuses a folder in the local apps folder that it did not make, and an id that is not
 `local/NAME` (`local/customize` is `~/.config/cmux/customize`, which reloads on save already).
+
+An app under its own id (a fork of a first-party app renamed so it does not collide with the
+shipped one, or an extension with a publisher) can run
+from your checkout without `ext dev`: start cmux with `CMUX_APPS_DIRS` naming the folder that holds
+the app's folder. Every `CMUX_APPS_DIRS` folder is watched like the local apps folder, so a save of
+an app there (its built `dist/main.js` or its manifest) reloads it and remounts its open views.
+These apps keep no rollback copy: they are your files.

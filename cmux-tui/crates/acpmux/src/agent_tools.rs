@@ -235,6 +235,13 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
+    // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
+    // docs/design/next-rich-output.md). The deck template is a file the agent copies.
+    ("cmux-rich-output/SKILL.md", include_str!("../skills/cmux-rich-output/SKILL.md")),
+    (
+        "cmux-rich-output/templates/deck.html",
+        include_str!("../skills/cmux-rich-output/templates/deck.html"),
+    ),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
@@ -610,7 +617,9 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
     resolve_gated(inputs, cua_helper::installed, || {
-        crate::cli::cloud_join::require_joined_consent("control").is_ok()
+        computer_use_allowed(crate::cli::cloud_join::local_computer_use_kept, || {
+            crate::cli::cloud_join::require_joined_consent("control").is_ok()
+        })
     })
 }
 
@@ -628,6 +637,14 @@ fn resolve_gated(
         tools.servers.retain(|server| server.name != "cmux-cua");
     }
     tools
+}
+
+/// Whether this daemon's own sessions get computer use (a remote-origin session gets no tools,
+/// [`left_out`]): on a joined machine only with local control consent, unless only signing in
+/// joined it (`kept`), which never takes the Mac's own tools away. `consent` is asked only then:
+/// it records a refusal.
+fn computer_use_allowed(kept: impl FnOnce() -> bool, consent: impl FnOnce() -> bool) -> bool {
+    kept() || consent()
 }
 
 fn resolve_with_cua_helper(

@@ -118,6 +118,10 @@ pub enum PeerCmd {
         /// The platform user id of the account signing out.
         #[arg(long)]
         user_id: String,
+        /// When the app saw the sign-out (Unix ms; default: now). An intent from before that
+        /// account's last sign-in here is stale and not recorded.
+        #[arg(long)]
+        signed_out_at: Option<u64>,
     },
     /// Enroll this machine on the hub as the signed-in person, the way signing in to the cmux
     /// app does: mints a single-use join token with the person's cmux access token, read from
@@ -329,6 +333,24 @@ pub enum VaultCmd {
     /// Remove this machine's vault env values and its vault state. The daemon
     /// pulls again while the vault is shared with this machine.
     Forget,
+    /// Keep a key an agent made on this machine, with no sign-in or click: the
+    /// value comes piped on stdin (never argv) and goes to the Keychain or
+    /// Secret Service only. Agents started from then on get the placeholder
+    /// `cmux-secret://NAME`, which the egress proxy fills only in HTTPS
+    /// requests to the --host patterns. Example:
+    /// `mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com`.
+    Keep {
+        /// The env name agents get, like DEPLOY_TOKEN.
+        name: String,
+        /// Where the key may be sent: a host or `*.domain` (repeatable).
+        #[arg(long = "host", value_name = "H")]
+        hosts: Vec<String>,
+        /// Give agents the value itself instead (weaker: agents can read it).
+        #[arg(long, conflicts_with = "hosts")]
+        env: bool,
+    },
+    /// Remove a kept key (`keep`) from this machine.
+    Drop { name: String },
 }
 
 #[derive(Subcommand)]

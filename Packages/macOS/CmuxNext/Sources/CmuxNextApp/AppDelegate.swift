@@ -16,7 +16,6 @@ import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextWebUpdates
 import CmuxNextPalette
-import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextServer
 import CmuxNextSettings
@@ -118,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // unavailable. Never fall back to classic or pass a stale NEXT
                 // backend to a daemon started from this launch.
                 environment.cloudConfiguration = .unavailable
-                for key in ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND", "CMUX_PLATFORM_ORIGIN"] {
+                for key in LaunchIdentity.cloudSelectionKnobs + ["CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
                 finishLaunching(snapshot)
@@ -334,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
         // Before any page asks: cmux Live off ignores web-dev.json from the first request.
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
+        if LaunchIdentity.ignoresCustomizations(keysHeld: NSEvent.modifierFlags.isSuperset(of: [.option, .shift])) { WebDevOverride.ignoreThisRun() }
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()

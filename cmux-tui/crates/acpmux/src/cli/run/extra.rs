@@ -662,9 +662,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 // one is an error, so callers such as `host setup` see it.
                 Err(e) if start => return Err(e),
                 Err(e) => {
-                    // Why a start would fail, when config.json already says (a network listen
-                    // without its opt-in): the person sees it here, not only in daemon.log.
-                    let refused = crate::daemon::saved_listen_refusal().await;
+                    // Why a start would fail, when config.json already says (the daemon's start
+                    // check): the person sees it here, not only in daemon.log.
+                    let refused = crate::daemon::saved_start_refusal().await;
                     if json_out {
                         let out = match &refused {
                             Some(why) => {
@@ -853,12 +853,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
-        Command::Host(PeerCmd::LeaveIntent { user_id }) => {
-            crate::cli::cloud_join::record_leave_intent(&user_id).await?;
+        Command::Host(PeerCmd::LeaveIntent { user_id, signed_out_at }) => {
+            let recorded =
+                crate::cli::cloud_join::record_leave_intent(&user_id, signed_out_at).await?;
             if json_out {
-                print_json(&json!({ "recorded": true }));
-            } else {
+                print_json(&json!({ "recorded": recorded }));
+            } else if recorded {
                 println!("recorded");
+            } else {
+                println!("not recorded: that account signed in again since");
             }
             Ok(())
         }
@@ -887,6 +890,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             crate::cli::command_host::VaultCmd::Forget => {
                 crate::cli::host_vault::forget_cmd(json_out).await
+            }
+            crate::cli::command_host::VaultCmd::Keep { name, hosts, env } => {
+                crate::cli::host_vault::keep_cmd(name, hosts, env, json_out).await
+            }
+            crate::cli::command_host::VaultCmd::Drop { name } => {
+                crate::cli::host_vault::drop_cmd(name, json_out).await
             }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
