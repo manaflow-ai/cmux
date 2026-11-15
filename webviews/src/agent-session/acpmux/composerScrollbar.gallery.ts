@@ -50,7 +50,13 @@ const snapshot = chat([
   user("Add retries to the fetch helper, with a backoff.", 12),
   assistant("Added `withRetry` to `fetchJson`: three tries with jittered backoff.", 11),
 ]);
-const variant = (name: string, note: string) => ({ note, ready: { draft }, snapshot, play: placement(name) });
+const variant = (name: string, note: string) => ({
+  composerLook: "claude" as const,
+  note,
+  ready: { draft },
+  snapshot,
+  play: placement(name),
+});
 
 export default agentPaneEntry({
   id: "agent-pane.composer-scrollbar",

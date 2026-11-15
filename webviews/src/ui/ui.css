@@ -288,7 +288,7 @@
   min-width: 24px;
   height: 24px;
   padding: 0 6px;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
 }
 
 .ui-toolbar-button:hover:not([data-disabled]) {

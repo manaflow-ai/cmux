@@ -55,6 +55,8 @@ ALLOWED_LISTENERS = {
     "the page hides, so they don't replay on return; reads no data",
     (f"{ACPMUX}/conversation/sendTuck.ts", "visibilitychange"): "ends a send's tuck animation and "
     "removes its copies as the page hides; reads no data",
+    (f"{ACPMUX}/conversation/shimmerCadence.ts", "visibilitychange"): "pauses and restarts decorative "
+    "shimmer timers as the page hides or shows; reads no data",
     (f"{ACPMUX}/chatPerfCapture.ts", "visibilitychange"): "`cmux app chat perf` notes when the "
     "page hid during a capture, only while one runs (removed after); reads no data",
     (f"{ACPMUX}/composerFocus.ts", "focus"): "focus claim when the window is focused (the composer "

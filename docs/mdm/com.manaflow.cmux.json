@@ -277,7 +277,7 @@
       "type" : "boolean"
     },
     "agentPane.display.unreadBanner" : {
-      "default" : "expanded",
+      "default" : "off",
       "description" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
       "enum" : [
         "expanded",
@@ -302,7 +302,7 @@
       "type" : "number"
     },
     "agentPane.editedFiles.maxRows" : {
-      "default" : 5,
+      "default" : 3,
       "description" : "agentPane.editedFiles.maxRows",
       "maximum" : 50,
       "minimum" : 1,
@@ -520,20 +520,6 @@
       "title" : "Your Skills in Every Chat",
       "type" : "boolean"
     },
-    "agents.hiddenChats.discard" : {
-      "default" : false,
-      "description" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
-      "title" : "Release Hidden Agent Chats",
-      "type" : "boolean"
-    },
-    "agents.hiddenChats.discardAfterMinutes" : {
-      "default" : 15,
-      "description" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
-      "maximum" : 1440,
-      "minimum" : 1,
-      "title" : "Release Hidden Chats After",
-      "type" : "number"
-    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
@@ -701,8 +687,8 @@
     "app.uiScale" : {
       "default" : 1,
       "description" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
-      "maximum" : 1.5,
-      "minimum" : 0.85,
+      "maximum" : 5,
+      "minimum" : 0.25,
       "title" : "App Zoom",
       "type" : "number"
     },
@@ -2387,7 +2373,7 @@
     },
     "diagnostics.usagePatterns" : {
       "default" : false,
-      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.",
       "title" : "Record Usage Patterns",
       "type" : "boolean"
     },
@@ -4115,12 +4101,6 @@
       "title" : "Remember Palette Searches",
       "type" : "boolean"
     },
-    "phone.allowConnections" : {
-      "default" : false,
-      "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
-      "title" : "Let Your Phone Use This Mac",
-      "type" : "boolean"
-    },
     "phone.cloudDesktop" : {
       "default" : false,
       "description" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
@@ -4144,12 +4124,6 @@
       "title" : "Keep Mac Awake for Your Phone",
       "type" : "string"
     },
-    "phone.startSessions" : {
-      "default" : true,
-      "description" : "Off, your phone can still follow, type into and answer what's already running.",
-      "title" : "Let Your Phone Start New Workspaces",
-      "type" : "boolean"
-    },
     "picker.pinned" : {
       "default" : [
 
@@ -4167,11 +4141,16 @@
       "title" : "End Sharing When cmux Quits",
       "type" : "boolean"
     },
-    "remote.ultraMode" : {
-      "default" : false,
-      "description" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
+    "remote.ultra" : {
+      "default" : "auto",
+      "description" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection.",
+      "enum" : [
+        "off",
+        "auto",
+        "always"
+      ],
       "title" : "Ultra Connection Mode",
-      "type" : "boolean"
+      "type" : "string"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
@@ -4281,7 +4260,7 @@
     },
     "sidebar.controlsOnHover" : {
       "default" : false,
-      "description" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
+      "description" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on.",
       "title" : "Show Sidebar Controls Only on Hover",
       "type" : "boolean"
     },
@@ -4377,7 +4356,7 @@
       "type" : "string"
     },
     "sidebar.hoverCards.delay" : {
-      "default" : 400,
+      "default" : 1300,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -4391,7 +4370,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.groups.delay" : {
-      "default" : 1500,
+      "default" : 1300,
       "description" : "How long the pointer rests on a group before its summary card opens.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -4512,7 +4491,7 @@
     },
     "sidebar.minimal" : {
       "default" : false,
-      "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+      "description" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.",
       "title" : "Minimal Mode",
       "type" : "boolean"
     },
@@ -5247,6 +5226,11 @@
       "title" : "Native New Tab Page",
       "type" : "boolean"
     },
+    "tabs.newTabApp" : {
+      "description" : "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page.",
+      "title" : "New Tab App",
+      "type" : "string"
+    },
     "tabs.newTabButtonPosition" : {
       "default" : "end",
       "description" : "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).",
@@ -5302,7 +5286,7 @@
     },
     "tabs.plusButton" : {
       "default" : "hover",
-      "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+      "description" : "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows.",
       "enum" : [
         "hover",
         "always"
@@ -5320,7 +5304,7 @@
       "default" : [
 
       ],
-      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
+      "description" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu.",
       "items" : {
         "enum" : [
           "splitRight",
@@ -5753,7 +5737,7 @@
       "type" : "number"
     },
     "workspaces.newPlacement" : {
-      "default" : "afterCurrent",
+      "default" : "top",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",

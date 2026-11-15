@@ -83,43 +83,24 @@ enum KeybindingStrings {
         String(localized: "keybinding.page.title", defaultValue: "Keyboard Shortcuts", table: "Keybindings", bundle: .module)
     }
 
-    static var editingUnsupported: String {
-        String(localized: "keybinding.error.editingUnsupported",
-               defaultValue: "Editing key bindings needs keybindings.json support, which is not ready yet.",
-               table: "Keybindings", bundle: .module)
-    }
+    static var editingUnsupported: String { String(localized: "keybinding.error.editingUnsupported", defaultValue: "Editing key bindings needs keybindings.json support, which is not ready yet.", table: "Keybindings", bundle: .module) }
 
-    static var missingKeys: String {
-        String(localized: "keybinding.error.missingKeys", defaultValue: "keybinding.resolve requires params.keys (for example \"ctrl+k s\").",
-               table: "Keybindings", bundle: .module)
-    }
+    static var missingKeys: String { String(localized: "keybinding.error.missingKeys", defaultValue: "keybinding.resolve requires params.keys (for example \"ctrl+k s\").", table: "Keybindings", bundle: .module) }
 
     static func invalidKeys(_ keys: String) -> String {
         String(format: String(localized: "keybinding.error.invalidKeys", defaultValue: "These keys do not parse: %@",
                               table: "Keybindings", bundle: .module), keys)
     }
 
-    static var needsKeybindingsJSON: String {
-        String(localized: "keybinding.error.needsKeybindingsJSON",
-               defaultValue: "cmux.json holds one shortcut per action, with no When clause or arguments. This change needs keybindings.json, which is not ready yet.",
-               table: "Keybindings", bundle: .module)
-    }
+    static var needsKeybindingsJSON: String { String(localized: "keybinding.error.needsKeybindingsJSON", defaultValue: "cmux.json holds one shortcut per action, with no When clause or arguments. This change needs keybindings.json, which is not ready yet.", table: "Keybindings", bundle: .module) }
 
-    static var familyNeedsDigit: String {
-        String(localized: "keybinding.error.familyNeedsDigit",
-               defaultValue: "A numbered shortcut takes a digit: press 1 with the modifiers you want.",
-               table: "Keybindings", bundle: .module)
-    }
+    static var invalidBinding: String { String(localized: "keybinding.error.invalidBinding", defaultValue: "This shortcut can't be saved. Check its keys and its When clause.", table: "Keybindings", bundle: .module) }
 
-    static var ghosttyReadOnly: String {
-        String(localized: "keybinding.error.ghosttyReadOnly", defaultValue: "This shortcut comes from your Ghostty config. Change it there.",
-               table: "Keybindings", bundle: .module)
-    }
+    static var familyNeedsDigit: String { String(localized: "keybinding.error.familyNeedsDigit", defaultValue: "A numbered shortcut takes a digit: press 1 with the modifiers you want.", table: "Keybindings", bundle: .module) }
 
-    static var atMostTwoKeys: String {
-        String(localized: "keybinding.error.atMostTwoKeys", defaultValue: "cmux.json holds shortcuts of one key or a two-key chord.",
-               table: "Keybindings", bundle: .module)
-    }
+    static var ghosttyReadOnly: String { String(localized: "keybinding.error.ghosttyReadOnly", defaultValue: "This shortcut comes from your Ghostty config. Change it there.", table: "Keybindings", bundle: .module) }
+
+    static var atMostTwoKeys: String { String(localized: "keybinding.error.atMostTwoKeys", defaultValue: "cmux.json holds shortcuts of one key or a two-key chord.", table: "Keybindings", bundle: .module) }
 
     static func unknownCommand(_ id: String) -> String {
         String(format: String(localized: "keybinding.error.unknownCommand", defaultValue: "No action has the id %@.",

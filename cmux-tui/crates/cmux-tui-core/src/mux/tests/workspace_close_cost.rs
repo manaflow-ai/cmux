@@ -189,8 +189,8 @@ pub(super) fn session_in(mux: Arc<Mux>, workspaces: usize) -> Arc<Mux> {
     mux.commit_full_resource_effect_projection(key, operation, &fingerprint, serde_json::json!({}))
         .unwrap();
     assert!(
-        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
-        "the full projection did not seed the fold"
+        mux.workspace_registry.lock().unwrap().public_fold_complete_for_test(),
+        "the full projection did not make the fold complete"
     );
     mux
 }

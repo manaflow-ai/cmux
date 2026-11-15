@@ -13,8 +13,8 @@ import Foundation
 /// git project as the seed's diff, a copied folder as `cmux link sync pull`'s three-way merge
 /// against what the move pushed; the CLI picks), moves the chat from the machine's tab to this Mac in that folder
 /// (`cmux link agent move`; this Mac's daemon takes it under its own guard, never with a VM's
-/// control), and opens it here: a workspace whose terminal runs in the folder and whose chat tab
-/// is bound to the session on this Mac. The machine's tab, whose chat closed, closes only then.
+/// control), and opens it here: a workspace whose only tab is the chat, bound to the session on
+/// this Mac, no terminal beside it. The machine's tab, whose chat closed, closes only then.
 ///
 /// It keeps the move's recovery model: it runs on the machine the chat moved to; a conflict stops
 /// before anything moves and names the files; a run that may not have finished (a thrown CLI, an
@@ -128,7 +128,7 @@ struct CloudBringBack {
         services.cloud.logger.error("cloud bring back failed: \(failure.message, privacy: .public)")
         retries[tabID] = failure.retry
         var retry: (@MainActor () -> Void)?
-        if failure.retry != nil {
+        if failure.retry != nil || (!(error is Failure) && !(error is ActionFailure)) { // an unexpected error (no network) retries too
             let registry = services.registry
             var again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: [:], origin: .user)
             if case .askFirst = failure.retry { again = Self.askFirstInvocation(tab: tabID) }
@@ -280,7 +280,10 @@ struct CloudBringBack {
         services.cloud.accessAsks.chatBroughtBack(machineID: entry.machineID, session: entry.session, services: services)
         services.cloud.accessAsks.start(services: services)
         do {
-            try await CloudMove(services: services).show(session, harness: entry.harness, on: target, in: remote.chat, name: entry.name, key: key ?? session)
+            let shown = CloudMoveRetries.Shown(session: session, harness: entry.harness, machineID: target.machineID, folder: remote.chat,
+                                               name: entry.name, key: key ?? session)
+            try await CloudMove.open(shown, host: AgentTabStore.registryHost(of: target.daemon), hostName: name, on: target.daemon,
+                                     repair: target.emptyWorkspaces, mutation: "cloud-move-", leaving: tab, services: services)
         } catch {
             throw Failure(message: CloudMoveStrings.tabFailed(name, CloudStrings.errorText(error)))
         }
@@ -297,7 +300,8 @@ struct CloudBringBack {
     /// Opens the chat's tab on this Mac, then closes the machine's tab, whose chat closed with the move.
     private func finish(_ shown: CloudMoveRetries.Shown, tab: TabModel) async throws {
         do {
-            try await show(shown)
+            try await CloudMove.open(shown, host: services.agentTabs.localHost, hostName: services.agentTabs.localHostName, on: services.daemon,
+                                     repair: services.emptyWorkspaces, mutation: "cloud-bring-back-", leaving: tab, services: services)
         } catch {
             throw Failure(message: CloudBringBackStrings.tabFailed(CloudStrings.errorText(error)), retry: .show(shown))
         }
@@ -308,25 +312,6 @@ struct CloudBringBack {
             if !daemon.isLocal { try await daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd) }
         } catch {
             services.cloud.logger.error("cloud bring back: closing the machine's tab failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    /// Shows the chat on this Mac: a new workspace with a terminal in its folder, then its tab bound
-    /// to `shown.session` on this Mac, selected. `shown.key` makes the tab's creation idempotent.
-    private func show(_ shown: CloudMoveRetries.Shown) async throws {
-        let daemon = services.daemon, tabs = services.agentTabs
-        guard let connection = daemon.connection, let host = tabs.localHost else { throw DaemonError.notConnected }
-        let record = AgentSessionRef(host: host, hostName: tabs.localHostName, session: shown.session, harness: shown.harness)
-        let workspace = NewWorkspacePlacements.placedKey(in: services.windows) // placed like Cmd-N, not at the daemon's slot
-        let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: shown.name, on: connection, repair: services.emptyWorkspaces) { result in
-            try await connection.createTerminal(in: result.key, cwd: shown.folder)
-            return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
-                                                                          origin: AgentTabStore.createOrigin, mutationID: "cloud-bring-back-" + shown.key))
-        }
-        services.windows.reveal(workspaceID: workspace.rawValue)
-        let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-        if let pane = await daemon.store.firstPane(mirroring: workspace) {
-            for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
         }
     }
 }

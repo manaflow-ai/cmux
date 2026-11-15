@@ -1978,6 +1978,32 @@
      "nullable": false,
      "since": 9
     },
+    "unchanged": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-known-v1",
+     "constraints": [
+      "True when the request's known tree is current: workspaces is then empty, and the client keeps the tree it holds."
+     ]
+    },
+    "tree_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-known-v1",
+     "constraints": [
+      "Opaque revision of everything the tree shows; only in replies to a request with known. Send it back in known."
+     ]
+    },
     "workspaces": {
      "type": {
       "kind": "array",
@@ -1988,6 +2014,82 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-limit-v1",
+     "constraints": [
+      "With limit: the number of workspaces in the session."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ListWorkspacesKnown": {
+   "kind": "object",
+   "fields": {
+    "registry_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "generation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "workspace_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "pane_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "terminal_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "tree_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Opaque; from the tree_revision of the last whole tree."
+     ]
     }
    },
    "additional_properties": false
@@ -2321,6 +2423,24 @@
      "nullable": false,
      "since": 12
     },
+    "machine_device": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "machine_symbol": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
     "machine_capabilities": {
      "type": {
       "kind": "array",
@@ -2333,6 +2453,19 @@
      "nullable": false,
      "default": [],
      "since": 12
+    },
+    "screen_device_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "machine-identity-v1",
+     "constraints": [
+      "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+     ]
     }
    },
    "additional_properties": false
@@ -11276,6 +11409,81 @@
    },
    "additional_properties": false
   },
+  "TerminalCommandContext": {
+   "kind": "object",
+   "fields": {
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "exit_code": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "cwd": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "output": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "text": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalCommandContextIntent": {
+   "kind": "enum",
+   "values": [
+    "context",
+    "fix"
+   ]
+  },
+  "TerminalCommandContextResult": {
+   "kind": "object",
+   "fields": {
+    "context": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalCommandContext"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
   "TerminalLastCommand": {
    "kind": "object",
    "fields": {
@@ -11869,7 +12077,36 @@
    "capability": null,
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "known": {
+      "type": {
+       "kind": "ref",
+       "name": "ListWorkspacesKnown"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "list-workspaces-known-v1",
+      "constraints": [
+       "The identity and revisions of the whole tree the client holds ({} when none). When all are current the result is unchanged: true with empty workspaces; keep the tree you hold. Otherwise the whole tree with its tree_revision."
+      ]
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "list-workspaces-limit-v1",
+      "constraints": [
+       "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+      ]
+     }
+    },
     "additional_properties": false
    },
    "result": {
@@ -13241,6 +13478,43 @@
    "constraints": [
     "The keep flag is stored durably with the terminal and survives owner restarts.",
     "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+   ]
+  },
+  "terminal-command-context": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-command-context-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "intent": {
+      "type": {
+       "kind": "ref",
+       "name": "TerminalCommandContextIntent"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": "context"
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalCommandContextResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Read from the surface's screen when asked; nothing is read per output line and no command history is needed.",
+    "Null without shell integration, on the alternate screen and while a command runs."
    ]
   },
   "set-terminal-tail-pin": {
@@ -18279,6 +18553,26 @@
       "default": null,
       "capability": "attach-replay-history-rows-v1"
      },
+     "replay_history_start": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-replay-history-window-v1"
+     },
+     "output_coalesce_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-output-coalesce-v1"
+     },
      "snapshot": {
       "type": {
        "kind": "scalar",
@@ -18390,7 +18684,10 @@
     "terminal_event": "detached"
    },
    "constraints": [
-    "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted."
+    "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted.",
+    "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
+    "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted.",
+    "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once."
    ]
   },
   "register-browser-provider": {
@@ -30077,6 +30374,15 @@
       "presence": "optional",
       "nullable": false,
       "since": 7
+     },
+     "history_rows_omitted": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "attach-replay-history-window-v1"
      }
     },
     "additional_properties": false,
@@ -30292,6 +30598,41 @@
      }
     },
     "additional_properties": false
+   }
+  },
+  "screen-device-changed": {
+   "since": 12,
+   "capability": "screen-device-identity-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "screen-device-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "screen_device_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The authenticated worker screen UUID, or null when the worker is unavailable."
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Delivered only to authenticated owner app subscribers (local Unix or owner WebSocket); page relays, paired clients, and other remote clients do not receive it.",
+     "The subscription sends one current-value replay before live events. A null replay or event means the worker has no available screen identity."
+    ]
    }
   },
   "selection-changed": {
@@ -31168,6 +31509,15 @@
       "presence": "optional",
       "nullable": false,
       "capability": "attach-replay-history-rows-v1"
+     },
+     "history_rows_skipped": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "attach-replay-history-window-v1"
      }
     },
     "additional_properties": false

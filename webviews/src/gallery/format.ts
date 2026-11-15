@@ -42,6 +42,7 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
+  KeysState,
   SharesState,
   TailnetState,
 } from "../pages/settings/ops";
@@ -65,6 +66,8 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Settings > Keys fixture state (requests and keys); default the mock's. */
+  keys?: KeysState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
@@ -195,6 +198,8 @@ type VariantBase = {
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
 export type AgentPaneVariant = VariantBase & {
+  /** The composer's initial look, before the pane mounts; absent uses the app's default. */
+  composerLook?: import("../agent-session/acpmux/composerLook").ComposerLook;
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
   /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug
@@ -391,6 +396,8 @@ export type IconPickerPageVariant = VariantBase & {
   /** Saved picker prefs (Frequently Used, skin tone, symbol rendering) the host loads. */
   prefs?: unknown;
   assetState?: "loading" | "error";
+  /** The host refuses the pick (`finish` rejects): the picker stays open and says so. */
+  finishState?: "refused";
   query?: string;
   active?: number;
   mode?: "normal" | "empty";

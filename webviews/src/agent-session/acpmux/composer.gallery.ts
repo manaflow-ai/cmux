@@ -20,6 +20,8 @@ import type { MarkdownFieldElement } from "./MarkdownField";
 import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
+import { extensionCommandsFrom } from "./composer/extensionCommands";
+import { MOCK_COMPOSER_COMMANDS } from "../../apps/scene/panelsMock";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
 import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
@@ -986,6 +988,7 @@ export default agentPaneEntry({
       },
     },
     "quiet-chips": {
+      composerLook: "claude",
       note: "Every footer button at rest: +, the one model button (model and effort) and the mode, with Fast mode on and no bolt. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
       snapshot: quietChips(),
     },
@@ -1957,17 +1960,20 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
+      note: "A prompt typed while the turn runs: Stop's slot turns into the one Send (after the mic in Codex, ↵ before it in Claude), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
-          return (
-            sends.length === 1 &&
-            sends[0]!.getAttribute("title") === "↵ steer · ⌘↵ queue" &&
-            ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
-          );
+          const send = sends[0];
+          const mic = ctx.document.querySelector(".acpmux-composer-actions .acpmux-fit-mic");
+          if (sends.length !== 1 || !send || !mic || send.getAttribute("title") !== "↵ steer · ⌘↵ queue") return false;
+          const sendBox = send.getBoundingClientRect();
+          const micBox = mic.getBoundingClientRect();
+          return ctx.document.querySelector('[data-composer-look="codex"]')
+            ? sendBox.left >= micBox.right
+            : sendBox.right <= micBox.left;
         });
       },
     },
@@ -2473,6 +2479,7 @@ export default agentPaneEntry({
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
     // host (macOS screencapture's own region or window pick) and attach it as an image chip.
     "attach-screenshot": {
+      composerLook: "claude",
       note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns and puts focus back in the prompt.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
@@ -2752,6 +2759,48 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
+    // Extension slash commands (cmux.composer.command/1): the daemon lists them (apps.composer.list),
+    // composer/extensionCommands.ts reads its answer, and they sit in the same menu as the agent's,
+    // labelled with the extension's name. Picking one writes its text over the typed /word.
+    "slash-menu-extension-command": {
+      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup, and picking it writes the extension's text in the prompt.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+          ...extensionCommandsFrom({ commands: MOCK_COMPOSER_COMMANDS }),
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.click(prompt);
+        await ctx.type("/st");
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu .acpmux-slash-source")].some(
+            (label) => label.textContent?.trim() === "Standup",
+          ),
+        );
+      },
+    },
+    "slash-menu-extension-command-picked": {
+      note: "Play: pick the extension's /standup with Enter; the prompt holds the extension's text, not /standup.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          ...extensionCommandsFrom({ commands: MOCK_COMPOSER_COMMANDS }),
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.click(prompt);
+        await ctx.type("/standup");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).textContent?.includes("Write my standup") === true);
+        if (ctx.find(prompt).textContent?.includes("/standup"))
+          throw new Error("the extension command's pick left /standup in the prompt");
       },
     },
     "slash-menu-keyboard": {

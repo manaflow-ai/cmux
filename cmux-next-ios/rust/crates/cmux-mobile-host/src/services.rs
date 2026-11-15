@@ -128,6 +128,8 @@ pub async fn serve(
             crate::machine::serve(&sender, &name, &grants).await
         }
         "needs-you" => crate::needs_you::serve(&sender, receiver).await,
+        "appearance" => crate::appearance::serve(&sender, receiver).await,
+        "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
@@ -202,13 +204,16 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
 /// reaches a port on this Mac's loopback).
 /// `needs-you-v1`: the `needs-you` service (the Mac app's own open Feed requests, `needs_you.rs`).
-pub const CAPABILITIES: [&str; 6] = [
+/// `appearance-v1`: the `appearance` and `appearance-wallpaper` services (the Mac's theme and
+/// wallpaper, `appearance.rs`).
+pub const CAPABILITIES: [&str; 7] = [
     "removal-v1",
     "file-preview-v1",
     "localhost-forward-v1",
     "cloud-directory-v1",
     "cloud-acpmux-v1",
     "needs-you-v1",
+    "appearance-v1",
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
@@ -2180,7 +2185,8 @@ mod tests {
                 "localhost-forward-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
-                "needs-you-v1"
+                "needs-you-v1",
+                "appearance-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2196,6 +2202,7 @@ mod tests {
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",
+                "appearance-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

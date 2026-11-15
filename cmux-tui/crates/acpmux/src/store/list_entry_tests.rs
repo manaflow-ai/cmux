@@ -50,6 +50,28 @@ fn a_chat_folder_the_store_refuses_hides_only_that_chat() {
     assert_eq!(unlisted, ["linked", "loose-mode", "not-utf8"], "a refused chat counts as unread");
 }
 
+#[test]
+fn a_chat_entry_stat_error_hides_only_that_chat() {
+    for code in [libc::EIO, libc::ESTALE] {
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join("sessions");
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        for id in ["good-1", "good-2", "stat-error"] {
+            store.save(&meta(id)).unwrap();
+        }
+        let guard =
+            crate::config::startup_seams::on_entry_stat_error(&root.join("stat-error"), code);
+        let mut ids: Vec<_> = store.list().unwrap().into_iter().map(|meta| meta.id).collect();
+        ids.sort();
+        assert_eq!(ids, ["good-1", "good-2"]);
+        assert_eq!(store.unlisted(), ["stat-error"]);
+
+        drop(guard);
+        assert_eq!(store.list().unwrap().len(), 3);
+        assert!(store.unlisted().is_empty());
+    }
+}
+
 /// A sessions folder that exists and cannot be read is a failed list, never an empty one: an
 /// empty list proves every chat gone, and the start's adoption ends the agents of chats it
 /// does not know (`hub/hosts.rs` `purged_at_start`).
@@ -107,4 +129,100 @@ fn a_chat_stored_with_the_old_agent_keys_still_reads_and_does_not_block_a_purge(
     let listed = store.list().unwrap_or_else(|e| panic!("list: {e:#}"));
     assert!(listed.iter().any(|m| m.id == "old-agent"), "the old chat is listed");
     assert!(store.unlisted().is_empty(), "no chat is left out: {:?}", store.unlisted());
+}
+
+/// Ancestor checks belong to the store pass, not to each chat or its events folder.
+#[test]
+fn listing_chats_checks_store_ancestors_once() {
+    for n in [1, 64] {
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join("sessions");
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        for i in 0..n {
+            let id = format!("chat-{i}");
+            let dir = root.join(&id);
+            std::fs::create_dir_all(dir.join("events")).unwrap();
+            std::fs::write(dir.join("session.json"), serde_json::to_vec(&meta(&id)).unwrap())
+                .unwrap();
+        }
+        let checks = crate::config::startup_seams::Count::ancestors(&root);
+        assert_eq!(store.list().unwrap().len(), n);
+        assert_eq!(checks.get(), 1, "{n} chats repeated the store's ancestor walk");
+        assert!(store.unlisted().is_empty());
+    }
+}
+
+/// A held store and chat keep their original files when their names are replaced.
+#[test]
+fn a_held_store_reads_the_checked_folders_after_their_names_are_swapped() {
+    use std::ffi::OsStr;
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("sessions");
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    let mut original = meta("chat");
+    original.available_commands = Some(json!([{"name": "original"}]));
+    store.save(&original).unwrap();
+    let held = crate::home_fs::PrivateDir::open(&root).unwrap();
+    let entries = held.names().unwrap();
+    let moved = home.path().join("moved-store");
+    std::fs::rename(&root, &moved).unwrap();
+    let replacement = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    let mut other = meta("chat");
+    other.name = "replacement".into();
+    other.available_commands = Some(json!([{"name": "replacement"}]));
+    replacement.save(&other).unwrap();
+    let entry = entries.iter().find(|name| name.as_os_str() == OsStr::new("chat")).unwrap();
+    assert_eq!(store.list_entry(&held, entry).unwrap(), Some(original.clone()));
+
+    let chat = store.validate_session_dir(&held, OsStr::new("chat")).unwrap();
+    std::fs::rename(moved.join("chat"), moved.join("old-chat")).unwrap();
+    std::os::unix::fs::symlink(root.join("chat"), moved.join("chat")).unwrap();
+    let mut text = String::new();
+    chat.private_file(OsStr::new("session.json")).unwrap().read_to_string(&mut text).unwrap();
+    let mut loaded: SessionMeta = serde_json::from_str(&text).unwrap();
+    store.parts.merge_held(&chat, text.as_bytes(), &mut loaded);
+    assert_eq!(loaded, original);
+    assert!(store.validate_session_dir(&held, OsStr::new("chat")).is_err());
+}
+
+/// A child replaced during its permission check is refused, even by another real folder.
+#[test]
+fn a_chat_swapped_during_its_private_check_is_refused() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("sessions");
+    let store = LocalStore::new(root, 64 * 1024).unwrap();
+    store.save(&meta("chat")).unwrap();
+    let session = store.dir("chat");
+    let moved = home.path().join("moved");
+    let _guard = crate::config::startup_seams::on_dir_checked(move |path| {
+        if path == session.as_path() {
+            std::fs::rename(path, &moved).unwrap();
+            std::fs::create_dir(path).unwrap();
+        }
+    });
+    let error = store.load("chat").unwrap_err();
+    assert!(error.to_string().contains("changed while"), "{error:#}");
+}
+
+#[test]
+fn a_held_store_accepts_only_one_plain_child_name() {
+    use std::ffi::OsStr;
+    let home = tempfile::tempdir().unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
+    store.save(&meta("chat")).unwrap();
+    let held = crate::home_fs::PrivateDir::open(&store.root).unwrap();
+    for name in [".", "..", "chat/.", "chat/", "chat/events", "/tmp"] {
+        assert!(held.child(OsStr::new(name)).is_err(), "accepted {name}");
+        assert!(held.private_file(OsStr::new(name)).is_err(), "accepted {name}");
+    }
+}
+
+/// A read that fails after yielding names is still an error, never a partial or empty list.
+#[test]
+fn a_directory_read_error_does_not_return_a_partial_chat_list() {
+    let home = tempfile::tempdir().unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
+    store.save(&meta("chat")).unwrap();
+    let _guard = crate::config::startup_seams::on_directory_read_error(std::io::ErrorKind::Other);
+    assert!(store.list().is_err());
 }

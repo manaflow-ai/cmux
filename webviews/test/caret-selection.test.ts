@@ -43,6 +43,8 @@ const markdownDefaults = fs.readFileSync(path.join(SRC, "pages/markdown/settings
 describe("carets and selections follow the Ghostty config", () => {
   test("every caret reads the cursor color", () => {
     const wrong = declarations("caret-color")
+      // `!important` ranks a declaration; it does not change the color it names.
+      .map((found) => ({ ...found, value: found.value.replace(/\s*!important$/, "") }))
       .filter(({ value, line }) => value !== "transparent" && !/caret-color:\s*\S/.test(line.replace(/^[^/]*/, "")))
       .filter(({ value }) => !value.includes("--cmux-caret") && value !== "var(--cmux-md-caret-color)")
       .map(({ at, value }) => `${at} ${value}`);

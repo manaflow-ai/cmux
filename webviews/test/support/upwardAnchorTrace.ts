@@ -63,7 +63,14 @@ export async function traceUpwardAnchors({
     const kind = [...row.classList].find((name) => name.startsWith("acpmux-") && !name.startsWith("acpmux-row"));
     // A turn's "Worked for" line, as every family folds a turn under it now (Codex parity): the room
     // under its rule is its own, so no gap follows it (transcriptGrid.ts MARK_WORKED, #37727).
-    if (kind === "acpmux-worked") return transcriptMark.worked;
+    if (kind === "acpmux-worked" || (kind === "acpmux-working" && !row.classList.contains("acpmux-row--below")))
+      return transcriptMark.worked;
+    // A live footer after work uses the run gap, even though it shares the compact step height.
+    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine") {
+      if (row.classList.contains("acpmux-row--after-step")) return transcriptMark.indicator;
+      if (row.classList.contains("acpmux-row--below")) return transcriptMark.footerSlot;
+      return kind === "acpmux-activityLine" ? transcriptMark.step : transcriptMark.indicator;
+    }
     // An edited-files card (VirtualTranscript rowKind "editedFiles"; transcriptGrid.ts MARK_CARD): the
     // run gap from the one-line rows and prose around it, a step row toward a footer or a prompt.
     if (kind === "acpmux-editedFiles") return transcriptMark.card;
@@ -90,8 +97,6 @@ export async function traceUpwardAnchors({
         ? transcriptMark.other
         : transcriptMark.prompt;
     if (kind === "acpmux-assistant") return transcriptMark.message;
-    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine")
-      return row.classList.contains("acpmux-row--below") ? transcriptMark.footerSlot : transcriptMark.indicator;
     if (kind === "acpmux-turnSummary")
       return row.querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")
         ? transcriptMark.footerRow
@@ -127,11 +132,9 @@ export async function traceUpwardAnchors({
     if ((next === transcriptMark.indicator || next === transcriptMark.footerSlot) && previous === transcriptMark.prompt)
       return block;
     if (previous === transcriptMark.prompt || next === transcriptMark.prompt) return turn;
-    if (
-      previous === transcriptMark.step &&
-      (next === transcriptMark.step || next === transcriptMark.indicator || next === transcriptMark.footerSlot)
-    )
-      return 0;
+    if (previous === transcriptMark.step && next === transcriptMark.step) return 0;
+    if (previous === transcriptMark.step && (next === transcriptMark.indicator || next === transcriptMark.footerSlot))
+      return run;
     // A run of steps or a status line and the reply's prose by it (transcriptGrid.ts TRANSCRIPT_RUN_GAP,
     // design/transcript-spacing.md rule 4).
     if (
@@ -146,8 +149,7 @@ export async function traceUpwardAnchors({
     footer: gridPx("--grid-gap-footer"),
     block: gridPx("--grid-gap-block"),
     turn: gridPx("--grid-gap-turn"),
-    // transcriptGrid.TRANSCRIPT_RUN_GAP uses the inner token; other surfaces keep gap-run16.
-    run: gridPx("--grid-gap-inner"),
+    run: gridPx("--grid-gap-run"),
   };
   const read = () => {
     const view = scroller.getBoundingClientRect();

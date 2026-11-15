@@ -1,3 +1,4 @@
+import { acpmuxPerf } from "./perf";
 import { authChipText, authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import {
   useCallback,
@@ -27,6 +28,8 @@ import { setModelChipIcon, useModelChipIcon } from "./modelChipIcon";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
+import { useHarnessUpdates } from "./harnessUpdateList";
+import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
@@ -394,6 +397,7 @@ export function ModelPicker(props: ModelPickerProps) {
     fork,
     onSetUpPick,
   } = props;
+  acpmuxPerf.render("composer:model");
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   /// A harness that cannot start a chat until it is set up: not installed here, or signed out.
@@ -431,6 +435,8 @@ export function ModelPicker(props: ModelPickerProps) {
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
   /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
   const update = useUpdateOffer();
+  /// Every agent CLI with an update (Leo 2026-11-12, ask-3fdf0982ec): drawn where `update` was.
+  const updates = useHarnessUpdates();
   const updateText = update
     ? t("harness.outdated", { agent: update.agent, version: update.version, latest: update.latest })
     : undefined;
@@ -731,7 +737,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
-  const press = usePopoverTrigger(open, toggle, show);
+  const press = usePopoverTrigger(open, toggle, show, { popupId: menuId });
   const more = (typed?: string) => {
     setQuickOpen(false);
     show();
@@ -777,17 +783,6 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     [modelText, quick, open, close],
   );
-  // The footer's harness item opens this menu: its rail is the composer's harness switcher.
-  const opener = props.opener;
-  const compact = quick !== undefined;
-  useEffect(() => {
-    if (!opener) return;
-    const openMenu = () => (compact ? (open ? close() : setQuickOpen(true)) : showRef.current());
-    opener.current = openMenu;
-    return () => {
-      if (opener.current === openMenu) opener.current = undefined;
-    };
-  }, [opener, compact, open, close]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
@@ -1375,6 +1370,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     }
                   : {}),
                 ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
+                ...(updates ? { updates } : {}),
                 ...(props.setup ? { setup: props.setup } : {}),
                 // This harness's top models, the running one among them; a signed-out harness lists none.
                 models:
@@ -1465,9 +1461,6 @@ export function ModelPicker(props: ModelPickerProps) {
               title={[chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                 .filter(Boolean)
                 .join(" · ")}
-              aria-haspopup="dialog"
-              aria-expanded={open}
-              aria-controls={open ? menuId : undefined}
               keyboard={(event) => {
                 if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
                   event.preventDefault();
@@ -1652,7 +1645,7 @@ export function ModelPicker(props: ModelPickerProps) {
               {catalogRefresh && (
                 <button
                   type="button"
-                  className="grid size-7 flex-none cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
+                  className="grid size-7 flex-none cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
                   data-refresh-status={refreshStatus}
                   aria-label={t("picker.refreshCatalog")}
                   title={refreshTitle}
@@ -1809,7 +1802,7 @@ export function ModelPicker(props: ModelPickerProps) {
                         <span className="pointer-events-none absolute right-1.5 flex items-center">
                           <button
                             type="button"
-                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
+                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
                             aria-label={`${starredText}: ${model.name}`}
                             aria-pressed={favorites.has(model.id)}
                             title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
@@ -1843,27 +1836,31 @@ export function ModelPicker(props: ModelPickerProps) {
                 )}
               </PickerOptionList>
             </ScrollArea>
-            {update && (
-              <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
-                <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
-                <button
-                  type="button"
-                  className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
-                  onClick={() => {
-                    update.update();
-                    close();
-                  }}
-                >
-                  {t("harness.update")}
-                </button>
-                <button
-                  type="button"
-                  className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
-                  onClick={update.skip}
-                >
-                  {t("harness.skipVersion")}
-                </button>
-              </div>
+            {updates ? (
+              <HarnessUpdatesSection updates={updates} onOwnUpdate={close} />
+            ) : (
+              update && (
+                <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
+                  <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
+                  <button
+                    type="button"
+                    className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
+                    onClick={() => {
+                      update.update();
+                      close();
+                    }}
+                  >
+                    {t("harness.update")}
+                  </button>
+                  <button
+                    type="button"
+                    className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
+                    onClick={update.skip}
+                  >
+                    {t("harness.skipVersion")}
+                  </button>
+                </div>
+              )
             )}
             {fastMode && (
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">

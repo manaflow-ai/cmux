@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 import QuartzCore
 // Layout, frame application (edge fades: `TabEdgeFade`), and the FrameScheduler animation client.
@@ -111,7 +112,7 @@ extension TabStripView {
         let crowded = closingModeWidth == nil ? result.isOverflowing || squeezed : isCrowded
         guard crowded != isCrowded else { return }
         isCrowded = crowded
-        reveal.hover.restAlpha = TabTunables.restingControlAlpha(crowded: crowded)
+        reveal.hover.restAlpha = TabTunables.restingControlAlpha(crowded: crowded, minimal: DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
         onCrowdedChange?(crowded)
     }
 

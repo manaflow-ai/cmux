@@ -126,3 +126,18 @@ test("the dev server's save-time lint reads vp lint's JSON report", async () => 
   expect(findings[0]?.line).toBe(1);
   expect(perfLintFindings("not json")).toEqual([]);
 }, 30_000);
+
+test("save-time lint reports incomplete JSX without stopping the dev server", async () => {
+  const { perfLintFindings } = await import("../dev-server/perfLint");
+  const file = join(directory, "incomplete.tsx");
+  writeFileSync(file, "export const Preview = () => <fieldset></div>;\n");
+  const result = Bun.spawnSync([vp, "lint", "--config", config, "--format", "json", file], {
+    cwd: resolve(import.meta.dir, ".."),
+    stdout: "pipe",
+  });
+  const findings = perfLintFindings(new TextDecoder().decode(result.stdout));
+  expect(findings).toHaveLength(1);
+  expect(findings[0]?.rule).toBe("parse");
+  expect(findings[0]?.line).toBe(1);
+  expect(findings[0]?.message).toContain("Expected corresponding JSX closing tag");
+});

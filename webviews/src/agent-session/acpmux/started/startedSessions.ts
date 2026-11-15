@@ -68,6 +68,9 @@ export type StartedSession = {
   /// one of the chat's own sub-sessions. A lane a coordinator dispatched (`sessions new`, `acpmux new`
   /// from its shell, tagged `mux.parent`) has a lineage parent (`spawnedBy`) but no `startedBy`.
   subsession?: boolean;
+  /// When its last turn ended stopped, for a sub-session that is idle: its rows say "Stopped" and
+  /// offer Resume (subagents/resumeState.ts ``subsessionResumeRow``).
+  stoppedAt?: number;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -177,6 +180,9 @@ export function startedSessions(
         ...(entry.retry ? { retry: entry.retry } : {}),
         ...(entry.harness ? { harness: entry.harness } : {}),
         ...(entry.startedBy === chatId ? { subsession: true } : {}),
+        ...(state === "idle" && entry.startedBy === chatId && entry.stoppedAt !== undefined
+          ? { stoppedAt: entry.stoppedAt }
+          : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

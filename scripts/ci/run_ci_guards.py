@@ -59,6 +59,7 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             pass
 
 ROOT = Path(__file__).resolve().parents[2]
+RUNNER_ROOT = ROOT  # this runner's own checkout; ROOT moves to --root's
 WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
 GUARD_JOBS = (
     "workflow-guard-submodule-forward-only",
@@ -331,16 +332,20 @@ def read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def is_stateful(unit: Unit) -> bool:
-    """Steps that hand state to later steps must run in order."""
-    return any(
+def hands_state(step: Step) -> bool:
+    """A step whose effect a later step reads: a submodule, GITHUB_ENV/GITHUB_PATH, or a folder's install."""
+    return bool(
         step.working_directory
         or "git submodule" in step.run
         or "init-submodule.sh" in step.run
         or "GITHUB_ENV" in step.run
         or "GITHUB_PATH" in step.run
-        for step in unit.steps
     )
+
+
+def is_stateful(unit: Unit) -> bool:
+    """Steps that hand state to later steps must run in order."""
+    return any(hands_state(step) for step in unit.steps)
 
 
 def needs_clean_tree(steps: list[Step]) -> bool:
@@ -497,14 +502,19 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
 
 
 def select_steps(units: list[Unit], names: set[str]) -> list[Unit]:
-    """Only the named steps. A stateful group keeps its earlier steps too: they
-    hand state (a bun install, GITHUB_ENV) to the ones asked for."""
+    """Only the named steps, plus each earlier step that hands state (a bun install in its folder, a submodule,
+    GITHUB_ENV) to them. Keeping every earlier step of a stateful group re-ran about 95 of release-notary's
+    steps one by one to re-check its one red "Validate nightly push throttle" on the base: the base pass outran
+    the job's 25 minutes and the guard group ended cancelled, with no verdict (run 43380647537)."""
     selected: list[Unit] = []
     for unit in units:
         indexes = [i for i, step in enumerate(unit.steps) if step.name in names]
         if not indexes:
             continue
-        steps = unit.steps[: indexes[-1] + 1] if is_stateful(unit) else [unit.steps[i] for i in indexes]
+        steps = [
+            step for i, step in enumerate(unit.steps[: indexes[-1] + 1])
+            if i in indexes or hands_state(step)
+        ]
         selected.append(dataclasses.replace(unit, steps=steps))
     return selected
 
@@ -599,6 +609,34 @@ def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
         ],
     }
     Path(path).write_text(json.dumps(body, indent=2) + "\n")
+
+
+FAILURE_LINES = 2000  # the tail of a red step's output kept for guards_new_reds.py
+
+
+def failures_path(results: Path) -> Path:
+    """Where --results' red steps' output goes: beside it, `<results>.failures.json`."""
+    return results.with_name(results.name + ".failures.json")
+
+
+def write_step_results(path: Path, results: list[StepResult], root: Path) -> None:
+    """--results: {step or "<step> :: <check>": passed} at PATH, and each red step's output lines at failures_path(PATH)
+    ({step: [line]}, the checkout's and the runner's roots written `<root>`), so guards_new_reds.py can tell a step red on the base too
+    from one whose head failure names something new (cmux#41458: #41351's new unwired test hid in a base-red step)."""
+    outcome: dict[str, bool] = {}
+    failures: dict[str, list[str]] = {}
+    for result in results:
+        if result.ok is not None:
+            outcome[result.step.name] = outcome.get(result.step.name, True) and bool(result.ok)
+            for check, ok in result.checks.items():
+                key = f"{result.step.name}{CHECK_SEPARATOR}{check}"
+                outcome[key] = outcome.get(key, True) and ok
+        if result.ok is False:
+            # The checkout first (--root's may sit inside the runner's, as .guard-base does), then the runner's own.
+            text = result.output.replace(str(root), "<root>").replace(str(RUNNER_ROOT), "<root>")
+            failures.setdefault(result.step.name, []).extend(text.splitlines()[-FAILURE_LINES:])
+    path.write_text(json.dumps(outcome, indent=2, sort_keys=True) + "\n")
+    failures_path(path).write_text(json.dumps(failures, indent=1, sort_keys=True) + "\n")
 
 
 def main(argv: list[str]) -> int:
@@ -738,14 +776,7 @@ def main(argv: list[str]) -> int:
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)
     if args.results:
-        outcome: dict[str, bool] = {}
-        for result in results:
-            if result.ok is not None:
-                outcome[result.step.name] = outcome.get(result.step.name, True) and bool(result.ok)
-                for check, ok in result.checks.items():
-                    key = f"{result.step.name}{CHECK_SEPARATOR}{check}"
-                    outcome[key] = outcome.get(key, True) and ok
-        Path(args.results).write_text(json.dumps(outcome, indent=2, sort_keys=True) + "\n")
+        write_step_results(Path(args.results), results, ROOT)
     safe_print(f"cmux guards: {passed} steps passed, {len(failed)} failed, {len(skipped)} skipped (Linux only) in {seconds:.1f}s")
     if args.json_path:
         write_results(args.json_path, head_sha, base_sha, units, results, seconds)

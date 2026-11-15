@@ -234,8 +234,15 @@ function parse(text: string): ParsedBlock[] {
   return blocks;
 }
 
+/**
+ * `calc(N * var(--ui-px, 1px))` is N px at the interface scale (ui/popupSurface.css: a floating
+ * surface's frame follows Text Size), so it is N on the scale, not the fallback's 1px.
+ */
+const UI_PX = /calc\(\s*(-?(?:\d+\.?\d*|\.\d+))\s*\*\s*var\(\s*--ui-px\s*(?:,\s*1px\s*)?\)\s*\)/gi;
+
 function pxValues(value: string): number[] {
-  return [...value.matchAll(/(-?(?:\d+\.?\d*|\.\d+))px\b/gi)].map((match) => Number(match[1]));
+  const scaled = value.replace(UI_PX, "$1px");
+  return [...scaled.matchAll(/(-?(?:\d+\.?\d*|\.\d+))px\b/gi)].map((match) => Number(match[1]));
 }
 
 export function isOutsideScale(property: string, value: string, selector = ""): boolean {

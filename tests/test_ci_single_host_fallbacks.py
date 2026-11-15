@@ -490,8 +490,65 @@ class SingleHostFallbacks(unittest.TestCase):
                 self.assertEqual(self.scan({"x.yml": f"jobs:\n  a:\n    runs-on: {runs_on}\n"}), [])
 
     def runs_on(self, value: str, policy: dict | None = None) -> list[str]:
-        """The findings for one job whose runs-on is VALUE (written as JSON, so expressions stay one scalar)."""
+        """The findings for one job whose runs-on is VALUE (written as JSON, so any quote or `: ` in it stays)."""
         return self.scan({"x.yml": f"jobs:\n  a:\n    runs-on: {json.dumps(value)}\n"}, policy)
+
+    def test_review_f1_a_constant_fromjson_label_is_read(self) -> None:
+        """Review F1 on #40894: `fromJSON('["glaeda-runner-cmux22-new"]')` stayed unresolved and the label loop
+        read only resolved values, so the undeclared label passed. A constant fromJSON is its labels now."""
+        label = "glaeda-runner-cmux22-new"
+        for value in (f"${{{{ fromJSON('[\"{label}\"]') }}}}", f"${{{{ fromJSON('\"{label}\"') }}}}",
+                      f"${{{{ fromJSON('{{\"mac\": \"{label}\"}}').mac }}}}",
+                      f"${{{{ fromJSON('{{\"mac\": \"{label}\"}}')['MAC'] }}}}",
+                      f"${{{{ github.event_name == 'push' && fromJSON('[\"self-hosted\", \"{label}\"]') || 'ubuntu-24.04' }}}}"):
+            with self.subTest(runs_on=value):
+                findings = self.runs_on(value)
+                self.assertTrue([f for f in findings if f"{label} is a single-host label" in f], findings)
+                policy = load_declaration()
+                policy["labels"][label] = {"fallback": "Blacksmith macOS", "after_minutes": 5}
+                self.assertEqual(self.runs_on(value, policy), [])
+
+    def test_review_f1_the_resolver_reads_a_constant_fromjson(self) -> None:
+        wj = checker.load_workflow_jobs()
+        for expression, expected in (("fromJSON('[\"a\", \"b\"]')", ({"a", "b"}, set())),
+                                     ("fromJSON('\"a\"')", ({"a"}, set())),
+                                     ("fromJSON('{\"Mac\": [\"a\"]}').mac", ({"a"}, set())),
+                                     ("fromJSON('{\"mac\": \"a\"}').linux", (set(), {"fromJSON('{\"mac\": \"a\"}').linux"})),
+                                     ("fromJSON('not json')", (set(), {"fromJSON('not json')"})),
+                                     ("fromJSON(needs.a.outputs.b)", (set(), {"fromJSON(needs.a.outputs.b)"}))):
+            with self.subTest(expression=expression):
+                self.assertEqual(wj.expression_values(expression), expected)
+
+    def test_review_f1_a_label_inside_an_unresolved_part_is_read(self) -> None:
+        label = "glaeda-runner-cmux22-new"
+        findings = self.runs_on(f"${{{{ fromJSON(needs.a.outputs.x || '[\"{label}\"]') }}}}")
+        self.assertTrue([f for f in findings if f"{label} is a single-host label" in f], findings)
+
+    def test_review_f1_an_expression_the_resolver_cannot_settle_fails(self) -> None:
+        """Fail closed: a part the resolver cannot settle may be any self-hosted label, so it is a finding, never
+        skipped. Only a literal, a declared vars.NAME, a placement job's output or a caller-less input (and fromJSON
+        of those) is settled."""
+        for value in ("${{ format('{0}-{1}', needs.a.outputs.x, needs.a.outputs.y) }}",
+                      "glaeda-${{ needs.a.outputs.x }}",
+                      "${{ toJSON(needs.a.outputs.x) }}",
+                      "${{ github.event.inputs.runner }}",
+                      "${{ needs.a.outputs.x || format('{0}', 'y') }}"):
+            with self.subTest(runs_on=value):
+                findings = self.runs_on(value)
+                self.assertTrue([f for f in findings if "cannot settle" in f], findings)
+        matrix = ("jobs:\n  a:\n    strategy:\n      matrix: ${{ fromJSON(needs.p.outputs.m) }}\n"
+                  "    runs-on: ${{ matrix.runner }}\n")
+        findings = self.scan({"x.yml": matrix})
+        self.assertTrue([f for f in findings if "cannot settle" in f], findings)
+
+    def test_review_f1_a_settled_picker_still_passes(self) -> None:
+        for value in ("${{ fromJSON(github.run_attempt > 1 && needs.r.outputs.retry || needs.r.outputs.runs_on) }}",
+                      "${{ fromJSON(needs.p.outputs.runners || '{}')['cli-product'] }}",
+                      "${{ (needs.p.outputs.a != '' && needs.p.outputs.a) || inputs.runner }}",
+                      "${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}"):
+            with self.subTest(runs_on=value):
+                self.assertEqual(self.runs_on(value), [])
+
 
     def test_review_f3_a_literal_fromjson_runner_array_is_scanned(self) -> None:
         label = "glaeda-runner-cmux22-review"

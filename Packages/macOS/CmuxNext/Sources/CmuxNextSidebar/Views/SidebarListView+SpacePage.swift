@@ -138,7 +138,7 @@ extension SidebarListViewComponents {
     /// the layout (`SidebarSpacePages.cachesTookChange`): the list then keeps no page until its next full layout.
     private func spacePage() -> SidebarSpacePage? {
         guard let base = spliceBase, let metrics = spacePages.shownMetrics, !holdsModelChange, drag == nil, settling == nil,
-              landing == nil, external == nil, rowHold.isEmpty, leaving.isEmpty, !displayed.rows.isEmpty,
+              landing == nil, external == nil, leaving.isEmpty, !displayed.rows.isEmpty,
               appliedSections.count == sections.count else { return nil }
         var ordered: [SidebarSection] = []
         ordered.reserveCapacity(appliedSections.count)
@@ -158,7 +158,7 @@ extension SidebarListViewComponents {
     /// doubt: the reload then lays the space out in full.
     func takeSpacePage() -> (layout: SidebarLayout, options: SidebarLayoutOptions)? {
         guard let space = spacePages.entering, let page = spacePages.take(space) else { return nil }
-        guard drag == nil, settling == nil, landing == nil, external == nil, rowHold.isEmpty, leaving.isEmpty,
+        guard drag == nil, settling == nil, landing == nil, external == nil, leaving.isEmpty,
               model.filterText.isEmpty, metrics == page.metrics else { return nil }
         let now = options(includeGap: true)
         // One compare per row of the space, no layout (the compare the model's own row patch path makes).

@@ -5,7 +5,8 @@
 //
 // - The New Tab page shows two dots under it (Leo 2026-10-23: "1 CLAUDE MINIMAL ... 3 CODEX
 //   MINIMAL"; newtab/tabDots.ts; the middle dot with the quick action pills went with the widgets,
-//   Lawrence 2026-11-09): Claude Minimal checked by default; the second gives the composer Codex's
+//   Lawrence 2026-11-09): Codex Minimal checked by default; an explicit Claude choice remains saved.
+//   The second dot gives the composer Codex's
 //   look (data-composer-look="codex"): Claude's button layout, the mode and model in the quiet row
 //   under the box (Leo 2026-11-01: "we already have a good version"), Codex's tray over it, and no
 //   pills. Arrow keys move across the two. The pick is remembered across a reload.
@@ -87,19 +88,22 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await box.click();
   };
 
-  test("New Tab: two dots, Claude Minimal by default; the second is Codex's look", async () => {
+  test("New Tab: Codex Minimal by default; both dots select and remember their look", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
     const page = await context.newPage();
     await open(page, "agent-pane.new-tab", "minimal-default");
     expect(await dots(page, ".nt-style")).toEqual([
-      { value: "claude", name: "Claude Minimal", checked: true },
-      { value: "codex", name: "Codex Minimal", checked: false },
+      { value: "claude", name: "Claude Minimal", checked: false },
+      { value: "codex", name: "Codex Minimal", checked: true },
     ]);
-    expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
+    expect(await page.$('.nt-composer[data-composer-look="codex"]')).not.toBeNull();
     expect(await page.$(".nt-composer .nt-box .acpmux-model")).toBeNull();
     expect(await page.$(".nt-composer .acpmux-composer-foot .acpmux-model")).not.toBeNull();
     expect(await page.$(".nt-create")).toBeNull();
 
+    await pickDot(page, ".nt-style", "claude");
+    await page.waitForFunction(() => !document.querySelector(".nt-composer[data-composer-look]"));
+    expect((await dots(page, ".nt-style")).find((dot) => dot.checked)?.value).toBe("claude");
     await pickDot(page, ".nt-style", "codex");
     await page.waitForSelector('.nt-composer[data-composer-look="codex"]');
     // Codex's look lays the buttons out as Claude's: the mode and model in the quiet row under the box.
@@ -144,7 +148,9 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     const page = await context.newPage();
     await open(page, "agent-pane.new-tab", "template-classic");
     expect(await page.$(".nt-style input[value=classic]:checked")).not.toBeNull();
-    expect(await page.$(".acpmux-newtab[data-composer-look]")).toBeNull();
+    expect(await page.$('.acpmux-newtab[data-composer-look="codex"]')).not.toBeNull();
+    await pickDot(page, ".nt-style", "claude");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-newtab[data-composer-look]"));
 
     // Codex's dot on Classic: the page stays Classic, its box takes Codex's look.
     await pickDot(page, ".nt-style", "codex");

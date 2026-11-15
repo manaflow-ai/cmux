@@ -71,6 +71,9 @@ public actor MobileHostSupervisor {
     /// it came from: sent on every change, and to each new hostd of that same account only. A hostd
     /// of another account (a sign-in as B after A) gets none of A's requests.
     private var needsYou: (user: String, line: Data)?
+    /// The last `appearance` line (this Mac's theme and wallpaper): the same for every account, sent
+    /// on every change and to each new hostd.
+    private var appearanceLine: Data?
     /// The account the running hostd serves (its launch's user), nil with none running.
     private var processUser: String?
     private let clock: any Clock<Duration>
@@ -288,6 +291,15 @@ public actor MobileHostSupervisor {
         if processUser == user { process?.send(line) }
     }
 
+    /// This Mac's theme and wallpaper (ask-87d30da8e5): kept for each new hostd and sent to the
+    /// running one when it changed. hostd serves it to phones (`appearance.rs`).
+    public func setAppearance(_ appearance: MobileHostAppearance) {
+        let line = MobileHostLaunch.appearanceLine(appearance)
+        guard appearanceLine != line else { return }
+        appearanceLine = line
+        process?.send(line)
+    }
+
     /// Forgets the kept set (the feed's account changed or signed out): no hostd started from now
     /// gets it. Nothing goes to the running hostd: an empty set would close each request on that
     /// account's phones, while the account change itself ends that hostd.
@@ -449,6 +461,7 @@ public actor MobileHostSupervisor {
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
         if let line = needsYouForHostd(user: inputs.launch.userID) { child.send(line) }
+        if let appearanceLine { child.send(appearanceLine) }
         await tokens.request()
         await sendAcpmux(child, inputs: inputs)
     }

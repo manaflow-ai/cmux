@@ -3,7 +3,8 @@
 // it waits. Once answered it left nothing in the chat: the card went, and so did what the person
 // chose. Codex and Claude Code keep a compact record where the question was asked. The transcript
 // now keeps one, a compact card: the question with "OAuth 2.0" in grey under it for an answer,
-// "Skipped" for a question declined and "Stopped before an answer" for one the turn's stop cancelled. It comes from acpmux's own log
+// "Stopped before an answer" for one the turn's stop cancelled. Skipped receipts stay hidden while
+// the original question tool remains in the turn's work. Records come from acpmux's own log
 // (`permission_request`, then its `permission_decision`), so a reload shows it as before, and it
 // stays out of the turn's
 // "Worked for" fold. The page is the pane's dev entry with its browser host, talking JSON-RPC to
@@ -150,7 +151,7 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
       ],
     ]),
     // Two asks wait and the person steers a reply in: it answers the card's question, the first; the
-    // second, skipped later, still reads Skipped.
+    // second, skipped later, leaves no receipt card.
     [STEERED]: log(STEERED, [
       ...asked,
       ["in", "tool_call", update({ sessionUpdate: "tool_call", ...secondCall })],
@@ -317,14 +318,13 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     await page.close();
   });
 
-  test("a question the turn stopped or the person skipped says so", async () => {
+  test("a stopped question keeps its receipt while a skipped question leaves none", async () => {
     const cancelled = await open(CANCELLED, "Stopped.");
     await cancelled.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
     expect(await records(cancelled)).toEqual([`${PROMPT} Stopped before an answer`]);
     await cancelled.close();
     const declined = await open(DECLINED, "I'll pick one myself.");
-    await declined.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
-    expect(await records(declined)).toEqual([`${PROMPT} Skipped`]);
+    expect(await records(declined)).toEqual([]);
     await declined.close();
   });
 
@@ -336,10 +336,10 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     await page.close();
   });
 
-  test("one typed reply answers one question: a second, skipped later, still reads Skipped", async () => {
+  test("one typed reply answers one question while a second skipped receipt stays hidden", async () => {
     const page = await open(STEERED, "Passkeys it is");
-    await page.locator(".acpmux-question-cancelled").nth(1).waitFor({ timeout: 5_000 });
-    expect(await records(page)).toEqual([`${PROMPT} Answered in chat`, `${SECOND} Skipped`]);
+    await page.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
+    expect(await records(page)).toEqual([`${PROMPT} Answered in chat`]);
     await page.close();
   });
 

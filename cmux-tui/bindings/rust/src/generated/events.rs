@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde.
+// cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -654,6 +654,8 @@ pub struct ResizedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub data: Option<T::Base64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_rows_omitted: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_graphics_state: Option<T::KittyGraphicsState>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
@@ -689,6 +691,13 @@ pub struct ScreenClosedEvent {
     pub index: u64,
     pub screen: T::Id,
     pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScreenDeviceChangedEvent {
+    /// The authenticated worker screen UUID, or null when the worker is unavailable.
+    pub screen_device_id: Nullable<String>,
 }
 
 #[rustfmt::skip]
@@ -917,6 +926,8 @@ pub struct VtStateEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub history_rows_omitted: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_rows_skipped: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_graphics_state: Option<T::KittyGraphicsState>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
@@ -1086,6 +1097,7 @@ pub enum Event {
     ScreenAdded(ScreenAddedEvent),
     ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
+    ScreenDeviceChanged(ScreenDeviceChangedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
     SelectionChanged(SelectionChangedEvent),
@@ -1186,6 +1198,7 @@ impl Event {
             Self::ScreenAdded(_) => Some("screen-added"),
             Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
+            Self::ScreenDeviceChanged(_) => Some("screen-device-changed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
             Self::SelectionChanged(_) => Some("selection-changed"),
@@ -1285,6 +1298,7 @@ impl Event {
             Self::ScreenAdded(_) => Some(&SCREEN_ADDED_EVENT_METADATA),
             Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
+            Self::ScreenDeviceChanged(_) => Some(&SCREEN_DEVICE_CHANGED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
             Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
@@ -1815,6 +1829,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("screen-closed") => match serde_json::from_value::<ScreenClosedEvent>(raw.clone()) {
             Ok(event) => Event::ScreenClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("screen-device-changed") => match serde_json::from_value::<ScreenDeviceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ScreenDeviceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

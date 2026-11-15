@@ -170,7 +170,7 @@ extension MainPaneSetting {
 extension CmuxConfigSnapshot {
     /// `workspaces.newPlacement`.
     public nonisolated static let newWorkspacePlacementPath = ["workspaces", "newPlacement"]
-    public nonisolated static let newWorkspacePlacementDefault: NewWorkspacePlacement = .afterCurrent
+    public nonisolated static let newWorkspacePlacementDefault: NewWorkspacePlacement = .top
     /// `sidebar.groupByComputer`.
     public nonisolated static let groupByComputerPath = ["sidebar", "groupByComputer"]
     public nonisolated static let groupByComputerDefault = false

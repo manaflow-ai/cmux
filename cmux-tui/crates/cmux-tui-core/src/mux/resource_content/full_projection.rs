@@ -70,6 +70,7 @@ impl Mux {
             stored_live: &stored_live,
             active_terminal_hosts: None,
             rows: WorkspaceRows::All,
+            unplaced_terminals: false,
         };
         let projection = self.project_live_tree(&input, state, result)?;
         let spans = ProjectionSpans {
@@ -467,10 +468,17 @@ impl Mux {
                 &mut public,
             )?;
         }
-        let catalog = if scope.is_some() { None } else { Some(&state.terminal_catalog) };
+        let catalog =
+            (scope.is_none() || input.unplaced_terminals).then_some(&state.terminal_catalog);
+        // A scoped walk did not walk each pane: it reads which terminals have a view.
+        let placed = match scope {
+            Some(_) if input.unplaced_terminals => scoped_projection::placed_terminals(state),
+            _ => HashSet::new(),
+        };
         for (terminal_id, surface) in catalog.into_iter().flatten() {
             // An app terminal is published by its first view (`app_terminals.rs`).
-            if !live_terminals.insert(terminal_id.clone())
+            if placed.contains(terminal_id)
+                || !live_terminals.insert(terminal_id.clone())
                 || self.is_unregistered_app_terminal(surface.id)
             {
                 continue;
@@ -599,6 +607,7 @@ impl Mux {
             changes: Value::Array(deltas),
             result,
             restates_all: scope.is_none(),
+            restated: Vec::new(),
         })
     }
 

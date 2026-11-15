@@ -267,7 +267,7 @@ public import Foundation
             try await effects.write(path, credential)
             steps?.done("transfer.write")
             try checkScope()
-            guard try await effects.exec(CloudCredentialInstaller.command(provider: provider, payloadPath: path, creatorTeamGuest: allowsCreatorTeamGuest)) == 0 else {
+            guard try await effects.exec(CloudCredentialInstaller.command(provider: provider, payloadPath: path, creatorTeamGuest: allowsCreatorTeamGuest, account: userID)) == 0 else {
                 throw Failure.deliveryFailed
             }
             steps?.done("transfer.install")

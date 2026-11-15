@@ -757,6 +757,9 @@ impl ClientRegistry {
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
+                    // `output` at most once per frame (server/attach_output_coalesce.rs).
+                    || capability == super::ATTACH_OUTPUT_COALESCE_CAPABILITY
+                    || capability == super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == super::TERMINAL_PUBLIC_IDS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY

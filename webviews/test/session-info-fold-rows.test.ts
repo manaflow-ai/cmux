@@ -64,8 +64,23 @@ await requireBrowserLane("session-info-fold-rows.test.ts", async () => {
   });
 
   /** The fold whose label matches `label`: its box, its list's width and where its label ends. */
+  /// Measured once the panel holds still: the fold the previous case closed animates the rows under
+  /// it into place (its height eases away), so a row read mid-fold moves after the read and the
+  /// click at its old place opens nothing. The busy runner's slower frames stretched that fold past
+  /// the read and the click: Playwright's 30 s wait for the open row timed out (run 43395228044,
+  /// seven browser files at once).
   const row = (label: string) =>
-    page!.evaluate((source) => {
+    page!.evaluate(async (source) => {
+      for (let round = 0; round < 5; round++) {
+        const moving = document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+        if (moving.length === 0) break;
+        await Promise.all(moving.map((animation) => animation.finished.catch(() => undefined)));
+      }
       const pattern = new RegExp(source);
       const button = [...document.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-fold")].find(
         (candidate) => pattern.test(candidate.textContent ?? ""),

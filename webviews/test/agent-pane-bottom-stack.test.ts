@@ -325,7 +325,9 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
             .map((control) => control.getAttribute("aria-label") || control.textContent?.trim() || control.className);
           return {
             footInside: foot.bottom <= main.bottom + 0.5,
-            boxAboveFoot: box.bottom <= foot.top + 0.5,
+            footPlacement: document.querySelector('.acpmux-composer[data-composer-look="codex"]')
+              ? foot.top >= box.top - 0.5 && foot.bottom <= box.bottom + 0.5
+              : box.bottom <= foot.top + 0.5,
             boxHeight: Math.round(box.height),
             controls: controls.length,
             unreachable,
@@ -334,9 +336,9 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
         await page.close();
         expect({
           footInside: drawn.footInside,
-          boxAboveFoot: drawn.boxAboveFoot,
+          footPlacement: drawn.footPlacement,
           unreachable: drawn.unreachable,
-        }).toEqual({ footInside: true, boxAboveFoot: true, unreachable: [] });
+        }).toEqual({ footInside: true, footPlacement: true, unreachable: [] });
         // The quiet row has the mode, the model and the ring; the card has + and the mic at least.
         expect(drawn.controls).toBeGreaterThanOrEqual(4);
         // The card keeps at least its one line.

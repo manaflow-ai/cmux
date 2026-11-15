@@ -23,8 +23,13 @@
 //! - `rss` and `peak_rss`: the daemon's resident bytes after all that, and at its peak;
 //! - the daemon's own gauges (`daemon status` `gauges`), its startup phases flat
 //!   (`startupPhasesMs`) and its marks (`marksMs`: socket ready, first list reply, agents may spawn);
-//! - `homeBytes`: the home's bytes on disk after the daemon stops, and `daemonDiskBytes`: those
-//!   it added to what the fixture wrote.
+//! - `homeBytes`: the home's bytes on disk after the daemon stops; file by file against what the
+//!   fixture wrote, `daemonAddedBytes` (files new or grown) and `daemonRemovedBytes` (files gone
+//!   or shrunk, such as the journal segment the fixture's store left live, which the daemon's
+//!   checkpoint retires), and the largest removals (`daemonRemoved`).
+//!
+//! A settled attach, scroll or prompt that fails is counted, not timed, and fails the test once
+//! every home has printed its numbers.
 //!
 //! With `ACPMUX_GOD_DHAT=1` and a binary built with `--features dhat-heap`, the daemon records
 //! its heap (dhat) and the test prints its allocation sites: the bytes each held at the heap's
@@ -33,6 +38,9 @@
 //! `cargo test -p acpmux --release --test god_daemon -- --ignored --nocapture`, and the profile:
 //! `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release
 //! --features dhat-heap --test god_daemon -- --ignored --nocapture` (line tables name inlined frames).
+
+// The baseline's `json!` has more keys than the default limit expands, as in `lib.rs`.
+#![recursion_limit = "256"]
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -43,6 +51,16 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_SCALE",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
+    // A control artifact for differential runs; the child still uses the hermetic environment.
+    "ACPMUX_GOD_DAEMON_BIN",
+    // The churn lab's knobs (`whole_lists_of_a_peer_that_cannot_follow_under_churn`).
+    "ACPMUX_CHURN_ROWS",
+    "ACPMUX_CHURN_SECS",
+    "ACPMUX_CHURN_EVERY_MS",
+    "ACPMUX_CHURN_CPUS",
+    "ACPMUX_CHURN_BUSY",
+    "ACPMUX_CHURN_FOLLOW",
+    "ACPMUX_CHURN_ARENAS",
 ]);
 
 use acpmux::config::{Config, StoreMode};
@@ -77,7 +95,7 @@ const ALL_LOGS: Duration = Duration::from_secs(120);
 const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
 
 /// The startup points kept as marks, not phases (`gauges.rs`).
-const MARKS: [&str; 3] = ["socket ready", "first list reply", "agents may spawn"];
+const MARKS: [&str; 4] = ["socket ready", "requests ready", "first list reply", "agents may spawn"];
 
 fn ms(since: Instant) -> u64 {
     since.elapsed().as_millis() as u64
@@ -108,17 +126,49 @@ fn median(samples: &[u64]) -> Value {
     json!(sorted[sorted.len() / 2])
 }
 
-/// The bytes of every file under `dir`, links not followed; 0 when it can't be read.
-fn dir_bytes(dir: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
-    entries
-        .flatten()
-        .map(|e| match e.path().symlink_metadata() {
-            Ok(m) if m.is_dir() => dir_bytes(&e.path()),
-            Ok(m) if m.is_file() => m.len(),
-            _ => 0,
-        })
-        .sum()
+/// The bytes of each file under `dir`, links not followed, into `files`; a folder that can't be
+/// read adds none.
+fn file_bytes(dir: &Path, files: &mut BTreeMap<PathBuf, u64>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        match e.path().symlink_metadata() {
+            Ok(m) if m.is_dir() => file_bytes(&e.path(), files),
+            Ok(m) if m.is_file() => {
+                files.insert(e.path(), m.len());
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Every file under `dir` and its bytes.
+fn home_files(dir: &Path) -> BTreeMap<PathBuf, u64> {
+    let mut files = BTreeMap::new();
+    file_bytes(dir, &mut files);
+    files
+}
+
+/// What the daemon did to the home, file by file: the bytes of files new or grown, of files gone
+/// or shrunk, and the largest of those removals, by path under `home`.
+fn disk_change(
+    home: &Path,
+    before: &BTreeMap<PathBuf, u64>,
+    after: &BTreeMap<PathBuf, u64>,
+) -> (u64, u64, Value) {
+    let added = after.iter().map(|(p, b)| b.saturating_sub(*before.get(p).unwrap_or(&0))).sum();
+    let mut removed: Vec<(&PathBuf, u64)> = before
+        .iter()
+        .map(|(p, b)| (p, b.saturating_sub(*after.get(p).unwrap_or(&0))))
+        .filter(|(_, b)| *b > 0)
+        .collect();
+    let removed_bytes = removed.iter().map(|(_, b)| b).sum();
+    removed.sort_by_key(|(_, b)| std::cmp::Reverse(*b));
+    let top = removed
+        .into_iter()
+        .take(5)
+        .map(|(p, b)| json!([p.strip_prefix(home).unwrap_or(p).display().to_string(), b]))
+        .collect::<Vec<_>>();
+    (added, removed_bytes, json!(top))
 }
 
 /// The oldest seq of a page's records, if it has any.
@@ -153,11 +203,12 @@ fn all_logs_end(gauges: &Value) -> Option<u64> {
 }
 
 /// Asks `_acpmux/status` until every chat log is read: when it ended, or why it is not known.
+/// No call waits past [`ALL_LOGS`], so the wait ends at most a poll after it.
 fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
-    let started = Instant::now();
+    let deadline = Instant::now() + ALL_LOGS;
     let mut last = Value::Null;
-    while started.elapsed() < ALL_LOGS {
-        match rpc.call("_acpmux/status", json!({})) {
+    while Instant::now() < deadline {
+        match rpc.call_until("_acpmux/status", json!({}), Some(deadline)) {
             Ok(status) => {
                 if let Some(end) = all_logs_end(&status["gauges"]) {
                     return Ok(end);
@@ -190,18 +241,49 @@ struct Rpc {
     writer: UnixStream,
     next: u64,
     notes: Vec<Value>,
+    /// The part of a line a read's timeout cut short, which the next read finishes.
+    line: String,
+    /// Bytes read so far, and the longest line: what a prompt's notices weigh.
+    read_bytes: u64,
+    longest_line: u64,
 }
 
 impl Rpc {
     fn connect(path: &Path) -> Self {
         let s = UnixStream::connect(path).expect("connect to the daemon's socket");
         s.set_read_timeout(Some(STEP)).unwrap();
-        Self { reader: BufReader::new(s.try_clone().unwrap()), writer: s, next: 0, notes: vec![] }
+        let reader = BufReader::new(s.try_clone().unwrap());
+        Self {
+            reader,
+            writer: s,
+            next: 0,
+            notes: vec![],
+            line: String::new(),
+            read_bytes: 0,
+            longest_line: 0,
+        }
     }
 
     fn call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
         let id = self.request(method, params);
         self.response(id)
+    }
+
+    /// [`Rpc::call`] that waits for its response until `deadline` at most: past it, an error.
+    fn call_until(
+        &mut self,
+        method: &str,
+        params: Value,
+        deadline: Option<Instant>,
+    ) -> Result<Value, Value> {
+        let id = self.request(method, params);
+        let got = self.wait_note_until(|v| is_response(v, id), deadline);
+        self.writer.set_read_timeout(Some(STEP)).unwrap();
+        let v = got.map_err(|e| json!({"method": method, "io": e.to_string()}))?;
+        match v.get("error") {
+            Some(e) => Err(e.clone()),
+            None => Ok(v["result"].clone()),
+        }
     }
 
     /// Writes a request without waiting for its response: its id.
@@ -221,21 +303,41 @@ impl Rpc {
         }
     }
 
-    fn read(&mut self) -> Value {
-        let mut text = String::new();
-        assert!(self.reader.read_line(&mut text).unwrap() > 0, "the daemon closed the socket");
-        serde_json::from_str(&text).unwrap()
+    /// The next line; a timeout keeps what it read of the line for the next read.
+    fn read(&mut self) -> std::io::Result<Value> {
+        let n = self.reader.read_line(&mut self.line)?;
+        assert!(n > 0, "the daemon closed the socket");
+        self.read_bytes += n as u64;
+        self.longest_line = self.longest_line.max(self.line.len() as u64);
+        Ok(serde_json::from_str(&std::mem::take(&mut self.line)).unwrap())
     }
 
     /// The first line, kept or read now, that `pred` takes; the others read meanwhile are kept.
     fn wait_note(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
+        self.wait_note_until(pred, None).unwrap()
+    }
+
+    /// [`Rpc::wait_note`] until `deadline` at most (each read's timeout is the time left), or
+    /// [`STEP`] for each read. The caller restores the timeout.
+    fn wait_note_until(
+        &mut self,
+        pred: impl Fn(&Value) -> bool,
+        deadline: Option<Instant>,
+    ) -> std::io::Result<Value> {
         if let Some(at) = self.notes.iter().position(&pred) {
-            return self.notes.remove(at);
+            return Ok(self.notes.remove(at));
         }
         loop {
-            let v = self.read();
+            if let Some(deadline) = deadline {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err(std::io::ErrorKind::TimedOut.into());
+                }
+                self.writer.set_read_timeout(Some(left))?;
+            }
+            let v = self.read()?;
             if pred(&v) {
-                return v;
+                return Ok(v);
             }
             self.notes.push(v);
         }
@@ -252,6 +354,8 @@ fn is_response(v: &Value, id: u64) -> bool {
 struct Proxy {
     port: u16,
     links: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
+    /// The listener new connections go to: [`Proxy::repoint`] moves it to a restarted peer.
+    backend: Arc<std::sync::atomic::AtomicU16>,
 }
 
 impl Proxy {
@@ -259,9 +363,11 @@ impl Proxy {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let links: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>> = Arc::default();
-        let held = links.clone();
+        let backend = Arc::new(std::sync::atomic::AtomicU16::new(backend));
+        let (held, to) = (links.clone(), backend.clone());
         tokio::spawn(async move {
             while let Ok((mut client, _)) = listener.accept().await {
+                let backend = to.load(std::sync::atomic::Ordering::SeqCst);
                 let task = tokio::spawn(async move {
                     let Ok(mut server) =
                         tokio::net::TcpStream::connect(("127.0.0.1", backend)).await
@@ -273,7 +379,13 @@ impl Proxy {
                 held.lock().unwrap().push(task.abort_handle());
             }
         });
-        Self { port, links }
+        Self { port, links, backend }
+    }
+
+    // Only the churn lab (Linux) moves a proxy.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    fn repoint(&self, backend: u16) {
+        self.backend.store(backend, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn cut(&self) {
@@ -320,35 +432,65 @@ struct Daemon {
     child: Child,
     socket: PathBuf,
     spawned: Instant,
+    socket_connect_us: u64,
 }
 
 impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
-        let mut command = daemon_env::command(scratch, daemon_env::Agents::StandIn, &[]);
+        let binary = std::env::var_os("ACPMUX_GOD_DAEMON_BIN")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| daemon_env::bin().to_path_buf());
+        let mut command =
+            daemon_env::command_at(&binary, scratch, daemon_env::Agents::StandIn, &[]);
         command
-            .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+            .args(["daemon", "run", "--log", "warn"])
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
+            .stdout(Stdio::null())
             .stderr(Stdio::inherit());
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
         }
+        // glibc malloc's arena count for the daemon (the churn lab's `ACPMUX_CHURN_ARENAS`): RSS
+        // that a cap shrinks is memory the allocator kept, not memory the daemon holds.
+        if let Ok(arenas) = std::env::var("ACPMUX_CHURN_ARENAS") {
+            command.env("MALLOC_ARENA_MAX", arenas);
+        }
         let spawned = Instant::now();
         let mut child = command.spawn().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        for line in BufReader::new(stdout).lines() {
-            if let Ok(v) = serde_json::from_str::<Value>(&line.unwrap())
-                && v["ready"] == true
-            {
-                return Self { child, socket, spawned };
+        // Observe bind from a client too: moving an internal gauge alone cannot improve this
+        // measurement. This probe is identical for a control binary and the changed daemon.
+        loop {
+            if UnixStream::connect(&socket).is_ok() {
+                break;
             }
+            if spawned.elapsed() >= STEP || child.try_wait().unwrap().is_some() {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the daemon did not bind its socket");
+            }
+            std::thread::sleep(Duration::from_millis(1));
         }
-        let _ = child.kill();
-        let _ = child.wait();
-        panic!("the daemon exited without a readiness line");
+        let socket_connect_us = micros(spawned);
+        Self { child, socket, spawned, socket_connect_us }
+    }
+
+    /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
+    #[cfg(target_os = "linux")]
+    fn cpu_seconds(&self) -> f64 {
+        let stat =
+            std::fs::read_to_string(format!("/proc/{}/stat", self.child.id())).unwrap_or_default();
+        // The fields after the command name, which is in parentheses and may hold spaces, taken
+        // by position: some before utime are negative (`tpgid` is -1 with no terminal).
+        let rest = stat.rsplit_once(')').map_or("", |(_, r)| r);
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        // utime and stime are fields 14 and 15; `rest` starts at field 3, the state.
+        let field = |n: usize| fields.get(n - 3).and_then(|f| f.parse::<u64>().ok()).unwrap_or(0);
+        // SAFETY: sysconf reads a constant.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1);
+        (field(14) + field(15)) as f64 / hz as f64
     }
 
     /// `VmRSS` and `VmHWM` of the daemon, in bytes.
@@ -367,10 +509,43 @@ impl Daemon {
     }
 
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
-    fn stop(mut self) {
+    fn stop(&mut self) {
         // SAFETY: the pid is this test's own child, not yet reaped.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
         let _ = self.child.wait();
+    }
+
+    /// The daemon's one-stop handoff through a cache-first attach (not an app render). The new
+    /// daemon is allowed to bind and answer the local chat while peer links and bulk log loading
+    /// continue in the background.
+    fn restart_to_chat_attach(
+        &mut self,
+        scratch: &Path,
+        home: &Path,
+        profile: Option<&Path>,
+        session: &str,
+    ) -> (u64, u64) {
+        let started = Instant::now();
+        self.stop();
+        let shutdown_ms = ms(started);
+        *self = Self::start(scratch, home, profile);
+        let mut rpc = Rpc::connect(&self.socket);
+        rpc.call(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "restart-bench"}}),
+        )
+        .unwrap();
+        let attached = rpc.call(
+            "_acpmux/attach",
+            json!({"sessionId": session, "waitLogs": false, "limit": PAGE_LIMIT,
+                   "maxBytes": PAGE_BYTES}),
+        );
+        let attached = attached.expect("selected chat attached after restart");
+        assert!(
+            attached["events"].as_array().is_some_and(|events| !events.is_empty()),
+            "attach must return a usable transcript page: {attached}"
+        );
+        (ms(started), shutdown_ms)
     }
 }
 
@@ -420,7 +595,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let proxies = Arc::new(proxies);
     write_config(&home, peer_config);
     // What the fixture (and the config) put in the home, before the daemon starts.
-    let fixture_bytes = dir_bytes(&home);
+    let fixture_files = home_files(&home);
+    let fixture_bytes: u64 = fixture_files.values().sum();
     let rows = shape.peers * shape.peer_rows;
     let profile = dhat.then(|| scratch.join("dhat-heap.json"));
 
@@ -428,8 +604,9 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let god = made.god.clone();
     let cutter = proxies.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let daemon = Daemon::start(&scratch, &home, profile.as_deref());
+        let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
         let ready_ms = ms(daemon.spawned);
+        let socket_connect_us = daemon.socket_connect_us;
         let mut rpc = Rpc::connect(&daemon.socket);
         rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}}))
             .unwrap();
@@ -439,8 +616,10 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             list.as_ref().map(|l| l["sessions"].as_array().map_or(0, Vec::len)).unwrap_or(0);
         let peers_ms = wait_listed(&mut rpc, shape.peers, rows).map(|_| ms(daemon.spawned));
 
-        // The pane's open of the god chat, again and again: a page of its newest records.
+        // The pane's open of the god chat, again and again: a page of its newest records. One
+        // that fails is counted, not timed.
         let (mut attaches, mut attach) = (vec![], Ok(Value::Null));
+        let (mut attach_errors, mut attach_error) = (0u64, Value::Null);
         for _ in 0..ROUNDS {
             let attached = Instant::now();
             attach = rpc.call(
@@ -448,7 +627,16 @@ async fn run(shape: Shape, dhat: bool) -> Value {
                 json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
                        "maxBytes": PAGE_BYTES}),
             );
-            attaches.push(micros(attached));
+            let us = micros(attached);
+            match &attach {
+                Ok(_) => attaches.push(us),
+                Err(e) => {
+                    attach_errors += 1;
+                    if attach_error.is_null() {
+                        attach_error = e.clone();
+                    }
+                }
+            }
             rpc.notes.clear();
         }
 
@@ -535,31 +723,66 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let all_logs = wait_all_logs(&mut rpc);
 
         // The same attaches, scroll and prompts once every log is read: what a long chat costs
-        // on its own, apart from the startup load it shares the machine with above.
-        let mut settled_attaches = vec![];
+        // on its own, apart from the startup load it shares the machine with above. A step that
+        // fails is counted, its first error kept, and not timed.
+        let (mut settled_attaches, mut settled_attach) = (vec![], None);
+        let (mut settled_attach_errors, mut settled_attach_error) = (0u64, Value::Null);
         for _ in 0..ROUNDS {
             let attached = Instant::now();
-            let _ = rpc.call(
+            let reply = rpc.call(
                 "_acpmux/attach",
                 json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
                        "maxBytes": PAGE_BYTES}),
             );
-            settled_attaches.push(micros(attached));
+            let us = micros(attached);
+            match reply {
+                Ok(reply) => {
+                    settled_attaches.push(us);
+                    settled_attach = Some(reply);
+                }
+                Err(e) => {
+                    settled_attach_errors += 1;
+                    if settled_attach_error.is_null() {
+                        settled_attach_error = e;
+                    }
+                }
+            }
             rpc.notes.clear();
         }
+        // From the last settled attach's page, as the pane would scroll from it.
         let mut settled_scrolls = vec![];
-        if let Some(start) = newest_oldest {
-            let mut before = start;
-            for _ in 0..ROUNDS {
-                let (us, page) = older_page(&mut rpc, &god, before);
-                let Ok(page) = page else { break };
-                settled_scrolls.push(us);
-                before = oldest_seq(&page).filter(|_| page["hasMore"] == true).unwrap_or(start);
+        let (mut settled_scroll_errors, mut settled_scroll_error) = (0u64, Value::Null);
+        match settled_attach.as_ref().and_then(oldest_seq) {
+            None => {
+                settled_scroll_errors += 1;
+                settled_scroll_error = json!("the settled attach gave no page to scroll up from");
+            }
+            Some(start) => {
+                let mut before = start;
+                for _ in 0..ROUNDS {
+                    let (us, page) = older_page(&mut rpc, &god, before);
+                    let page = match page {
+                        Ok(page) => page,
+                        Err(e) => {
+                            settled_scroll_errors += 1;
+                            if settled_scroll_error.is_null() {
+                                settled_scroll_error = e;
+                            }
+                            continue;
+                        }
+                    };
+                    settled_scrolls.push(us);
+                    before = oldest_seq(&page).filter(|_| page["hasMore"] == true).unwrap_or(start);
+                }
             }
         }
-        let mut settled_sends = vec![];
+        let (mut settled_sends, mut settled_send_error) = (vec![], Value::Null);
+        // The bytes each prompt's turn sends this client, from the request to its response.
+        let (mut settled_send_bytes, mut settled_send_longest) = (vec![], 0);
         for round in 0..ROUNDS {
             let sent = Instant::now();
+            let (bytes_before, longest_before) = (rpc.read_bytes, rpc.longest_line);
+            rpc.longest_line = 0;
             let text = format!("settled {round}");
             let prompt = json!({"sessionId": god, "prompt": [{"type": "text", "text": text}]});
             let id = rpc.request("session/prompt", prompt);
@@ -573,12 +796,17 @@ async fn run(shape: Shape, dhat: bool) -> Value {
                             .is_some_and(|t| t.contains(&text)))
             });
             if is_response(&first, id) {
+                settled_send_error = first["error"].clone();
                 break;
             }
             settled_sends.push(micros(sent));
-            if rpc.response(id).is_err() {
+            if let Err(e) = rpc.response(id) {
+                settled_send_error = e;
                 break;
             }
+            settled_send_bytes.push(rpc.read_bytes - bytes_before);
+            settled_send_longest = settled_send_longest.max(rpc.longest_line);
+            rpc.longest_line = rpc.longest_line.max(longest_before);
             rpc.notes.clear();
         }
 
@@ -598,17 +826,23 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
         let (startup_phases_ms, marks_ms) = startup_axes(&status["gauges"]);
         let (rss, peak_rss) = daemon.rss();
+        let (restart_chat_attach_ms, shutdown_ms) =
+            daemon.restart_to_chat_attach(&scratch, &home, profile.as_deref(), &god);
         drop(rpc);
         daemon.stop();
-        let home_bytes = dir_bytes(&home);
-        let daemon_disk_bytes = home_bytes as i64 - fixture_bytes as i64;
+        let home_files = home_files(&home);
+        let home_bytes: u64 = home_files.values().sum();
+        let (daemon_added, daemon_removed, daemon_removed_top) =
+            disk_change(&home, &fixture_files, &home_files);
         let heap = profile.as_deref().map(attribute);
         json!({
             "shape": shape_name, "chats": shape.chats, "godMessages": shape.god_messages,
             "godLogBytes": made.god_log_bytes, "godJsonlBytes": made.god_jsonl_bytes,
             "peers": shape.peers, "peerRows": shape.peer_rows, "listed": listed,
             "writeMs": write_ms, "readyMs": ready_ms, "firstListMs": first_list_ms,
+            "socketConnectUs": socket_connect_us,
             "peersMs": peers_ms, "attachUs": spread(&attaches), "attachOk": attach.is_ok(),
+            "attachErrors": attach_errors, "attachError": attach_error,
             "scrollPageUs": spread(&scrolls), "scrollWraps": scroll_wraps,
             "scrollError": scroll_error,
             "deepScrollUs": spread(&deeps), "deepScrollError": deep_error,
@@ -616,12 +850,21 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "sendError": send.err(),
             "allLogsMs": all_logs.as_ref().ok(), "allLogsError": all_logs.as_ref().err(),
             "settledAttachUs": spread(&settled_attaches),
+            "settledAttachErrors": settled_attach_errors,
+            "settledAttachError": settled_attach_error,
             "settledScrollPageUs": spread(&settled_scrolls),
+            "settledScrollErrors": settled_scroll_errors,
+            "settledScrollError": settled_scroll_error,
             "settledSendFirstTokenUs": spread(&settled_sends),
+            "settledSendError": settled_send_error,
+            "settledSendBytes": spread(&settled_send_bytes),
+            "settledSendLongestLine": settled_send_longest,
             "reconnectMs": reconnect_ms, "reconnectMedianMs": reconnect_median_ms,
+            "restartChatAttachMs": restart_chat_attach_ms, "shutdownMs": shutdown_ms,
             "rss": rss, "peakRss": peak_rss,
             "fixtureBytes": fixture_bytes, "homeBytes": home_bytes,
-            "daemonDiskBytes": daemon_disk_bytes,
+            "daemonAddedBytes": daemon_added, "daemonRemovedBytes": daemon_removed,
+            "daemonRemoved": daemon_removed_top,
             "startupPhasesMs": startup_phases_ms, "marksMs": marks_ms,
             "gauges": status["gauges"], "heap": heap,
         })
@@ -696,6 +939,8 @@ fn attribute(path: &Path) -> Value {
         gbk: u64,
         tb: u64,
         tbk: u64,
+        // Held when the profile was written (the daemon's exit): what a run left behind.
+        eb: u64,
         leaf_gb: u64,
         leaf_gbk: u64,
         inner: BTreeMap<String, u64>,
@@ -716,6 +961,7 @@ fn attribute(path: &Path) -> Value {
         site.gbk += gbk;
         site.tb += pp["tb"].as_u64().unwrap_or(0);
         site.tbk += pp["tbk"].as_u64().unwrap_or(0);
+        site.eb += pp["eb"].as_u64().unwrap_or(0);
         // The library frame that asked (serde_json, imbl, String), below the allocator's own.
         let inner = frames
             .iter()
@@ -732,7 +978,7 @@ fn attribute(path: &Path) -> Value {
     let row = |(name, s): (&String, &Site)| {
         let mut inner: Vec<(&String, &u64)> = s.inner.iter().collect();
         inner.sort_by_key(|(_, b)| std::cmp::Reverse(**b));
-        json!({"site": name, "peakBytes": s.gb, "peakBlocks": s.gbk, "totalBytes": s.tb,
+        json!({"site": name, "peakBytes": s.gb, "peakBlocks": s.gbk, "endBytes": s.eb, "totalBytes": s.tb,
                "totalBlocks": s.tbk, "leafPeakBytes": s.leaf_gb, "leafPeakBlocks": s.leaf_gbk,
                "via": inner.into_iter().take(3).map(|(f, b)| json!([f, b])).collect::<Vec<_>>()})
     };
@@ -742,12 +988,16 @@ fn attribute(path: &Path) -> Value {
     by_total.sort_by_key(|(_, s)| std::cmp::Reverse(s.tb));
     let mut by_leaf: Vec<(&String, &Site)> = sites.iter().filter(|(_, s)| s.leaf_gb > 0).collect();
     by_leaf.sort_by_key(|(_, s)| std::cmp::Reverse(s.leaf_gb));
+    let mut by_end: Vec<(&String, &Site)> = sites.iter().collect();
+    by_end.sort_by_key(|(_, s)| std::cmp::Reverse(s.eb));
     json!({
         "peakBytes": peak,
         "leafPeakBytes": leaves,
         "byPeak": by_peak.into_iter().take(top).map(row).collect::<Vec<_>>(),
         "byTotal": by_total.into_iter().take(top).map(row).collect::<Vec<_>>(),
         "leavesBySite": by_leaf.into_iter().take(top).map(row).collect::<Vec<_>>(),
+        "endBytes": sites.values().map(|s| s.eb).sum::<u64>(),
+        "byEnd": by_end.into_iter().take(top).map(row).collect::<Vec<_>>(),
     })
 }
 
@@ -765,6 +1015,15 @@ async fn god_and_small_homes_in_one_harness() {
         };
         let result = run(shape, dhat).await;
         println!("GOD-BASELINE {result}");
+        let restart_ms = result["restartChatAttachMs"].as_u64().unwrap_or(u64::MAX);
+        assert!(
+            restart_ms <= 2_000,
+            "Daemon restart -> chat attach exceeded 2 s: {restart_ms} ms; result={result}"
+        );
+        assert!(
+            result["shutdownMs"].as_u64().unwrap_or(u64::MAX) <= 1_000,
+            "daemon shutdown exceeded 1 s: {result}"
+        );
         results.push(result);
     }
     // The comparison the bar reads: god over small, for each number both have.
@@ -779,6 +1038,8 @@ async fn god_and_small_homes_in_one_harness() {
         // A JSON pointer escapes '~' as ~0 and '/' as ~1; a space stays as it is.
         let keys = [
             "/readyMs",
+            "/socketConnectUs",
+            "/marksMs/socket ready",
             "/firstListMs",
             "/peersMs",
             "/attachUs/p50",
@@ -790,6 +1051,8 @@ async fn god_and_small_homes_in_one_harness() {
             "/settledAttachUs/max",
             "/settledScrollPageUs/p95",
             "/settledSendFirstTokenUs/p95",
+            "/settledSendBytes/p50",
+            "/settledSendLongestLine",
             "/firstSendFirstTokenMs",
             "/sendFirstTokenUs/p95",
             "/reconnectMedianMs",
@@ -797,7 +1060,7 @@ async fn god_and_small_homes_in_one_harness() {
             "/marksMs/agents may spawn",
             "/rss",
             "/peakRss",
-            "/daemonDiskBytes",
+            "/daemonAddedBytes",
             "/heap/peakBytes",
         ];
         // A number missing in either home (no heap profile, a step that failed) is left out.
@@ -808,4 +1071,262 @@ async fn god_and_small_homes_in_one_harness() {
             .collect();
         println!("GOD-RATIO {}", Value::Object(ratios));
     }
+    // A settled step that failed reads as no time at all: the run fails, every home printed.
+    for r in &results {
+        assert!(
+            r["settledAttachErrors"] == 0
+                && r["settledScrollErrors"] == 0
+                && r["settledSendError"].is_null(),
+            "{}: a settled step failed: attach {} {}, scroll {} {}, send {}",
+            r["shape"],
+            r["settledAttachErrors"],
+            r["settledAttachError"],
+            r["settledScrollErrors"],
+            r["settledScrollError"],
+            r["settledSendError"],
+        );
+    }
+}
+
+/// CI's Linux budget check uses the same harness and the small shape. It keeps the full god bench
+/// ignored while detecting a daemon restart regression. Rendering is measured by the app driver.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_to_chat_attach_is_under_two_seconds() {
+    let result = run(Shape::small(), false).await;
+    let elapsed = result["restartChatAttachMs"].as_u64().unwrap_or(u64::MAX);
+    assert!(elapsed <= 2_000, "Daemon restart -> chat attach took {elapsed} ms: {result}");
+    let shutdown = result["shutdownMs"].as_u64().unwrap_or(u64::MAX);
+    assert!(shutdown <= 1_000, "Daemon shutdown took {shutdown} ms: {result}");
+}
+
+/// One peer's hub, restartable: each start is a new daemon run (a new list epoch) over the same
+/// rows and the same peer token, so the link that reconnects to it cannot follow its cursor and
+/// reads the whole list, as from a peer that restarted or an older daemon without the follow.
+#[cfg(target_os = "linux")]
+struct RestartingPeer {
+    name: String,
+    rows: usize,
+    auth: Arc<PeerAuth>,
+    serving: Option<tokio::task::AbortHandle>,
+}
+
+#[cfg(target_os = "linux")]
+impl RestartingPeer {
+    /// A new run of the peer's hub on a new port: the port.
+    async fn start(&mut self) -> u16 {
+        if let Some(old) = self.serving.take() {
+            old.abort();
+        }
+        let mut cfg = Config::default();
+        cfg.store.mode = StoreMode::Memory;
+        let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        for i in 0..self.rows {
+            let meta = god_fixture::peer_meta(&self.name, i);
+            store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        }
+        let hub = Hub::new(cfg, store);
+        let listener = bind_ws("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let auth = WsAuth { local_app: None, peer: Some(self.auth.clone()) };
+        self.serving =
+            Some(tokio::spawn(serve_ws_with(hub, listener, "tok".into(), auth)).abort_handle());
+        port
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Pins thread `pid` (0: the calling thread) to the first `cpus` CPUs.
+#[cfg(target_os = "linux")]
+fn pin(pid: i32, cpus: usize) {
+    // SAFETY: a zeroed cpu_set_t is an empty set; CPU_SET writes within it.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        for cpu in 0..cpus {
+            libc::CPU_SET(cpu, &mut set);
+        }
+        libc::sched_setaffinity(pid, std::mem::size_of::<libc::cpu_set_t>(), &set);
+    }
+}
+
+/// Pins every thread of process `pid` to the first `cpus` CPUs: `sched_setaffinity` on a pid
+/// sets only its main thread, and a thread started later inherits from the thread that starts it,
+/// so each running thread is set (`/proc/PID/task`), twice in case one started during the first.
+#[cfg(target_os = "linux")]
+fn pin_process(pid: u32, cpus: usize) {
+    for _ in 0..2 {
+        let tasks = std::fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten();
+        for tid in tasks.filter_map(|t| t.file_name().to_str()?.parse::<i32>().ok()) {
+            pin(tid, cpus);
+        }
+    }
+}
+
+/// The hub's notice channel under a peer that cannot follow (2026-11-15, after cmux#42095 closed):
+/// bounded by notices (4,096), not bytes. Each of its links reads its whole list again, and the
+/// hub's one notice loop applies lists one at a time. Measured: the bytes of lists the loop had not
+/// taken yet (`gauges.peerLists`, now and at peak) and the daemon's RSS, while the peer's link is
+/// cut and the peer restarted every `ACPMUX_CHURN_EVERY_MS` for `ACPMUX_CHURN_SECS`, with the
+/// daemon alone pinned to `ACPMUX_CHURN_CPUS` CPUs shared with `ACPMUX_CHURN_BUSY` busy threads
+/// (a starved daemon, as at a load average of 125-256 on Leo's Mac); the peer runs free.
+/// `ACPMUX_CHURN_FOLLOW=1` cuts without a restart, so the link follows: the control.
+/// Manual, on Linux CI:
+/// `cargo test -p acpmux --release --test god_daemon whole_lists -- --ignored --nocapture`.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual: a churn lab; run on Linux CI"]
+async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
+    let rows: usize = env_or("ACPMUX_CHURN_ROWS", 4_000);
+    let secs: u64 = env_or("ACPMUX_CHURN_SECS", 60);
+    let every = Duration::from_millis(env_or("ACPMUX_CHURN_EVERY_MS", 500));
+    let cpus: usize = env_or("ACPMUX_CHURN_CPUS", 1);
+    let busy: usize = env_or("ACPMUX_CHURN_BUSY", 8);
+    let follow = std::env::var("ACPMUX_CHURN_FOLLOW").is_ok_and(|v| v == "1");
+
+    let scratch = std::env::temp_dir().join(format!("god-churn-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let home = scratch.join("acpmux");
+    let claude = daemon_env::home(&scratch).join(".claude");
+    let shape = Shape { peers: 0, ..Shape::small() };
+    god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
+    let peer_home = scratch.join("peer-0");
+    std::fs::create_dir_all(&peer_home).unwrap();
+    let auth = Arc::new(PeerAuth::create(&peer_home).unwrap());
+    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&peer_home)).unwrap();
+    let mut peer = RestartingPeer { name: "peer00".into(), rows, auth, serving: None };
+    let proxy = Arc::new(Proxy::start(peer.start().await).await);
+    write_config(
+        &home,
+        json!({"peer00": {"url": format!("ws://127.0.0.1:{}", proxy.port), "token": "tok",
+                          "peerToken": token.trim()}}),
+    );
+
+    let profile = std::env::var("ACPMUX_GOD_DHAT")
+        .is_ok_and(|v| v == "1")
+        .then(|| scratch.join("dhat-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "churn-bench"}}))
+        .unwrap();
+    assert!(wait_listed(&mut rpc, 1, rows).is_some(), "the peer was never listed");
+    let (rss_listed, _) = daemon.rss();
+    let cpu_listed = daemon.cpu_seconds();
+
+    // The daemon starved: pinned with busy threads on its CPUs.
+    pin_process(daemon.child.id(), cpus);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let spinners: Vec<_> = (0..busy)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                pin(0, cpus);
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
+            })
+        })
+        .collect();
+
+    // The churn: cut (and restart) the peer every `every`; sample the gauge meanwhile.
+    let cuts = {
+        let proxy = proxy.clone();
+        let stop = stop.clone();
+        tokio::spawn(async move {
+            let mut cuts = 0u64;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                if !follow {
+                    proxy.repoint(peer.start().await);
+                }
+                proxy.cut();
+                cuts += 1;
+                tokio::time::sleep(every).await;
+            }
+            (cuts, peer)
+        })
+    };
+    let sampled = tokio::task::spawn_blocking(move || {
+        let started = Instant::now();
+        let (mut peak_bytes, mut peak_lists, mut samples) = (0u64, 0u64, 0u64);
+        while started.elapsed() < Duration::from_secs(secs) {
+            std::thread::sleep(Duration::from_millis(500));
+            let Ok(status) = rpc.call("_acpmux/status", json!({})) else { continue };
+            let lists = &status["gauges"]["peerLists"];
+            peak_bytes = peak_bytes.max(lists["bytes"].as_u64().unwrap_or(0));
+            peak_lists = peak_lists.max(lists["lists"].as_u64().unwrap_or(0));
+            let rss = status["gauges"]["memory"]["rssBytes"].as_u64().unwrap_or(0);
+            let at = started.elapsed().as_millis() as u64;
+            // One short line per sample, as it is read: a CI log cuts long lines, and a run that
+            // stalls still shows where.
+            println!("CHURN-RSS {at} {} {} {}", lists["lists"], lists["bytes"], rss / 1_048_576);
+            samples += 1;
+        }
+        (rpc, peak_bytes, peak_lists, samples)
+    })
+    .await
+    .unwrap();
+    let (mut rpc, sampled_bytes, sampled_lists, samples) = sampled;
+    let (rss_churned, _) = daemon.rss();
+    let cpu_churn = daemon.cpu_seconds() - cpu_listed;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for spinner in spinners {
+        spinner.join().unwrap();
+    }
+    let (cuts, _peer) = cuts.await.unwrap();
+
+    // Unstarved: until every list waiting is taken.
+    let drained = Instant::now();
+    let (mut drain_ms, mut reads) = (None, 0u64);
+    while drained.elapsed() < STEP {
+        let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+        let rss = status["gauges"]["memory"]["rssBytes"].as_u64().unwrap_or(0);
+        // About one line a second.
+        if reads % 10 == 0 {
+            println!(
+                "CHURN-DRAIN {} {} {}",
+                ms(drained),
+                status["gauges"]["peerLists"]["lists"],
+                rss / 1_048_576
+            );
+        }
+        reads += 1;
+        if status["gauges"]["peerLists"]["lists"] == 0 && peers_listed(&mut rpc, 1, rows) {
+            drain_ms = Some(ms(drained));
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+    let (rss_end, peak_rss) = daemon.rss();
+    drop(rpc);
+    daemon.stop();
+    let heap = profile.as_deref().map(attribute);
+    let lists = &status["gauges"]["peerLists"];
+    let result = json!({
+        "rows": rows, "secs": secs, "everyMs": every.as_millis() as u64, "cpus": cpus,
+        "busy": busy, "follow": follow, "cuts": cuts,
+        "peakLists": lists["peakLists"], "peakBytes": lists["peakBytes"],
+        "sampledPeakLists": sampled_lists, "sampledPeakBytes": sampled_bytes,
+        "drainMs": drain_ms,
+        "rssListed": rss_listed, "rssChurned": rss_churned, "rssEnd": rss_end, "peakRss": peak_rss,
+        // The daemon's CPU seconds over the churn (with no busy threads, its cost; with them, its share).
+        "cpuChurnS": cpu_churn,
+        "samples": samples,
+        "arenas": std::env::var("ACPMUX_CHURN_ARENAS").ok(),
+        "heapEndBytes": heap.as_ref().map(|h| h["endBytes"].clone()),
+        "heapPeakBytes": heap.as_ref().map(|h| h["peakBytes"].clone()),
+    });
+    println!("CHURN {result}");
+    for (list, rows) in heap.iter().flat_map(|h| [("END", &h["byEnd"]), ("PEAK", &h["byPeak"])]) {
+        for row in rows.as_array().into_iter().flatten() {
+            println!(
+                "CHURN-HEAP-{list} {} {} {} {}",
+                row["endBytes"], row["peakBytes"], row["totalBytes"], row["site"]
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
 }

@@ -10,6 +10,11 @@ public import WebKit
 public final class WebDevOverrideWatcher {
     public static let shared = WebDevOverrideWatcher()
 
+    /// Runs after a page did not start from the overlay and every page fell back to the bundled ones
+    /// (``WebDevOverride/overlayDidNotStart(_:page:why:)``), with the one-line reason: the app says
+    /// why and turns the layer off (`cmux customize library off --code`).
+    public var onFallBack: ((String) -> Void)?
+
     private var fileWatcher: ConfigFileWatcher?
     private var manifestWatcher: ConfigFileWatcher?
     private var file: URL?

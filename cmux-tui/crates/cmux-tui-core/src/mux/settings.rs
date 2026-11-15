@@ -17,6 +17,11 @@ use super::{Mux, MuxEvent};
 /// The daemon serves `settings.*` and emits `settings-changed`.
 pub const SETTINGS_CAPABILITY: &str = "settings-v1";
 
+/// The daemon serves `settings.edit`: several edits in one publish, and the
+/// conditional `set_unset` and `reset_unchanged` edits
+/// (plans/cmux-next/settings-react.md section 7, items 2 and 3).
+pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v1";
+
 #[derive(Default)]
 pub(crate) struct SettingsSlot(OnceLock<SettingsOwner>);
 

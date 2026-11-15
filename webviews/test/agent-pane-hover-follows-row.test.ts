@@ -230,13 +230,24 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
   /// On the next painted frame the row under the pointer is lit in full, and any other lit row is
   /// one the pointer left, on its way out; once that has played, the row under the pointer is the
   /// only one lit. None is lit when the pointer is over no row.
-  async function followsPointer(page: Page, point: { x: number; y: number }, step: string, first?: Look) {
+  ///
+  /// `quiet`: the row under the pointer has no row-wide look of its own (a finished subagent's line,
+  /// which has no chevron since #42247 and lights only its name chip), so nothing is lit once the
+  /// row just left has gone out.
+  async function followsPointer(
+    page: Page,
+    point: { x: number; y: number },
+    step: string,
+    first?: Look,
+    quiet = false,
+  ) {
     const seen = first ?? (await look(page, point.x, point.y));
     const under = seen.lit.find((row) => row.name === seen.under);
+    const lit = !quiet && seen.under;
     expect({ step, under: seen.under, lit: under ?? null }).toEqual({
       step,
       under: seen.under,
-      lit: seen.under ? { name: seen.under, fading: [] } : null,
+      lit: lit ? { name: seen.under!, fading: [] } : null,
     });
     const lingering = seen.lit.filter((row) => row.name !== seen.under && row.fading.length === 0);
     expect({ step, lingering }).toEqual({ step, lingering: [] });
@@ -245,7 +256,7 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
     while (Date.now() - start < LEAVE_MS) later = await look(page, point.x, point.y);
     expect({ step, lit: later.lit }).toEqual({
       step,
-      lit: later.under ? [{ name: later.under, fading: [] }] : [],
+      lit: later.under && !quiet ? [{ name: later.under, fading: [] }] : [],
     });
   }
 
@@ -320,7 +331,7 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
           for (const selector of [...transcript, ...transcript.slice().reverse()]) {
             const point = await at(selector);
             await page.mouse.move(point.x, point.y);
-            await followsPointer(page, point, `pointer to ${selector}`);
+            await followsPointer(page, point, `pointer to ${selector}`, undefined, selector.includes(HELPER));
           }
           // Still pointer: rows arrive below and the view follows them up, and the reply grows under
           // the list; the row now under the pointer is the lit one.

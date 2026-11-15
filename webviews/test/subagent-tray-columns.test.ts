@@ -672,12 +672,15 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               rows: [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((row) => {
                 const button = row.querySelector<HTMLElement>(".acpmux-agent-line__button")!;
                 const name = row.querySelector<HTMLElement>(".acpmux-summary-agent__name")!.getBoundingClientRect();
-                // Every drawn glyph before the title; the gap is measured from the glyph slot, the
-                // box the glyph (spinner, icon or mark) is centred in.
-                const glyphs = [...button.querySelectorAll<SVGElement>("svg")].filter((svg) => {
-                  const box = svg.getBoundingClientRect();
-                  return box.width > 0 && box.right <= name.left + 0.5;
-                });
+                // One leading icon composition: a harness logo and its badge share one slot.
+                const glyphs = new Set(
+                  [...button.querySelectorAll<SVGElement>("svg")]
+                    .filter((svg) => {
+                      const box = svg.getBoundingClientRect();
+                      return box.width > 0 && box.right <= name.left + 0.5;
+                    })
+                    .map((svg) => svg.closest(".cv-sender-icon") ?? svg),
+                );
                 const slot = button.querySelector<HTMLElement>(".acpmux-lineage__icon")!.getBoundingClientRect();
                 const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
                 const meta = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")?.getBoundingClientRect();
@@ -687,7 +690,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   .map((node) => node.textContent?.trim() ?? "")
                   .filter(Boolean);
                 return {
-                  glyphs: glyphs.length,
+                  glyphs: glyphs.size,
+                  harnessMark: Boolean(button.querySelector(".acpmux-lineage__icon .agent-mark")),
                   gap: name.left - slot.right,
                   subtitle: Boolean(row.querySelector(".acpmux-summary-agent__kind, .acpmux-agent-line__kind-icon")),
                   words: visibleText,
@@ -706,6 +710,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(anatomy.rows.length).toBeGreaterThan(0);
           for (const row of anatomy.rows) {
             expect(row.glyphs).toBe(1);
+            expect(row.harnessMark).toBe(true);
             expect(row.gap).toBeGreaterThanOrEqual(anatomy.token - 0.5);
             expect(row.subtitle).toBe(false);
             expect(row.words).not.toContain("general-purpose");

@@ -149,11 +149,11 @@ impl Mux {
         let id = self.next_notification_id();
         // Who holds the terminal now: a reply typed into it later must reach this same program.
         let poster = surface.and_then(|surface| self.surface(surface)).and_then(|surface| {
-            let pid = surface.process_id()?;
-            Some(NotificationPoster {
-                pid: crate::platform::foreground_leader(pid)?,
-                executable: crate::platform::foreground_process_name(pid)?,
-            })
+            NotificationPoster::of_terminal(
+                surface.process_id()?,
+                crate::platform::foreground_leader,
+                crate::platform::process_executable,
+            )
         });
         self.notification_posts
             .lock()

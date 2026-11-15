@@ -42,6 +42,10 @@ path = "tests/test_ios_internal_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_link_ffi_key.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_screenshot_capture_guard.py"
 lane = "linux-guard"
 

@@ -160,8 +160,8 @@ impl WorkspaceRegistry {
         prune_resource_mutations(&tx)?;
         tx.commit()?;
         drop(db);
-        // Only the changes of a full projection are the complete live set that may seed an empty
-        // fold; a scoped close states its own workspaces.
+        // Only after the changes of a full projection does the fold hold every live resource; a
+        // scoped close states its own workspaces.
         self.record_journaled_public_fold(previous_revision, revision, &journaled, restates_all);
         Ok(TopologyCloseCommit {
             resource: ResourcePatchCommit { revision, result, replayed: false },

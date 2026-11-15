@@ -443,6 +443,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         self?.startAttachmentDrag(request, event)
     }
     private(set) lazy var selection = TranscriptSelection(controller: self)
+    /// cmux: Find in this chat (Cmd-F; TranscriptFind.swift).
+    private(set) lazy var find = TranscriptFind(controller: self)
     /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
     /// nil: a reply answers the whole message.
     var replyQuote: ReplyQuote? { didSet { if replyQuote != oldValue { updateQuoteCard() } } }
@@ -544,7 +546,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.drawsChrome = false
         // A stream's final message takes its rows' keys: a selection in them goes along (TranscriptSelection.renameRows).
         demo.onRowsRenamed = { [weak self] map in self?.selection.renameRows(map) }
-        demo.onCellDecorated = { [weak self] cell in self?.selection.draw(cell) }
+        demo.onCellDecorated = { [weak self] cell in self?.selection.draw(cell); self?.find.draw(cell) }
         // Flight recorder (HomeFlightRecorder's policy): every engine action, as Host.swift hooks it.
         let shared = store.onChange
         store.onChange = { a, t, o, n in shared?(a, t, o, n); FlightRecorder.shared.action(a) }
@@ -886,6 +888,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if demo.longTextBandHit(p) { return }
         if approvalClicked(at: p) { return }
         if turnFailureClicked(at: p) { return }
+        // cmux: the red "!" of my Not Delivered message opens Try Again and Delete (Messages' pair).
+        if failedMarkClicked(at: p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }

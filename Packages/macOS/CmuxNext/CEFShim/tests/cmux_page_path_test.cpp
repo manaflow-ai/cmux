@@ -421,6 +421,18 @@ int main() {
            "a request with no Range header streams the whole file");
   }
 
+  // Only a bundled file named by its content may be kept by the renderer (pane.css?h=...).
+  {
+    Expect(cmux_shim::IsContentHashedQuery("h=0123abcd"), "an 8-digit content hash is kept");
+    Expect(cmux_shim::IsContentHashedQuery("h=" + std::string(64, 'f')), "a 64-digit content hash is kept");
+    Expect(!cmux_shim::IsContentHashedQuery(""), "a file with no query is not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("h=0123abc"), "a hash under 8 digits is not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("h=" + std::string(65, 'f')), "a hash over 64 digits is not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("h=0123ABCD"), "upper-case digits are not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("h=0123abcd&x=1"), "another parameter after the hash is not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("v=0123abcd"), "another parameter is not kept");
+  }
+
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";

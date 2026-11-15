@@ -1272,11 +1272,11 @@ export default agentPaneEntry({
       ]),
     },
     "row-expanded": {
-      note: "A row clicked: it expands in place under itself, on the hat's own fold, with its whole task, what it does now and an explicit Open chat; the click never jumps to the subagent.",
+      note: "An expanded tray's subagent row opens its chat directly; the Stop button remains separate.",
       play: async (ctx) => {
         await openTray(ctx);
         await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray [data-line-detail]"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
       },
       snapshot: rowsChat([
         agent("Make autoland land again", 6.2, "running", {

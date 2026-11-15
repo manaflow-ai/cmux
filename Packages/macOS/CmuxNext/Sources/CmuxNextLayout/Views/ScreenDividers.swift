@@ -53,22 +53,36 @@ struct ScreenDividers {
     /// between panes). A transparent edge handle at rest leaves no hole;
     /// hovering or dragging it makes the line part of the overlay again.
     var lineRects: [CGRect] {
-        screen.dividerViews.values.compactMap { view in
-            guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return nil }
+        screen.dividerViews.values.flatMap { view -> [CGRect] in
+            guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return [] }
             // Cut where its cursor stops too (DividerHandleView `cursorClip`): no hole through a dock.
             let line = view.lineFrameInSuperview.intersection(screen.bounds)
-            let rect = uncovered(view.cursorClip.map { line.intersection($0) } ?? line)
-            return rect.isNull || rect.isEmpty ? nil : rect
+            return uncoveredPieces(view.cursorClip.map { line.intersection($0) } ?? line)
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
     }
 
     /// `rect` less what a zooming or unzooming pane shows over it: the dividers are under that pane
-    /// (`ScreenContentView.rank`), so its Chromium page gets no hole and no click catcher there.
+    /// (`ScreenContentView.rank`), so its Chromium page gets no click catcher there. One rect: a catcher is one panel.
     private func uncovered(_ rect: CGRect) -> CGRect {
-        guard let pane = screen.zoomMotion.pane, let host = screen.context.hosts[pane], host.superview === screen, !rect.isNull else { return rect }
-        let cover = host.frame
+        guard let cover = zoomCover, !rect.isNull else { return rect }
         if cover.insetBy(dx: -0.5, dy: -0.5).contains(rect) { return .null }
         return rect.remainder(outside: cover)
+    }
+
+    /// `rect` less what a zooming or unzooming pane shows over it, in as many pieces as that leaves: its Chromium page
+    /// gets no line hole anywhere under it. A pane springing back into the middle of a longer line (a middle row beside
+    /// a column, a middle column over a row) leaves a piece on each side; one rect for both cut the whole line through
+    /// the page, which drew the split over the zoomed pane for the unzoom's frames (Lawrence 2026-11-12).
+    private func uncoveredPieces(_ rect: CGRect) -> [CGRect] {
+        guard !rect.isNull, !rect.isEmpty else { return [] }
+        guard let cover = zoomCover else { return [rect] }
+        return rect.pieces(outside: cover)
+    }
+
+    /// The frame of the pane a zoom or an unzoom springs, which shows above every divider until it lands.
+    private var zoomCover: CGRect? {
+        guard let pane = screen.zoomMotion.pane, let host = screen.context.hosts[pane], host.superview === screen else { return nil }
+        return host.frame
     }
 
     /// The strip column under a resize drag: the camera keeps it in place, so
@@ -83,5 +97,22 @@ struct ScreenDividers {
                 column.root.ratio(of: split) != nil || column.rows.contains { $0.root.ratio(of: split) != nil }
             }?.id
         }
+    }
+}
+
+extension CGRect {
+    /// This rect less `cover`, as up to four rects (the bands above and below `cover`, then the parts left and right
+    /// of it between them); none when `cover` takes it all, itself when they do not overlap. Pieces under half a point
+    /// across are dropped.
+    func pieces(outside cover: CGRect) -> [CGRect] {
+        let shared = intersection(cover)
+        guard !shared.isNull, shared.width > 0.5, shared.height > 0.5 else { return [self] }
+        let candidates = [
+            CGRect(x: minX, y: minY, width: width, height: shared.minY - minY),
+            CGRect(x: minX, y: shared.maxY, width: width, height: maxY - shared.maxY),
+            CGRect(x: minX, y: shared.minY, width: shared.minX - minX, height: shared.height),
+            CGRect(x: shared.maxX, y: shared.minY, width: maxX - shared.maxX, height: shared.height),
+        ]
+        return candidates.filter { $0.width > 0.5 && $0.height > 0.5 }
     }
 }

@@ -1,9 +1,6 @@
 // l10n-allow-file: test fixture replies and model names, not shipped UI.
-// Retry, with its model switch, on the last turn's reply footer (TurnRows.tsx TurnFooter). Leo,
-// 2026-11-04: "Today Retry is on your prompt bubble, and appears on the reply only after a failure.
-// Put it, with the model switch, in the last turn's footer." The last turn's footer offers Retry
-// after Copy whether the turn failed or not; an earlier turn's footer does not, and the prompt bubble
-// draws none (test/user-message-actions.test.tsx).
+// Completed and stopped turns resend through the message menu. Failed recovery keeps its inline
+// Retry/model control; prompt target selection is shared by both paths.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
@@ -46,16 +43,11 @@ const draw = (row: AcpmuxRow, value: TurnActions = actions()) =>
     </TurnActionsContext.Provider>,
   );
 
-test("the last turn's footer offers Retry and its model switch right after Copy", () => {
+test("a completed footer keeps Copy and omits inline Retry and its model switch", () => {
   const markup = draw(last);
-  const copy = markup.indexOf('aria-label="Copy"');
-  const retry = markup.indexOf('aria-label="Retry"');
-  const models = markup.indexOf("cv-turn-retry-menu");
-  expect(copy).toBeGreaterThan(-1);
-  expect(retry).toBeGreaterThan(copy);
-  expect(models).toBeGreaterThan(retry);
-  // One split control: Retry and its chevron in one group.
-  expect(markup).toMatch(/<span class="cv-turn-retry"><button[^>]*aria-label="Retry"/);
+  expect(markup).toContain('aria-label="Copy"');
+  expect(markup).not.toContain('aria-label="Retry"');
+  expect(markup).not.toContain("cv-turn-retry");
 });
 
 test("an earlier turn's footer offers no Retry", () => {
@@ -68,8 +60,11 @@ test("a chat that cannot send draws no Retry on its last footer", () => {
   expect(draw(last, {})).not.toContain('aria-label="Retry"');
 });
 
-test("one model draws Retry without the model switch", () => {
-  const markup = draw(last, { ...actions(), retryWith: { models: [{ id: "a", name: "A" }], retry: () => {} } });
+test("failed recovery with one model draws Retry without the model switch", () => {
+  const markup = draw(
+    { ...last, status: "failed", error: "boom" },
+    { ...actions(), retryWith: { models: [{ id: "a", name: "A" }], retry: () => {} } },
+  );
   expect(markup).toContain('aria-label="Retry"');
   expect(markup).not.toContain("cv-turn-retry-menu");
 });
@@ -141,10 +136,7 @@ test("a task result's turn offers no Retry; the person's last prompt keeps it", 
   expect(footers[0]!.prompt).toBe("Fix the grid");
 });
 
-// One table over every turn shape the reviews named (cmux#34779): the transcript draws exactly one
-// Retry where base drew the prompt's, on the reply footer when that footer shows and offers it, else
-// under the person's last prompt; none for a reader who may not act or a chat that cannot send; and a
-// task result acpmux sent in is never the prompt it resends.
+// Target selection remains personal-prompt only when inline resend is absent.
 const P = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "user", text });
 const A = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "assistant", text });
 const S = (id: string, at: number): AcpmuxRow => ({ id, version: 1, at, kind: "turnSummary", status: "completed" });
@@ -209,42 +201,48 @@ function retries(source: AcpmuxRow[], value: TurnActions = actions(), readOnly =
 
 const reply = [P("p1", 10, "Fix the grid"), A("a1", 20, "Fixed."), S("s1", 30)];
 test.each([
-  ["a normal reply: its footer", reply, ["footer:s1"]],
+  ["a normal reply retains its personal prompt target", reply, "p1"],
   [
-    "a tool-only last turn, whose footer is empty: the prompt",
+    "a tool-only last turn retains its personal prompt target",
     [P("p1", 10, "List it"), tool("t1", 20), S("s1", 30)],
-    ["prompt:p1"],
+    "p1",
   ],
   [
-    "a notification's turn after it: the person's turn's footer",
+    "a notification leaves the personal prompt target unchanged",
     [...reply, notice("n", 40), A("a2", 50, "Built."), S("s2", 60)],
-    ["footer:s1"],
+    "p1",
   ],
   [
-    "a self-started summary in its tail: its own footer once",
+    "a self-started summary leaves the personal prompt target unchanged",
     [...reply, A("a2", 40, "Also checked CI."), S("s2", 50)],
-    ["footer:s1"],
+    "p1",
   ],
-  ["a history turn with no summary: the prompt", [P("p1", 10, "First"), A("a1", 20, "Done.")], ["prompt:p1"]],
   [
-    "a task result after it: the person's turn's footer, never the result",
+    "a history turn without a summary still identifies its personal prompt",
+    [P("p1", 10, "First"), A("a1", 20, "Done.")],
+    "p1",
+  ],
+  [
+    "a task result cannot replace the personal prompt target",
     [...reply, received("r", 40), A("a2", 50, "Merged."), S("s2", 60)],
-    ["footer:s1"],
+    "p1",
   ],
   [
-    "another agent's message after it: the person's turn's footer, never the message",
+    "another agent's message cannot replace the personal prompt target",
     [...reply, message("m", 40), A("a2", 50, "Reviewing."), S("s2", 60)],
-    ["footer:s1"],
+    "p1",
   ],
-  ["only another agent's message: none", [message("m", 10), A("a1", 20, "Reviewing."), S("s1", 30)], []],
-  ["only a task result: none", [received("r", 10), A("a1", 20, "Merged."), S("s1", 30)], []],
+  ["only another agent's message: none", [message("m", 10), A("a1", 20, "Reviewing."), S("s1", 30)], undefined],
+  ["only a task result: none", [received("r", 10), A("a1", 20, "Merged."), S("s1", 30)], undefined],
   [
-    "a later prompt: only the last prompt's footer",
+    "a later personal prompt replaces the target",
     [...reply, P("p2", 40, "Now the header"), A("a2", 50, "Done."), S("s2", 60)],
-    ["footer:s2"],
+    "p2",
   ],
 ] as const)("%s", (_name, source, expected) => {
-  expect(retries([...source])).toEqual([...expected]);
+  const rows = turnView([...source], new Set(), { now: 1_000 });
+  expect(retryTargetIn(rows).promptId).toBe(expected);
+  expect(retries([...source])).toEqual([]);
 });
 
 test("a reader who may not act, or a chat that cannot send now, sees no Retry anywhere", () => {
@@ -255,7 +253,7 @@ test("a reader who may not act, or a chat that cannot send now, sees no Retry an
   }
 });
 
-test("a waiting steer that is the latest prompt is the retry target and keeps its held Retry", () => {
+test("a waiting steer remains the latest target without an inline Retry", () => {
   const steer: AcpmuxRow = { ...P("p2", 30, "Also the header"), steer: "waiting" };
   const rows = turnView([P("p1", 10, "Fix the grid"), A("a1", 20, "Working."), steer], new Set(), { now: 1_000 });
   const target = retryTargetIn(rows);
@@ -278,6 +276,5 @@ test("a waiting steer that is the latest prompt is the retry target and keeps it
     </TurnActionsContext.Provider>,
   );
   const queue = markup.slice(markup.indexOf('class="steer-queue"'));
-  expect(queue).toContain('aria-label="Retry"');
-  expect(queue).toMatch(/aria-label="Retry"[^>]*disabled|disabled[^>]*aria-label="Retry"/);
+  expect(queue).not.toContain('aria-label="Retry"');
 });

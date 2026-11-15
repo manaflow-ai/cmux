@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 616,
   "sections": [
     {
       "id": "general",
@@ -61,7 +61,7 @@
           "title": "Edited Files Shown",
           "help": "",
           "kind": "number",
-          "default": 5,
+          "default": 3,
           "group": "Agent Chat",
           "range": {
             "min": 1,
@@ -345,27 +345,6 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
-        },
-        {
-          "key": "agents.hiddenChats.discard",
-          "title": "Release Hidden Agent Chats",
-          "help": "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Hibernation"
-        },
-        {
-          "key": "agents.hiddenChats.discardAfterMinutes",
-          "title": "Release Hidden Chats After",
-          "help": "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
-          "kind": "number",
-          "default": 15,
-          "group": "Hibernation",
-          "range": {
-            "min": 1,
-            "max": 1440,
-            "unit": "minutes"
-          }
         },
         {
           "key": "agents.modelRouter.model",
@@ -1214,12 +1193,17 @@
           "group": "cmux Remote"
         },
         {
-          "key": "remote.ultraMode",
+          "key": "remote.ultra",
           "title": "Ultra Connection Mode",
-          "help": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
+          "help": "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "cmux Remote",
+          "values": [
+            "off",
+            "auto",
+            "always"
+          ]
         },
         {
           "key": "screenshots.findTools",
@@ -1339,6 +1323,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabApp",
+          "title": "New Tab App",
+          "help": "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page.",
+          "kind": "text",
+          "default": null,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabButtonPosition",
           "title": "New Tab Position (+ Button)",
           "help": "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).",
@@ -1404,7 +1396,7 @@
         {
           "key": "tabs.plusButton",
           "title": "+ Button Visibility",
-          "help": "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+          "help": "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows.",
           "kind": "choice",
           "default": "hover",
           "group": "Tabs",
@@ -1758,7 +1750,7 @@
           "title": "New Workspace Position",
           "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
           "kind": "choice",
-          "default": "afterCurrent",
+          "default": "top",
           "group": "Sidebar",
           "values": [
             "top",
@@ -2062,7 +2054,7 @@
           "title": "Unread Banner",
           "help": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
           "kind": "choice",
-          "default": "expanded",
+          "default": "off",
           "group": "Agent Chat",
           "values": [
             "expanded",
@@ -2099,8 +2091,8 @@
           "default": 1,
           "group": "Density and Motion",
           "range": {
-            "min": 0.85,
-            "max": 1.5,
+            "min": 0.25,
+            "max": 5,
             "unit": "fraction"
           }
         },
@@ -3649,7 +3641,7 @@
         {
           "key": "sidebar.controlsOnHover",
           "title": "Show Sidebar Controls Only on Hover",
-          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -3762,7 +3754,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 400,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3783,7 +3775,7 @@
           "title": "Group Card Delay",
           "help": "How long the pointer rests on a group before its summary card opens.",
           "kind": "number",
-          "default": 1500,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3944,7 +3936,7 @@
         {
           "key": "sidebar.minimal",
           "title": "Minimal Mode",
-          "help": "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -5837,7 +5829,7 @@
         {
           "key": "diagnostics.usagePatterns",
           "title": "Record Usage Patterns",
-          "help": "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+          "help": "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.",
           "kind": "toggle",
           "default": false,
           "group": "Usage Patterns"
@@ -6604,14 +6596,6 @@
           "group": "Cloud Workspaces"
         },
         {
-          "key": "phone.allowConnections",
-          "title": "Let Your Phone Use This Mac",
-          "help": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Phone Access"
-        },
-        {
           "key": "phone.cloudDesktop",
           "title": "Show Your Cloud Machine's Screen on Your Phone",
           "help": "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
@@ -6639,14 +6623,6 @@
             "pluggedIn",
             "always"
           ]
-        },
-        {
-          "key": "phone.startSessions",
-          "title": "Let Your Phone Start New Workspaces",
-          "help": "Off, your phone can still follow, type into and answer what's already running.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Phone Access"
         },
         {
           "key": "ssh.linkAllowedHosts",

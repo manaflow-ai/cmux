@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+inline constexpr std::string_view kProtocolIrSha256 = "725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -115,6 +115,7 @@ struct LayoutUndoResult;
 struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
+struct ListWorkspacesKnown;
 struct LivePane;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
@@ -229,6 +230,9 @@ struct TerminalClipboardReplyResult;
 struct TerminalClipboardSubscribeResult;
 struct TerminalColorOverrides;
 struct TerminalColors;
+struct TerminalCommandContext;
+enum class TerminalCommandContextIntent;
+struct TerminalCommandContextResult;
 struct TerminalCommandDeleteResult;
 struct TerminalCommandHistoryResult;
 struct TerminalCommandList;
@@ -581,6 +585,7 @@ struct SubscribeActivityRequest;
 struct SwapPaneRequest;
 struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
+struct TerminalCommandContextRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
 struct TerminalLastCommandRequest;
@@ -676,6 +681,7 @@ struct ResizedEvent;
 struct ScreenAddedEvent;
 struct ScreenChangedEvent;
 struct ScreenClosedEvent;
+struct ScreenDeviceChangedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
 struct SelectionChangedEvent;
@@ -949,7 +955,9 @@ struct AttachSurfaceRequest {
     Field<std::string> expected_generation{};
     Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
+    Field<std::uint32_t> output_coalesce_ms{};
     Field<std::uint32_t> replay_history_rows{};
+    Field<std::uint64_t> replay_history_start{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
     std::optional<bool> snapshot_images{};
@@ -3411,13 +3419,16 @@ struct IdentifyResult {
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_device{};
     std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
     std::optional<MachinePlatform> machine_platform{};
+    std::optional<std::string> machine_symbol{};
     Field<std::uint32_t> min_api_revision{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
@@ -3733,7 +3744,19 @@ struct ListWorkspaceGroupsRequest {
     friend bool operator==(const ListWorkspaceGroupsRequest&, const ListWorkspaceGroupsRequest&) = default;
 };
 
+struct ListWorkspacesKnown {
+    Field<std::string> generation{};
+    Field<std::uint64_t> pane_revision{};
+    Field<std::string> registry_id{};
+    Field<std::uint64_t> terminal_revision{};
+    Field<std::string> tree_revision{};
+    Field<std::uint64_t> workspace_revision{};
+    friend bool operator==(const ListWorkspacesKnown&, const ListWorkspacesKnown&) = default;
+};
+
 struct ListWorkspacesRequest {
+    Field<ListWorkspacesKnown> known{};
+    Field<std::uint64_t> limit{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
 };
 
@@ -4863,6 +4886,7 @@ struct ResizedEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     std::optional<Base64> data{};
+    std::optional<std::uint64_t> history_rows_omitted{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::optional<Base64> replay{};
@@ -4995,6 +5019,11 @@ struct ScreenClosedEvent {
     Id screen{};
     Id workspace{};
     friend bool operator==(const ScreenClosedEvent&, const ScreenClosedEvent&) = default;
+};
+
+struct ScreenDeviceChangedEvent {
+    std::optional<std::string> screen_device_id{};
+    friend bool operator==(const ScreenDeviceChangedEvent&, const ScreenDeviceChangedEvent&) = default;
 };
 
 struct ScreenRenamedEvent {
@@ -5958,6 +5987,32 @@ struct TerminalClipboardSubscribeResult {
     friend bool operator==(const TerminalClipboardSubscribeResult&, const TerminalClipboardSubscribeResult&) = default;
 };
 
+struct TerminalCommandContext {
+    std::optional<std::string> command{};
+    std::optional<std::string> cwd{};
+    std::optional<std::int32_t> exit_code{};
+    std::string output{};
+    std::string text{};
+    bool truncated{};
+    friend bool operator==(const TerminalCommandContext&, const TerminalCommandContext&) = default;
+};
+
+enum class TerminalCommandContextIntent {
+    context,
+    fix,
+};
+
+struct TerminalCommandContextRequest {
+    std::optional<TerminalCommandContextIntent> intent{};
+    Id surface{};
+    friend bool operator==(const TerminalCommandContextRequest&, const TerminalCommandContextRequest&) = default;
+};
+
+struct TerminalCommandContextResult {
+    std::optional<TerminalCommandContext> context{};
+    friend bool operator==(const TerminalCommandContextResult&, const TerminalCommandContextResult&) = default;
+};
+
 struct TerminalCommandDeleteResult {
     std::uint64_t deleted{};
     friend bool operator==(const TerminalCommandDeleteResult&, const TerminalCommandDeleteResult&) = default;
@@ -6215,6 +6270,9 @@ struct Tree {
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
     std::optional<std::uint64_t> terminal_revision{};
+    std::optional<std::uint64_t> total{};
+    std::optional<std::string> tree_revision{};
+    std::optional<bool> unchanged{};
     std::optional<std::uint64_t> workspace_revision{};
     std::vector<Workspace> workspaces{};
     friend bool operator==(const Tree&, const Tree&) = default;
@@ -6400,6 +6458,7 @@ struct VtStateEvent {
     std::uint16_t cols{};
     Base64 data{};
     std::optional<std::uint64_t> history_rows_omitted{};
+    std::optional<std::uint64_t> history_rows_skipped{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};
@@ -7138,6 +7197,12 @@ struct Codec<ListTerminalsResult> {
 };
 
 template <>
+struct Codec<ListWorkspacesKnown> {
+    static Result<Json> encode(const ListWorkspacesKnown& value);
+    static Result<ListWorkspacesKnown> decode(const Json& value);
+};
+
+template <>
 struct Codec<LivePane> {
     static Result<Json> encode(const LivePane& value);
     static Result<LivePane> decode(const Json& value);
@@ -7819,6 +7884,24 @@ template <>
 struct Codec<TerminalColors> {
     static Result<Json> encode(const TerminalColors& value);
     static Result<TerminalColors> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContext> {
+    static Result<Json> encode(const TerminalCommandContext& value);
+    static Result<TerminalCommandContext> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContextIntent> {
+    static Result<Json> encode(const TerminalCommandContextIntent& value);
+    static Result<TerminalCommandContextIntent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContextResult> {
+    static Result<Json> encode(const TerminalCommandContextResult& value);
+    static Result<TerminalCommandContextResult> decode(const Json& value);
 };
 
 template <>
@@ -9934,6 +10017,12 @@ struct Codec<TerminalClipboardSubscribeRequest> {
 };
 
 template <>
+struct Codec<TerminalCommandContextRequest> {
+    static Result<Json> encode(const TerminalCommandContextRequest& value);
+    static Result<TerminalCommandContextRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
@@ -10501,6 +10590,12 @@ template <>
 struct Codec<ScreenClosedEvent> {
     static Result<Json> encode(const ScreenClosedEvent& value);
     static Result<ScreenClosedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ScreenDeviceChangedEvent> {
+    static Result<Json> encode(const ScreenDeviceChangedEvent& value);
+    static Result<ScreenDeviceChangedEvent> decode(const Json& value);
 };
 
 template <>

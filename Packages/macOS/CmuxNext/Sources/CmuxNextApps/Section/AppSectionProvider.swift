@@ -6,7 +6,10 @@ import CmuxNextDesign
 /// `<app id>#<section id>`). One mount per section, rendered from the app
 /// supervisor's scene stream (`apps-scene`); the view stays alive while the
 /// sidebar shows it. While the supervisor is unreachable the section shows
-/// the disconnected reason.
+/// the disconnected reason; while apps cannot run here at all (a daemon with no
+/// app host, or apps turned off) it draws nothing (Lawrence 2026-11-12: "get rid
+/// of “Needs a newer cmux”"): the sidebar has nothing to offer about it, and the
+/// Apps page says why.
 @MainActor
 public final class AppSectionProvider {
     let client: AppsClient
@@ -31,6 +34,10 @@ public final class AppSectionProvider {
     }
 
     public func makeView(for contribution: String) -> NSView? {
+        if appsCannotRunHere {
+            release(contribution)
+            return nil
+        }
         if let existing = mounts[contribution] {
             // A section mounted before the list landed: drop it once the list says it does not show.
             guard client.isListed, resolve(contribution) == nil else { return existing.view }
@@ -51,6 +58,13 @@ public final class AppSectionProvider {
     public func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat {
         guard let view = mounts[contribution]?.view as? AppSectionView else { return 0 }
         return view.preferredHeight(width: width)
+    }
+
+    /// Apps cannot run on this daemon (no app host beside it) or a policy turned them off: no
+    /// connect or retry changes that, so a section is not worth a card.
+    private var appsCannotRunHere: Bool {
+        guard let reason = client.unavailableReason else { return false }
+        return !reason.daemonUnreachable
     }
 
     /// Unmounts a section the sidebar no longer shows (the supervisor stops

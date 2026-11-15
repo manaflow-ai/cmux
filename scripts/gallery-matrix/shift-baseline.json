@@ -1567,7 +1567,7 @@
     "agent-pane.subagent-retry#menu-open": 0,
     "agent-pane.subagent-retry#retried-out": 0,
     "agent-pane.subagent-retry#retrying": 0,
-    "agent-pane.subagent-retry#task-ask-parent": 0,
+    "agent-pane.subagent-retry#task-no-retry": 0,
     "agent-pane.subagent-row-anatomy#done-one": 0.0059,
     "agent-pane.subagent-row-anatomy#mixed": 0.0399,
     "agent-pane.subagent-row-anatomy#running-stats": 0.0311,

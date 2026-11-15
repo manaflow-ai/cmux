@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import SwiftUI
 
 /// Find in Chat's bar over the top of the transcript: the query, "N of M", previous and
@@ -50,7 +51,7 @@ struct AgentChatFindBar: View {
                 .fontWeight(.semibold)
                 .accessibilityIdentifier("agentChat.find.done")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.leading, 14)
         .padding(.trailing, 16)
         .frame(minHeight: 44)

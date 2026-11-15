@@ -55,6 +55,34 @@ fn stopped_answer() -> Value {
     json!({"stopReason": "cancelled"})
 }
 
+/// The project's folder of PDFs saved for agents, `<cwd>/.cmux/attachments` (it holds one folder
+/// per chat and a `.gitignore`).
+fn pdf_attachments_root(cwd: &Path) -> PathBuf {
+    cwd.join(".cmux").join("attachments")
+}
+
+/// Session `id`'s folder of PDFs under `root` (`<cwd>/.cmux/attachments`); none for an id that is
+/// not one plain path component.
+fn pdf_attachments_dir(root: &Path, id: &str) -> Option<PathBuf> {
+    let plain =
+        !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    plain.then(|| root.join(id))
+}
+
+/// Deletes the PDFs session `id` saved in its project (`acp_prompt_blocks`): the chat was
+/// deleted. They were never removed, so every PDF sent to a deleted chat stayed in the project.
+/// Never follows a symlink (`remove_dir_all` removes the link). Blocking: run it off the runtime.
+pub(super) fn remove_pdf_attachments(cwd: &Path, id: &str) {
+    let Some(dir) = pdf_attachments_dir(&pdf_attachments_root(cwd), id) else {
+        return;
+    };
+    match crate::home_fs::remove_dir_all(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(session = id, "PDF attachments not deleted: {e}"),
+    }
+}
+
 /// ACP v1 does not define a `document` content block. Claude's translator can
 /// turn our internal document block into Anthropic's native document. Strict
 /// ACP adapters (including Codex) instead get a stable workspace file and a
@@ -78,12 +106,16 @@ pub(super) fn acp_prompt_blocks(
             )
             .collect();
         let safe_name = if safe_name.is_empty() { "document.pdf" } else { &safe_name };
-        let dir = session.meta().cwd.join(".cmux").join("attachments");
+        let root = pdf_attachments_root(&session.meta().cwd);
+        // The chat's own folder, so deleting the chat deletes its PDFs (`remove_pdf_attachments`).
+        let dir = pdf_attachments_dir(&root, &session.id).ok_or_else(|| {
+            RpcError::internal("cannot create PDF attachment directory: bad session id")
+        })?;
         crate::home_fs::create_dirs(&dir).map_err(|e| {
             RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
         })?;
         // The folder sits in the user's project; keep it out of their commits.
-        let ignore = dir.join(".gitignore");
+        let ignore = root.join(".gitignore");
         if !ignore.exists() {
             let _ = crate::home_fs::write(&ignore, "*\n");
         }
@@ -662,6 +694,19 @@ impl Hub {
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
+        // The person's steer to an agent that steers, sent while no turn showed yet: another
+        // prompt holds the turn and is still starting (its agent spawning, its uploads read), so
+        // this one queues behind it, and steers in once that turn shows (`queue.rs`
+        // `queue_turn`). Two prompts sent close together never leave the second waiting for the
+        // whole turn (Leo, 2026-11-14: "but all my things should be steer by default in the
+        // app?").
+        let steer_on_start = steer
+            && running.is_none()
+            && !from_agent
+            && !trigger
+            && session.steering.load(Ordering::SeqCst)
+            && after_turn.is_none()
+            && !opts.no_queue;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -686,6 +731,7 @@ impl Hub {
             no_queue: opts.no_queue,
             admitted: opts.admitted,
             after_turn: after_turn.is_some(),
+            steer_on_start,
         };
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
@@ -789,6 +835,8 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Its sender, set with the turn so no steer and no read sees the turn without it.
+        turn.device = run.full_access_device.clone().filter(|_| control == Control::Web);
         // A queued prompt was accepted when it was queued; any other is, once its checks pass.
         turn.accepted = waiting;
         // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
@@ -1742,11 +1790,22 @@ impl Hub {
             };
             signed_out = true;
         }
+        // A Codex with no sign-in and no team plane: say so, typed as a sign-in failure, never
+        // codex's bare missing env var (`codex_cloud_auth::explain_missing_key`). Only a Codex
+        // session's text names Codex; another harness's stays as it said it (still typed).
+        if let Err(e) = &mut result
+            && session.meta().harness.to_ascii_lowercase().contains("codex")
+            && let Some(text) = crate::codex_cloud_auth::explain_missing_key(&e.message)
+        {
+            tracing::warn!(session = %session.id, "Codex agent is not signed in");
+            e.message = text;
+            signed_out = true;
+        }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
-            match &mut e.data {
-                Some(Value::Object(data)) => data.extend(info.clone()),
-                None => e.data = Some(Value::Object(info.clone())),
-                Some(_) => {}
+            // An agent's string or list data moves under `agentData`, so the route still shows.
+            crate::recovery::object_data(e);
+            if let Some(Value::Object(data)) = &mut e.data {
+                data.extend(info.clone());
             }
         }
         // A failure acpmux knows the remedy for says it (`recovery.rs`): a full disk, an agent
@@ -1891,11 +1950,12 @@ impl Hub {
             self.end_trigger_background(session, turn_id);
         }
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
-        // started still runs (a background subagent, a working sub-session) the task is not
-        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
-        if !trigger && !self.shown(session) {
-            self.mark_unread_unless_work_below(session);
+        // Nobody attending it (not shown, or shown to a person who is away, `seen.rs`): the
+        // sidebar dot and `wait --until done` see it. While work it started still runs (a
+        // background subagent, a working sub-session) the task is not done: the dot waits for
+        // that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
+        if !trigger {
+            self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -2066,21 +2126,10 @@ impl Hub {
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
-        let mut last = serde_json::Map::new();
-        for k in super::views::LAST_TURN_KEYS {
-            if let Some(v) = turn_result.get(k) {
-                last.insert(k.to_owned(), v.clone());
-            }
-        }
-        last.insert("endedAt".into(), json!(now_ms()));
-        for key in ["turnCount", "turnSeq"] {
-            if let Some(value) = turn_result.get(key) {
-                last.insert(key.into(), value.clone());
-            }
-        }
+        let last = last_turn_of(turn_result, now_ms());
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
-            session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+            session.meta.lock().unwrap().last_turn = Some(last);
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
@@ -2432,7 +2481,7 @@ impl Hub {
             .lock()
             .unwrap()
             .values()
-            .any(|s| s.id != session.id && s.meta().name == name)
+            .any(|s| s.id != session.id && s.read_meta(|m| m.name == name))
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
@@ -2477,6 +2526,21 @@ impl Hub {
             .is_some_and(|current| Arc::ptr_eq(current, session))
         {
             return Ok(());
+        }
+        // A chat that goes starts no agent from here on (`Session::purging`): set before the stop
+        // is counted, so a start that reads the count after it sees this too. A delete that fails
+        // leaves the chat as it was, startable again.
+        struct Purging<'a>(Option<&'a AtomicBool>);
+        impl Drop for Purging<'_> {
+            fn drop(&mut self) {
+                if let Some(flag) = self.0 {
+                    flag.store(false, Ordering::SeqCst);
+                }
+            }
+        }
+        let mut purging = Purging(None);
+        if purge && !session.purging.swap(true, Ordering::SeqCst) {
+            purging.0 = Some(&session.purging);
         }
         // A chat that goes: its forks take its history before anything of it is stopped or marked
         // purged, and no fork references it after. A fork still being made fails the delete here,
@@ -2526,8 +2590,9 @@ impl Hub {
             }
             let link_lost = child.host_record().is_some() && !child.is_alive().await;
             child.kill().await;
-            // A host whose link was lost cannot take a Terminate frame.
-            if link_lost {
+            // A host whose link was lost cannot take a Terminate frame; one whose link stopped
+            // reading did not take it within the grace (`host_unended`).
+            if link_lost || child.host_unended() {
                 self.end_unadopted_host(session).await;
             }
         } else {
@@ -2536,6 +2601,9 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         *session.turn.lock().unwrap() = None;
+        // A turn its agent ran on its own ends with the chat, whatever its agent's exit said or
+        // did not say (a direct agent, a host whose link was lost): no line spins in a closed chat.
+        self.end_background_turn(session, "exit");
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
@@ -2549,7 +2617,19 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
-            session.purged.store(true, Ordering::SeqCst);
+            {
+                // Under the breakdown's lock: a time breakdown save running now lands before the
+                // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).
+                let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                session.purged.store(true, Ordering::SeqCst);
+            }
+            // An append that read the chat as not purged yet holds its append lock until its line
+            // is written: it finishes before the folder goes, and every later one sees `purged`
+            // and writes nothing. One that came after the delete removed the folder wrote the
+            // chat's log again, its folder with it (`tests/session_delete_disk.rs`).
+            drop(session.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
+            // Purged now: it never starts an agent again.
+            purging.0 = None;
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
@@ -2574,7 +2654,20 @@ impl Hub {
                 .await;
             }
             self.git_branch_forget(&session.id);
-            self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // v2's book of the chat lives in its directory: its actor is closed and forgotten
+            // first, so none writes into what the delete removes (`book_tee.rs`).
+            if let Some(tee) = self.book_tee().cloned() {
+                let id = session.id.clone();
+                let _ = tokio::task::spawn_blocking(move || tee.forget(&id)).await;
+            }
+            let deleted = self.store.delete(&session.id);
+            if deleted.is_err()
+                && let Some(tee) = self.book_tee()
+            {
+                // The chat stays: its book may be read again.
+                tee.unforget(&session.id);
+            }
+            deleted.map_err(|e| RpcError::internal(e.to_string()))?;
             // An earlier run's caller token proves a purged session no more (`caller_registry.rs`).
             self.caller_registry.forget(&session.id);
             #[cfg(test)]
@@ -2589,9 +2682,13 @@ impl Hub {
             // itself comes back under this id.
             if !replaced {
                 let id = session.id.clone();
-                let _ =
-                    tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
-                        .await;
+                let cwd = session.meta().cwd.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    super::file_uploads::remove_session(&id);
+                    // And the PDFs it saved in its project (`acp_prompt_blocks`).
+                    remove_pdf_attachments(&cwd, &id);
+                })
+                .await;
             }
             // No awaits follow unregistering: a fixed-ID creator may now publish. Keep the
             // removal, index update and event publication under the same lock so a replacement
@@ -2620,8 +2717,15 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             });
             drop(sessions);
+            // Gone from v1: a chat that comes back under the id gets a book again.
+            if let Some(tee) = self.book_tee() {
+                tee.unforget(&session.id);
+            }
+            // Its parent's row and the rows below it read it (#42091 F1).
+            self.note_rows_reading(session);
         }
         Ok(())
     }
@@ -2643,6 +2747,14 @@ impl Hub {
         self.cancel_pending_permissions(session);
         if let Some(child) = slot.take() {
             child.kill().await;
+            // A host that never took the terminate still runs its agent: it is ended by its
+            // nonce, within a bound too, and what waited on the agent is answered (no exit is
+            // read for it). Under the child lock, so no new agent starts beside it.
+            if child.host_unended() {
+                tracing::warn!(session = %session.id, "its agent's host did not end it in time; the host is ended");
+                child.fail_pending().await;
+                self.end_unadopted_host(session).await;
+            }
         }
         session.detaching.store(false, Ordering::SeqCst);
         drop(slot);
@@ -2689,6 +2801,23 @@ fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
     } else {
         false
     }
+}
+
+/// The `lastTurn` a turn's `turn_result` message leaves on the session, ended at `ended_at`.
+pub(super) fn last_turn_of(turn_result: &Value, ended_at: u64) -> Value {
+    let mut last = serde_json::Map::new();
+    for k in super::views::LAST_TURN_KEYS {
+        if let Some(v) = turn_result.get(k) {
+            last.insert(k.to_owned(), v.clone());
+        }
+    }
+    last.insert("endedAt".into(), json!(ended_at));
+    for key in ["turnCount", "turnSeq"] {
+        if let Some(value) = turn_result.get(key) {
+            last.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(last)
 }
 
 /// The chat's transcript as a rehydrated agent's first prompt gets it, under the note its session

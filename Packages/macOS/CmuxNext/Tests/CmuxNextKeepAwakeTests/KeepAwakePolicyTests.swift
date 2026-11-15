@@ -39,20 +39,7 @@ struct KeepAwakePolicyTests {
         (.always, true, true),
     ])
     func phoneAccessHoldsAsItsOwnChoiceAllows(choice: PhoneKeepAwakeSetting, onBattery: Bool, holds: Bool) {
-        #expect(KeepAwakePolicy(phoneServing: true, phone: choice, onBattery: onBattery).holds == holds)
-    }
-
-    @Test(arguments: [false, true])
-    func eitherPhoneHostHoldsIndependently(onBattery: Bool) {
-        var policy = KeepAwakePolicy(phoneServing: true, iPhoneServing: true, phone: .always, onBattery: onBattery)
-        #expect(policy.holds)
-        policy.phoneServing = false
-        #expect(policy.holds)
-        policy.phoneServing = true
-        policy.iPhoneServing = false
-        #expect(policy.holds)
-        policy.phoneServing = false
-        #expect(!policy.holds)
+        #expect(KeepAwakePolicy(iPhoneServing: true, phone: choice, onBattery: onBattery).holds == holds)
     }
 
     @Test func nextPhoneRespectsPowerChoice() {
@@ -62,7 +49,7 @@ struct KeepAwakePolicyTests {
     }
 
     @Test func phoneAccessOffNeverHolds() {
-        #expect(!KeepAwakePolicy(phoneServing: false, phone: .always).holds)
+        #expect(!KeepAwakePolicy(iPhoneServing: false, phone: .always).holds)
     }
 
     /// The setting the menu bar's Keeping Mac awake line opens is the one behind the hold: agents

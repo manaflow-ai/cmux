@@ -263,6 +263,7 @@
 
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/bundle-cli-resources.sh",
+				"$(SRCROOT)/scripts/cmux-next/compact-json.py",
 				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-runner",
 				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-macos-profile",
 				"$(SRCROOT)/scripts/lib/cmux-dev-shim-install",

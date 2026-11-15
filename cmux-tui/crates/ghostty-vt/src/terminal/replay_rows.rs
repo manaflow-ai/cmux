@@ -12,8 +12,29 @@ impl Terminal {
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<Option<ReplayText>> {
+        self.vt_replay_text_range_skipping(range, None, placement_rows, max_bytes, include_palette)
+    }
+
+    /// The rows of `range` without the rows of `skip`, a run strictly inside
+    /// it: the rows above the gap, a line break, then the rows below it, so a
+    /// mirror holds both runs one under the other
+    /// (`Terminal::vt_replay_window_theme_portable_with_aliases`).
+    pub(super) fn vt_replay_text_range_skipping(
+        &mut self,
+        range: ReplayRowRange,
+        skip: Option<ReplayRowRange>,
+        placement_rows: &KittyReplayRowIndex,
+        max_bytes: usize,
+        include_palette: bool,
+    ) -> Result<Option<ReplayText>> {
+        if let Some(skip) = skip
+            && (skip.start <= range.start || skip.end >= range.end || skip.start > skip.end)
+        {
+            return Err(Error::InvalidValue);
+        }
         match self.vt_replay_text_range_bounded_with(
             range,
+            skip,
             placement_rows,
             max_bytes,
             include_palette,
@@ -24,6 +45,7 @@ impl Terminal {
             Err(Error::InvalidValue) if self.cols() != 0 && range.start <= range.end => self
                 .vt_replay_text_range_bounded_with(
                     range,
+                    skip,
                     placement_rows,
                     max_bytes,
                     include_palette,
@@ -119,6 +141,7 @@ impl Terminal {
     fn vt_replay_text_range_bounded_with(
         &mut self,
         range: ReplayRowRange,
+        skip: Option<ReplayRowRange>,
         placement_rows: &KittyReplayRowIndex,
         max_bytes: usize,
         include_palette: bool,
@@ -144,27 +167,48 @@ impl Terminal {
         segment_ends.insert(range.end);
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
+        // The gap's rows (none without `skip`) are never formatted, and a row
+        // below it counts its line breaks without them.
+        let in_skip = |row: u64| skip.is_some_and(|skip| skip.start <= row && row <= skip.end);
+        let skipped_rows = skip.map_or(0, |skip| skip.end - skip.start + 1);
+        let skipped_before = |row: u64| match skip {
+            Some(skip) if row > skip.end => skipped_rows,
+            _ => 0,
+        };
+        if let Some(skip) = skip {
+            // The row above the gap ends a segment; no row of the gap does.
+            segment_ends.retain(|row| !in_skip(*row));
+            segment_ends.insert(skip.start - 1);
+        }
         let mut segment_start = range.start;
-        let replay_rows = range.end - range.start + 1;
+        let replay_rows = range.end - range.start + 1 - skipped_rows;
         let screen_rows = u64::from(self.rows().max(1));
         // A replay with retained scrollback can contain exactly one viewport
         // of rows while still carrying a sparse history prefix in Ghostty's
         // screen coordinate space. Keep every row boundary in that case so
         // the target cannot retain stale history above the active TUI.
         let history_bearing = self.history_rows() > 0 || replay_rows > screen_rows;
-        // A replay without image placement anchors can let the target terminal
-        // recreate soft wraps naturally. Placement commands and history-bearing
-        // ranges depend on physical row cursor positions, so retain the
-        // row-delimited form for those cases.
-        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
-        // Row-delimited history still keeps soft wraps: a joinable wrapped row
-        // (see `replay_soft_wrap_rows`) prints on into its continuation, which
-        // re-creates the wrap on the same physical rows; any other wrapped row
-        // ends its segment and keeps a line break. Without this, a line that
-        // soft-wrapped at an older width comes back split there for good.
-        let joining = join_soft_wraps && !preserve_soft_wrap && history_bearing;
+        // A wrapped row is joined to the next one only where printing on
+        // re-creates the wrap on the same physical rows (see
+        // `replay_soft_wrap_rows`); any other wrapped row ends its segment and
+        // keeps a line break. Letting the formatter unwrap every wrapped row
+        // instead glued a row to a continuation that no longer starts with
+        // text (erased, or overwritten after a cursor move): its cells then
+        // landed on the row above and every row below moved up by one.
+        // Image placement commands depend on physical row cursor positions,
+        // so a replay with placement anchors and no history keeps every row
+        // break. With autowrap off (DECAWM reset, which the replay writes
+        // before its text) the target never wraps, so no row is joined.
+        let anchored = insert_at_start || has_placement_anchor;
+        let autowrap = self.mode(7, false);
+        let joining = join_soft_wraps && autowrap && (history_bearing || !anchored);
+        // Whether the row breaks are counted and padded, so every row of the
+        // range starts on its own physical row of the target.
+        let row_exact = history_bearing || joining;
         let joins = if joining {
-            let (mut joins, breaks) = self.replay_soft_wrap_rows(range);
+            let (mut joins, mut breaks) = self.replay_soft_wrap_rows(range);
+            joins.retain(|row| !in_skip(*row));
+            breaks.retain(|row| !in_skip(*row));
             segment_ends.extend(breaks);
             joins.retain(|row| !segment_ends.contains(row));
             joins
@@ -196,27 +240,20 @@ impl Terminal {
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());
             let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(
-                    &selection,
-                    first,
-                    last,
-                    include_palette,
-                    preserve_soft_wrap || joining,
-                ),
+                Self::vt_replay_segment_options(&selection, first, last, include_palette, joining),
                 remaining,
             )?
             else {
                 return Ok(None);
             };
-            if !preserve_soft_wrap {
-                emitted_breaks = emitted_breaks
-                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
-            }
+            emitted_breaks = emitted_breaks
+                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
             bytes.extend_from_slice(&chunk);
-            if !preserve_soft_wrap && history_bearing {
-                let expected_breaks = usize::try_from(segment_end - range.start)
-                    .unwrap_or(usize::MAX)
-                    .saturating_sub(joins_before(segment_end));
+            if row_exact {
+                let expected_breaks =
+                    usize::try_from(segment_end - range.start - skipped_before(segment_end))
+                        .unwrap_or(usize::MAX)
+                        .saturating_sub(joins_before(segment_end));
                 if joining && emitted_breaks > expected_breaks {
                     return Err(Error::InvalidValue);
                 }
@@ -234,17 +271,20 @@ impl Terminal {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
-                if !preserve_soft_wrap {
-                    if bytes.len().saturating_add(2) > format_max_bytes {
-                        return Ok(None);
-                    }
-                    bytes.extend_from_slice(b"\r\n");
-                    emitted_breaks = emitted_breaks.saturating_add(1);
+                if bytes.len().saturating_add(2) > format_max_bytes {
+                    return Ok(None);
                 }
-                segment_start = segment_end.saturating_add(1);
+                bytes.extend_from_slice(b"\r\n");
+                emitted_breaks = emitted_breaks.saturating_add(1);
+                segment_start = match skip {
+                    Some(skip) if segment_end.saturating_add(1) == skip.start => {
+                        skip.end.saturating_add(1)
+                    }
+                    _ => segment_end.saturating_add(1),
+                };
             }
         }
-        if !preserve_soft_wrap && history_bearing {
+        if row_exact {
             let expected_breaks =
                 usize::try_from(replay_rows - 1).unwrap_or(usize::MAX).saturating_sub(joins.len());
             if joining && emitted_breaks > expected_breaks {

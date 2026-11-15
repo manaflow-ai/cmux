@@ -28,6 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import write_out_step_aliases  # noqa: E402
 import dev_release_product_reuse as reuse  # noqa: E402
 import job_input_fingerprint as fingerprint  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -332,7 +333,7 @@ class Recording(unittest.TestCase):
 
 class Workflow(unittest.TestCase):
     def setUp(self):
-        text = (ROOT / ".github/workflows/nightly.yml").read_text()
+        text = write_out_step_aliases((ROOT / ".github/workflows/nightly.yml").read_text())
         self.job = text[text.index("\n  build-nightly-app:\n"):text.index("\n  resolve-nightly-cmux-tui-client:\n")]
         self.lookup = self.job[self.job.index("id: nightly-product\n"):self.job.index("      - name: Compute Xcode compilation cache key")]
 

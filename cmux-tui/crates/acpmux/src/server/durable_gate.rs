@@ -15,16 +15,15 @@
 //! change a client saw. When the journal's writer ended (the durable watch closed), the gate
 //! drops what it holds and ends, which closes the connection; the store asks the daemon to stop.
 //!
-//! Without the journal ([`crate::store::Store::durability`] is None) there is no gate: lines go
-//! straight to the transport, as before.
+//! Without the journal ([`crate::store::Store::durability`] is None) there is no gate: the
+//! connection's plain pump moves its lines (`outbound.rs`).
 
-use super::queue_gauge::{self, Queued};
 use crate::store::Durability;
 use std::cell::Cell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
 /// What a connection's lines wait for.
 pub(super) struct Gate {
@@ -34,12 +33,6 @@ pub(super) struct Gate {
     /// The highest LSN of a kept change a line queued so far may show.
     needs_written: AtomicU64,
     kept: Arc<AtomicU64>,
-    /// The lines and bytes its task holds for the journal, for `daemon status` (`queue_gauge.rs`).
-    held_lines: AtomicUsize,
-    held: AtomicUsize,
-    /// The transport's queue past the gate, and the bytes it holds, for the same status.
-    transport: mpsc::WeakSender<String>,
-    transport_queued: Queued,
 }
 
 impl Gate {
@@ -51,16 +44,6 @@ impl Gate {
         }
         self.needs.fetch_max(self.acked.load(Ordering::SeqCst), Ordering::SeqCst);
         self.needs_written.fetch_max(self.kept.load(Ordering::SeqCst), Ordering::SeqCst);
-    }
-
-    /// The lines and bytes past the connection's own queue: held for the journal, and queued on
-    /// the transport for its writer.
-    pub(super) fn backlog(&self) -> (usize, usize) {
-        let held = (self.held_lines.load(Ordering::Relaxed), self.held.load(Ordering::Relaxed));
-        let Some(out) = self.transport.upgrade() else {
-            return held;
-        };
-        (held.0 + queue_gauge::depth(&out), held.1 + self.transport_queued.bytes(&out))
     }
 }
 
@@ -88,29 +71,17 @@ pub(super) fn stream_scope(record: &crate::store::EventRecord) -> Option<StreamS
     Some(StreamScope { was: STREAM.with(|stream| stream.replace(true)) })
 }
 
-/// Puts a gate between a connection and its transport `out` when the store journals its appends:
-/// the sender the connection queues its lines on, and the gate it raises. Without the journal,
-/// `out` itself and no gate.
+/// The gate of a connection whose store journals its appends, and its task, which moves the
+/// connection's lines (`pump`, `outbound.rs`) to its transport as the journal allows.
 pub(super) fn install(
-    durability: Option<Durability>,
-    out: mpsc::Sender<String>,
-) -> (mpsc::Sender<String>, Option<Arc<Gate>>) {
-    let Some(Durability { acked, durable, kept, written, stalled }) = durability else {
-        return (out, None);
-    };
-    let gate = Arc::new(Gate {
-        needs: AtomicU64::new(0),
-        acked,
-        needs_written: AtomicU64::new(0),
-        kept,
-        held_lines: AtomicUsize::new(0),
-        held: AtomicUsize::new(0),
-        transport: out.downgrade(),
-        transport_queued: Queued::default(),
-    });
-    let (lines_tx, lines) = mpsc::channel(out.max_capacity());
-    tokio::spawn(run(lines, out, Arc::clone(&gate), Journal { durable, written }, stalled));
-    (lines_tx, Some(gate))
+    durability: Durability,
+    pump: super::outbound::Pump,
+) -> (Arc<Gate>, impl std::future::Future<Output = ()> + Send + 'static) {
+    let Durability { acked, durable, kept, written, stalled } = durability;
+    let gate =
+        Arc::new(Gate { needs: AtomicU64::new(0), acked, needs_written: AtomicU64::new(0), kept });
+    let run = run(pump, Arc::clone(&gate), Journal { durable, written }, stalled);
+    (gate, run)
 }
 
 /// How often a connection's lines that wait for the journal ask the store whether the journal is
@@ -153,41 +124,26 @@ impl Journal {
     }
 }
 
-/// The gate's task ([module docs](self)). Ends when the connection's senders are gone, the
-/// transport closed, or the journal's writer ended; what it held is then no longer counted.
+/// The gate's task ([module docs](self)). Ends when the connection's handles are gone, the
+/// transport closed, the queue overran, or the journal's writer ended; dropping `pump` then
+/// closes the queue (`outbound.rs`).
 async fn run(
-    lines: mpsc::Receiver<String>,
-    out: mpsc::Sender<String>,
-    gate: Arc<Gate>,
-    journal: Journal,
-    stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
-) {
-    pass(lines, out, Arc::clone(&gate), journal, stalled).await;
-    gate.held_lines.store(0, Ordering::Relaxed);
-    gate.held.store(0, Ordering::Relaxed);
-}
-
-async fn pass(
-    mut lines: mpsc::Receiver<String>,
-    out: mpsc::Sender<String>,
+    pump: super::outbound::Pump,
     gate: Arc<Gate>,
     mut journal: Journal,
     stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
 ) {
-    let limit = lines.max_capacity();
-    let mut batch = Vec::with_capacity(limit.min(64));
-    loop {
+    let mut batch = Vec::new();
+    'pump: loop {
         tokio::select! {
             biased;
-            () = out.closed() => return,
-            taken = lines.recv_many(&mut batch, limit) => {
-                if taken == 0 {
-                    return;
+            () = pump.stopped() => break 'pump,
+            more = pump.take(&mut batch) => {
+                if !more {
+                    break 'pump;
                 }
             }
         }
-        gate.held_lines.fetch_add(batch.len(), Ordering::Relaxed);
-        gate.held.fetch_add(batch.iter().map(String::len).sum(), Ordering::Relaxed);
         // After the lines were taken: every line among them raised the gate before it was queued.
         let needs = gate.needs.load(Ordering::SeqCst);
         let needs_written = gate.needs_written.load(Ordering::SeqCst);
@@ -201,11 +157,11 @@ async fn pass(
             loop {
                 tokio::select! {
                     biased;
-                    () = out.closed() => return,
+                    () = pump.stopped() => break 'pump,
                     reached = &mut reached => {
                         if !reached {
                             tracing::error!("the event journal's writer ended: this connection closes");
-                            return;
+                            break 'pump;
                         }
                         break;
                     }
@@ -218,14 +174,9 @@ async fn pass(
             }
         }
         for line in batch.drain(..) {
-            let bytes = line.len();
-            if out.send(line).await.is_err() {
-                return;
+            if !pump.forward(line).await {
+                break 'pump;
             }
-            // Counted on the transport first: briefly twice, never missed.
-            gate.transport_queued.queued(bytes, &out);
-            gate.held_lines.fetch_sub(1, Ordering::Relaxed);
-            gate.held.fetch_sub(bytes, Ordering::Relaxed);
         }
     }
 }

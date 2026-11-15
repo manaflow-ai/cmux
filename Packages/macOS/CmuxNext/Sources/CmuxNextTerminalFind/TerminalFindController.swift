@@ -9,7 +9,7 @@ public import Observation
 ///
 /// ```swift
 /// let find = TerminalFindController(target: session)
-/// find.open()               // the bar shows and takes the keyboard
+/// find.open()               // the bar shows and takes the keyboard before this returns
 /// find.updateQuery("error") // live search; the first match is revealed
 /// find.navigate(.next)      // steps up into scrollback, wrapping
 /// find.close()              // highlights and selection go, the terminal is focused
@@ -69,6 +69,9 @@ public final class TerminalFindController {
             if !query.isEmpty { search(query) }
         }
         if takeFocus { focusRequest += 1 }
+        // Not left to observation: its change callback runs a main-actor hop
+        // later, after keys already queued behind Cmd-F went to the terminal.
+        target?.showFindBar()
     }
 
     /// Searches for `text` as the user types it. Empty text stops the search.

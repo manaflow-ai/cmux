@@ -274,7 +274,10 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       try {
         const page = await openChat(MAIN);
         await type(page, `/side ${PROMPT}`);
-        await page.locator(".acpmux-attachment-note").getByText("the agent is busy compacting").waitFor();
+        // acpmux's raw JSON-RPC text goes to the log; the note says it plainly (Leo, 2026-11-12: "we want
+        // good error states. We don't want busted errors.").
+        await page.locator(".acpmux-attachment-note").getByText("Couldn't fork this chat").waitFor();
+        expect(await page.locator(".acpmux-attachment-note").textContent()).not.toContain("busy compacting");
         expect(await composerText(page)).toBe(`/side ${PROMPT}`);
         expect(sides).toEqual([]);
         expect(await sideChats(page)).toEqual([]);

@@ -60,6 +60,8 @@ export interface PopoverProps {
   anchor: UiAnchor;
   /** The accessible name of the popover (role dialog). */
   label: string;
+  /** The popup's id, which its trigger names in `aria-controls` (`usePopoverTrigger`). */
+  id?: string;
   className?: string;
   /** Fade a capped popup body when more content lies beyond its scroll edges. */
   fade?: boolean;
@@ -89,6 +91,7 @@ export function Popover({
   onOpenChange,
   anchor,
   label,
+  id,
   className,
   fade = false,
   side = "bottom",
@@ -146,6 +149,7 @@ export function Popover({
             // The App's popover glass under the page (glass/hostGlass.ts).
             data-host-glass="popover"
             data-host-glass-cover=""
+            id={id}
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}

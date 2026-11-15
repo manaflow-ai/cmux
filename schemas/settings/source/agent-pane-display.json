@@ -280,7 +280,7 @@
               }
             }
           ],
-          "default": "expanded",
+          "default": "off",
           "keywords": [
             "agent",
             "chat",

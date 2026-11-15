@@ -186,6 +186,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             .merging(SidebarRowTokens.current.card.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
             // The sidebar's workspace row (height, corner, inset): Settings rows match it.
             .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
+            // Every button's corner, the tab's (Metrics.buttonCornerRadius): `--ds-radius-control` reads it.
+            .merging(["--cmux-button-radius": SidebarCardMetrics.px(Metrics.buttonCornerRadius / max(DesignSettings.shared.uiScale, 0.01))]) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]

@@ -100,7 +100,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("sdk-publish-python.yml", "bindings-e2e-python", "runs-on", BIG),
     # Swift on Linux: swift build and swift test of the portable packages in the swift.org
     # container (ask-d3f5804560: "WE CAN COMPILE SWIFT ON LINUX").
-    ("swift-packages-linux.yml", "packages", "runs-on", BIG),
+    ("swift-linux-packages.yml", "swift-linux-packages", "runs-on", BIG),
     # Web: production builds, bundle builds, the backend build and suites.
     ("backend.yml", "test", "runs-on", BIG),
     ("ci-web.yml", "web-production-build", "runs-on", BIG),
@@ -216,7 +216,7 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("cmux-next-car-guards.yml", "linux", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     # A fork pull request keeps the 16 vCPU literal it took before the move.
-    ("swift-packages-linux.yml", "packages", "runs-on"): (
+    ("swift-linux-packages.yml", "swift-linux-packages", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),

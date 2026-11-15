@@ -422,7 +422,12 @@ impl PtySurface {
     /// grid queued after every frame before the resize, at the resize's
     /// generation and offset; every other snapshot viewer gets a READY with
     /// history at a later cut, as before.
-    pub(super) fn publish_resize_locked(&self, term: &Terminal, frame: Option<AttachFrame>) {
+    pub(super) fn publish_resize_locked(
+        &self,
+        term: &Terminal,
+        frame: Option<AttachFrame>,
+        windows: &pty_surface::TapWindowReplays,
+    ) {
         match &frame {
             Some(frame) => self.snapshot_position.observe_frame(frame),
             None => self.snapshot_position.bump_generation(),
@@ -439,7 +444,8 @@ impl PtySurface {
         let local = if wanted { self.encode_local_ready_locked(term) } else { None };
         let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match frame {
-            Some(frame) => taps.retain(|tap| tap.try_send_resize(frame.clone(), local.as_ref())),
+            Some(frame) => taps
+                .retain(|tap| tap.try_send_resize(windows.frame_for(tap, &frame), local.as_ref())),
             None => {
                 for tap in &*taps {
                     tap.resync_snapshot_at_cut(local.as_ref());

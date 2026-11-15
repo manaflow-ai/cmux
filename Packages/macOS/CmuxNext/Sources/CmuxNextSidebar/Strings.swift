@@ -14,6 +14,10 @@ enum Strings {
     static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
+    /// This Mac's machine header button: its tooltip and VoiceOver label.
+    static var shareScreen: String { String(localized: "sidebar.machine.shareScreen", defaultValue: "Share screen", bundle: .module) }
+    /// A Cloud machine header's button: its tooltip and VoiceOver label.
+    static var viewScreen: String { String(localized: "sidebar.machine.viewScreen", defaultValue: "View screen", bundle: .module) }
     /// The chevron beside the sidebar's +: its VoiceOver label (it opens the workspace chooser).
     static var newWorkspaceOptions: String {
         String(localized: "sidebar.newWorkspace.options", defaultValue: "New Workspace Options", bundle: .module)
@@ -29,8 +33,6 @@ enum Strings {
     static var projects: String { String(localized: "sidebar.section.projects", defaultValue: "Projects", bundle: .module) }
     /// Projects and Recents' header over workspaces in no group (`ListHeaderRowView`).
     static var recents: String { String(localized: "sidebar.section.recents", defaultValue: "Recents", bundle: .module) }
-    /// One list's heading over its workspace rows (`sidebar.listHeading`): the rail's own word for them.
-    static var workspacesHeading: String { railLabel }
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
     /// An open empty group's row (`EmptyGroupRowView`).

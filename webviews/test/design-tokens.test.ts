@@ -30,6 +30,14 @@ describe("design token ratchet", () => {
     expect(isOutsideScale("gap", "calc(var(--ds-space-2) + 4px)")).toBe(false);
   });
 
+  test("reads calc(N * var(--ui-px, 1px)) as N on the scale, not its 1px fallback", () => {
+    expect(isOutsideScale("gap", "calc(8 * var(--ui-px, 1px))")).toBe(false);
+    expect(isOutsideScale("padding-inline", "calc(8 * var(--ui-px, 1px)) calc(12 * var(--ui-px))")).toBe(false);
+    expect(isOutsideScale("height", "calc(28 * var(--ui-px, 1px))")).toBe(false);
+    expect(isOutsideScale("padding", "calc(6 * var(--ui-px, 1px))")).toBe(true);
+    expect(isOutsideScale("height", "calc(34 * var(--ui-px, 1px))")).toBe(true);
+  });
+
   test("rejects a new declaration in a previously clean bucket", () => {
     const errors = ratchetErrors(new Map([["src.css\tspacing\tgap", 1]]), new Map());
     expect(errors).toHaveLength(1);

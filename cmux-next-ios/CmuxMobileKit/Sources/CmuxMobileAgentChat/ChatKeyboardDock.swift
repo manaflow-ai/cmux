@@ -85,6 +85,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var contentHeight: CGFloat = 0
     /// The stack's measured height (the guide's height follows it).
     private var stackHeight: CGFloat = 96
+    /// The stack height the transcript's bottom inset was last set from. The inset's change
+    /// splits into the stack moving (the keyboard) and the stack growing (a composer line):
+    /// only the move carries a scrolled-up reader's view (`updateInsets`).
+    private var insetStackHeight: CGFloat?
     private var positionedInitially = false
     private var shownIdentity: ObjectIdentifier?
     private var keyboardPin: NSLayoutConstraint?
@@ -489,7 +493,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             return
         }
         let old = scrollView.contentInset
-        let bottomDelta = positionedInitially ? bottom - old.bottom : 0
+        // The stack's bottom moved by this much (the keyboard); its own growth is not in it.
+        let stackGrowth = insetStackHeight.map { stackHeight - $0 } ?? 0
+        let bottomDelta = positionedInitially ? bottom - old.bottom - stackGrowth : 0
+        insetStackHeight = stackHeight
         if old.top != top || old.bottom != bottom {
             // Resting on the newest turn counts as following it (an
             // interactive dismissal drags the content away mid-gesture, then
@@ -512,6 +519,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         } else if positionedInitially {
             // A reader scrolled up keeps the bottom of what they see on the
             // stack too (Telegram): the stack rising covers the top instead.
+            // The composer growing a line (or losing one) moves nothing: the
+            // taller stack covers more of the bottom, as in Messages
+            // (user report 2026-11-12: a newline shifted the transcript).
             var offset = scrollView.contentOffset
             offset.y = min(max(-top, offset.y + bottomDelta), bottomOffset.y)
             if offset != scrollView.contentOffset { scrollView.contentOffset = offset }
@@ -611,6 +621,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             }
         }
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        insetStackHeight = stackHeight
         if scrollView.contentInset != insets {
             scrollView.contentInset = insets
             scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: headerBottom, left: 0, bottom: bottom, right: 0)
@@ -812,7 +823,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
-        stopReaderScroll()
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         endFoldHold(force: true)
         surface.following = !toTop
         view.layoutIfNeeded()
@@ -823,7 +835,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let findBarClearance: CGFloat = 64
 
     func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
-        stopReaderScroll()
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         endFoldHold(force: true)
         surface.following = false
         view.layoutIfNeeded()
@@ -871,7 +884,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
-        stopReaderScroll()
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         let id = ChatTranscriptList.rowID(findBlock: findBlock)
         list.layOutNow(id)
         view.layoutIfNeeded()
@@ -913,22 +927,6 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             UIView.animate(springDuration: 0.4, bounce: 0) { self.scrollView.contentOffset = target }
         } else {
             scrollView.contentOffset = target
-        }
-    }
-
-    /// A jump ends the reader's own scroll first, before its layout pass. Writing
-    /// `contentOffset` does not stop a fling: Jump to bottom tapped while the transcript still
-    /// glided up was placed at the bottom, then the deceleration carried on from there, marked
-    /// the reader as away again and left them short of the bottom (Leo, iPhone, 2026-11-12). `setContentOffset(_:animated:)` stops the deceleration, and
-    /// cycling the pan ends a drag a second finger still holds, as the terminal's jump does.
-    private func stopReaderScroll() {
-        if scrollView.isTracking || scrollView.isDragging {
-            let pan = scrollView.panGestureRecognizer
-            pan.isEnabled = false
-            pan.isEnabled = true
-        }
-        if scrollView.isDecelerating {
-            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
         }
     }
 
