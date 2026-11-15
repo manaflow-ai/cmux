@@ -75,6 +75,7 @@ class HotApplyRust(unittest.TestCase):
         self.publish(self.new_body, self.new)
         self.env = dict(os.environ, CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
                         CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
+                        CMUX_HOT_KEYS_BASE=(self.tmp / "hot-keys").as_uri(),  # none published: plan diffs
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
 
     def tearDown(self):
@@ -482,6 +483,22 @@ class HotKeys(unittest.TestCase):
         plan = json.loads(done.stdout)
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])
+
+    def test_a_miss_is_asked_once_then_kept(self):
+        self.publish(self.base)  # FIX has none yet
+        code, plan, err = self.plan()
+        self.assertNotEqual(plan and plan.get("via"), "published keys", err)
+        self.assertTrue((self.tmp / "state" / "keys" / "hot" / f"{FIX}.missing").exists())
+        # CI publishes FIX's keys now: within the hour the kept miss stands, and nothing is fetched.
+        self.publish(FIX, web="b" * 64, web_key="7" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertNotIn("via", json.loads(done.stdout), done.stderr)
+        # Past the hour it is asked again and taken.
+        os.utime(self.tmp / "state" / "keys" / "hot" / f"{FIX}.missing", (0, 0))
+        code, plan, err = self.plan()
+        self.assertEqual(plan["via"], "published keys", err)
+        self.assertEqual(plan["parts"], ["web"])
 
 
 SHIM = "a3bead27e6599480e2d2654816f9ecdff99ecaf2"  # cmux#43239's remote browser host: Rust plus csrc/rb_shim.mm and .h

@@ -152,6 +152,7 @@ WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cm
 # Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
 HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
 HOT_KEYS_SCHEMA = 1
+MISSING_KEYS_SECONDS = 3600
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
 APP_ABI = "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"
@@ -301,10 +302,10 @@ def lists_binary(name: str):
     return check
 
 
-def fetch(url: str) -> bytes:
+def fetch(url: str, timeout: float = 300) -> bytes:
     # files.cmux.com answers Python's default user agent (Python-urllib/...) with 403.
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
-    with PHASES("fetch"), urllib.request.urlopen(request, timeout=300) as answer:
+    with PHASES("fetch"), urllib.request.urlopen(request, timeout=timeout) as answer:
         return answer.read()
 
 
@@ -404,13 +405,18 @@ def published_keys(sha: str) -> dict | None:
     path = state_dir() / "keys" / "hot" / f"{sha}.json"
     with contextlib.suppress(OSError, ValueError):
         return json.loads(path.read_text())
-    with PHASES("key"):
-        try:
-            keys = json.loads(fetch(f"{HOT_KEYS_BASE}/{sha}.json"))
-        except (urllib.error.URLError, OSError, ValueError):
+    # A miss is kept for an hour, so the apply after a prefetch (or a commit from before the keys) asks no
+    # second time; CI may still publish a new commit's keys after that.
+    missing = path.with_suffix(".missing")
+    with contextlib.suppress(OSError):
+        if time.time() - missing.stat().st_mtime < MISSING_KEYS_SECONDS:
             return None
-    if keys.get("schema") != HOT_KEYS_SCHEMA or keys.get("commit") != sha or not all(
+    keys = None
+    with PHASES("key"), contextlib.suppress(urllib.error.URLError, OSError, ValueError):
+        keys = json.loads(fetch(f"{HOT_KEYS_BASE}/{sha}.json", timeout=10))  # the diff is the fallback: wait little
+    if not isinstance(keys, dict) or keys.get("schema") != HOT_KEYS_SCHEMA or keys.get("commit") != sha or not all(
             HEX.fullmatch(str(keys.get(k))) for k in ("tree_key", "web", "web_key", "shell", "ffi", "helpers")):
+        write_atomic(missing, b"")
         return None
     write_atomic(path, json.dumps(keys).encode())
     return keys
