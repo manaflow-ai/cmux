@@ -90,6 +90,23 @@ import Testing
         #expect(page.state.url?.absoluteString == "https://a.example/")
     }
 
+    /// An adopted tab's early events are its own: a browser no one adopts keeps none, and a browser
+    /// that closed before its adoption leaves nothing behind.
+    @Test func earlyEventsAreKeptOnlyForBrowsersWaitingForAdoption() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try Self.liveHost(runtime)
+        runtime.handle(Self.loadingStarted(42, visible: Self.target))
+        #expect(runtime.orphans.takeEarlyEvents(42).isEmpty, "no browser Chromium created for a page")
+
+        var created = CEFCreatedBy(opener: Self.opener, disposition: .newForegroundTab, userGesture: true, features: nil)
+        created.url = Self.target
+        runtime.handle(.afterCreated(browser: Self.child, request: 0, window: 0, created: created))
+        for _ in 0..<(CEFOrphanTabs.maximumEarlyEvents + 5) { runtime.handle(Self.progress(Self.child, 0.5)) }
+        runtime.handle(CEFShimEvent(kind: 3, browser: Self.child, request: 0, a: 0, b: 0, s1: "", s2: ""))
+        #expect(runtime.orphans.takeEarlyEvents(Self.child).isEmpty, "a closed browser keeps nothing")
+    }
+
     // MARK: Fixtures
 
     static func loadingStarted(_ browser: Int32, visible: String) -> CEFShimEvent {
