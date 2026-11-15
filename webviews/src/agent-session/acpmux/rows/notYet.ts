@@ -42,3 +42,9 @@ export const NOT_YET: readonly NotYet[] = [
   { field: "tool.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
   { field: "turnSummary.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
 ];
+
+/// The fields FIELDS.md has under "Not yet" that no corpus row shows, so the parity test cannot
+/// see them differ (decision 259). Each leaves this list for `NOT_YET` when a corpus line shows it;
+/// the parity test fails while the corpus shows one still here. A key is `<kind>.<field>`,
+/// `row:<kind>` for a record that is a row of its own, or `snapshot.<field>`.
+export const NOT_IN_CORPUS: readonly NotYet[] = [];
