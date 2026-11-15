@@ -205,7 +205,14 @@ struct NewTabCloseInterleaveOrderTests {
 
             let frames = recorder.frames, seen = frames.map { $0.joined() }
             #expect(frames.allSatisfy { $0.filter { $0 != "N" } == ["a", "b", "c"] }, "the other tabs reordered: \(seen)")
-            #expect(frames.last == ["a", "b", "N", "c"], "settled at \(frames.last?.joined() ?? "-"); \(seen)")
+            if frames.last != ["a", "b", "N", "c"] {
+                // What the store holds now, and 12 s later (past a creation line's safety limit).
+                @MainActor func state() -> String { pane.pane.tabs.map { (recorder.names[$0.id] ?? "N") + (ProvisionalTab.isProvisional($0.id) ? "(stand-in, underway \(services.daemon.store.creations.isUnderway(standIn: $0.id)))" : "") }.joined(separator: " ") + " open \(NewTabSuccession.isOpen(in: pane.pane))" }
+                let now = state()
+                try await Task.sleep(for: .seconds(12))
+                recorder.sample(pane)
+                Issue.record("settled at \(frames.last?.joined() ?? "-"); \(seen); store: \(now); 12 s later: \(state()), strip \(recorder.frames.last?.joined() ?? "-")")
+            }
             let selected = try #require(pane.stripModel.selectedID)
             #expect(!known.contains(selected.rawValue), "the selection left the second new tab for \(selected.rawValue)")
             #expect(pane.pane.tabs.filter { !known.contains($0.id) }.count == 1, "one new tab stays: \(pane.pane.tabs.map(\.id))")
