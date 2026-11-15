@@ -69,6 +69,37 @@ const shown = (frame: Frame) =>
   frame.boxes.has("composer") && ([...frame.boxes.keys()].some((name) => name.startsWith("row#")) || frame.empty);
 const emptyChat = () => document.querySelectorAll(ROWS).length === 0 && document.body.innerText.trim().length > 0;
 
+/// Rows of the transcript that cross the row under them as drawn now (cmux#43975: a chat whose rows drew
+/// over each other): each pair in view by drawn top, with the upper row's placed top (its frame's `top`)
+/// and its drawn height, so a caller can tell a row placed at a stale height from one moved by a motion.
+export function rowCrossings(limit = 12): Record<string, unknown>[] {
+  const scrollerNode = document.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!scrollerNode) return [];
+  const view = scrollerNode.getBoundingClientRect();
+  const rows = [...scrollerNode.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row[data-row-id]")]
+    .map((row) => ({ row, rect: row.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.height > 0.5 && rect.bottom > view.top && rect.top < view.bottom)
+    .sort((a, b) => a.rect.top - b.rect.top);
+  const out: Record<string, unknown>[] = [];
+  for (let index = 0; index + 1 < rows.length && out.length < limit; index += 1) {
+    const upper = rows[index]!;
+    const lower = rows[index + 1]!;
+    const by = upper.rect.bottom - lower.rect.top;
+    if (by <= 1) continue;
+    out.push({
+      upper: upper.row.dataset.rowId,
+      lower: lower.row.dataset.rowId,
+      by: Math.round(by),
+      upper_top: upper.row.style.top,
+      upper_height: Math.round(upper.rect.height),
+      lower_top: lower.row.style.top,
+      upper_translate: getComputedStyle(upper.row).translate,
+      lower_translate: getComputedStyle(lower.row).translate,
+    });
+  }
+  return out;
+}
+
 export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Record<string, unknown>> {
   const ms = Math.max(100, Math.min(options.ms ?? 1500, 10_000));
   const tolerance = options.tolerance ?? 1;
@@ -138,6 +169,8 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     shifts,
     appeared,
     scroll_jumps: scrollJumps,
+    // Rows that still cross the row under them when the watch ends.
+    row_crossings: rowCrossings(),
   };
 }
 
