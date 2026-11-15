@@ -217,18 +217,30 @@ mod tests {
         assert_eq!(last.output, "boom");
     }
 
+    /// A prompt drawn where the cursor is (`133;P`, no `133;A` fresh line), as a shell that skips its own newline does.
+    fn prompt_in_place(term: &mut Terminal) {
+        term.vt_write(b"\x1b]133;P;k=i\x07$ \x1b]133;B\x07");
+    }
+
     #[test]
     fn output_without_a_final_newline_ends_on_the_prompt_row() {
+        // `133;A` moves a prompt that would start mid-row to a fresh line, so the output keeps its own row.
         let mut term = shell();
         run(&mut term, "printf foo", "foo", 1);
         prompt(&mut term);
+        assert_eq!(term.last_command_output(100).unwrap().output, "foo");
+
+        // A prompt drawn in place shares the output's last row: "foo$ ".
+        let mut term = shell();
+        run(&mut term, "printf foo", "foo", 1);
+        prompt_in_place(&mut term);
         let last = term.last_command_output(100).unwrap();
         assert_eq!(last.command.as_deref(), Some("printf foo"));
         assert_eq!(last.output, "foo");
 
         let mut term = shell();
         run(&mut term, "make", "one\r\ntwo", 2);
-        prompt(&mut term);
+        prompt_in_place(&mut term);
         assert_eq!(term.last_command_output(100).unwrap().output, "one\ntwo");
     }
 
