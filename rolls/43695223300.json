@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43695223300",
+  "recorded_at": "2026-11-15T08:45:48Z",
+  "reason": "cmux-tui 1554e1fe307f changes the image's cmux-tui (pinned 0fc51a0403fb)",
+  "dry_run": false,
+  "cmux_tui": "1554e1fe307fad64b6f2a962aa288e3aedc797ee",
+  "fixes": [
+    {
+      "sha": "3ea2d75371d66992be1cec150807b2a87d7c96ff",
+      "mergedAt": "2026-11-15T00:20:10-08:00",
+      "subject": "customize: try an unmerged PR on your cmux (use pr:N, library off, refresh) (#43543)"
+    },
+    {
+      "sha": "e7a3eada94f1501cc0fd29d3bdf45966bdb6c6dc",
+      "mergedAt": "2026-11-15T00:18:58-08:00",
+      "subject": "carrier supervise: a token read the app never answers fails after 90 s (#43546)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T08:45:48Z",
+    "snapshot_id": "sh-a7414d2cdcb445729933308b021d422f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43695223300): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b449aabb2d622c97b3ee8ff9b83ababb4003ddb1",
+    "image": "cloud-native-auto-1554e1fe-43695223300-1",
+    "revision": "ci-43695223300-1",
+    "at": "2026-11-15T08:45:48Z"
+  },
+  "rolled_back": false
+}
