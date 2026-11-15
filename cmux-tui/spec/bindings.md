@@ -89,7 +89,8 @@ selector. Session operations still require their separate routing and permission
 
 Default raw `identify` replies preserve the original field set. The
 `machine-identity-v1` capability advertises an explicit `machine_metadata: true`
-request, which adds `machine_id`, `machine_platform` and `machine_capabilities`.
+request, which adds `machine_id`, `machine_platform`, `machine_device`, `machine_symbol`
+and `machine_capabilities`.
 False or omission keeps the legacy response; the option is not connection state.
 Malformed non-boolean values are refused. This is a raw command option, separate
 from the resource API's `catalog` option.

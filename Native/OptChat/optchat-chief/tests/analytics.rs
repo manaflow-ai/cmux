@@ -97,7 +97,7 @@ fn the_catalog_maps_trace_events_and_never_copies_text() {
     };
     let turns = find("chief_turn_completed");
     assert_eq!(turns.len(), 2);
-    assert_eq!(turns[0]["status"], "error");
+    assert_eq!(turns[0]["turn_status"], "error");
     assert_eq!(turns[0]["error_class"], "rate_limited");
     assert_eq!(turns[0]["model"], "claude-opus-5-5");
     assert_eq!(turns[0]["cache_hit_rate"], 0.9);

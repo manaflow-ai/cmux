@@ -209,7 +209,7 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
             out.push(event(
                 "chief_turn_completed",
                 json!({
-                    "status": status,
+                    "turn_status": status,
                     "error_class": error,
                     "replied": replied,
                     "harness": harness(str_of(trace, "harness")),
