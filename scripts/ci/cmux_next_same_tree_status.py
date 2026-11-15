@@ -54,9 +54,12 @@ import needs_verdict as nv  # noqa: E402
 SHA = re.compile(r"^[0-9a-f]{40}$")
 DESCRIPTION_MAX = 140
 POST_WAITS = (0, 20, 60)
-# A post refused on a rate limit waits for it to lift (Retry-After, x-ratelimit-reset), this long in all; the
-# reporter jobs' timeout-minutes leaves room for it.
-RATE_LIMIT_BUDGET_S = 600
+# A post refused on a rate limit waits for it to lift (Retry-After, x-ratelimit-reset), this long in all: a whole
+# primary window (GitHub resets a token's REST budget within the hour) plus slack, so a spent budget always ends in
+# a post, never in "re-run this job". RESET_NOT_RERUN (run 43706991195, cmux#43659 at 7d6869e6): both tokens were
+# spent, the job went red, and GitHub would not re-run it while a Mac compile in the same run sat queued for over an
+# hour, so the verdict never posted. The reporter jobs' timeout-minutes leaves room for it.
+RATE_LIMIT_BUDGET_S = 65 * 60
 # Waits after a rate-limit refusal that names no time to wait (a secondary limit), in order; the last repeats.
 SECONDARY_BACKOFF_S = (30, 60, 120, 180)
 LOST_RUNNER = re.compile(r"lost communication|runner .*(?:shut ?down|was deprovisioned|stopped)|"

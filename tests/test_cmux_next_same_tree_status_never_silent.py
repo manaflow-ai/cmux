@@ -279,8 +279,16 @@ class RateLimitWait(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(slept, [201.0])
 
+    def test_run_43706991195_a_reset_most_of_an_hour_away_is_waited_for_not_left_to_a_re_run(self):
+        # Both tokens spent; GitHub would not re-run the red job while a Mac compile in the run was queued.
+        reset = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 59 * 60)}
+        ok, api, slept, _ = self.post([(403, SPENT, reset), (403, SPENT, reset), (201, b"{}", {})])
+        self.assertTrue(ok)
+        self.assertEqual(slept[0], 59 * 60 + 1)
+        self.assertLessEqual(sum(slept), status.RATE_LIMIT_BUDGET_S)
+
     def test_a_reset_past_the_budget_is_red_without_waiting(self):
-        reset = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 3000)}
+        reset = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 2 * 3600)}
         ok, api, slept, logged = self.post([(403, SPENT, reset), (201, b"{}", {})])
         self.assertFalse(ok)
         self.assertEqual((len(api.posts), slept), (1, []))
