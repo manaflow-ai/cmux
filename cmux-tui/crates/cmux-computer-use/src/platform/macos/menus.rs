@@ -903,6 +903,8 @@ impl MacDesktop {
         route: &str,
     ) -> ActionOutcome {
         let hidden = all.iter().filter(|i| i.denied).count();
+        // Read again after the settle: the menu is still shown.
+        let shown_check = super::readback::Check::Shown { el: menu.clone() };
         *self.opened.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
             window_id: t.id(),
             pid: t.window.pid,
@@ -925,6 +927,7 @@ impl MacDesktop {
             .collect();
         // The menu was read from accessibility: it opened.
         let mut out = ActionOutcome::confirmed(route);
+        out.expect = self.expect(Some(shown_check), false);
         if let Some(note) = loading_note(workspace::app_names_ready()) {
             out.note = note.into();
         }
@@ -1119,9 +1122,14 @@ impl MacDesktop {
         });
         let stays = showing(&windows) && !self.cancel_or_record(t, &menu, &windows);
         let open_ms = opened.elapsed().as_millis() as u64;
+        // A pop-up confirms by showing the item (read again after the
+        // settle); one that already showed it is done already. A context
+        // menu closing says only that the item was pressed: delivered, its
+        // effect is not read back.
+        let already = before.as_deref().is_some_and(|b| roles::same_title(b, &title));
         let confirmed = match &popup {
-            Some(_) => after.as_deref().is_some_and(|a| roles::same_title(a, &title)),
-            None => closed,
+            Some(_) => after.as_deref().is_some_and(|a| roles::same_title(a, &title)) && !already,
+            None => false,
         };
         let route = if popup.is_some() { "ax_menu_open_pick" } else { "ax_context_menu_pick" };
         let mut out = if confirmed {
@@ -1139,6 +1147,14 @@ impl MacDesktop {
         }
         if stays {
             out.note = format!("{} {}", out.note, menus::MENU_DID_NOT_CLOSE).trim().to_string();
+        }
+        if let Some((el, _, _)) = &popup {
+            let check = super::readback::Check::Title { el: (*el).clone(), title: title.clone() };
+            out.expect = self.expect(Some(check), already);
+        } else if closed && !stays {
+            out.note = format!("{} pressed {title:?}; its effect is not read back", out.note)
+                .trim()
+                .to_string();
         }
         let mut report = MenuReport::picked(&title, Some(open_ms));
         report.keyboard = guard.report();

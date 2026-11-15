@@ -113,6 +113,8 @@ pub struct FakeDesktop {
     pub already: Mutex<bool>,
     /// Whether the app answers ([`Desktop::responsive`]).
     pub responsive: Mutex<Option<bool>>,
+    /// What a confirmed result reads back after the settle.
+    pub confirms_on_reread: Mutex<Option<bool>>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
 }
@@ -205,6 +207,7 @@ impl FakeDesktop {
             reads_back: Mutex::new(None),
             already: Mutex::new(false),
             responsive: Mutex::new(Some(true)),
+            confirms_on_reread: Mutex::new(Some(true)),
         }
     }
 
@@ -242,6 +245,13 @@ impl FakeDesktop {
     }
 
     /// The window's pop-ups as tree elements, an open one with its menu.
+    /// A confirmed result whose read-back after the settle answers
+    /// [`Self::confirms_on_reread`].
+    fn confirmed(&self, route: &str) -> ActionOutcome {
+        let expect = Some(Expect { token: 0, what: "value".into(), already: false });
+        ActionOutcome { expect, ..ActionOutcome::confirmed(route) }
+    }
+
     /// A delivered result, showing where [`Self::shows`] says.
     fn delivered(&self) -> ActionOutcome {
         let already = *lock(&self.already);
@@ -402,7 +412,7 @@ impl FakeDesktop {
         self.push(event);
         Some(Ok(ActionOutcome {
             menu: Some(MenuReport::picked(&picked_title, Some(1))),
-            ..ActionOutcome::confirmed("fake_menu_pick")
+            ..self.confirmed("fake_menu_pick")
         }))
     }
 
@@ -445,7 +455,10 @@ impl Desktop for FakeDesktop {
     fn watch(&self, _window_id: &str) -> Option<Box<dyn Watch>> {
         Some(Box::new(FakeWatch(self.signals.clone())))
     }
-    fn read_back(&self, _expect: &Expect) -> Option<bool> {
+    fn read_back(&self, expect: &Expect) -> Option<bool> {
+        if expect.token == 0 {
+            return *lock(&self.confirms_on_reread);
+        }
         *lock(&self.reads_back)
     }
     fn responsive(&self, _window_id: &str) -> Option<bool> {
@@ -688,8 +701,10 @@ impl Desktop for FakeDesktop {
         // With a read-back: as a route does, already matching is delivered.
         let mut out = if *lock(&self.already) {
             self.delivered()
-        } else {
+        } else if lock(&self.reads_back).is_some() {
             ActionOutcome { expect: self.delivered().expect, ..ActionOutcome::confirmed("fake") }
+        } else {
+            self.confirmed("fake")
         };
         out.shows = None;
         Ok(out)
@@ -712,7 +727,7 @@ impl Desktop for FakeDesktop {
             return done;
         }
         self.push(event);
-        Ok(ActionOutcome::confirmed("fake"))
+        Ok(self.confirmed("fake"))
     }
     /// Like Windows: a bare name launches `<name>.exe`, matched lowercased.
     fn launches_by_identity(&self) -> bool {

@@ -78,6 +78,23 @@ unsafe extern "C" fn on_signal(
 /// answers each registration only at its AX timeout.
 const REGISTER_BUDGET: Duration = Duration::from_millis(150);
 
+/// Detached watches (still registering with a stalled app) kept at most per
+/// app: past it no new watch starts for the app (nothing listens, so its
+/// actions are never no_effect) until one ends.
+const DETACHED_MAX: usize = 2;
+
+/// Detached watches still running, per app.
+fn detached() -> std::sync::MutexGuard<'static, std::collections::HashMap<i32, usize>> {
+    static D: std::sync::OnceLock<Mutex<std::collections::HashMap<i32, usize>>> =
+        std::sync::OnceLock::new();
+    D.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Whether another watch may start for an app with `running` detached ones.
+pub(super) fn may_start(running: usize) -> bool {
+    running < DETACHED_MAX
+}
+
 /// A running watch (see the module notes).
 pub(super) struct AxWatch {
     signals: Arc<Mutex<Signals>>,
@@ -98,18 +115,38 @@ impl AxWatch {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<bool>();
         let (sig, stp) = (signals.clone(), stop.clone());
         let started = Instant::now();
+        if !may_start(detached().get(&pid).copied().unwrap_or(0)) {
+            return AxWatch { signals, stop, listening: false, started, thread: None };
+        }
+        let was_detached = Arc::new(AtomicBool::new(false));
+        let gone = was_detached.clone();
         let thread = std::thread::Builder::new()
             .name("cu-ax-watch".into())
-            .spawn(move || run(pid, target, sig, stp, ready_tx, started))
+            .spawn(move || {
+                run(pid, target, sig, stp, ready_tx, started);
+                // A detached watch that ends frees its place.
+                if gone.load(Ordering::Acquire) {
+                    let mut map = detached();
+                    if let Some(n) = map.get_mut(&pid) {
+                        *n = n.saturating_sub(1);
+                        if *n == 0 {
+                            map.remove(&pid);
+                        }
+                    }
+                }
+            })
             .ok();
         let ready = thread.as_ref().map(|_| ready_rx.recv_timeout(REGISTER_BUDGET));
         let (listening, thread) = match ready {
             Some(Ok(ok)) => (ok, thread),
             // Past the budget: it stops when it gets there; never joined.
-            _ => {
+            Some(Err(_)) => {
+                *detached().entry(pid).or_insert(0) += 1;
+                was_detached.store(true, Ordering::Release);
                 stop.store(true, Ordering::Release);
                 (false, None)
             }
+            None => (false, None),
         };
         AxWatch { signals, stop, listening, started, thread }
     }

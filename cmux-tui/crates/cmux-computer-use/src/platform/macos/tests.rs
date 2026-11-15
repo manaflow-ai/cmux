@@ -2471,3 +2471,67 @@ fn a_press_is_addressed_only_in_the_front_app() {
     assert!(roles::address_press(true));
     assert!(!roles::address_press(false));
 }
+
+/// Review of e75f474 (3, 4, 10): the gate every AX pointer write (caret
+/// click, text drag, scroll, slider) goes through. In the person's front app
+/// nothing is written and the events run; while another session's scope is
+/// open on the app the write is refused; the front app is read again under
+/// the lock, so an app that comes front while waiting is not written to.
+#[test]
+fn ax_pointer_writes_refuse_the_front_app_and_an_open_scope() {
+    use std::cell::Cell;
+    use std::time::Duration;
+    let reg = activation::Registry::new();
+    let wrote = Cell::new(0);
+    let write = || wrote.set(wrote.get() + 1);
+    // Not the front app, no scope: written.
+    let done = actions::gated_in(&reg, 5, Duration::from_millis(50), || false, write).unwrap();
+    assert_eq!(done, actions::AxWrite::Done(()));
+    assert_eq!(wrote.get(), 1);
+    // The person's front app: nothing written.
+    let front = actions::gated_in(&reg, 5, Duration::from_millis(50), || true, write).unwrap();
+    assert_eq!(front, actions::AxWrite::PersonsApp);
+    // It comes front between the first check and the lock: nothing written.
+    let reads = Cell::new(0);
+    let late = actions::gated_in(
+        &reg,
+        5,
+        Duration::from_millis(50),
+        || {
+            reads.set(reads.get() + 1);
+            reads.get() > 1
+        },
+        write,
+    )
+    .unwrap();
+    assert_eq!(late, actions::AxWrite::PersonsApp);
+    assert_eq!(wrote.get(), 1);
+    // Another session's key-in-app scope open on the app: refused.
+    let os = fake(&[(10, 5)]);
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    let refused = actions::gated_in(&reg, 5, Duration::from_millis(50), || false, write);
+    assert!(
+        matches!(&refused, Err(DesktopError::Unsupported(m)) if m == activation::PRIMED_KEYS_REFUSAL),
+        "{refused:?}"
+    );
+    assert_eq!(wrote.get(), 1);
+    drop(key);
+}
+
+/// Review of e75f474 (6): a radio button already on, pressed, is done
+/// already (uncertain), not "no effect".
+#[test]
+fn a_pressed_radio_button_already_on_is_already_done() {
+    assert!(roles::press_already_done("AXRadioButton", "AXPress", "1"));
+    assert!(!roles::press_already_done("AXRadioButton", "AXPress", "0"));
+    assert!(!roles::press_already_done("AXCheckBox", "AXPress", "1"), "a checkbox toggles");
+}
+
+/// Follow-up of e75f474: watches detached from a stalled app are capped per
+/// app; past the cap none starts (so no action there is no_effect).
+#[test]
+fn detached_watches_are_capped_per_app() {
+    assert!(watch::may_start(0));
+    assert!(watch::may_start(1));
+    assert!(!watch::may_start(2));
+}

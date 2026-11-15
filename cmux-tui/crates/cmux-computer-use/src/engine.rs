@@ -1755,34 +1755,34 @@ impl Engine {
         // effect a moment after it read back (a field that reformats or
         // rejects a value, a list that reselects).
         let mut already = false;
-        if let Some(expect) = expect {
+        let confirmed = out.body["evidence"] == json!("confirmed");
+        let read = expect.map(|expect| {
             already = expect.already;
-            let confirmed = out.body["evidence"] == json!("confirmed");
-            let read = match self.desktop.read_back(&expect) {
-                Some(true) if expect.already => "already",
+            match self.desktop.read_back(&expect) {
+                Some(true) if expect.already => "already".to_string(),
                 Some(true) => {
                     out.body["evidence"] = json!("confirmed");
-                    expect.what.as_str()
+                    expect.what
                 }
-                Some(false) => {
-                    if confirmed {
-                        out.body["evidence"] = json!("delivered");
-                        let mut note = out
-                            .body
-                            .get("note")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string();
-                        crate::outcome::append(
-                            &mut note,
-                            "read again after the settle, the effect no longer shows",
-                        );
-                        out.body["note"] = json!(note);
-                    }
-                    "failed"
-                }
-                None => "unread",
-            };
+                Some(false) => "failed".to_string(),
+                None => "unread".to_string(),
+            }
+        });
+        // A confirmed result stays confirmed only when it reads back again
+        // after the settle; otherwise it is delivered, saying why.
+        let lost = match read.as_deref() {
+            Some("failed") => Some("read again after the settle, the effect no longer shows"),
+            Some("unread") | None => Some("the effect could not be read again after the settle"),
+            Some(_) => None,
+        };
+        if confirmed && let Some(why) = lost {
+            out.body["evidence"] = json!("delivered");
+            let mut note =
+                out.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
+            crate::outcome::append(&mut note, why);
+            out.body["note"] = json!(note);
+        }
+        if let Some(read) = read {
             out.body["read_back"] = json!(read);
         }
         let facts = crate::outcome::Facts {

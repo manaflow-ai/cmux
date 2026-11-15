@@ -34,12 +34,22 @@ fn outcome_after(
     el: &Ax,
 ) -> ActionOutcome {
     let after = el.value_text();
+    let role = el.string("AXRole").unwrap_or_default();
     let mut out = match (&before, &after) {
         (Some(b), Some(a)) if a != b => {
             let mut out = ActionOutcome::confirmed(route);
             let check =
                 readback::Check::Value { el: el.clone(), wanted: a.clone(), tolerance: 0.0 };
             out.expect = d.expect(Some(check), false);
+            out
+        }
+        // A radio button already on stays on when pressed: done already,
+        // not "no effect".
+        (Some(b), _) if roles::press_already_done(&role, action, b) => {
+            let mut out = ActionOutcome::delivered(route);
+            let check =
+                readback::Check::Value { el: el.clone(), wanted: b.clone(), tolerance: 0.0 };
+            out.expect = d.expect(Some(check), true);
             out
         }
         _ => ActionOutcome::delivered(route),
@@ -49,11 +59,7 @@ fn outcome_after(
     // it in its value; a button, a confirm or cancel, a custom action may
     // act where nothing shows.
     if before.is_some()
-        && roles::press_shows_value(
-            &el.string("AXRole").unwrap_or_default(),
-            el.string("AXSubrole").as_deref(),
-            action,
-        )
+        && roles::press_shows_value(&role, el.string("AXSubrole").as_deref(), action)
     {
         out = out.showing("value");
     }
@@ -233,8 +239,9 @@ impl MacDesktop {
     /// Whether the window's app is the frontmost app, where the person's
     /// keys and caret are.
     fn is_persons_app(&self, t: &Target) -> bool {
-        // The window server's front app (NSRunningApplication.isActive lags).
-        super::frontmost_pid() == Some(t.window.pid)
+        // The window server's front app (NSRunningApplication.isActive lags);
+        // unreadable counts as the person's (fail closed).
+        super::frontmost_pid().is_none_or(|pid| pid == t.window.pid)
     }
 
     /// Whether a background activation of `el` opens a menu, and whether
@@ -591,6 +598,48 @@ fn ax_unprimed<T>(pid: i32, write: impl FnOnce() -> T) -> DResult<T> {
         .ok_or_else(|| DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
 }
 
+/// What a pointer gesture done through AX writes (a caret, a text
+/// selection, a scroll, a slider) may do in `pid`'s app.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum AxWrite<T> {
+    /// Written; the write's result.
+    Done(T),
+    /// The app is the person's front app (or that cannot be read): nothing
+    /// written, the events run instead (their caret or view would move).
+    PersonsApp,
+}
+
+/// Runs `write` under `pid`'s input lock while no key-in-app scope is open
+/// on the app (waiting at most `bound`; refused after it) and the app is
+/// not the person's (`front_is_target`, read again under the lock).
+pub(super) fn gated_in<T>(
+    registry: &super::activation::Registry,
+    pid: i32,
+    bound: std::time::Duration,
+    front_is_target: impl Fn() -> bool,
+    write: impl FnOnce() -> T,
+) -> DResult<AxWrite<T>> {
+    if front_is_target() {
+        return Ok(AxWrite::PersonsApp);
+    }
+    registry
+        .post_unprimed(pid, 0, bound, |_| {
+            if front_is_target() { AxWrite::PersonsApp } else { AxWrite::Done(write()) }
+        })
+        .ok_or_else(|| DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
+}
+
+/// [`gated_in`] on the process-wide registry, for `t`'s app.
+fn gated<T>(d: &MacDesktop, t: &Target, write: impl FnOnce() -> T) -> DResult<AxWrite<T>> {
+    gated_in(
+        super::activation::registry(),
+        t.window.pid,
+        super::activation::WAIT_BOUND,
+        || d.is_persons_app(t),
+        write,
+    )
+}
+
 /// Focuses `el` (when it is not) and selects `range` of its text: whether
 /// both writes were taken.
 fn focus_and_select(el: &Ax, range: super::sys::CFRange) -> bool {
@@ -612,7 +661,9 @@ fn caret_click(d: &MacDesktop, t: &Target, el: &Ax, at: Point) -> DResult<Option
     let Some(under) = el.range_for_position(at.x, at.y) else { return Ok(None) };
     let caret = super::sys::CFRange { location: under.location, length: 0 };
     let already = el.bool("AXFocused") == Some(true) && el.selected_range() == Some(caret);
-    let taken = ax_unprimed(t.window.pid, || focus_and_select(el, caret))?;
+    let AxWrite::Done(taken) = gated(d, t, || focus_and_select(el, caret))? else {
+        return Ok(None);
+    };
     let mut out = if taken && el.selected_range() == Some(caret) && !already {
         ActionOutcome::confirmed("ax_caret")
     } else {
@@ -658,7 +709,9 @@ fn select_drag(
         return Ok(None);
     }
     let already = el.selected_range() == Some(range);
-    let taken = ax_unprimed(t.window.pid, || focus_and_select(&el, range))?;
+    let AxWrite::Done(taken) = gated(d, t, || focus_and_select(&el, range))? else {
+        return Ok(None);
+    };
     let mut out = if taken && el.selected_range() == Some(range) && !already {
         ActionOutcome::confirmed("ax_select_text")
     } else {
@@ -701,25 +754,36 @@ pub(super) fn slider_value_at(frame: &Rect, min: f64, max: f64, p: Point) -> f64
 /// end point through accessibility, as the drag would (an AppKit slider
 /// jumps to a pressed track point and follows the pointer); read back.
 /// Posted drags do not reach a background AppKit slider on macOS 27.0.1.
-fn slider_drag(d: &MacDesktop, t: &Target, from: Point, to: Point) -> Option<ActionOutcome> {
-    let (app, win) = d.ax_window(t).ok()?;
-    let slider = slider_at(&app, &win, from)?;
+fn slider_drag(
+    d: &MacDesktop,
+    t: &Target,
+    from: Point,
+    to: Point,
+) -> DResult<Option<ActionOutcome>> {
+    let Ok((app, win)) = d.ax_window(t) else { return Ok(None) };
+    let Some(slider) = slider_at(&app, &win, from) else { return Ok(None) };
     if !slider.settable("AXValue") {
-        return None;
+        return Ok(None);
     }
-    let (min, max) = (slider.number("AXMinValue")?, slider.number("AXMaxValue")?);
-    let frame = slider.frame()?;
+    let (Some(min), Some(max), Some(frame)) =
+        (slider.number("AXMinValue"), slider.number("AXMaxValue"), slider.frame())
+    else {
+        return Ok(None);
+    };
     // A circular slider's value follows the angle, not a track: the events.
     if max <= min || frame.width < 2.0 || frame.height < 2.0 || roles::looks_circular(&frame) {
-        return None;
+        return Ok(None);
     }
     let wanted = slider_value_at(&frame, min, max, to);
     let tolerance = roles::slider_tolerance(min, max);
     let before = slider.number("AXValue");
     let already = before.is_some_and(|b| (b - wanted).abs() <= tolerance);
-    let cf = Cf::number_f64(wanted)?;
-    // From here on a write was tried: no drag is posted after it.
-    let taken = slider.set("AXValue", &cf).is_ok();
+    let Some(cf) = Cf::number_f64(wanted) else { return Ok(None) };
+    // Not in the person's app, not under another session's scope; from
+    // here on a write was tried, so no drag is posted after it.
+    let AxWrite::Done(taken) = gated(d, t, || slider.set("AXValue", &cf).is_ok())? else {
+        return Ok(None);
+    };
     let after = slider.number("AXValue");
     let mut out = if taken && after.is_some_and(|a| (a - wanted).abs() <= tolerance) && !already {
         ActionOutcome::confirmed("ax_slider")
@@ -728,7 +792,7 @@ fn slider_drag(d: &MacDesktop, t: &Target, from: Point, to: Point) -> Option<Act
     };
     let check = readback::Check::Value { el: slider, wanted: format!("{wanted}"), tolerance };
     out.expect = d.expect(Some(check), already);
-    Some(out.showing("value").at(to))
+    Ok(Some(out.showing("value").at(to)))
 }
 
 /// Points per scroll line for a scroll done through the scroll bars.
@@ -739,7 +803,25 @@ const LINE_POINTS: f64 = 16.0;
 /// posted wheel events do not reach a background AppKit view on macOS
 /// 27.0.1. The bar's value is a fraction of the scrollable distance (the
 /// document's height less the visible height); read back.
-fn ax_scroll(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<ActionOutcome> {
+fn ax_scroll(
+    d: &MacDesktop,
+    t: &Target,
+    at: Point,
+    dx: f64,
+    dy: f64,
+) -> DResult<Option<ActionOutcome>> {
+    Ok(ax_scroll_plan(d, t, at, dx, dy)
+        .map(|plan| ax_scroll_run(d, t, at, plan))
+        .transpose()?
+        .flatten())
+}
+
+/// A scroll bar to move: the bar, its value before, the value wanted and
+/// the way it moves (+1 toward the end).
+type ScrollPlan = Vec<(Ax, f64, f64, f64)>;
+
+/// The bars an AX scroll would move; `None`: the events instead.
+fn ax_scroll_plan(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<ScrollPlan> {
     let (app, win) = d.ax_window(t).ok()?;
     let mut el = app.element_at(at.x, at.y)?;
     if !el.element("AXWindow").is_some_and(|w| w.same(&win)) || in_web_area(&el) {
@@ -779,23 +861,35 @@ fn ax_scroll(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<
         let wanted = (before + lines * LINE_POINTS / span).clamp(0.0, 1.0);
         plan.push((bar, before, wanted, lines.signum()));
     }
-    if plan.is_empty() {
-        return None;
-    }
+    (!plan.is_empty()).then_some(plan)
+}
+
+/// Moves the planned bars, not in the person's app and not under another
+/// session's scope (`None`: the events instead, nothing written).
+fn ax_scroll_run(
+    d: &MacDesktop,
+    t: &Target,
+    at: Point,
+    plan: ScrollPlan,
+) -> DResult<Option<ActionOutcome>> {
     // At the end it scrolls toward already: nothing to move.
     let already = plan.iter().all(|(_, before, wanted, _)| (wanted - before).abs() < 1e-9);
     // From here on a write was tried: a failure is reported, no events.
-    let mut moved = false;
-    let mut failed = false;
-    for (bar, before, wanted, sign) in &plan {
-        if (wanted - before).abs() < 1e-9 {
-            continue;
+    let written = gated(d, t, || {
+        let (mut moved, mut failed) = (false, false);
+        for (bar, before, wanted, sign) in &plan {
+            if (wanted - before).abs() < 1e-9 {
+                continue;
+            }
+            if Cf::number_f64(*wanted).is_none_or(|cf| bar.set("AXValue", &cf).is_err()) {
+                failed = true;
+            }
+            moved |=
+                bar.number("AXValue").is_some_and(|a| readback::moved_toward(*before, a, *sign));
         }
-        if Cf::number_f64(*wanted).is_none_or(|cf| bar.set("AXValue", &cf).is_err()) {
-            failed = true;
-        }
-        moved |= bar.number("AXValue").is_some_and(|a| readback::moved_toward(*before, a, *sign));
-    }
+        (moved, failed)
+    })?;
+    let AxWrite::Done((moved, failed)) = written else { return Ok(None) };
     let mut out = if moved && !failed {
         ActionOutcome::confirmed("ax_scroll_bar")
     } else {
@@ -810,7 +904,7 @@ fn ax_scroll(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<
         .map(|(el, before, _, sign)| readback::Bar { el, before: Some(before), sign })
         .collect();
     out.expect = d.expect(Some(readback::Check::Scroll { bars }), already);
-    Some(out.showing("scroll").at(at))
+    Ok(Some(out.showing("scroll").at(at)))
 }
 
 /// Makes a background app validate its menus against `t`'s window
@@ -1047,6 +1141,7 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
     let wanted_count = count_before.map(|n| n + typed);
     let length_check =
         |el: &Ax| wanted_count.map(|count| readback::Check::Length { el: el.clone(), count });
+    let caret = el.selected_range();
     let Some(cf) = Cf::string(text) else { return Ok(None) };
     if el.settable("AXSelectedText") && el.set("AXSelectedText", &cf).is_ok() {
         if secure {
@@ -1060,9 +1155,13 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
             return Ok(Some(out.showing("text")));
         }
         let after = el.value_text().unwrap_or_default();
-        if readback::typed_shows(&before, &after, text) {
+        let shows = match caret {
+            Some(at) => readback::typed_at(&before, &after, text, at),
+            None => readback::typed_shows(&before, &after, text),
+        };
+        if shows {
             let mut out = ActionOutcome::confirmed("ax_insert_text");
-            out.expect = d.expect(readback::Check::text_from(el, &before, text), false);
+            out.expect = d.expect(readback::Check::text_from(el, &before, text, caret), false);
             return Ok(Some(out.showing("text")));
         }
         // The app took the call but kept its value: fall back to keys.
@@ -1706,7 +1805,7 @@ pub(super) fn scroll(
     };
     // A window off screen keeps refusing (pointer_route).
     if roles::hit_usable(t.window.on_screen, true)
-        && let Some(out) = ax_scroll(d, &t, at, dx, dy)
+        && let Some(out) = ax_scroll(d, &t, at, dx, dy)?
     {
         return Ok(out);
     }
@@ -1749,7 +1848,7 @@ pub(super) fn drag(
         if let Some(out) = select_drag(d, &t, from, to)? {
             return Ok(out);
         }
-        if let Some(out) = slider_drag(d, &t, from, to) {
+        if let Some(out) = slider_drag(d, &t, from, to)? {
             return Ok(out);
         }
     }
@@ -1802,7 +1901,7 @@ pub(super) fn set_value(
         return choose_menu_item(d, &t, &el, element_id, value);
     }
     if !el.settable("AXValue")
-        && let Some(out) = step_to(&el, value)?
+        && let Some(out) = step_to(d, &el, value)?
     {
         return Ok(out);
     }
@@ -1934,6 +2033,7 @@ fn pick_closed(
     }
     let title = item.info.title.clone();
     let before = el.value_text();
+    let already = before.as_deref().is_some_and(|b| roles::same_title(b, &title));
     item.el.perform("AXPress").map_err(|e| ax_error(e, &format!("the item {title:?}")))?;
     // Some pop-ups show the item a little after the press.
     let mut after = el.value_text();
@@ -1941,15 +2041,17 @@ fn pick_closed(
         after = el.value_text();
         after != before
     });
-    let confirmed = after.as_deref().is_some_and(|a| roles::same_title(a, &title));
+    let confirmed = after.as_deref().is_some_and(|a| roles::same_title(a, &title)) && !already;
     let mut out = if confirmed {
         ActionOutcome::confirmed("ax_menu_item")
     } else {
         ActionOutcome::delivered("ax_menu_item")
     };
-    if after == before && !confirmed {
+    if after == before && !confirmed && !already {
         out.note = "pressed the item; the pop-up reads back its old value".into();
     }
+    out.expect =
+        d.expect(Some(readback::Check::Title { el: el.clone(), title: title.clone() }), already);
     out.menu = Some(menus::MenuReport::picked(&title, None));
     if let Some(frame) = el.frame() {
         out = out.at(roles::center(&frame));
@@ -1957,7 +2059,13 @@ fn pick_closed(
     Ok(Some(out))
 }
 
-fn write_attribute(el: &Ax, element_id: &str, attr: &str, value: bool) -> DResult<ActionOutcome> {
+fn write_attribute(
+    d: &MacDesktop,
+    el: &Ax,
+    element_id: &str,
+    attr: &str,
+    value: bool,
+) -> DResult<ActionOutcome> {
     if !el.settable(attr) {
         return Err(DesktopError::Unsupported(format!(
             "element {element_id} cannot change {}",
@@ -1965,13 +2073,17 @@ fn write_attribute(el: &Ax, element_id: &str, attr: &str, value: bool) -> DResul
         )));
     }
     let cf = Cf::boolean(value).ok_or_else(|| DesktopError::Failed("no boolean".into()))?;
+    let already = el.bool(attr) == Some(value);
     el.set(attr, &cf).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
     let route = format!("ax_set_{}", roles::snake(attr));
-    Ok(if el.bool(attr) == Some(value) {
+    let mut out = if el.bool(attr) == Some(value) && !already {
         ActionOutcome::confirmed(&route)
     } else {
         ActionOutcome::delivered(&route)
-    })
+    };
+    let check = readback::Check::Bool { el: el.clone(), attr: attr.to_string(), value };
+    out.expect = d.expect(Some(check), already);
+    Ok(out.showing("value"))
 }
 
 pub(super) fn perform_action(
@@ -1996,7 +2108,7 @@ pub(super) fn perform_action(
                     "this element is in the app the person is using; focusing it would move their caret. Use set_value or type_text with element_id, or a click with delivery foreground".into(),
                 ));
             }
-            return write_attribute(&el, element_id, attr, value);
+            return write_attribute(d, &el, element_id, attr, value);
         }
         let offered: Vec<String> = available
             .iter()
@@ -2035,7 +2147,7 @@ pub(super) fn perform_action(
     } else {
         route_name(ax_action)
     };
-    Ok(outcome_after(d, &route, action, before, &el))
+    Ok(outcome_after(d, &route, ax_action, before, &el))
 }
 
 /// The menu items of `pid`'s menu bar whose key equivalent is `combo`, in
@@ -2229,7 +2341,7 @@ fn selectable(el: &Ax) -> Option<Ax> {
 /// toward `value` until the next step would pass it. Values may be given as
 /// the element's own number or as a percentage of its range ("25%"). None
 /// when the element cannot step or the value is not a number.
-fn step_to(el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
+fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
     let actions = el.actions();
     if !(actions.iter().any(|a| a == "AXIncrement") && actions.iter().any(|a| a == "AXDecrement")) {
         return Ok(None);
@@ -2241,6 +2353,7 @@ fn step_to(el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
         return Ok(None);
     };
     let Some(target) = roles::step_target(value, min, max) else { return Ok(None) };
+    let already = (target - start).abs() < f64::EPSILON;
     let mut current = start;
     let mut capped = true;
     for _ in 0..200 {
@@ -2274,11 +2387,16 @@ fn step_to(el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
         }
     }
     let read = number("AXValue").unwrap_or(current);
-    let mut out = if roles::step_confirmed(capped, read, target, min, max) {
+    let mut out = if roles::step_confirmed(capped, read, target, min, max) && !already {
         ActionOutcome::confirmed("ax_step")
     } else {
         ActionOutcome::delivered("ax_step")
     };
+    // Read again after the settle: the value it was stepped to.
+    let check =
+        readback::Check::Value { el: el.clone(), wanted: format!("{read}"), tolerance: 1e-9 };
+    out.expect = d.expect(Some(check), already);
+    out = out.showing("value");
     out.note = format!(
         "stepped from {start} to {read} (asked {target}); the element moves in fixed steps"
     );

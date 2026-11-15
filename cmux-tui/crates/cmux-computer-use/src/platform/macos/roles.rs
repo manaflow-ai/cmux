@@ -104,6 +104,12 @@ pub fn press_shows_value(role: &str, subrole: Option<&str>, action: &str) -> boo
     value_role && matches!(action, "AXPress" | "AXIncrement" | "AXDecrement")
 }
 
+/// Whether a press finds its effect already done: a radio button already on
+/// (value 1) stays on.
+pub fn press_already_done(role: &str, action: &str, before: &str) -> bool {
+    role == "AXRadioButton" && action == "AXPress" && before.trim() == "1"
+}
+
 /// Whether a plain click in a text element may place the caret through
 /// accessibility: not when the element is denied (`blocked`), not in a
 /// table or list row (a click there selects the row, an editable cell does

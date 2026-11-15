@@ -555,10 +555,12 @@ impl Desktop for MacDesktop {
             .map(|w| w.id.to_string())
             .collect();
         windows.sort();
+        // The window server's front app, as everywhere else here; unread
+        // pieces make the whole unknown.
         Some(World {
             windows,
-            pasteboard: workspace::pasteboard_change_count(),
-            front_pid: workspace::frontmost_pid().map(|p| p as u32),
+            pasteboard: Some(workspace::pasteboard_change_count()?),
+            front_pid: Some(frontmost_pid()? as u32),
         })
     }
 

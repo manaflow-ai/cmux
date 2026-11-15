@@ -395,6 +395,34 @@ fn a_confirmed_result_is_read_again_after_the_settle() {
     }
 }
 
+/// Review of e75f474 (5): a confirmed result that cannot be read again
+/// after the settle is delivered, saying so, so it is uncertain.
+#[test]
+fn a_confirmed_result_that_cannot_be_reread_is_uncertain() {
+    for (reread, outcome) in
+        [(Some(true), "confirmed"), (None, "uncertain"), (Some(false), "uncertain")]
+    {
+        let d = Arc::new(FakeDesktop::standard());
+        *d.confirms_on_reread.lock().unwrap() = reread;
+        *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+        let (e, _) = settling_engine(d);
+        let out = e.call(
+            &ctx(None),
+            "perform_action",
+            &json!({"window_id": "1", "element_id": "e1", "action": "press"}),
+        );
+        assert_eq!(out.body["outcome"], outcome, "{reread:?}: {}", out.body);
+        if reread != Some(true) {
+            assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+            assert!(
+                out.body["note"].as_str().unwrap().contains("after the settle"),
+                "{}",
+                out.body
+            );
+        }
+    }
+}
+
 /// Review of b4236e6 (10): a stalled app shows nothing because it does
 /// nothing; without an answer after the settle, never no_effect.
 #[test]

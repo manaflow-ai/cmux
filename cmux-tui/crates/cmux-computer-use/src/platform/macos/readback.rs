@@ -27,8 +27,11 @@ pub(super) struct Bar {
 }
 
 pub(super) enum Check {
-    /// `text` was typed into `el`: more of it is in the value than before.
-    Text { el: Ax, before: String, text: String },
+    /// `text` was typed into `el` whose value was `before` with the caret
+    /// or selection at `at` (UTF-16): the text is now at that spot and the
+    /// value grew by it, less what was selected. Without a caret: more of
+    /// the text in the value than before.
+    Text { el: Ax, before: String, text: String, at: Option<CFRange> },
     /// The scrolled view's bars moved the way the scroll asked.
     Scroll { bars: Vec<Bar> },
     /// All of `el`'s text is selected.
@@ -41,6 +44,12 @@ pub(super) enum Check {
     Selected { row: Ax },
     /// A secure field holds `count` characters.
     Length { el: Ax, count: f64 },
+    /// `el`'s value reads `title` (a pop-up's shown item; any case).
+    Title { el: Ax, title: String },
+    /// `el`'s boolean attribute `attr` is `value`.
+    Bool { el: Ax, attr: String, value: bool },
+    /// The menu `el` is still shown (left open for the next call).
+    Shown { el: Ax },
 }
 
 #[derive(Default)]
@@ -57,7 +66,8 @@ impl Checks {
             Check::Text { .. } | Check::Length { .. } => "text",
             Check::Scroll { .. } => "scroll",
             Check::SelectAll { .. } | Check::Range { .. } | Check::Selected { .. } => "selection",
-            Check::Value { .. } => "value",
+            Check::Value { .. } | Check::Title { .. } | Check::Bool { .. } => "value",
+            Check::Shown { .. } => "menu",
         };
         self.pending.push_back((self.next, check));
         while self.pending.len() > KEPT {
@@ -82,6 +92,23 @@ fn occurrences(hay: &str, needle: &str) -> usize {
 /// it, does not count).
 pub(super) fn typed_shows(before: &str, after: &str, text: &str) -> bool {
     occurrences(after, text) > occurrences(before, text)
+}
+
+/// UTF-16 code units of `s`.
+fn units(s: &str) -> Vec<u16> {
+    s.encode_utf16().collect()
+}
+
+/// Whether typing `text` at `at` (the caret, or a selection it replaced)
+/// shows in `after`: the text sits at the caret and the value grew by its
+/// length less the selection's (UTF-16, as AX ranges count).
+pub(super) fn typed_at(before: &str, after: &str, text: &str, at: CFRange) -> bool {
+    let (b, a, t) = (units(before), units(after), units(text));
+    let (loc, sel) = (at.location.max(0) as usize, at.length.max(0) as usize);
+    if t.is_empty() || loc + sel > b.len() || a.len() + sel != b.len() + t.len() {
+        return false;
+    }
+    a.get(loc..loc + t.len()) == Some(&t[..])
 }
 
 /// Whether a scroll bar moved the way it was asked to: by more than
@@ -114,15 +141,22 @@ impl Check {
             return None;
         }
         let before = el.value_text().unwrap_or_default();
-        Some(Check::Text { el: el.clone(), before, text: text.to_string() })
+        let at = el.selected_range();
+        Some(Check::Text { el: el.clone(), before, text: text.to_string(), at })
     }
 
     /// A check of `text` inserted into `el` whose value was `before`.
-    pub(super) fn text_from(el: &Ax, before: &str, text: &str) -> Option<Check> {
+    pub(super) fn text_from(
+        el: &Ax,
+        before: &str,
+        text: &str,
+        at: Option<CFRange>,
+    ) -> Option<Check> {
         (!text.is_empty()).then(|| Check::Text {
             el: el.clone(),
             before: before.to_string(),
             text: text.to_string(),
+            at,
         })
     }
 
@@ -154,9 +188,12 @@ impl Check {
     /// unreadable.
     pub(super) fn holds(&self) -> Option<bool> {
         match self {
-            Check::Text { el, before, text } => {
+            Check::Text { el, before, text, at } => {
                 let after = el.value_text()?;
-                Some(typed_shows(before, &after, text))
+                Some(match at {
+                    Some(at) => typed_at(before, &after, text, *at),
+                    None => typed_shows(before, &after, text),
+                })
             }
             Check::Scroll { bars } => {
                 let mut read = false;
@@ -184,6 +221,9 @@ impl Check {
                 Some(row.bool("AXSelected") == Some(true) && super::actions::only_selected(row))
             }
             Check::Length { el, count } => Some(el.number("AXNumberOfCharacters")? == *count),
+            Check::Title { el, title } => Some(super::roles::same_title(&el.value_text()?, title)),
+            Check::Bool { el, attr, value } => Some(el.bool(attr)? == *value),
+            Check::Shown { el } => Some(el.string("AXRole").as_deref() == Some("AXMenu")),
         }
     }
 }
@@ -210,6 +250,20 @@ mod tests {
         assert!(!moved_toward(0.3, 0.3, 1.0));
         assert!(moved_toward(0.3, 0.2, -1.0));
         assert!(!moved_toward(0.0, 0.0, -1.0));
+    }
+
+    /// Review of e75f474 (8): typing shows at the caret, with the value
+    /// grown by the text; the same text elsewhere does not count.
+    #[test]
+    fn typed_text_shows_at_the_caret() {
+        let at = |location, length| CFRange { location, length };
+        assert!(typed_at("ab", "aZedb", "Zed", at(1, 0)));
+        assert!(typed_at("aXXb", "aZb", "Z", at(1, 2)), "replacing a selection");
+        assert!(typed_at("Zed", "ZedZed", "Zed", at(3, 0)), "typed at the end");
+        assert!(!typed_at("ab!", "ab!Zed", "Zed", at(0, 0)), "landed elsewhere");
+        assert!(!typed_at("ab", "ab", "Z", at(1, 0)), "nothing typed");
+        assert!(!typed_at("ab", "aZZb", "Z", at(1, 0)), "typed twice");
+        assert!(typed_at("é", "éZ", "Z", at(1, 0)), "UTF-16 offsets");
     }
 
     #[test]
