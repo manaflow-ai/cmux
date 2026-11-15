@@ -16,6 +16,10 @@
 
 use super::*;
 
+/// No model probe (`hub/live_models.rs`): a probe runs the harness for its model list, which is
+/// no chat's agent, and every start counted here must be a sub-session's.
+const NO_PROBE: (&str, &str) = ("ACPMUX_PROBE_HARNESSES", "none");
+
 /// The harness shell: records its pid, then runs the fake agent.
 fn counted_harness(spawns: &Path) -> Value {
     let script =
@@ -69,7 +73,7 @@ async fn restored_idle_subsessions_start_no_agent_until_opened_or_sent_to() {
     let mut daemon = Daemon::with_env(
         "idlesub",
         "approve-all",
-        &[("ACPMUX_IDLE_CHILD_SECS", "1"), ("ACPMUX_SPARE_HARNESS", "0")],
+        &[("ACPMUX_IDLE_CHILD_SECS", "1"), ("ACPMUX_SPARE_HARNESS", "0"), NO_PROBE],
     );
     daemon.sigterm();
     let spawn_log = daemon.home.join("spawns");
@@ -188,7 +192,7 @@ async fn bench_idle_subsessions_two_minutes_after_a_restart() {
     let window = Duration::from_secs(
         std::env::var("ACPMUX_IDLE_SUBS_WINDOW_S").ok().and_then(|v| v.parse().ok()).unwrap_or(120),
     );
-    let mut daemon = Daemon::with_env("idlebench", "approve-all", &[]);
+    let mut daemon = Daemon::with_env("idlebench", "approve-all", &[NO_PROBE]);
     daemon.sigterm();
     let spawn_log = daemon.home.join("spawns");
     std::fs::write(
@@ -290,7 +294,8 @@ async fn bench_idle_subsessions_two_minutes_after_a_restart() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_update_ends_idle_subsessions_on_the_old_binary_and_starts_none() {
     let n = 5;
-    let mut daemon = Daemon::with_env("idlestale", "approve-all", &[("ACPMUX_SPARE_HARNESS", "0")]);
+    let mut daemon =
+        Daemon::with_env("idlestale", "approve-all", &[("ACPMUX_SPARE_HARNESS", "0"), NO_PROBE]);
     daemon.sigterm();
     let spawn_log = daemon.home.join("spawns");
     std::fs::write(
