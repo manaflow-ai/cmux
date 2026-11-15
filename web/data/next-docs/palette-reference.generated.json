@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1407,
-    "shortcuts": 191
+    "entries": 1408,
+    "shortcuts": 192
   },
   "sections": [
     {
@@ -6247,6 +6247,12 @@
           "id": "chief.importMemories",
           "title": "Bring Your History",
           "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "palette.captureScreenshotToChat",
+          "title": "Capture Screenshot to Chat",
+          "shortcut": "⌃⌥⌘S",
           "command": null
         },
         {
