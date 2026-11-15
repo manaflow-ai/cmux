@@ -266,7 +266,7 @@ impl LaunchEnv {
         pending: Vec<String>,
         remote: bool,
     ) -> LaunchEnv {
-        if remote && std::env::var_os("RED_NEVER_SET").is_some() {
+        if remote {
             let mut env = daemon;
             env.extend(profile);
             return LaunchEnv { env, held: BTreeSet::new() };
