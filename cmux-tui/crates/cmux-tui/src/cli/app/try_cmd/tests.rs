@@ -119,17 +119,28 @@ struct FakeDaemon {
     exe: PathBuf,
     respawn: bool,
     terminated: Cell<u32>,
+    /// `server status` cannot tell (it timed out, or the daemon is wedged).
+    probe_fails: Cell<bool>,
 }
 
 impl FakeDaemon {
     fn new(exe: PathBuf, respawn: bool) -> Self {
-        Self { pid: Cell::new(100), exe, respawn, terminated: Cell::new(0) }
+        Self {
+            pid: Cell::new(100),
+            exe,
+            respawn,
+            terminated: Cell::new(0),
+            probe_fails: Cell::new(false),
+        }
     }
 }
 
 impl Daemon for FakeDaemon {
-    fn owner(&self) -> Option<(i32, PathBuf)> {
-        (self.pid.get() > 0).then(|| (self.pid.get(), self.exe.clone()))
+    fn owner(&self) -> Result<Option<(i32, PathBuf)>, String> {
+        if self.probe_fails.get() {
+            return Err("server status gave no answer in 10 s".to_owned());
+        }
+        Ok((self.pid.get() > 0).then(|| (self.pid.get(), self.exe.clone())))
     }
     fn terminate(&self, pid: i32) {
         assert_eq!(pid, self.pid.get(), "only the current owner is signalled");
@@ -308,7 +319,7 @@ fn app_try_live_swaps_hands_off_and_undo_restores_the_bytes() {
     }
     fixture
         .store
-        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(),
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
                         "steps": applied.steps, "undo": {"files": applied.prior}}))
         .unwrap();
 
@@ -335,7 +346,7 @@ fn app_try_undo_refuses_after_an_update_replaced_the_files() {
         try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
     fixture
         .store
-        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(),
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
                         "steps": applied.steps, "undo": {"files": applied.prior}}))
         .unwrap();
     // The next nightly replaced the bundle: undo must not put the files from before the try back.
@@ -385,4 +396,48 @@ fn app_try_reads_the_short_commit_and_status_pid() {
     assert_eq!(live::status_pid(r#"{"pid": 4242, "socket": "/tmp/s"}"#), Some(4242));
     assert_eq!(live::status_pid(r#"{"result": {"pid": 7}}"#), Some(7));
     assert_eq!(live::status_pid("not json"), None);
+    let absent = r#"{"code": "server.unavailable", "message": "x", "details": null}"#;
+    assert_eq!(live::status_error(absent).as_deref(), Some("server.unavailable"));
+    assert_eq!(
+        live::status_error(r#"{"error": {"code": "server.wedged"}}"#).as_deref(),
+        Some("server.wedged")
+    );
+    assert_eq!(live::status_error("cmux: boom"), None);
+}
+
+#[test]
+fn app_try_refuses_to_swap_under_a_daemon_it_cannot_name() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    daemon.probe_fails.set(true);
+    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
+        .unwrap_err();
+    assert!(error.contains("the daemon is unknown; nothing changed"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
+    assert_eq!(read(&fixture.app, "cmux-holder").as_deref(), Some(OLD_HOLDER));
+    assert_eq!(daemon.terminated.get(), 0);
+}
+
+#[test]
+fn app_try_undo_refuses_into_another_build_with_the_same_rust_bytes() {
+    let fixture = fixture();
+    let files = live_files(&fixture, &found(good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let applied =
+        try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
+    fixture
+        .store
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
+                        "steps": applied.steps, "undo": {"files": applied.prior}}))
+        .unwrap();
+    // A full update to another commit that ships the very Rust files the try put in.
+    let plist = fixture.app.join("Contents/Info.plist");
+    let text = fs::read_to_string(&plist).unwrap().replace(APP_COMMIT, "fedcba9");
+    fs::write(&plist, text).unwrap();
+    let error = undo_live(&fixture.store, &daemon).unwrap_err();
+    assert!(error.contains("at fedcba9 now, not 89abcde"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-holder"), None);
 }

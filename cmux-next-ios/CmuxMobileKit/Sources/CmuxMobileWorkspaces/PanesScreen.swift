@@ -222,7 +222,7 @@ struct PanesScreen: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityIdentifier("panes.tab.\(tab.id)")
         .accessibilityHint("Opens the tab")
         .contextMenu { tabMenu(tab, in: pane, layout: layout) }
