@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxConversationCore
 import CmuxConversationUI
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -74,7 +75,7 @@ struct ChiefChatColorsSheet: View {
             Text(String(localized: "mobile.chief.colors.text", defaultValue: "Text", bundle: .module))
             Spacer()
             Button(String(localized: "mobile.chief.colors.automatic", defaultValue: "Automatic", bundle: .module)) { set(role, nil) }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFillTinted)
                 .disabled(colors[keyPath: role] == nil)
                 .accessibilityIdentifier("chief.colors.\(id).automatic")
             ColorPicker(String(localized: "mobile.chief.colors.text", defaultValue: "Text", bundle: .module),
@@ -101,7 +102,7 @@ struct ChiefChatColorsSheet: View {
             .overlay(Circle().strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 2.5))
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(color?.hex ?? String(localized: "mobile.chief.colors.default", defaultValue: "Default", bundle: .module))
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("chief.colors.\(id)")

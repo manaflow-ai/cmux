@@ -160,6 +160,13 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// Why a run that may show no prompt fails at once (``Step/refuse``); nil when it goes on. A
     /// headless Claude or Codex start with no login choice refuses (``Reason/needsLoginChoice``).
     public var refusal: Reason? { verdict.step == .refuse ? verdict.reason : nil }
+    /// Why the Codex login the start chose (the Mac's broker) did not reach the machine: the holder's fixed text, or nil
+    /// when it arrived, was cancelled, or none was chosen. `cloud start-session` refuses then, naming it, instead of a chat
+    /// whose Codex has no key and fails its first turn on "Missing environment variable: `OPENAI_API_KEY`." (2026-11-15).
+    public var undeliveredReason: String? {
+        guard verdict.step == .install, verdict.reason == .codexBroker, let outcome, outcome.hasPrefix(Self.loginFailed) else { return nil }
+        return String(outcome.dropFirst(Self.loginFailed.count))
+    }
     public var reason: Reason { verdict.reason }
     /// Whether this build passes a login: DEV and dogfood builds unless the setting turns it off; a
     /// Release build only while the remote switch is on (its consent is asked after).

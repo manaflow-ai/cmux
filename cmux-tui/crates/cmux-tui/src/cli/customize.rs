@@ -42,7 +42,12 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize use pr:N                     Try pull request N on this cmux: on top of your library
                                               (`library off pr-N` puts back what was under it)
   cmux customize profiles                     The saved profiles
-  cmux customize library [VERB]               Everything you applied, kept as layers: list|on|off|order|export|import|remove
+  cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+
+If a layer broke cmux (no app needed, with cmux quit too):
+  cmux customize library status               Which layers are on, in one line (also in `cmux version`)
+  cmux customize library off --code           Every pull request layer off; cmux serves its own pages
+  cmux customize library reset                Every layer off: settings, files and web-dev.json as before any
 
 You can also edit the files yourself (`cmux customize paths`): every save shows in cmux at
 once, an agent you ask next keeps your edits, and apply, discard and rollback work the same.
@@ -61,6 +66,11 @@ Ask options:
 Every verb takes --json. Exit codes: 0 ok, 1 refused (the error's code says why), 2 bad arguments.
 Nothing here needs the app but an ask: generations are files, so rollback works with cmux
 quit and in safe mode.
+
+If a layer breaks the window itself, quit cmux and open it once on its built-in web UI:
+  open -a \"cmux NIGHTLY\" --args --no-customizations
+(or CMUX_NO_CUSTOMIZATIONS=1, or hold Option and Shift as it starts). It edits no file. A page that
+does not start from a layer falls back on its own and turns the layer off, saying why.
 ";
 
 /// Every verb, for \"did you mean\".
