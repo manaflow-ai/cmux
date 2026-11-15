@@ -112,6 +112,16 @@ class MainTwinPushTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_runner_only_change_passes(self):
+        # main pins the secret-holding job to a literal label; feat-cmux-next runs it from the pool (cmux#43866).
+        self.base_with_twins()
+        self.write(WORKFLOW, FEAT.replace("runs-on: ubuntu-latest", "runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
+        self.commit("journey: run from the pool")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_change_that_brings_feat_back_to_main_passes(self):
         # feat-cmux-next had drifted (the flag main lacked); a push that undoes it matches main and needs no twin.
         self.base_with_twins(feat=FEAT_NEW_FLAG)

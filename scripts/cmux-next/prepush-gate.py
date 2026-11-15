@@ -1857,12 +1857,15 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
 def _journey_jobs(text: str) -> str:
     """The `jobs:` section of a journey workflow as GitHub runs it, for comparing feat-cmux-next's copy with main's:
     comment lines and blank lines dropped, and an `environment:` block with `deployment: false` read as main's string
-    form (main's actionlint knows only `environment: NAME`; cmux#43866)."""
+    form (main's actionlint knows only `environment: NAME`; cmux#43866). `runs-on:` lines are dropped too: main's guards
+    pin a job holding production secrets to a literal label (tests/test_ci_runner_set.py PINNED), while
+    feat-cmux-next's runs it from the runner pool, so the runner is each branch's own."""
     lines = text.splitlines()
     start = next((i for i, line in enumerate(lines) if line.rstrip() == "jobs:"), None)
     if start is None:
         return ""
-    kept = [line.rstrip() for line in lines[start:] if line.strip() and not line.lstrip().startswith("#")]
+    kept = [line.rstrip() for line in lines[start:]
+            if line.strip() and not line.lstrip().startswith(("#", "runs-on:"))]
     out: list[str] = []
     i = 0
     while i < len(kept):
