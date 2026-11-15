@@ -1,0 +1,16 @@
+[
+  {
+    "approval": {
+      "v": "cmux.share-approval.v1",
+      "target": "6f1c2a7e-0b1d-4c55-9a63-2f1e7d9b8a10",
+      "target_name": "Studio",
+      "asker": "0d4b9e21-77aa-4f0e-8c3b-5a6d1e2f3c40",
+      "asker_name": "Laptop",
+      "confirmed_by": "user_2abc",
+      "confirmed_at": "1794700000",
+      "nonce": "9b3f0c1e-1a2b-4c3d-8e9f-a0b1c2d3e4f5",
+      "signature": ""
+    },
+    "canonical": "cmux.share-approval.v1\ntarget=6f1c2a7e-0b1d-4c55-9a63-2f1e7d9b8a10\nasker=0d4b9e21-77aa-4f0e-8c3b-5a6d1e2f3c40\nconfirmed_by=user_2abc\nconfirmed_at=1794700000\nnonce=9b3f0c1e-1a2b-4c3d-8e9f-a0b1c2d3e4f5"
+  }
+]

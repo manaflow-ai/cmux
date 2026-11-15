@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, parse_globals, raw};
 
-const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|access|stop>\n\ncmux Remote holds the macOS grants (Accessibility, Screen Recording) for Computer Use and Screen Sharing. Grant them once, to \"cmux Remote\"; cmux never needs a relaunch.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant restarts)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux)\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
+const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|grants|access|stop>\n\ncmux Remote holds the macOS grants (Accessibility, Screen Recording) for Computer Use and Screen Sharing. Grant them once, to \"cmux Remote\"; cmux never needs a relaunch.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant restarts)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux)\n  cmux remote-host share on --device DEVICE     Share another Mac of yours: you confirm here, in this device's cmux, and that Mac admits it only from a machine its owner granted\n  cmux remote-host grants [--device DEVICE] [--open]\n                                                Which macOS grant cmux Remote lacks on a Mac (--open opens its System Settings pane there), and whether an agent can click it over screen sharing\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
 
 /// How long the person may take to answer cmux's confirmation sheet.
 const CONFIRM_TIMEOUT: Duration = Duration::from_secs(130);
@@ -51,6 +51,11 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         }
         ["share", "off"] => call("screen.share", json!({"on": false})),
         ["share", "on"] => app(&global, json!({"action": "share", "on": true})),
+        ["share", "on", "--device", device] => share_device(&global, device),
+        ["grants", rest @ ..] => match grants_args(rest) {
+            Some((device, open)) => grants(&global, device, open),
+            None => usage(&global, args),
+        },
         ["access", device, scope @ ("none" | "ask" | "view" | "full")] => {
             // Lowering works through the daemon; raising is the app's (the daemon says which).
             let params = json!({"device": device, "scope": scope});
@@ -151,4 +156,57 @@ fn app(global: &GlobalArgs, params: Value) -> i32 {
         Ok(value) => super::wire::print_local_success(&value, global.output),
         Err(error) => super::wire::print_local_error(&error, global.output, 1),
     }
+}
+
+/// `share on --device DEVICE`: the person confirms in this device's cmux app, which signs the
+/// approval only after the click; the target Mac admits it (`remote_host::share_approval`).
+fn share_device(global: &GlobalArgs, device: &str) -> i32 {
+    use crate::remote_host::share_approval;
+    let ask =
+        |params| super::mcp::agent_app(global, "remote.confirm", params, CONFIRM_TIMEOUT, None);
+    let deliver = share_approval::AwaitingSameAccountControl;
+    match share_approval::share_from_here(device, ask, &deliver, crate::devices::record) {
+        Ok(value) => super::wire::print_local_success(&value, global.output),
+        Err(error) => super::wire::print_local_error(&error, global.output, 1),
+    }
+}
+
+/// `grants`' flags: `--device DEVICE` and `--open`, once each, in any order.
+fn grants_args(words: &[&str]) -> Option<(Option<String>, bool)> {
+    let (mut device, mut open) = (None, false);
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        match *word {
+            "--device" if device.is_none() => device = Some((*words.next()?).to_owned()),
+            "--open" if !open => open = true,
+            _ => return None,
+        }
+    }
+    Some((device, open))
+}
+
+fn grants(global: &GlobalArgs, device: Option<String>, open: bool) -> i32 {
+    use super::remote_host_grants::{Local, Ssh, grants, route};
+    let result = match device.as_deref() {
+        None => grants(&Local, None, open),
+        Some(device) => grants(&Ssh(route(&acpmux_peers(), device)), Some(device), open),
+    };
+    match result {
+        Ok(value) => super::wire::print_local_success(&value, global.output),
+        Err(error) => super::wire::print_local_error(&error, global.output, 1),
+    }
+}
+
+/// `cmux acp host ls --json` (the acpmux peers and their routes); null when it does not answer.
+fn acpmux_peers() -> Value {
+    let Ok(exe) = crate::remote_host::self_exe() else { return Value::Null };
+    cmux_process::Command::new(exe)
+        .args(["acp", "host", "ls", "--json"])
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| serde_json::from_slice(&output.stdout).ok())
+        .unwrap_or(Value::Null)
 }

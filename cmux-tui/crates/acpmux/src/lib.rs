@@ -214,6 +214,8 @@ mod session_scope;
 pub mod session_search;
 pub mod session_status;
 pub mod sha256;
+/// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
+pub mod share_approval;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod prompt_coach;
