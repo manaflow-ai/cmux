@@ -1241,11 +1241,11 @@
         },
         {
           "op": "expect",
-          "cols": 54,
+          "cols": 50,
           "rows": 26,
           "owners": [
             "mac",
-            "phone"
+            "tablet"
           ],
           "reason": "smallest"
         },
