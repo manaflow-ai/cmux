@@ -98,6 +98,44 @@ mod lock_tests {
         drop(keeper);
         assert!(free, "a dropped port lock stayed held through a forked child's copy");
     }
+
+    /// An allocation has the file lock until its drop: a second open of the lock file cannot
+    /// take the lock before that.
+    #[test]
+    fn a_port_lock_is_held_until_its_drop() {
+        let dir = crate::fork_tests::Scratch::new("worktree_ports_held");
+        let path = dir.path().join("cmux-worktree-ports.json");
+        let held = lock(&path, Duration::ZERO);
+        let free_before = crate::fork_tests::free(&path.with_extension("lock"));
+        drop(held);
+        let free_after = crate::fork_tests::free(&path.with_extension("lock"));
+        assert_eq!((free_before, free_after), (false, true));
+    }
+
+    /// An allocation that waits takes the file lock when its holder lets go during the wait.
+    /// The 10 s are the most that the wait can take, not a time that the test measures. The
+    /// holder keeps the lock for a moment, so the first tries of the allocation find it held;
+    /// an allocation that starts later finds it free, and the result is the same.
+    #[test]
+    fn a_port_lock_that_waits_takes_the_file_lock_that_comes_free() {
+        let dir = crate::fork_tests::Scratch::new("worktree_ports_wait");
+        let path = dir.path().join("cmux-worktree-ports.json");
+        let lock_path = path.with_extension("lock");
+        let mut options = OpenOptions::new();
+        let file = options.create(true).truncate(false).write(true).open(&lock_path).unwrap();
+        let holder = FileLock::try_take(file, Kind::Exclusive).unwrap();
+        let held = std::thread::scope(|scope| {
+            scope.spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                drop(holder);
+            });
+            let second = lock(&path, Duration::from_secs(10));
+            let held = !crate::fork_tests::free(&lock_path);
+            drop(second);
+            held
+        });
+        assert!(held, "the allocation has no file lock after its wait");
+    }
 }
 
 /// The worktree's block, if it has one. The read takes no lock: the

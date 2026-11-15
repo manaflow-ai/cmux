@@ -466,12 +466,13 @@ fn own_tree_the_run_lock_with_a_second_name_is_made_new() {
     let names = fs::metadata(&elsewhere).map_or(0, |file| file.nlink());
     let free_elsewhere = crate::fork_tests::free(&elsewhere);
     let free_at_the_name = crate::fork_tests::free(&top.join("git-folder").join(LOCK_FILE));
-    assert_eq!(
-        (lock.is_some(), free_at_the_name, text_elsewhere(&top).as_str(), names, free_elsewhere),
-        (true, false, KEPT, 1, true)
-    );
+    let (made, text) = (lock.is_some(), text_elsewhere(&top));
     drop(lock);
     fs::remove_dir_all(top).unwrap();
+    assert_eq!(
+        (made, free_at_the_name, text.as_str(), names, free_elsewhere),
+        (true, false, KEPT, 1, true)
+    );
 }
 
 /// The port lock is opened as the run lock is: a lock file that has a second name is made new,
@@ -490,9 +491,9 @@ fn own_tree_the_port_lock_with_a_second_name_is_made_new() {
     let port = ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten();
 
     let names = fs::metadata(&elsewhere).map_or(0, |file| file.nlink());
-    assert_eq!((port, text_elsewhere(&top).as_str(), names), (Some(40_010), KEPT, 1));
-    assert!(lock_file.is_file(), "the ports have no lock file");
+    let (text, made) = (text_elsewhere(&top), lock_file.is_file());
     fs::remove_dir_all(top).unwrap();
+    assert_eq!((port, text.as_str(), names, made), (Some(40_010), KEPT, 1, true));
 }
 
 /// A lock file that has a second name is the lock of no run: a lock that a program has on the
@@ -553,4 +554,128 @@ fn own_tree_a_json_write_gives_the_error_of_its_open() {
 
     fs::remove_dir_all(top).unwrap();
     assert_eq!(written.map_err(|error| error.kind()), Err(std::io::ErrorKind::NotFound));
+}
+
+/// The read of a worktree's port opens no port lock: no lock file is there after it.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_read_makes_no_port_lock_file() {
+    let top = folder_with_a_port_of_its_root();
+    let place = place_in(&top);
+
+    let port = ports::lookup(&place.git_dir, &place.root);
+
+    let made = top.join("git-folder/cmux-worktree-ports.lock").exists();
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((port, made), (Some(40_010), false));
+}
+
+/// An allocation makes no port lock through a link: with a link in the lock's place it gives
+/// the worktree's port, and no file is made where the link leads.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_allocation_makes_no_file_through_a_link_in_the_place_of_the_port_lock() {
+    let top = folder_with_a_link_in_its_git_folder_at("cmux-worktree-ports.lock");
+    let place = place_in(&top);
+    let root = place.root.to_string_lossy().into_owned();
+    let ports = json!({root: 40_010});
+    fs::write(place.git_dir.join("cmux-worktree-ports.json"), ports.to_string()).unwrap();
+
+    let port = ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten();
+
+    let made = made_elsewhere(&top);
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((port, made), (Some(40_010), false));
+}
+
+/// An allocation gives the worktree's port with a named pipe in the place of the port lock.
+/// The two ends of the pipe are open here, so no open of it waits.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_allocation_gives_the_port_with_a_named_pipe_in_the_place_of_the_port_lock() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let top = folder_with_a_port_of_its_root();
+    let lock_file = top.join("git-folder/cmux-worktree-ports.lock");
+    let name = std::ffi::CString::new(lock_file.as_os_str().as_bytes()).unwrap();
+    // SAFETY: mkfifo(2) with a path that `name` keeps to the end of the call.
+    let made = unsafe { libc::mkfifo(name.as_ptr(), 0o600) };
+    assert_eq!(made, 0, "the test did not make the named pipe");
+    let ends = OpenOptions::new().read(true).write(true).open(&lock_file).unwrap();
+    let place = place_in(&top);
+
+    let port = ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten();
+
+    drop(ends);
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!(port, Some(40_010));
+}
+
+/// The free of a worktree's block takes the worktree out of the list when the port lock is free.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_free_takes_the_worktree_out_of_the_list() {
+    let top = folder_with_a_port_of_its_root();
+    let place = place_in(&top);
+
+    ports::free(&place.git_dir, &place.root);
+
+    let port = ports::lookup(&place.git_dir, &place.root);
+    let list = fs::read_to_string(top.join("git-folder/cmux-worktree-ports.json"));
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((port, list.unwrap_or_default().as_str()), (None, "{}"));
+}
+
+/// The free of a worktree's block writes no list while another session host holds the port
+/// lock: the list keeps its bytes. The block goes back at a later allocation, when its folder
+/// is gone.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_free_writes_no_list_while_the_port_lock_is_held() {
+    let top = folder_with_a_port_of_its_root();
+    let place = place_in(&top);
+    let list = top.join("git-folder/cmux-worktree-ports.json");
+    let before = fs::read_to_string(&list).unwrap();
+
+    let ended = with_the_port_lock_held(&top, move || ports::free(&place.git_dir, &place.root));
+
+    let after = fs::read_to_string(&list).unwrap_or_default();
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((ended.is_some(), after), (true, before));
+}
+
+/// A log that has a second name is made new with no open of its file: the look at the name
+/// comes first. The file here takes no open for a write, so an open of it for the log fails.
+/// (The user root can open it: the test then passes with and without the look.)
+#[cfg(unix)]
+#[test]
+fn own_tree_a_log_with_a_second_name_is_made_new_with_no_open_of_its_file() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let top = folder_with_a_second_name_in_its_git_folder_at(LOG_FILE);
+    fs::set_permissions(top.join("elsewhere/file"), fs::Permissions::from_mode(0o444)).unwrap();
+
+    let log = open_log(&top.join("git-folder"));
+
+    let (made, text) = (log.is_some(), text_elsewhere(&top));
+    drop(log);
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((made, text.as_str()), (true, KEPT));
+}
+
+/// The read of an open log does not move the place of the open file: a process that writes
+/// the log shares that place.
+#[cfg(unix)]
+#[test]
+fn the_read_of_an_open_log_does_not_move_the_place_of_the_open_file() {
+    use std::io::{Seek as _, SeekFrom};
+    let top = folder_with_a_git_folder();
+    let path = top.join("git-folder").join(LOG_FILE);
+    fs::write(&path, "0123456789").unwrap();
+    let mut log = File::open(&path).unwrap();
+    log.seek(SeekFrom::Start(2)).unwrap();
+
+    let text = tail_of(&log, 4, 100);
+
+    let place = log.stream_position().unwrap();
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((text, place), (("456789".to_string(), 4, 10), 2));
 }
