@@ -556,7 +556,7 @@ pub(crate) fn keyed_restart_reason(status: Option<&Value>) -> Value {
 }
 
 /// Ok when `surface` is an unbound agent tab whose record names this store.
-fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
+pub(super) fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
     let runtime = mux.surface(surface).ok_or(Refusal::UnknownTab)?;
     match mux.conversation_tab_of(&runtime) {
         Some(ConversationTabRecord::AgentSession { host, session, .. })
