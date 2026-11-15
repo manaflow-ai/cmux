@@ -135,7 +135,7 @@ export function SettingsApp() {
   return (
     <div className="settings" ref={keyboardRef} data-section-switched={switched ? "" : undefined}>
       <aside className="sidebar">
-        <h2 className="sidebar-title">{t("settingsPage.title")}</h2>
+        <h2 className="sidebar-title">{t("settingsPage.title")} · shelf probe</h2>
         <SearchField query={query} onQuery={setQuery} onSubmit={submit} />
         {/* The categories scroll under the title and search in the app's own thin scrollbar, the one
             the New Tab page's folder menu draws (Lucas 2026-11-11), never WebKit's. */}
