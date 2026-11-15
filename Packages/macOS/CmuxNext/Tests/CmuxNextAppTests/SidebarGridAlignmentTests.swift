@@ -31,10 +31,15 @@ import Testing
         }
     }
 
+    /// The interface density the grid was decided at (grid.md 5.4): 24 pt sidebar rows, 14 / 12 pt icons, Compact
+    /// before #42393 gave Compact 20 pt rows (Lawrence 2026-11-13). The shipped presets follow their own rows and are
+    /// pinned by `DensityTokensTests` and `SidebarGroupHeaderEveryDensityTests`; this suite keeps the grid's numbers.
+    static let gridBase = DensityTokens(id: "gridBase", name: "Grid base", tokens: ["iconSize": 14, "smallIconSize": 12])
+
     private static func withDensity(_ comfortable: Bool, _ body: () throws -> Void) rethrows {
         let before = DesignSettings.shared.sidebarSections.density
         let interfaceBefore = DesignSettings.shared.densityTokens
-        DesignSettings.shared.densityTokens = .compact
+        DesignSettings.shared.densityTokens = gridBase
         DesignSettings.shared.sidebarSections.density = comfortable ? .comfortable : .compact
         defer {
             DesignSettings.shared.sidebarSections.density = before
