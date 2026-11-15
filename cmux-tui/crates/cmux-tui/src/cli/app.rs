@@ -86,6 +86,9 @@ pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// The app method `cmux app remote-views` reads; the app registers it in every
 /// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
 pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
+/// The app method `cmux app mac-screens` reads; the app registers it in every
+/// build (MacScreenPages.releaseMethods, whose test reads this line).
+pub(super) const MAC_SCREENS_METHOD: &str = "mac_screen.state";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// The app methods `cmux app machines` and `cmux app join-line` send; the app
 /// registers both in every build (AppControl+Remote.swift). A list read or a
@@ -324,6 +327,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 params.insert("tab".into(), json!(tab));
             }
             call(REMOTE_VIEWS_METHOD, Value::Object(params))
+        }
+        // The Mac Screen tabs (`mac_screen.state`, every build): per device tab its
+        // phase, whether a picture is up, time to first frame, fps, round trip and
+        // dropped frames; read-only, never a credential or a pixel of the screen.
+        ("app", Some("mac-screens")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
+            let mut params = Map::new();
+            if let Some(tab) = options.value("tab") {
+                params.insert("tab".into(), json!(tab));
+            }
+            call(MAC_SCREENS_METHOD, Value::Object(params))
         }
         // The Machines section's machines (`machine.list`, every build): this Mac,
         // Cloud, SSH, server and hub-joined machines with their link state. It reads

@@ -29,6 +29,7 @@ import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextKeepAwake
+import CmuxNextKeys
 import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts
@@ -389,6 +390,8 @@ final class AppServices {
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()
+    /// Agents' `cmux keys request`s waiting for the person in Settings > Keys, each behind one banner (CmuxNextKeys).
+    private(set) lazy var keyRequests = KeyRequests().postBanners(on: notifications.desktop)
     /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
     /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
     /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,
