@@ -344,6 +344,19 @@ const INFO_ROWS: &str = "info-rows-v1";
 /// the name the Chief test reads: its row is read by key, a hundred keys a request. `None`:
 /// the daemon serves no v2 list (or no rows by key), and the caller reads v1 whole.
 fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize)>, Failure> {
+    Ok(list_read(link, socket)?.map(|read| (read.live, read.running)))
+}
+
+/// What [`list_threads`] read: its counts, and how many summaries its walk read (a bounded-away
+/// one counted once, its row by key not again), which a gate checks to prove the read did its work.
+pub(super) struct ListRead {
+    pub(super) live: usize,
+    pub(super) running: usize,
+    pub(super) rows: usize,
+}
+
+/// [`list_threads`], with the rows it read.
+pub(super) fn list_read(link: &AcpmuxLink, socket: &Path) -> Result<Option<ListRead>, Failure> {
     use crate::server::agent_session_attach::agent_session_link::list_source::{
         self, Opened, bounded_away, extras, v1_status,
     };
@@ -356,10 +369,11 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
         Opened::List(source) => source,
         Opened::V1 => return Ok(None),
     };
-    let (mut live, mut running, mut by_key) = (0, 0, Vec::new());
+    let (mut live, mut running, mut read, mut by_key) = (0, 0, 0, Vec::new());
     let local = ListFilter { origin: Some("local".into()), ..ListFilter::default() };
     source
         .walk(ListView::Live, Some(local), |summaries| {
+            read += summaries.len();
             for summary in summaries {
                 if bounded_away(&summary) {
                     by_key.push(summary.chat_id);
@@ -378,7 +392,7 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
         })
         .map_err(list_failure)?;
     // A reply past its byte budget answers some keys and names the rest (`rest`): asked again,
-    // every request within one deadline, as the walk's are.
+    // every request within one deadline of its own, started once the walk ends.
     let deadline = Instant::now() + CALL_TIMEOUT;
     let mut queue: std::collections::VecDeque<String> = by_key.into();
     while !queue.is_empty() {
@@ -410,7 +424,7 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
             queue.push_front(key);
         }
     }
-    Ok(Some((live, running)))
+    Ok(Some(ListRead { live, running, rows: read }))
 }
 
 /// A list read that failed: past its deadline, or a socket or wire error.
