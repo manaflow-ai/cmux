@@ -24,7 +24,9 @@ mod cold;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
+mod kind_heads;
 mod kind_index;
+pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
 mod fork_view;
 pub use fork_view::{
@@ -1330,6 +1332,22 @@ pub trait Store: Send + Sync {
         }
         self.scan_strict(id, after, &mut |rec| {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// `scan_kinds`, visiting only the records whose head (`store/kind_heads.rs`) `keep` keeps,
+    /// shown in order: a caller that wants one prompt's few records out of a chat's many says so,
+    /// and a file store reads and parses no other once it knows the chat's heads. `keep` may
+    /// keep more than the caller needs (an unread head, a list of prompts), never fewer.
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds(id, kinds, &mut |rec| {
+            let kept = keep(&KindHead::of(&rec));
+            !kept || visit(rec)
         })
     }
     /// The restore point `id`'s last log load saved (`hub/restore_point.rs`), as saved. None in a
