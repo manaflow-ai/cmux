@@ -222,6 +222,9 @@ pub async fn counted(target: PathBuf) -> io::Result<Counted> {
     Ok(Counted { path, bytes, _dir: dir, _tasks: tasks })
 }
 
+/// PROBE (temporary): while set, the relays print the methods clients send.
+pub static PROBE_SNIFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// One connection through [`Counted`]: the client's bytes up, the daemon's down and counted,
 /// until the daemon's side ends.
 async fn relay(
@@ -233,7 +236,23 @@ async fn relay(
     let (mut client_read, mut client_write) = client.into_split();
     let (mut server_read, mut server_write) = server.into_split();
     let up = async move {
-        let _ = tokio::io::copy(&mut client_read, &mut server_write).await;
+        // PROBE (temporary): name each method the client sends while sniffing.
+        let mut buf = vec![0_u8; 64 * 1024];
+        while let Ok(n) = client_read.read(&mut buf).await {
+            if n == 0 {
+                break;
+            }
+            if PROBE_SNIFF.load(Ordering::Relaxed) {
+                let text = String::from_utf8_lossy(&buf[..n]);
+                for part in text.split("\"method\":\"").skip(1) {
+                    let name: String = part.chars().take_while(|c| *c != '"').collect();
+                    eprintln!("PROBE_METHOD {name}");
+                }
+            }
+            if server_write.write_all(&buf[..n]).await.is_err() {
+                break;
+            }
+        }
         // The client's side ended: the daemon's answers still come down.
         std::future::pending::<()>().await;
     };

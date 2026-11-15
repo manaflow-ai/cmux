@@ -102,6 +102,9 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     Ok(())
 }
 
+/// PROBE (temporary): the last output's stage marks, in microseconds: status, open, read.
+pub(crate) static PROBE_STAGES: std::sync::Mutex<[u128; 3]> = std::sync::Mutex::new([0; 3]);
+
 /// What `acpmux ls` prints for `args`, read from `client`'s daemon `via` the v2 list or v1's
 /// pages, with ages as of `now`.
 pub(crate) async fn output(
@@ -111,6 +114,7 @@ pub(crate) async fn output(
     via: Via,
     now: u64,
 ) -> Result<String> {
+    let probe_t0 = std::time::Instant::now();
     let LsArgs {
         mut patterns,
         name_patterns,
@@ -253,11 +257,13 @@ pub(crate) async fn output(
         status_read.as_ref().and_then(|status| status.as_ref()?.get("peers")?.as_array().cloned());
     let remote_closed =
         walks_all && list_read::closed_remote_listed(status_read.as_ref().and_then(Option::as_ref));
+    let probe_status = probe_t0.elapsed().as_micros();
     let source = if !one_page && !remote_closed && (!compact || closed_listed.is_some()) {
         via.open_knowing(client, known_peers.as_deref()).await?
     } else {
         None
     };
+    let probe_open = probe_t0.elapsed().as_micros();
     let (read, closed) = match source {
         Some(mut source) => {
             let may_keep = |s: &Summary| {
@@ -319,6 +325,9 @@ pub(crate) async fn output(
             (read, 0)
         }
     };
+    let probe_read = probe_t0.elapsed().as_micros();
+    *PROBE_STAGES.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        [probe_status, probe_open - probe_status, probe_read - probe_open];
     let mut sessions = read.rows;
     // A peer's row comes without its tools (`ls_tools.rs`): each is read from the peer, for
     // the views that print them.

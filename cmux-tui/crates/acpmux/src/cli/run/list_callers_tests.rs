@@ -355,12 +355,54 @@ async fn gate_daemon(closed: usize) -> Daemon {
     serve(Serves::List, |hub| list_daemon::twenty_live_beside(hub, closed).unwrap()).await
 }
 
+/// PROBE (temporary): the `ls` samples so far, and the open descriptors of this process.
+static PROBE_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+fn probe_fds() -> usize {
+    std::fs::read_dir("/proc/self/fd").map(Iterator::count).unwrap_or(0)
+}
+
+/// PROBE (temporary): the no-status form's first two samples on a fresh daemon, and the
+/// methods the first one sends.
+#[ignore = "probe"]
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_no_status_first_reads() {
+    for closed in [1_100, 11_000, 110_000] {
+        let daemon = gate_daemon(closed).await;
+        let proxy = counted(daemon.path.clone()).await;
+        for sample in 1..=2 {
+            let client = Client::connect(&proxy.path).await.unwrap();
+            list_daemon::PROBE_SNIFF.store(sample == 1, Ordering::Relaxed);
+            let started = Instant::now();
+            super::ls::output(
+                ls_args(&["--live"]),
+                true,
+                &client,
+                Via::List(proxy.path.clone()),
+                crate::store::now_ms(),
+            )
+            .await
+            .unwrap();
+            let wall_us = started.elapsed().as_micros();
+            list_daemon::PROBE_SNIFF.store(false, Ordering::Relaxed);
+            let [status_us, open_us, read_us] = *super::ls::PROBE_STAGES.lock().unwrap();
+            eprintln!(
+                "PROBE_NOSTATUS closed={closed} sample={sample} wall_us={wall_us} \
+                 status_us={status_us} open_us={open_us} read_us={read_us} fds={}",
+                probe_fds()
+            );
+            drop(client);
+        }
+    }
+}
+
 /// One caller's run through the v2 list on a new client of `proxy`: its wall time and the bytes
 /// the daemon sent.
 async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
+    let probe_fd_connect = probe_fds();
     let client = Client::connect(&proxy.path).await.unwrap();
     let via = || Via::List(proxy.path.clone());
     let before = proxy.bytes.load(Ordering::Relaxed);
+    let probe_fd_start = probe_fds();
     let started = Instant::now();
     match caller {
         "ls" => {
@@ -380,6 +422,19 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
         _ => unreachable!(),
     }
     let wall = started.elapsed().as_nanos();
+    if caller == "ls" {
+        let n = PROBE_N.fetch_add(1, Ordering::Relaxed) + 1;
+        let side = if n % 2 == 1 { "small" } else { "god" };
+        let [status_us, open_us, read_us] = *super::ls::PROBE_STAGES.lock().unwrap();
+        let wall_us = wall / 1_000;
+        let rest_us = wall_us.saturating_sub(status_us + open_us + read_us);
+        eprintln!(
+            "PROBE ls overall={n} {side}={} fd_before_connect={probe_fd_connect} \
+             fd_at_start={probe_fd_start} wall_us={wall_us} status_us={status_us} \
+             open_us={open_us} read_us={read_us} rest_us={rest_us}",
+            n.div_ceil(2)
+        );
+    }
     drop(client);
     // The client's initialize reply is counted too, alike on both sides.
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
