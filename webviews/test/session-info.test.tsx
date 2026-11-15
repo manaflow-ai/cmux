@@ -370,8 +370,10 @@ test("Session Info opens with a first chat: its environment, its context on one 
   expect(rows[0]!.querySelector(".acpmux-session-info-row__name")?.textContent).toBe("Studio");
   expect(rows[0]!.querySelector("[data-machine-kind]")?.textContent).toBe(translate("composer.envLocal"));
   expect(rows[0]!.dataset.machine).toBe("local");
-  expect(rows[1]!.textContent).toBe("atlas-web");
-  expect(rows[1]!.getAttribute("title")).toBe(CWD);
+  expect(rows[1]!.textContent).toBe(translate("sessionInfo.environment.shareScreen"));
+  const project = rows.find((row) => row.getAttribute("title") === CWD)!;
+  expect(project.textContent).toBe("atlas-web");
+  expect(project.tagName).toBe("BUTTON");
   expect(rows.map((row) => row.textContent)).toContain("main");
 
   // Context: one line, 48K of 200K on a meter at 24% (Lucas, 2026-11-05, Session Info lab), folded; a
