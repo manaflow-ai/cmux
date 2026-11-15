@@ -21,7 +21,17 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   live claimant of its conversation. Then it takes two steps: `acpmux register NAME` delivers a
   one-time code into that inbox with the session's own token (only a genuine session accepts it,
   and only its model reads it), and the session finishes with `acpmux register NAME --code CODE`
-  within ten minutes. Otherwise `register.unproven`. macOS only: elsewhere no signature proves a
+  within ten minutes. Otherwise `register.unproven`. An unregistered Claude Code chat's own
+  `acpmux send` (no `--from`, no `ACPMUX_FROM`, not in an acpmux session, with the inbox
+  variables set) takes the first step itself (`src/cli/reply_address.rs`, `auto`), under
+  `claude-desktop-<first 8 of CLAUDE_CODE_SESSION_ID>` (`claude-vscode-`, `claude-code-`), and
+  says on stderr that the receiver cannot reply until the chat runs the `--code` line it gets.
+  The daemon (`src/hub/register_auto.rs`, feature `registerAuto`; an older daemon is not asked)
+  sends no code to a chat registered with the caller's inbox and token, while one waits for its
+  echo there or another send's step runs, or for a few minutes after one failed. A chat that has
+  a name (registered before a restart, or listed by the bridge) is registered under that name,
+  never renamed; with the bridge setting on and the entrypoint listed it gets no code. The
+  proofs and the echo are the same as a typed `register`'s. macOS only: elsewhere no signature proves a
   process is Claude Code, so register refuses. Delivery and send binding then use only the
   process the registration recorded (pid, inbox, start time), while it is the conversation's only
   live claimant. The conversation is the one fact the registry alone gives, so: a process whose
