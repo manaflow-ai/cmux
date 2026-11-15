@@ -66,7 +66,13 @@ def facts(app: Path, executable: str, copy_s: float) -> dict:
     started = time.monotonic()
     verify = run_text(["codesign", "--verify", "--strict", str(exe)], timeout=600)
     verify_s = time.monotonic() - started
+    # The whole bundle, as a first-launch Gatekeeper check of an app hashes it (every nested framework and resource).
+    started = time.monotonic()
+    deep = run_text(["codesign", "--verify", "--deep", "--strict", str(app)], timeout=900)
+    deep_s = time.monotonic() - started
     return {
+        "codesign_verify_deep_s": round(deep_s, 2), "codesign_verify_deep": deep or "ok",
+        "frameworks_du": run_text(["du", "-sh", str(frameworks)]).split("\t")[0] if frameworks.is_dir() else None,
         "copy_s": round(copy_s, 2),
         "bundle_du": run_text(["du", "-sh", str(app)]).split("\t")[0],
         "frameworks": sorted(p.name for p in frameworks.iterdir()) if frameworks.is_dir() else [],
