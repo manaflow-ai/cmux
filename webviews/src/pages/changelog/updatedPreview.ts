@@ -6,6 +6,7 @@
 //
 // This file holds the parts with no DOM: the rows the preview lists, and the hover intent that
 // decides when it opens and closes.
+import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { areaOf, byArea, subjectArea, type AreaKey } from "./areas";
 import { changeItems, echoKey, mergedView, readableChanges, readableUpdate } from "./model";
 import { plainChange, readableChange, type ChangeGroup } from "./readableChange";
@@ -65,12 +66,12 @@ export function previewSections(entries: PreviewEntry[]): { area?: AreaKey; item
   return byArea(entries);
 }
 
-/** The rest on the card before the preview opens: the app's hover-card dwell
-    (HoverCardTiming.showDelay), so passing over the card on the way to the footer opens nothing. */
-export const PREVIEW_DWELL_MS = 400;
+/** The rest on the card before the preview opens: the delay every hover card waits
+    (`HOVER_INTENT.cardDwell`, Chrome's), so passing over the card on the way to the footer opens nothing. */
+export const PREVIEW_DWELL_MS: number = HOVER_INTENT.cardDwell;
 /** How long the preview stays after the pointer leaves the card, so a pointer that slips out over
-    the card's edge and back does not close and reopen it. */
-export const PREVIEW_GRACE_MS = 180;
+    the card's edge and back does not close and reopen it: the hover card grace. */
+export const PREVIEW_GRACE_MS: number = HOVER_INTENT.cardGrace;
 /** How long the preview's close runs before the card hands its room back (the card's own curve,
     `--wn-preview-motion` in updateSurfaces.css); a pointer back on it within that reopens at once. */
 export const PREVIEW_CLOSE_MS = 180;

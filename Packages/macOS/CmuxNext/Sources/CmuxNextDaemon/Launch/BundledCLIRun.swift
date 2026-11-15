@@ -3,7 +3,8 @@ public import Foundation
 /// One run of the app's bundled `cmux` CLI (``BundledExecutable/cli(resources:work:)``) off the main
 /// actor, bounded: the cmux Live actions (`cmux live start|stop`) and turning a code layer off after
 /// a page did not start from it.
-public enum BundledCLIRun {
+public struct BundledCLIRun {
+    public init() {}
     /// Runs `cli` with `arguments` for at most `timeout`, keeping the last 64 KiB of each stream;
     /// nil when it could not start or did not finish in time.
     @concurrent public static func run(_ cli: URL, _ arguments: [String], timeout: Duration) async -> ProcessResult? {

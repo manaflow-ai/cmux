@@ -216,7 +216,7 @@ pub(super) async fn handle_notification(
             if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
                 return cancel_refused::tell(hub, conn, &sent, &e);
             }
-            let device = super::remote_guard::full_access_device(hub, conn, &params);
+            let device = super::remote_guard::sending_device(conn, &params);
             if conn.origin != Origin::Local
                 && let Err(e) = super::remote_guard::check(
                     hub,
@@ -710,7 +710,7 @@ async fn dispatch_brief(
     let task_session = session.clone();
     let task_via = params.pointer("/_meta/acpmux/via").cloned();
     let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
-    let task_device = super::remote_guard::full_access_device(hub, conn, &prompt);
+    let task_device = super::remote_guard::sending_device(conn, &prompt);
     tokio::spawn(async move {
         let mut blocks =
             vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
@@ -962,7 +962,7 @@ pub(super) async fn handle_request(
     }
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
-        let device = super::remote_guard::full_access_device(hub, conn, &params);
+        let device = super::remote_guard::sending_device(conn, &params);
         super::remote_guard::check(
             hub,
             conn.origin,
@@ -2198,7 +2198,7 @@ async fn dispatch_request_with_identity(
                         )
                     })
                 },
-                full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
+                full_access_device: super::remote_guard::sending_device(conn, &params),
                 no_queue: false,
                 admitted: false,
                 send_now: false,
@@ -3172,7 +3172,8 @@ async fn dispatch_request_with_identity(
             }
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-            // Opening a hibernated chat on screen wakes its agent (`hub/idle.rs`).
+            // Opening a hibernated chat on screen wakes its agent, unless an earlier daemon
+            // hibernated it (`hub/idle.rs` `wake_for`).
             if !hidden {
                 hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
             }
@@ -3266,7 +3267,8 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_VIEW => {
             let done = view::view(hub, conn, &params)?;
-            // Showing a hibernated chat wakes its agent (`hub/idle.rs`).
+            // Showing a hibernated chat wakes its agent, unless an earlier daemon hibernated it
+            // (`hub/idle.rs` `wake_for`).
             // The person's own view only: an authored one is a collaborator's presence.
             if params.get("visible").and_then(Value::as_bool) == Some(true)
                 && crate::author::author(&params).ok().flatten().is_none()
@@ -3382,7 +3384,7 @@ async fn dispatch_request_with_identity(
                     "this queued prompt holds a masked secret: edit it on the machine that runs the session",
                 ));
             }
-            let device = super::remote_guard::full_access_device(hub, conn, &params);
+            let device = super::remote_guard::sending_device(conn, &params);
             let gated = super::trust_gate::gated(conn.origin, &params);
             hub.queue_edit(&s, &params, control, gated, device.as_deref()).await
         }
@@ -3412,7 +3414,9 @@ async fn dispatch_request_with_identity(
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-            hub.respond_permission_group(&s, params, control, conn.is_person()).await
+            let device = super::remote_guard::sending_device(conn, &params);
+            hub.respond_permission_group(&s, params, control, conn.is_person(), device.as_deref())
+                .await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -3434,6 +3438,9 @@ async fn dispatch_request_with_identity(
             // Who answered, when a person other than the owner did (`author.rs`): a label only.
             let author = crate::author::author(&params)?;
             answerer.author = author.as_ref();
+            // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
+            let device = super::remote_guard::sending_device(conn, &params);
+            answerer.device = device.as_deref();
             hub.respond_permission_annotated(
                 &s,
                 pid,
