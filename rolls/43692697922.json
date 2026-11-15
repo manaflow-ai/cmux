@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43692697922",
+  "recorded_at": "2026-11-15T08:14:02Z",
+  "reason": "cmux-tui 652edf7e7090 changes the image's cmux-tui (pinned bd796aa3e5a7)",
+  "dry_run": false,
+  "cmux_tui": "652edf7e7090554d86df2a545b8e77e781273ac8",
+  "fixes": [
+    {
+      "sha": "652edf7e7090554d86df2a545b8e77e781273ac8",
+      "mergedAt": "2026-11-14T23:49:35-08:00",
+      "subject": "cmux-cloud-config: device identity generations, so a renewal survives another build's items (#43601)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T08:14:02Z",
+    "snapshot_id": "sh-ca9291893bd74f178ddfe9110585d117",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43692697922): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "933c4074274581b7066e0cee709c8b7a7dd6d877",
+    "image": "cloud-native-auto-652edf7e-43692697922-1",
+    "revision": "ci-43692697922-1",
+    "at": "2026-11-15T08:14:02Z"
+  },
+  "rolled_back": false
+}
