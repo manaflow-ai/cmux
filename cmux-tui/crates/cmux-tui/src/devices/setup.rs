@@ -47,25 +47,30 @@ pub(crate) struct Nightly {
     pub length: u64,
 }
 
-static ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<item>.*?</item>").unwrap());
-static VERSION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>").unwrap());
-static CHANNEL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>").unwrap());
-static ENCLOSURE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"[^>]*>"#).unwrap()
+static ITEM: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"(?s)<item>.*?</item>").ok());
+static VERSION: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>").ok());
+static CHANNEL: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>").ok());
+static ENCLOSURE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r#"<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"[^>]*>"#).ok()
 });
 
 /// nightly.py's `pick`: the newest item offered to Nightly apps (never a Dev-ring or Canary
 /// build) with a DMG and a length; its DMG must be under [`DMG_PREFIXES`].
 pub(crate) fn pick(feed: &str) -> Result<Nightly, String> {
-    let best = ITEM
+    let (Some(items), Some(version), Some(enclosures), Some(channels)) =
+        (ITEM.as_ref(), VERSION.as_ref(), ENCLOSURE.as_ref(), CHANNEL.as_ref())
+    else {
+        return Err("the feed patterns did not compile".into());
+    };
+    let best = items
         .find_iter(feed)
         .filter_map(|item| {
             let item = item.as_str();
-            let build = VERSION.captures(item)?.get(1)?.as_str().parse::<u64>().ok()?;
-            let enclosure = ENCLOSURE.captures(item)?;
-            let channel = CHANNEL.captures(item).and_then(|c| c.get(1)).map(|c| c.as_str());
+            let build = version.captures(item)?.get(1)?.as_str().parse::<u64>().ok()?;
+            let enclosure = enclosures.captures(item)?;
+            let channel = channels.captures(item).and_then(|c| c.get(1)).map(|c| c.as_str());
             if !NIGHTLY_CHANNELS.iter().any(|offered| *offered == channel) {
                 return None;
             }
