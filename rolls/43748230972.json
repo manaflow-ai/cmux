@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43748230972",
+  "recorded_at": "2026-11-15T18:50:25Z",
+  "reason": "cmux-tui d461abccbb3a changes the image's cmux-tui (pinned b49692d1d6bc)",
+  "dry_run": false,
+  "cmux_tui": "d461abccbb3a20b47542f0f1122f48a16e88823b",
+  "fixes": [
+    {
+      "sha": "d461abccbb3a20b47542f0f1122f48a16e88823b",
+      "mergedAt": "2026-11-15T10:26:54-08:00",
+      "subject": "Cloud Grok through the team gateway starts with no sign-in: its key probe and turns go to the gateway (#43857) (#43859)"
+    },
+    {
+      "sha": "08c468d210550a074ad2b349b6adeb1398e56e68",
+      "mergedAt": "2026-11-15T10:11:03-08:00",
+      "subject": "acpmux v2: every best-of-rounds gate reports its rounds through gate_rounds (#43653)"
+    },
+    {
+      "sha": "2580ad41489ac52afecae8d6db8ddc81dbd71ef6",
+      "mergedAt": "2026-11-15T09:54:34-08:00",
+      "subject": "cmux-action-catalog: a row can name its daemon request (step A of catalog request rows) (#43856)"
+    },
+    {
+      "sha": "98163c3fbc79771e33b73a7cb95d7853c1366988",
+      "mergedAt": "2026-11-15T09:54:17-08:00",
+      "subject": "acpmux: the host keeps a once-an-hour restart window for every update and setup (#43709)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T18:50:25Z",
+    "snapshot_id": "sh-9f0c85cd7b254aa7b340b1fd50737825",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43748230972): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7da0bb08ba3cf5c7bb1d5545e89107868a629f92",
+    "image": "cloud-native-auto-d461abcc-43748230972-1",
+    "revision": "ci-43748230972-1",
+    "at": "2026-11-15T18:50:25Z"
+  },
+  "rolled_back": false
+}
