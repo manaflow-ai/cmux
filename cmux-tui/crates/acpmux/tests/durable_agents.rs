@@ -25,6 +25,8 @@ mod grant_cleared;
 mod host_crash;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
+#[path = "durable_agents/idle_subsessions_restart.rs"]
+mod idle_subsessions_restart;
 #[path = "durable_agents/late_hello_adoption.rs"]
 mod late_hello_adoption;
 #[path = "durable_agents/lost_link_turn.rs"]
