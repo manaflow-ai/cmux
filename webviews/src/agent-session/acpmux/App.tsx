@@ -73,7 +73,7 @@ import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled, knownRefusalText } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage } from "./NewTabPage";
-import { FOCUS_LOCATION_EVENT, newTabHost, pickedNewTabApp, type NewTabChat, type NewTabHost } from "./newTabModel";
+import { FOCUS_LOCATION_EVENT, newTabHost, type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -244,6 +244,7 @@ import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
+import { LINK_DOWN_SAID_MS } from "./afterDelay";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
@@ -13823,8 +13824,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
                     onReconnect={reconnectPeer}
-                    // Only a Cloud machine pauses on its own: an ssh peer's offline copy says so at once.
-                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? 0 : undefined}
+                    // An ssh peer's offline copy waits out acpmux's own redial (LINK_DOWN_SAID_MS): a
+                    // drop that heals on its own says nothing (Leo, 2026-11-14).
+                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
                   />
                 )}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
