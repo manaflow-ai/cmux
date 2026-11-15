@@ -2193,8 +2193,11 @@ SETUP_ONLY_STEPS = {
     },
 }
 # The checkout action fetches the submodules .gitmodules names at the commits the PR pins: a PR that changes either
-# can fail it on its own (a pin that cannot be fetched), so its red is then never excused (runs_no_pr_code).
+# can fail it on its own (a pin that cannot be fetched), so its red is then never excused (runs_no_pr_code). So can a
+# gitlink the PR adds or moves without a .gitmodules entry (`fatal: No url found for submodule path ...`, #43915):
+# every changed path the compare shows as a submodule, or cannot show as a file, counts as one (compare_gitlinks).
 CHECKOUT_ACTION = "actions/checkout@"
+SUBPROJECT_LINE = re.compile(r"(?m)^[-+ ]?Subproject commit [0-9a-f]")
 
 
 def gitmodule_paths(text: str | None) -> frozenset[str]:
@@ -2202,11 +2205,23 @@ def gitmodule_paths(text: str | None) -> frozenset[str]:
     return frozenset(match[1] for match in re.finditer(r"(?m)^[ \t]*path[ \t]*=[ \t]*(\S+)[ \t]*$", text or ""))
 
 
+def compare_gitlinks(files: list) -> frozenset[str]:
+    """The paths of compare FILES entries that are, or may be, a submodule (a gitlink, mode 160000), whether or not
+    .gitmodules names it: a PR that adds one without an entry there fails Checkout on its own (#43915). GitHub's
+    compare serves no file mode; a gitlink's entry has no blob_url or raw_url (null) and a `Subproject commit <sha>`
+    patch, so an entry with either sign, or without a blob URL at all, counts as one (and its previous path too)."""
+    return frozenset(path for found in files if isinstance(found, dict)
+                     and (not isinstance(found.get("blob_url"), str) or not found.get("blob_url")
+                          or SUBPROJECT_LINE.search(str(found.get("patch") or "")))
+                     for path in (found.get("filename"), found.get("previous_filename")) if isinstance(path, str))
+
+
 def runs_no_pr_code(spec: dict, path: str, title: str, changed: set[str],
                     submodules: Callable[[], frozenset[str]]) -> str | None:
     """None when workflow step SPEC (TITLE, of workflow PATH, as declared at the merge-base) runs no code a PR with
     CHANGED paths can change: a `uses:` action outside the repository (the checkout action only while the PR changes
-    neither .gitmodules nor a submodule SUBMODULES() names), or a SETUP_ONLY_STEPS step whose paths are unchanged;
+    neither .gitmodules nor a submodule SUBMODULES() names: .gitmodules' at the merge-base, and each gitlink the PR
+    changes), or a SETUP_ONLY_STEPS step whose paths are unchanged;
     else why it runs the PR's code."""
     uses = spec.get("uses")
     if isinstance(uses, str):
@@ -2308,13 +2323,17 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
     if (not re.fullmatch(r"[0-9a-f]{40}", merge_base) or not isinstance(files, list) or not isinstance(commits, list)
             or len(files) >= COMPARE_FILES_CAP or diff.get("total_commits", len(commits)) != len(commits)):
         return False, f"its changed files and commits against {base} could not be read in full"
-    changed = {str(file.get("filename")) for file in files if isinstance(file, dict)}
+    # A rename counts at both paths: a PR that moves a listed script away changes it (#43915).
+    changed = {str(name) for file in files if isinstance(file, dict)
+               for name in (file.get("filename"), file.get("previous_filename")) if name is not None}
+    gitlinks = compare_gitlinks(files)
     if path in changed:
         return False, f"this PR changes its workflow ({path}), so no step of it is known to be the base's setup"
     # The workflow as the base declares it, at the merge-base: its step order and each step's `uses:` or script.
     setup = setup_red_steps(job, workflow_step_names(repo, dict(job, head_sha=merge_base), path, github, run_reads),
                             path, changed,
-                            lambda: gitmodule_paths(source_text_if_present(repo, merge_base, ".gitmodules", github)))
+                            lambda: gitlinks | gitmodule_paths(source_text_if_present(repo, merge_base, ".gitmodules",
+                                                                                      github)))
     if isinstance(setup, str):
         return False, setup
     steps, first_test = setup

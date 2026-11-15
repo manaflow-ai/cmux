@@ -18,12 +18,39 @@ type Props = {
   error: string;
   code?: string;
   share?: "shared" | "forbidden";
-  harness?: LoginAgent;
+  harness?: LoginAgent | "pi" | "cmux";
   name?: string;
   signIn?: "card" | "terminal" | "none";
   signInExpired?: true;
-  alternative?: "compact" | "two-step";
+  /// A chat on another machine (a Cloud machine): never Install, which runs on this Mac.
+  elsewhere?: true;
+  alternative?: "compact" | "two-step" | "route-interim" | "route-hint";
 };
+
+/// Not shipped, for the cmux router's route refusal (hq#11225): the interim words "doesn't run on Cloud
+/// machines yet", or the shipped sentence with a "pick another agent" line under it. Both beside Retry, the
+/// host's words under Details, as the shipped card has them.
+function RouteAlternative({ alternative, error }: { alternative: "route-interim" | "route-hint"; error: string }) {
+  const t = useT();
+  const sentence =
+    alternative === "route-interim"
+      ? "The cmux router doesn't run on Cloud machines yet."
+      : t("switch.routerUnavailable");
+  return (
+    <div className="acpmux-host-error acpmux-switch-failed" role="alert">
+      <div className="acpmux-host-error-card">
+        <p className="acpmux-host-error-message">{sentence}</p>
+        {alternative === "route-hint" && (
+          <p className="acpmux-host-error-hint">Pick another agent for this chat, or Retry later.</p>
+        )}
+        <div className="acpmux-host-error-actions">
+          <button type="button">{t("switch.retry")}</button>
+        </div>
+        <ErrorDetails text={error} className="acpmux-host-error-details" />
+      </div>
+    </div>
+  );
+}
 
 /// The machine's sign-in for the gallery: a page and a code (Grok), a page (Cursor), a key (Gemini).
 /// Nothing leaves the gallery.
@@ -67,7 +94,17 @@ function CompactAlternative({ name, error }: { name: string; error: string }) {
   );
 }
 
-function GallerySwitchNotice({ error, code, share, harness, name, signIn, signInExpired, alternative }: Props) {
+function GallerySwitchNotice({
+  error,
+  code,
+  share,
+  harness,
+  name,
+  signIn,
+  signInExpired,
+  elsewhere: away,
+  alternative,
+}: Props) {
   const [ran, setRan] = useState<string>();
   const [opened, setOpened] = useState(false);
   const agent = name ?? "Claude Code";
@@ -77,10 +114,16 @@ function GallerySwitchNotice({ error, code, share, harness, name, signIn, signIn
         <CompactAlternative name={agent} error={error} />
       </div>
     );
+  if (alternative === "route-interim" || alternative === "route-hint")
+    return (
+      <div className="acpmux-shell" data-switch-notice-fixture>
+        <RouteAlternative alternative={alternative} error={error} />
+      </div>
+    );
   // Not shipped: Sign in first, and only its click shows the machine's sign-in card (two clicks to the
   // provider's page where the shipped card takes one).
   const twoStep = alternative === "two-step" && !opened;
-  const elsewhere = signIn === "card" || signIn === "none";
+  const elsewhere = away === true || signIn === "card" || signIn === "none";
   return (
     <div className="acpmux-shell" data-switch-notice-fixture data-ran={ran}>
       <SwitchNotice
@@ -99,7 +142,7 @@ function GallerySwitchNotice({ error, code, share, harness, name, signIn, signIn
         }}
         installs={!elsewhere || twoStep}
         runsLogin={signIn === "terminal" || twoStep}
-        {...(signIn === "card" && harness && !twoStep && { agentSignIn: gallerySignIn(harness) })}
+        {...(signIn === "card" && harness && !twoStep && { agentSignIn: gallerySignIn(harness as LoginAgent) })}
         {...(share && {
           share: {
             machine: "build-box",
@@ -129,6 +172,13 @@ const CURSOR_WORDS = "Authentication required";
 const GEMINI_WORDS = "API key missing";
 const GROK_WORDS = "agent process closed (grok): Authentication required";
 const SIGN_IN = "agent_session.sign_in_required";
+/// The Mac's own words for the two refusals on a Cloud machine (AgentRemoteStartRefusal.swift), which
+/// the card keeps under Details (hq#11225).
+const HARNESS_MISSING = "agent_session.harness_missing";
+const ROUTE_UNAVAILABLE = "agent_session.route_unavailable";
+const PI_MISSING_WORDS =
+  "Pi isn't installed on devbox-3. Install it there or pick another agent, then start the chat again.";
+const ROUTER_WORDS = "The cmux router isn't available on devbox-3. Pick another agent, or start the chat again later.";
 
 export default componentEntry<Props>({
   id: "agent-pane.switch-notice",
@@ -223,6 +273,47 @@ export default componentEntry<Props>({
         await ctx.click({ role: "button", name: "Sign in to Cursor" });
       },
       note: "Alternative, not shipped: a plain Sign in button that only then shows the machine's sign-in card. Rejected: two clicks to the provider's page where the shipped card takes one.",
+    },
+    "harness-missing-pi-cloud": {
+      props: { error: PI_MISSING_WORDS, code: HARNESS_MISSING, harness: "pi", name: "Pi", elsewhere: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-switch-failed summary" });
+      },
+      note: "Shipped (hq#11225). An agent the Cloud machine doesn't have (Pi without its adapter): the agent by name, Retry, and the host's words under Details. No Install: the installer runs on this Mac, not there.",
+    },
+    "harness-missing-this-mac": {
+      props: {
+        error: "Gemini CLI isn't in this machine's agent catalog.",
+        code: HARNESS_MISSING,
+        harness: "gemini",
+        name: "Gemini CLI",
+      },
+      note: "Shipped. The same refusal for a chat on this Mac: Install runs the agent's installer in a terminal tab, as a spawn that found no CLI does.",
+    },
+    "route-unavailable-cmux-router-cloud": {
+      props: { error: ROUTER_WORDS, code: ROUTE_UNAVAILABLE, harness: "cmux", name: "cmux", elsewhere: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-switch-failed summary" });
+      },
+      note: "Shipped (hq#11225). The cmux router on a Cloud machine with no router to serve it: names the router, Retry, the host's words under Details. Stays true once the router runs on Cloud: the refusal comes only while the route truly can't serve the start.",
+    },
+    "route-unavailable-named-agent": {
+      props: {
+        error:
+          "Claude Code's model route isn't available on devbox-3. Pick another agent, or start the chat again later.",
+        code: ROUTE_UNAVAILABLE,
+        harness: "claude",
+        elsewhere: true,
+      },
+      note: "Shipped. Any other agent whose profile's route can't serve it there: the agent's route by name.",
+    },
+    "route-unavailable-alternative-interim": {
+      props: { error: ROUTER_WORDS, alternative: "route-interim" },
+      note: 'Alternative, not shipped: "The cmux router doesn\'t run on Cloud machines yet." Rejected: wrong as soon as the router runs on Cloud through the gateway, while the refusal can still come for an outage.',
+    },
+    "route-unavailable-alternative-hint": {
+      props: { error: ROUTER_WORDS, alternative: "route-hint" },
+      note: "Alternative, not shipped: the shipped sentence plus a 'pick another agent' line. Rejected: a second line that repeats what Retry and the composer's agent picker already offer, and the card grows a row.",
     },
     plain: {
       props: { error: "build-box did not start the agent in time. Try again." },
