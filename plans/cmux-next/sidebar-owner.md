@@ -1,5 +1,26 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-15 (minimal-mode-chrome): Sidebar-Look: user, 2026-11-15: "by default, all buttons should be visible, not fade into view on hover ... only when minimal mode is enabled, we should hide the buttons, spaces, and bottom left profile picture, and sidebar buttons and back/forth and plus buttons in sidebar, unless user is hovered on sidebar/hovered on tabbar". Minimal Mode (`sidebar.minimal`) now also hides the sidebar's New Workspace button, spaces, profile control, Search button and the toggle, Back and Forward until hover, as `sidebar.controlsOnHover` does (`SidebarSectionsPreferences.hidesControlsUntilHover`); off, they show. The tab bar's + and pins show at rest outside Minimal Mode. `SidebarControlsOnHoverTests.minimalModeFadesTheSidebarControlsInPlace`, `SidebarOpenTitlebarControlsTests.minimalModeHidesThemAtRestWithTheSidebarOpen`.
+- 2026-11-14 (conn-quiet): Sidebar-Look: Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". This Mac's header draws no spinner while the local daemon connects for less than 10 s (a launch connect, a daemon restart or update handoff), the grace one list's "Connecting…" label already waits (`SidebarPlaceholderGrace.holdingConnectingLabels`); a lasting connect spins as before, failures show at once. `DaemonStartupFailureStateTests.thisMacsHeaderDrawsNoSpinnerForAConnectUnderTheGrace`.
+- 2026-11-14 (lane/sidebar-move-refusal-toast, #43233 with #43234): no more "The sidebar did not make this move."
+  Leo, on that toast: "what am i seeing here"; on the refusals behind it: "the daemon shouldn't even refuse those".
+  A stale op (a gone item, group, section or anchor) applies to the document as it is now (`sidebar_doc/stale.rs`),
+  so automatic changes are no longer refused for being stale. A change nobody here made (auto-archive, Delete Space,
+  an agent's CLI or MCP op: `SidebarDocStore.changeOrigin`) is logged, never shown. A person's refused change names
+  its reason from Rust (`Refusal::text`, FFI `sidebar_change_failure`); a failure that is not a refusal is retried
+  once quietly, then names what failed. Delete Space with `moveTo` moves the space's document pins and groups in the
+  daemon's delete commit (`move_room_items`); the app's `moveSpace` second pass is gone. Regressions:
+  `SidebarDocRefusalNoticeTests`, `stale_tests.rs`, `deleting_a_space_into_another_moves_its_document_items_in_the_same_commit`.
+
+- 2026-11-14 (conn-quiet, remote): a machine whose link dropped, is coming up or is out of reach draws as connected
+  in its header and a remote group's header for the connecting grace (10 s, `SidebarPlaceholderGrace.connectingDelay`):
+  no spinner, no "Reconnecting…", "Unreachable" or "Offline" for a drop that heals on its own. Leo, verbatim: "i also
+  want all our connectivity stuff to shut the fuck up and load faster/percievably load faster / whatever it takes /
+  desktop gui, ios, remote, cloud, etc". Sign-in, install, update and start failures show at once; the tooltip and
+  VoiceOver keep the real state. `SectionHeaderRowView.drawn`; regression:
+  `DaemonStartupFailureStateTests.aDroppedLinkSaysNothingInItsHeaderUntilTheGrace`.
+
+- 2026-11-15 (device glyphs): Sidebar-Look: Leo asked for “nicer icons for stuff ... across all the remote related areas”. A machine with no icon of the person's own now draws the SF Symbol of the device its daemon says it is (`machine_symbol`, cmux-device-kind) in its sidebar header and on the hover card's machine line, where the globe drew before; a Cloud machine keeps the cloud. The glyph takes the slot and size the old icon had, so nothing moves.
 - 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
 
 - 2026-11-14 (ask-0a91bcfdb0, carved from #42277): a machine header has a screen button beside its +. Leo, verbatim:

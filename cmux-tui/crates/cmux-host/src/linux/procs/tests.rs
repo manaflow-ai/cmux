@@ -52,3 +52,32 @@ fn recorded_scope_stops_only_recorded_terminal_hosts() {
     assert!(foreign_alive, "a host outside the daemon home was stopped");
     assert!(kept.is_empty(), "{kept:?}");
 }
+
+/// The stable link (`~/.cmux/bin/cmux-tui` -> profile -> store entry)
+/// resolves to the installed build; a host on the previous entry, or on
+/// a deleted one, runs another build; an unreadable side never counts.
+#[test]
+fn a_host_on_the_previous_store_entry_runs_another_build() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("store");
+    let (old, new) = (store.join("aaa/cmux-tui"), store.join("bbb/cmux-tui"));
+    for bin in [&old, &new] {
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        fs::write(bin, "").unwrap();
+    }
+    let current = dir.path().join("current");
+    std::os::unix::fs::symlink(&new, &current).unwrap();
+    let link = dir.path().join("cmux-tui");
+    std::os::unix::fs::symlink(&current, &link).unwrap();
+    let new = fs::canonicalize(&new).unwrap();
+    let old = fs::canonicalize(&old).unwrap();
+    assert!(!other_build(Some(&new), &link));
+    assert!(other_build(Some(&old), &link));
+    let deleted = std::path::PathBuf::from(format!("{} (deleted)", new.display()));
+    assert!(other_build(Some(&deleted), &link));
+    assert!(!other_build(None, &link));
+    assert!(!other_build(Some(&old), &dir.path().join("missing")));
+    // This test process runs its own executable, not the link's.
+    assert!(runs_other_build(std::process::id(), &link));
+    assert!(!runs_other_build(std::process::id(), &std::env::current_exe().unwrap()));
+}

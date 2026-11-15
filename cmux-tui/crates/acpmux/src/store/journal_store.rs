@@ -749,6 +749,20 @@ impl Store for JournalStore {
         self.inner
             .fenced(|| Store::read_log(&self.inner.local, id, from, filter, stamp, marks, out))
     }
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        self.inner.fenced(|| {
+            Store::read_log_part(&self.inner.local, id, seq, offset, max, stamp, marks, out)
+        })
+    }
     fn log_stamp(&self, id: &str) -> Result<u64> {
         Store::log_stamp(&self.inner.local, id)
     }

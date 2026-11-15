@@ -116,6 +116,7 @@ pub async fn serve_connection_device(
         None,
         None,
         None,
+        None,
     )
     .await
 }
@@ -267,6 +268,7 @@ pub(super) async fn dispatch(
         method::MUX_MACHINE_CONSENT_SET => machine_consent(conn, params),
         method::MUX_MACHINE_CONSENT_REFUSED => {
             let surface = params.get("surface").and_then(Value::as_str).unwrap_or_default();
+            // The signedInMachines ask is recorded only by the carrier's gate (`session_service.rs`).
             if !matches!(surface, "screen" | "control") {
                 Err(RpcError::invalid_params("surface must be screen or control"))
             } else {
@@ -291,11 +293,13 @@ fn machine_consent(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let surface = params
         .get("surface")
         .and_then(Value::as_str)
-        .filter(|surface| matches!(*surface, "screen" | "control"))
-        .ok_or_else(|| RpcError::invalid_params("surface must be screen or control"))?;
+        .filter(|surface| crate::cli::cloud_join::is_consent_surface(surface))
+        .ok_or_else(|| {
+            RpcError::invalid_params("surface must be screen, control or signedInMachines")
+        })?;
     if !conn.is_person() || conn.origin != Origin::Local || conn.origin.web_class() {
         return Err(crate::hub::person::person_required(
-            "changing this machine's screen or control consent; use the local cmux app",
+            "changing this machine's consent; use the local cmux app",
         ));
     }
     let granted = params
@@ -304,7 +308,8 @@ fn machine_consent(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
         .ok_or_else(|| RpcError::invalid_params("granted must be true or false"))?;
     let consent = crate::cli::cloud_join::set_consent_for_person(surface, granted)
         .map_err(|_| RpcError::internal("local consent store unavailable"))?;
-    Ok(json!({"consent":consent}))
+    // As the account this machine is joined as now reads it (`for_account`), like the get.
+    Ok(crate::cli::cloud_join::for_this_account(json!({"consent":consent})))
 }
 
 /// `_acpmux/pair_set {id, fullAccess}`: on only from the person, since it

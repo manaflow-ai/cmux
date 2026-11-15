@@ -2545,6 +2545,9 @@
           "\"resized\""
         ]
       },
+      "/history_rows_omitted": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -5123,6 +5126,9 @@
       "/history_rows_omitted": {
         "ty": "uint64"
       },
+      "/history_rows_skipped": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -7350,8 +7356,16 @@
           "render"
         ]
       },
+      "/output_coalesce_ms": {
+        "ty": "uint32",
+        "nullable": true
+      },
       "/replay_history_rows": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/replay_history_start": {
+        "ty": "uint64",
         "nullable": true
       },
       "/rows": {
@@ -17540,6 +17554,9 @@
       "/data/machine_capabilities/*": {
         "ty": "string"
       },
+      "/data/machine_device": {
+        "ty": "string"
+      },
       "/data/machine_id": {
         "ty": "string"
       },
@@ -17556,6 +17573,9 @@
       "/data/machine_platform/os": {
         "ty": "string",
         "required": true
+      },
+      "/data/machine_symbol": {
+        "ty": "string"
       },
       "/data/min_api_revision": {
         "ty": "uint32",

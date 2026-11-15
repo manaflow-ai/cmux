@@ -16,6 +16,23 @@ pub(super) fn cmdline(pid: u32) -> Option<Vec<String>> {
     fs::read(format!("/proc/{pid}/cmdline")).ok().map(|raw| split_cmdline(&raw))
 }
 
+/// Whether the process `pid` runs another executable than `bin` resolves
+/// to (the stable session host link, `~/.cmux/bin/cmux-tui`, through the
+/// installed profile into the store): an update flipped the build under it.
+/// A deleted executable reads as `<path> (deleted)`, another build too.
+/// False when either cannot be read: an unknown build is never replaced.
+pub fn runs_other_build(pid: u32, bin: &Path) -> bool {
+    other_build(crate::updater::role::exe_of(&pid.to_string()).as_deref(), bin)
+}
+
+/// [`runs_other_build`] for the executable `exe` a process runs.
+pub fn other_build(exe: Option<&Path>, bin: &Path) -> bool {
+    match (exe, fs::canonicalize(bin)) {
+        (Some(exe), Ok(want)) => exe != want,
+        _ => false,
+    }
+}
+
 fn uid_of(pid: u32) -> Option<u32> {
     fs::metadata(format!("/proc/{pid}")).ok().map(|m| m.uid())
 }

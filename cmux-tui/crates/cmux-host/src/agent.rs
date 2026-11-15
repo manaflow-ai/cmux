@@ -18,7 +18,7 @@ use cmux_server_core::layout::Layout;
 use cmux_server_core::platform::InstallMode;
 use cmux_server_core::role::Role;
 
-use crate::machine::{Action, DaemonState, Input, Machine, Observation};
+use crate::machine::{Action, DaemonState, HostLook, Input, Machine, Observation};
 use crate::roles::{Roles, event_name};
 use crate::status::Status;
 
@@ -60,6 +60,8 @@ pub enum Wake {
     Rearm,
     Backoff,
     StopDeadline,
+    /// The look timer of an old-build session host waiting to be replaced.
+    HostLook,
 }
 
 /// How far the realtime clock must move against the boot clock for a clock
@@ -384,6 +386,16 @@ pub trait Platform {
     fn carrier_changed(&mut self) -> bool {
         false
     }
+    /// Whether the adopted session host runs another executable than the
+    /// installed build's (`/proc/<pid>/exe` against the canonical session
+    /// host binary): an update flipped the build under it.
+    fn build_changed(&mut self) -> bool {
+        false
+    }
+    /// One look at the adopted old-build host's carrier sessions.
+    fn look_host(&mut self) -> HostLook {
+        HostLook { attached: Some(0), ..HostLook::default() }
+    }
     /// Publishes the status file.
     fn write_status(&mut self, status: &Status) -> io::Result<()>;
     /// Answers accepted identity clients only after the fresh observation's actions.
@@ -422,7 +434,10 @@ fn describe(action: &Action) -> String {
         | Action::CommitBind(id) => {
             format!("{} id={id}", action.name())
         }
-        Action::ArmBackoff(ms) | Action::ArmRetry(ms) => format!("{} ms={ms}", action.name()),
+        Action::ArmBackoff(ms) | Action::ArmRetry(ms) | Action::ArmHostLook(ms) => {
+            format!("{} ms={ms}", action.name())
+        }
+        Action::ReplaceOldHost(why) => format!("{} why={}", action.name(), why.name()),
         Action::Notify(event) => format!("{} event={}", action.name(), event_name(event)),
         Action::StartRoles(id) => format!("{} id={}", action.name(), id.as_deref().unwrap_or("-")),
         other => other.name().to_owned(),
@@ -473,6 +488,11 @@ impl<P: Platform> Agent<P> {
         // older carrier route.
         if adopted.is_some() && self.platform.carrier_changed() {
             boot.push(Input::CarrierChanged);
+        }
+        // Or from before an update's flip (`KillMode=process`: the restart
+        // kept it): replaced once no person's session is in the way.
+        if adopted.is_some() && self.platform.build_changed() {
+            boot.push(Input::BuildChanged);
         }
         if self.dispatch(boot) {
             return Ok(());
@@ -561,6 +581,7 @@ impl<P: Platform> Agent<P> {
                 Wake::Rearm => rest.push(Input::RearmElapsed),
                 Wake::Backoff => rest.push(Input::BackoffElapsed),
                 Wake::StopDeadline => rest.push(Input::StopDeadline),
+                Wake::HostLook => rest.push(Input::HostLookElapsed),
             }
         }
         if let Some(wake) = wakes.first() {
@@ -623,6 +644,17 @@ impl<P: Platform> Agent<P> {
                 Action::Exit => *exit = true,
                 Action::CommitBind(id) => follow.push(Input::BindCommitted(id.clone())),
                 Action::Recheck => follow.push(Input::Observed(self.platform.observe())),
+                Action::LookHost => {
+                    let look = self.platform.look_host();
+                    self.log.line(&format!(
+                        "old-build host: {} attached, input idle {}, {} s since the build changed",
+                        look.attached.map_or("unknown".to_owned(), |n| n.to_string()),
+                        look.input_idle_ms
+                            .map_or("unknown".to_owned(), |ms| format!("{} s", ms / 1000)),
+                        look.since_changed_ms / 1000
+                    ));
+                    follow.push(Input::HostLooked(look));
+                }
                 Action::StartRoles(id) => {
                     let errors = self.roles.start(id.clone());
                     self.log_all(errors);
@@ -718,6 +750,7 @@ fn wake_name(wake: Wake) -> &'static str {
         Wake::Rearm => "rearm",
         Wake::Backoff => "backoff",
         Wake::StopDeadline => "stop-deadline",
+        Wake::HostLook => "host-look",
     }
 }
 
@@ -731,4 +764,5 @@ pub fn daemon_name(state: &DaemonState) -> &'static str {
 }
 
 #[cfg(test)]
+#[path = "agent_tests.rs"]
 mod identity_tests;

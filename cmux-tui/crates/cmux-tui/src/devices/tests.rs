@@ -147,6 +147,52 @@ fn a_peer_that_cannot_connect_is_an_error_with_the_reason() {
 }
 
 #[test]
+fn a_peer_down_for_days_is_offline_with_how_to_remove_it_not_an_error() {
+    // 2026-11-14: four lane VMs, retired and stopped for a week, sat at the top of a
+    // dogfood list as "not working" with a retry countdown that never moved.
+    let mut src = sources();
+    src.peers["peers"].as_array_mut().unwrap().push(json!({
+        "name": "retired-lane", "url": "ssh://retired-lane", "state": "reconnecting",
+        "connected": false, "parked": true, "downSince": 1_794_064_328_690_u64,
+        "nextRetryAt": 1_794_690_000_000_u64,
+        "error": "peer unavailable; next automatic retry in 2519s"
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let lane = device(&listing, "peer:retired-lane");
+    assert_eq!(lane.state, State::Offline, "{lane:?}");
+    let detail = lane.detail.as_deref().unwrap_or_default();
+    assert!(detail.contains("cmux device remove retired-lane"), "{detail}");
+    assert!(!detail.contains("2519s"), "no frozen countdown: {detail}");
+    assert_eq!(device(&listing, "peer:vm-1").state, State::Error, "a fresh failure stays an error");
+}
+
+#[test]
+fn short_lived_pool_machines_fold_into_one_line_and_named_machines_stay() {
+    let mut more = nodes();
+    let node = |name: &str, n: u8| NetworkNode {
+        name: name.into(),
+        dns_name: format!("{name}.tail1234.ts.net"),
+        ips: vec![ip(&format!("100.70.1.{n}"))],
+        os: "linux".into(),
+        online: true,
+        mine: false,
+    };
+    more.push(node("ci-linux-pool-1114-162023-3fa17bde", 1));
+    more.push(node("ci-linux-pool-1114-171948-3bede61c", 2));
+    more.push(node("ci-linux-pool-1114-171948-8e3cefa4", 3));
+    more.push(node("swarm-01", 4));
+    more.push(node("swarm-02", 5));
+    more.push(node("swarm-03", 6));
+    more.push(node("release-20261114", 7));
+    let listing = model::merge(&sources(), tailscale_up(), &more);
+    let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["build-box", "release-20261114", "swarm-01", "swarm-02", "swarm-03"]);
+    assert_eq!(listing.pools.len(), 1, "{:?}", listing.pools);
+    assert_eq!(listing.pools[0].stem, "ci-linux-pool");
+    assert_eq!(listing.pools[0].count, 3);
+}
+
+#[test]
 fn a_daemon_pairing_and_its_peer_are_one_device_with_both_records() {
     let listing = listing();
     assert!(listing.devices.iter().all(|d| d.id != "paired:dv_sandbox"), "merged into the peer");
@@ -595,5 +641,42 @@ fn device_help_names_every_device_verb_and_points_vms_at_vm() {
         "`cmux machine` is the old name",
     ] {
         assert!(super::USAGE.contains(verb), "{verb} missing:\n{}", super::USAGE);
+    }
+}
+
+/// Every row says what its device is, with the glyph its kind names: what a peer reported, the
+/// source (a `ws://` peer is a Cloud machine), the OS, a phone pairing, else generic.
+#[test]
+fn every_row_carries_its_device_kind_and_glyph() {
+    use cmux_device_kind::DeviceKind;
+    let mut src = sources();
+    src.peers["peers"][0]["health"] = json!({"os": "macos", "device": "mac-mini"});
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_phone", "name": "phone-6a7b", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 1,
+    }));
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_tab", "name": "tab-1", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 0, "device": "ipad",
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    for (id, kind) in [
+        ("peer:mini-7", DeviceKind::MacMini),
+        ("peer:vm-1", DeviceKind::Generic),
+        ("peer:sandbox", DeviceKind::Cloud),
+        ("paired:dv_phone", DeviceKind::IPhone),
+        ("paired:dv_tab", DeviceKind::IPad),
+        ("paired:dv_leo", DeviceKind::Generic),
+    ] {
+        let row = device(&listing, id);
+        assert_eq!((row.device, row.symbol), (kind, kind.symbol()), "{id}");
+    }
+    let wire = serde_json::to_value(device(&listing, "peer:mini-7")).unwrap();
+    assert_eq!(
+        (wire["device"].as_str(), wire["symbol"].as_str()),
+        (Some("mac-mini"), Some("macmini"))
+    );
+    for row in &listing.devices {
+        assert_eq!(row.symbol, row.device.symbol(), "{}", row.id);
     }
 }
