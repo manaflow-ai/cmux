@@ -20,6 +20,9 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     private var source: (any DispatchSourceRead)?
     private var buffer = Data()
     private var onLine: (@Sendable (Data) -> Void)?
+    private var onBytes: (@Sendable (Data) -> Void)?
+    private var rawMode = false
+    private var rawReadSuspended = false
     private var onClose: (@Sendable () -> Void)?
     private var closed = false
     /// Called once by `expire()` (a one-shot request's deadline).
@@ -47,6 +50,9 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             // finished the connection; connecting now would leak the descriptor and its read source.
             guard !closed else { return }
             self.onLine = onLine
+            self.onBytes = nil
+            self.rawMode = false
+            self.rawReadSuspended = false
             self.onClose = onClose
             guard let fd = Self.connect(path: path) else { return finish() }
             descriptor = fd
@@ -75,8 +81,46 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             onExpire = nil
             onClose = nil
             onLine = nil
+            onBytes = nil
             finish()
             callback?()
+        }
+    }
+
+    /// Starts the same serial socket connection without line framing. Bytes are delivered
+    /// in receive chunks on the connection queue; callers that need backpressure stop taking
+    /// chunks until their pending batch is drained. Existing `start` callers retain line mode.
+    public func startBytes(send: Data, onBytes: @escaping @Sendable (Data) -> Void,
+                           onClose: @escaping @Sendable () -> Void) {
+        queue.async { [self] in
+            guard !closed else { return }
+            self.onLine = nil
+            self.onBytes = onBytes
+            self.rawMode = true
+            self.rawReadSuspended = false
+            self.onClose = onClose
+            guard let fd = Self.connect(path: path) else { return finish() }
+            descriptor = fd
+            if let acceptsServer {
+                let peer = UnixSocketPeer(descriptor: fd)
+                guard let peer, acceptsServer(peer) else { return finish() }
+            }
+            let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+            reader.setEventHandler { [weak self] in self?.readable() }
+            reader.setCancelHandler { Darwin.close(fd) }
+            source = reader
+            reader.resume()
+            write(send)
+        }
+    }
+
+    /// Resumes a raw-byte connection after its consumer has delivered the current batch.
+    public func resumeBytes() {
+        queue.async { [self] in
+            guard rawMode, !closed else { return }
+            guard rawReadSuspended else { return }
+            rawReadSuspended = false
+            source?.resume()
         }
     }
 
@@ -121,6 +165,14 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             if count < 0, errno == EINTR || errno == EAGAIN { return }
             return finish()
         }
+        if rawMode {
+            // A raw consumer must acknowledge this chunk before the next read.
+            // `recv` is capped at 1 MiB, so one suspended chunk is the byte queue cap.
+            source?.suspend()
+            rawReadSuspended = true
+            onBytes?(Data(chunk[0..<count]))
+            return
+        }
         // Only the new bytes can hold a newline: the rest was scanned already.
         var scan = buffer.endIndex
         buffer.append(contentsOf: chunk[0..<count])
@@ -144,6 +196,10 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         // number that another connection already reused. Without a source
         // (a refused or failed start) this closes it.
         if let source {
+            if rawReadSuspended {
+                rawReadSuspended = false
+                source.resume()
+            }
             source.cancel()
             self.source = nil
         } else if descriptor >= 0 {
@@ -153,6 +209,9 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         let callback = onClose
         onClose = nil
         onLine = nil
+        onBytes = nil
+        rawMode = false
+        rawReadSuspended = false
         callback?()
     }
 

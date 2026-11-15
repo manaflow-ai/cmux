@@ -1419,6 +1419,26 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The ABI-3 list client wrapper and its byte transport. This target owns the C handle;
+        // the sidebar target consumes its changes without linking the app target.
+        .target(
+            name: "CmuxNextAgentList",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextAgentActivity",
+                "CmuxNextCompat",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentListTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentList",
+                "CmuxNextTestSupport",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // The thumbnail grid: tiles, the thumbnail cache, drag out, drop reading, Quick Look and the
         // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.
         .target(
