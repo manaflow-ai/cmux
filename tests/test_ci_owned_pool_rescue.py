@@ -6932,7 +6932,9 @@ class Workflow(unittest.TestCase):
     def test_default_branch_code_with_actions_write_only_in_the_job(self):
         self.assertEqual(self.doc["permissions"], {})
         job = self.doc["jobs"]["rescue"]
-        self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "pull-requests": "read"})
+        # id-token: write is for the tailnet OIDC join only (the owned stall move's build controller holds).
+        self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "id-token": "write",
+                                              "pull-requests": "read"})
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
