@@ -2,8 +2,8 @@
 // The Customization Library's layouts, side by side for the pick (rulebook: more than two versions),
 // each in every state: a few entries, empty, fifty, a conflict, and a refused toggle.
 // References (cmux-design-references): codex/web/skills-library (installed capabilities as rows
-// with a switch each), cursor/live/customize-plugin-browser (an installed list as quiet rows with a
-// mark and a source line), codex/web/themes-side-by-side (looks shown as their colors).
+// with a switch each), claude/live/settings-session-workflows (titles and muted explanations on one text column, switches on one
+// trailing edge), codex/web/themes-side-by-side (looks shown as their colors).
 // Shipped: `layers`. The library is a stack, and order is what decides a conflict, so the list must
 // read top to bottom as the stack does: one Settings row per entry (design/settings.md "Columns":
 // one text column, one control edge), its swatches as the mark, its switch on the row's edge, Move
