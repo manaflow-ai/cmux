@@ -9,6 +9,10 @@
 //! payload mix against a real headless daemon, so each stage of the byte path
 //! gets its own MB/s:
 //!
+//! - `pty-only`: the kernel PTY alone, its master read and dropped by one
+//!   thread (no terminal reads faster on this machine; a Linux PTY tops out
+//!   near 150 MB/s, a macOS one does not, so the host stage has its own
+//!   bench: cmux-tui-core `host_stage_throughput_bench`);
 //! - `parse-NNNN`: ghostty-vt alone, the payload fed in NNNN-byte writes on
 //!   one thread (the ceiling of any one parser of the stream);
 //! - `daemon-hosted`: the daemon as the app runs it (`--state`): a terminal
@@ -492,6 +496,55 @@ fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, view
     row
 }
 
+/// The kernel PTY alone: the same writer on a PTY whose master one thread
+/// reads into a 64 KiB buffer and drops. No terminal reads faster than this.
+fn pty_only(scripts: &Path, payload_path: &Path, label: &str) -> Value {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let (mut master, mut slave) = (0, 0);
+    // SAFETY: openpty writes two descriptors into the given ints; the other
+    // arguments may be null.
+    let opened = unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    assert_eq!(opened, 0, "openpty: {}", std::io::Error::last_os_error());
+    // SAFETY: openpty returned these descriptors and nothing else owns them.
+    let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
+    let result = scripts.join(format!("{label}.json"));
+    let go = scripts.join(format!("{label}.go"));
+    let mut writer = Command::new("python3")
+        .args(["-I"])
+        .arg(scripts.join("writer.py"))
+        .arg(payload_path)
+        .arg(&result)
+        .arg(&go)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(slave.try_clone().unwrap()))
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    drop(slave);
+    let mut master = fs::File::from(master);
+    let reader = std::thread::spawn(move || {
+        let mut buf = vec![0u8; 64 * 1024];
+        // Ends with EIO once the writer exits and its side closes.
+        while matches!(master.read(&mut buf), Ok(n) if n > 0) {}
+    });
+    fs::write(&go, b"go").unwrap();
+    let res = wait_file(&result, Duration::from_secs(600))
+        .unwrap_or_else(|| panic!("{label}: the writer gave no result"));
+    let _ = writer.wait();
+    let _ = reader.join();
+    let bytes = res["bytes"].as_u64().unwrap_or(0) as usize;
+    let seconds = res["seconds"].as_f64().unwrap_or(0.0);
+    json!({"stage": label, "bytes": bytes, "seconds": seconds, "mb_s": mb_s(bytes, seconds)})
+}
+
 #[test]
 #[ignore = "a throughput bench; run with --ignored --nocapture"]
 fn terminal_throughput_by_stage() {
@@ -533,6 +586,12 @@ fn terminal_throughput_by_stage() {
             eprintln!("TERMINAL-THROUGHPUT-STAGE {row}");
             rows.push(row);
         }
+    }
+    if wants("pty-only") {
+        let _ = pty_only(&scripts, &warm_path, "pty-only-warmup");
+        let row = pty_only(&scripts, &payload_path, "pty-only");
+        eprintln!("TERMINAL-THROUGHPUT-STAGE {row}");
+        rows.push(row);
     }
     for (stage, hosted, viewer) in [
         ("daemon-hosted", true, false),
