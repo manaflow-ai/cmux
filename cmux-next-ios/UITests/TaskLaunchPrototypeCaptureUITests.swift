@@ -11,6 +11,8 @@ final class TaskLaunchPrototypeCaptureUITests: UIStateCaptureCase {
     @MainActor
     private static func opened(_ app: XCUIApplication) -> String? {
         guard any(app, "proto.prompt").waitForExistence(timeout: 20) else { return "prototype did not open" }
+        // The variant's own bar: Back on screen (a collapsed bar hid it and Top switch's control).
+        guard any(app, "proto.back").waitForExistence(timeout: 3), onScreen(any(app, "proto.back")) else { return "no navigation bar" }
         let next = app.buttons["Continue"].firstMatch
         if next.waitForExistence(timeout: 1.5), next.isHittable { next.tap() }
         return nil
@@ -67,6 +69,9 @@ final class TaskLaunchPrototypeCaptureUITests: UIStateCaptureCase {
         ]
         switch variant {
         case 1:
+            list.append(scene("switch-in-bar") { app in
+                steps([{ opened(app) }, { check(app.segmentedControls.buttons["Terminal"].firstMatch.exists, "no Chat | Terminal in the bar") }])
+            })
             list.append(scene("terminal-chosen") { app in
                 steps([{ opened(app) }, { tap(app.segmentedControls.buttons["Terminal"].firstMatch, "Terminal segment") }])
             })

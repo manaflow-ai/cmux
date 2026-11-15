@@ -137,16 +137,19 @@ struct TaskLaunchPrototype: View {
     }
 
     var body: some View {
-        Group {
-            switch variant {
-            case 1: ProtoTopSwitch(picks: picks, close: close)
-            case 2: ProtoTwoStarts(picks: picks, close: close)
-            default: ProtoSetupCard(picks: picks, close: close)
+        // The picker above the variant's own navigation bar (a top inset collapsed the bar).
+        VStack(spacing: 0) {
+            picker
+            Group {
+                switch variant {
+                case 1: ProtoTopSwitch(picks: picks, close: close)
+                case 2: ProtoTwoStarts(picks: picks, close: close)
+                default: ProtoSetupCard(picks: picks, close: close)
+                }
             }
+            // Instant switch: flipping variants is the harness's most frequent action.
+            .id(variant)
         }
-        // Instant switch: flipping variants is the harness's most frequent action.
-        .id(variant)
-        .safeAreaInset(edge: .top, spacing: 0) { picker }
         .overlay(alignment: .center) {
             if let started = picks.started {
                 ProtoStartedNote(text: started) { picks.started = nil }
