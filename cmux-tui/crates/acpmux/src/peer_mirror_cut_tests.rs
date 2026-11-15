@@ -247,8 +247,23 @@ async fn a_kill_at_each_unit_of_a_frame_ends_equal_to_the_uncut_run() {
         let (hub, mut writer) = Hub::open(directory.path(), 2, || 8).unwrap();
         let hub = Arc::new(hub);
         hydrate(&hub, &mut writer).await;
+        let mark = hub.mirror_mark(ORIGIN);
+        // Decision 264: a stored mark opens the origin as the mirror's, and v1's
+        // rows of it stay out until the dial.
+        assert_eq!(hub.source(ORIGIN), mark.map(|_| Source::Mirror), "killed after {stop}");
+        if mark.is_some() {
+            let mut v1_row = peer_row("v1-row", "v1's", 1);
+            v1_row.origin = ORIGIN.to_owned();
+            hub.submit_from(Source::V1, v1_row).unwrap();
+            writer.turn();
+            assert!(!titles(&hub, ORIGIN).contains_key("v1-row"), "killed after {stop}");
+        }
         let counters = DialCounters::default();
         let mut dial = dialer(&hub, &counters, MAX_UNIT_CHANGES);
+        dial.start();
+        dial.sid = "s".to_owned();
+        let whole = mark.is_some_and(|mark| mark.whole);
+        assert_eq!(counters.resumes.load(Ordering::Relaxed), u64::from(whole));
         let rest = after_mark(&hub, &ops);
         if !rest.is_empty() {
             cut(&mut dial, &mut writer, &rest, None).await;
@@ -256,6 +271,7 @@ async fn a_kill_at_each_unit_of_a_frame_ends_equal_to_the_uncut_run() {
         assert_eq!(titles(&hub, ORIGIN), want, "killed after {stop} units");
         assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), ops.last().map(Op::seq));
         assert_eq!(hub.mirror_counts().out_of_order, 0);
+        assert_eq!(counters.walks.load(Ordering::Relaxed), 0, "killed after {stop}: no walk");
     }
 }
 
