@@ -1443,6 +1443,41 @@ fn cmux_setup_mcp_remove_keeps_secrets_skips_the_manual_line_and_dry_run_only_pl
     assert_eq!(report["clients"][1]["leftover"]["remove"], "codex mcp remove cmux", "{report}");
 }
 
+/// A `cmux` entry that fetches cmux from a registry URL with credentials (`npx --registry
+/// https://user:token@…`) is listed with the URL redacted and is never removed: the token is
+/// printed nowhere, and cmux could not put it back.
+#[test]
+fn cmux_setup_mcp_redacts_a_registry_urls_credentials_and_keeps_the_entry() {
+    let world = World::new("mcpregistry").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let secret = "npm_live_token_9c1e";
+    std::fs::write(
+        world.home.join(".claude.json"),
+        json!({"mcpServers": {"cmux": {"type": "stdio", "command": "npx",
+            "args": ["-y", format!("--registry=https://me:{secret}@npm.example/"), "cmux", "mcp", "serve"], "env": {}}}})
+        .to_string(),
+    )
+    .unwrap();
+    for args in [&["setup", "mcp"][..], &["setup", "mcp", "--remove", "claude"]] {
+        let out = world.run(args);
+        let shown = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!shown.contains(secret), "{args:?} printed a secret: {shown}");
+    }
+    let report = world.json(&["setup", "mcp"]);
+    assert_eq!(
+        report["clients"][0]["leftover"]["args"][1], "--registry=https://<redacted>@npm.example/",
+        "{report}"
+    );
+    let kept = world.json(&["setup", "mcp", "--remove", "claude"]);
+    assert_eq!(kept["state"], "needs_user", "{kept}");
+    assert_eq!(kept["undo"], Value::Null);
+    assert!(world.take_mcp_calls().is_empty(), "an entry with a credential was removed");
+}
+
 /// The report the app reads (the fixture CmuxNext's tests read too): each installed agent and
 /// whether it gets cmux's server in cmux.
 #[test]

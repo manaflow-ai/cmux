@@ -144,3 +144,17 @@ fn a_chat_started_from_another_mac_follows_that_macs_answer() {
     let (instructions, _) = serve_with(r#"{"mcp": {"enabled": false}}"#, &chat("on"));
     assert!(!instructions.is_empty() && instructions.contains("false"), "{instructions}");
 }
+
+/// A Codex started in a cmux terminal with the answer not on: the shim tells the person's own
+/// stdio `cmux` entry `CMUX_AGENT_TOOLS_ANSWER=off`, and its `cmux mcp serve` follows that, as an
+/// agent cmux started, over `"mcp": {"enabled": true}` (which serves a caller outside cmux).
+#[test]
+fn a_terminal_codex_s_own_entry_follows_the_answer_the_shim_gives_it() {
+    let file = r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#;
+    let (instructions, tools) = serve_with(file, &[("CMUX_AGENT_TOOLS_ANSWER", "off")]);
+    assert!(instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
+    assert_eq!(tools, 1, "the off server's one tool");
+    // Without it, a caller outside cmux follows `mcp.enabled`.
+    let (instructions, _) = serve_with(file, &[]);
+    assert!(!instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
+}
