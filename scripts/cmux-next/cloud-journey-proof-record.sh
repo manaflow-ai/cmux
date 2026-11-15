@@ -12,7 +12,7 @@
 # this run's head commit (GITHUB_SHA: the commit the run deployed), run id and URL. Each file keeps the newest
 # KEEP entries (the gate reads two hours). TOKEN is a contents: write token (the job's GITHUB_TOKEN: its push
 # starts no workflow); it reaches git only as an extra header in the environment, never argv or a log. A push
-# that loses a race reads the branch again, at most 5 times (images/cmux-vm/image-roll-record.sh, the same way).
+# that loses a race reads the branch again, at most 5 times (the same way the cmux-vm image roll records its rolls).
 set -euo pipefail
 env_name="${1:?usage: cloud-journey-proof-record.sh ENV RESULT AT}"
 result="${2:?usage: cloud-journey-proof-record.sh ENV RESULT AT}"
