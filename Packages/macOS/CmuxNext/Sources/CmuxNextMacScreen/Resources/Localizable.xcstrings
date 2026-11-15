@@ -18996,6 +18996,137 @@
         }
       }
     },
+    "macScreen.home.askDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب أول اتصال الإذن على ذلك الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo povezivanje traži dozvolu na tom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Første forbindelse beder om lov på den Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim ersten Verbinden wird auf diesem Mac nachgefragt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first connect asks on that Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La primera conexión pide permiso en ese Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La première connexion demande l’autorisation sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La prima connessione chiede il permesso su quel Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の接続時に、そのMacで確認が表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការភ្ជាប់លើកដំបូងនឹងសួរនៅលើ Mac នោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음 연결할 때 그 Mac에서 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Første tilkobling spør på den Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pierwsze połączenie wymaga zgody na tamtym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A primeira conexão pede permissão naquele Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При первом подключении на том Mac появится запрос."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อครั้งแรกจะถามบน Mac เครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İlk bağlantıda o Mac’te izin istenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час першого підключення на тому Mac з’явиться запит."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lần kết nối đầu tiên sẽ hỏi trên máy Mac đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次连接时会在那台 Mac 上询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次連線時會在那部 Mac 上詢問。"
+          }
+        }
+      }
+    },
     "macScreen.home.blocked": {
       "extractionState": "manual",
       "localizations": {
@@ -19385,6 +19516,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "登入 cmux 即可在此處看到你的其他 Mac。"
+          }
+        }
+      }
+    },
+    "macScreen.home.firstUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أول مرة؟ 1. شغّل «السماح بـ Mac Screen» على الـ Mac الآخر. 2. انقر «عرض فقط» أو «تحكم كامل» هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvi put? 1. Uključite „Dozvoli Mac Screen“ na drugom Macu. 2. Ovdje kliknite „Samo pregled“ ili „Puna kontrola“."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Første gang? 1. Slå “Tillad Mac Screen” til på den anden Mac. 2. Klik på “Kun visning” eller “Fuld kontrol” her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum ersten Mal? 1. Schalte „Mac Screen erlauben“ auf dem anderen Mac ein. 2. Klicke hier auf „Nur ansehen“ oder „Volle Kontrolle“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First time? 1. Turn on Allow Mac Screen on the other Mac. 2. Click View Only or Full Control here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Primera vez? 1. Activa «Permitir Mac Screen» en el otro Mac. 2. Haz clic aquí en «Solo ver» o «Control total»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Première fois ? 1. Activez « Autoriser Mac Screen » sur l’autre Mac. 2. Cliquez ici sur « Affichage seul » ou « Contrôle total »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima volta? 1. Attiva “Consenti Mac Screen” sull’altro Mac. 2. Fai clic qui su “Solo visualizzazione” o “Controllo completo”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初めてですか? 1. もう一方のMacで「Mac Screenを許可」をオンにします。2. ここで「表示のみ」または「フルコントロール」をクリックします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លើកដំបូងមែនទេ? 1. បើក «អនុញ្ញាត Mac Screen» នៅលើ Mac ផ្សេងទៀត។ 2. ចុច «មើលតែប៉ុណ្ណោះ» ឬ «ការគ្រប់គ្រងពេញលេញ» នៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음이신가요? 1. 다른 Mac에서 ‘Mac Screen 허용’을 켜세요. 2. 여기에서 ‘보기 전용’ 또는 ‘전체 제어’를 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Første gang? 1. Slå på «Tillat Mac Screen» på den andre Macen. 2. Klikk på «Kun visning» eller «Full kontroll» her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pierwszy raz? 1. Włącz „Pozwalaj na Mac Screen” na drugim Macu. 2. Kliknij tutaj „Tylko podgląd” lub „Pełna kontrola”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primeira vez? 1. Ative “Permitir Mac Screen” no outro Mac. 2. Clique aqui em “Somente Visualização” ou “Controle Total”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Впервые? 1. Включите «Разрешить Mac Screen» на другом Mac. 2. Нажмите здесь «Только просмотр» или «Полный контроль»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ครั้งแรกใช่ไหม? 1. เปิด “อนุญาต Mac Screen” บน Mac อีกเครื่อง 2. คลิก “ดูเท่านั้น” หรือ “ควบคุมทั้งหมด” ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İlk kez mi? 1. Diğer Mac’te “Mac Screen’e izin ver”i açın. 2. Burada “Yalnızca Görüntüleme” veya “Tam Denetim”e tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уперше? 1. Увімкніть «Дозволити Mac Screen» на іншому Mac. 2. Натисніть тут «Лише перегляд» або «Повний контроль»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lần đầu? 1. Bật “Cho phép Mac Screen” trên máy Mac kia. 2. Nhấp “Chỉ xem” hoặc “Toàn quyền điều khiển” tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第一次使用？1. 在另一台 Mac 上打开“允许使用 Mac Screen”。2. 在这里点按“仅查看”或“完全控制”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第一次使用？1. 在另一部 Mac 上開啟「允許使用 Mac Screen」。2. 在這裡按一下「僅檢視」或「完全控制」。"
           }
         }
       }
@@ -20044,6 +20306,137 @@
         }
       }
     },
+    "macScreen.home.notSharedDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل «السماح بـ Mac Screen» على %@ لمشاركة شاشته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključite „Dozvoli Mac Screen“ na %@ da biste dijelili njegov ekran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå “Tillad Mac Screen” til på %@ for at dele dens skærm."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schalte „Mac Screen erlauben“ auf %@ ein, um seinen Bildschirm zu teilen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Allow Mac Screen on %@ to share its screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa «Permitir Mac Screen» en %@ para compartir su pantalla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez « Autoriser Mac Screen » sur %@ pour partager son écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva “Consenti Mac Screen” su %@ per condividerne lo schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で「Mac Screenを許可」をオンにすると、その画面を共有できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក «អនុញ្ញាត Mac Screen» នៅលើ %@ ដើម្បីចែករំលែកអេក្រង់របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 ‘Mac Screen 허용’을 켜서 화면을 공유하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå på «Tillat Mac Screen» på %@ for å dele skjermen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz „Pozwalaj na Mac Screen” na %@, aby udostępnić jego ekran."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative “Permitir Mac Screen” em %@ para compartilhar a tela dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите «Разрешить Mac Screen» на %@, чтобы поделиться его экраном."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด “อนุญาต Mac Screen” บน %@ เพื่อแชร์หน้าจอของเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekranını paylaşmak için %@ üzerinde “Mac Screen’e izin ver”i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкніть «Дозволити Mac Screen» на %@, щоб поділитися його екраном."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật “Cho phép Mac Screen” trên %@ để chia sẻ màn hình của máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上打开“允许使用 Mac Screen”以共享其屏幕。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上開啟「允許使用 Mac Screen」以分享其螢幕。"
+          }
+        }
+      }
+    },
     "macScreen.home.offline": {
       "extractionState": "manual",
       "localizations": {
@@ -20171,6 +20564,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "離線"
+          }
+        }
+      }
+    },
+    "macScreen.home.offlineDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح cmux على %@ لمشاركة شاشته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvorite cmux na %@ da biste dijelili njegov ekran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn cmux på %@ for at dele dens skærm."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne cmux auf %@, um seinen Bildschirm zu teilen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux on %@ to share its screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre cmux en %@ para compartir su pantalla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez cmux sur %@ pour partager son écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri cmux su %@ per condividerne lo schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@でcmuxを開くと、その画面を共有できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក cmux នៅលើ %@ ដើម្បីចែករំលែកអេក្រង់របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 cmux를 열어 화면을 공유하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne cmux på %@ for å dele skjermen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz cmux na %@, aby udostępnić jego ekran."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abra o cmux em %@ para compartilhar a tela dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Откройте cmux на %@, чтобы поделиться его экраном."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด cmux บน %@ เพื่อแชร์หน้าจอของเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekranını paylaşmak için %@ üzerinde cmux’u açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрийте cmux на %@, щоб поділитися його екраном."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở cmux trên %@ để chia sẻ màn hình của máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上打开 cmux 以共享其屏幕。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上開啟 cmux 以分享其螢幕。"
           }
         }
       }

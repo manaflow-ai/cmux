@@ -10385,7 +10385,15 @@ whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a
 mode that does not ask moves to its family's asking default; otherwise it is
-ended and the answer is `agent_session.not_asking`. When nothing listens on
+ended and the answer is `agent_session.not_asking`. A harness (or, with
+none named, a default) that acpmux's catalog does not have is not installed
+on this machine: `agent_session.harness_missing` with
+`data: {reason: "agent.not_installed", harness}` (`harness` only when it is a
+valid harness id). A `session/new` acpmux refuses for the route the agent's
+profile binds (`data.reason` `route.unavailable`, `route.not_found` or
+`route.invalid`: the cmux router harness on a machine with no signed-in local
+router, such as a Cloud machine) answers `agent_session.route_unavailable`
+with `data: {reason, harness}`, never acpmux's message (hq#11225). When nothing listens on
 the acpmux socket the daemon starts acpmux once (one start at a time), as
 `cmux acp` does, and answers `agent_session.acpmux_unavailable` if it still
 cannot connect (always, while acpmux is down, under `ACPMUX_SOCKET`). At

@@ -3,6 +3,7 @@ use super::agent_session_link::list_gate::SessionListFilter;
 use super::*;
 use crate::panic_free::JsonFields;
 use cmux_json::JsonSet as _;
+use std::sync::atomic::AtomicU64;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(
@@ -21,6 +22,7 @@ pub(super) fn connect_and_attach(
     let sessions = &mux.control_clients.agent_sessions;
     let release = |sessions: &AgentSessions| sessions.lock().reserved.remove(&(client, surface));
     let newest_first = params.get("afterSeq").is_none() || params.get("beforeSeq").is_some();
+    let filtered = params.get("kinds").is_some();
     let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
     let reader_slot = slot.clone();
     let reader_mux = Arc::downgrade(&mux);
@@ -122,6 +124,10 @@ pub(super) fn connect_and_attach(
         writer: writer.clone(),
         outbound,
         calls: AtomicUsize::new(0),
+        ordered_stream: !filtered && page.get("peer").is_none(),
+        next_stream_seq: AtomicU64::new(
+            page.get("lastSeq").and_then(Value::as_u64).map_or(0, |last| last.saturating_add(1)),
+        ),
         ended: AtomicBool::new(false),
         permissions: Mutex::default(),
         prompts: Mutex::default(),
@@ -311,6 +317,14 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         // A teammate never sees anyone's unsent text (chat-multiplayer design section 5).
         "_acpmux/event" if same_session && attachment.author.is_some() && is_draft(&params) => {}
         "_acpmux/event" if same_session => {
+            if params
+                .get("seq")
+                .and_then(Value::as_u64)
+                .is_some_and(|seq| !attachment.accepts_stream_seq(seq))
+            {
+                attachment.end(Some("gap"));
+                return;
+            }
             let event = json!({"event": "agent-session-record", "surface": attachment.surface, "record": params});
             // Never blocks: a client that does not keep up overflows its
             // stream, which ends with the `overflow` close (the stream's own

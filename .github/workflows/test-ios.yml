@@ -597,11 +597,16 @@ jobs:
       # tier do; a kept build recompiles only what the change touched.
       # scripts/ci/owned_spm_scratch.py has the rules (fingerprint per Xcode,
       # Swift, workspace path and bonsplit commit; least recently used pruning).
-      # Any failure leaves the packages to build cold as before.
+      # Any failure leaves the packages to build cold as before. The runner slots
+      # share one SwiftPM artifact cache; seeding it first keeps two slots from
+      # downloading one new binary artifact at once ("already exists in file
+      # system"): scripts/ci/swiftpm_prefetch_binary_artifacts.py.
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
       - name: Run CMUXMobileCore package tests
         if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CMUXMobileCore' }}

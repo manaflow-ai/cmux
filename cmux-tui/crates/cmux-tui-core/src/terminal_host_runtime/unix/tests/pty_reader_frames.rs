@@ -225,3 +225,90 @@ fn thread_cpu_seconds() -> f64 {
     assert_eq!(status, 0, "clock_gettime: {}", std::io::Error::last_os_error());
     now.tv_sec as f64 + now.tv_nsec as f64 / 1e9
 }
+
+/// The host parser's per-frame work, one step at a time, on the host-stage
+/// payload in `CMUX_HOST_FRAME_BYTES` frames (default 16 KiB, the PTY
+/// reader's flood frame): which of the steps the parser runs besides the
+/// ghostty-vt parse costs what. Each step runs over the whole payload on its
+/// own, so its MB/s is the cap it alone puts on the parser thread.
+#[test]
+#[ignore = "a throughput bench; run with --ignored --nocapture"]
+fn host_parser_frame_breakdown_bench() {
+    let mb: usize = std::env::var("CMUX_HOST_STAGE_MB")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(200);
+    let frame_bytes: usize = std::env::var("CMUX_HOST_FRAME_BYTES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(16 * 1024);
+    let payload = bench_payload(mb * 1_000_000);
+    let frames: Vec<&[u8]> = payload.chunks(frame_bytes).collect();
+    let report = |step: &str, seconds: f64| {
+        let mb_s = payload.len() as f64 / 1_000_000.0 / seconds;
+        let ns_frame = seconds * 1e9 / frames.len() as f64;
+        println!(
+            "HOST-FRAME-STEP {{\"step\":\"{step}\",\"frame_bytes\":{frame_bytes},\"seconds\":{seconds:.4},\"mb_s\":{mb_s:.1},\"ns_per_frame\":{ns_frame:.0}}}"
+        );
+    };
+    let terminal = || Terminal::new(120, 40, 10_000_000, Callbacks::default()).unwrap();
+
+    let mut term = terminal();
+    let started = Instant::now();
+    for frame in &frames {
+        term.vt_write(frame);
+    }
+    report("vt_write", started.elapsed().as_secs_f64());
+
+    let mut term = terminal();
+    let mut marks = crate::prompt_mode_reset::ShellMarks::default();
+    let started = Instant::now();
+    for frame in &frames {
+        std::hint::black_box(crate::prompt_mode_reset::write_output(&mut term, frame, &mut marks));
+    }
+    report("write_output", started.elapsed().as_secs_f64());
+
+    let mut titles = crate::terminal_title::TitleTracker::default();
+    let started = Instant::now();
+    for frame in &frames {
+        std::hint::black_box(titles.rewrite(frame));
+    }
+    report("title_rewrite", started.elapsed().as_secs_f64());
+
+    let started = Instant::now();
+    for frame in &frames {
+        std::hint::black_box(memchr::memmem::find(frame, b"\x1b]133;"));
+    }
+    report("prompt_mark_find", started.elapsed().as_secs_f64());
+
+    let mut metadata = crate::terminal_metadata::TerminalMetadata::default();
+    let started = Instant::now();
+    for frame in &frames {
+        metadata.observe_output(frame);
+    }
+    report("metadata_observe_output", started.elapsed().as_secs_f64());
+
+    // What the parser runs instead of the two scans above: one walk.
+    let mut metadata = crate::terminal_metadata::TerminalMetadata::default();
+    let mut titles = crate::terminal_title::TitleTracker::default();
+    let started = Instant::now();
+    for frame in &frames {
+        std::hint::black_box(metadata.observe_output_rewriting_titles(&mut titles, frame));
+    }
+    report("shared_scan", started.elapsed().as_secs_f64());
+
+    let term = terminal();
+    let started = Instant::now();
+    for _ in &frames {
+        std::hint::black_box(crate::terminal_activity::terminal_modes(&term));
+    }
+    report("terminal_modes", started.elapsed().as_secs_f64());
+
+    let started = Instant::now();
+    for frame in &frames {
+        std::hint::black_box(frame.to_vec());
+    }
+    report("frame_copy", started.elapsed().as_secs_f64());
+}
