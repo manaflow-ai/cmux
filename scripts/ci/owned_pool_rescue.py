@@ -5361,11 +5361,21 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
     following = attempt + 1
     head = str(run.get("head_sha") or "")
     pulls = [int(pr["number"]) for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
-    for number in pulls:
+    if not pulls:
+        # Only a pull request's run has a head to check: a re-run of an older push or dispatch would join its
+        # concurrency group and cancel a newer run there.
+        return f"not re-run: run {run_id} names no pull request, so whether its head is current cannot be checked"
+
+    def head_moved() -> str:
         # A re-run of a superseded head would join its concurrency group and cancel the newer head's run.
-        pull = read(lambda: api.pull(number), sleep, log) or {}
-        if pull.get("state") != "open" or str((pull.get("head") or {}).get("sha") or "") != head:
-            return f"not re-run: PR #{number} is no longer open at the run's head {head[:12]}"
+        for number in pulls:
+            pull = read(lambda: api.pull(number), sleep, log) or {}
+            if pull.get("state") != "open" or str((pull.get("head") or {}).get("sha") or "") != head:
+                return f"PR #{number} is no longer open at the run's head {head[:12]}"
+        return ""
+    moved = head_moved()
+    if moved:
+        return f"not re-run: {moved}"
     jobs = read(lambda: api.jobs(run_id, attempt), sleep, log)
     running = sorted(str(job.get("name") or job.get("id")) for job in jobs if job_running(job))
     if running:
@@ -5375,8 +5385,6 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
              or job.get("conclusion") in ("failure", "cancelled", "timed_out")]
     if not again:
         return f"not re-run: attempt {attempt} of run {run_id} has no failed, cancelled or waiting job"
-    if not pulls and run.get("event") in ("pull_request", "pull_request_target"):
-        return f"not re-run: pull request run {run_id} names no pull request, so its head cannot be checked"
     plan: PlacementRerun | None = None
     if path == CMUX_NEXT_WORKFLOW_PATH and following <= CMUX_NEXT_LAST_PLACED_ATTEMPT:
         try:
@@ -5438,6 +5446,10 @@ def rerun_named(api: GitHub, run_id: int, repository: str, *, now: Callable[[], 
             if waited >= CANCEL_WAIT_SECONDS:
                 return f"cancelled run {run_id}, not re-run: it had not finished after {CANCEL_WAIT_SECONDS}s"
         log(f"{CANCEL_SETTLED} run {run_id} attempt {attempt}")
+        # A push during the settle (its concurrency cancel can finish this run) makes this head superseded.
+        moved = head_moved()
+        if moved:
+            return f"cancelled run {run_id}, not re-run: {moved}"
     if plan is not None:
         api.rerun_job(run_id, plan.job_id, following)
         return (f"re-ran {plan.placement_job} of run {run_id} and every job that needs it as attempt "

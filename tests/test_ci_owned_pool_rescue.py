@@ -2523,6 +2523,16 @@ class RerunInput(unittest.TestCase):
             run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
             self.assertIn("rerun-failed", api.calls)
 
+    def test_a_push_during_the_settle_leaves_the_old_head_cancelled(self):
+        clock = Clock()
+        api = RerunAPI(clock)
+        original = api.pull
+        api.pull = lambda number: {**original(number), "head": {"sha": HEAD if api.cancelled_at is None else "b" * 40}}
+        _, summary = run_rerun(api, clock)
+        self.assertIn("cancel", api.calls)
+        self.assertFalse(any(call.startswith("rerun") for call in api.calls), api.calls)
+        self.assertIn("no longer open at the run's head", summary)
+
     def test_a_job_a_runner_takes_before_the_cancel_keeps_the_run(self):
         clock = Clock()
         api = RerunAPI(clock)
