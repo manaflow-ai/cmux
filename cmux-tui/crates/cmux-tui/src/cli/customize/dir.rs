@@ -99,26 +99,46 @@ fn build_all(dir: &Path, out: &Path) -> Result<(), Failure> {
     run(dir, BUILD, &["--out-root", &out])
 }
 
-/// Builds the three overlay surfaces of `dir` into `out`, side by side.
+/// Builds the three overlay surfaces of `dir` into `out`, side by side: the
+/// three builders run at once, each writing its output to a log in `out`
+/// (a pipe each would stall a builder while another is waited on).
 fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
-    let jobs: Vec<_> = BUILDERS
-        .iter()
-        .zip(SURFACES.iter())
-        .map(|((builder, extra), (prefix, _))| {
-            let dir = dir.to_path_buf();
-            let target = out.join(prefix.trim_end_matches('/')).to_string_lossy().into_owned();
-            let mut args: Vec<String> = extra.iter().map(|arg| (*arg).to_owned()).collect();
-            args.extend(["--out".to_owned(), target]);
-            std::thread::spawn(move || {
-                let args: Vec<&str> = args.iter().map(String::as_str).collect();
-                run(&dir, builder, &args)
-            })
-        })
-        .collect();
+    std::fs::create_dir_all(out).map_err(|error| failure(format!("{}: {error}", out.display())))?;
+    let mut started = Vec::new();
+    for ((builder, extra), (prefix, _)) in BUILDERS.iter().zip(SURFACES.iter()) {
+        let name = prefix.trim_end_matches('/');
+        let log = out.join(format!(".{name}.log"));
+        let file = std::fs::File::create(&log)
+            .map_err(|error| failure(format!("{}: {error}", log.display())))?;
+        let copy =
+            file.try_clone().map_err(|error| failure(format!("{}: {error}", log.display())))?;
+        let target = out.join(name);
+        let child = cmux_process::Command::new(dir.join(builder))
+            .args(extra.iter().copied())
+            .arg("--out")
+            .arg(&target)
+            .current_dir(dir)
+            .stdin(cmux_process::Stdio::null())
+            .stdout(file)
+            .stderr(copy)
+            .spawn()
+            .map_err(|error| failure(format!("{builder}: {error}")));
+        started.push((*builder, log, child));
+    }
     let mut first = Ok(());
-    for job in jobs {
-        let result =
-            job.join().unwrap_or_else(|_| Err(failure("a web builder thread stopped".into())));
+    for (builder, log, child) in started {
+        let result = child.and_then(|mut child| {
+            let status = child.wait().map_err(|error| failure(format!("{builder}: {error}")))?;
+            if status.success() {
+                return Ok(());
+            }
+            let text = std::fs::read_to_string(&log).unwrap_or_default();
+            let lines: Vec<&str> = text.lines().collect();
+            let tail =
+                lines.iter().skip(lines.len().saturating_sub(25)).copied().collect::<Vec<_>>();
+            Err(failure(format!("{builder} failed:\n{}", tail.join("\n"))))
+        });
+        let _ = std::fs::remove_file(&log);
         if first.is_ok() {
             first = result;
         }
@@ -410,7 +430,7 @@ fn watch_folder(
                 }
             }
             Err(error) => {
-                println!("  the build failed; the last layer stays on:\n{}", error.message)
+                println!("  the build failed; the last layer stays on:\n{}", error.message);
             }
         }
         // What the build itself changed (generated files git does not ignore,
