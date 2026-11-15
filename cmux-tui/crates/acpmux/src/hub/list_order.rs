@@ -132,6 +132,14 @@ impl Hub {
         let _ = self.own_rows_from(None, 0);
     }
 
+    /// The order as a deferred start holds it before its load pass (`Hub::new` sorts it at
+    /// once): never sorted, so the first reader sorts every chat.
+    #[cfg(test)]
+    pub(crate) fn unsort_list_order_for_test(&self) {
+        let mut order = self.list_order.0.lock().unwrap_or_else(|e| e.into_inner());
+        *order = Order::default();
+    }
+
     #[cfg(test)]
     pub(crate) fn list_order_rebuilds_for_test(&self) -> u64 {
         self.list_order.0.lock().unwrap_or_else(|e| e.into_inner()).rebuilds

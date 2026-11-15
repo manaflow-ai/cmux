@@ -265,18 +265,6 @@ impl Hub {
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
     }
 
-    /// A whole pass's first two parts, each timed in µs: its candidates, and their metadata
-    /// tests with the sources they give; and how many sources. The pass itself is not run.
-    pub(crate) async fn usage_parts_for_test(&self) -> (u128, u128, usize) {
-        let now = crate::store::now_ms();
-        let at = std::time::Instant::now();
-        let candidates = self.usage_candidates(now);
-        let candidates_us = at.elapsed().as_micros();
-        let at = std::time::Instant::now();
-        let sources = self.usage_sources(&candidates, now).await;
-        (candidates_us, at.elapsed().as_micros(), sources.len())
-    }
-
     /// How many whole passes ran, and how many chats the last one read.
     pub(crate) fn usage_passes_for_test(&self) -> (u64, usize) {
         let cache = &self.usage_stats;

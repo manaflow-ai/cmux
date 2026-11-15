@@ -166,6 +166,7 @@ async fn a_pass_before_the_order_is_sorted_sorts_it_once() {
         hub.store.save(&chat).unwrap();
         hub.insert_test_session(chat);
     }
+    hub.unsort_list_order_for_test();
     assert_eq!(hub.list_order_rebuilds_for_test(), 0, "not sorted yet");
     hub.refresh_usage_stats().await;
     assert_eq!(hub.list_order_rebuilds_for_test(), 1, "the pass sorted it");
