@@ -1231,7 +1231,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     crate::home_fs::create_dir_all(dir, 0o700)?;
     crate::home_fs::set_mode(dir, 0o700)?;
     // The copy of a writer stopped before its rename is removed by the next write.
-    crate::config::write_atomic(path, bytes)
+    crate::config::write_atomic_checked(path, bytes)
 }
 /// Windows: the folder and the file owner-only (`owner_only.rs`).
 #[cfg(windows)]

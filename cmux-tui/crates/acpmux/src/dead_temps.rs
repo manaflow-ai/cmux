@@ -22,6 +22,9 @@ const MAX_NAMES: usize = 1024;
 const QUIET: Duration = Duration::from_secs(60);
 /// The files whose last sweep is remembered; past it all are forgotten, and swept again once.
 const MAX_REMEMBERED: usize = 1024;
+/// The highest pid any supported system hands out (Linux's `pid_max` limit, 2^22; macOS stops
+/// below 100000). A larger number (a date, `notes.tmp-20261115`) is no writer's pid.
+const MAX_PID: u32 = 1 << 22;
 
 /// [`remove`] for the copies the `path.with_extension("tmp-…")` writers leave beside `path`
 /// (`<stem>.tmp-<pid>…`).
@@ -85,7 +88,7 @@ fn pid_after(name: &str, prefix: &str) -> Option<u32> {
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    digits.parse().ok().filter(|pid| *pid > 0)
+    digits.parse().ok().filter(|pid| (1..=MAX_PID).contains(pid))
 }
 
 /// Whether a process with `pid` runs now. When that cannot be told, it is taken to run.
@@ -119,6 +122,8 @@ mod tests {
         assert_eq!(pid_after("refusal.tmp-12a-1", "refusal.tmp-"), None);
         assert_eq!(pid_after("refusal.tmp-", "refusal.tmp-"), None);
         assert_eq!(pid_after("refusal.tmp-0-1", "refusal.tmp-"), None);
+        assert_eq!(pid_after("refusal.tmp-4194304-1", "refusal.tmp-"), Some(4_194_304));
+        assert_eq!(pid_after("refusal.tmp-20261115", "refusal.tmp-"), None);
         assert_eq!(pid_after("consent.tmp-123-4", "refusal.tmp-"), None);
     }
 }

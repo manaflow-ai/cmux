@@ -114,7 +114,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
     // gets the file. Owner-only whatever the umask, like the rest of the acpmux home.
     crate::home_fs::create_dir_all(dir, 0o700)?;
-    crate::config::write_atomic(path, bytes).map_err(std::io::Error::other)
+    crate::config::write_atomic_checked(path, bytes).map_err(std::io::Error::other)
 }
 
 impl Default for CatalogService {
