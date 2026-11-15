@@ -190,6 +190,21 @@ class Scene(bm.Scene):
             time.sleep(0.1)
         time.sleep(0.8)
 
+    def cover(self):
+        """The covered scene: the Person window above every other window (window-server z-order), Person frontmost
+        and key. Re-activating an app that is already active does not reorder its windows, so raise the window."""
+        ppid = self.person_pid()
+        s = {}
+        for _ in range(30):
+            bm.probe("raise", ppid, "Person")
+            s = bm.probe("state")
+            z = s.get("zorder") or []
+            if z and z[0].get("pid") == ppid and s.get("front_pid") == ppid and s.get("key_window_title") == "Person":
+                return True
+            time.sleep(0.15)
+        self.last_front = f"top window {((s.get('zorder') or [{}])[0]).get('owner')!r}, front {s.get('front_name')!r}"
+        return False
+
     def front_target(self, pid, title):
         s = {}
         for _ in range(30):
@@ -1010,9 +1025,11 @@ def run_cell(arm, scene, app, cell, w, rep, scene_kind, ctx, out, late):
         lab.cmd("reset")
         time.sleep(0.25)
     # arrange the scene
-    if scene_kind == "bg":
+    if scene_kind in ("bg", "bgc"):
         if not scene.front_person():
             note = "person could not be made frontmost"
+        elif scene_kind == "bgc" and not scene.cover():
+            note = "person window could not be put above the target: " + getattr(scene, "last_front", "")
     else:
         if not scene.front_target(ctx["pid"], ctx["title"] if not lab else lab_window_for(cell.name)):
             note = "target could not be made frontmost and key: " + getattr(scene, "last_front", "")
@@ -1110,7 +1127,11 @@ def run_cell(arm, scene, app, cell, w, rep, scene_kind, ctx, out, late):
         "scored_call": scored, "calls": arm.calls, "events": c["evs"][:80], "obs_side_effects": obs_side[:10],
         "silent": bool(c.get("silent")), "side_effects": c.get("side_effects", []), "note": note, "target_window": {k: v for k, v in w.items() if k != "raw"},
     }
-    if scene_kind == "bg":
+    tw = int(w["wid"]) if str(w.get("wid", "")).isdigit() else None
+    zids = bm.zorder_ids(pre_state)
+    row.update(z_top_before=(pre_state.get("zorder") or [{}])[0].get("owner"), z_before=zids[:8], z_after=bm.zorder_ids(post_state)[:8],
+               target_covered=bool(tw in zids and zids.index(tw) > 0 and (pre_state.get("zorder") or [{}])[0].get("pid") == scene.person_pid()))
+    if scene_kind in ("bg", "bgc"):
         row.update(front_ok=fronts == [ppid], key_ok=keys == ["Person"], pointer_ok=len(ptrs) == 1, keys_ok=not leaked,
                    zorder_ok=z_ok, fixture_focus_events=focus_evs[:5], leaked_keys=leaked[:20], fronts_seen=fronts,
                    keys_seen=keys)

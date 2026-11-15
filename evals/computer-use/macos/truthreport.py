@@ -79,9 +79,16 @@ def build(arms, agent_dirs, out, videos):
     # ---- headline per arm
     md.append("### Engine-claim accuracy, every scored action (both scenes, 3 reps)\n")
     md.append(md_table(CONF_HEAD, [conf_row(a, conf(rs)) for a, rs in arms.items()]))
-    for scene in ("bg", "fg"):
-        md.append(f"\n### Scene {scene} ({'person in front, target covered' if scene == 'bg' else 'target frontmost and key'})\n")
-        md.append(md_table(CONF_HEAD, [conf_row(a, conf([r for r in rs if r["scene"] == scene])) for a, rs in arms.items()]))
+    SCENES = {"bg": "the person's app frontmost, key and typing; the target app in the background (lab windows not "
+                    "covered, see notes)",
+              "bgc": "as bg, and the Person window above the target window (covered), checked before every cell",
+              "fg": "target app frontmost, target window key"}
+    for scene, what in SCENES.items():
+        rows_s = {a: [r for r in rs if r["scene"] == scene] for a, rs in arms.items()}
+        if not any(rows_s.values()):
+            continue
+        md.append(f"\n### Scene {scene}: {what}\n")
+        md.append(md_table(CONF_HEAD, [conf_row(a, conf(x)) for a, x in rows_s.items() if x]))
     md.append("\n### Lab fixture (oracle) vs real apps\n")
     t = []
     for a, rs in arms.items():
@@ -110,7 +117,7 @@ def build(arms, agent_dirs, out, videos):
                 t.append(conf_row(f"{app} / {a}", c))
     md.append(md_table(CONF_HEAD, t))
     # ---- per action matrix: outcome counts
-    md.append("\n### Per action (outcomes over 3 reps; bg | fg)\n")
+    md.append("\n### Per action (outcomes over 3 reps; bg | bgc | fg)\n")
     acts = []
     for r in (r for rs in arms.values() for r in rs):
         k = (r["app"], r["action"])
@@ -122,7 +129,7 @@ def build(arms, agent_dirs, out, videos):
         line = [app, act]
         for a, rs in arms.items():
             cells = []
-            for scene in ("bg", "fg"):
+            for scene in ("bg", "bgc", "fg"):
                 cs = Counter(r["outcome"] for r in rs if r["app"] == app and r["action"] == act and r["scene"] == scene)
                 cells.append(" ".join(f"{k}{v}" for k, v in sorted(cs.items())) or "–")
             line.append(" \\| ".join(cells))
@@ -157,10 +164,10 @@ def build(arms, agent_dirs, out, videos):
                   ", ".join(f"{r['action']}({r['scene']}) {r['effect_ms']}ms" for r in fn_late[:6]) or "–"])
     md.append(md_table(["arm", "effects", "p5", "p50", "p95", "max", "after +500 ms", "FN effects"], t))
     # ---- background safety
-    md.append("\n### Background safety (bg scene)\n")
+    md.append("\n### Background safety (bg and bgc scenes)\n")
     t = []
     for a, rs in arms.items():
-        bg = [r for r in rs if r["scene"] == "bg" and "background_safe" in r and r["outcome"] != "no_action"]
+        bg = [r for r in rs if r["scene"] in ("bg", "bgc") and "background_safe" in r and r["outcome"] != "no_action"]
         bad = [r for r in bg if not r["background_safe"]]
         why = Counter()
         for r in bad:
