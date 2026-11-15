@@ -89,7 +89,11 @@ class ProcessTreeReapingTests(unittest.TestCase):
                 sent.clear()
                 target = ExitedProcess() if terminate is tree.terminate else ExitedProcess.pid
                 if terminate is tree.terminate_pid:
-                    tree.os.waitpid = lambda *_args: (ExitedProcess.pid, 0)
+                    # Only the fake child is stubbed: a refused killpg runs `ps` (kill_group), and subprocess reaps
+                    # that through the same os.waitpid.
+                    real_waitpid = os.waitpid
+                    tree.os.waitpid = lambda pid, options: (
+                        (ExitedProcess.pid, 0) if pid == ExitedProcess.pid else real_waitpid(pid, options))
                 terminate(target, tree=[(4242, "sleep")])
                 assert (4242, signal.SIGTERM) in sent, sent
                 assert (4242, signal.SIGKILL) in sent, sent
