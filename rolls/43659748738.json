@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43659748738",
+  "recorded_at": "2026-11-15T00:52:40Z",
+  "reason": "cmux-tui 0651577f923b changes the image's cmux-tui (pinned 2b4882297582)",
+  "dry_run": false,
+  "cmux_tui": "0651577f923b2d60bcac4947c025a31c8606bc4f",
+  "fixes": [
+    {
+      "sha": "0651577f923b2d60bcac4947c025a31c8606bc4f",
+      "mergedAt": "2026-11-14T16:25:22-08:00",
+      "subject": "cmux mcp serve: an idle chat's other servers end instead of running for days (#43359)"
+    },
+    {
+      "sha": "5923118cb6c228cc459462411a59240971dbf026",
+      "mergedAt": "2026-11-14T16:21:00-08:00",
+      "subject": "v2 peer mirror, the dialer: a unit names the mark it follows (row 8 part two, PR B) (#43128)"
+    },
+    {
+      "sha": "8b87c15c9a9ea03d5d15dfb3ff616aa46cc2077c",
+      "mergedAt": "2026-11-14T16:06:17-08:00",
+      "subject": "[next-no-huge-files] split cmux-remote process event log (#43313)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T00:52:40Z",
+    "snapshot_id": "sh-215e8f3c30b84a4dbcae54d37f9c86fe",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43659748738): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "06293f6ef3d135ee1b33a48af35dcc7f210cced3",
+    "image": "cloud-native-auto-0651577f-43659748738-1",
+    "revision": "ci-43659748738-1",
+    "at": "2026-11-15T00:52:40Z"
+  },
+  "rolled_back": false
+}
