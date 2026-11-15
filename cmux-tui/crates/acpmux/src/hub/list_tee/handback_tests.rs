@@ -168,6 +168,7 @@ async fn peers_off_writes_off_the_mark_and_v1_holds_the_rows() {
     mirrored(&earlier.hub).await;
     let v2 = v2_over((*earlier.hub.snapshot()).clone(), &["list"]);
     assert!(v2.hub.mirror_mark(SSH).is_some());
+    assert_eq!(v2.hub.source(SSH), Some(Source::Mirror), "the mark opens it as the mirror's");
     let v1 = v1_hub();
     ssh_row(&v1, "r1");
     ssh_row(&v1, "r2");

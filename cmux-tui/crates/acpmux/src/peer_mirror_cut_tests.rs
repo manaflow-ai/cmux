@@ -259,6 +259,63 @@ async fn a_kill_at_each_unit_of_a_frame_ends_equal_to_the_uncut_run() {
     }
 }
 
+/// Decision 264: a hub opened again from its store (not the same object)
+/// holds the origin as the mirror's while its mark is on. Between the open
+/// and the dial no v1 row of the origin goes in, and the dial resumes from
+/// the whole mark with no walk, ending equal to the peer.
+#[tokio::test]
+async fn a_hub_opened_from_its_store_resumes_its_mirror_with_no_walk() {
+    let peer = peer_hub();
+    peer_rows(&peer, 3 * MAX_UNIT_CHANGES, 1).await;
+    let directory = tempfile::tempdir().unwrap();
+    {
+        let (local, writer) = Hub::open(directory.path(), 1, || 7).unwrap();
+        let writing = tokio::spawn(writer.run());
+        let local = Arc::new(local);
+        let link = dial(&peer, &local);
+        until("the walk ended whole", || {
+            local.mirror_mark(ORIGIN).is_some_and(|mark| mark.whole)
+                && titles(&local, ORIGIN).len() == 3 * MAX_UNIT_CHANGES
+        })
+        .await;
+        link.end();
+        local.close();
+        writing.await.unwrap().unwrap();
+    }
+    peer.submit(peer_row("r00000", "changed while down", 1_000_000)).unwrap();
+    let (local, writer) = Hub::open(directory.path(), 2, || 8).unwrap();
+    tokio::spawn(writer.run());
+    let local = Arc::new(local);
+    local.wait_hydrated().await.unwrap();
+    assert_eq!(
+        local.source(ORIGIN),
+        Some(Source::Mirror),
+        "the stored mark opens it as the mirror's"
+    );
+    let mut v1_row = peer_row("v1-row", "v1's", 1);
+    v1_row.origin = ORIGIN.to_owned();
+    // What v1's tee would submit: the writer refuses it for the mirror's origin.
+    local.submit_from(Source::V1, v1_row).unwrap();
+    let mut mine = peer_row("mine", "a later local row", 2);
+    mine.origin = "local".to_owned();
+    local.submit(mine).unwrap();
+    until("the writer took both", || titles(&local, "local").contains_key("mine")).await;
+    assert!(
+        !titles(&local, ORIGIN).contains_key("v1-row"),
+        "no v1 row of the mirror's origin went in"
+    );
+    let link = dial(&peer, &local);
+    until("the resume brought the change", || {
+        titles(&local, ORIGIN).get("r00000").map(String::as_str) == Some("changed while down")
+    })
+    .await;
+    assert_eq!(link.counters.walks.load(Ordering::Relaxed), 0, "a resume, not a walk");
+    assert_eq!(link.counters.resumes.load(Ordering::Relaxed), 1);
+    assert_eq!(titles(&local, ORIGIN), titles(&peer, PEER_LOCAL));
+    assert!(!titles(&local, ORIGIN).contains_key("v1-row"));
+    link.end();
+}
+
 /// (d) 10,000 random runs: a random live frame cut into units of a random
 /// size, killed after a random unit, then the changes past the mark; each
 /// run ends equal to the uncut run. The index the writer published is what a
