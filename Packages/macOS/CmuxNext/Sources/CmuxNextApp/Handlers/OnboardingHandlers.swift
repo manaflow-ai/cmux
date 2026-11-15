@@ -188,6 +188,6 @@ enum ClassicImportStrings {
 
     @MainActor static func toast(_ message: String, in window: NSWindow?, importAgain: (() -> Void)? = nil) {
         guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        ClassicImportPrompt.toast(message, in: window, importAgain: importAgain)
+        CmuxToastCenter.shared.showClassicImport(message, in: window, importAgain: importAgain)
     }
 }

@@ -1,23 +1,21 @@
 public import Foundation
 
 /// The classic import prompt's words (table `ImportSuggestions`), in plain sentences (Leo 2026-11-15, on the
-/// label-and-number list it replaced: "this is kinda strange. what happened here?"): what comes over and when
-/// classic saved it, what opening it does, then only the cautions that apply. A count of zero never shows.
-public nonisolated struct ClassicImportPreviewStrings: Sendable {
+/// label-and-number list it replaced: "this is kinda strange. what happened here?") for one classic save: what comes
+/// over and when classic saved it, what opening it does, then only the cautions that apply. A count of zero never shows.
+public nonisolated struct ClassicImportPreviewStrings: Equatable, Sendable {
     /// What one classic save brings, as the daemon previewed it.
-    public struct Counts: Equatable, Sendable {
-        public var workspaces, browserTabs, filePages, sshWorkspaces, agentChats, skippedCloudVMs, cleanup: Int
+    public var workspaces, browserTabs, filePages, sshWorkspaces, agentChats, skippedCloudVMs, cleanup: Int
 
-        public init(workspaces: Int, browserTabs: Int = 0, filePages: Int = 0, sshWorkspaces: Int = 0, agentChats: Int = 0,
-                    skippedCloudVMs: Int = 0, cleanup: Int = 0) {
-            self.workspaces = workspaces
-            self.browserTabs = browserTabs
-            self.filePages = filePages
-            self.sshWorkspaces = sshWorkspaces
-            self.agentChats = agentChats
-            self.skippedCloudVMs = skippedCloudVMs
-            self.cleanup = cleanup
-        }
+    public init(workspaces: Int, browserTabs: Int = 0, filePages: Int = 0, sshWorkspaces: Int = 0, agentChats: Int = 0,
+                skippedCloudVMs: Int = 0, cleanup: Int = 0) {
+        self.workspaces = workspaces
+        self.browserTabs = browserTabs
+        self.filePages = filePages
+        self.sshWorkspaces = sshWorkspaces
+        self.agentChats = agentChats
+        self.skippedCloudVMs = skippedCloudVMs
+        self.cleanup = cleanup
     }
 
     public static var title: String {
@@ -31,30 +29,32 @@ public nonisolated struct ClassicImportPreviewStrings: Sendable {
         String(localized: "classicImport.preview.notNow", defaultValue: "Not Now", table: "ImportSuggestions", bundle: .module)
     }
 
-    /// The prompt's lines for a save of classic app `app` (as its Dock names it). At launch the last line says
-    /// where the import waits, so a Not Now needs no toast after it.
-    public static func lines(_ counts: Counts, app: String, savedAt: Date, classicRunning: Bool, atLaunch: Bool) -> [String] {
-        let effects = (counts.browserTabs + counts.filePages > 0 ? [pagesLoad] : [])
-            + (counts.sshWorkspaces > 0 ? [hostsConnect] : []) + (counts.agentChats > 0 ? [chatsResume] : [])
-        var lines = [summary(counts, app: app, savedAt: savedAt, classicRunning: classicRunning),
-                     effects.isEmpty ? opensAsSaved : String(format: opensAsSavedDoing, ListFormatter.localizedString(byJoining: effects))]
-        if classicRunning { lines.append(String(format: stillOpen, app)) }
-        if counts.skippedCloudVMs > 0 { lines.append(cloudVMsSkipped(counts.skippedCloudVMs)) }
-        if counts.cleanup > 0 { lines.append(interruptedClose(counts.cleanup)) }
-        if atLaunch { lines.append(later) }
+    /// The prompt's lines for this save of classic app `app` (as its Dock names it). At launch the last line says
+    /// where the import waits.
+    public func lines(app: String, savedAt: Date, classicRunning: Bool, atLaunch: Bool) -> [String] {
+        typealias S = Self
+        let effects = (browserTabs + filePages > 0 ? [S.pagesLoad] : [])
+            + (sshWorkspaces > 0 ? [S.hostsConnect] : []) + (agentChats > 0 ? [S.chatsResume] : [])
+        var lines = [summary(app: app, savedAt: savedAt, classicRunning: classicRunning),
+                     effects.isEmpty ? S.opensAsSaved : String(format: S.opensAsSavedDoing, ListFormatter.localizedString(byJoining: effects))]
+        if classicRunning { lines.append(String(format: S.stillOpen, app)) }
+        if skippedCloudVMs > 0 { lines.append(S.cloudVMsSkipped(skippedCloudVMs)) }
+        if cleanup > 0 { lines.append(S.interruptedClose(cleanup)) }
+        if atLaunch { lines.append(S.later) }
         return lines
     }
 
     /// "8 workspaces, 2 browser tabs and 1 agent chat from cmux, saved today at 1:47 PM." Workspaces always (a
     /// run may only replace interrupted ones); the rest only when there are some.
-    public static func summary(_ counts: Counts, app: String, savedAt: Date, classicRunning: Bool) -> String {
-        let parts = [workspaces(counts.workspaces)]
-            + (counts.browserTabs > 0 ? [browserTabs(counts.browserTabs)] : []) + (counts.filePages > 0 ? [filePages(counts.filePages)] : [])
-            + (counts.sshWorkspaces > 0 ? [sshWorkspaces(counts.sshWorkspaces)] : []) + (counts.agentChats > 0 ? [agentChats(counts.agentChats)] : [])
+    public func summary(app: String, savedAt: Date, classicRunning: Bool) -> String {
+        typealias S = Self
+        let parts = [S.workspaces(workspaces)]
+            + (browserTabs > 0 ? [S.browserTabs(browserTabs)] : []) + (filePages > 0 ? [S.filePages(filePages)] : [])
+            + (sshWorkspaces > 0 ? [S.sshWorkspaces(sshWorkspaces)] : []) + (agentChats > 0 ? [S.agentChats(agentChats)] : [])
         let format = classicRunning
             ? String(localized: "classicImport.preview.summaryAutosaved", defaultValue: "%1$@ from %2$@, autosaved %3$@.", table: "ImportSuggestions", bundle: .module)
             : String(localized: "classicImport.preview.summarySaved", defaultValue: "%1$@ from %2$@, saved %3$@.", table: "ImportSuggestions", bundle: .module)
-        return String(format: format, ListFormatter.localizedString(byJoining: parts), app, savedWhen(savedAt))
+        return String(format: format, ListFormatter.localizedString(byJoining: parts), app, S.savedWhen(savedAt))
     }
 
     /// "today at 1:47 PM", "yesterday at 9:05 AM", else "Nov 3, 2026 at 1:47 PM", inside a sentence.

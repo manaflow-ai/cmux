@@ -4,11 +4,11 @@ import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextOnboarding
 
-/// The preview and mandatory answer before a classic snapshot is restored (``ClassicImportPrompt``).
+/// The preview and mandatory answer before a classic snapshot is restored (``ClassicImportPreview/dialogSpec(atLaunch:)``).
 @MainActor
 struct ClassicImportConfirmation {
-    static let importButton = ClassicImportPrompt.importButton
-    static let identifier = ClassicImportPrompt.identifier
+    static let importButton = ClassicImportPreview.importButton
+    static let identifier = ClassicImportPreview.dialogIdentifier
 
     let preview: ClassicImportPreview
     let services: AppServices
@@ -24,5 +24,5 @@ struct ClassicImportConfirmation {
         return answer.isDismissal ? .unanswered : .declined
     }
 
-    func spec() -> CmuxDialogSpec { ClassicImportPrompt.spec(preview, atLaunch: atLaunch) }
+    func spec() -> CmuxDialogSpec { preview.dialogSpec(atLaunch: atLaunch) }
 }
