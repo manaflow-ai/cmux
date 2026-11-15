@@ -413,7 +413,9 @@ PAGE_FACTS_JS = r"""JSON.stringify((() => {
   return {url: location.origin + location.pathname + location.hash.slice(0, 60), title: document.title.slice(0, 80),
           visibility: document.visibilityState, focused: tag(document.activeElement), animations: running.length,
           names: running.slice(0, 10).map((a) => (a.animationName || a.transitionProperty || a.id || "animation") + " on " +
-                 tag(a.effect && a.effect.target)), body: tag(document.body && document.body.firstElementChild)};
+                 tag(a.effect && a.effect.target)), body: tag(document.body && document.body.firstElementChild),
+          has_focus: document.hasFocus(), screen: [window.screenX, window.screenY, window.innerWidth, window.innerHeight],
+          new_tab: !!document.querySelector("[data-new-tab], .new-tab, [class*=NewTab]")};
 })())"""
 
 
@@ -430,7 +432,14 @@ def page_facts(app: App, pages: list) -> dict:
             return page["browser"], {"error": str(reply.get("error") or reply)[:200]}
     cmux_pages = [p for p in pages if isinstance(p, dict) and str(p.get("origin", "")).startswith("cmux-page://")]
     with ThreadPoolExecutor(max_workers=8) as pool:
-        return dict(pool.map(read, cmux_pages))
+        out = dict(pool.map(read, cmux_pages))
+    # Who owns each page (renderers.list: the agent tab, its workspace and pane; none for a spare or a kept page).
+    report = app.call("renderers.list", {"interval_ms": 0}, timeout=30) or {}
+    for entry in report.get("pages") or []:
+        browser = entry.get("browser")
+        if browser in out and isinstance(out[browser], dict):
+            out[browser]["owner"] = entry.get("owner")
+    return out
 
 
 def print_attribution(label: str, found: dict):
@@ -462,7 +471,7 @@ def print_attribution(label: str, found: dict):
           f"shown={json.dumps([(p.get('origin'), p.get('path')) for p in found['pages'] if not p.get('hidden')])}")
     for page in found["pages"]:
         print(f"PERF-ATTR {label} page browser={page.get('browser')} hidden={page.get('hidden')} "
-              f"renderer={page.get('renderer_clients')} facts={json.dumps(page.get('facts'))[:700]}")
+              f"renderer={page.get('renderer_clients')} facts={json.dumps(page.get('facts'))[:1500]}")
     for key, stack in found["stacks"].items():
         for line in stack.get("top_of_stack", [])[:25]:
             print(f"PERF-ATTR {label} top {key} {line}")
