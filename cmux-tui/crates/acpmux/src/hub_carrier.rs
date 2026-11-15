@@ -1203,6 +1203,10 @@ pub async fn start_configured(
     // Off unless the person on this machine allowed its other signed-in machines in.
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
     hub.hub_carrier.set(carrier.clone());
+    // The start's answer, whether or not the relay takes the registration yet (it retries).
+    tracing::info!(
+        "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
+    );
     let mut serving = carrier.serve(websocket);
     serving.lease = lease;
     Some(serving)

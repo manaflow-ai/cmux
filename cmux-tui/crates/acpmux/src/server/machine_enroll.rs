@@ -327,6 +327,12 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
                 // Left with the join's relay: stopped. Not finished: nothing changes now.
                 if outcome.left {
                     stop_joined(&hub).await;
+                    tracing::info!("hub carrier off: this machine left the team at this start");
+                } else {
+                    tracing::info!(
+                        kept = ?outcome.kept,
+                        "hub carrier off for this run: a sign-out's leave is not finished; the next start finishes it"
+                    );
                 }
             }
             outcome => {
@@ -339,6 +345,8 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
                     carrier(hub).await;
                     // The start's capability statement waited for this leave: it goes now.
                     crate::cli::cloud_join::state_capabilities_after_leave();
+                } else {
+                    tracing::info!("hub carrier off: this machine left the team at this start");
                 }
             }
         }
