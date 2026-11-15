@@ -103,7 +103,7 @@ FRESH_STALL_MINUTES as full, and so does its last resort when the runner groups
 are unread: the compile takes the owned label then (the DEV slot while idle, else
 the side queue).
 
-The rescue's re-run (attempt 2, or its attempt 3 re-placement, triggered by RESCUE_ACTOR: bot_rerun()) is
+The rescue's re-run (attempt 2 or any later attempt triggered by RESCUE_ACTOR: bot_rerun()) is
 placed afresh, from what is free when it starts, instead of reading nothing:
 until 2026-10-26 the placement skipped every attempt after 1, so the re-run's
 outputs were empty and its cascade jobs went back to the end of the owned side
@@ -826,23 +826,20 @@ def gui_overflow_label(live: Mapping[str, int] | None, waiting: Mapping[str, int
     return LARGE if free >= jobs and fits(LARGE, room - vcpus(LARGE) * (jobs - 1), queue) else SMALL
 
 
-# The last attempt the rescue's re-run is placed afresh on. Attempt 2 is the rescue's first re-run; attempt 3 is
-# its re-placement of an attempt 2 whose Mac job waited OWNED_REPLACE_MINUTES on its owned label (the open-head
-# failover in owned_pool_rescue.py). Until 2026-11-10 attempt 2 was the last placement, so whatever it chose held:
-# cmux#40330's run 42858473381 was placed at 17:32Z while Blacksmith 6 vCPU was stalled (0 in flight, 33 queued)
-# and 12 vCPU dead, so its fast tier and generated files stayed on glaeda-side-std-xcode-26.6 and waited over four
-# hours there (55 queued, oldest 21 h) with nothing to place them again once Blacksmith moved.
-LAST_PLACED_ATTEMPT = 3
 # How long a Mac job of the rescue's attempt 2 waits on an owned label before the rescue places it once more
 # (owned_pool_rescue.OWNED_REPLACE_SECONDS reads the same figure).
 OWNED_REPLACE_MINUTES = 20
 
 
 def bot_rerun(env: Mapping[str, str]) -> bool:
-    """The rescue's re-run: attempt 2 through LAST_PLACED_ATTEMPT that a RESCUE_ACTORS bot triggered, placed afresh
-    like attempt 1."""
+    """The rescue's re-run: any attempt from 2 on that a RESCUE_ACTORS bot triggered, placed afresh like attempt 1.
+
+    Until 2026-11-10 attempt 2 was the last placement, until 2026-11-15 attempt 3: whatever the last one chose held.
+    cmux#40330's run 42858473381 stayed on glaeda-side-std-xcode-26.6 for hours after a placement read a stalled
+    Blacksmith, and run 43716323834's attempt 5 (#43733) queued 'cmux-next generated files' on side-std again while
+    glaeda-gui-std-xcode-26.6 had 0 queued. cmux-next.yml's macos-placement runs on every bot attempt to match."""
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
-    return (attempt.isdigit() and 2 <= int(attempt) <= LAST_PLACED_ATTEMPT
+    return (attempt.isdigit() and int(attempt) >= 2
             and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() in RESCUE_ACTORS)
 
 
