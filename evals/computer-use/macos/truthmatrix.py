@@ -54,7 +54,7 @@ ACTING = {"click", "type_text", "press_key", "hotkey", "scroll", "drag", "set_va
           "invoke_menu", "repl"}
 LATE_DEFAULT = 3.5
 # Aside has one tool (repl); its observation calls (titles set by aside_arm.py) are not actions
-ASIDE_OBSERVE = {"Read window", "Screenshot", "List windows", "List apps", "Read Python windows"}
+ASIDE_OBSERVE = {"Read window", "Screenshot", "List windows", "List apps", "Read Python windows", "Escape menu"}
 
 
 def is_acting(call):
@@ -300,14 +300,16 @@ def lab_judge(win, touches, ok_final, label):
     touches = set(touches)
 
     def j(before, after, c):
-        evs = [e for e in c["evs"] if e.get("kind") == "state"]
+        # only what happened from the scored call on: a setup's late effect is not the action's effect
+        t0 = c.get("t0") or 0
+        evs = [e for e in c["evs"] if e.get("kind") == "state" and e.get("t", 0) >= t0 - 0.05]
         inside = [e for e in evs if (e.get("win"), e.get("el")) in touches]
         outside = [e for e in evs if (e.get("win"), e.get("el")) not in touches]
         ok = ok_final(after)
         c["effect_events"] = inside
         side = sorted({f"{e.get('win')}/{e.get('el')}" for e in outside})
         c["side_effects"] = side
-        if ok and (inside or not outside):
+        if ok:
             # ok with no event at all: the value changed under the app (an AX value set the control's delegate
             # never heard about). Visible, so correct, but flagged: an app's model may not know.
             c["silent"] = not inside
@@ -342,6 +344,20 @@ def TW(s):
 
 FORM, TEXT, CANVAS, TWIN = "Truth Form", "Truth Text", "Truth Canvas", "Truth Twin"
 LINE_LEN = [len(f"line {i} the quick brown fox jumps over the lazy dog") + 1 for i in range(1, 61)]
+
+
+def context_judge(before, after, c):
+    """A context menu that opened counts even if it closed again before the last read."""
+    t0 = c.get("t0") or 0
+    opened = [e for e in c["evs"] if e.get("kind") == "state" and e.get("el") == "context_menu" and e.get("what") == "open"
+              and e.get("value") is True and e.get("t", 0) >= t0 - 0.05]
+    c["effect_events"] = opened
+    other = [e for e in c["evs"] if e.get("kind") == "state" and e.get("t", 0) >= t0 - 0.05
+             and (e.get("win"), e.get("el")) != (FORM, "context_menu")]
+    c["side_effects"] = sorted({f"{e.get('win')}/{e.get('el')}" for e in other})
+    if opened:
+        return ("extra" if other else "correct"), "context menu opened"
+    return ("wrong" if other else "none"), "context menu did not open"
 
 
 def lab_cells():
@@ -457,8 +473,7 @@ def lab_cells():
         lab_judge(FORM, [(FORM, "popover_action"), (FORM, "popover")], lambda s: F(s).get("popover_actions") == 1,
                   "popover action once"), pre=pre_popover, done=lambda s, c: (F(s).get("popover_actions") or 0) >= 1)
     add("context_menu_open", lambda a, w, c: right_click_el(a, w, el(a, w, "Context Target", contains=True)),
-        lab_judge(FORM, [(FORM, "context_menu")], lambda s: F(s).get("context_open") is True or
-                  any(e.get("what") == "open" and e.get("value") is True for e in []), "context menu opened"),
+        context_judge,
         done=lambda s, c: bool(st_events(c, FORM, "context_menu", "open")))
 
     def menu_judge_counter(s):
@@ -650,6 +665,8 @@ def te_cells():
         return open(f"{W}/te.txt").read()
 
     def j_save(b, a, c):
+        if c["tag"] in b:
+            return None, f"{c['tag']} was already on disk before cmd+s (autosave): not scored"
         return tri(c["tag"] in a, a != b, detail=f"{c['tag']} saved to disk: {c['tag'] in a}")
 
     def scr(a, w, c):
@@ -685,13 +702,15 @@ def te_cells():
         nodes, _ = bm.ax_nodes(c["pid"], 6, menus=True)
         return bm.ax_find(nodes, "AXMenuItem", pred=lambda n: n.get("title") == "Make Plain Text") is not None
 
+    # Order matters: a working cmd+a leaves the whole document selected, and the next typing replaces it, so cmd+a
+    # comes after every cell that needs the 120-line document (cmd+s's typing, scroll, drag) and set_value after it.
     return [
         Cell("click_px", click, j_click, read=sel),
         Cell("type_text", typ, j_type, read=val, done=lambda s, c: c["tag"] in s),
-        Cell("press_key_cmd_a", cmda, j_cmda, read=read_sel, done=lambda s, c: s[0] == s[1]),
         Cell("press_key_cmd_s", cmds, j_save, read=disk, pre=pre_s, done=lambda s, c: c["tag"] in s),
         Cell("scroll", scr, j_scr, read=top),
         Cell("drag_select", drg, j_drg, read=sel, done=lambda s, c: (s or {}).get("len", 0) > 20),
+        Cell("press_key_cmd_a", cmda, j_cmda, read=read_sel, done=lambda s, c: s[0] == s[1]),
         Cell("set_value", setv, j_setv, read=val, done=lambda s, c: s == c["val"]),
         Cell("menu_item", menu, lambda b, a, c: tri(a and not b, a != b, detail=f"Make Plain Text offered: {a}"), read=rich,
              done=lambda s, c: s),
@@ -808,9 +827,9 @@ def safari_cells():
              read=page, done=lambda s, c: c["tag"] in str(s.get("name") or "")),
         Cell("press_key_chord_cmd_a", lambda a, w, c: (a.screenshot(w), a.press_key(w, "cmd+a"))[1],
              # the effect of cmd+a is the selection (Select All); the keydown is how the page saw it, if it did
-             lambda b, a, c: tri(int(a.get("sel") or 0) > 500, a != b,
+             lambda b, a, c: tri(int(a.get("sel") or 0) > 500 or int(a.get("sel") or 0) == len(str(a.get("name") or "x")), a != b,
                                  detail=f"page keydown {a['keys']!r}, selection {b.get('sel')} -> {a.get('sel')} chars"),
-             read=page, done=lambda s, c: int(s.get("sel") or 0) > 500),
+             read=page, done=lambda s, c: int(s.get("sel") or 0) > 500 or int(s.get("sel") or 0) == len(str(s.get("name") or "x"))),
         Cell("scroll", scroll, lambda b, a, c: tri(int(a["scroll"] or 0) > int(b["scroll"] or 0), a["scroll"] != b["scroll"],
                                                    detail=f"scrollY {b['scroll']} -> {a['scroll']}"), read=page,
              done=lambda s, c: int(s["scroll"] or 0) > int(c["before"]["scroll"] or 0)),
@@ -1022,7 +1041,8 @@ def run_cell(arm, scene, app, cell, w, rep, scene_kind, ctx, out, late):
          "val": f"set value {rep} {scene_kind}", "evs": []}
     note = ""
     if lab:
-        lab.cmd("reset")
+        if not lab.cmd("reset").get("ok"):
+            note = "fixture reset failed"
         time.sleep(0.25)
     # arrange the scene
     if scene_kind in ("bg", "bgc"):
@@ -1069,17 +1089,24 @@ def run_cell(arm, scene, app, cell, w, rep, scene_kind, ctx, out, late):
     scored = acts[-1] if acts else None
     claim = claim_of(arm.id, scored) if scored else None
     t_result = (scored or {}).get("t1") or time.time()
+    c["t0"] = (scored or {}).get("t0")
     # poll the ground truth until the intended effect is complete (then a short grace for extras) or the late window ends
     after, first_ok_t = None, None
     deadline = t_result + late if scored else time.time()
     while True:
-        after = read(c) if err is None or scored else None
+        t_read = time.time()  # when this read started: an effect seen by it happened no later than this
+        try:
+            got = read(c) if err is None or scored else None
+        except Exception:
+            got = None
+        if got not in (None, {}):
+            after = got  # a failed or empty read keeps the last good state
         if lab:
             c["evs"] = lab.since(mark)
         if after is not None and cell.done:
             try:
                 if cell.done(after, c) and first_ok_t is None:
-                    first_ok_t = time.time()
+                    first_ok_t = t_read
             except Exception:
                 pass
         now = time.time()
@@ -1089,11 +1116,14 @@ def run_cell(arm, scene, app, cell, w, rep, scene_kind, ctx, out, late):
             break
         time.sleep(0.12)
     samples = watch.stop()
-    if scored is not None and "before" in c:
+    judge_error = False
+    if scored is not None and "before" in c and after is not None:
         try:
             truth, detail = cell.judge(c["before"], after, c)
         except Exception as e:
-            truth, detail = "none", f"judge failed: {type(e).__name__}: {e}"
+            truth, detail, judge_error = None, f"judge failed: {type(e).__name__}: {e}", True
+    elif scored is not None:
+        truth, detail, judge_error = None, "no state could be read after the action", True
     # effect timing: lab events give exact times; real apps the poll time when the effect was first complete
     effect_t = None
     if lab and c.get("effect_events"):
@@ -1117,7 +1147,8 @@ def run_cell(arm, scene, app, cell, w, rep, scene_kind, ctx, out, late):
     common = [i for i in zpre if i in zpost]
     z_ok = [i for i in zpost if i in common] == common and (zpost[:1] == zpre[:1])
     focus_evs = [e for e in c["evs"] if e.get("kind") == "focus" and e.get("what") == "became_active"]
-    outcome = "unsupported" if unsupported else confusion_cell(claim, truth, cell.expect_none) if scored else "no_action"
+    outcome = ("unsupported" if unsupported else "judge_error" if judge_error
+               else confusion_cell(claim, truth, cell.expect_none) if scored else "no_action")
     row = {
         "arm": arm.id, "app": app, "action": cell.name, "scene": scene_kind, "rep": rep, "claim": claim, "truth": truth,
         "outcome": outcome, "expect_none": cell.expect_none, "detail": detail if not err or scored else err, "error": err,

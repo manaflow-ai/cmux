@@ -344,7 +344,7 @@ class Aside(bm.Arm):
         for name in path[1:]:
             it = next((n for n in items if n["name"] == name), None)
             if it is None:
-                self.repl(f"await {var}.pressKey('Escape');")
+                self.repl(f"await {var}.pressKey('Escape');", title="Escape menu")
                 raise bm.ToolError(f"menu item {name} not in the open menu")
             r = self.repl(f"await {var}.click({it['key']}); console.log(await {var}.getAXState({{ emit: false, disableDiffing: true }}));",
                           title=f"Click {name}")

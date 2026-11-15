@@ -47,7 +47,9 @@ def conf(rows):
     scored = sum(c[k] for k in KEYS)
     pos = c["TP"] + c["FP"]
     neg = c["FN"] + c["TN"]
-    return {**{k: c[k] for k in KEYS}, "scored": scored, "no_action": c["no_action"] + c["harness_aim"], "unsupported": c["unsupported"],
+    return {**{k: c[k] for k in KEYS}, "scored": scored,
+            "no_action": c["no_action"] + c["harness_aim"] + c["harness_state"] + c["not_scored"] + c["judge_error"] + c["?"],
+            "unsupported": c["unsupported"],
             "fp_rate": c["FP"] / pos if pos else None, "fn_rate": c["FN"] / neg if neg else None,
             "side_rate": c["SIDE"] / scored if scored else None,
             "effect_rate": (c["TP"] + c["FN"] + c["SIDE"]) / scored if scored else None}
@@ -287,14 +289,37 @@ def fixup(rows):
     selected nothing in the background); a fg cell whose target could not be made frontmost and key is reported
     as fg-unarranged; claims come from the stored result through truthmatrix_claims."""
     import re as _re
+    # TextEdit cells run in a fixed order per (arm, scene, rep). In the runs before the reorder, cmd+a came before
+    # cmd+s: when it worked, cmd+s's setup typing replaced the whole document with the 8-char tag, so the scroll
+    # and drag cells after it had no document to act on. Those rows are not evidence (harness_state).
+    te_selected = {(r["arm"], r["scene"], r["rep"]) for r in rows if r["app"] == "textedit"
+                   and r["action"] == "press_key_cmd_a" and r.get("truth") == "correct"}
+    te_order = {(r["arm"], r["scene"], r["rep"]): [x["action"] for x in rows if x["app"] == "textedit"
+                and (x["arm"], x["scene"], x["rep"]) == (r["arm"], r["scene"], r["rep"])] for r in rows if r["app"] == "textedit"}
     for r in rows:
         if r["app"] == "safari" and r["action"] == "press_key_chord_cmd_a" and r.get("truth") in ("correct", "wrong", "none"):
+            # cmd+a selects the whole page, or (focus still in the Name field from the type_text cell before it) the
+            # whole field: its text is the 8-or-9-char tag. A meta+a keydown with nothing selected cannot be told
+            # apart from a field selection the page does not report: not scored.
             m = _re.search(r"selection (\S+) -> (\d+) chars", r.get("detail") or "")
             if m:
-                r["truth"] = "correct" if int(m.group(2)) > 500 else ("wrong" if "meta+a" in (r.get("detail") or "") else "none")
+                n = int(m.group(2))
+                tag = len(f"CUEV{r['rep']}{r['scene']}X")
+                if n > 500 or n == tag:
+                    r["truth"] = "correct"
+                elif "meta+a" in (r.get("detail") or ""):
+                    r["outcome"] = "harness_state"
+                    r["truth"] = None
+                else:
+                    r["truth"] = "none"
+        k = (r["arm"], r["scene"], r["rep"])
+        if r["app"] == "textedit" and r["action"] in ("scroll", "drag_select") and k in te_selected:
+            order = te_order.get(k, [])
+            if "press_key_cmd_a" in order and "press_key_cmd_s" in order and order.index("press_key_cmd_a") < order.index("press_key_cmd_s"):
+                r["outcome"] = "harness_state"
         if r["scene"] == "fg" and r.get("note"):
             r["scene"] = "fg-unarranged"
-        if r.get("scored_call") and r["outcome"] not in ("unsupported", "no_action"):
+        if r.get("scored_call") and r["outcome"] not in ("unsupported", "no_action", "harness_state", "judge_error"):
             r["claim"] = tc.claim_of(r["arm"], r["scored_call"])
             r["outcome"] = tc.confusion_cell(r["claim"], r["truth"], r.get("expect_none"))
             args = r["scored_call"].get("args") or {}

@@ -23,7 +23,7 @@ def claim_of(arm_id, rec):
     if arm_id.startswith("cua"):
         if re.search(r"\bunverified\b", txt, re.I):
             return "delivered"  # cua-driver's own "Sent (unverified)"
-        if re.search(r"\bconfirmed\b", txt, re.I):
+        if re.search(r"\bconfirmed\b", txt, re.I) and not re.search(r"\b(not|could not|couldn't|cannot) (be )?confirm", txt, re.I):
             return "confirmed"
     return "ok"
 
@@ -37,6 +37,8 @@ def confusion_cell(claim, truth, expect_none=False):
     and a positive claim about it is still a false claim (the tool said it did something)."""
     if claim is None:
         return "no_action"
+    if truth is None:
+        return "not_scored"  # the judge could not say what happened (a precondition was already met, no read)
     pos = claim in POSITIVE
     if truth == "extra":
         return "SIDE"
