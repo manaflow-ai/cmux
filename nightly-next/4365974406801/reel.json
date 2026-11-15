@@ -1,0 +1,257 @@
+{
+  "version": 1,
+  "build": "4365974406801",
+  "notes": "notes/4365974406801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43315,
+      "title": "Terminal: no Reconnecting mark for a drop or handoff that heals within 10 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43255,
+      "title": "fix(ci): route macOS 26 jobs through the off switch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43293,
+      "title": "Cloud desktop: quiet reconnect under 10 s and reconnects by itself after a lost path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43310,
+      "title": "sidebar: a machine whose link dropped says nothing in its header for 10 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43386,
+      "title": "perf cron: a result run waits out the GitHub rate limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43377,
+      "title": "acpmux: bg_list and bg_stop act on the caller's own tasks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42922,
+      "title": "Cloud relay: name the install-token mint error, mint once, answer inside the daemon's deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43280,
+      "title": "acpmux v2 3c: the append gate's all-sample hold back, and god's page faults kept out of its ratio",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43330,
+      "title": "Agent chat: a Worked for held open while scrolled up folds in one motion at the latest row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43198,
+      "title": "Cut the work of each list-workspaces and session.snapshot request in a large session",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43359,
+      "title": "cmux mcp serve: an idle chat's other servers end instead of running for days",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43302,
+      "title": "Pages: Settings, Keybindings, Passwords, CodeRouter and Tasks keep their content through a daemon restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43376,
+      "title": "fix(next): put DeviceHubService's loading tracker back in startHub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43128,
+      "title": "v2 peer mirror, the dialer: a unit names the mark it follows (row 8 part two, PR B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43313,
+      "title": "[next-no-huge-files] split cmux-remote process event log",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42640,
+      "title": "cmux-next checks: run no wider than the job's CPU share on a mini; start the longest checks first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43065,
+      "title": "fix(next): keep terminal trace attached across surface replacement",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43063,
+      "title": "fix(hq#10854): retain tab-close diagnostic context",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43320,
+      "title": "An app opened from another cmux's terminal ignores that app's Cloud selection",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43348,
+      "title": "Agent chat: every hover card is the one glass and scrolls (Received messages first)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43292,
+      "title": "infinite items: bound the disk that grows per day (CMUX-571 slope 3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43268,
+      "title": "Agent chat: a finished turn's action row is always there; every time label is one line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43342,
+      "title": "nightly-next: nightly-next-one asks main's tick at notarization, so the next run sets up meanwhile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43277,
+      "title": "media tours: Toggle Terminal and Chat latency, idle and mid-turn, to the first frame showing content",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43361,
+      "title": "base_red_excuse: ws-check descriptions with a lint hint or a base-red label are read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43311,
+      "title": "remote terminal: a tab reattaching to its machine says nothing for 10 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43229,
+      "title": "Menus, submenus and popovers keep the themed glass when not key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42255,
+      "title": "Make the dev-build hand-off part of finishing a task (Mac + iOS)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43010,
+      "title": "fix(next): bound device hub configuration startup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42995,
+      "title": "cmux-host: report the image's pre-ready update timing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43068,
+      "title": "fix(capture): fence local screen-sharing cleanup writers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43073,
+      "title": "R1: reduce daemon replay frame allocation (hq#10843)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43091,
+      "title": "fix: align relaunch profiles with callback entry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43354,
+      "title": "docs(perf bench): README run lines drop the lapsed --pool perf-lead",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43131,
+      "title": "fix(capture): own auth cleanup decisions in Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43151,
+      "title": "ci: the iOS kit's xcodebuild test steps time out after 30 min",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43239,
+      "title": "remote browser host: one shared host serves every remote tab, each with its own cookies; a crash reopens every tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43322,
+      "title": "cmux-tui: a dev server a terminal shows appears as its workspace's ports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43254,
+      "title": "build-cmux-cua: fat LTO and one codegen unit for the shipped cmux-cua",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43204,
+      "title": "CMUX-572: adapt the screen-share send window to current RTT",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43252,
+      "title": "acpmux: settle the remaining 4b gate rows",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
