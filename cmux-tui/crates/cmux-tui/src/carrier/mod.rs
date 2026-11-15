@@ -136,6 +136,7 @@ mod secrets;
 mod serve;
 mod source;
 mod ssh;
+mod state_root;
 pub(crate) mod tunnel;
 mod tunnel_cli;
 pub(crate) mod tunnel_keeper;
