@@ -16,6 +16,7 @@ mod render;
 #[cfg(test)]
 mod tests;
 
+use cmux_customize::schema::{Schema, Section};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 
@@ -43,6 +44,7 @@ once, an agent you ask next keeps your edits, and apply, discard and rollback wo
 For an agent (the customize_* MCP tools are these verbs):
   cmux customize brief 'WISH'                 Open the draft and print what to edit and how; starts no chat
   cmux customize check                        Validate what is live, and mark your turn done
+  cmux customize schema [PART]                Every key you can change (settings, theme, views, extensions); --typescript, --rust
 
 Ask options:
   --harness HARNESS   The agent that does it: claude (default), codex, ...
@@ -72,6 +74,7 @@ const VERBS: &[&str] = &[
     "brief",
     "check",
     "ask",
+    "schema",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -101,6 +104,15 @@ pub(super) enum Request {
     Profiles,
     Library(library::Request),
     Paths,
+    Schema { section: Option<Section>, format: SchemaFormat },
+}
+
+/// How `customize schema` answers: the schema, or the SDK types written from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SchemaFormat {
+    Schema,
+    TypeScript,
+    Rust,
 }
 
 /// Parses the words after `customize` (`--json` already taken out). The
@@ -160,6 +172,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             _ => Err("customize brief takes only the wish (it starts no chat)".to_owned()),
         },
         "ask" => wish_of(rest).map(|(wish, options)| Request::Ask { wish, options }),
+        "schema" => schema_of(rest),
         // A wish is said in words: one quoted argument with a space in it, or
         // several words. One bare word is a verb, so a typo gets a suggestion
         // instead of an agent.
@@ -181,6 +194,27 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             Err(format!("unknown customize command {first:?}; {hint}"))
         }
     }
+}
+
+/// `schema [PART] [--typescript|--rust]`.
+fn schema_of(words: &[String]) -> Result<Request, String> {
+    let (mut section, mut format) = (None, SchemaFormat::Schema);
+    for word in words {
+        match word.as_str() {
+            "--typescript" | "--ts" => format = SchemaFormat::TypeScript,
+            "--rust" => format = SchemaFormat::Rust,
+            part if section.is_none() && !part.starts_with('-') => {
+                section = Some(Section::parse(part).ok_or_else(|| {
+                    format!("customize schema has no part {part:?}; name {}", Section::NAMES)
+                })?);
+            }
+            other => return Err(format!("customize schema does not take {other:?}")),
+        }
+    }
+    if section.is_some() && format != SchemaFormat::Schema {
+        return Err("customize schema --typescript and --rust write every part".to_owned());
+    }
+    Ok(Request::Schema { section, format })
 }
 
 /// The wish (every word that is not an option, joined) and the ask options.
@@ -299,6 +333,16 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(0);
     }
     let json_out = matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
+    // The schema reads only this build's tables: no store, no baseline.
+    if let Request::Schema { section, format } = request {
+        let answer = render::Answer::Schema(Schema::current(), section, format);
+        if json_out && format == SchemaFormat::Schema {
+            println!("{}", answer.json());
+        } else if global.output != OutputMode::Quiet {
+            print!("{}", answer.human(now_ms()));
+        }
+        return Some(0);
+    }
     let chat = ask::Child { globals: child_globals(&global) };
     let result = Customize::from_env()
         .map_err(Failure::from)
@@ -338,6 +382,9 @@ pub(super) fn run_json(words: &[String], origin: &str) -> Result<Value, Value> {
             "this verb is not a tool; use customize_ask for the brief".to_owned(),
         )
         .envelope());
+    }
+    if let Request::Schema { section, format } = request {
+        return Ok(render::Answer::Schema(Schema::current(), section, format).json());
     }
     let customize = Customize::from_env().map_err(|error| Failure::from(error).envelope())?;
     execute(&customize, request, origin, now_ms(), &ask::NoChat)
@@ -392,5 +439,6 @@ pub(super) fn execute(
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
+        Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
     })
 }
