@@ -98,6 +98,8 @@ final class SidebarBridge {
             guard let self, let window = self.state?.id else { return }
             self.services.cache.hibernation?.noteWorkspaceHover(id?.rawValue, window: window)
         }
+        // The pointer on Settings, History or Cloud: their spare page starts now (CMUX-571: none at launch).
+        container.sidebarView.onHoverItem = { [weak services] ref in if case .page(let id)? = TopPageRoute.route(for: ref), [.settings, .history, .cloud].contains(id) { services?.pageHostPool.noteIntent() } }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.customization = services.sidebarCustomization

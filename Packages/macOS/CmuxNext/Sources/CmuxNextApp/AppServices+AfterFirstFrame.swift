@@ -63,8 +63,7 @@ extension AppServices {
             },
             fallback: { [weak self] window in
                 self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
-            })
-        pageHostPool.noteLikely()
+            }) // no spare until a sign of intent (PageHostPool.noteIntent: ⌘, a menu, the palette, a sidebar hover)
         AgentTabImport.start(self)
         DebugTimings.markLaunch("launch.post_window_warmups")
     }

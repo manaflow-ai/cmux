@@ -85,6 +85,10 @@ extension SidebarViewComponents {
                self?.list.modifierSelect(workspace, flags: flags.intersection(.deviceIndependentFlagsMask)) == true { return }
             self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
         }
+        region.onHoverItem = { [weak self] id in
+            guard let self, let item = model.layout.item(id) ?? model.listedItem(id) else { return }
+            onHoverItem?(item.ref)
+        }
         region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
         // Edit mode's ✕: the menu's Remove (one undo step, the document's own op).
         region.onRemoveItem = { [weak self] id in self?.model.send(.layout(.itemRemove(id))) }

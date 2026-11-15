@@ -22,6 +22,8 @@ final class SidebarRegionView: NSView {
 
     let region: SidebarRegion
     var onActivate: ((LayoutItemID) -> Void)?
+    /// The pointer came onto an item.
+    var onHoverItem: ((LayoutItemID) -> Void)?
     /// An item's trailing control was pressed.
     var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var onToggleSection: ((LayoutSectionID) -> Void)?
@@ -473,6 +475,7 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
+        view.onHover = { [weak self] in self?.onHoverItem?(id) }
         view.onPressBegan = { [weak self] in
             self?.endStaleDrag()
             // A press on another row ends a rename in progress, as a press on the list's rows does.

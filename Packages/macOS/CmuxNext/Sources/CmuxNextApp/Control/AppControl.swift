@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextMacScreen
 import CmuxNextNotifications
+public import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -199,7 +200,7 @@ final class AppControl {
                 DebugHints.watchMenus()
                 return .value(DebugHints.report(services.windowHints, params: call.params))
             },
-            .mainActor("debug.page_host_pool") { [weak services] call in .value(DebugPageHostPool.handle(call.params, services: services)) },
+            .mainActor("debug.page_host_pool") { [weak services] call in .value(services?.pageHostPool.debugReport(call.params) ?? .null) },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
             .mainActor("debug.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -392,6 +393,11 @@ final class AppControl {
                 guard let services else { return .null }
                 let open = { (kind: String) in kind == "icon_picker" ? services.registry.perform("workspace.setIcon") : services.windows.active?.sidebar.container.beginRenameFirstGroup() ?? false }
                 return await OverlayOpenBench(pages: ["icon_picker": services.iconPicker, "group_editor": services.groupEditor], open: open).run(call.params)
+            }.withDeadline(.fixed(.seconds(30))),
+            // One Settings, History or Cloud open, as it is or after a sign of intent, to its painted frame (PageOpenBench).
+            .async("debug.page_open_bench") { @MainActor [weak services] call in
+                guard let services else { return .null }
+                return await PageOpenBench(pool: services.pageHostPool, perform: { services.registry.perform(ActionID(rawValue: $0)) }).run(call.params)
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -680,4 +686,5 @@ final class AppControl {
 // `debug.overlay_open_bench` drives the two WebKit overlay pages through these (OverlayOpenBench).
 extension IconPickerService: OverlayBenchPage {}
 extension GroupEditorService: OverlayBenchPage {}
+extension PageHostPool: PageSpareBenchPool {}
 #endif

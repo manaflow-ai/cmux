@@ -32,6 +32,13 @@ public final class PageHostPool {
     let isTrackingMenu: () -> Bool
     let engineDecision: (PageDescriptor, PageEngineOptions) -> PageEngineDecision
     let timer: DemandTimer
+    /// Frees the spare once ``idleLimit`` passes with no sign of intent and no claim (``releaseIdle()``).
+    let idle: DemandTimer
+    /// How long the spare stays after the last sign of intent or claim before it is freed (its WebContent and
+    /// WebKit GPU memory, about 106 MB with the app's part); nil keeps it for good. `debug.page_open_bench` sets it.
+    public var idleLimit: Duration? = .seconds(10 * 60)
+    /// The ⌘ press watch (``noteIntent()`` on ⌘ alone, before the `,` of Cmd-,).
+    var commandMonitor: Any?
     let parking = PageHostParking()
     var spare: PageWebView?
     var spareReady = false
@@ -76,6 +83,7 @@ public final class PageHostPool {
         self.isTrackingMenu = isTrackingMenu
         self.engineDecision = engineDecision
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
+        idle = DemandTimer(owner: "PageHostPool.idleRelease", clock: clock)
     }
 
     public var isSpareReady: Bool { spare != nil && spareReady }
@@ -104,6 +112,7 @@ public final class PageHostPool {
         guard decision.engine == .webKit else { return nil }
         latestClaimOptions = options
         isLikely = true
+        armIdleRelease()
         if target == nil, let window { follow(window) }
         guard let host = spare, spareReady, host.isPooled else {
             scheduleBuild()
@@ -134,7 +143,7 @@ public final class PageHostPool {
             host.close()
             return
         }
-        if !host.touched, spare == nil, !projectionIsOpen(), let content = target?.contentView, canUseSpare {
+        if !host.touched, isLikely, spare == nil, !projectionIsOpen(), let content = target?.contentView, canUseSpare {
             host.countsTouches = false
             park(host, in: content)
             spare = host
@@ -152,10 +161,25 @@ public final class PageHostPool {
         scheduleBuild()
     }
 
-    /// Marks one of the bundled page surfaces as likely to open soon.
+    /// Marks one of the bundled page surfaces as likely to open soon: the spare is built at the next idle moment and
+    /// kept (no idle limit is armed). The app calls ``noteIntent()``; this is the launch spare from before CMUX-571,
+    /// kept for tests and the bench's before arm (`CMUX_NEXT_BENCH_PAGE_SPARE_AT_LAUNCH`).
     public func noteLikely() {
         isLikely = true
         scheduleBuild()
+    }
+
+    /// The idle limit passed with no sign of intent and no claim: frees the spare and builds none until the next
+    /// sign of intent or claim. Claimed pages stay; closing one later does not park it as the spare.
+    public func releaseIdle() {
+        idle.cancel()
+        isLikely = false
+        dropSpare()
+    }
+
+    func armIdleRelease() {
+        guard let limit = idleLimit else { return idle.cancel() }
+        idle.schedule(after: limit) { @MainActor [weak self] in self?.releaseIdle() }
     }
 
     /// Drops the parked spare, for memory pressure or teardown.

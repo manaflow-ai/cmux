@@ -33,6 +33,8 @@ class SidebarItemRowView: NSView {
     /// and unread items as a dot on the glyph (the Codex rail).
     var isRailButton = false
     var onPress: (() -> Void)?
+    /// The pointer came onto the item (a sign it may open next: ``SidebarView/onHoverItem``).
+    var onHover: (() -> Void)?
     /// Modifier-aware activation for controls whose action has a one-shot
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
@@ -104,7 +106,7 @@ class SidebarItemRowView: NSView {
     private(set) var isHovered = false {
         didSet {
             guard isHovered != oldValue else { return }
-            if !isHovered { isPressed = false }
+            if !isHovered { isPressed = false } else { onHover?() }
             pointerChanged()
             // A workspace tile's more button shows on hover (a pinned item has no hover close).
             if info.workspace != nil { needsLayout = true }

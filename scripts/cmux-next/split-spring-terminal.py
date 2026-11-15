@@ -84,6 +84,11 @@ if "--suite=open-panel" in sys.argv:
 if "--suite=overlay-open" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay-open-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=overlay-open"])
+# `--suite=page-spare`: Settings, History and Cloud first open and idle memory, the page spare made at launch vs on
+# intent (scripts/cmux-next/page-spare-bench.py).
+if "--suite=page-spare" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "page-spare-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=page-spare"])
 # `--suite=first-click`: one click on native controls acts while a Chromium page holds the key (first-click-live.py).
 if "--suite=first-click" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-click-live.py")

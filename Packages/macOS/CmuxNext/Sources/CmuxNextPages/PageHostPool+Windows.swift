@@ -38,6 +38,11 @@ extension PageHostPool {
                 self.follow(window)
             }
         })
+        watchCommandKey()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The page spare bench's before arm (scripts/cmux-next/page-spare-bench.py): the spare made at launch and kept.
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_BENCH_PAGE_SPARE_AT_LAUNCH"] == "1" { idleLimit = nil; noteLikely() }
+        #endif
         windowObservers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
             [weak self] note in
             guard let window = note.object as? NSWindow else { return }
@@ -47,6 +52,30 @@ extension PageHostPool {
                 else { self.dropSpare(); self.target = nil }
             }
         })
+    }
+
+    /// ⌘ pressed alone is a sign of intent (``noteIntent()``): Cmd-, opens Settings in the same key-down as its `,`,
+    /// so the press of ⌘ before it is the earliest moment its spare can start. ⌘ with another modifier is not.
+    func watchCommandKey() {
+        guard commandMonitor == nil else { return }
+        commandMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command { self?.noteIntent() }
+            return event
+        }
+    }
+
+    /// Whether page `id` shows painted in a window: on screen, not the parked spare (`debug.page_open_bench`).
+    public func isPageShown(_ id: String) -> Bool {
+        NSApp.windows.contains { window in
+            guard window.isVisible, let content = window.contentView else { return false }
+            return Self.shownPage(id, in: content)
+        }
+    }
+
+    private static func shownPage(_ id: String, in view: NSView) -> Bool {
+        if view is PageHostParking || view.isHidden || view.alphaValue < 0.99 { return false }
+        if let page = view as? PageWebView, page.pageID == id { return page.hasPainted && !page.bounds.isEmpty }
+        return view.subviews.contains { shownPage(id, in: $0) }
     }
 
     func park(_ host: PageWebView, in content: NSView) {

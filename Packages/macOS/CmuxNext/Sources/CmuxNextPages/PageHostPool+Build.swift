@@ -27,6 +27,23 @@ extension PageHostPool {
         }
     }
 
+    /// A sign that Settings, History or Cloud may open soon: a menu or palette open, ⌘ pressed alone (Cmd-, is
+    /// next), the pointer on their sidebar item. Builds the spare now, not at the next idle moment (a menu's
+    /// tracking or the pointer's moves would hold that past the open), and keeps it ``idleLimit`` longer. The app
+    /// makes no spare at launch (CMUX-571: about 106 MB at rest); every sign of intent comes through here. On a
+    /// built spare it costs a timer reset.
+    public func noteIntent() {
+        isLikely = true
+        armIdleRelease()
+        guard canUseSpare else { return dropSpare() }
+        guard shouldBuild else { return }
+        timer.cancel()
+        watchMemoryPressure()
+        building = true
+        // main-hop-allow: one spare build per sign of intent with no spare (shouldBuild; building blocks a second), each step yields a run-loop turn (nextTurn), as idleDeadline's build does
+        Task { @MainActor [weak self] in await self?.build() }
+    }
+
     private func idleDeadline() {
         guard shouldBuild else { return }
         guard !isTrackingMenu(), activity() == activityMark else {

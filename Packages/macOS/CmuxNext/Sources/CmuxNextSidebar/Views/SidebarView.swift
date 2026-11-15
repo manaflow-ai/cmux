@@ -252,6 +252,8 @@ public final class SidebarView: NSView {
     /// The footer's Search button was pressed: the App opens Search (`palette.open`, scope
     /// `search`), the same centered palette as Cmd-P. Nil leaves the button doing nothing.
     public var onSearch: ((NSView) -> Void)?
+    /// The pointer came onto a section item (Settings, History, an app): the App readies the page it opens.
+    public var onHoverItem: ((LayoutItemRef) -> Void)?
 
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
