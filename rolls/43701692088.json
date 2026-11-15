@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43701692088",
+  "recorded_at": "2026-11-15T10:05:34Z",
+  "reason": "cmux-tui c218ad377f1f changes the image's cmux-tui (pinned 88bf427008fb)",
+  "dry_run": false,
+  "cmux_tui": "c218ad377f1fddbb6883f870797ad765a957fb62",
+  "fixes": [
+    {
+      "sha": "c218ad377f1fddbb6883f870797ad765a957fb62",
+      "mergedAt": "2026-11-15T01:41:57-08:00",
+      "subject": "cmux-tui: fold the browser host and the app host into the multicall cmux binary (#43340)"
+    },
+    {
+      "sha": "187b8652746ca16b782821d09657595b62028621",
+      "mergedAt": "2026-11-15T01:26:23-08:00",
+      "subject": "cmux app try: review follow-ups (receipts after the switch, undo lock, unknown daemon, bundle identity) (#43581)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T10:05:34Z",
+    "snapshot_id": "sh-431823f3ffb940e28c2f210d66738169",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43701692088): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a01a06981d2325c89fe4d912f9a92a15a0454065",
+    "image": "cloud-native-auto-c218ad37-43701692088-1",
+    "revision": "ci-43701692088-1",
+    "at": "2026-11-15T10:05:34Z"
+  },
+  "rolled_back": false
+}
