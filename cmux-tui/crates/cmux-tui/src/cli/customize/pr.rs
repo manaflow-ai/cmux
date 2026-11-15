@@ -460,6 +460,9 @@ pub(super) fn use_pr(
         human.push_str("  web-dev.json names a dev server, and a server wins over a layer: `scripts/cmux-next/web-overlay.sh server off` stops it\n");
     }
     human.push_str(&format!("  cmux customize library off pr-{pr}   put back what was under it\n"));
+    human.push_str(
+        "  cmux customize library reset       if cmux breaks: every layer off, no app needed\n",
+    );
     Ok(Answer::Library { json: json!({ "pr": pr, "layer": layer, "change": change }), human })
 }
 
