@@ -26,6 +26,24 @@ impl Surface {
         lifecycle: AttachLifecycle,
         max_history_rows: Option<u64>,
     ) -> ghostty_vt::Result<AttachStream> {
+        self.attach_stream_with_window(lifecycle, max_history_rows.map(HistoryWindow::tail), false)
+    }
+
+    /// A byte attach whose replay holds the screen and the history `window`
+    /// (`history_window`): a tail, or with a start
+    /// (`replay_history_start`, `attach-replay-history-window-v1`) rows far
+    /// above the screen without the rows between, so a reader far up in a
+    /// long history gets its rows and not the whole scrollback. With
+    /// `windowed_resizes` (the viewer declared `attach-replay-history-window-v1`,
+    /// so it reads `history_rows_omitted` on `resized`), its
+    /// later resize and resync replays keep a window of the same size; an
+    /// older viewer keeps getting the whole history there.
+    pub(crate) fn attach_stream_with_window(
+        &self,
+        lifecycle: AttachLifecycle,
+        window: Option<HistoryWindow>,
+        windowed_resizes: bool,
+    ) -> ghostty_vt::Result<AttachStream> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
@@ -39,8 +57,9 @@ impl Surface {
         if dead && !exited {
             return Err(ghostty_vt::Error::NoValue);
         }
-        let (tap, stream) =
+        let (mut tap, stream) =
             AttachTap::pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, ATTACH_STREAM_MAX_BYTES);
+        tap.history = window.filter(|_| windowed_resizes).map(HistoryWindow::after_reflow);
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
         #[cfg(test)]
@@ -49,16 +68,8 @@ impl Surface {
         // A palette-including replay would pin every one of the 256 entries
         // (and the default fg/bg) to this process's colors; the sparse
         // `colors` sidecar below carries only what the PTY authored.
-        let (replay, history_rows_omitted) = match max_history_rows {
-            Some(rows) => {
-                let tail =
-                    term.vt_replay_tail_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES, rows)?;
-                (tail.replay, Some(tail.history_rows_omitted))
-            }
-            None => {
-                (term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES)?, None)
-            }
-        };
+        let (replay, history_rows_omitted, history_rows_skipped) =
+            window_replay_locked(&mut term, window)?;
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
@@ -81,6 +92,7 @@ impl Surface {
             colors,
             pending_sequence: replay.pending_sequence.into(),
             history_rows_omitted,
+            history_rows_skipped,
             stream,
             lifecycle,
         })
@@ -147,4 +159,48 @@ impl Surface {
         };
         Ok(RenderAttachStream { initial, stream, _permit: permit })
     }
+}
+
+/// The replay of `window` over `term` under its lock, with the history rows
+/// it leaves out above its first row and between it and the screen. `None`:
+/// the whole history (bounded by `VT_REPLAY_MAX_BYTES`), as before.
+pub(super) fn window_replay_locked(
+    term: &mut Terminal,
+    window: Option<HistoryWindow>,
+) -> ghostty_vt::Result<(ghostty_vt::VtReplay, Option<u64>, Option<u64>)> {
+    let Some(window) = window else {
+        return Ok((
+            term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES)?,
+            None,
+            None,
+        ));
+    };
+    let tail_rows = match window.plan(u64::from(term.history_rows())) {
+        WindowPlan::Tail { rows } => rows,
+        WindowPlan::Gap { start, rows, skipped } => {
+            match term.vt_replay_window_theme_portable_with_aliases(
+                VT_REPLAY_MAX_BYTES,
+                start,
+                rows,
+            )? {
+                Some(gap) => {
+                    debug_assert_eq!(
+                        gap.history_rows_skipped, skipped,
+                        "the plan's gap is the replay's"
+                    );
+                    return Ok((
+                        gap.replay,
+                        Some(gap.history_rows_omitted),
+                        Some(gap.history_rows_skipped),
+                    ));
+                }
+                // Images, an alternate screen or a waiting prompt clear: the
+                // rows from the window's start down to the screen, bounded by
+                // the byte budget like any replay.
+                None => u64::from(term.history_rows()).saturating_sub(start),
+            }
+        }
+    };
+    let tail = term.vt_replay_tail_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES, tail_rows)?;
+    Ok((tail.replay, Some(tail.history_rows_omitted), None))
 }
