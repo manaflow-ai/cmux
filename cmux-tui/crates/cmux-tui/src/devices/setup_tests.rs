@@ -161,6 +161,8 @@ struct Asker {
     team: Option<String>,
     /// The agents permission; `None`: this cmux has no `remote-host agents` verb.
     agents: RefCell<Option<bool>>,
+    /// The app's answer to `remote.confirm {"action":"allow_agents","on":true}`.
+    allow: Result<Value, Value>,
     /// How many times the setter ran.
     allow_calls: RefCell<u32>,
 }
@@ -172,6 +174,7 @@ impl Default for Asker {
             mint: Ok("code-123".into()),
             team: Some("7WLXT3NR37".into()),
             agents: RefCell::new(Some(false)),
+            allow: Ok(json!({"ok": true, "agents_may_share": true})),
             allow_calls: RefCell::new(0),
         }
     }
@@ -190,16 +193,12 @@ impl Asking for Asker {
     fn agents_allowed(&self) -> Result<bool, AskError> {
         (*self.agents.borrow()).ok_or(AskError::Unsupported)
     }
-    fn allow_agents(&self) -> Result<(), AskError> {
+    fn allow_agents(&self) -> Result<Value, Value> {
         *self.allow_calls.borrow_mut() += 1;
-        let mut agents = self.agents.borrow_mut();
-        match *agents {
-            Some(_) => {
-                *agents = Some(true);
-                Ok(())
-            }
-            None => Err(AskError::Unsupported),
+        if self.allow.as_ref().is_ok_and(|v| v["agents_may_share"] == json!(true)) {
+            *self.agents.borrow_mut() = Some(true);
         }
+        self.allow.clone()
     }
 }
 
@@ -735,13 +734,11 @@ fn allow_agents_turns_the_permission_on_and_without_it_setup_only_reports() {
     assert_eq!(*world.asker.allow_calls.borrow(), 1);
     assert!(run.changed.contains(&"agents allowed".to_owned()));
 
-    // A cmux with no `remote-host agents` verb: the flag warns, no flag skips.
-    let old = FakeWorld::new(Mac { version: "2100".into(), running: true, ..Mac::default() });
-    *old.asker.agents.borrow_mut() = None;
-    let line = share_policy_step(&old.asker, true, false);
-    assert_eq!(line.state, StepState::Warn);
-    assert!(line.detail.ends_with("needs a newer cmux"), "{line:?}");
-    assert_eq!(share_policy_step(&old.asker, false, false).state, StepState::Skip);
+    // A cmux with no way to read the permission: no flag skips.
+    let old = Asker::default();
+    *old.agents.borrow_mut() = None;
+    assert_eq!(share_policy_step(&old, false, false).state, StepState::Skip);
+    assert_eq!(*old.allow_calls.borrow(), 0);
     // A dry run never calls the setter.
     let fresh = Asker::default();
     assert_eq!(share_policy_step(&fresh, true, true).state, StepState::Skip);
@@ -749,4 +746,41 @@ fn allow_agents_turns_the_permission_on_and_without_it_setup_only_reports() {
     // `start` never touches the permission.
     let run = run_one(&world, "studio-mac", Mode::Start, options, &mut |_, _| {});
     assert!(run.lines.iter().all(|l| l.step != "agents"));
+}
+
+#[test]
+fn every_answer_to_allow_agents_is_a_line_and_none_is_a_fail() {
+    let step = |allow: Result<Value, Value>| {
+        let asker = Asker { allow, ..Asker::default() };
+        let line = share_policy_step(&asker, true, false);
+        assert_eq!(*asker.allow_calls.borrow(), 1, "the flag sends remote.confirm once");
+        line
+    };
+    let on = step(Ok(json!({"ok": true, "agents_may_share": true})));
+    assert_eq!(on.state, StepState::Changed);
+    assert!(on.detail.ends_with("is on"), "{on:?}");
+
+    let declined = step(Ok(json!({"ok": false, "declined": true})));
+    assert_eq!(declined.state, StepState::Warn);
+    assert!(declined.detail.contains("you said no"), "{declined:?}");
+
+    let signed_out = step(Err(json!({"code": "invalid_params",
+                                     "message": "Sign in to cmux to share this Mac."})));
+    assert_eq!(signed_out.state, StepState::Warn);
+    assert!(signed_out.detail.ends_with("sign in to cmux"), "{signed_out:?}");
+
+    // An older app: its `remote.confirm` names the actions it has, or it has none.
+    for older in [
+        json!({"code": "invalid_params",
+               "message": "action must be share, or access with device and scope (none, ask, view, full)"}),
+        json!({"code": "method_not_found", "message": "remote.confirm"}),
+    ] {
+        let line = step(Err(older));
+        assert_eq!(line.state, StepState::Warn);
+        assert!(line.detail.ends_with("needs a newer cmux"), "{line:?}");
+    }
+
+    let closed = step(Err(json!({"code": "app.unavailable", "message": "cmux is not running"})));
+    assert_eq!(closed.state, StepState::Warn);
+    assert_eq!(closed.fix, "open cmux on this computer");
 }

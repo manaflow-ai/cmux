@@ -346,8 +346,10 @@ pub(crate) trait Asking {
     /// Whether "My agents can turn screen sharing and control on my machines" is on
     /// (`cmux remote-host agents status --json`).
     fn agents_allowed(&self) -> Result<bool, AskError>;
-    /// Turns it on (`cmux remote-host agents allow`): only for `--allow-agents`.
-    fn allow_agents(&self) -> Result<(), AskError>;
+    /// Asks this machine's cmux app to turn it on, `remote.confirm {"action":"allow_agents",
+    /// "on":true}`, and gives the app's answer or error ([`allow_answer`] reads it). The app
+    /// always asks the person. Only for `--allow-agents`.
+    fn allow_agents(&self) -> Result<Value, Value>;
 }
 
 /// The account's standing permission, in the words the share helper's setting uses.
@@ -357,40 +359,82 @@ pub(crate) const AGENTS_POLICY: &str =
 /// The `agents` step: reports the agents permission, and turns it on only with `allow`
 /// (`--allow-agents`, or the app's `allow_agents`).
 pub(crate) fn share_policy_step(asking: &dyn Asking, allow: bool, dry_run: bool) -> Line {
-    let line = |state, detail: String, fix: &str| Line {
-        step: "agents",
-        state,
-        detail,
-        fix: fix.to_owned(),
-    };
     if allow && dry_run {
-        return line(StepState::Skip, format!("dry run: would turn on \"{AGENTS_POLICY}\""), "");
+        return agents_line(
+            StepState::Skip,
+            format!("dry run: would turn on \"{AGENTS_POLICY}\""),
+            "",
+        );
     }
     if allow {
-        return match asking.allow_agents() {
-            Ok(()) => line(StepState::Changed, format!("\"{AGENTS_POLICY}\" is on"), ""),
-            Err(AskError::Unsupported) => line(
-                StepState::Warn,
-                format!("turning on \"{AGENTS_POLICY}\" needs a newer cmux"),
-                "cmux remote-host agents allow",
-            ),
-            Err(AskError::Failed(why)) => {
-                line(StepState::Warn, format!("cannot turn on \"{AGENTS_POLICY}\": {why}"), "")
-            }
-        };
+        return allow_answer(asking.allow_agents());
     }
     match asking.agents_allowed() {
-        Ok(true) => line(StepState::Ok, format!("\"{AGENTS_POLICY}\" is on"), ""),
-        Ok(false) => line(
+        Ok(true) => agents_line(StepState::Ok, format!("\"{AGENTS_POLICY}\" is on"), ""),
+        Ok(false) => agents_line(
             StepState::Ok,
             format!("\"{AGENTS_POLICY}\" is off"),
             "cmux device setup DEVICE --allow-agents",
         ),
         Err(AskError::Unsupported) => {
-            line(StepState::Skip, format!("\"{AGENTS_POLICY}\" needs a newer cmux"), "")
+            agents_line(StepState::Skip, format!("\"{AGENTS_POLICY}\" needs a newer cmux"), "")
         }
         Err(AskError::Failed(why)) => {
-            line(StepState::Warn, format!("cannot read \"{AGENTS_POLICY}\": {why}"), "")
+            agents_line(StepState::Warn, format!("cannot read \"{AGENTS_POLICY}\": {why}"), "")
+        }
+    }
+}
+
+fn agents_line(state: StepState, detail: String, fix: &str) -> Line {
+    Line { step: "agents", state, detail, fix: fix.to_owned() }
+}
+
+/// The app's answer to `remote.confirm {"action":"allow_agents","on":true}` as the `agents`
+/// line. On: `{"ok":true,"agents_may_share":true}`. The person said no:
+/// `{"ok":false,"declined":true}`, a warn. Signed out: `invalid_params`, a warn. An app that
+/// has no such action (it answers `invalid_params` "action must be ...") or no
+/// `remote.confirm` at all (`method_not_found`) needs a newer cmux. Nothing here is a fail:
+/// the Mac is set up either way.
+pub(crate) fn allow_answer(answer: Result<Value, Value>) -> Line {
+    match answer {
+        Ok(value) if value["agents_may_share"].as_bool() == Some(true) => {
+            agents_line(StepState::Changed, format!("\"{AGENTS_POLICY}\" is on"), "")
+        }
+        Ok(value) if value["declined"].as_bool() == Some(true) => agents_line(
+            StepState::Warn,
+            format!("\"{AGENTS_POLICY}\" stays off: you said no in cmux"),
+            "",
+        ),
+        Ok(value) => agents_line(
+            StepState::Warn,
+            format!("cmux did not turn on \"{AGENTS_POLICY}\": {value}"),
+            "",
+        ),
+        Err(error) => {
+            let code = error["code"].as_str().unwrap_or("");
+            let message = error["message"].as_str().unwrap_or("");
+            if code == "method_not_found"
+                || (code == "invalid_params" && message.starts_with("action must be"))
+            {
+                agents_line(
+                    StepState::Warn,
+                    format!("turning on \"{AGENTS_POLICY}\" needs a newer cmux"),
+                    "",
+                )
+            } else if code == "invalid_params" {
+                agents_line(
+                    StepState::Warn,
+                    format!("cannot turn on \"{AGENTS_POLICY}\": sign in to cmux"),
+                    "sign in to cmux on this computer",
+                )
+            } else {
+                let why = if message.is_empty() { code } else { message };
+                agents_line(
+                    StepState::Warn,
+                    format!("cannot turn on \"{AGENTS_POLICY}\": {why}"),
+                    "open cmux on this computer",
+                )
+            }
         }
     }
 }
@@ -960,8 +1004,14 @@ impl Asking for ThisMachine {
         })
     }
 
-    fn allow_agents(&self) -> Result<(), AskError> {
-        local_json(&["remote-host", "agents", "allow", "--json"]).map(|_| ())
+    #[cfg(unix)]
+    fn allow_agents(&self) -> Result<Value, Value> {
+        crate::cli::confirm_allow_agents()
+    }
+
+    #[cfg(not(unix))]
+    fn allow_agents(&self) -> Result<Value, Value> {
+        Err(json!({"code": "unavailable", "message": "the cmux app runs on a Mac"}))
     }
 }
 
