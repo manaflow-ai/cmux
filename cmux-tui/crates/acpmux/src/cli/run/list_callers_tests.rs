@@ -357,10 +357,16 @@ async fn gate_daemon(closed: usize) -> Daemon {
     serve(Serves::List, |hub| list_daemon::twenty_live_beside(hub, closed).unwrap()).await
 }
 
+// PROBE (temporary): the last `gate_run`'s connect and `initialize` time.
+static PROBE_CONNECT_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// One caller's run through the v2 list on a new client of `proxy`: its wall time and the bytes
 /// the daemon sent.
 async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
+    // PROBE (temporary): the v1 client's connect and `initialize`, outside the timed wall.
+    let connecting = Instant::now();
     let client = Client::connect(&proxy.path).await.unwrap();
+    PROBE_CONNECT_NS.store(connecting.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let via = || Via::List(proxy.path.clone());
     let before = proxy.bytes.load(Ordering::Relaxed);
     let started = Instant::now();
@@ -413,15 +419,37 @@ async fn v2_pr07b_callers() {
                 }
             };
             probe("before");
-            for _ in 0..20 {
+            let first_round = caller == "ls" && god_wall.is_empty();
+            for n in 0..20 {
                 let (wall, bytes) = gate_run(caller, &small_proxy).await;
+                if first_round && n == 0 {
+                    eprintln!(
+                        "PROBE ls_round1_first side=small connect_init_us={} wall_us={}",
+                        PROBE_CONNECT_NS.load(Ordering::Relaxed) / 1_000,
+                        wall / 1_000
+                    );
+                }
                 sw.push(wall);
                 sb.push(bytes);
                 let (wall, bytes) = gate_run(caller, &god_proxy).await;
+                if first_round && n == 0 {
+                    eprintln!(
+                        "PROBE ls_round1_first side=god connect_init_us={} wall_us={}",
+                        PROBE_CONNECT_NS.load(Ordering::Relaxed) / 1_000,
+                        wall / 1_000
+                    );
+                }
                 gw.push(wall);
                 gb.push(bytes);
             }
             probe("after");
+            if first_round {
+                let us = |samples: &[u128]| {
+                    samples.iter().map(|ns| (ns / 1_000).to_string()).collect::<Vec<_>>().join(",")
+                };
+                eprintln!("PROBE ls_round1_samples side=god us=[{}]", us(&gw));
+                eprintln!("PROBE ls_round1_samples side=small us=[{}]", us(&sw));
+            }
             if caller == "ls" {
                 eprintln!(
                     "PROBE ls_round{} god_p95={} small_p95={}",
