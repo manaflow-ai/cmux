@@ -18,7 +18,7 @@ use cmux_server_core::layout::Layout;
 use cmux_server_core::platform::InstallMode;
 use cmux_server_core::role::Role;
 
-use crate::machine::{Action, DaemonState, Input, Machine, Observation};
+use crate::machine::{Action, DaemonState, HostLook, Input, Machine, Observation};
 use crate::roles::{Roles, event_name};
 use crate::status::Status;
 
@@ -60,6 +60,8 @@ pub enum Wake {
     Rearm,
     Backoff,
     StopDeadline,
+    /// The look timer of an old-build session host waiting to be replaced.
+    HostLook,
 }
 
 /// How far the realtime clock must move against the boot clock for a clock
@@ -384,6 +386,16 @@ pub trait Platform {
     fn carrier_changed(&mut self) -> bool {
         false
     }
+    /// Whether the adopted session host runs another executable than the
+    /// installed build's (`/proc/<pid>/exe` against the canonical session
+    /// host binary): an update flipped the build under it.
+    fn build_changed(&mut self) -> bool {
+        false
+    }
+    /// One look at the adopted old-build host's carrier sessions.
+    fn look_host(&mut self) -> HostLook {
+        HostLook { attached: Some(0), ..HostLook::default() }
+    }
     /// Publishes the status file.
     fn write_status(&mut self, status: &Status) -> io::Result<()>;
     /// Answers accepted identity clients only after the fresh observation's actions.
@@ -422,7 +434,10 @@ fn describe(action: &Action) -> String {
         | Action::CommitBind(id) => {
             format!("{} id={id}", action.name())
         }
-        Action::ArmBackoff(ms) | Action::ArmRetry(ms) => format!("{} ms={ms}", action.name()),
+        Action::ArmBackoff(ms) | Action::ArmRetry(ms) | Action::ArmHostLook(ms) => {
+            format!("{} ms={ms}", action.name())
+        }
+        Action::ReplaceOldHost(why) => format!("{} why={}", action.name(), why.name()),
         Action::Notify(event) => format!("{} event={}", action.name(), event_name(event)),
         Action::StartRoles(id) => format!("{} id={}", action.name(), id.as_deref().unwrap_or("-")),
         other => other.name().to_owned(),
@@ -473,6 +488,11 @@ impl<P: Platform> Agent<P> {
         // older carrier route.
         if adopted.is_some() && self.platform.carrier_changed() {
             boot.push(Input::CarrierChanged);
+        }
+        // Or from before an update's flip (`KillMode=process`: the restart
+        // kept it): replaced once no person's session is in the way.
+        if adopted.is_some() && self.platform.build_changed() {
+            boot.push(Input::BuildChanged);
         }
         if self.dispatch(boot) {
             return Ok(());
@@ -561,6 +581,7 @@ impl<P: Platform> Agent<P> {
                 Wake::Rearm => rest.push(Input::RearmElapsed),
                 Wake::Backoff => rest.push(Input::BackoffElapsed),
                 Wake::StopDeadline => rest.push(Input::StopDeadline),
+                Wake::HostLook => rest.push(Input::HostLookElapsed),
             }
         }
         if let Some(wake) = wakes.first() {
@@ -623,6 +644,17 @@ impl<P: Platform> Agent<P> {
                 Action::Exit => *exit = true,
                 Action::CommitBind(id) => follow.push(Input::BindCommitted(id.clone())),
                 Action::Recheck => follow.push(Input::Observed(self.platform.observe())),
+                Action::LookHost => {
+                    let look = self.platform.look_host();
+                    self.log.line(&format!(
+                        "old-build host: {} attached, input idle {}, {} s since the build changed",
+                        look.attached.map_or("unknown".to_owned(), |n| n.to_string()),
+                        look.input_idle_ms
+                            .map_or("unknown".to_owned(), |ms| format!("{} s", ms / 1000)),
+                        look.since_changed_ms / 1000
+                    ));
+                    follow.push(Input::HostLooked(look));
+                }
                 Action::StartRoles(id) => {
                     let errors = self.roles.start(id.clone());
                     self.log_all(errors);
@@ -718,6 +750,7 @@ fn wake_name(wake: Wake) -> &'static str {
         Wake::Rearm => "rearm",
         Wake::Backoff => "backoff",
         Wake::StopDeadline => "stop-deadline",
+        Wake::HostLook => "host-look",
     }
 }
 
@@ -734,6 +767,7 @@ pub fn daemon_name(state: &DaemonState) -> &'static str {
 mod identity_tests {
     use super::*;
 
+    #[derive(Default)]
     struct Fake {
         observations: VecDeque<Option<&'static str>>,
         wakes: VecDeque<Wake>,
@@ -745,6 +779,16 @@ mod identity_tests {
         exits: VecDeque<Exit>,
         /// Every action run, by name.
         ran: Vec<&'static str>,
+        /// The adopted host's executable is stale: an update flipped the
+        /// build under it (`build_changed`).
+        stale_exe: bool,
+        /// `look_host` answers, in order (then none attached).
+        looks: VecDeque<HostLook>,
+        /// The fake clock: each `wait` moves it by the next of `advance_ms`.
+        clock_ms: u64,
+        advance_ms: VecDeque<u64>,
+        /// Every action run (and every look), with the fake clock.
+        timed: Vec<(u64, &'static str)>,
     }
 
     impl Platform for Fake {
@@ -752,6 +796,7 @@ mod identity_tests {
             self.invalidations.set(self.invalidations.get() + 1);
         }
         fn wait(&mut self) -> io::Result<Vec<Wake>> {
+            self.clock_ms += self.advance_ms.pop_front().unwrap_or(0);
             Ok(vec![self.wakes.pop_front().unwrap()])
         }
         fn reap(&mut self) -> Vec<Exit> {
@@ -771,10 +816,24 @@ mod identity_tests {
         }
         fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
             self.ran.push(action.name());
+            self.timed.push((self.clock_ms, action.name()));
             Ok(None)
         }
         fn carrier_changed(&mut self) -> bool {
             self.carrier.pop_front().unwrap_or(false)
+        }
+        fn build_changed(&mut self) -> bool {
+            self.stale_exe
+        }
+        fn look_host(&mut self) -> HostLook {
+            self.ran.push("look-host");
+            self.timed.push((self.clock_ms, "look-host"));
+            let mut look = self
+                .looks
+                .pop_front()
+                .unwrap_or(HostLook { attached: Some(0), ..HostLook::default() });
+            look.since_changed_ms = self.clock_ms;
+            look
         }
         fn daemon_pid(&self) -> Option<u32> {
             Some(1)
@@ -798,6 +857,7 @@ mod identity_tests {
             carrier: VecDeque::new(),
             exits: VecDeque::new(),
             ran: vec![],
+            ..Fake::default()
         };
         let mut agent =
             Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
@@ -820,6 +880,7 @@ mod identity_tests {
             carrier: VecDeque::new(),
             exits: VecDeque::new(),
             ran: vec![],
+            ..Fake::default()
         };
         // One file per call: the tests run in parallel.
         static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -937,6 +998,7 @@ mod identity_tests {
             carrier: carrier.iter().copied().collect(),
             exits: [Exit::Daemon { lived_ms: 60_000 }].into(),
             ran: vec![],
+            ..Fake::default()
         };
         let mut agent =
             Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
@@ -969,5 +1031,81 @@ mod identity_tests {
         let ran = run_carrier(&[Wake::CarrierFile, Wake::CarrierFile], &[false, false, false]);
         assert!(!ran.contains(&"terminate-daemon"), "{ran:?}");
         assert!(!ran.contains(&"spawn-daemon"), "{ran:?}");
+    }
+
+    /// The adopted host on a stale executable (an update's flip restarted
+    /// only the agent), `wakes` each `advance_ms` later on the fake clock,
+    /// `looks` its carrier sessions: the timed actions.
+    fn run_old_build(
+        wakes: &[Wake],
+        advance_ms: &[u64],
+        looks: &[HostLook],
+    ) -> Vec<(u64, &'static str)> {
+        let fake = Fake {
+            observations: std::iter::repeat_n(Some("a"), 16).collect(),
+            wakes: wakes.iter().copied().chain([Wake::Terminate]).collect(),
+            exits: [Exit::Daemon { lived_ms: 60_000 }].into(),
+            stale_exe: true,
+            looks: looks.iter().copied().collect(),
+            advance_ms: advance_ms.iter().copied().collect(),
+            ..Fake::default()
+        };
+        let mut agent =
+            Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
+        agent.run().unwrap();
+        std::mem::take(&mut agent.platform.timed)
+    }
+
+    fn at(timed: &[(u64, &'static str)], name: &str) -> Option<(usize, u64)> {
+        timed.iter().position(|(_, a)| *a == name).map(|i| (i, timed[i].0))
+    }
+
+    fn attached(n: usize) -> HostLook {
+        HostLook { attached: Some(n), input_idle_ms: Some(1_000), since_changed_ms: 0 }
+    }
+
+    #[test]
+    fn an_adopted_host_on_an_old_build_respawns_at_boot() {
+        // No carrier session attached: the old build goes at once, the way
+        // a route change does (SIGTERM handoff, terminal hosts kept).
+        let timed = run_old_build(&[Wake::ProcessExit], &[1_000], &[attached(0)]);
+        let ran: Vec<_> = timed.iter().map(|(_, a)| *a).collect();
+        let (terminate, _) = at(&timed, "terminate-daemon").expect("no stop");
+        let (spawn, _) = at(&timed, "spawn-daemon").expect("no respawn");
+        assert!(terminate < spawn, "{ran:?}");
+        assert!(at(&timed, "replace-old-host").is_some_and(|(i, _)| i < terminate), "{ran:?}");
+        assert!(!ran.contains(&"stop-terminal-hosts"), "{ran:?}");
+        assert!(!ran.contains(&"mark-host-deferred"), "{ran:?}");
+    }
+
+    #[test]
+    fn a_busy_old_host_is_replaced_when_its_sessions_end() {
+        // Boot (t=0): one session attached. The 15 s look: still attached.
+        // The session detaches at 20 s; the 30 s look sees none; the old host
+        // hands off on SIGTERM and exits 1 s later.
+        const DETACH_MS: u64 = 20_000;
+        let timed = run_old_build(
+            &[Wake::HostLook, Wake::HostLook, Wake::ProcessExit],
+            &[15_000, 15_000, 1_000],
+            &[attached(1), attached(1), attached(0)],
+        );
+        let ran: Vec<_> = timed.iter().map(|(_, a)| *a).collect();
+        let looks: Vec<_> = timed.iter().filter(|(_, a)| *a == "look-host").collect();
+        assert_eq!(looks.len(), 3, "{ran:?}");
+        let (terminate, terminate_ms) = at(&timed, "terminate-daemon").expect("never replaced");
+        let (spawn, spawn_ms) = at(&timed, "spawn-daemon").expect("no respawn");
+        // Kept while attached: nothing stops it before the look that saw none.
+        assert_eq!(terminate_ms, 30_000, "{timed:?}");
+        assert!(terminate < spawn, "{ran:?}");
+        assert_eq!(ran.iter().filter(|a| **a == "mark-host-deferred").count(), 1, "{ran:?}");
+        assert!(ran.contains(&"arm-host-look"), "{ran:?}");
+        assert!(!ran.contains(&"stop-terminal-hosts"), "{ran:?}");
+        // The link blip: from the detach to the new host's spawn (its listen
+        // then waits for the journal replay, not modelled here).
+        let blip_s = (spawn_ms - DETACH_MS) as f64 / 1000.0;
+        eprintln!(
+            "link blip: detach at {DETACH_MS} ms, new host spawned at {spawn_ms} ms: {blip_s} s"
+        );
+        assert!(spawn_ms - DETACH_MS <= crate::machine::HOST_LOOK_MS + 1_000, "{timed:?}");
     }
 }

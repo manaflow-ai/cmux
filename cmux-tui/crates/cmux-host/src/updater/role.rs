@@ -67,7 +67,7 @@ fn jitter_draw() -> u64 {
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
-const HEALTH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+pub(super) const HEALTH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// The previous build's guard runs this long after the flip, past the
 /// health check, and rolls back an update that never proved itself.
 const GUARD_AFTER_SECS: u64 = 20 * 60;
@@ -1347,6 +1347,23 @@ fn carrier_sessions() -> Result<Vec<String>, String> {
 /// user and home the session host runs with (the layout marker), since the
 /// channel answers only its own user.
 fn carrier_sessions_within(limit: Duration) -> Result<Vec<String>, Unread> {
+    let stdout = connections_json_within(limit)?;
+    super::carrier::attached_sessions_in(&stdout)
+        .ok_or_else(|| Unread::Failed("its connection list is unreadable".to_owned()))
+}
+
+/// The attached carrier sessions and the least input idle time among them
+/// ([`super::carrier::attached_input_idle_in`]), read within `limit`: the
+/// supervisor's look at an old-build session host it waits to replace
+/// (`crate::machine::HostLook`).
+pub(crate) fn carrier_input_idle_within(limit: Duration) -> Result<(usize, Option<u64>), String> {
+    let stdout = connections_json_within(limit).map_err(Unread::why)?;
+    super::carrier::attached_input_idle_in(&stdout)
+        .ok_or_else(|| "its connection list is unreadable".to_owned())
+}
+
+/// The session host's `remote enroll connections --json` reply, at most `limit`.
+fn connections_json_within(limit: Duration) -> Result<String, Unread> {
     let marker = fs::read_to_string(Paths::new("/").at(crate::config::LAYOUT_MARKER_FILE)).ok();
     let home =
         crate::cloud::daemon_noise_key::session_home(marker.as_deref()).ok_or_else(|| {
@@ -1363,8 +1380,7 @@ fn carrier_sessions_within(limit: Duration) -> Result<Vec<String>, Unread> {
         .args(["remote", "enroll", "connections", "--session", crate::daemon_spec::SESSION])
         .arg("--json");
     let stdout = output_within(cmd, limit)?;
-    super::carrier::attached_sessions_in(&String::from_utf8_lossy(&stdout))
-        .ok_or_else(|| Unread::Failed("its connection list is unreadable".to_owned()))
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
 /// How long past its `timeout` bound a read may run before [`output_within`]
@@ -1463,12 +1479,7 @@ fn user_unit_state(unit: &str) -> Option<String> {
 /// executable is what tells the builds apart.)
 fn healthy(paths: &Paths, pending: &Pending) -> bool {
     let new = store_binary(&pending.cmux_tui);
-    let runs_new = |pid: &str| {
-        let pid = pid.trim();
-        !pid.is_empty()
-            && pid.bytes().all(|b| b.is_ascii_digit())
-            && fs::read_link(format!("/proc/{pid}/exe")).ok().as_deref() == Some(new.as_path())
-    };
+    let runs_new = |pid: &str| exe_of(pid).as_deref() == Some(new.as_path());
     let serving = crate::cloud::role::daemon_socket(paths).is_some_and(|socket| {
         crate::cloud::role::query_identify(&socket, Duration::from_secs(2)).is_ok()
     });
@@ -1485,6 +1496,19 @@ fn healthy(paths: &Paths, pending: &Pending) -> bool {
         .and_then(|(_, status)| serde_json::from_str::<Value>(status.trim()).ok())
         .and_then(|v| v.get("pid").and_then(Value::as_u64))
         .is_some_and(|pid| runs_new(&pid.to_string()))
+}
+
+/// The executable of the one pid `pid` names (decimal, surrounding space
+/// allowed): the session host the agent's pid file names, or acpmux's
+/// daemon. An identity check of one known process, no scan: [`healthy`]
+/// and the agent's adopt (`linux::procs::runs_other_build`) tell the
+/// builds apart by it.
+pub(crate) fn exe_of(pid: &str) -> Option<PathBuf> {
+    let pid = pid.trim();
+    if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    fs::read_link(format!("/proc/{pid}/exe")).ok()
 }
 
 /// Before a rollback's restart: waits while `carrier` says carrier sessions
@@ -1538,13 +1562,31 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
         clear_pending(paths);
         return true;
     }
-    let deadline = Instant::now() + HEALTH_TIMEOUT;
-    loop {
-        if healthy(paths, pending) {
+    let start = Instant::now();
+    let resolved = resolve_with(
+        || healthy(paths, pending),
+        || paths.at(crate::config::HOST_DEFERRED_FILE).exists(),
+        || start.elapsed(),
+        |d| match rx.recv_timeout(d) {
+            Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => false,
+            _ => true,
+        },
+        |step| match step {
+            GuardStep::Disarm => disarm_guard(),
+            GuardStep::Rearm => {
+                if let Err(e) = arm_guard(pending) {
+                    log(&format!("re-arming the guard after the host's replacement: {e}"));
+                }
+            }
+        },
+    );
+    match resolved {
+        Resolved::Healthy => {
             commit(paths, pending);
-            return true;
+            true
         }
-        if Instant::now() >= deadline {
+        Resolved::Stopped => false,
+        Resolved::TimedOut => {
             if !timeout_rollback_waits(&mut || rollback_carrier_busy(paths), rx) {
                 return false;
             }
@@ -1554,11 +1596,90 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
                 "the new build did not serve within ten minutes of its restart",
                 true,
             );
-            return true;
+            true
         }
-        match rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return false,
-            _ => {}
+    }
+}
+
+/// How long [`resolve_with`] lets a deferred session host replacement hold
+/// back the health deadline: the supervisor replaces it within
+/// [`crate::machine::HOST_MAX_DEFER_MS`], so a mark older than that and a
+/// health timeout more is not one it still keeps, and the deadline runs.
+pub(super) const DEFER_EXCUSE: Duration =
+    Duration::from_millis(crate::machine::HOST_MAX_DEFER_MS).saturating_add(HEALTH_TIMEOUT);
+
+/// What [`resolve_with`] found.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Resolved {
+    /// The new build serves.
+    Healthy,
+    /// It did not within [`HEALTH_TIMEOUT`] of its session host's replacement.
+    TimedOut,
+    /// The role stopped meanwhile.
+    Stopped,
+}
+
+/// The guard steps [`resolve_with`] takes around a deferred replacement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GuardStep {
+    /// The new build runs and waits on its session host: the previous
+    /// build's guard, which knows no deferral, must not roll it back.
+    Disarm,
+    /// The session host was replaced: the guard covers the new one again.
+    Rearm,
+}
+
+/// The health wait of [`resolve`], pure over its seams: `healthy` (the new
+/// build serves), `deferred` (the supervisor's [`crate::config::HOST_DEFERRED_FILE`]:
+/// the old-build session host still serves a person's session and is not
+/// replaced yet), `elapsed` (a monotonic clock from the role's start), `wait`
+/// (false when the role stops) and `guard`.
+///
+/// The [`HEALTH_TIMEOUT`] runs from the replacement, not from the role's
+/// start: while the replacement is deferred, the deadline keeps moving (up
+/// to [`DEFER_EXCUSE`]), and when the mark goes the deadline is that moment
+/// plus the timeout. Without a deferral it is the role's start plus the
+/// timeout, as before.
+pub(super) fn resolve_with(
+    mut healthy: impl FnMut() -> bool,
+    mut deferred: impl FnMut() -> bool,
+    mut elapsed: impl FnMut() -> Duration,
+    mut wait: impl FnMut(Duration) -> bool,
+    mut guard: impl FnMut(GuardStep),
+) -> Resolved {
+    let mut deadline = HEALTH_TIMEOUT;
+    let mut deferred_since: Option<Duration> = None;
+    let mut past_excuse = false;
+    loop {
+        if healthy() {
+            return Resolved::Healthy;
+        }
+        let now = elapsed();
+        if crate::machine::RED_STUB && deferred() {
+            let since = *deferred_since.get_or_insert_with(|| {
+                log("the old-build session host still serves a session: the health deadline starts at its replacement");
+                guard(GuardStep::Disarm);
+                now
+            });
+            if now.saturating_sub(since) <= DEFER_EXCUSE {
+                deadline = now + HEALTH_TIMEOUT;
+            } else if !past_excuse {
+                past_excuse = true;
+                log(&format!(
+                    "the session host's replacement is still deferred after {} h: the health deadline runs",
+                    DEFER_EXCUSE.as_secs() / 3600
+                ));
+            }
+        } else if deferred_since.take().is_some() {
+            log("the old-build session host was replaced: the health deadline starts now");
+            deadline = now + HEALTH_TIMEOUT;
+            guard(GuardStep::Rearm);
+        }
+        if now >= deadline {
+            return Resolved::TimedOut;
+        }
+        if !wait(Duration::from_secs(5)) {
+            return Resolved::Stopped;
         }
     }
 }

@@ -32,8 +32,8 @@ use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, p
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
-    DRIVER_FILE_NAME, ETC_DIR, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE, RUN_DIR, STATUS_FILE,
-    STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
+    DRIVER_FILE_NAME, ETC_DIR, HOST_DEFERRED_FILE, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE,
+    RUN_DIR, STATUS_FILE, STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
 };
 use crate::daemon_spec::{DaemonLayout, daemon_spec};
 use crate::machine::{Action, Input, Observation};
@@ -54,6 +54,12 @@ const T_RETRY: u64 = 9;
 const T_ANNOUNCE: u64 = 10;
 const T_IDENTITY: u64 = 11;
 const T_PAUSE: u64 = 12;
+const T_HOST_LOOK: u64 = 13;
+
+/// The bound of one look at an old-build host's carrier sessions: it runs
+/// on the agent's thread, every [`crate::machine::HOST_LOOK_MS`] while one
+/// waits.
+const HOST_LOOK_READ: std::time::Duration = std::time::Duration::from_secs(5);
 
 struct Daemon {
     pid: u32,
@@ -108,6 +114,9 @@ pub struct LinuxPlatform {
     stop_deadline: TimerFd,
     retry: TimerFd,
     announce_timer: TimerFd,
+    host_look: TimerFd,
+    /// When [`Platform::build_changed`] found the adopted host on another build.
+    build_changed_at: Option<Instant>,
     /// The global addresses last seen (netlink filter).
     addresses: BTreeSet<(String, IpAddr)>,
     metadata: Box<dyn InstanceIdSource>,
@@ -193,6 +202,8 @@ impl LinuxPlatform {
             stop_deadline: TimerFd::new(Clock::Monotonic)?,
             retry: TimerFd::new(Clock::Monotonic)?,
             announce_timer: TimerFd::new(Clock::Monotonic)?,
+            host_look: TimerFd::new(Clock::Monotonic)?,
+            build_changed_at: None,
             addresses: global_address_set(interface_addresses()),
             metadata,
             identity,
@@ -214,6 +225,7 @@ impl LinuxPlatform {
         e.add(platform.stop_deadline.raw(), T_STOP)?;
         e.add(platform.retry.raw(), T_RETRY)?;
         e.add(platform.announce_timer.raw(), T_ANNOUNCE)?;
+        e.add(platform.host_look.raw(), T_HOST_LOOK)?;
         if let Some(identity) = &platform.identity {
             e.add(identity.raw(), T_IDENTITY)?;
         }
@@ -306,6 +318,8 @@ impl LinuxPlatform {
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
+        // Every spawn runs the installed build: nothing waits any more.
+        self.clear_host_deferred();
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
         let pid = child.id();
         // Track the child before anything else can fail, so a later error
@@ -466,9 +480,36 @@ impl LinuxPlatform {
             self.epoll.remove(fd.raw());
         }
         let _ = fs::remove_file(self.cfg.paths.at(DAEMON_PID_FILE));
+        self.clear_host_deferred();
         let lived_ms = daemon.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
         eprintln!("cmux-host: session host {} exited after {lived_ms} ms", daemon.pid);
         Some(Exit::Daemon { lived_ms })
+    }
+
+    /// Removes the updater's deferral mark (none is fine).
+    fn clear_host_deferred(&mut self) {
+        self.build_changed_at = None;
+        let _ = self.host_look.disarm();
+        match fs::remove_file(self.cfg.paths.at(HOST_DEFERRED_FILE)) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                eprintln!("cmux-host: removing the old-host deferral mark: {e}");
+            }
+            _ => {}
+        }
+    }
+
+    /// Writes the updater's deferral mark: the session host it adopted runs
+    /// an older build and a person's session keeps it.
+    fn mark_host_deferred(&mut self) -> io::Result<Option<Input>> {
+        ensure_agent_dir(&self.cfg.paths)?;
+        let since = self.build_changed_at.map_or(0, |at| at.elapsed().as_secs());
+        let body =
+            format!("{{\"pid\":{},\"deferred_s\":{since}}}\n", self.daemon_pid().unwrap_or(0));
+        identity::write_atomic(&self.cfg.paths.at(HOST_DEFERRED_FILE), body.as_bytes(), 0o644)?;
+        eprintln!(
+            "cmux-host: the old-build session host serves an attached session: kept until it detaches, 10 min without input or 24 h"
+        );
+        Ok(None)
     }
 }
 
@@ -692,6 +733,10 @@ impl Platform for LinuxPlatform {
                         wakes.push(Wake::StopDeadline);
                     }
                     T_DAEMON => wakes.push(Wake::ProcessExit),
+                    T_HOST_LOOK => {
+                        self.host_look.drain();
+                        wakes.push(Wake::HostLook);
+                    }
                     _ => {}
                 }
             }
@@ -785,6 +830,43 @@ impl Platform for LinuxPlatform {
         self.daemon.as_ref().is_some_and(|daemon| daemon.carrier != want)
     }
 
+    /// Whether the adopted host runs another executable than the session
+    /// host link resolves to now (the updater's `healthy` compares the same
+    /// two). Also removes a mark left by an earlier agent run when it does not.
+    fn build_changed(&mut self) -> bool {
+        let Some(pid) = self.daemon_pid() else { return false };
+        let Ok(bin) = self.layout().map(|layout| layout.bin.clone()) else { return false };
+        if procs::runs_other_build(pid, &bin) {
+            eprintln!(
+                "cmux-host: the adopted session host {pid} runs {:?}, the installed build is {:?}",
+                crate::updater::role::exe_of(&pid.to_string()),
+                fs::canonicalize(&bin).ok()
+            );
+            self.build_changed_at = Some(Instant::now());
+            true
+        } else {
+            self.clear_host_deferred();
+            false
+        }
+    }
+
+    fn look_host(&mut self) -> crate::machine::HostLook {
+        let since_changed_ms = self
+            .build_changed_at
+            .map_or(0, |at| at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+        match crate::updater::role::carrier_input_idle_within(HOST_LOOK_READ) {
+            Ok((attached, input_idle_ms)) => crate::machine::HostLook {
+                attached: Some(attached),
+                input_idle_ms,
+                since_changed_ms,
+            },
+            Err(why) => {
+                eprintln!("cmux-host: the old-build host's carrier sessions are unknown: {why}");
+                crate::machine::HostLook { attached: None, input_idle_ms: None, since_changed_ms }
+            }
+        }
+    }
+
     fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
         let paths = self.cfg.paths.clone();
         match action {
@@ -832,6 +914,19 @@ impl Platform for LinuxPlatform {
                 interval => self.announce_timer.arm_after(interval).map(|()| None),
             },
             Action::DisarmAnnounce => self.announce_timer.disarm().map(|()| None),
+            Action::ArmHostLook(ms) => {
+                self.host_look.arm_after(std::time::Duration::from_millis(*ms)).map(|()| None)
+            }
+            Action::MarkHostDeferred => self.mark_host_deferred(),
+            Action::ReplaceOldHost(why) => {
+                let after = self.build_changed_at.map_or(0, |at| at.elapsed().as_secs());
+                eprintln!(
+                    "cmux-host: replacing the old-build session host ({}), {after} s after the build changed",
+                    why.name()
+                );
+                self.clear_host_deferred();
+                Ok(None)
+            }
             Action::RemoveDriverFile => identity::remove_driver_file(&paths).map(|()| None),
             Action::Ready => {
                 self.notify_ready();
@@ -841,6 +936,7 @@ impl Platform for LinuxPlatform {
             | Action::StopRoles
             | Action::CommitBind(_)
             | Action::Recheck
+            | Action::LookHost
             | Action::ParkRoles
             | Action::ShutdownRoles
             | Action::Notify(_)
