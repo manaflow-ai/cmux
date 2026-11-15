@@ -2,6 +2,7 @@
 //! after its takeover gives the origin back to v1's tee. Each way ends with the origin's rows
 //! equal to v1's list and the mirror's mark written off.
 use super::*;
+use crate::hub::session_pages::PageRow as _;
 use acpmux_book::index::{MirrorMark, SummaryIndex};
 use acpmux_core::hub::{MirrorUnit, UnitChange};
 use std::time::Duration;
