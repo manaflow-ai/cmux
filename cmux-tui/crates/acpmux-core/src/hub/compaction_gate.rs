@@ -1,5 +1,6 @@
 //! Complete writer-turn cost during real compaction, including sync and install.
 use super::*;
+use acpmux_book::gate_rounds::{self, all_p95, best_p95, p95};
 use acpmux_book::index::SortedSnapshot;
 use std::fs;
 use std::io::Write;
@@ -10,17 +11,6 @@ const ROUNDS: usize = 5;
 const MIN_CHANGES: u64 = 1_000_000;
 const MAX_CHANGES: u64 = 10_000_000;
 const BATCH: u64 = 256;
-
-fn p95(samples: &[u128]) -> u128 {
-    let mut values = samples.to_vec();
-    values.sort_unstable();
-    let rank = (values.len() * 95).div_ceil(100).saturating_sub(1);
-    *values.get(rank).unwrap()
-}
-
-fn best(samples: &[u128]) -> u128 {
-    samples.chunks_exact(SAMPLES).take(ROUNDS).map(p95).min().unwrap()
-}
 
 /// Select evenly spaced turns from one observation stretch. The compaction
 /// and non-compaction samples are collected over the same stretch of the
@@ -296,11 +286,19 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     assert_eq!(matched_outside.len(), ROUNDS * SAMPLES);
     assert_eq!(matched_during.len(), ROUNDS * SAMPLES);
     report_matched_rounds(&matched_outside, &matched_during);
-    let outside_rounds: Vec<_> = matched_outside.chunks_exact(SAMPLES).map(p95).collect();
+    let outside_samples: Vec<Vec<u128>> =
+        matched_outside.chunks_exact(SAMPLES).map(<[u128]>::to_vec).collect();
+    let outside_rounds: Vec<_> = outside_samples.iter().map(|round| p95(round)).collect();
     assert_eq!(outside_rounds.len(), ROUNDS);
-    let small = best(&matched_outside);
-    let god = best(&matched_during);
-    let all = p95(&matched_during);
+    let during_rounds: Vec<Vec<u128>> =
+        matched_during.chunks_exact(SAMPLES).map(<[u128]>::to_vec).collect();
+    gate_rounds::report(
+        "v2.pr05b.apply_during_compaction",
+        &[("small", &outside_samples), ("god", &during_rounds)],
+    );
+    let small = best_p95(&outside_samples);
+    let god = best_p95(&during_rounds);
+    let all = all_p95(&during_rounds);
     report_split("during_gate_samples", &mut during);
     for (n, label) in [
         "outside",
