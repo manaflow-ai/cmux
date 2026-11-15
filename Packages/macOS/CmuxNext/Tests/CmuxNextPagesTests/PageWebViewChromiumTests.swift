@@ -56,6 +56,23 @@ struct PageWebViewChromiumTests {
         #expect(page.closed)
     }
 
+    /// The page's setup calls (domains, binding, document scripts) go out back to back in their order, then the
+    /// host awaits their answers: a restored chat's first Chromium page paid one DevTools round trip per call
+    /// before its navigation (CMUX-571).
+    @Test func theSetupCallsGoOutBackToBack() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        // Page.enable, Runtime.enable, the binding and the host script at least, all out before any answer.
+        #expect(page.mostUnanswered >= 4)
+        #expect(Array(page.calls.prefix(3).map(\.method)) == ["Page.enable", "Runtime.enable", "Runtime.addBinding"])
+        #expect(page.loaded == [descriptor.url(route: "#/start")])
+        view.close()
+    }
+
     @Test func chromiumVisibilityFollowsAncestorAlpha() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
