@@ -53,7 +53,15 @@ command -v node >/dev/null && command -v claude >/dev/null && command -v codex >
   || { echo "node, claude and codex must be on PATH"; exit 2; }
 failed=0
 check() { if [ "$2" = 0 ]; then echo "PASS $1"; else echo "FAIL $1"; failed=1; fi; }
-timeout() { local s=$1; shift; perl -e 'alarm shift; exec @ARGV' "$s" "$@"; }
+# SECONDS COMMAND...: COMMAND's exit, or 124 once it ran SECONDS. A watchdog, not `alarm; exec`:
+# Codex 0.160.1 survives SIGALRM, so its `exec` outlived the script. TERM, then KILL after 2 s.
+timeout() {
+  local s=$1; shift
+  perl -e 'my $s = shift; my $pid = fork // die "fork: $!"; if (!$pid) { exec @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "TERM", $pid; for (1..20) { exit 124 if waitpid($pid, 1) > 0; select(undef, undef, undef, 0.1) }
+                       kill "KILL", $pid; waitpid($pid, 0); exit 124 };
+    alarm $s; waitpid($pid, 0); exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$s" "$@"
+}
 mkdir -p "$D/home" "$D/acpmux" "$D/claude" "$D/codex" "$D/work"
 export HOME=$D/home ACPMUX_HOME=$D/acpmux CLAUDE_CONFIG_DIR=$D/claude CODEX_HOME=$D/codex
 export CMUX_NEXT_CONFIG_FILE=$D/home/.config/cmux/cmux-next-gui.json
