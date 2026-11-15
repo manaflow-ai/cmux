@@ -2028,7 +2028,7 @@ fn every_test_wait_on_a_hold_is_bounded() {
     /// `(file under src/, receiver, why it may block unbounded)`.
     const ALLOWED: &[(&str, &str, &str)] = &[
         (
-            "agent_host/host/orphan.rs",
+            "agent_host/host/orphan_tests.rs",
             "held",
             "the harness waiter's park: it ends when the test drops `release`",
         ),
