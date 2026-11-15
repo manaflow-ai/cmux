@@ -247,7 +247,6 @@ enum PaletteSourcesBridge {
     }
 }
 
-
 extension AgentChatDestinations {
     init(services: AppServices) {
         let (host, machines) = (services.agentTabs.host, services.agentTabs.cloudMachines)

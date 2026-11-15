@@ -21,6 +21,21 @@ public final class WebDevOverrideWatcher {
     /// Counts ``reloadPages(live:hosting:pages:served:watcher:)`` calls, so an engine move a later reload
     /// superseded does not finish.
     private var reloadGeneration = 0
+    /// Told each time ``WebDevOverride/current`` changes (``whenChanged(_:)``).
+    private var changed: [@MainActor () -> Void] = []
+
+    /// Calls `body` each time ``WebDevOverride/current`` changes: a pull request's pages came on or went
+    /// off (``CustomizeExperiments``). Starts the watch, so the first read happens now.
+    func whenChanged(_ body: @escaping @MainActor () -> Void) {
+        changed.append(body)
+        start()
+    }
+
+    /// A Customization Library change ran (``SettingsCustomizeLibrary``): it can turn a pull request's
+    /// pages off without moving ``WebDevOverride/current`` (a lower PR of two), so the followers read again.
+    func libraryChanged() {
+        for body in changed { body() }
+    }
 
     /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
     /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
@@ -73,6 +88,7 @@ public final class WebDevOverrideWatcher {
     private func apply(_ value: WebDevOverride) {
         watchManifest(of: value.overlay)
         guard WebDevOverride.update(value) else { return }
+        for body in changed { body() }
         if let refusal = value.refusal {
             Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev").notice("overlay refused: \(refusal, privacy: .public)")
         }

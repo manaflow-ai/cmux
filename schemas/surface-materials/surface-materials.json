@@ -145,6 +145,7 @@
     "CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": "native-overlay",
     "CmuxNextSidebar/Views/SidebarContainerView.swift": "window-chrome",
     "CmuxNextAppHealth/AppHealthIndicatorView.swift": "sidebar-card",
+    "CmuxNextPages/CustomizeExperimentsMarkView.swift": "sidebar-card",
     "CmuxNextSidebar/Views/SidebarNoticeCardView.swift": "sidebar-card",
     "CmuxNextSidebar/Views/SidebarNowPlayingCardView.swift": "sidebar-card",
     "CmuxNextSidebar/Views/SidebarStuckVeilView.swift": "window-chrome",

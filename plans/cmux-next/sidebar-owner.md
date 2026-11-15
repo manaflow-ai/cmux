@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (lane/customize-experiments-mark): an "Experiment on · #N" chip floats above the footer row at the
+  avatar's edge while an unmerged PR's pages are on (`cmux customize use pr:N`), and draws and lays out nothing
+  otherwise. Leo, verbatim: "I want it to like look good and look, you know, like it's a part of the app, like it's
+  styled properly, like you guys have scrutinized the placement, the layout and whatever, so that it doesn't look
+  jank. And I want people to not accidentally soft lock themselves and like have good recovery options or whatever."
+  It is app health's chip (sidebar-card veil, caption text, chip radius; design/app-health.md), stacks above app
+  health's line when both show, and never moves the row. Native on purpose: a PR's pages can break Settings itself,
+  so its Turn Off runs `customize library off pr-N` through the bundled CLI. View `CustomizeExperimentsMarkView`
+  (CmuxNextPages), placement `SidebarFooterBand.placeExperimentsMark`; gallery `ui.customize-experiments.mark`.
+  Regressions: `SidebarProfileChipTests.theExperimentsMarkShowsNothingWhenOffAndMovesNothingWhenOn`,
+  `CustomizeExperimentsTests`.
+
 - 2026-11-14 (lane/sidebar-move-refusal-toast, #43233 with #43234): no more "The sidebar did not make this move."
   Leo, on that toast: "what am i seeing here"; on the refusals behind it: "the daemon shouldn't even refuse those".
   A stale op (a gone item, group, section or anchor) applies to the document as it is now (`sidebar_doc/stale.rs`),

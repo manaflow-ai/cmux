@@ -115,6 +115,49 @@ import Testing
         h.sidebar.healthIndicator = nil
     }
 
+    /// The experiments mark (`cmux customize use pr:N`) shows nothing and changes nothing while no PR's pages
+    /// are on (Leo, 2026-11-14: "it's obviously not going to show anything and not affect anything when
+    /// there's nothing to toggle on and off"); shown, it floats above the row at the avatar's leading edge,
+    /// above app health's line when that shows too, and the row never moves.
+    @Test func theExperimentsMarkShowsNothingWhenOffAndMovesNothingWhenOn() async throws {
+        let h = await make(width: 240)
+        defer { h.window.close() }
+        h.sidebar.spacesPosition = .bottom
+        h.sidebar.model.profiles = [SidebarProfile(id: ProfileKey("work"), name: "Work", color: .blue),
+                                    SidebarProfile(id: ProfileKey("home"), name: "Home", color: .green)]
+        h.sidebar.model.activeProfileID = ProfileKey("work")
+        h.sidebar.showUpdateAvailable("Update Available")
+        h.settle()
+        let bar = h.sidebar.profileBar
+        let row = { [h.frame(of: bar), h.frame(of: h.sidebar.updateAvailableButton), h.frame(of: h.sidebar.searchButton)] + bar.slotRects() }
+        let atRest = row()
+        let avatar = try #require(h.sidebar.footerBand.bandFirstRow?.frame)
+        // The mark as the footer sees it: hidden while no PR's pages are on (CustomizeExperimentsTests covers
+        // the real view's hiding), a chip-sized view once one is.
+        let mark = NSTextField(labelWithString: "Experiment on · #43543   Turn Off")
+        mark.isHidden = true
+        h.sidebar.experimentsMark = mark
+        h.settle()
+        #expect(row() == atRest, "nothing on: the row is as it was")
+        mark.isHidden = false
+        h.settle()
+        #expect(!mark.isHidden)
+        #expect(row() == atRest, "the row holds still with the mark")
+        let alone = h.frame(of: mark)
+        #expect(alone.width > 0 && abs(alone.minX - avatar.minX) < 0.5, "at the avatar's leading edge: \(alone)")
+        #expect(alone.maxY <= avatar.minY, "above the row: \(alone) over \(avatar)")
+        let line = NSTextField(labelWithString: "Agent chat isn’t responding")
+        h.sidebar.healthIndicator = line
+        h.settle()
+        #expect(row() == atRest, "and with app health's line too")
+        #expect(h.frame(of: mark).maxY <= h.frame(of: line).minY, "stacked above the health line: \(h.frame(of: mark)) \(h.frame(of: line))")
+        h.sidebar.healthIndicator = nil
+        mark.isHidden = true
+        h.settle()
+        #expect(row() == atRest, "turned off: the row is as it was")
+        h.sidebar.experimentsMark = nil
+    }
+
     /// App health's `dot` treatment, as the footer sees it.
     final class Badge: NSView, AvatarBadgePlacing {
         var sitsOnAvatar: Bool { true }

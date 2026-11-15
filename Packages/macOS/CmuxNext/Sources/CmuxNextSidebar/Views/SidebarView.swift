@@ -118,6 +118,17 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
+    /// The "Experiment on · #N" mark (CmuxNextPages `CustomizeExperimentsMarkView`), floating over the sidebar
+    /// like app health's line and stacked just above it when both show
+    /// (``SidebarFooterBand/placeExperimentsMark(above:)``); it shows and hides itself and asks for a layout.
+    /// It never fades with the footer.
+    public var experimentsMark: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            experimentsMark.map { addSubview($0) }
+            needsLayout = true
+        }
+    }
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -489,6 +500,8 @@ public final class SidebarView: NSView {
         // App health's line over the sidebar, above the footer row and its cards: placed after the row, from
         // nothing in it.
         footerBand.placeHealthIndicator(above: footer.frame.minY - updateHeight - cardsHeight)
+        // The experiments mark over the sidebar too, above app health's line when that shows.
+        footerBand.placeExperimentsMark(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)

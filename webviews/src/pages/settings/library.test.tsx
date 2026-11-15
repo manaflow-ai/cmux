@@ -109,12 +109,10 @@ test("a refused toggle (a preview is open) shows the CLI's words and changes not
   expect(toggle("night").getAttribute("aria-checked")).toBe("true");
 });
 
-const listed = () => page!.provider.log.filter((call) => call.op === "cmux.settings.customize.library").length;
-
-test("nothing applied yet: the library was read and no card draws (the person hasn't opted in)", async () => {
+test("an empty library says how entries get there", async () => {
   await open({ library: mockEmptyLibrary() });
-  expect(listed()).toBeGreaterThan(0);
-  expect(card()).toBeNull();
+  expect(names()).toEqual([]);
+  expect(card()!.querySelector("[data-library-empty]")!.textContent).toContain("Whatever you apply");
 });
 
 test("fifty entries draw as fifty rows in order", async () => {
@@ -124,8 +122,84 @@ test("fifty entries draw as fifty rows in order", async () => {
   expect(names()[49]).toBe("look-50");
 });
 
-test("a host with no CLI draws no card and no error", async () => {
+test("a host with no CLI draws one Unavailable line, never an error", async () => {
   await open({ failing: { "cmux.settings.customize.library": "cmux.page.unavailable" } });
-  expect(listed()).toBeGreaterThan(0);
-  expect(card()).toBeNull();
+  expect(names()).toEqual([]);
+  expect(card()!.querySelector("[data-library-unavailable]")!.textContent).toBe("The library could not be read.");
+});
+
+// A `pr-N` entry (`cmux customize use pr:N`): an unmerged PR's web layer. Leo, 2026-11-14: "it's
+// obviously not going to show anything and not affect anything when there's nothing to toggle on and
+// off" and "I want people to not accidentally soft lock themselves and like have good recovery options".
+const { mockLibraryWithExperiments, PR_ON, PR_MERGED, PR_NATIVE } = await import("./mockLibrary");
+const { experimentsOn } = await import("./customizeLibrary");
+
+test("with no PR entry the card draws exactly as before: no PR row, nothing counts as an experiment", async () => {
+  const listing = mockLibrary();
+  expect(experimentsOn(listing)).toEqual([]);
+  expect(experimentsOn(null)).toEqual([]);
+  expect(experimentsOn(mockEmptyLibrary())).toEqual([]);
+  // A PR entry that is off is not an experiment that is on: the mark counts nothing.
+  expect(experimentsOn(mockLibraryWithExperiments([]))).toEqual([]);
+  await open();
+  // React's generated ids differ per render; everything else must match.
+  const markup = () => card()!.innerHTML.replace(/(id|aria-labelledby)="[^"]*"/g, "$1");
+  const before = markup();
+  expect(card()!.querySelector("[data-library-code]")).toBeNull();
+  expect(card()!.querySelector("[data-library-pr-link], [data-library-needs-build], [data-library-note]")).toBeNull();
+  page!.unmount();
+  // The same listing drawn again gives the same markup: the PR row adds nothing to an entry without `code`.
+  await open({ library: mockLibrary() });
+  expect(markup()).toBe(before);
+});
+
+test("a PR row names the PR, its short head, a link to it, what needs a build and the refresh's note", async () => {
+  await open({ library: mockLibraryWithExperiments() });
+  expect(names().slice(0, 3)).toEqual(["pr-43543", "pr-43496", "pr-43410"]);
+  const row = entry("pr-43543");
+  expect(row.dataset.libraryCode).toBe("43543");
+  expect(row.querySelector(".row-title")!.textContent).toBe(`#43543 ${PR_ON.title}`);
+  expect(row.querySelector("[data-library-head]")!.textContent).toBe("716063c");
+  expect(row.querySelector<HTMLAnchorElement>("[data-library-pr-link]")!.getAttribute("href")).toBe(
+    "https://github.com/manaflow-ai/cmux/pull/43543",
+  );
+  expect(row.querySelector("[data-library-needs-build]")!.textContent).toBe(
+    "Needs a build: Swift in CmuxNextSidebar (the sidebar footer)",
+  );
+  expect(toggle("pr-43543").getAttribute("aria-checked")).toBe("true");
+  // A refresh turned the merged PR off and said why.
+  expect(entry("pr-43496").querySelector("[data-library-note]")!.textContent).toBe(PR_MERGED.note!);
+  expect(toggle("pr-43496").getAttribute("aria-checked")).toBe("false");
+  // No web part: nothing a running app can take, so it cannot be turned on; its line says why.
+  expect(toggle("pr-43410").disabled).toBe(true);
+  expect(entry("pr-43410").querySelector("[data-library-needs-build]")!.textContent).toBe(
+    `Needs a build: ${PR_NATIVE.needs_build![0]}`,
+  );
+});
+
+test("a PR row's switch runs `customize library off` through the host, as every entry's does", async () => {
+  await open({ library: mockLibraryWithExperiments() });
+  await click(toggle("pr-43543"));
+  await settle();
+  expect(page!.provider.libraryRuns).toEqual([{ verb: "off", name: "pr-43543" }]);
+  expect(toggle("pr-43543").getAttribute("aria-checked")).toBe("false");
+  expect(experimentsOn(page!.provider.library)).toEqual([]);
+});
+
+test("a PR row's Remove asks first, then runs `customize library remove` through the host", async () => {
+  await open({ library: mockLibraryWithExperiments() });
+  await click(action("pr-43543", "remove"));
+  await settle();
+  expect(page!.provider.libraryRuns).toEqual([]);
+  await click(card()!.querySelector('[data-library-confirm] [data-library-action="confirmRemove"]')!);
+  await settle();
+  expect(page!.provider.libraryRuns).toEqual([{ verb: "remove", name: "pr-43543" }]);
+  expect(names()).not.toContain("pr-43543");
+});
+
+test("two PRs on: the lower one says the higher one's pages are in use, in words", async () => {
+  await open({ library: mockLibraryWithExperiments([PR_ON, PR_MERGED]) });
+  const beaten = entry("pr-43496").querySelector<HTMLElement>("[data-library-beaten]")!;
+  expect(beaten.dataset.libraryBeaten).toBe("pr-43543");
+  expect(beaten.textContent).toBe("pr-43543 is higher: its pages are in use");
 });
