@@ -503,7 +503,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 creationLog.error("set_model \(model, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
             }
         }
-        await applyStartSettings(start, to: session, choice: choice, acpmux: acpmux)
+        await Self.applyStartSettings(start, to: session, choice: choice) { method, params in
+            _ = try await acpmux.request(method, params, timeout: .seconds(20))
+        }
         acpmux.noteStartedHere(session)
         return (choice.id, session)
     }
@@ -511,8 +513,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// The effort, mode and options the phone picked, set on the new chat before its first prompt,
     /// each only when the Mac offers it (as the Mac's composer applies its held picks). A refusal
     /// leaves the agent's own value: the chat stands, as with a refused model.
-    private func applyStartSettings(_ start: AgentChatStart, to session: String, choice: AgentHarnessChoice,
-                                    acpmux: AcpmuxHub) async {
+    static func applyStartSettings(_ start: AgentChatStart, to session: String, choice: AgentHarnessChoice,
+                                   send: @Sendable (String, JSONValue) async throws -> Void) async {
         var requests: [(String, JSONValue)] = []
         if let effort = start.effort, choice.efforts(model: start.model).contains(where: { $0.id == effort }) {
             // acpmux finds the agent's own effort option for `effort` (`model_options.rs`).
@@ -531,7 +533,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         for (method, params) in requests {
             do {
-                _ = try await acpmux.request(method, params, timeout: .seconds(20))
+                try await send(method, params)
             } catch {
                 creationLog.error("\(method, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
             }

@@ -360,3 +360,58 @@ import Testing
         #expect(fresh.efforts(model: nil).isEmpty && fresh.configOptions.isEmpty && fresh.effortOption == nil)
     }
 }
+
+/// A new chat gets the phone's effort, mode and options before its first prompt, each only when
+/// the Mac offers it for that agent and model; one the Mac refuses never stops the others.
+@MainActor
+@Suite struct StartSettingsTests {
+    actor Sent {
+        var calls: [(String, JSONValue)] = []
+        var refuse: String?
+        init(refuse: String? = nil) { self.refuse = refuse }
+        func send(_ method: String, _ params: JSONValue) throws {
+            calls.append((method, params))
+            if params["configId"]?.stringValue == refuse { throw CancellationError() }
+        }
+    }
+
+    let claude = AgentHarnessChoice(
+        id: "claude", name: "Claude Code", family: "claude",
+        models: [AgentModelChoice(id: "opus", name: "Opus", efforts: ["low", "high", "max"]), AgentModelChoice(id: "haiku", name: "Haiku")],
+        defaultModel: "opus", askingModes: ["default", "plan"],
+        effortOption: AgentConfigChoice(id: "effort", name: "Effort", category: "thought_level",
+                                        choices: [AgentSettingChoice(id: "low", name: "Low")]),
+        configOptions: [AgentConfigChoice(id: "fast-mode", name: "Fast mode",
+                                          choices: [AgentSettingChoice(id: "off", name: "Off"), AgentSettingChoice(id: "on", name: "On")])])
+
+    @Test func theOfferedPicksAreSetInOrder() async {
+        let sent = Sent()
+        let start = AgentChatStart(harness: "claude", model: "opus", effort: "max", mode: "plan", options: ["fast-mode": "on"])
+        await LiveWorkspaceCreationBackend.applyStartSettings(start, to: "s1", choice: claude) { try await sent.send($0, $1) }
+        let calls = await sent.calls
+        #expect(calls.map(\.0) == ["session/set_config_option", "session/set_mode", "session/set_config_option"])
+        #expect(calls[0].1["configId"]?.stringValue == "effort" && calls[0].1["value"]?.stringValue == "max")
+        #expect(calls[1].1["modeId"]?.stringValue == "plan" && calls[1].1["sessionId"]?.stringValue == "s1")
+        #expect(calls[2].1["configId"]?.stringValue == "fast-mode" && calls[2].1["value"]?.stringValue == "on")
+    }
+
+    @Test func whatTheMacDoesNotOfferIsNeverSent() async {
+        let sent = Sent()
+        // Max is not Haiku's (it lists none: the effort option's Low only); bypassPermissions
+        // is not a mode a phone may start; the start mode needs no request; unknown options go.
+        let start = AgentChatStart(harness: "claude", model: "haiku", effort: "max", mode: "bypassPermissions",
+                                   options: ["fast-mode": "turbo", "sandbox": "off"])
+        await LiveWorkspaceCreationBackend.applyStartSettings(start, to: "s1", choice: claude) { try await sent.send($0, $1) }
+        #expect(await sent.calls.isEmpty)
+        let startMode = AgentChatStart(harness: "claude", model: "opus", mode: "default")
+        await LiveWorkspaceCreationBackend.applyStartSettings(startMode, to: "s1", choice: claude) { try await sent.send($0, $1) }
+        #expect(await sent.calls.isEmpty)
+    }
+
+    @Test func aRefusalLeavesTheRestToBeSet() async {
+        let sent = Sent(refuse: "effort")
+        let start = AgentChatStart(harness: "claude", model: "opus", effort: "high", options: ["fast-mode": "on"])
+        await LiveWorkspaceCreationBackend.applyStartSettings(start, to: "s1", choice: claude) { try await sent.send($0, $1) }
+        #expect(await sent.calls.map { $0.1["configId"]?.stringValue } == ["effort", "fast-mode"])
+    }
+}
