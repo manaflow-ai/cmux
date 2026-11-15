@@ -2574,6 +2574,8 @@ FAST_LANE_CLAUSE = (
 )
 # While fast-tier-fleet ran, the fast tier only reports its verdict from Linux (GatewayRunsOnlyTheFleetClient);
 # a step still queued (verdict `queued`) hands it back, and it runs on Blacksmith macOS.
+# The hand-back reads the Blacksmith switch as every owned fallback does since #43860: with the value
+# `pr-rescue`, a pull request's re-run (attempt 2 and later) does not take the side lane label.
 FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
@@ -2585,7 +2587,9 @@ FAST_TIER_REPORT_CLAUSE = (
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
-    "needs.fast-tier-fleet.outputs.verdict == 'queued' && (vars.CI_BLACKSMITH_MACOS != 'on' && "
+    "needs.fast-tier-fleet.outputs.verdict == 'queued' && "
+    "((vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' || github.run_attempt < 2) "
+    "&& vars.CI_BLACKSMITH_MACOS != 'on' && "
     "vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || "
 )
 
