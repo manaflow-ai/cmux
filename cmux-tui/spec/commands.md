@@ -9111,9 +9111,12 @@ past that the held bytes go out at once. Any other attach event (`resized`,
 `colors-changed`, an `output` with `colors`, `detached`) first sends the held
 bytes, so stream order is unchanged. A viewer that cannot read that fast
 backs up the connection and gets `overflow` and reattaches, as without the
-capability. A connection that did not declare the capability gets one
-`output` per PTY read, as before, and the field changes nothing for it;
-render mode and snapshot attaches ignore the field.
+capability. The attach's `scroll-changed` events follow the same interval:
+at most one per interval, carrying the newest position, the first after an
+idle interval at once; `notification` events are never held. A connection
+that did not declare the capability gets one `output` per PTY read and every
+`scroll-changed`, as before, and the field changes nothing for it; render
+mode and snapshot attaches ignore the field.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 

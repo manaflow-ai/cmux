@@ -39,6 +39,7 @@ use super::require_pty;
 use super::rollback_failed_attach;
 use super::send_browser_attach_update;
 use super::spawn_attach_notification_stream;
+use super::spawn_attach_notification_stream_coalesced;
 use super::terminal_colors_json;
 use super::terminal_snapshot;
 use super::wait_for_initial_browser_resize;
@@ -523,12 +524,13 @@ pub(super) fn attach_surface(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
-    if let Err(error) = spawn_attach_notification_stream(
+    if let Err(error) = spawn_attach_notification_stream_coalesced(
         mux.clone(),
         surface_id,
         writer.clone(),
         lifecycle.clone(),
         outbound_stream.clone(),
+        coalesce_interval,
     ) {
         lifecycle.cancel();
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);

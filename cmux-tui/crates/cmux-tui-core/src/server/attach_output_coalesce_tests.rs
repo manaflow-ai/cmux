@@ -285,3 +285,55 @@ fn an_interval_over_the_limit_is_refused() {
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+/// Every `scroll-changed` offset on `outbound` until `quiet` passes with
+/// none, with the time each was read.
+fn scroll_offsets(outbound: &BoundedOutbound, quiet: Duration) -> Vec<(Instant, u64)> {
+    let mut offsets = Vec::new();
+    let mut last = Instant::now();
+    while last.elapsed() < quiet {
+        match outbound.try_pop() {
+            Some(message) => {
+                let value: Value = serde_json::from_str(&message).expect("outbound JSON");
+                if value["event"] == "scroll-changed" {
+                    offsets.push((Instant::now(), value["offset"].as_u64().expect("offset")));
+                    last = Instant::now();
+                }
+            }
+            None => std::thread::sleep(Duration::from_micros(500)),
+        }
+    }
+    offsets
+}
+
+/// A coalescing byte viewer's `scroll-changed` follows its frame clock: the
+/// first at once, then at most one per interval with the newest position;
+/// a viewer without the capability still gets every one.
+#[test]
+fn a_coalescing_viewer_reads_the_newest_scroll_position_once_per_frame() {
+    let (mux, surface) = quiet_surface("coalesce-scroll");
+    let plain = attach(&mux, &surface, false, json!({}));
+    let coalesced = attach(&mux, &surface, true, json!({"output_coalesce_ms": 100}));
+    let start = Instant::now();
+    for offset in 1..=40u64 {
+        mux.emit(crate::MuxEvent::ScrollChanged { surface: surface.id, offset, at_bottom: false });
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let plain_offsets = scroll_offsets(&plain.outbound, Duration::from_millis(400));
+    let coalesced_offsets = scroll_offsets(&coalesced.outbound, Duration::from_millis(400));
+    assert_eq!(plain_offsets.len(), 40, "every position without the capability");
+    let first = coalesced_offsets.first().expect("a position");
+    assert_eq!(first.1, 1, "the first position goes out at once");
+    assert_eq!(coalesced_offsets.last().map(|(_, offset)| *offset), Some(40), "the newest last");
+    // About 200 ms of scrolling at a 100 ms interval: the first, then one per
+    // interval, then the newest.
+    assert!(
+        coalesced_offsets.len() <= 5,
+        "{} coalesced positions in {:?}: {coalesced_offsets:?}",
+        coalesced_offsets.len(),
+        start.elapsed()
+    );
+    disconnect_client(&mux, plain.client, false);
+    disconnect_client(&mux, coalesced.client, false);
+    mux.shutdown();
+}
