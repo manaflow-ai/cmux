@@ -388,6 +388,9 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
             out["build"]["Rust the app has and the change lacks"] = [
                 f"the app's commit {base[:12]} has cmux-tui changes the change (branched at {fork[:12]}) lacks: "
                 "rebase it onto the app's commit, or build it"]
+        elif behind and (pinned := lag_pins_daemon(h, repo, base, fork)):
+            # The head's daemon carries the lagging commits' FFI changes, which the app does not link.
+            out["build"]["Rust the app links (FFI), in the commits the app lacks"] = pinned
         else:
             out["layers"].append("rust")
             out["tree_key"] = planned.get("tree_key")
@@ -402,6 +405,15 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         out["build"]["Rust only bundled helpers use"] = list(helpers)
     out["needs_build"] = bool(out["build"])
     return out
+
+
+def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
+    """The Rust the app links through FFI that changed between the app's commit and the change's fork
+    (hot-apply's pins_daemon over that range): a daemon built at the head speaks those changes and the app does
+    not."""
+    files = h.live_apply.classify_range(str(repo), base, fork)["files"]
+    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if h.NATIVE_IN_TUI.match(p)]
+    return h.linked_rust(repo, sorted(set(rust)))
 
 
 def plan_text(planned: dict) -> str:
