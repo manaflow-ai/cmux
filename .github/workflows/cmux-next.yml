@@ -132,6 +132,7 @@ on:
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
       - tests/test_cmux_next_base_tier.py
+      - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
       - scripts/ci/deadline_http.py
@@ -472,6 +473,7 @@ on:
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
       - tests/test_cmux_next_base_tier.py
+      - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
       - scripts/ci/deadline_http.py
@@ -701,6 +703,12 @@ on:
         required: false
         default: false
         type: boolean
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-365
+      full:
+        description: "On a working-branch dispatch, also run the scheme compile and the Release compile"
+        required: false
+        default: false
+        type: boolean
 
 run-name: >-
   ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || inputs.tip_swift_suite == true && format('cmux-next tip Swift suite · {0}', github.sha) || inputs.tip_daemon_suite == true && format('cmux-next tip daemon suite · {0}', inputs.same_tree_sha || github.sha) || inputs.base_tier == true && format('cmux-next base tier · {0}', inputs.same_tree_sha || github.sha) || inputs.no_reuse == true && format('cmux-next uncached · {0}', github.sha) || format('cmux-next · {0}', github.sha) }}
@@ -908,6 +916,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-96
           DEV_LANDING_COMPILE: ${{ format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
+          FULL_DISPATCH: ${{ inputs.full || false }}
           GH_TOKEN: ${{ github.token }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-97
           EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
@@ -1105,6 +1114,12 @@ jobs:
               [[ "$DEV_LANDING_COMPILE" == 0 ]] && keep=(--keep scheme)
               python3 scripts/ci/cmux_next_base_tier.py defer "$routed" "${keep[@]}" >> "$GITHUB_OUTPUT"
               echo '- base tier (daemon tests, generated files, scheme compile): left to the cmux-next base tier run on the tip, at most 15 minutes away (cmux-next-base-tier-kick.yml).' >> "$GITHUB_STEP_SUMMARY"
+            fi
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-365
+            if [[ "$EVENT_NAME" == workflow_dispatch && -z "$SAME_TREE_SHA" && "$FULL_DISPATCH" != true \
+              && "$GITHUB_REF" != refs/heads/feat-cmux-next && "$GITHUB_REF" != refs/heads/next-batch/* ]]; then
+              printf 'scheme=false\nnative=false\n' >> "$GITHUB_OUTPUT"
+              echo '- working-branch dispatch: the scheme and Release compiles are skipped (dispatch with full=true to run them).' >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
           # Whether this pull request changes the cmux-tui it would test against:
@@ -1709,6 +1724,7 @@ jobs:
             [tier-routing]
             python3 tests/test_cmux_next_route.py
             python3 tests/test_cmux_next_base_tier.py
+            python3 tests/test_cmux_next_dispatch_heavy_compiles.py
             python3 tests/test_ci_target_graph.py
             python3 tests/test_ci_swiftpm_build_metrics.py
             python3 tests/test_cmux_next_route_replay.py
@@ -6513,7 +6529,7 @@ jobs:
     name: same-tree status (daemon)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       actions: read
       checks: read
@@ -6563,7 +6579,7 @@ jobs:
     name: same-tree status (scheme)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       actions: read
       checks: read

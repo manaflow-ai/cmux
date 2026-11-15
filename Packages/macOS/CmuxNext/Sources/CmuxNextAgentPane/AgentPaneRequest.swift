@@ -146,6 +146,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
     case projectIcon(String)
+    /// `folder.complete {path}`: an absolute folder's subfolders, for the New Tab omnibar's
+    /// "Start an agent in a folder" rows (``AgentPaneFolderCompletion``).
+    case completeFolder(String)
     /// `agent.avatar {sessionId}`: the person's own avatar for agent session `sessionId`, as a small
     /// data URL, for its cards and sender chip; none answers nothing.
     case agentAvatar(String)
