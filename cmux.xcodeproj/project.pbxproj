@@ -169,6 +169,7 @@
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
 				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
+				CE7A00000000000000000045 /* Embed app FFI library */,
 			);
 			buildRules = (
 			);
@@ -782,6 +783,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-mediaremote-adapter.sh\"\n";
+		};
+		CE7A00000000000000000045 /* Embed app FFI library */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/embed-app-ffi.sh",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(CODE_SIGNING_ALLOWED)",
+				"$(ENABLE_HARDENED_RUNTIME)",
+			);
+			name = "Embed app FFI library";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libcmux_app_ffi.dylib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-app-ffi.sh\"\n";
 		};
 		CE7A00000000000000000040 /* Verify web bundles */ = {
 			isa = PBXShellScriptBuildPhase;
