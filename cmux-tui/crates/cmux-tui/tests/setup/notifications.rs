@@ -223,7 +223,7 @@ fn cmux_notification_banners_lists_and_opens_the_app_banners() {
     );
     let opens = sent("notifications.open");
     assert_eq!(opens.len(), 1, "{opens:?}");
-    assert_eq!(opens[0]["params"], json!({"id": "turn-1"}));
+    assert_eq!(opens[0]["params"], json!({"id": "turn-1", "after": "sync"}));
 
     let unknown = world.run(&["notification", "open", "gone", "--json"]);
     assert_eq!(unknown.status.code(), Some(1), "{unknown:?}");
