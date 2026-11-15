@@ -13,10 +13,12 @@ extension HoverCardCoordinator {
         guard panel == nil, machine.activeTarget == nil, owned == nil else { return }
         let warmed = HoverCardPanel(deferred: false)
         panel = warmed
+        // One body: the card window holds one, so warming every window's sidebar would build and draw bodies only to drop them.
         for entry in sources.values {
             guard let source = entry.source, let parent = source.hoverCardWindow, parent.isVisible,
                   let body = source.hoverCardWarmBody() else { continue }
             warmed.warm(body, parent: parent)
+            return
         }
     }
 }

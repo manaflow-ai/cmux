@@ -79,6 +79,24 @@ struct HoverCardWarmTests {
         #expect(coordinator.singleCardViolations().isEmpty, "\(coordinator.singleCardViolations())")
     }
 
+    @Test func warmBuildsOneBodyWhateverTheNumberOfWindows() throws {
+        _ = NSApplication.shared
+        let windows = (0..<3).map { i in
+            NSWindow(contentRect: NSRect(x: 100 + CGFloat(i) * 20, y: 100, width: 900, height: 600), styleMask: [.borderless],
+                     backing: .buffered, defer: false)
+        }
+        windows.forEach { $0.isReleasedWhenClosed = false; $0.orderFront(nil) }
+        defer { windows.forEach { $0.close() } }
+        let sources = windows.map { Source(window: $0, anchor: CGRect(x: 110, y: 600, width: 200, height: 28)) }
+        let coordinator = HoverCardCoordinator()
+        coordinator.appIsActive = { true }
+        sources.forEach { coordinator.register($0) }
+        defer { coordinator.dismiss(.action); ([coordinator.panel] + coordinator.retiring).forEach { $0?.closeAfterTest() } }
+        coordinator.warm()
+        #expect(sources.map(\.warmBodies).reduce(0, +) == 1, "\(sources.map(\.warmBodies))")
+        #expect(sources.compactMap(\.body).count == 1)
+    }
+
     @Test func warmingWhileACardShowsChangesNothing() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 900, height: 600), styleMask: [.borderless],
