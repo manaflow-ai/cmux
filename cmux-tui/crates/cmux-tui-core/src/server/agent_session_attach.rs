@@ -303,6 +303,10 @@ struct Attachment {
     outbound: OutboundStream,
     /// Calls running on worker threads (at most [`MAX_CALLS`]).
     calls: AtomicUsize,
+    /// An unfiltered event stream has a contiguous sequence. Filtered streams
+    /// intentionally have holes and leave this check disabled.
+    ordered_stream: bool,
+    next_stream_seq: AtomicU64,
     ended: AtomicBool,
     /// Permission ids acpmux announced on this attachment, oldest first.
     permissions: Mutex<VecDeque<String>>,
@@ -397,6 +401,21 @@ impl Attachment {
         } else {
             self.outbound.close();
         }
+    }
+
+    /// A newer live record arriving before an older one leaves the client with
+    /// no way to recover the gap from the stream. End the attachment so its
+    /// normal after-seq replay fetches the missing records.
+    pub(super) fn accepts_stream_seq(&self, seq: u64) -> bool {
+        if !self.ordered_stream {
+            return true;
+        }
+        let expected = self.next_stream_seq.load(Ordering::Acquire);
+        if seq != expected {
+            return false;
+        }
+        self.next_stream_seq.store(seq.saturating_add(1), Ordering::Release);
+        true
     }
 }
 
