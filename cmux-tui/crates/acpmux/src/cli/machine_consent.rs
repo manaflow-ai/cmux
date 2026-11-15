@@ -239,13 +239,17 @@ impl Authority {
     ) -> Result<()> {
         anyhow::ensure!(super::cloud_join::is_consent_surface(surface), "unknown consent surface");
         self.prepare()?;
-        let mut record = json!({"event":"consent_refused","code":"consent_required","surface":surface,"at":crate::store::now_ms()});
+        let mut record = serde_json::Map::new();
+        record.insert("event".into(), json!("consent_refused"));
+        record.insert("code".into(), json!("consent_required"));
+        record.insert("surface".into(), json!(surface));
+        record.insert("at".into(), json!(crate::store::now_ms()));
         if let Some(from) = from.filter(|from| !from.is_empty()) {
             // A host name from the hub's book, bounded so the record stays small.
-            record["from"] = json!(from.chars().take(128).collect::<String>());
+            record.insert("from".into(), json!(from.chars().take(128).collect::<String>()));
         }
         if let Some(user) = user {
-            record["user"] = json!(user);
+            record.insert("user".into(), json!(user));
         }
         crate::config::write_atomic(&self.root.join("refusal.json"), &serde_json::to_vec(&record)?)
     }
@@ -286,7 +290,9 @@ pub(crate) fn for_account(mut status: Value, account: Option<&str>) -> Value {
     if refusal.and_then(|r| r.get("surface")).and_then(Value::as_str) == Some(sim)
         && !mine(refusal.and_then(|r| r.get("user")))
     {
-        status["lastRefusal"] = Value::Null;
+        if let Some(status) = status.as_object_mut() {
+            status.insert("lastRefusal".into(), Value::Null);
+        }
     }
     status
 }
