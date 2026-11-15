@@ -7226,7 +7226,7 @@ jobs:
       - *x30
       - *x31
       - *x32
-      # Bounded here, not on the anchor (build-nightly-app may compile cold on Blacksmith under its own job timeout):
+      # Bounded here, not on the anchor (build-nightly-app keeps its own job timeout for a cold compile):
       # this job's bound is 300 min for the notary and publish-lease waits, so a stalled compile held the push slot and
       # the next nightly for hours. Run 43673773157's build on ultra1 ran 80+ min against the 6-19 min one-job builds on
       # cmux15 and ultra1's 7.8 min p50 (hq build-fleet/mini-fleet.json _sizing). 60 min is two cold builds (the script
