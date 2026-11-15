@@ -169,6 +169,13 @@ import Testing
         design.tabBarPosition = .top
         design.titleAreaContrast = 1
         design.titleAreaTone = .oneColor // the default: the divider alone parts the tab row from the content
+        // The line is opt-in since 2026-11-15 (`NoLineUnderTabsTests`): this test holds how it draws when on.
+        let store = TunableStore.shared
+        store.register([ChromeTunables.tabRowDivider.descriptor])
+        if !store.isActive { store.activate(file: nil) }
+        let savedLine = store.overrides[ChromeTunables.tabRowDivider.key] // `set` returns the new value, not the old
+        store.set(ChromeTunables.tabRowDivider.key, .bool(true))
+        defer { store.set(ChromeTunables.tabRowDivider.key, savedLine) }
 
         _ = NSApplication.shared
         let window = CornerWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
@@ -233,6 +240,11 @@ import Testing
         design.densityTokens = density.tokens
         design.chromeStyle = .flat
         design.tabBarPosition = .top
+        // The default, whatever an earlier test in this process left in the shared store.
+        let store = TunableStore.shared
+        let savedLine = store.overrides[ChromeTunables.tabRowDivider.key]
+        store.set(ChromeTunables.tabRowDivider.key, nil)
+        defer { store.set(ChromeTunables.tabRowDivider.key, savedLine) }
 
         _ = NSApplication.shared
         let window = CornerWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 500),
