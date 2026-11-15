@@ -42,6 +42,8 @@ x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput"] }
 ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
+# The host's `cmux-rd serve` children: owned, ended with their session.
+cmux-process = { path = "../cmux-process" }
 
 [target.'cfg(windows)'.dependencies]
 # The Windows host uses the stable user32/gdi32 capture path and SendInput.  The

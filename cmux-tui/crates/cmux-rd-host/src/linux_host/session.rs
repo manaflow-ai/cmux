@@ -9,13 +9,14 @@ use super::hub::Hub;
 use super::net::Message;
 use super::rd_doc::{self, RdDocument};
 use crate::Res;
+use cmux_process::{Child, Command, Stdio};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// A `session.ticket` push for the host role.
 #[derive(Debug, Clone)]
@@ -128,14 +129,10 @@ impl Serve {
     fn stop(mut self) {
         self.send(&json!({ "stop": true }));
         self.stdin = None;
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while Instant::now() < deadline {
-            if let Ok(Some(_)) = self.child.try_wait() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
+        if let Ok(Some(_)) = self.child.wait_timeout(Duration::from_secs(3)) {
+            return;
         }
-        // Our own child, by its handle.
+        // Our own child, by its handle (dropping it would end it too).
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
