@@ -19,7 +19,8 @@ with live_apply.py's rules:
          bundles published for SHA's source key (fetch-web-bundles.sh) go into the app's web
          overlay (web-overlay.sh install), and every open page reloads onto them
   rust   SHA's cmux-tui tree key differs from the app's and no Rust the app links (its FFI
-         crates, scripts/ci/cmux_next_route.py) changed: the cmux binary published for SHA's tree
+         crates, scripts/ci/cmux_next_route.py) changed (the C, Objective-C and Zig sources inside
+         cmux-tui count as its Rust: the tree build compiles them into bin/cmux or a companion): the cmux binary published for SHA's tree
          key (files.cmux.com/cmux-tui/tree/KEY, sha256 from its completion.json) replaces the
          app's Contents/Resources/bin/cmux, with the companions bundled beside it (cmux-app-host,
          cmux-cloud, cmux-browser-host, cmux-tui-host, cmux-holder, the screen detector) from the
@@ -143,6 +144,10 @@ SHA = re.compile(r"[0-9a-f]{40}")
 # What a temporary checkout of SHA needs to compute its web source key (web-bundle-key.py reads
 # the files): everything but the large folders no web bundle imports.
 WEB_KEY_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghostty/"]
+# Native sources under cmux-tui/ (a companion's shim, the Zig binding): live_apply.py files them as "resource or
+# manifest", but the cmux-tui tree build compiles them, so they go with the Rust part, and linked_rust keeps an app
+# FFI crate's out of it (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
+NATIVE_IN_TUI = re.compile(r"^cmux-tui/.+\.(c|h|m|mm|zig)$")
 
 
 class Phases:
@@ -388,6 +393,10 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None)
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
+    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
+    if native:
+        files["rebuild"] = [p for p in files["rebuild"] if p not in native]
+        files["daemon"] = sorted(set(files.get("daemon", [])) | set(native))
     for kind in ("swift-live", "rebuild"):
         if files.get(kind):
             out["left"][kind] = files[kind]
