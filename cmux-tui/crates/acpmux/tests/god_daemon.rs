@@ -1213,7 +1213,7 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
     };
     let sampled = tokio::task::spawn_blocking(move || {
         let started = Instant::now();
-        let (mut peak_bytes, mut peak_lists, mut samples) = (0u64, 0u64, vec![]);
+        let (mut peak_bytes, mut peak_lists, mut samples) = (0u64, 0u64, 0u64);
         while started.elapsed() < Duration::from_secs(secs) {
             std::thread::sleep(Duration::from_millis(500));
             let Ok(status) = rpc.call("_acpmux/status", json!({})) else { continue };
@@ -1221,7 +1221,11 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
             peak_bytes = peak_bytes.max(lists["bytes"].as_u64().unwrap_or(0));
             peak_lists = peak_lists.max(lists["lists"].as_u64().unwrap_or(0));
             let rss = status["gauges"]["memory"]["rssBytes"].as_u64().unwrap_or(0);
-            samples.push(json!([started.elapsed().as_secs(), lists["lists"], lists["bytes"], rss]));
+            let at = started.elapsed().as_millis() as u64;
+            // One short line per sample, as it is read: a CI log cuts long lines, and a run that
+            // stalls still shows where.
+            println!("CHURN-RSS {at} {} {} {}", lists["lists"], lists["bytes"], rss / 1_048_576);
+            samples += 1;
         }
         (rpc, peak_bytes, peak_lists, samples)
     })
@@ -1237,9 +1241,20 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
 
     // Unstarved: until every list waiting is taken.
     let drained = Instant::now();
-    let mut drain_ms = None;
+    let (mut drain_ms, mut reads) = (None, 0u64);
     while drained.elapsed() < STEP {
         let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+        let rss = status["gauges"]["memory"]["rssBytes"].as_u64().unwrap_or(0);
+        // About one line a second.
+        if reads % 10 == 0 {
+            println!(
+                "CHURN-DRAIN {} {} {}",
+                ms(drained),
+                status["gauges"]["peerLists"]["lists"],
+                rss / 1_048_576
+            );
+        }
+        reads += 1;
         if status["gauges"]["peerLists"]["lists"] == 0 && peers_listed(&mut rpc, 1, rows) {
             drain_ms = Some(ms(drained));
             break;
@@ -1250,6 +1265,7 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
     let (rss_end, peak_rss) = daemon.rss();
     drop(rpc);
     daemon.stop();
+    let heap = profile.as_deref().map(attribute);
     let lists = &status["gauges"]["peerLists"];
     let result = json!({
         "rows": rows, "secs": secs, "everyMs": every.as_millis() as u64, "cpus": cpus,
@@ -1260,8 +1276,17 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
         "rssListed": rss_listed, "rssChurned": rss_churned, "rssEnd": rss_end, "peakRss": peak_rss,
         "samples": samples,
         "arenas": std::env::var("ACPMUX_CHURN_ARENAS").ok(),
-        "heap": profile.as_deref().map(attribute),
+        "heapEndBytes": heap.as_ref().map(|h| h["endBytes"].clone()),
+        "heapPeakBytes": heap.as_ref().map(|h| h["peakBytes"].clone()),
     });
     println!("CHURN {result}");
+    for (list, rows) in heap.iter().flat_map(|h| [("END", &h["byEnd"]), ("PEAK", &h["byPeak"])]) {
+        for row in rows.as_array().into_iter().flatten() {
+            println!(
+                "CHURN-HEAP-{list} {} {} {} {}",
+                row["endBytes"], row["peakBytes"], row["totalBytes"], row["site"]
+            );
+        }
+    }
     let _ = std::fs::remove_dir_all(&scratch);
 }
