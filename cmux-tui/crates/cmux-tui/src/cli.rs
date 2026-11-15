@@ -35,6 +35,7 @@ mod apps_run;
 #[cfg(unix)]
 mod attention;
 #[cfg(unix)]
+mod auth_handoff;
 mod auth_token;
 #[cfg(unix)]
 mod automation;
