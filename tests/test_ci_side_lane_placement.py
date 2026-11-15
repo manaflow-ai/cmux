@@ -974,6 +974,116 @@ class LightSpillRoute(unittest.TestCase):
                 self.assertNotEqual(evaluate(job["runs-on"], context("2")), LIGHT_SIDE)
 
 
+# The cmux-next.yml Mac jobs .github/runners.json `light_fit` measured to fit a 16 GiB light mini.
+LIGHT_FIT = ("fast-tier", "daemon-test", "generated-files")
+
+
+class LightRerunRoute(unittest.TestCase):
+    """Leo, 2026-11-15: "you can decide on best routing for stuff". 32 jobs stayed queued on the std side label
+    (2026-11-15 01:10Z) after light side runners freed: the light spill placed attempt 1 only, a queued job keeps
+    its label, and a re-run's jobs read attempt 1's light placement only (#18147). The rescue now re-runs the
+    placement of such a run (owned_pool_rescue.light_wait() on main), and that re-run moves each measured light-fit
+    job no idle std side runner took onto an idle light side runner, and the job's runs-on takes it."""
+
+    BOT = "cmux-bot[bot]"
+
+    def values(self, **overrides):
+        return env(**{"JOBS": "fast-tier " + " ".join(JOBS), "LIGHT_FIT_JOBS": " ".join(LIGHT_FIT),
+                      "CASCADE_RUNS": " fast-tier cmux-scheme-compile daemon-test generated-files ",
+                      "GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": self.BOT, **overrides})
+
+    def light(self, count: int, *, busy: int = 0):
+        return [runner(f"cmux{17 + index}-glaeda-1", busy=index < busy, labels=(LIGHT_SIDE,))
+                for index in range(count)]
+
+    def rerun(self, values, runners, seen=None):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()) as printed:
+            output = Path(tmp) / "out"
+            with mock.patch.object(placement.cascade, "read", return_value=(None, None, seen or light_seen())):
+                placement.rerun_main({**values, "GITHUB_OUTPUT": str(output)}, runners)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines()), printed.getvalue()
+
+    def test_the_rescues_rerun_moves_the_fit_jobs_to_idle_light_runners(self):
+        busy_std = [runner(f"mini-{host}-glaeda-3", busy=True) for host in "ab"]
+        lines, printed = self.rerun(self.values(), [*busy_std, *self.light(2)])
+        # Run order, one per idle light runner; the scheme compile is not shown to fit and stays off light.
+        self.assertEqual((lines["light_runner"], lines["light_jobs"]), (LIGHT_SIDE, " fast-tier daemon-test "))
+        for job in ("fast-tier", "daemon-test"):
+            self.assertNotIn(f" {job} ", lines["owned_jobs"])
+            self.assertNotIn(f" {job} ", lines.get("blacksmith_6_jobs", ""))
+            self.assertNotIn(f" {job} ", lines.get("blacksmith_12_jobs", ""))
+        self.assertIn(f"so they take idle light `{LIGHT_SIDE}`", printed)
+        # Three idle light runners: every fit job that runs, never the compile.
+        lines, _ = self.rerun(self.values(), [*busy_std, *self.light(3)])
+        self.assertEqual(lines["light_jobs"], " fast-tier daemon-test generated-files ")
+
+    def test_an_idle_std_runner_comes_first_and_nothing_known_places_nothing(self):
+        idle = self.light(3)
+        cases = {
+            "idle std takes them": (self.values(), [*(runner(f"mini-{host}-glaeda-3") for host in "abcdefg"), *idle],
+                                    None),
+            "a person's re-run": (self.values(GITHUB_TRIGGERING_ACTOR="teamleaderleo"), idle, None),
+            "past the bot's last placed attempt": (self.values(GITHUB_RUN_ATTEMPT="4"), idle, None),
+            "no fit jobs (push, fork)": (self.values(LIGHT_FIT_JOBS=""), idle, None),
+            "nightly waits on light": (self.values(), idle,
+                                       light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})),
+            "stale snapshot": (self.values(), idle, light_seen(stale=True)),
+            "busy light": (self.values(), self.light(2, busy=2), None),
+            "unread runners": (self.values(), None, None),
+        }
+        for why, (values, runners, seen) in cases.items():
+            with self.subTest(why=why):
+                self.assertEqual(placement.light_rerun_route(values, runners, seen or light_seen(),
+                                                             placement.pool.idle_placement(
+                                                                 runners or [], SIDE, values["JOBS"].split())),
+                                 ("", ()))
+
+    def test_a_replaced_attempt_takes_its_light_label_and_a_carried_one_never_does(self):
+        wiring = CmuxNextWiring()
+        jobs = wiring.workflow()["jobs"]
+
+        def context(attempt, actor):
+            value = wiring.context(attempt, runner=SIDE, triggering_actor=actor)
+            value["needs"].update({"swift-canary-fleet": {"outputs": {"verdict": ""}, "result": "skipped"},
+                                   "fast-tier-fleet": {"outputs": {"verdict": ""}, "result": "skipped"},
+                                   "fast-tier-handback-placement": {"outputs": {}, "result": "skipped"}})
+            value["needs"][wiring.PLACEMENT]["outputs"].update(light_runner=LIGHT_SIDE,
+                                                               light_jobs=f" {' '.join(LIGHT_FIT)} ")
+            return value
+
+        for name in LIGHT_FIT:
+            job = jobs[name]
+            routes = [runs_on_route(job, name)] + ([job_env(job)["CMUX_NEXT_RUNNER"]] if name in JOBS else [])
+            for route in routes:
+                with self.subTest(name=name, copy=route is not routes[0]):
+                    # The rescue's attempt 2 placed afresh: its light label, not attempt 1's queue (#18147).
+                    self.assertEqual(evaluate(route, context("2", self.BOT)), LIGHT_SIDE)
+                    self.assertEqual(evaluate(route, context("1", "teamleaderleo")), LIGHT_SIDE)
+                    # A person's re-run carries attempt 1's placement: it never reads that light runner.
+                    self.assertNotEqual(evaluate(route, context("2", "teamleaderleo")), LIGHT_SIDE)
+
+    def test_the_fit_set_is_the_measured_one_in_every_place(self):
+        runners_json = json.loads((ROOT / ".github/runners.json").read_text(encoding="utf-8"))["light_fit"]
+        measured = {key.split("#", 1)[1] for key, row in runners_json["jobs"].items()
+                    if key.startswith("cmux-next.yml#") and row["light"]["runs"] >= runners_json["min_light_runs"]
+                    and row["light"]["ok"] >= row["std"]["ok"] - runners_json["max_ok_drop"]}
+        # Every listed job passes the measured rule, and the list is LIGHT_FIT.
+        self.assertEqual(measured, {key.split("#", 1)[1] for key in runners_json["jobs"]})
+        self.assertEqual(measured, set(LIGHT_FIT))
+        jobs = CmuxNextWiring().workflow()["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        literal = re.findall(r"'([a-z -]+)'", place["env"]["LIGHT_FIT_JOBS"])
+        self.assertEqual(set(literal[-1].split()), measured)
+        # Exactly these jobs read light_jobs on the attempt their placement ran (the rescue moves only them).
+        rerun_clause = re.compile(r"needs\.macos-placement\.outputs\.placed_attempt == format\('\{0\}', "
+                                  r"github\.run_attempt\) && contains\(needs\.macos-placement\.outputs\.light_jobs, "
+                                  r"' ([a-z-]+) '\)")
+        readers = {name for name, job in jobs.items()
+                   if isinstance(job, dict) and any(match == name for match in rerun_clause.findall(
+                       str(job.get("runs-on") or "")))}
+        self.assertEqual(readers, measured)
+
+
 FRESH = "glaeda-dev-std-xcode-26.6"
 
 

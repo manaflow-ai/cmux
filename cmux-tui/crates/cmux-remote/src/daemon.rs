@@ -415,9 +415,13 @@ impl ServerConnection {
                     if let Some(expected) = expected_generation {
                         return Err(DaemonError::Generation { expected, actual });
                     }
-                    // The failed send retained this reliable frame. Reconnect
-                    // replayed it with the original application sequence.
-                    return Ok(sequence);
+                    // A failed send the old session took (its sequence was used) was retained,
+                    // and reconnect replayed it with the original sequence. A send that found
+                    // the old session already closed took nothing: send it on the replacement,
+                    // or it is lost and the next frame takes its sequence.
+                    if self.session.read().await.next_outbound_sequence(lane) > sequence {
+                        return Ok(sequence);
+                    }
                 }
                 Err(error) => return Err(error.into()),
             }
