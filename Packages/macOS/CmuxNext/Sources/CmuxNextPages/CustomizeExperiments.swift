@@ -168,7 +168,7 @@ public final class CustomizeExperiments {
     /// Settings > Personalization at the Customization Library card.
     public static let libraryRoute = "#/settings/personalization?focus=card.customizeLibrary"
 
-    private static func text(_ key: String.LocalizationValue, _ value: String.LocalizationValue) -> String {
+    private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)
     }
 }
