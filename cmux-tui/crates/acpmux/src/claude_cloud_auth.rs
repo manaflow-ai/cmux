@@ -120,6 +120,38 @@ where
     Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
 }
 
+/// The env Claude's sign-in check reads for one launch with the resolved profile env `profile`,
+/// over the daemon's own env `daemon` (less `machine.env`'s names), the vault's entries `vault`
+/// and `machine.env`'s values `machine` (`provider_cloud_auth::LaunchEnv::new`).
+pub(crate) fn launch_env(
+    profile: BTreeMap<String, String>,
+    daemon: BTreeMap<String, String>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+    remote: bool,
+) -> BTreeMap<String, String> {
+    let _ = remote;
+    crate::provider_cloud_auth::LaunchEnv::new(
+        "claude",
+        profile,
+        daemon,
+        vault,
+        machine,
+        Vec::new(),
+        false,
+    )
+    .into_env()
+}
+
+/// [`launch_env`] with this daemon's env, vault and `machine.env` now (`hub/spawn.rs`).
+pub(crate) fn launch_env_now(
+    profile: BTreeMap<String, String>,
+    remote: bool,
+) -> BTreeMap<String, String> {
+    let _ = remote;
+    crate::login_env::effective_for(Some("claude"), &profile)
+}
+
 /// Claude's managed settings on Linux, under the machine root.
 const MANAGED_SETTINGS: &str = "etc/claude-code/managed-settings.json";
 
@@ -449,6 +481,55 @@ mod tests {
         std::fs::remove_file(m.home.join(".claude/settings.json")).unwrap();
         std::fs::write(m.home.join(".claude.json"), r#"{"primaryApiKey":"sk-own"}"#).unwrap();
         assert_eq!(pair(&m, &[], true).await, None);
+    }
+
+    /// [`pair`] over the env a launch gets ([`launch_env`]): its profile, the vault's entries and
+    /// `machine.env`'s values, with no daemon or login value but `HOME`; local or `remote`-origin.
+    async fn launch_pair(
+        m: &Machine,
+        profile: &[(&str, &str)],
+        vault: &[(&str, &str)],
+        machine: &[(&str, &str)],
+        remote: bool,
+    ) -> Option<[(String, String); 2]> {
+        let map = |v: &[(&str, &str)]| -> BTreeMap<String, String> {
+            v.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        };
+        let daemon = BTreeMap::from([("HOME".to_owned(), m.home.to_string_lossy().into_owned())]);
+        let env = launch_env(
+            map(profile),
+            daemon,
+            map(vault).into_iter().collect(),
+            map(machine),
+            remote,
+        );
+        let read = env.clone();
+        let var = move |k: &str| read.get(k).cloned();
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        team_pair(&inputs, &env, None, &m.home, |_| async move { true }).await
+    }
+
+    /// #43821: a remote-origin launch (a Cloud chat the app starts through its peer link) gets no
+    /// vault or `machine.env` value (`agent/command.rs`), so a Claude key held only there is no
+    /// sign-in of its own: it gets the team's model plane, not a sign-in prompt. A key in its own
+    /// profile still keeps own, and a local launch still counts all three.
+    #[tokio::test]
+    async fn a_remote_launch_counts_only_the_sign_in_it_gets() {
+        let m = machine("owner");
+        for k in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] {
+            let v = [(k, "real-key-123")];
+            assert_eq!(launch_pair(&m, &[], &v, &[], false).await, None, "local vault {k}");
+            assert_eq!(launch_pair(&m, &[], &[], &v, false).await, None, "local machine.env {k}");
+            assert_eq!(launch_pair(&m, &v, &[], &[], false).await, None, "local profile {k}");
+            let got = launch_pair(&m, &[], &v, &[], true).await;
+            assert_eq!(got, Some(team_pair_value()), "remote vault {k}");
+            let got = launch_pair(&m, &[], &[], &v, true).await;
+            assert_eq!(got, Some(team_pair_value()), "remote machine.env {k}");
+            assert_eq!(launch_pair(&m, &v, &[], &[], true).await, None, "remote profile {k}");
+        }
+        // No key anywhere: team mode either way.
+        assert_eq!(launch_pair(&m, &[], &[], &[], false).await, Some(team_pair_value()));
+        assert_eq!(launch_pair(&m, &[], &[], &[], true).await, Some(team_pair_value()));
     }
 
     fn team_pair_value() -> [(String, String); 2] {
