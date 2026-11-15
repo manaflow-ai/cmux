@@ -206,10 +206,37 @@ HELPER_APP = os.environ.get("CMUX_BENCH_POINTER_APP",
                             "/Applications/cmux NEXT.app/Contents/Library/cmux Computer Use.app")
 # The installed Nightly is not updated on a bench host (cmux20-bench's is from 2026-10-28, before `--pointer-glide`),
 # so the step takes the helper from the newest NEXT nightly instead: same bundle id and Developer ID team, so the
-# same TCC grant covers it. Cached per build under /Users/Shared (a step's own HOME does not outlive the step).
+# same TCC grant covers it. Cached per build under /Users/Shared (a step's own HOME does not outlive the step), in a
+# directory only this user owns and may write, and checked against the team's Developer ID before every launch, cached
+# or not: a copy someone else placed or changed is never run.
 NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
-HELPER_CACHE = "/Users/Shared/cmux-bench-pointer"
+HELPER_CACHE = f"/Users/Shared/cmux-bench-pointer-{os.getuid()}"
 HELPER_ID = "com.cmuxterm.cua"
+HELPER_TEAM = "7WLXT3NR37"
+HELPER_REQUIREMENT = (f'=identifier "{HELPER_ID}" and anchor apple generic and certificate leaf[subject.OU] = '
+                      f'"{HELPER_TEAM}" and certificate 1[field.1.2.840.113635.100.6.2.6] exists')
+
+
+def own_cache():
+    """HELPER_CACHE, made 0700 for this user; RuntimeError when it is someone else's, a link, or open to others."""
+    import stat
+    try:
+        os.mkdir(HELPER_CACHE, 0o700)
+    except FileExistsError:
+        pass
+    info = os.lstat(HELPER_CACHE)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise RuntimeError(f"{HELPER_CACHE} is not a directory only uid {os.getuid()} may use "
+                           f"(owner {info.st_uid}, mode {oct(info.st_mode & 0o7777)})")
+
+
+def verify_helper(app):
+    """RuntimeError unless `app` is a valid, untampered com.cmuxterm.cua signed with the team's Developer ID."""
+    check = subprocess.run(["codesign", "--verify", "--deep", "--strict", "-R", HELPER_REQUIREMENT, app],
+                           capture_output=True, text=True, timeout=120)
+    if check.returncode:
+        raise RuntimeError(f"{app} fails its signature check ({HELPER_ID}, team {HELPER_TEAM}): "
+                           f"{(check.stdout + check.stderr).strip()[-200:]}")
 
 
 def nightly_helper():
@@ -220,9 +247,9 @@ def nightly_helper():
     if not urls:
         raise RuntimeError("the NEXT appcast names no dmg")
     url, build = max(urls, key=lambda u: int(u[1]))
+    own_cache()
     app = os.path.join(HELPER_CACHE, build, "cmux Computer Use.app")
     if not os.path.isdir(app):
-        os.makedirs(HELPER_CACHE, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="hover-helper-", dir=HELPER_CACHE) as tmp:
             dmg, mount = os.path.join(tmp, "nightly.dmg"), os.path.join(tmp, "mnt")
             with urllib.request.urlopen(url, timeout=120) as body, open(dmg, "wb") as out:
@@ -243,14 +270,10 @@ def nightly_helper():
                     raise RuntimeError(f"ditto exit {copied.returncode}: {copied.stderr.strip()[-200:]}")
             finally:
                 subprocess.run(["hdiutil", "detach", "-force", mount], capture_output=True, timeout=60)
-            # Only the Developer ID build carries the identity the console grant was given to.
-            check = subprocess.run(["codesign", "-d", "-r-", staged], capture_output=True, text=True, timeout=60)
-            if f'identifier "{HELPER_ID}"' not in check.stdout + check.stderr or "leaf[subject.OU]" not in \
-                    check.stdout + check.stderr:
-                raise RuntimeError(f"helper in build {build} is not {HELPER_ID} under a Developer ID: "
-                                   f"{(check.stdout + check.stderr).strip()[-200:]}")
+            verify_helper(staged)
             os.makedirs(os.path.dirname(app), exist_ok=True)
             os.rename(staged, app)
+    verify_helper(app)  # every launch, cached or just copied
     for old in os.listdir(HELPER_CACHE):  # this cache's own older builds only
         if old.isdigit() and old != build:
             shutil.rmtree(os.path.join(HELPER_CACHE, old), ignore_errors=True)
