@@ -89,6 +89,7 @@ core_gates() {
   run_core pr08_mirror_apply
   run_core pr08_mirror_local_row
   run_core v2_pr03c_
+  run_core actor_line_and_checkpoint_open_gate
   run_core v2_pr04_chat_stopped_reader
 }
 run_group acpmux-core core_gates
