@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43708881804",
+  "recorded_at": "2026-11-15T11:34:33Z",
+  "reason": "cmux-tui d532eb73d1ea changes the image's cmux-tui (pinned 545ac0141151)",
+  "dry_run": false,
+  "cmux_tui": "d532eb73d1ea5f51de8d76e64d66cfd5728249fb",
+  "fixes": [
+    {
+      "sha": "d532eb73d1ea5f51de8d76e64d66cfd5728249fb",
+      "mergedAt": "2026-11-15T03:10:22-08:00",
+      "subject": "Agent chat: a .pptx opened beside the chat previews its slides (#43685)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T11:34:33Z",
+    "snapshot_id": "sh-8730680db8dd45faacca8258418ee9e5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43708881804): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "da0edaeb5a09f6f97637c0768df687ecb68f5dda",
+    "image": "cloud-native-auto-d532eb73-43708881804-1",
+    "revision": "ci-43708881804-1",
+    "at": "2026-11-15T11:34:33Z"
+  },
+  "rolled_back": false
+}
