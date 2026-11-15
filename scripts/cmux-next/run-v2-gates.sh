@@ -69,6 +69,7 @@ run_group acpmux-book book_gates
 # acpmux-client (release)
 client_gates() {
   run_client v2_pr06_client_chat
+  run_client v2_pr04b_mirror_v1_rows_gate
 }
 run_group acpmux-client client_gates
 
@@ -86,6 +87,7 @@ core_gates() {
   run_core pr05d_removed_origin_batch
   run_core pr05d_submit_time
   run_core pr08_mirror_apply
+  run_core pr08_mirror_local_row
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
 }
@@ -105,6 +107,7 @@ acpmux_lib_gates() {
   run_acpmux_lib v2_pr03b_tee_append_added
   run_acpmux_lib v2_pr03b_append_on_off
   run_acpmux_lib v2_pr03b_catchup_ack
+  run_acpmux_lib v2_pr03b_catchup_peak_rss
   run_acpmux_lib hold_attach_gate
   # Row 7b: rows by key, and the CLI and MCP list callers.
   run_acpmux_lib v2_pr07b_info_rows
