@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43703935057",
+  "recorded_at": "2026-11-15T10:37:11Z",
+  "reason": "cmux-tui 3ca1a16e3e98 changes the image's cmux-tui (pinned 2823eec1f1e3)",
+  "dry_run": false,
+  "cmux_tui": "3ca1a16e3e98bf2e219e2ea8e0eff8182793d02d",
+  "fixes": [
+    {
+      "sha": "3ca1a16e3e98bf2e219e2ea8e0eff8182793d02d",
+      "mergedAt": "2026-11-15T02:08:39-08:00",
+      "subject": "rd: add macOS viewer CPU delta helper (#42440)"
+    },
+    {
+      "sha": "ded3176f4be54f2afd28a6565c4bfa2923fbf410",
+      "mergedAt": "2026-11-15T02:06:40-08:00",
+      "subject": "customize: layer diagnostics and a way out (library status, off --code, off --all, reset) (#43571)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T10:37:11Z",
+    "snapshot_id": "sh-4c342ec0635049aea146d8af715e4c2e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43703935057): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a23bb8daadbb81f09b72afba949260a5dfcffa36",
+    "image": "cloud-native-auto-3ca1a16e-43703935057-1",
+    "revision": "ci-43703935057-1",
+    "at": "2026-11-15T10:37:11Z"
+  },
+  "rolled_back": false
+}
