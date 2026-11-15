@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43759306278",
+  "recorded_at": "2026-11-15T20:49:48Z",
+  "reason": "cmux-tui 9df878397e52 changes the image's cmux-tui (pinned a3e0ab35e401)",
+  "dry_run": false,
+  "cmux_tui": "9df878397e522151259269d30166eb09969ffc8a",
+  "fixes": [
+    {
+      "sha": "9df878397e522151259269d30166eb09969ffc8a",
+      "mergedAt": "2026-11-15T20:23:57Z",
+      "subject": "cmux-action-catalog: Check, Rotate and Revoke on a joined machine are palette rows (step A) (#43826)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T20:49:48Z",
+    "snapshot_id": "sh-14912c9ff264435e9a6a818b890be812",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43759306278): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3172ca0f8417233ccccab2652ef394f849da9508",
+    "image": "cloud-native-auto-9df87839-43759306278-1",
+    "revision": "ci-43759306278-1",
+    "at": "2026-11-15T20:49:48Z"
+  },
+  "rolled_back": false
+}
