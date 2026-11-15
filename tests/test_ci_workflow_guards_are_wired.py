@@ -129,6 +129,9 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that build-nightly-deltas waits for a quiet nightly-next loop
     # before the keyed job asks for the signer Mac; run it by hand after changing the yield script or the delta jobs.
     "tests/test_nightly_deltas_yield.py",
+    # lane = "manual" for the same rule. It checks that nightly-next-one's Release compile has its own step bound;
+    # run it by hand after changing that step or the job's timeout.
+    "tests/test_nightly_next_build_step_bound.py",
     # lane = "manual" for the same rule. It runs decide's browser-import block from nightly.yml in node and
     # checks the outputs the build and publish jobs read; run it by hand after changing that block.
     "tests/test_nightly_next_notary_full_import.py",
@@ -172,6 +175,10 @@ UNWIRED: set[str] = {
     # only as text (each failing step asks cargo-locks.py explain) and lists cargo --locked wrappers. Run it by hand
     # after changing cargo-locks.py or a step that runs cargo with --locked.
     "tests/test_cargo_locks_explain.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It reads
+    # cmux-tui-build-package.yml as data: the shipped fat-LTO legs' warm sticky disks and their
+    # restore/record calls. Run it by hand after changing those steps. Exit: as above.
+    "tests/test_ci_cmux_tui_fat_warm_target.py",
 }
 
 

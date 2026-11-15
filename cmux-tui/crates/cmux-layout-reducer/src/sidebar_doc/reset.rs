@@ -244,7 +244,8 @@ pub(super) fn remove_ref(tx: &mut Tx, reference: &LayoutRef) -> Result<(), Refus
             .collect(),
     };
     if ids.is_empty() {
-        return Err(Refusal::UnknownItem);
+        // Nothing shows it any more (closed or removed meanwhile): nothing to remove, no refusal.
+        return Ok(());
     }
     for id in ids {
         let Some(item) = tx.doc.item(&id).cloned() else { continue };
