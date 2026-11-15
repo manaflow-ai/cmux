@@ -61,7 +61,11 @@ with live_apply.py's rules:
          register no Cloud credential provider, and the Cloud machine list and every user-origin
          call would fail until rollback (2026-11-15). `plan` reads the published binary's
          signature with two range requests; `apply` checks the file it swaps in. --unsigned-daemon
-         takes it anyway and says so
+         takes it anyway and says so. CI also signs each feat-cmux-next tree's darwin build with the
+         NEXT nightly's identity (cmux-tui-team-signed.yml, at files.cmux.com/cmux-tui/tree/KEY/
+         team-signed/, its completion.json naming the team and each file's sha256): an app signed
+         by that team takes that set (plan's `build`, the receipt's steps.build), so the rust part
+         reaches a NIGHTLY once it is published, a few minutes after the tree
 
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
@@ -184,6 +188,9 @@ WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cm
 # Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
 HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
 HOT_KEYS_SCHEMA = 1
+# Beside each tree, its darwin build signed by the NEXT nightly's team (cmux-tui-team-signed.yml,
+# scripts/ci/cmux_tui_team_sign.py): what a Team-signed app takes.
+TEAM_SIGNED = "team-signed"
 MISSING_KEYS_SECONDS = 3600
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
@@ -589,8 +596,11 @@ def daemon_part(out: dict, app: Path, given_base: bool, unsigned: bool) -> None:
     team = None if given_base else app_team(app)
     why = None
     if team and out.get("published"):
-        name = f"cmux-tui-{triple()}"
-        why = unverifiable(url_team(f"{TUI_BASE}/{out['tree_key']}/{name}"), team, f"the published {name}")
+        if team_signed(out["tree_key"], team):
+            out["build"] = f"team-signed ({team})"
+        else:
+            name = f"cmux-tui-{triple()}"
+            why = unverifiable(url_team(f"{TUI_BASE}/{out['tree_key']}/{name}"), team, f"the published {name}")
     if why and not unsigned:
         out["left"]["Rust (the published build is not signed as this app is)"] = [why]
     else:
@@ -795,18 +805,22 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     published = fetch_kept(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
     if not want or want != published:
         raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
-    copy = state / "builds" / want / "cmux"
+    return fetch_build_file(f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"), want
+
+
+def fetch_build_file(url: str, want: str, copy: Path) -> Path:
+    """URL into COPY (state/builds/SHA256/FILE), checked against WANT; a COPY that still hashes to it is kept."""
     if not cached(copy, want):
-        body = fetch(f"{TUI_BASE}/{key}/{name}")
+        body = fetch(url)
         with PHASES("verify"):
             if hashlib.sha256(body).hexdigest() != want:
-                raise RuntimeError(f"{TUI_BASE}/{key}/{name} does not hash to {want}")
+                raise RuntimeError(f"{url} does not hash to {want}")
         copy.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
             part.write(body)
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
-    return copy, want
+    return copy
 
 
 def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -823,19 +837,43 @@ def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None
         if not want:
             out[file] = None
             continue
-        copy = state / "builds" / want / file
-        if not cached(copy, want):
-            body = fetch(f"{COMMIT_BASE}/{owner}/{asset}")
-            with PHASES("verify"):
-                if hashlib.sha256(body).hexdigest() != want:
-                    raise RuntimeError(f"{COMMIT_BASE}/{owner}/{asset} does not hash to {want}")
-            copy.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
-                part.write(body)
-            os.chmod(part.name, 0o755)
-            os.replace(part.name, copy)
-        out[file] = (copy, want)
+        out[file] = (fetch_build_file(f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file), want)
     return out
+
+
+def team_signed(key: str, team: str | None) -> dict | None:
+    """Tree KEY's Team-signed set (cmux-tui-team-signed.yml: the same build, signed by the identity the
+    NEXT nightly signs with, at TUI_BASE/KEY/team-signed/) when TEAM signed it for this host, else None."""
+    if not team:
+        return None
+    try:
+        signed = json.loads(fetch_kept(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/completion.json"))
+    except (OSError, ValueError):  # a 404: not signed (yet)
+        return None
+    files = signed.get("files") if isinstance(signed, dict) else None
+    if (not isinstance(files, dict) or signed.get("key") != key or signed.get("team") != team
+            or signed.get("target") != triple() or set(files) != {"cmux", *(file for _, file in COMPANIONS)}):
+        return None
+    for entry in files.values():
+        if entry is not None and not (isinstance(entry, dict) and re.fullmatch(r"[0-9a-f]{64}", str(entry.get("sha256")))):
+            return None
+    return signed if files["cmux"] else None
+
+
+def fetch_build(key: str, state: Path, team: str | None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
+    """Tree KEY's cmux and companions for this host: (cmux, its sha256, companions, which build). An app
+    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree."""
+    signed = team_signed(key, team)
+    if not signed:
+        new, want = fetch_cmux(key, state)
+        return new, want, fetch_companions(key, state), "ad-hoc"
+    out: dict[str, tuple[Path, str] | None] = {}
+    for file, entry in signed["files"].items():
+        want = entry["sha256"] if entry else None
+        out[file] = want and (fetch_build_file(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{want}/{file}", want,
+                                               state / "builds" / want / file), want)
+    new, want = out.pop("cmux")
+    return new, want, out, f"team-signed ({team})"
 
 
 def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -1631,8 +1669,8 @@ def command_apply(args) -> int:
                 new, want = keep(state, Path(args.binary))
                 companions = local_companions(Path(args.binary), state)
             else:
-                new, want = fetch_cmux(planned["tree_key"], state)
-                companions = fetch_companions(planned["tree_key"], state)
+                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app))
+                receipt["steps"]["build"] = build
             # The file itself, whatever plan read: a --binary, or a build plan could not read.
             why = unverifiable(file_team(new), app_team(app), "SHA's cmux" if not args.binary else args.binary)
             if why and not args.unsigned_daemon:
@@ -1725,9 +1763,8 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
     """What `apply` would fetch and verify, fetched and verified; nothing in the app changes."""
     try:
         if "rust" in parts and not args.binary:
-            new, want = fetch_cmux(planned["tree_key"], state)
-            companions = fetch_companions(planned["tree_key"], state)
-            receipt["steps"]["rust"] = {"to": want, "copy": str(new)}
+            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"))
+            receipt["steps"]["rust"] = {"to": want, "copy": str(new), "build": build}
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:
             key = planned.get("web_key") or web_key(repo, args.sha)

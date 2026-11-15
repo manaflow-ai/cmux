@@ -482,6 +482,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
 EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
     ("cmux-next-dev-daily.yml", "sign-blacksmith"):
         "sign's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
+    ("cmux-tui-team-signed.yml", "sign"):
+        "signs the Team-signed tree on a literal Blacksmith label only (keychain rule 7); no route reaches an owned Mac",
     ("release.yml", "build-sign-notarize-blacksmith"):
         "build-sign-notarize's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
     ("repair-v0-64-25-helper-rpaths.yml", "repair-blacksmith"):
