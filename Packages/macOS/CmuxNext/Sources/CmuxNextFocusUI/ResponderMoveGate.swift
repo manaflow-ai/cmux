@@ -1,7 +1,7 @@
 public import AppKit
 
 /// One `makeFirstResponder` of a cmux window, judged and recorded: the window asks it whether to
-/// refuse the move (the window's own rules), and tells
+/// refuse the move (guardrail G1, ``UnseenKeyboardGuard``, then the window's own rules), and tells
 /// it the move it made, for the focus log (``FocusLog``). Off, the log costs one tunable read.
 ///
 /// ```swift
@@ -32,10 +32,11 @@ public struct ResponderMoveGate {
         self.focusModelApplies = focusModelApplies
     }
 
-    /// Whether the window refuses to make `responder` its first responder: `other` (the window's
-    /// own rule). A refusal is recorded.
+    /// Whether the window refuses to make `responder` its first responder: G1, else `other` (the
+    /// window's own rule). A refusal is recorded.
     public func refuses(_ responder: NSResponder?, or other: () -> Bool) -> Bool {
-        let refused = other()
+        let refused = UnseenKeyboardGuard().refuses(responder, from: window.firstResponder, inInputEvent: inInputEvent,
+                                                    focusModelApplies: focusModelApplies) || other()
         if refused { log?.responderChanged(in: window, from: before, to: responder, refused: true, byFocusModel: false) }
         return refused
     }
