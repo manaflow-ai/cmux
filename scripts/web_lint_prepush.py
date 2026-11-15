@@ -1725,15 +1725,27 @@ def in_place_cache(repo: Path, head: str | None) -> bool:
 
 def is_checked_out(repo: Path, sha: str) -> bool:
     """The checkout is exactly `sha`: HEAD is it, nothing is modified or untracked, and no file is left out by a
-    sparse checkout (git status is clean in one that lacks most of the commit)."""
+    sparse checkout (git status is clean in one that lacks most of the commit). A clone with no work tree (a bare
+    mirror the hook pushes from, REPO its git dir) is never checked out: its commits are linted in a tree of their
+    own, and `git status` there dies with "must be run in a work tree"."""
+    if not has_work_tree(repo):
+        return False
     return (git(repo, "rev-parse", "HEAD").strip() == git(repo, "rev-parse", f"{sha}^{{commit}}").strip()
             and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip()
             and not is_sparse(repo))
 
 
+def has_work_tree(repo: Path) -> bool:
+    """REPO is a checkout, not a clone with no work tree (a bare mirror or core.bare clone root, REPO its git dir)."""
+    return git(repo, "rev-parse", "--is-inside-work-tree", check=False).strip() == "true"
+
+
 def is_sparse(repo: Path) -> bool:
     """The checkout leaves files of the index out: an index entry has the skip-worktree bit (`git ls-files -t`
-    tags it S). Not core.sparseCheckout: a shared config can say true for a checkout that holds every file."""
+    tags it S). Not core.sparseCheckout: a shared config can say true for a checkout that holds every file. A clone
+    with no work tree has no checkout to leave files out of (its index is not one)."""
+    if not has_work_tree(repo):
+        return False
     return any(entry.startswith("S ") for entry in git(repo, "ls-files", "-t", "-z").split("\0"))
 
 
