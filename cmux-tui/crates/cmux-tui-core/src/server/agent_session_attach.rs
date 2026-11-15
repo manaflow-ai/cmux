@@ -796,6 +796,12 @@ pub(crate) enum Refusal {
     /// `agent-session-start`: the agent answered that it is not signed in on this machine
     /// (acpmux `agent.sign_in_required`); `data` names the harness (hq#11225).
     SignInRequired,
+    /// `agent-session-start`: the agent asked for is not in this machine's acpmux catalog (not
+    /// installed there); `data` names the harness (hq#11225).
+    HarnessMissing,
+    /// `agent-session-start`: the agent's model route cannot serve it on this machine (acpmux
+    /// `route.*`); `data` names the route's reason and the harness (hq#11225).
+    RouteUnavailable,
 }
 
 impl Refusal {
@@ -826,6 +832,8 @@ impl Refusal {
             Self::ScopeNotGranted => "agent_session.scope_not_granted",
             Self::ShareEnded => "agent_session.share_ended",
             Self::SignInRequired => "agent_session.sign_in_required",
+            Self::HarnessMissing => "agent_session.harness_missing",
+            Self::RouteUnavailable => "agent_session.route_unavailable",
         }
     }
 
@@ -866,6 +874,8 @@ impl Refusal {
             Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
             Self::ShareEnded => "the share ended, or the owner removed this guest",
             Self::SignInRequired => "the agent is not signed in on this machine",
+            Self::HarnessMissing => "this agent is not installed on this machine",
+            Self::RouteUnavailable => "the agent's model route cannot serve it on this machine",
         }
     }
 
