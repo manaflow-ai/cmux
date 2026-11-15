@@ -31,7 +31,7 @@ export function SearchField({
           type="search"
           data-settings-search=""
           value={query}
-          placeholder={t("settingsPage.search")}
+          placeholder={`${t("settingsPage.search")} · shelf probe`}
           aria-label={t("settingsPage.search")}
           spellCheck={false}
           onChange={(event) => onQuery(event.currentTarget.value)}
