@@ -159,7 +159,7 @@ impl PtyTerminalRuntime {
         &self,
         titles: &mut crate::terminal_title::TitleTracker,
         bytes: &'a [u8],
-    ) -> (std::borrow::Cow<'a, [u8]>, Vec<crate::terminal_metadata::TerminalNotification>) {
+    ) -> (Cow<'a, [u8]>, Vec<crate::terminal_metadata::TerminalNotification>) {
         let mut metadata =
             self.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !bytes.is_empty() {
