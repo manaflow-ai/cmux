@@ -220,6 +220,27 @@ def file_groups(disks):
     return groups
 
 
+def smaps_kinds(pid):
+    """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
+    where a role's per-process memory sits."""
+    kinds, name = {}, None
+    try:
+        exe = os.path.realpath(f"/proc/{pid}/exe")
+        with open(f"/proc/{pid}/smaps") as f:
+            for line in f:
+                head = line.split()
+                if head and "-" in head[0] and not head[0].endswith(":"):
+                    path = head[5] if len(head) > 5 else ""
+                    name = ("binary" if path == exe else "heap" if path == "[heap]" else
+                            "stack" if path.startswith("[stack") else "anon" if not path else
+                            "vdso" if path.startswith("[") else "file:" + os.path.basename(path))
+                elif head and head[0] == "Pss:" and name:
+                    kinds[name] = kinds.get(name, 0) + int(head[1])
+    except (OSError, ValueError, IndexError):
+        return {}
+    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:6])
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
@@ -229,6 +250,8 @@ def idle_window(top, seconds, disks):
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
                                          "wakeups": 0, "cmds": {}})
+        if IS_LINUX and "smaps_kb" not in r:
+            r["smaps_kb"] = smaps_kinds(pid)  # one process of the role, where its memory sits
         r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
         r["count"] += 1
         r["threads"] += s.get("threads") or 0
@@ -762,7 +785,7 @@ def report(results):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
                       f"cpu={v['cpu_pct']} "
-                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds}", flush=True)
+                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds} one_kb={v.get('smaps_kb', {})}", flush=True)
         grown = r["samples"][1:]
         if grown:
             # The slope over the days after creation (day 0 holds what the open made), per file group.

@@ -44,7 +44,8 @@ fi
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
-cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3
+# cmux-tui-host: the slim terminal host the daemon runs its hosts from when it sits beside it (host_exe.rs).
+cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
 # build-only: the perf cron builds in a step of its own, so the build and the run each get its 30-minute cap.
 [[ "$build_only" == 1 ]] && exit 0
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
@@ -65,7 +66,7 @@ if [ -n "$base" ]; then
   # The base's own engine source would be an empty submodule: build it from this checkout's.
   [ -n "${CMUX_GHOSTTY_SRC:-}" ] || export CMUX_GHOSTTY_SRC="$root/ghostty-next"
   (cd "$base_dir/src/cmux-tui" && CARGO_TARGET_DIR="$base_dir/target" \
-    cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3)
+    cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3)
   echo "INFINITE-AB before=$(git -C "$base_dir/src" rev-parse HEAD) after=$(git rev-parse HEAD)"
   python3 scripts/measure/infinite-items.py --acpmux "$base_dir/target/release/acpmux" \
     --tui "$base_dir/target/release/cmux-tui" --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 \
