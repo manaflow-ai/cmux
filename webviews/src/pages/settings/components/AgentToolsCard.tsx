@@ -62,12 +62,17 @@ export function AgentToolsCard() {
                 <div className="row-label">
                   <div className="row-title">{row.name}</div>
                   {row.leftover && (
-                    <div className="row-help selectable" data-agent-tools-leftover="">
-                      {t("settingsWindow.agentTools.leftover")}{" "}
-                      <code className="font-mono" data-agent-tools-leftover-line="">
-                        {row.leftover}
-                      </code>
-                    </div>
+                    <>
+                      <div className="row-help" data-agent-tools-leftover="">
+                        {t("settingsWindow.agentTools.leftover")}
+                      </div>
+                      {/* The line Remove runs, to read or run by hand: a value, not a description. */}
+                      <div className="row-help selectable">
+                        <code className="font-mono" data-agent-tools-leftover-line="">
+                          {row.leftover}
+                        </code>
+                      </div>
+                    </>
                   )}
                 </div>
                 <div className="row-control">

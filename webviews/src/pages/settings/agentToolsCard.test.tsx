@@ -50,7 +50,7 @@ test("the manual lines are labelled manual, and Copy copies one; nothing runs th
   const element = card(page.container);
   const manual = element.querySelector<HTMLElement>("[data-agent-tools-manual]")!;
   expect(manual.textContent).toContain("Use cmux Tools Outside cmux (Manual)");
-  expect(manual.textContent).toContain("cmux never runs these lines");
+  expect(manual.textContent).toContain("run an agent’s line yourself");
   const lines = [...manual.querySelectorAll("[data-agent-tools-manual-line]")].map((line) => line.textContent);
   expect(lines).toEqual(page.provider.agentTools.manual!);
   await act(async () => manual.querySelectorAll<HTMLButtonElement>('[data-agent-tools-action="copy"]')[1]!.click());
@@ -97,7 +97,7 @@ test("an old cmux entry in an agent's own settings shows its remove line, and on
   const element = card(page.container);
   const notice = element.querySelectorAll<HTMLElement>("[data-agent-tools-leftover]");
   expect(notice.length).toBe(1);
-  expect(notice[0]!.textContent).toContain("an older cmux");
+  expect(notice[0]!.textContent).toBe("Its own settings still have an old cmux entry.");
   expect(element.querySelector("[data-agent-tools-leftover-line]")!.textContent).toBe(
     "claude mcp remove --scope user cmux",
   );

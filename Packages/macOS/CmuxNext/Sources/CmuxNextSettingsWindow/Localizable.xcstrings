@@ -140,127 +140,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents you start in cmux get cmux’s tools. cmux never changes your agents’ own settings."
+            "value": "Agents you start in cmux get cmux’s tools."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحصل الوكلاء التي تشغّلها في cmux على أدوات cmux. لا يغيّر cmux أبدًا الإعدادات الخاصة بوكلائك."
+            "value": "الوكلاء الذين تشغّلهم في cmux يحصلون على أدوات cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenti koje pokreneš u cmuxu dobijaju cmux alate. cmux nikad ne mijenja vlastite postavke tvojih agenata."
+            "value": "Agenti koje pokreneš u cmuxu dobijaju cmux alate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter, du starter i cmux, får cmux’ værktøjer. cmux ændrer aldrig dine agenters egne indstillinger."
+            "value": "Agenter, du starter i cmux, får cmux’ værktøjer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux. cmux ändert nie die eigenen Einstellungen deiner Agenten."
+            "value": "In cmux gestartete Agenten bekommen die Werkzeuge von cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los agentes que inicias en cmux reciben las herramientas de cmux. cmux nunca cambia los ajustes propios de tus agentes."
+            "value": "Los agentes iniciados en cmux reciben sus herramientas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents que vous lancez dans cmux reçoivent les outils de cmux. cmux ne modifie jamais les réglages propres de vos agents."
+            "value": "Les agents lancés dans cmux reçoivent les outils de cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gli agenti che avvii in cmux ricevono gli strumenti di cmux. cmux non cambia mai le impostazioni proprie dei tuoi agenti."
+            "value": "Gli agenti avviati in cmux ricevono gli strumenti di cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux で起動したエージェントは cmux のツールを使えます。cmux がエージェント自身の設定を変更することはありません。"
+            "value": "cmux で起動したエージェントは cmux のツールを使えます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux។ cmux មិនដែលផ្លាស់ប្ដូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
+            "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 시작한 에이전트는 cmux 도구를 사용합니다. cmux는 에이전트 자체 설정을 절대 바꾸지 않습니다."
+            "value": "cmux에서 시작한 에이전트는 cmux 도구를 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter du starter i cmux, får cmux-verktøyene. cmux endrer aldri agentenes egne innstillinger."
+            "value": "Agenter du starter i cmux, får cmux-verktøyene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenci uruchamiani w cmux dostają narzędzia cmux. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
+            "value": "Agenci uruchamiani w cmux dostają narzędzia cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os agentes que você inicia no cmux recebem as ferramentas do cmux. O cmux nunca altera as configurações dos seus agentes."
+            "value": "Agentes iniciados no cmux recebem as ferramentas do cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенты, которых вы запускаете в cmux, получают инструменты cmux. cmux никогда не меняет собственные настройки ваших агентов."
+            "value": "Агенты, запущенные в cmux, получают инструменты cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
+            "value": "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’ta başlattığın ajanlar cmux araçlarını alır. cmux ajanlarının kendi ayarlarını asla değiştirmez."
+            "value": "cmux’ta başlattığın ajanlar cmux araçlarını alır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенти, яких ви запускаєте в cmux, отримують інструменти cmux. cmux ніколи не змінює власні налаштування ваших агентів."
+            "value": "Агенти, запущені в cmux, отримують інструменти cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các tác tử bạn khởi chạy trong cmux nhận công cụ của cmux. cmux không bao giờ thay đổi cài đặt riêng của các tác tử của bạn."
+            "value": "Tác tử khởi chạy trong cmux nhận công cụ của cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中启动的智能体会获得 cmux 的工具。cmux 绝不会更改你的智能体自己的设置。"
+            "value": "在 cmux 中启动的智能体可使用 cmux 的工具。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 cmux 中啟動的智慧代理會取得 cmux 的工具。cmux 絕不會更改你的智慧代理本身的設定。"
+            "value": "在 cmux 中啟動的智慧代理可使用 cmux 的工具。"
           }
         }
       }
@@ -1328,127 +1328,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "To give an agent you start elsewhere cmux’s tools, run its line in a terminal yourself. cmux never runs these lines or changes your agents’ settings."
+            "value": "To use cmux’s tools elsewhere, run an agent’s line yourself."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لمنح وكيل تشغّله في مكان آخر أدوات cmux، شغّل سطره في طرفية بنفسك. لا يشغّل cmux هذه الأسطر أبدًا ولا يغيّر إعدادات وكلائك."
+            "value": "لاستخدام أدوات cmux في مكان آخر، شغّل سطر الوكيل بنفسك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Da agentu kojeg pokrećeš negdje drugdje daš cmux alate, sam pokreni njegov red u terminalu. cmux nikad ne pokreće ove redove niti mijenja postavke tvojih agenata."
+            "value": "Za cmux alate drugdje sam pokreni red agenta."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kør selv agentens linje i en terminal for at give en agent, du starter et andet sted, cmux’ værktøjer. cmux kører aldrig disse linjer og ændrer ikke dine agenters indstillinger."
+            "value": "Kør selv linjen for at bruge cmux’ værktøjer andetsteds."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um einem Agenten, den du woanders startest, die Werkzeuge von cmux zu geben, führe seine Zeile selbst in einem Terminal aus. cmux führt diese Zeilen nie aus und ändert die Einstellungen deiner Agenten nicht."
+            "value": "Für cmux-Werkzeuge anderswo führe die Zeile selbst aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para dar las herramientas de cmux a un agente que inicias en otro lugar, ejecuta tú mismo su línea en una terminal. cmux nunca ejecuta estas líneas ni cambia los ajustes de tus agentes."
+            "value": "Para usarlas fuera de cmux, ejecuta tú mismo su línea."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pour donner les outils de cmux à un agent que vous lancez ailleurs, exécutez vous-même sa ligne dans un terminal. cmux n’exécute jamais ces lignes et ne modifie pas les réglages de vos agents."
+            "value": "Pour les outils cmux ailleurs, exécutez la ligne vous-même."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Per dare gli strumenti di cmux a un agente che avvii altrove, esegui tu la sua riga in un terminale. cmux non esegue mai queste righe e non cambia le impostazioni dei tuoi agenti."
+            "value": "Per gli strumenti di cmux altrove, esegui tu la sua riga."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux の外で起動するエージェントに cmux のツールを使わせるには、その行をご自身でターミナルで実行してください。cmux がこれらの行を実行したり、エージェントの設定を変更したりすることはありません。"
+            "value": "cmux の外で使うには、その行をご自身で実行してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដើម្បីផ្ដល់ឧបករណ៍ cmux ដល់ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមនៅកន្លែងផ្សេង សូមដំណើរការបន្ទាត់របស់វាក្នុងស្ថានីយដោយខ្លួនឯង។ cmux មិនដែលដំណើរការបន្ទាត់ទាំងនេះ ឬផ្លាស់ប្ដូរការកំណត់ភ្នាក់ងាររបស់អ្នកទេ។"
+            "value": "ដើម្បីប្រើឧបករណ៍ cmux នៅកន្លែងផ្សេង សូមដំណើរការបន្ទាត់នោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 곳에서 시작하는 에이전트에 cmux 도구를 주려면 해당 줄을 터미널에서 직접 실행하세요. cmux는 이 줄을 실행하거나 에이전트 설정을 바꾸지 않습니다."
+            "value": "다른 곳에서 cmux 도구를 쓰려면 해당 줄을 직접 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "For å gi en agent du starter et annet sted cmux-verktøyene, kjører du linjen dens selv i en terminal. cmux kjører aldri disse linjene eller endrer agentenes innstillinger."
+            "value": "Kjør linjen selv for å bruke cmux-verktøyene andre steder."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aby dać narzędzia cmux agentowi uruchamianemu gdzie indziej, sam uruchom jego wiersz w terminalu. cmux nigdy nie uruchamia tych wierszy ani nie zmienia ustawień Twoich agentów."
+            "value": "Aby użyć narzędzi cmux gdzie indziej, uruchom wiersz sam."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para dar as ferramentas do cmux a um agente que você inicia em outro lugar, execute você mesmo a linha dele em um terminal. O cmux nunca executa essas linhas nem altera as configurações dos seus agentes."
+            "value": "Para usar as ferramentas fora do cmux, execute a linha você."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чтобы дать инструменты cmux агенту, которого вы запускаете в другом месте, выполните его строку в терминале сами. cmux никогда не выполняет эти строки и не меняет настройки ваших агентов."
+            "value": "Для инструментов cmux в другом месте выполните строку сами."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หากต้องการให้เอเจนต์ที่คุณเริ่มที่อื่นได้เครื่องมือของ cmux ให้รันบรรทัดของเอเจนต์นั้นในเทอร์มินัลด้วยตนเอง cmux ไม่รันบรรทัดเหล่านี้และไม่เปลี่ยนการตั้งค่าเอเจนต์ของคุณ"
+            "value": "หากต้องการใช้เครื่องมือ cmux ที่อื่น ให้รันบรรทัดนั้นเอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başka yerde başlattığın bir ajana cmux araçlarını vermek için onun satırını bir terminalde kendin çalıştır. cmux bu satırları asla çalıştırmaz ve ajanlarının ayarlarını değiştirmez."
+            "value": "cmux araçları için başka yerde satırı kendin çalıştır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Щоб дати інструменти cmux агенту, якого ви запускаєте деінде, виконайте його рядок у терміналі самі. cmux ніколи не виконує ці рядки й не змінює налаштування ваших агентів."
+            "value": "Щоб мати інструменти cmux деінде, виконайте рядок самі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Để cấp công cụ cmux cho tác tử bạn khởi chạy ở nơi khác, hãy tự chạy dòng của nó trong terminal. cmux không bao giờ chạy các dòng này hay thay đổi cài đặt của các tác tử của bạn."
+            "value": "Để dùng công cụ cmux ở nơi khác, hãy tự chạy dòng đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "要让你在别处启动的智能体使用 cmux 的工具，请自己在终端中运行它对应的那一行。cmux 绝不会运行这些命令，也不会更改你的智能体设置。"
+            "value": "要在别处使用 cmux 的工具，请自己运行对应的那一行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "若要讓你在其他地方啟動的智慧代理使用 cmux 的工具，請自己在終端機中執行它對應的那一行。cmux 絕不會執行這些命令，也不會更改你的代理設定。"
+            "value": "若要在其他地方使用 cmux 的工具，請自己執行對應的那一行。"
           }
         }
       }
@@ -1592,127 +1592,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Its own settings still have a cmux entry an older cmux added. Inside cmux it is replaced; elsewhere it still starts. Remove runs:"
+            "value": "Its own settings still have an old cmux entry."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا تزال إعداداته الخاصة تحتوي على إدخال cmux أضافه إصدار أقدم من cmux. داخل cmux يُستبدل؛ وفي أماكن أخرى لا يزال يبدأ. يشغّل زر الإزالة:"
+            "value": "لا تزال إعداداته الخاصة تحتوي على إدخال cmux قديم."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Njegove postavke još imaju cmux unos koji je dodao stariji cmux. U cmuxu se zamjenjuje; drugdje se i dalje pokreće. Ukloni pokreće:"
+            "value": "Njegove postavke još imaju stari cmux unos."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dens egne indstillinger har stadig en cmux-post, som en ældre cmux tilføjede. I cmux erstattes den; andre steder starter den stadig. Fjern kører:"
+            "value": "Dens egne indstillinger har stadig en gammel cmux-post."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seine eigenen Einstellungen enthalten noch einen cmux-Eintrag, den ein älteres cmux hinzugefügt hat. In cmux wird er ersetzt, anderswo startet er weiterhin. Entfernen führt aus:"
+            "value": "Seine Einstellungen enthalten noch einen alten cmux-Eintrag."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sus propios ajustes aún tienen una entrada de cmux que añadió un cmux anterior. Dentro de cmux se reemplaza; en otros sitios sigue iniciándose. Quitar ejecuta:"
+            "value": "Sus ajustes aún tienen una entrada antigua de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ses propres réglages contiennent encore une entrée cmux ajoutée par une ancienne version de cmux. Dans cmux, elle est remplacée ; ailleurs, elle démarre encore. Supprimer exécute :"
+            "value": "Ses réglages contiennent encore une ancienne entrée cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le sue impostazioni hanno ancora una voce cmux aggiunta da un cmux precedente. In cmux viene sostituita; altrove si avvia ancora. Rimuovi esegue:"
+            "value": "Le sue impostazioni hanno ancora una vecchia voce cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このエージェント自身の設定に、以前の cmux が追加した cmux の項目が残っています。cmux 内では置き換えられますが、それ以外では起動します。「削除」で実行するコマンド:"
+            "value": "このエージェントの設定に古い cmux の項目が残っています。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការកំណត់ផ្ទាល់ខ្លួនរបស់វានៅតែមានធាតុ cmux ដែល cmux ចាស់បានបន្ថែម។ ក្នុង cmux វាត្រូវបានជំនួស ប៉ុន្តែកន្លែងផ្សេងវានៅតែចាប់ផ្ដើម។ ការលុបនឹងដំណើរការ៖"
+            "value": "ការកំណត់របស់វានៅតែមានធាតុ cmux ចាស់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 에이전트 자체 설정에 이전 cmux가 추가한 cmux 항목이 아직 있습니다. cmux 안에서는 대체되지만 다른 곳에서는 여전히 시작됩니다. 제거 시 실행:"
+            "value": "이 에이전트 설정에 이전 cmux 항목이 남아 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dens egne innstillinger har fortsatt en cmux-oppføring som en eldre cmux la til. I cmux erstattes den; andre steder starter den fortsatt. Fjern kjører:"
+            "value": "Innstillingene har fortsatt en gammel cmux-oppføring."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jego własne ustawienia wciąż mają wpis cmux dodany przez starszą wersję cmux. W cmux jest zastępowany, gdzie indziej nadal się uruchamia. Usuń wykonuje:"
+            "value": "Jego ustawienia wciąż mają stary wpis cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As configurações dele ainda têm uma entrada do cmux adicionada por um cmux antigo. Dentro do cmux ela é substituída; em outros lugares ainda inicia. Remover executa:"
+            "value": "As configurações dele ainda têm uma entrada antiga do cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В его собственных настройках всё ещё есть запись cmux, добавленная старой версией cmux. В cmux она заменяется, в других местах по-прежнему запускается. «Удалить» выполняет:"
+            "value": "В его настройках осталась старая запись cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การตั้งค่าของเอเจนต์นี้ยังมีรายการ cmux ที่ cmux รุ่นเก่าเพิ่มไว้ ใน cmux รายการนี้จะถูกแทนที่ แต่ที่อื่นยังเริ่มทำงานอยู่ ลบจะรัน:"
+            "value": "การตั้งค่าของเอเจนต์นี้ยังมีรายการ cmux เก่าอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kendi ayarlarında eski bir cmux’un eklediği bir cmux girdisi hâlâ var. cmux içinde yerine başkası geçer; başka yerlerde hâlâ başlar. Kaldır şunu çalıştırır:"
+            "value": "Kendi ayarlarında hâlâ eski bir cmux girdisi var."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "У його власних налаштуваннях досі є запис cmux, доданий старою версією cmux. У cmux він замінюється, деінде все ще запускається. «Вилучити» виконує:"
+            "value": "У його налаштуваннях лишився старий запис cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cài đặt riêng của nó vẫn có một mục cmux do bản cmux cũ thêm vào. Trong cmux mục này được thay thế; ở nơi khác nó vẫn khởi chạy. Xóa sẽ chạy:"
+            "value": "Cài đặt riêng của nó vẫn còn một mục cmux cũ."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "它自己的设置中仍有旧版 cmux 添加的 cmux 条目。在 cmux 中会被替换，在其他地方仍会启动。“移除”会运行："
+            "value": "它自己的设置中仍有一个旧的 cmux 条目。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "它自己的設定中仍有舊版 cmux 新增的 cmux 項目。在 cmux 中會被取代，在其他地方仍會啟動。「移除」會執行："
+            "value": "它自己的設定中仍有一個舊的 cmux 項目。"
           }
         }
       }

@@ -207377,25 +207377,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ob Agenten, die du in cmux startest, die Werkzeuge von cmux bekommen"
+            "value": "Ob in cmux gestartete Agenten cmux-Werkzeuge bekommen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si los agentes que inicias en cmux reciben las herramientas de cmux"
+            "value": "Si los agentes iniciados en cmux reciben sus herramientas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si les agents que vous lancez dans cmux reçoivent les outils de cmux"
+            "value": "Si les agents lancés dans cmux reçoivent les outils de cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se gli agenti che avvii in cmux ricevono gli strumenti di cmux"
+            "value": "Se gli agenti avviati in cmux ricevono gli strumenti cmux"
           }
         },
         "ja": {
@@ -207431,7 +207431,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se os agentes que você inicia no cmux recebem as ferramentas do cmux"
+            "value": "Se agentes iniciados no cmux recebem as ferramentas do cmux"
           }
         },
         "ru": {
@@ -207449,7 +207449,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux’ta başlattığın ajanların cmux araçlarını alıp almayacağı"
+            "value": "cmux’ta başlatılan ajanlar cmux araçlarını alır mı"
           }
         },
         "uk": {
@@ -207461,7 +207461,7 @@
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các tác tử bạn khởi chạy trong cmux có nhận công cụ của cmux hay không"
+            "value": "Tác tử khởi chạy trong cmux có nhận công cụ cmux không"
           }
         },
         "zh-Hans": {
