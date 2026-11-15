@@ -501,7 +501,20 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   the receipt says why.
 - **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
   the app's.
-- **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as
+- **App FFI:** Rust the app links (its FFI crates) swaps warm when the app carries it as one library,
+  `Contents/Frameworks/libcmux_app_ffi.dylib`. The library of SHA's `cmux-app-ffi-<commit>` release
+  (the newest commit at or before SHA that changed an FFI input) replaces it, the app quits with
+  `cmux app quit --keep-sessions` and opens again, and the part is done once the app's control socket
+  answers from a new pid that stays up. The daemon and its terminals never stop. The release must only
+  add to the FFI the app's pin was built from (`scripts/cmux-next/app_ffi_additive.py`), and the
+  library must export every symbol the app imports. An ad hoc app takes the released (ad hoc)
+  library as is, and so does a NIGHTLY: its signature carries
+  `com.apple.security.cs.disable-library-validation`. A Developer ID app without that entitlement
+  loads only libraries signed by its team: `--sign-identity ID` signs with that team's identity, and
+  `--reseal` signs the app ad hoc too, so it starts signed out of its Keychain items until
+  `rollback`. Without either, the part and the Rust part are left, with why. An app that links the FFI statically (built
+  before the library) leaves it for a nightly.
+- **Neither:** Swift, resources, Rust the app links statically, and helpers such as
   cmux-mobile-host still need the nightly. `plan` lists them under `left`. C, Objective-C and Zig
   sources inside `cmux-tui/` (a companion's shim, the Zig binding) are not resources: the tree build
   compiles them, so they go with the Rust part unless they sit in an app FFI crate.
@@ -514,7 +527,7 @@ breaks the bundle's seal until `rollback` or the next update. The running app do
 fleet Mac.
 
 Every receipt has `phases`, the seconds spent in plan, key, fetch, verify, backup, find, swap, reload
-and rollback. stderr prints them, largest first. `apply SHA --dry-run` plans, fetches and verifies
+and rollback (and quit and launch, for the ffi part). stderr prints them, largest first. `apply SHA --dry-run` plans, fetches and verifies
 without changing the app, and its receipt goes only to `history.jsonl`. `--base COMMIT` stands in for
 the app's commit, so `plan` and `--dry-run` also work on a host with no app.
 
