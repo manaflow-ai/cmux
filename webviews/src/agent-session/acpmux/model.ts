@@ -2525,6 +2525,26 @@ function preparedRow(cache: Map<string, PreparedRow>, id: string): PreparedRow {
   return entry;
 }
 
+/// The text layout library keeps every segment it ever measured, for the page's life: its per-font
+/// segment cache, with each word's grapheme advances. A chat's every new word (an id, a count, a path)
+/// is a new entry, so that cache grew with the chat too (about 30 MB of a 100k-row chat's live heap,
+/// under prepare's `getSegmentBreakableFitAdvances`). Blink bounds its own word shape cache the same
+/// way (ShapeCache clears itself whole past its size cap): after PREPARED_TEXT_CHARS characters prepared
+/// since the last clear, the library's caches start over. Prepared text already made keeps its widths;
+/// the next prepare measures its words again.
+export const PREPARED_TEXT_CHARS = 1_000_000;
+let preparedTextChars = 0;
+
+/// Counts `length` characters prepared, and clears the library's caches (`clear`) past
+/// PREPARED_TEXT_CHARS. True when it cleared.
+export function notePreparedText(length: number, clear: () => void = clearTextCaches): boolean {
+  preparedTextChars += length;
+  if (preparedTextChars <= PREPARED_TEXT_CHARS) return false;
+  preparedTextChars = 0;
+  clear();
+  return true;
+}
+
 /// Drops the least recently measured rows' prepared text past PREPARED_ROWS.
 function trimPreparedRows(cache: Map<string, PreparedRow>): void {
   if (cache.size <= PREPARED_ROWS) return;
@@ -2563,6 +2583,7 @@ function textHeight(
   if (measured === undefined) {
     try {
       measured = prepare(text, measureFont, { whiteSpace: "pre-wrap" });
+      notePreparedText(text.length);
     } catch {
       measured = null;
     }
@@ -2990,6 +3011,7 @@ function preparedLines(
   if (measured === undefined) {
     try {
       measured = prepareWithSegments(text, metrics().measureFont, { whiteSpace: "pre-wrap" });
+      notePreparedText(text.length);
     } catch {
       measured = null;
     }
@@ -3675,6 +3697,7 @@ import {
   measureNaturalWidth,
   prepare,
   prepareWithSegments,
+  clearCache as clearTextCaches,
   type LayoutCursor,
   type PreparedText,
   type PreparedTextWithSegments,

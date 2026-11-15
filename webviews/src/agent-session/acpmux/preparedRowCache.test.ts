@@ -3,7 +3,15 @@
 // holds the same number of entries (cmuxterm-hq goals/chats-flat-at-any-length.md). Before the
 // bound it held one per row ever measured, most of a long chat's live JS heap.
 import { expect, test } from "bun:test";
-import { layoutConversation, PREPARED_ROWS, type AcpmuxRow, type PreparedRow, type RowHeights } from "./model";
+import {
+  layoutConversation,
+  notePreparedText,
+  PREPARED_ROWS,
+  PREPARED_TEXT_CHARS,
+  type AcpmuxRow,
+  type PreparedRow,
+  type RowHeights,
+} from "./model";
 
 /// Far above the bound, far below the chat's rows: a cache that grows with the chat fails it.
 const CACHE_CEILING = 1_024;
@@ -83,4 +91,20 @@ test("a new width measures the rows near the view and keeps the rest's last heig
   });
   expect(moved.heights.slice(0, 900)).toEqual(exact.heights.slice(0, 900));
   expect(cache.size).toBeLessThanOrEqual(PREPARED_ROWS);
+});
+
+// The text layout library's own segment cache is bounded too: it starts over after PREPARED_TEXT_CHARS
+// characters prepared, as Blink's ShapeCache clears itself past its cap.
+test("the text layout library's caches start over after a bounded amount of prepared text", () => {
+  let clears = 0;
+  const clear = () => {
+    clears += 1;
+  };
+  // Whatever earlier tests counted: one clear starts the count over.
+  for (let started = false; !started;) started = notePreparedText(PREPARED_TEXT_CHARS, clear);
+  clears = 0;
+  const line = 60;
+  const lines = Math.ceil((PREPARED_TEXT_CHARS * 3) / line);
+  for (let i = 0; i < lines; i += 1) notePreparedText(line, clear);
+  expect(clears).toBe(2);
 });
