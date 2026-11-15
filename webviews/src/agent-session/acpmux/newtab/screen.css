@@ -840,7 +840,7 @@
    the glyph's place: each tile is drawn around the glyph's own box (below), so its center stays on
    the column (newtab-icon-column.test.ts) and only the label steps out by the tile's room. A
    project's badge gets the same tile. One stroke (the 16 grid's 1.25) for every glyph.
-   - tiles (shipped): line glyphs in the chip's own ink on soft square tiles, as a macOS Settings
+   - tiles (shipped): line glyphs in the chip's own ink on soft square tiles, as a system settings
      sidebar; the names stay.
    - appicon: app-icon squircles. The folder is the hero, on the accent's tile in the accent's ink;
      the machine and the shield sit on neutral tiles, + on a round one; the project's name in the

@@ -40,7 +40,7 @@ export const newTabIconColumn = defineExperiment({
     tiles: {
       label: "Tiles",
       description:
-        "Icon treatment: the folder, machine, + and shield glyphs sit on soft square tiles in the chip's ink, as a macOS Settings sidebar; the names stay.",
+        "Icon treatment: the folder, machine, + and shield glyphs sit on soft square tiles in the chip's ink, as a system settings sidebar; the names stay.",
     },
     appicon: {
       label: "App icons",
