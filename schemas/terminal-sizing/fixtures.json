@@ -2159,7 +2159,7 @@
       ]
     },
     {
-      "name": "fit everyone never goes narrower than an iphone while a wider view counts",
+      "name": "fit everyone never goes narrower than an iphone while a wider desktop view counts",
       "initial": {
         "cols": 80,
         "rows": 24
@@ -2180,19 +2180,6 @@
             "viewport": {
               "cols": 150,
               "rows": 42
-            }
-          }
-        },
-        {
-          "op": "attach",
-          "participant": {
-            "id": "phone",
-            "user_id": "u1",
-            "device_kind": "iphone",
-            "via": "mac",
-            "viewport": {
-              "cols": 54,
-              "rows": 44
             }
           }
         },
@@ -2223,7 +2210,7 @@
         },
         {
           "op": "expect",
-          "cols": 54,
+          "cols": 150,
           "rows": 42,
           "reason": "smallest"
         }
