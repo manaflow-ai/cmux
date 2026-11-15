@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 import Observation
 
@@ -26,13 +27,13 @@ public final class PaletteFontTuner {
     /// The target the picker opened on last, kept by the page's provider for the next open.
     @ObservationIgnored private let memory: PaletteFontTargetMemory?
 
-    public init?(rows: [PaletteSettingRow], source: any PaletteSettingsSource, style: PaletteFontPickerStyle = PaletteTunables.fontPickerStyle.value,
+    public init?(rows: [PaletteSettingRow], source: any PaletteSettingsSource, style: PaletteFontPickerStyle? = nil,
                  targetID: String? = nil, memory: PaletteFontTargetMemory? = nil) {
         let targets = PaletteFontTargets.targets(from: rows)
         guard !targets.isEmpty else { return nil }
         self.targets = targets
         self.source = source
-        self.style = style
+        self.style = style ?? PaletteTunables.fontPickerStyle.value
         self.memory = memory
         let wanted = targetID ?? memory?.targetID
         targetIndex = targets.firstIndex { $0.id == wanted } ?? 0

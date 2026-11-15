@@ -46,7 +46,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
     /// family, size and line height together in the surface; Return writes them in one write. Without
     /// a target (no font family setting listed) it is the list of font settings it used to be.
     private func changeFontItem(_ rows: [PaletteSettingRow]) -> PaletteItem {
-        let source = source
+        let source = source, memory = fontTarget
         let section = PaletteSection(id: "fonts", title: PaletteStrings.changeFont, order: 0)
         let items = rows.map { row in
             var item = item(row)
@@ -63,7 +63,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
             keywords: ["font", "fonts", "typeface", "family", "terminal", "chat", "code", "editor", "markdown", "size", "line height"],
             primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return", effect: .deferred {
                 // The rows as they are now: a font kept a moment ago is the current one.
-                guard let tuner = PaletteFontTuner(rows: source.rows, source: source, memory: fontTarget) else { return .push(settingsList) }
+                guard let tuner = PaletteFontTuner(rows: source.rows, source: source, memory: memory) else { return .push(settingsList) }
                 return .push(PaletteFontPage.page(tuner))
             }),
             frecencyKey: "settings:changeFont"

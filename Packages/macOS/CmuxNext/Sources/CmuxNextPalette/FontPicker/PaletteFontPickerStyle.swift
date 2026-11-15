@@ -25,10 +25,3 @@ public nonisolated enum PaletteFontPickerStyle: String, Sendable, CaseIterable, 
     /// Rows draw a sample of the family after its name.
     public var rowsCarrySamples: Bool { self == .inline }
 }
-
-extension PaletteTunables {
-    public static let fontPickerStyle = Tunable<PaletteFontPickerStyle>.choice(
-        "palette.fontPickerStyle", .palette, "Font picker layout",
-        help: "How Change Font… lays out its families, sample and size and line height sliders. Applies the next time it opens.",
-        default: .dock, code: "PaletteTunables.fontPickerStyle")
-}
