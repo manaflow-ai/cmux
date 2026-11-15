@@ -134,7 +134,10 @@ def pin_plan(repo: Path, app: Path | None, sha: str, base: str) -> dict | None:
     An app links the release its commit pins, and the pin lags the FFI sources until app-ffi-repin lands, so a
     NIGHTLY's library is usually older than its commit's FFI sources: the commit that moves the pin is then the
     one that brings the app's library up to date. None when SHA pins the app's release; Left when it cannot."""
-    pinned, want = app_pin_source(repo, base), app_pin_source(repo, sha)
+    try:
+        pinned, want = app_pin_source(repo, base), app_pin_source(repo, sha)
+    except RuntimeError:
+        return None  # a commit from before app-ffi-pin.json: no pin to compare, nothing for this part
     if pinned == want:
         return None
     if app is not None and not carries_dylib(app):
