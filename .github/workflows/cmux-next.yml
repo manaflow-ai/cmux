@@ -45,6 +45,7 @@ on:
       - THIRD_PARTY_LICENSES.md
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
+      - scripts/codesign-retry.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/cmux-next/cef-pak-drop.py
       - scripts/cmux-next/fetch-ublock.sh
@@ -392,6 +393,7 @@ on:
       - Packages/macOS/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
+      - scripts/codesign-retry.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/cmux-next/cef-pak-drop.py
       - scripts/cmux-next/fetch-ublock.sh
