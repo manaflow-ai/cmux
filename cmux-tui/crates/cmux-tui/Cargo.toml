@@ -217,6 +217,8 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 serde_json.workspace = true
 
 [dev-dependencies]
+# cli/ext tests: the fake daemon renders a mount with the real QuickJS app host.
+cmux-app-host = { workspace = true, features = ["engine"] }
 # carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.
 cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
 # tests/carrier_dial.rs: a real relay for `cmux carrier dial`.
