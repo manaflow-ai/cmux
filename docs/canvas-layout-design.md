@@ -110,7 +110,7 @@ horizontally/vertically, tidy canvas.
 
 All new shortcuts are registered in `KeyboardShortcutSettings`, editable in
 Settings, configurable in `~/.config/cmux/cmux.json`, and documented in the
-web docs. Settings: `canvas.paneGap` (points), `canvas.snapping` (bool).
+web docs. Settings: `canvas.paneGap` (whole points, 0 to 64), `canvas.snappingEnabled` (bool).
 All user-facing strings localized (en + ja).
 
 ## Persistence
