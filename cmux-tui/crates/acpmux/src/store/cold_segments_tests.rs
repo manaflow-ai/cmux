@@ -5,10 +5,10 @@ use super::*;
 use std::collections::BTreeSet;
 
 /// The smallest segment a store rolls at (`LocalStore::new`).
-const SEGMENT: u64 = 64 * 1024;
-const ID: &str = "c";
+pub(super) const SEGMENT: u64 = 64 * 1024;
+pub(super) const ID: &str = "c";
 
-fn record(seq: u64) -> EventRecord {
+pub(super) fn record(seq: u64) -> EventRecord {
     let pad = "x".repeat((seq as usize * 37) % 900);
     EventRecord {
         seq,
@@ -20,12 +20,12 @@ fn record(seq: u64) -> EventRecord {
     }
 }
 
-fn store(sessions: &Path) -> LocalStore {
+pub(super) fn store(sessions: &Path) -> LocalStore {
     LocalStore::new(sessions.to_path_buf(), SEGMENT).unwrap()
 }
 
 /// A chat of `total` records in a fresh home: the home, its sessions folder and the store.
-fn chat(total: u64) -> (tempfile::TempDir, PathBuf, LocalStore) {
+pub(super) fn chat(total: u64) -> (tempfile::TempDir, PathBuf, LocalStore) {
     let home = tempfile::tempdir().unwrap();
     let sessions = home.path().join("sessions");
     let store = store(&sessions);
@@ -36,7 +36,7 @@ fn chat(total: u64) -> (tempfile::TempDir, PathBuf, LocalStore) {
     (home, sessions, store)
 }
 
-fn all(store: &dyn Store) -> Vec<EventRecord> {
+pub(super) fn all(store: &dyn Store) -> Vec<EventRecord> {
     let mut out = Vec::new();
     store
         .scan(ID, 0, &mut |rec| {
@@ -47,7 +47,7 @@ fn all(store: &dyn Store) -> Vec<EventRecord> {
     out
 }
 
-fn expected(total: u64) -> Vec<EventRecord> {
+pub(super) fn expected(total: u64) -> Vec<EventRecord> {
     (1..=total).map(record).collect()
 }
 
@@ -71,7 +71,7 @@ fn pages(store: &LocalStore) -> Vec<Vec<EventRecord>> {
 }
 
 /// Every sealed segment moved cold: how many.
-fn move_all(store: &LocalStore) -> u64 {
+pub(super) fn move_all(store: &LocalStore) -> u64 {
     let mut moved = 0;
     while let Some(staged) = store.stage_cold_segments(ID, 2, DEFAULT_LEVEL).unwrap() {
         let done = store.commit_cold_segments(ID, staged).unwrap();
@@ -81,7 +81,7 @@ fn move_all(store: &LocalStore) -> u64 {
     moved
 }
 
-fn names(dir: &Path) -> BTreeSet<String> {
+pub(super) fn names(dir: &Path) -> BTreeSet<String> {
     std::fs::read_dir(dir)
         .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
         .unwrap_or_default()
@@ -568,6 +568,9 @@ fn a_crash_at_every_step_of_a_warm_loses_nothing() {
         let crashed = store.warm_cold_segments(ID);
         CRASH_AFTER.with(|c| c.set(None));
         assert!(crashed.is_err(), "{step:?}");
+        // The crash ends the store: the next one settles what it left, its temporary file too.
+        drop(store);
+        let store = self::store(&sessions);
         assert_eq!(all(&store), expected(1500), "{step:?}: read after the crash");
         store.settle_cold_segments(ID).unwrap();
         assert_eq!(all(&store), expected(1500), "{step:?}: read after the settle");

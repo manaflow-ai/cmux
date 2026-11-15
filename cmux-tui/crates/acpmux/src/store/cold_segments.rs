@@ -398,12 +398,12 @@ fn is_not_found(e: &std::io::Error) -> bool {
     e.kind() == std::io::ErrorKind::NotFound
 }
 
-/// A unique temporary name beside `path`, of this process.
-fn tmp_of(path: &Path) -> PathBuf {
+/// A unique temporary name beside `path`, of the store whose tag is `tag` (`LocalStore::cold_tag`).
+fn tmp_of(path: &Path, tag: &str) -> PathBuf {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    path.with_file_name(format!("{name}.tmp-{}-{n}", std::process::id()))
+    path.with_file_name(format!("{name}.tmp-{tag}-{n}"))
 }
 
 /// Tests: the steps of a move a crash can stop after ([`crash_after`]).
@@ -437,6 +437,14 @@ thread_local! {
     pub(crate) static DISK_FULL_AFTER: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
     /// Tests: this thread flips a byte of the temporary archive before it is checked.
     pub(crate) static FLIP_BEFORE_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: a warm on this thread stops once its `.ndjson` is in place beside its index and
+    /// archive, before the index goes.
+    pub(crate) static HOLD_WARM_PLACED: super::log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: a settle on this thread stops once it checked a `.ndjson` against its committed
+    /// archive, before it removes the `.ndjson`.
+    pub(crate) static HOLD_SETTLE_BEFORE_REMOVE: super::log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// An injected crash ([`Step`]).
@@ -556,12 +564,17 @@ pub struct ColdMoved {
 
 /// Writes segment `src`'s archive under a temporary name in `dir`, decodes it back from the disk
 /// and checks it, and syncs it. On an error nothing is left (unless a test crashed it).
-fn write_archive(src: &Path, dst: &Path, level: i32) -> Result<(PathBuf, Index, u64, (u64, u64))> {
+fn write_archive(
+    src: &Path,
+    dst: &Path,
+    level: i32,
+    tag: &str,
+) -> Result<(PathBuf, Index, u64, (u64, u64))> {
     let started = std::time::Instant::now();
     let source = crate::config::private_state_file(src)?;
     let meta = source.metadata()?;
     let (len, file) = (meta.len(), file_of(&meta));
-    let tmp = tmp_of(dst);
+    let tmp = tmp_of(dst, tag);
     // Tests only: an injected crash keeps the temporary archive.
     #[cfg_attr(not(test), allow(unused_mut))]
     let mut crashed = false;
@@ -666,10 +679,10 @@ fn drop_cache_of(file: &File) {
 /// Decodes cold segment `index` of `session` into a temporary file beside its index, checks it
 /// against the index's length and SHA-256, and syncs it. On an error nothing is left (unless a
 /// test crashed it). The temporary name holds `.cold.idx` and `.tmp-`, so a settle removes it.
-fn write_warm(session: &Path, index: u32) -> Result<(PathBuf, Index)> {
+fn write_warm(session: &Path, index: u32, tag: &str) -> Result<(PathBuf, Index)> {
     let doc = read_index(session, index)?;
     let zst = zst_path(session, index);
-    let tmp = tmp_of(&session.join("events").join(format!("{index:06}{IDX_SUFFIX}.warm")));
+    let tmp = tmp_of(&session.join("events").join(format!("{index:06}{IDX_SUFFIX}.warm")), tag);
     #[cfg_attr(not(test), allow(unused_mut))]
     let mut crashed = false;
     let written = (|| -> Result<()> {
@@ -764,7 +777,7 @@ impl LocalStore {
         };
         for (index, src) in todo {
             let dst = zst_path(&session, index);
-            let (tmp, doc, len, file) = match write_archive(&src, &dst, level) {
+            let (tmp, doc, len, file) = match write_archive(&src, &dst, level, &self.cold_tag) {
                 Ok(written) => written,
                 Err(e) => {
                     staged.crashed = e.is::<Crash>();
@@ -787,6 +800,14 @@ impl LocalStore {
         let session = staged.session.clone();
         let events = session.join("events");
         let cold_dir = session.join(COLD_DIR);
+        // `cold-segments/` may be new (`stage_cold_segments` makes it): its entry in the chat's
+        // folder is on the disk before any segment goes, or a power loss could keep the removal
+        // and lose the folder its archive is in (#43562 review F2, P3-F1). Whether or not the
+        // journal's checkpoint synced anything (`prepare_cold_segments` does nothing for history
+        // it already covers).
+        if false && !staged.segments.is_empty() {
+            sync_directory(&session)?;
+        }
         for at in 0..staged.segments.len() {
             let _sealed = self.unsealed(id)?;
             let Some(s) = staged.segments.get_mut(at) else { break };
@@ -811,7 +832,7 @@ impl LocalStore {
             }
             // 3: the index, synced under its temporary name.
             let idx = idx_path(&session, index);
-            let idx_tmp = tmp_of(&idx);
+            let idx_tmp = tmp_of(&idx, &self.cold_tag);
             let written = (|| -> Result<()> {
                 let mut file = open_private_append(&idx_tmp)?;
                 file.write_all(&doc)?;
@@ -828,9 +849,11 @@ impl LocalStore {
                 staged.crashed = true;
                 return Err(Crash.into());
             }
-            // 4: under the writers' lock, only for the segment as it was read.
+            // 4: under the writers' lock and the chat's cold lock, only for the segment as it
+            // was read.
             let committed = {
                 let _writers = self.writers.lock_or_recover();
+                let _cold = self.cold.lock(id);
                 let (now, cut_pending) = self.listed_files(id)?;
                 let newest = now.last().map_or(0, |(i, _)| *i);
                 let unchanged = !cut_pending
@@ -886,12 +909,18 @@ impl LocalStore {
     pub(super) fn settle_cold_segments(&self, id: &str) -> Result<()> {
         let session = self.dir(id);
         let cold_dir = session.join(COLD_DIR);
+        if !crate::home_fs::try_exists_nofollow(&cold_dir)? {
+            return Ok(());
+        }
+        let _sealed = self.unsealed(id)?;
+        // From the listing through every removal: a warm, a move's commit, a whole-chat archive
+        // or a rehydrate of this chat changes nothing it decides by meanwhile (#43562 review F1,
+        // P2-F1, P3-F2).
         let entries = match crate::home_fs::read_dir(&cold_dir) {
             Ok(entries) => entries,
             Err(e) if is_not_found(&e) => return Ok(()),
             Err(e) => return Err(e.into()),
         };
-        let _sealed = self.unsealed(id)?;
         // A chat archived whole (`store/cold.rs`) holds every segment's bytes in `cold.zst`; what
         // a crash left of its `cold-segments/` is settled once its log is back.
         if self.is_cold(id) {
@@ -899,10 +928,11 @@ impl LocalStore {
         }
         let events = session.join("events");
         let mut changed = (false, false);
-        // Temporary files are a crash's (or a failed move's) leftovers: the one worker that moves
-        // segments settles first (`hub/cold_segments.rs`), and a sealed store, whose home the
-        // next daemon may own, does neither.
-        let stale_tmp = |name: &str| name.contains(".tmp-");
+        // Temporary files of another store are a crash's leftovers; this store's own are a move's
+        // or a warm's that is under way (`cmux chats warm` runs beside the worker), and stay. A
+        // sealed store, whose home the next daemon may own, removes none.
+        let own = format!(".tmp-{}-", self.cold_tag);
+        let stale_tmp = |name: &str| name.contains(".tmp-") && !name.contains(own.as_str());
         for entry in crate::home_fs::read_dir(&events).unwrap_or_default() {
             let name = entry.name.to_string_lossy();
             if name.contains(IDX_SUFFIX) && stale_tmp(name.as_ref()) {
@@ -950,6 +980,8 @@ impl LocalStore {
                 Ok(doc) => {
                     let (sha, len) = file_hash(&src)?;
                     if sha == doc.sha256 && len == doc.raw_len {
+                        #[cfg(test)]
+                        super::log_sync::hold(&HOLD_SETTLE_BEFORE_REMOVE);
                         crate::home_fs::remove_file(&src)?;
                     } else {
                         let aside = events.join(format!("{index:06}.ndjson.orphan-{}", now_ms()));
@@ -1013,7 +1045,7 @@ impl LocalStore {
                 continue;
             }
             let _sealed = self.unsealed(id)?;
-            let (tmp, doc) = match write_warm(&session, index) {
+            let (tmp, doc) = match write_warm(&session, index, &self.cold_tag) {
                 Ok(written) => written,
                 Err(e) if e.is::<Crash>() => return Err(e),
                 Err(e) => {
@@ -1025,7 +1057,12 @@ impl LocalStore {
             let idx = idx_path(&session, index);
             let src = ndjson_path(&session, index);
             {
+                // The chat's cold lock from the check through the archive's removal: a settle
+                // between the rename and the index's removal would take the `.ndjson` for a
+                // crash's leftover beside its committed archive and remove it, and the warm then
+                // the index and the archive (#43562 review F1).
                 let _writers = self.writers.lock_or_recover();
+                let _cold = self.cold.lock(id);
                 let placeable = crate::home_fs::try_exists_nofollow(&idx)?
                     && !crate::home_fs::try_exists_nofollow(&src)?;
                 if !placeable {
@@ -1038,16 +1075,18 @@ impl LocalStore {
                 if crash_after(Step::WarmPlaced) {
                     return Err(Crash.into());
                 }
+                #[cfg(test)]
+                super::log_sync::hold(&HOLD_WARM_PLACED);
                 crate::home_fs::remove_file(&idx)?;
                 // The commit point: the segment is plain from here on.
                 sync_directory(&events)?;
+                #[cfg(test)]
+                if crash_after(Step::WarmCommitted) {
+                    return Err(Crash.into());
+                }
+                crate::home_fs::remove_file(zst_path(&session, index))?;
+                sync_directory(&cold_dir)?;
             }
-            #[cfg(test)]
-            if crash_after(Step::WarmCommitted) {
-                return Err(Crash.into());
-            }
-            crate::home_fs::remove_file(zst_path(&session, index))?;
-            sync_directory(&cold_dir)?;
             warmed.segments += 1;
             warmed.raw += doc.raw_len;
             warmed.comp += doc.comp_len;
@@ -1095,3 +1134,7 @@ fn keep_for_bench(session: &Path, index: u32, doc: &Index) {
 #[cfg(test)]
 #[path = "cold_segments_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cold_segments_race_tests.rs"]
+mod race_tests;

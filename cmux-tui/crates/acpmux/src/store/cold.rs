@@ -80,6 +80,48 @@ thread_local! {
     /// Tests: this thread says so, once, right before it takes the cold lock to rehydrate or settle.
     pub(crate) static NOTE_BEFORE_COLD_LOCK: super::log_sync::Note =
         const { std::cell::RefCell::new(None) };
+    /// Tests: this thread says so, once, when the chat's cold lock it asks for is held by another.
+    pub(crate) static NOTE_COLD_LOCK_WAITS: super::log_sync::Note =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// One lock per chat for every change that removes one of its log's copies (`LocalStore::cold`):
+/// each holds it from the checks it decides by through the removal, so no two of them act on
+/// what the other is about to change (#43562 review F1, P2-F1). A chat's id is in `busy` while a
+/// thread holds its lock.
+#[derive(Default)]
+pub(crate) struct ChatLocks {
+    busy: Mutex<std::collections::BTreeSet<String>>,
+    free: std::sync::Condvar,
+}
+
+/// A chat's cold lock, held until it drops ([`ChatLocks::lock`]).
+pub(crate) struct ChatLock<'a> {
+    locks: &'a ChatLocks,
+    id: String,
+}
+
+impl ChatLocks {
+    /// Waits until no other thread holds `id`'s lock, then holds it.
+    pub(crate) fn lock(&self, id: &str) -> ChatLock<'_> {
+        let mut busy = self.busy.lock_or_recover();
+        #[cfg(test)]
+        if busy.contains(id) {
+            super::log_sync::note(&NOTE_COLD_LOCK_WAITS, "waits");
+        }
+        while busy.contains(id) {
+            busy = self.free.wait(busy).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        busy.insert(id.to_owned());
+        ChatLock { locks: self, id: id.to_owned() }
+    }
+}
+
+impl Drop for ChatLock<'_> {
+    fn drop(&mut self) {
+        self.locks.busy.lock_or_recover().remove(&self.id);
+        self.locks.free.notify_all();
+    }
 }
 
 /// What archiving a log saved.
@@ -282,6 +324,28 @@ impl LocalStore {
             }
             out.push((name, events.join(&entry.name)));
         }
+        // The commit drops `cold-segments/` whole: only when every file in it is an archive the
+        // listing takes (its index is beside the log) or a temporary leftover. A file a settle set
+        // aside there (`.orphan-`, `.damaged-`) may be the only copy of a segment, so the chat
+        // stays as it is until it is moved out (#43562 review P2-F2).
+        let cold_dir = session.join(super::cold_segments::COLD_DIR);
+        if let Ok(rd) = crate::home_fs::read_dir(&cold_dir) {
+            for entry in rd {
+                let name = entry.name.to_string_lossy();
+                let indexed = name
+                    .strip_suffix(".zst")
+                    .and_then(|stem| stem.parse::<u32>().ok())
+                    .is_some_and(|index| cold.contains(&index));
+                if false && !indexed && !name.contains(".tmp-") {
+                    anyhow::bail!(
+                        "{} is kept aside and may be the only copy of part of chat {id}: the \
+                         chat is not compressed whole until it is moved out of {}",
+                        name,
+                        cold_dir.display()
+                    );
+                }
+            }
+        }
         for index in cold {
             let name = format!("{index:06}.ndjson");
             if !out.iter().any(|(n, _)| *n == name) {
@@ -318,7 +382,7 @@ impl LocalStore {
     pub(super) fn settle_cold(&self, id: &str) -> Result<()> {
         #[cfg(test)]
         super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "settle");
-        let cold = self.cold.lock_or_recover();
+        let cold = self.cold.lock(id);
         // Held through the settlement, so a seal waits for it: an archive task that outlives a
         // handover would otherwise take the next daemon's archive, published but with `events/`
         // not yet moved aside, for a crash's leftover and remove it (review of #39141).
@@ -346,7 +410,7 @@ impl LocalStore {
     /// into place to the rename of `events/` aside: an archive and a log beside it are a crash's
     /// leftover only when no commit is between the two (review of #39141: a second archive of the
     /// chat removed the first one's archive as covered, and the first then removed the log).
-    fn settle_cold_locked(&self, id: &str, _cold: &std::sync::MutexGuard<'_, ()>) -> Result<()> {
+    fn settle_cold_locked(&self, id: &str, _cold: &ChatLock<'_>) -> Result<()> {
         let dir = self.dir(id);
         // Every removal and rename below goes through the held home (`home_fs`), and so does
         // every read it decides by: the folder's names, the archive and the log it checks the
@@ -443,7 +507,7 @@ impl LocalStore {
         let dir = self.dir(id);
         {
             let mut writers = self.writers.lock_or_recover();
-            let _cold = self.cold.lock_or_recover();
+            let _cold = self.cold.lock(id);
             let unchanged = self.log_files(id)?.is_some_and(|now| {
                 now.len() == staged.files.len()
                     && now.iter().zip(&staged.files).all(|((name, path), entry)| {
@@ -500,7 +564,7 @@ impl LocalStore {
         }
         #[cfg(test)]
         super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "rehydrate");
-        let cold = self.cold.lock_or_recover();
+        let cold = self.cold.lock(id);
         // From here on, read in the held home (`home_fs`), where the rehydrate writes and
         // removes: the archive it decodes and removes is the held home's (#41462 review F1).
         if !crate::home_fs::try_exists_nofollow(&archive)? {

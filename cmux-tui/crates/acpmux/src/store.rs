@@ -1624,9 +1624,16 @@ pub struct LocalStore {
     sync_failed: std::sync::atomic::AtomicBool,
     /// [`Store::unlisted`]: folders whose `session.json` is there and did not read.
     unlisted: Mutex<std::collections::BTreeSet<String>>,
-    /// Held by a cold archive's commit and by a rehydrate (`store/cold.rs`), always after the
-    /// writers' lock when both are taken: two reads of an archived chat rehydrate it once.
-    cold: Mutex<()>,
+    /// One lock per chat ([`cold::ChatLocks`]), held by every change that removes one of the
+    /// chat's log's copies: a cold archive's commit, a rehydrate and its settle
+    /// (`store/cold.rs`), and a cold segment's commit, warm and settle
+    /// (`store/cold_segments.rs`). Always after the writers' lock when both are taken: two reads
+    /// of an archived chat rehydrate it once.
+    cold: cold::ChatLocks,
+    /// What this store's temporary cold-segment files carry in their names
+    /// (`store/cold_segments.rs`): a settle removes only those of another store, a crash's,
+    /// never one a move or warm of this store is writing (#43562 review F1).
+    cold_tag: String,
     /// [`Store::on_rehydrate`].
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// [`Store::on_segment_sealed`].
@@ -1688,6 +1695,7 @@ impl LocalStore {
             sync_failed: Default::default(),
             unlisted: Default::default(),
             cold: Default::default(),
+            cold_tag: format!("{}x{}", std::process::id(), uuid::Uuid::now_v7().simple()),
             rehydrate_hook: Default::default(),
             seal_hook: Default::default(),
             parts: Default::default(),
