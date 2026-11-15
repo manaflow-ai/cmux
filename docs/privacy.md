@@ -24,11 +24,13 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
 - The Chief (`optchat-chief`, the host behind Home's Chief chat) sends anonymous product events to PostHog
   (`us.i.posthog.com`): turns, subagents, latency, token counts, cost, error classes and activation milestones, as
   closed tokens and numbers. It never sends message, reply, task or report text, tool arguments, error messages,
-  paths, URLs, names or ids other than a random install id, and IP geolocation is off. The same switches turn it
-  off: `sendAnonymousTelemetry` in the app, `app.sendAnonymousTelemetry: false` in `cmux-next.json`, the
+  paths, URLs or names, and IP geolocation is off. A Chief on this Mac is known only by a random install id; a Cloud
+  Chief, which runs on cmux's servers for a signed-in account, sends as that account's user id and team id, like
+  the server's own Cloud events. The same switches turn it off: `sendAnonymousTelemetry` in the app (the running
+  Chief re-reads it every few minutes), `app.sendAnonymousTelemetry: false` in `cmux-next.json`, the
   `DisableTelemetry` policy, `DO_NOT_TRACK=1` or `CMUX_CHIEF_ANALYTICS=off`; turning it off deletes the events still
-  waiting. Its panics go to the crash reporting host through the app, scrubbed as above. The event list:
-  [chief-product-analytics.md](posthog/chief-product-analytics.md).
+  waiting. Its panics go to the crash reporting host through the app with the location and backtrace only, never
+  the panic message. The event list: [chief-product-analytics.md](posthog/chief-product-analytics.md).
 
 Hang reports go to cmux.com only after you agree to send them, and the app never asks while telemetry is off.
 

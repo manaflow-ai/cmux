@@ -101,8 +101,9 @@ struct Inner {
     /// and writing stop while it is off.
     on: AtomicBool,
     environment: Mutex<&'static str>,
-    distinct_id: String,
-    install_id: String,
+    /// The random install id (`analytics/id`), made the first time
+    /// consent is on: a host that never sends writes nothing.
+    install_id: std::sync::OnceLock<String>,
     state: Mutex<State>,
     /// Events appended to the queue file since the last send.
     queued: AtomicUsize,
@@ -127,15 +128,8 @@ impl Analytics {
         read_consent: impl Fn() -> Consent + Send + 'static,
     ) -> Option<Analytics> {
         let dir = dir(root);
-        make_dir(&dir).ok()?;
         let now = now_ms();
-        let mut state = load_state(&dir);
-        let new_install = state.installed_ms == 0;
-        if new_install {
-            state.installed_ms = now;
-        }
-        let install_id = install_id(&dir)?;
-        let distinct_id = config.person.clone().unwrap_or_else(|| install_id.clone());
+        let state = load_state(&dir);
         let decision = read_consent();
         let inner = Arc::new(Inner {
             dir,
@@ -145,8 +139,7 @@ impl Analytics {
                 Consent::Send(env) => env,
                 Consent::Off(_) => "production",
             }),
-            distinct_id,
-            install_id,
+            install_id: std::sync::OnceLock::new(),
             state: Mutex::new(state),
             queued: AtomicUsize::new(0),
             wake: Condvar::new(),
@@ -156,7 +149,8 @@ impl Analytics {
         let analytics = Analytics { inner };
         match decision {
             Consent::Off(_) => analytics.clear(),
-            Consent::Send(_) => analytics.started(new_install, now),
+            Consent::Send(_) if analytics.ready() => analytics.started(now),
+            Consent::Send(_) => analytics.inner.on.store(false, Ordering::Relaxed),
         }
         let worker = analytics.clone();
         std::thread::Builder::new()
@@ -171,7 +165,32 @@ impl Analytics {
         self.inner.on.load(Ordering::Relaxed)
     }
 
-    fn started(&self, new_install: bool, now: u64) {
+    /// Makes the directory and the install id; false when they cannot be made.
+    fn ready(&self) -> bool {
+        if self.inner.install_id.get().is_some() {
+            return true;
+        }
+        if make_dir(&self.inner.dir).is_err() {
+            return false;
+        }
+        match install_id(&self.inner.dir) {
+            Some(id) => {
+                let _ = self.inner.install_id.set(id);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn started(&self, now: u64) {
+        let new_install = {
+            let mut state = self.lock_state();
+            let new = state.installed_ms == 0;
+            if new {
+                state.installed_ms = now;
+            }
+            new
+        };
         let mut events = vec![catalog::Event {
             name: "chief_host_started",
             properties: json!({"is_new_install": new_install, "engine": self.inner.config.engine})
@@ -199,6 +218,9 @@ impl Analytics {
             .unwrap_or_else(now_ms);
         let events = {
             let mut state = self.lock_state();
+            if !self.is_on() {
+                return;
+            }
             let before = state.clone();
             let events = catalog::map(trace, &mut state, now);
             if *state != before {
@@ -219,6 +241,10 @@ impl Analytics {
         let now = if line.ts > 0 { line.ts } else { now_ms() };
         let events = {
             let mut state = self.lock_state();
+            // Consent may have turned off (and cleared the rollup) since the check above.
+            if !self.is_on() {
+                return;
+            }
             let events = self.roll_usage(&mut state, now);
             state.usage.add(line);
             save_state(&self.inner.dir, &state);
@@ -255,10 +281,12 @@ impl Analytics {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Appends `events` to the queue file and wakes the sender when a batch is full.
-    fn enqueue(&self, events: Vec<Event>, now: u64) {
+    /// Appends `events` to the queue file; wakes the sender when the queue
+    /// was empty (to send within [`FLUSH`]) and when a batch fills. False
+    /// when nothing was written (off, full, or a failed write).
+    fn enqueue(&self, events: Vec<Event>, now: u64) -> bool {
         if events.is_empty() || !self.is_on() {
-            return;
+            return false;
         }
         let mut bytes = Vec::new();
         for e in &events {
@@ -272,27 +300,33 @@ impl Analytics {
                 .queue_lock
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // Again under the lock: `clear` (consent off) takes it too, so
+            // no write lands after the queue was deleted.
+            if !self.is_on() {
+                return false;
+            }
             let size = std::fs::metadata(&queue).map_or(0, |m| m.len());
             if size + bytes.len() as u64 > MAX_QUEUE_BYTES {
                 let mut state = self.lock_state();
-                state.dropped += events.len() as u64;
+                state.dropped = state.dropped.saturating_add(events.len() as u64);
                 save_state(&self.inner.dir, &state);
-                return;
+                return false;
             }
             let opened = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .mode(0o600)
                 .open(&queue);
-            match opened.and_then(|mut f| f.write_all(&bytes)) {
-                Ok(()) => {}
-                Err(_) => return,
+            if opened.and_then(|mut f| f.write_all(&bytes)).is_err() {
+                return false;
             }
         }
-        let queued = self.inner.queued.fetch_add(events.len(), Ordering::Relaxed) + events.len();
-        if queued >= BATCH {
+        let before = self.inner.queued.fetch_add(events.len(), Ordering::Relaxed);
+        let queued = before + events.len();
+        if before == 0 || (before < BATCH && queued >= BATCH) {
             self.notify();
         }
+        true
     }
 
     /// The event as PostHog's batch API takes it, with the shared properties.
@@ -300,8 +334,10 @@ impl Analytics {
         let c = &self.inner.config;
         let mut p: Map<String, Value> = e.properties.clone();
         p.retain(|_, v| !v.is_null());
-        p.insert("distinct_id".into(), json!(self.inner.distinct_id));
-        p.insert("chief_install_id".into(), json!(self.inner.install_id));
+        let install = self.inner.install_id.get().cloned().unwrap_or_default();
+        let distinct = c.person.clone().unwrap_or_else(|| install.clone());
+        p.insert("distinct_id".into(), json!(distinct));
+        p.insert("chief_install_id".into(), json!(install));
         p.insert("product".into(), json!("chief"));
         p.insert("schema_version".into(), json!(1));
         p.insert("source".into(), json!(c.source));
@@ -351,12 +387,13 @@ impl Analytics {
         self.inner.wake.notify_one();
     }
 
-    /// Sends what is queued now (tests, and the host's clean stop).
+    /// Sends what is queued now (tests).
     pub fn flush(&self) -> Result<usize, String> {
         self.send_pending()
     }
 
-    /// Deletes the queue, the batch in flight and the day's rollup.
+    /// Deletes the queue, the batch in flight and the day's rollup. Never
+    /// makes the directory: a host that was never on writes nothing.
     fn clear(&self) {
         let _guard = self
             .inner
@@ -369,7 +406,9 @@ impl Analytics {
         let mut state = self.lock_state();
         state.usage = Default::default();
         state.dropped = 0;
-        save_state(&self.inner.dir, &state);
+        if self.inner.dir.exists() {
+            save_state(&self.inner.dir, &state);
+        }
     }
 
     /// Applies a consent decision now (the sender does this on every wake).
@@ -377,7 +416,11 @@ impl Analytics {
         match decision {
             Consent::Send(env) => {
                 *self.lock_env() = env;
-                self.inner.on.store(true, Ordering::Relaxed);
+                let was = self.inner.on.load(Ordering::Relaxed);
+                if !was && self.ready() {
+                    self.inner.on.store(true, Ordering::Relaxed);
+                    self.started(now_ms());
+                }
             }
             Consent::Off(_) => {
                 if self.inner.on.swap(false, Ordering::Relaxed) {
@@ -390,6 +433,7 @@ impl Analytics {
     fn run(&self, read_consent: impl Fn() -> Consent) {
         let mut backoff = FLUSH;
         let mut last_try = Instant::now();
+        let mut failing = false;
         loop {
             let queued = self.inner.queued.load(Ordering::Relaxed);
             let pending = queued > 0 || self.inner.dir.join("sending.jsonl").exists();
@@ -416,14 +460,22 @@ impl Analytics {
                 continue;
             }
             self.dropped_note();
+            // A full batch goes at once, unless sends are failing: then
+            // every try waits out the backoff (offline, 429, 5xx).
             let full = self.inner.queued.load(Ordering::Relaxed) >= BATCH;
-            if !full && last_try.elapsed() < backoff {
+            if (!full || failing) && last_try.elapsed() < backoff {
                 continue;
             }
             last_try = Instant::now();
             match self.send_pending() {
-                Ok(_) => backoff = FLUSH,
-                Err(_) => backoff = (backoff * 2).min(MAX_BACKOFF),
+                Ok(_) => {
+                    backoff = FLUSH;
+                    failing = false;
+                }
+                Err(_) => {
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                    failing = true;
+                }
             }
         }
     }
@@ -439,16 +491,19 @@ impl Analytics {
             n
         };
         if dropped > 0 {
-            self.enqueue(
-                vec![catalog::Event {
-                    name: "chief_analytics_dropped",
-                    properties: json!({"count": dropped})
-                        .as_object()
-                        .cloned()
-                        .unwrap_or_default(),
-                }],
-                now_ms(),
-            );
+            let note = catalog::Event {
+                name: "chief_analytics_dropped",
+                properties: json!({"count": dropped})
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            };
+            // Still full: the count waits for the next wake, not lost.
+            if !self.enqueue(vec![note], now_ms()) && self.is_on() {
+                let mut state = self.lock_state();
+                state.dropped = state.dropped.saturating_add(dropped);
+                save_state(&self.inner.dir, &state);
+            }
         }
     }
 
@@ -621,24 +676,20 @@ pub fn uuid_v4() -> String {
     )
 }
 
-/// This build's channel: the app's (`CMUX_CHIEF_APP_CHANNEL`, set by the
-/// app that started the host), else from where the binary is.
+/// This build's channel: from the bundle id of the app that started the
+/// host (`CMUX_CHIEF_APP_BUNDLE_ID`), else from where the binary is.
 pub fn channel(source: &str, env: &dyn Fn(&str) -> Option<String>, exe: Option<&Path>) -> String {
     if source == "cloud" {
         return "cloud".into();
     }
-    if let Some(c) = env("CMUX_CHIEF_APP_CHANNEL") {
-        let c = catalog::token(
-            Some(c.trim()),
-            &["stable", "release", "nightly", "rc", "dev"],
-        );
-        if c != "other" {
-            return if c == "release" {
-                "stable".into()
-            } else {
-                c.into()
-            };
+    if let Some(id) = env("CMUX_CHIEF_APP_BUNDLE_ID").filter(|id| !id.trim().is_empty()) {
+        return match id.trim().strip_prefix("com.cmuxterm.app") {
+            Some("") => "stable",
+            Some(".nightly") => "nightly",
+            Some(".rc") => "rc",
+            _ => "dev",
         }
+        .into();
     }
     let Some(app) = exe.and_then(|p| {
         p.ancestors()

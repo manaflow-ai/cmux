@@ -197,6 +197,7 @@ fn consent_sends_only_when_nothing_turns_it_off() {
         consent::decide(&Inputs {
             managed_forced: forced,
             settings,
+            app_choice: None,
             release_build: release,
             env,
         })
@@ -240,6 +241,18 @@ fn consent_sends_only_when_nothing_turns_it_off() {
         (k == "CMUX_CHIEF_ANALYTICS").then(|| "dev".to_owned())
     }));
     assert_eq!(base(none, None, false, dev), Consent::Send("dev"));
+    // The app's own choice, read from its preferences on every check.
+    let app_off = consent::decide(&Inputs {
+        managed_forced: none,
+        settings: None,
+        app_choice: Some(false),
+        release_build: true,
+        env: no_env,
+    });
+    assert_eq!(
+        app_off,
+        Consent::Off("the app's sendAnonymousTelemetry is off")
+    );
     // The managed policy wins over the dev switch.
     assert!(matches!(base(forced, None, false, dev), Consent::Off(_)));
 }
@@ -271,8 +284,12 @@ fn the_channel_comes_from_the_app_or_the_bundle() {
         "cli"
     );
     assert_eq!(channel("cloud", &none, None), "cloud");
-    let app = |k: &str| (k == "CMUX_CHIEF_APP_CHANNEL").then(|| "rc".to_owned());
+    let app = |k: &str| (k == "CMUX_CHIEF_APP_BUNDLE_ID").then(|| "com.cmuxterm.app.rc".to_owned());
     assert_eq!(channel("local", &app, None), "rc");
+    let tagged = |k: &str| {
+        (k == "CMUX_CHIEF_APP_BUNDLE_ID").then(|| "com.cmuxterm.app.debug.my-tag".to_owned())
+    };
+    assert_eq!(channel("local", &tagged, None), "dev");
 }
 
 /// A one-connection-at-a-time HTTP server that records each POST body and
@@ -372,10 +389,8 @@ fn a_host_sends_one_batch_with_no_text_and_the_shared_properties() {
 #[test]
 fn offline_keeps_the_queue_and_sends_it_later() {
     // Nothing listens on a port bound and dropped.
-    let dead = {
-        let l = TcpListener::bind("127.0.0.1:0").unwrap();
-        format!("http://{}/batch/", l.local_addr().unwrap())
-    };
+    // Port 9 (discard) has no listener on a test host.
+    let dead = "http://127.0.0.1:9/batch/".to_owned();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("optchat");
     let analytics = Analytics::open(&root, config(dead), || Consent::Send("dev")).unwrap();
@@ -436,7 +451,16 @@ fn a_host_that_starts_with_telemetry_off_writes_nothing() {
     })
     .unwrap();
     assert!(!analytics.is_on());
-    assert!(!root.join("analytics/queue.jsonl").exists());
+    assert!(
+        !root.join("analytics").exists(),
+        "no directory, id or state for a host that never sends"
+    );
+    // Turning it on later starts sending, with a new install id.
+    analytics.apply_consent(Consent::Send("dev"));
+    assert!(analytics.is_on());
+    assert!(root.join("analytics/id").exists());
+    let queue = std::fs::read_to_string(root.join("analytics/queue.jsonl")).unwrap();
+    assert!(queue.contains("chief_host_started"));
 }
 
 #[test]

@@ -21,8 +21,11 @@ this page; rename one here, in the catalog and in the dashboard script in the sa
   sends it first. A 4xx refusal drops that batch. The queue stops at 2 MB and counts what it
   refused (`chief_analytics_dropped`). Each event has a random `uuid`, so a resend after a lost
   answer is deduplicated by PostHog.
-- With nothing queued the thread only wakes every 5 minutes to re-read consent. No call site
-  waits on the network.
+- With nothing queued the thread only wakes every 5 minutes to re-read consent; the first event
+  after a quiet spell wakes it, so it goes within a minute. While sends fail, a full batch also
+  waits out the backoff. No call site waits on the network.
+- A host that starts with telemetry off makes no `analytics/` folder, id or state; when consent
+  turns on later it makes them and sends `chief_host_started`.
 
 ## Consent (opt-out)
 
@@ -33,8 +36,8 @@ minutes), when any of these holds:
 | Switch | Who sets it |
 | --- | --- |
 | Managed `DisableTelemetry` (or a forced `app.sendAnonymousTelemetry: false`) | An admin's profile |
-| The app's own `sendAnonymousTelemetry` off | The app passes `CMUX_CHIEF_ANALYTICS=off` to the host it starts |
-| `app.sendAnonymousTelemetry: false` in `~/.config/cmux/cmux-next.json` | The person |
+| The app's own `sendAnonymousTelemetry` off | The person (`defaults write <app bundle id> sendAnonymousTelemetry -bool false`); the app passes its bundle id (`CMUX_CHIEF_APP_BUNDLE_ID`) and the host reads that preference itself on every check, so a host that outlives the app sees the change |
+| `app.sendAnonymousTelemetry: false` in `~/.config/cmux/cmux-next.json` (`cmux settings set app.sendAnonymousTelemetry false`) | The person |
 | `DO_NOT_TRACK=1`, `CMUX_CHIEF_ANALYTICS=off`, or `CI` set | The environment |
 | A debug compile, a DEV or tagged app | The build (see Staging) |
 
@@ -57,6 +60,7 @@ minutes), when any of these holds:
 | `distinct_id` | Local Chief: a random UUID made once per Chief home (`analytics/id`), not derived from the machine or the user. Cloud Chief: the signed-in Stack user id, the id the server's `cloud_vm_*` and billing events use. |
 | `chief_install_id` | That random UUID on every event, so one person's several Chiefs stay apart. |
 | `$groups.stack_team` | Cloud Chiefs: the Stack team id. |
+| Cloud consent | A Cloud Chief runs on our servers with no app beside it; it sends by default, like the server's own `cloud_vm_*` events, and stops with `CMUX_CHIEF_ANALYTICS=off` or `DO_NOT_TRACK` in its environment. |
 | person `$set_once` | `chief_first_seen_ms` on the first host start. |
 
 ## Shared properties
@@ -73,8 +77,8 @@ minutes), when any of these holds:
 | `chief_host_started` | A Chief host starts with telemetry on | `is_new_install`, `engine` (`acpmux`, `native`) |
 | `chief_activation_milestone_reached` | First time per install | `milestone`, `days_since_install` |
 | `chief_daily_active` | First completed turn of a UTC day | none |
-| `chief_message_received` | A message reaches the Chief (its own chat or a side chat) | `from` (`human`, `agent`, `other`), `images`, `files`, `remote`, `side` |
-| `chief_turn_completed` | A Chief turn ends | `status` (`ok`, `error`, `cancelled`, `stopped`, `owner_stopped`, `timeout`, `cut`), `error_class`, `replied`, `harness`, `harness_kind`, `model`, `effort`, `tier`, `duration_ms`, `start_ms`, `ttft_ms`, `headers_ms`, `first_draft_ms`, `posted_to_first_draft_ms`, `requests`, `tools`, `tool_errors`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cache_hit_rate`, `cost_usd`, `harness_refused` |
+| `chief_message_received` | A message reaches the Chief (its own chat or a side chat) | `sender` (`human`, `agent`, `other`), `images`, `files`, `remote`, `side` |
+| `chief_turn_completed` | A Chief turn ends | `status` (`ok`, `error`, `cancelled`, `stopped`, `owner_stopped`, `superseded`, `refused`), `error_class`, `replied`, `harness`, `harness_kind`, `model`, `effort`, `tier`, `duration_ms`, `start_ms`, `ttft_ms`, `headers_ms`, `first_draft_ms`, `posted_to_first_draft_ms`, `requests`, `tools`, `tool_errors`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cache_hit_rate`, `cost_usd`, `harness_refused` |
 | `chief_tool_used` | First use of a tool per UTC day | `tool` (the Chief's tools by name, harness built-ins by name, `mcp_cmux`, `mcp_other`, `other`) |
 | `chief_subagents_spawned` | One `spawn` call | `count`, `harness`, `here`, `cloud`, `peer`, `settle_ms` |
 | `chief_subagent_started` | A subagent's session starts | `harness`, `harness_kind`, `goal`, `peer`, `start_ms` |
@@ -98,8 +102,9 @@ pays. Latency fields are milliseconds, so insights can use p50/p90/p95 directly.
 
 A Chief host panic is appended to `<mux home>/optchat/panics.jsonl` (`cmux-panic-log`). The
 cmux-next app sends new lines to its Sentry project under the same telemetry choice, scrubbed
-like every other report, tagged `process: optchat-chief` (`RustPanicSource.chief`). Cloud Chiefs
-have no app to send them yet. Product-level failures (turn errors, harness refusals, compactor
+like every other report, tagged `process: optchat-chief` (`RustPanicSource.chief`). The panic
+message is withheld (a string slice panic can quote chat text): only the location, the thread
+and the backtrace are sent. Cloud Chiefs have no app to send them yet. Product-level failures (turn errors, harness refusals, compactor
 failures) are PostHog events above, so their rates sit next to the funnel.
 
 ## Staging
@@ -112,7 +117,7 @@ dev check looks at `environment = dev`.
 
 1. Activation funnel: `chief_activation_milestone_reached` by `milestone`, in the order above,
    14-day window, by `channel`.
-2. Daily and weekly active Chiefs: unique `chief_install_id` on `chief_daily_active`.
+2. Daily and weekly active Chiefs: unique `chief_install_id` on `chief_daily_active`, per day and per week.
 3. Week-1 / week-4 retention: start `chief_activation_milestone_reached` (`first_reply`), return
    `chief_daily_active`.
 4. Turns per day by `status`; error rate by `error_class`.

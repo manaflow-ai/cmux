@@ -115,8 +115,10 @@ public final class OwnerPanicForwarder: Sendable {
     /// that is not a panic record.
     static func event(fromLine line: Data, source: RustPanicSource = .owner) -> Event? {
         guard let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              let message = record["message"] as? String,
+              let raw = record["message"] as? String,
               record["test"] as? Bool != true else { return nil }
+        // A source whose panic text may quote chat text sends only where it panicked.
+        let message = source.sendsMessage ? raw : "message withheld"
         let location = record["location"] as? String ?? ""
         let event = Event(level: .error)
         let exception = Exception(value: message, type: "RustPanic")

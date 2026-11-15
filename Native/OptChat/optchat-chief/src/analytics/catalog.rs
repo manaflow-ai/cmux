@@ -116,7 +116,9 @@ impl Usage {
     /// The `chief_usage_daily` properties of this rollup.
     pub fn properties(&self, day: &str) -> Value {
         let read = self.cache_read_tokens;
-        let all = read + self.cache_write_tokens + self.input_tokens;
+        let all = read
+            .saturating_add(self.cache_write_tokens)
+            .saturating_add(self.input_tokens);
         json!({
             "day": day,
             "turns": self.turns,
@@ -180,7 +182,7 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
             out.push(event(
                 "chief_message_received",
                 json!({
-                    "from": from,
+                    "sender": from,
                     "images": bool_of(trace, "images"),
                     "files": bool_of(trace, "files"),
                     "remote": bool_of(trace, "remote"),
@@ -194,7 +196,7 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
         "turn.end" => {
             let status = token(
                 str_of(trace, "status"),
-                &["ok", "error", "cancelled", "stopped", "owner_stopped", "timeout", "cut"],
+                &["ok", "error", "cancelled", "stopped", "owner_stopped", "superseded", "refused"],
             );
             let usage = trace.get("usage");
             let n = |key: &str| usage.and_then(|u| u.get(key)).and_then(Value::as_u64).unwrap_or(0);
@@ -228,7 +230,7 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
                     "output_tokens": n("output"),
                     "cache_read_tokens": read,
                     "cache_write_tokens": write,
-                    "cache_hit_rate": ratio(read, read + write + input),
+                    "cache_hit_rate": ratio(read, read.saturating_add(write).saturating_add(input)),
                     "cost_usd": trace.get("cost_usd").and_then(Value::as_f64).map(micros),
                     "harness_refused": bool_of(trace, "harness_refused"),
                 }),
