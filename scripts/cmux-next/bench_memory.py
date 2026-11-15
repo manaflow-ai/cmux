@@ -359,6 +359,45 @@ def stack_sample(pid: int, seconds: int = 3) -> dict:
     return {"threads": threads[:60], "top_of_stack": top[:40], "by_tid": by_tid, "graph": graph[:1500]}
 
 
+# CMUX-571 GPU wakeups: what each cmux page animates now (document.getAnimations, with the element and
+# the animation's name and timing) and how many animation frames it ran in one second.
+ANIMATION_PROBE = r"""(async () => {
+  const anims = document.getAnimations({subtree: true}).filter((a) => a.playState === "running").map((a) => {
+    const t = a.effect && a.effect.target;
+    const timing = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : {};
+    return {name: a.animationName || a.transitionProperty || a.id || a.constructor.name,
+            el: t ? (t.tagName + "." + String(t.className || "").split(" ").slice(0, 3).join(".")) : null,
+            iterations: timing.iterations === Infinity ? "inf" : timing.iterations, duration: timing.duration,
+            easing: a.effect && a.effect.getTiming ? a.effect.getTiming().easing : null};
+  });
+  let frames = 0; const end = performance.now() + 1000;
+  await new Promise((done) => { const tick = (now) => { frames++; if (now < end) requestAnimationFrame(tick); else done(); };
+    requestAnimationFrame(tick); setTimeout(done, 1500); });
+  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(), raf_1s: frames,
+                         running: anims.length, anims: anims.slice(0, 12)});
+})()"""
+
+
+def page_animations(app: "App", pages: list) -> list:
+    rows = []
+    for page in pages:
+        if not isinstance(page, dict) or "browser" not in page:
+            continue
+        reply = app.call("debug.cef_page_devtools", {"browser": page["browser"], "method": "Runtime.evaluate",
+                         "params": {"expression": ANIMATION_PROBE, "awaitPromise": True, "returnByValue": True}},
+                         timeout=20) or {}
+        row = {"browser": page["browser"], "path": page.get("path"), "hidden": page.get("hidden")}
+        result = reply.get("result")
+        try:
+            value = json.loads(result) if isinstance(result, str) else result
+            value = ((value or {}).get("result") or {}).get("value")
+            row.update(json.loads(value) if isinstance(value, str) else {"raw": str(result)[:300]})
+        except (ValueError, AttributeError, TypeError):
+            row["raw"] = str(result or reply.get("error"))[:300]
+        rows.append(row)
+    return rows
+
+
 class Attribution:
     """--attribute: who wakes the app and the GPU process in a measured window. Around the window:
     each thread's CPU time (app and Chromium GPU), the app's wakeup ledger (`debug.wakeups`,
@@ -389,6 +428,7 @@ class Attribution:
         run_loop = wakeups.get("main_run_loop") or ""
         timers = [line.strip() for line in run_loop.splitlines() if "CFRunLoopTimer" in line]
         pages = (self.app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+        animating = page_animations(self.app, pages)
         stacks = {f"{kind}:{pid}": stack_sample(pid) for pid, kind in pids.items()}
         thread_wakes = _thread_wakes()
         # Each thread named: its pthread name, else its sample header or first frames (by thread id).
@@ -418,6 +458,7 @@ class Attribution:
                 "frame_schedulers": [s for s in wakeups.get("frame_schedulers") or [] if s.get("running") or s.get("has_link")],
                 "run_loop_timers": timers[:40],
                 "pages": [{k: p.get(k) for k in ("browser", "origin", "path", "hidden")} for p in pages],
+                "animating": animating,
                 "stacks": stacks}
 
 
@@ -445,6 +486,8 @@ def print_attribution(label: str, found: dict):
           f"schedulers={json.dumps(found['frame_schedulers'])}")
     for timer in found["run_loop_timers"]:
         print(f"PERF-ATTR {label} timer {timer[:400]}")
+    for row in found.get("animating") or []:
+        print(f"PERF-ATTR {label} anim {json.dumps(row)[:1500]}")
     hidden = sum(1 for p in found["pages"] if p.get("hidden"))
     print(f"PERF-ATTR {label} pages n={len(found['pages'])} hidden={hidden} "
           f"shown={json.dumps([(p.get('origin'), p.get('path')) for p in found['pages'] if not p.get('hidden')])}")
