@@ -916,6 +916,20 @@ class NeverSilent(unittest.TestCase):
         handoff = next(s for s in unpublished["steps"] if s.get("name") == "Hand the key to a run that deferred to this one")
         self.assertIn("!cancelled()", handoff["if"])
 
+    def test_a_pull_request_never_defers_to_a_publisher_it_could_not_find(self):
+        """cmux#43400 and #43027 (2026-11-14): path routing could not compare the active artifacts runs (fetch
+        budget, API) and deferred; no publish ever ended the wait. The probe now reads the head's tree from git
+        (the head's push publishes it), and a pull request's merge tree with no publisher it can find is red."""
+        probe = (ROOT / "scripts" / "cmux-next" / "pin-cmux-tui.sh").read_text().split("probe_checkout_tree() {", 1)[1]
+        probe = probe.split("\n}\n", 1)[0]
+        head_branch = probe.index('rev-parse --verify -q HEAD^2')
+        self.assertLess(probe.index('pull_request_base_key'), head_branch)
+        self.assertLess(head_branch, probe.index('await_outside_publisher "$key"'))
+        self.assertIn('source="commit:$head_sha"', probe)
+        unknown = probe.index('-n "$publisher_unknown" && "${GITHUB_EVENT_NAME:-}" == pull_request')
+        self.assertEqual(probe[unknown:].split("elif", 1)[0].count("state=failed"), 1)
+        self.assertLess(unknown, probe.index('elif [[ -z "$source" && -n "$publisher_unknown" ]]; then'))
+
 
 if __name__ == "__main__":
     unittest.main()
