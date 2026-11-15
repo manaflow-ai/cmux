@@ -3551,3 +3551,16 @@ are first compiled here) opens the revert of the one merge since the compile las
 within minutes. Several merges in the range, or a red older than the scanned runs, open
 nothing (push attribution comments on each). The revert is pushed and opened by the
 manaflow-glaeda-route App so its own CI runs; it lands through the normal review path.
+
+## note-385
+
+Above each owned-Mac `Keep Swift package builds on this owned Mac` step in `.github/workflows/cmux-next.yml`
+(swift-canary, fast tier, swift-test, daemon-test, generated-files).
+
+A mini's runner slots run as one user and share one SwiftPM cache (~/Library/Caches/org.swift.swiftpm). Two
+slots that both miss a new binary artifact (a Sentry bump, a new GhosttyNextKit) download it at once, and
+the second fails `swift build` with "failed downloading '<url>' ... artifacts/<name> already exists in file
+system" (cmux#43892 daemon test, job 132938818634, cmux11s-mac-mini-glaeda-8, 2026-11-15). The step then
+seeds that cache for CmuxNext's whole package graph with scripts/ci/swiftpm_prefetch_binary_artifacts.py:
+a checksum-keyed store under one host lock, atomic renames into the cache, so SwiftPM only reads it. The
+cache stays shared and warm. tests/test_ci_swiftpm_prefetch_shared_cache.py is the detector.
