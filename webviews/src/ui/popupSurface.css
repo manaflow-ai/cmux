@@ -9,7 +9,8 @@
      that does not clips its own label (Leo 2026-11-12: "it doesn't follow").
      test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
   --ui-px: calc(1px * var(--cmux-interface-scale, 1));
-  --ui-popup-radius: 8px;
+  /* The design scale's popup radius (schemas/design-scale namedRadii popup), the native GlassMenu's too. */
+  --ui-popup-radius: var(--ds-radius-popup, 8px);
   --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one

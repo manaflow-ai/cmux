@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 1e862ec4a091cf302bcf4f3163b9b896a78a8123e13ebd163e1f78001098dbb9
+// app-ffi-pin-checksum: ab72e9d6aa156d51b25adc316bebb1044e08a3bd9f05d49e53135a79e1b7b094
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -255,6 +255,9 @@ let packageProducts: [Product] = [
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
+    // The remote view pipeline (rd transport, decode, presenters) alone, for a standalone viewer
+    // that presents a cmux.rd/1 stream with the app's own code (a measurement harness's on-screen viewer).
+    .library(name: "CmuxNextRemoteView", targets: ["CmuxNextRemoteView"]),
 ] + uiLayerPreviewProducts
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
@@ -1645,6 +1648,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextMacScreen",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
@@ -1692,8 +1696,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextMacScreenTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextControl",
                 "CmuxNextMacScreen",
                 "CmuxNextRemoteView",
+                "CmuxNextSettings",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2478,6 +2485,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
                 "CmuxNextActions",
+                "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextProcessEnvironment",

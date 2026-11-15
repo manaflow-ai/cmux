@@ -16,7 +16,6 @@ import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextWebUpdates
 import CmuxNextPalette
-import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextServer
 import CmuxNextSettings
@@ -118,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // unavailable. Never fall back to classic or pass a stale NEXT
                 // backend to a daemon started from this launch.
                 environment.cloudConfiguration = .unavailable
-                for key in ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND", "CMUX_PLATFORM_ORIGIN"] {
+                for key in LaunchIdentity.cloudSelectionKnobs + ["CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
                 finishLaunching(snapshot)
@@ -391,6 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.configActions.start(settings: settings)
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
+        if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.

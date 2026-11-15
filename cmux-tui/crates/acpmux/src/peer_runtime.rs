@@ -82,6 +82,7 @@ impl Peer {
             native_history: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
             features: StdMutex::new(Vec::new()),
+            mirror: dialer::MirrorLink::default(),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
@@ -103,6 +104,7 @@ impl Peer {
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
             stop_changed: tokio::sync::watch::channel(false).0,
+            network: StdMutex::new(network::changes()),
             wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
@@ -222,7 +224,7 @@ impl Peer {
     }
 
     /// What its last handshake would have said of attachments: a test's peer that never ran.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn seed_send_attach(&self, takes: bool) {
         let mut features = self.features.lock_or_recover();
         features.retain(|f| f != crate::attach::FEATURE);
@@ -687,6 +689,7 @@ impl Peer {
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
         self.features.lock_or_recover().clear();
+        self.end_mirror();
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.github_revoked.notify_waiters();
     }
@@ -737,6 +740,7 @@ impl Peer {
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
+            "parked": link.parked(crate::store::now_ms()),
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,

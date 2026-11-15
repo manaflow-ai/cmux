@@ -14,6 +14,7 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
+import { acpmuxPerf } from "./perf";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -148,6 +149,7 @@ export function ComposerBox({
   chromeItems,
   bottom,
 }: ComposerBoxProps) {
+  acpmuxPerf.render("composer:box");
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
   // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
   // with + and the trailing actions on the lower row (composerLook.css).

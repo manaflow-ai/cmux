@@ -880,6 +880,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/release_to_watch",
+      "params": {
+        "$ref": "#/types/ReleaseToWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/archive",
       "params": {
         "$ref": "#/types/ArchiveParams"
@@ -1397,6 +1405,12 @@
     {
       "kind": "request",
       "name": "_acpmux/computer_use_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_endpoint",
       "params": true,
       "result": true
     },
@@ -2090,6 +2104,24 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_consent_refused",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_leave_if_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_signed_in",
       "params": true,
       "result": true
     },
@@ -5266,6 +5298,16 @@
         "error",
         "name"
       ],
+      "type": "object"
+    },
+    "ReleaseToWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "RequestMeta": {

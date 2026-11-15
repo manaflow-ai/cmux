@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde'
+IR_SHA256 = '6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294'
 
 
 @dataclass(frozen=True)
@@ -103,6 +103,7 @@ COMMANDS = {
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
+            'replay_history_start': CommandFieldMetadata(None, 'attach-replay-history-window-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -1905,6 +1906,8 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'known': CommandFieldMetadata(12, 'list-workspaces-known-v1'),
+            'limit': CommandFieldMetadata(12, 'list-workspaces-limit-v1'),
         },
     ),
     'machine-listening-tcp': CommandMetadata(
