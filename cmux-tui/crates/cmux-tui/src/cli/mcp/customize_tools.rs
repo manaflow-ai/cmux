@@ -310,7 +310,7 @@ mod tests {
             .iter()
             .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
             .collect();
-        assert_eq!(names.len(), 13);
+        assert_eq!(names.len(), 14);
         assert!(names.iter().all(|name| name.starts_with("customize_")));
     }
 }
