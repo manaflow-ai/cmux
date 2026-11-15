@@ -503,7 +503,7 @@ final class TabContentCache {
         pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
         goneTabs.forget(key)
-        browsers.removeValue(forKey: key)?.close()
+        browsers.removeValue(forKey: key)?.close(); pageInstalls.forget(key)
         browserTabs.untrack(key)
         previews.remove(key); if displacing { lastFrames.remove(key) } // a closed tab's last frame goes with it (#32315)
         pageThumbnails.remove(key)

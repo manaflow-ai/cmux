@@ -88,6 +88,17 @@ public final class ObservedMap<Key: Hashable & Sendable, Value: Equatable> {
         return old
     }
 
+    /// Removes the slot for a key that is gone for good. A reader of the slot
+    /// is invalidated once before the slot itself is released.
+    func removeSlot(forKey key: Key) {
+        guard let slot = slots.removeValue(forKey: key) else { return }
+        if slot.value != nil {
+            keysRevision &+= 1
+            present.remove(key)
+            slot.value = nil
+        }
+    }
+
     /// Drops the slots of keys without a value that nobody can be waiting on
     /// for `keep` false (a pane or tab that is gone).
     public func compact(keeping keep: (Key) -> Bool) {
