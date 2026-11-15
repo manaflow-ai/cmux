@@ -107,6 +107,13 @@ final class UnsentKeysClock {
         session.now = { clock.now }
         let model = TerminalModel(session: session, artifactSource: UnavailableArtifactSource(), title: "unsent-keys")
         let screen = TerminalViewController(model: model)
+        // The page is on screen and taking input, as `TerminalTabPage` says
+        // on appear. Without it the size claimer gives the claim up after
+        // its 1 s delay, and an attach that lands later has its replay, its
+        // alternate screen and the app's modes held by the reclaim hold
+        // (the Mac's 80x24 against the phone's grid, no claim to end it):
+        // the screen never leaves the prompt and Ghostty never hears 1000h.
+        model.setPageShown(true)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = screen
         window.makeKeyAndVisible()
