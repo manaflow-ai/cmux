@@ -23,6 +23,7 @@ test("screen sharing is one action below the named machine and preserves Cloud l
       onShareScreen: () => {
         requests += 1;
       },
+      screenShareKind: "view",
       screenShareNote: "Host approval is required.",
     },
     actions,
@@ -32,6 +33,7 @@ test("screen sharing is one action below the named machine and preserves Cloud l
   expect(section.rows[0]!.subtitle).toBe(t("cloudRepository.lifetime"));
   const share = section.rows[1]!;
   expect(share.id).toBe("screen-sharing");
+  expect(share.title).toBe(t("sessionInfo.environment.viewScreen"));
   expect(share.subtitle).toBe("Host approval is required.");
   actions.run(share.action!);
   await Promise.resolve();
