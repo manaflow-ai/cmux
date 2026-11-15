@@ -453,7 +453,9 @@ fn click_point(
         return Ok(out);
     }
     let route = d.pointer_route(t, spec.delivery)?;
-    input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)?;
+    unprimed(route, || {
+        input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)
+    })?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
 }
 
@@ -488,9 +490,10 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
     // A row already selected takes the click itself (an editable cell gets
     // its caret from the events); only an unselected row is selected.
     let unselected_row = selectable(&el).is_some_and(|row| row.bool("AXSelected") != Some(true));
-    let blocked = d.refuse_denied_item(&el).is_err();
+    let denied = d.refuse_denied_item(&el);
+    let blocked = denied.is_err();
     match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), unselected_row, blocked) {
-        roles::HitClick::Refuse => d.refuse_denied_item(&el).map(|()| None),
+        roles::HitClick::Refuse => denied.map(|()| None),
         roles::HitClick::Press => {
             d.refuse_submenu_open(&el)?;
             let before = el.value_text();
@@ -633,9 +636,19 @@ pub(super) fn click(
     // A background app has no key window, so a menu item that acts on one is
     // disabled; the target window is made the app's key window (to the app
     // only) until the press is done.
+    let semantic = (spec.delivery == Delivery::Background || in_menu_bar)
+        && spec.modifiers.is_empty()
+        && spec.count <= 1;
+    // Read before any scope opens: a click that cannot press never primes.
+    let available = if semantic { el.actions() } else { Vec::new() };
+    let has_press = press_actions(spec.button).iter().any(|a| available.iter().any(|x| x == a));
     // The item's short AX timeout while a scope is open; the long one comes
     // back when this drops, on every exit.
     let mut item_timeout: Option<super::ax::TimeoutGuard> = None;
+    // The item's title before the scope: inside it only the title is read
+    // again (the deny list, the protected apps and its place were checked
+    // above and by prime_block_of, outside the scope).
+    let mut title_before: Option<String> = None;
     let mut menu_key = if spec.delivery == Delivery::Background
         && in_menu_bar
         && el.bool("AXEnabled") == Some(false)
@@ -646,28 +659,15 @@ pub(super) fn click(
         if let Some(why) = prime_block_of(&el, None) {
             return Err(DesktopError::Unsupported(why.into()));
         }
+        roles::primed_click(true, has_press).map_err(|why| DesktopError::Unsupported(why.into()))?;
+        // Readable here: prime_block_of blocks an unreadable title.
+        title_before = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
         let (key, short) = enable_menu_item(d, &t, &el, element_id)?;
         item_timeout = Some(short);
-        // Validation can change the item (its title, what it leads to):
-        // the deny list and the protected apps are checked again.
-        d.refuse_denied_item(&el)?;
-        d.check_menu_item(&t, &el, spec.delivery)?;
         Some(key)
     } else {
         None
     };
-    let semantic = (spec.delivery == Delivery::Background || in_menu_bar)
-        && spec.modifiers.is_empty()
-        && spec.count <= 1;
-    let available = if semantic { el.actions() } else { Vec::new() };
-    let has_press = press_actions(spec.button).iter().any(|a| available.iter().any(|x| x == a));
-    // In a scope only the item's own press may happen: no row select, no
-    // click at its center (its actions may not have been read in time).
-    if menu_key.is_some()
-        && let Err(why) = roles::primed_click(true, has_press)
-    {
-        return Err(scope_refusal(menu_key.take(), why));
-    }
     // An element in a row or cell that has no press action (a Finder file
     // name, System Settings' sidebar, table cells): a plain click selects
     // its row, so the row is selected through accessibility. Before the
@@ -686,19 +686,22 @@ pub(super) fn click(
         && let Some(action) =
             press_actions(spec.button).iter().find(|a| available.iter().any(|x| x == *a))
     {
-        // In a scope: still live (not stopped, not past its bound, the
-        // person did not switch to the app) and focus still on the target.
-        if let Some(key) = menu_key.as_ref()
-            && let Err(why) = roles::primed_press(
-                key.live(),
-                focused_on_target(&t),
-                prime_block_of(&el, Some(key)).is_some(),
-            )
-        {
-            return Err(scope_refusal(menu_key.take(), why));
+        // In a scope: focus still on the target, the item's title as before
+        // (short reads), then live (not stopped, not past its bound, the
+        // person did not switch to the app) last, right before the press.
+        if let Some(key) = menu_key.as_ref() {
+            let title_now = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
+            if let Err(why) = roles::primed_press(true, focused_on_target(&t), false)
+                .and_then(|()| roles::same_item(title_before.as_deref(), title_now.as_deref()))
+                .and_then(|()| roles::primed_press(key.live(), true, false))
+            {
+                return Err(scope_refusal(menu_key.take(), why));
+            }
         }
-        let before = el.value_text();
+        // No value read inside a scope (the item has none to compare).
+        let before = if menu_key.is_some() { None } else { el.value_text() };
         let mut out = match el.perform(action) {
+            Ok(()) if menu_key.is_some() => ActionOutcome::delivered(&route_name(action)),
             Ok(()) => outcome_after(&route_name(action), before, &el),
             Err(e) if roles::press_error_falls_back(e) => {
                 let err = ax_error(e, &format!("element {element_id}"));
@@ -828,11 +831,26 @@ pub(super) fn type_text(
         d.refuse_other_menus(&t)?;
     }
     let route = d.key_route(&t, delivery)?;
-    // Never into a primed app (another session's scope): wait, else refuse.
-    if let Route::Pid { pid, .. } = route
-        && !super::activation::may_post_keys(pid)
-    {
-        return Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()));
+    // Never into a primed app (another session's scope): each chunk is posted
+    // under the lock entering a scope takes, so a scope can open between
+    // chunks but no key lands inside one.
+    if let Route::Pid { pid, .. } = route {
+        let chunks = roles::text_chunks(text, TYPE_CHUNK);
+        let mut sent = 0usize;
+        for chunk in &chunks {
+            match super::activation::post_unprimed(pid, || input::type_text(route, chunk)) {
+                Some(res) => res?,
+                None => {
+                    return Err(DesktopError::Unsupported(roles::partial_typing_refusal(
+                        sent,
+                        text.chars().count(),
+                        super::activation::PRIMED_KEYS_REFUSAL,
+                    )));
+                }
+            }
+            sent += chunk.chars().count();
+        }
+        return Ok(ActionOutcome::delivered(route.name()));
     }
     input::type_text(route, text)?;
     Ok(ActionOutcome::delivered(route.name()))
@@ -958,22 +976,29 @@ pub(super) fn press_keys(
                         // Only the first pass's matches are read again, not
                         // the whole menu bar; the bound is checked between
                         // reads.
-                        let mut complete = first_complete;
+                        // Inside the scope only each match's own title and
+                        // enabled state are read again (short timeout, the
+                        // bound checked between reads); the deny list and
+                        // the protected apps were checked in the first walk,
+                        // outside it. A changed title fails closed.
                         let mut again = Vec::new();
-                        for (el, _) in first {
+                        for (el, m0) in first {
                             if !key.live() {
                                 return Err(scope_refusal(
                                     Some(key),
                                     roles::primed_press(false, true, false).unwrap_err(),
                                 ));
                             }
-                            let (mut m, read_all) = shortcut_match_of(d, &el);
-                            m.enabled &= el.bool("AXEnabled") == Some(true);
-                            complete &= read_all;
+                            let mut m = m0.clone();
+                            m.enabled = el.bool("AXEnabled") == Some(true);
+                            let title = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
+                            if roles::same_item(Some(&m0.title), title.as_deref()).is_err() {
+                                m.blocked = true;
+                            }
                             again.push((el, m));
                         }
                         primed = Some(key);
-                        first_walk = Some((again, complete));
+                        first_walk = Some((again, first_complete));
                     } else if key.end() == super::activation::Ended::HandBackFailed {
                         super::activation::append_note(
                             &mut notes,
@@ -1025,12 +1050,11 @@ pub(super) fn press_keys(
                         super::ax::MESSAGE_TIMEOUT_SECONDS,
                     )
                 });
+                // Focus still on the target, then live last, right before the
+                // press (the item's place was checked before the scope).
                 if let Some(key) = primed.as_ref()
-                    && let Err(why) = roles::primed_press(
-                        key.live(),
-                        focused_on_target(&t),
-                        prime_block_of(el, Some(key)).is_some(),
-                    )
+                    && let Err(why) = roles::primed_press(true, focused_on_target(&t), false)
+                        .and_then(|()| roles::primed_press(key.live(), true, false))
                 {
                     return Err(scope_refusal(primed.take(), why));
                 }
@@ -1107,14 +1131,9 @@ pub(super) fn press_keys(
         Route::Hid if denies_any => Route::Pid { pid: t.window.pid, window: t.window.id },
         other => other,
     };
-    // Never into a primed app: wait for every scope on it (another
-    // session's too) to end, at most the scope bound.
-    if let Route::Pid { pid, .. } = route
-        && !super::activation::may_post_keys(pid)
-    {
-        return Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()));
-    }
-    input::key(route, code, flags, keymap::carries_text(&combo.key, flags))?;
+    // Never into a primed app (its own or another session's scope): posted
+    // under the lock entering a scope takes, waiting at most the bound.
+    unprimed(route, || input::key(route, code, flags, keymap::carries_text(&combo.key, flags)))?;
     let mut out = ActionOutcome::delivered(route.name());
     if let Some(title) = disabled_item {
         out.note = format!(
@@ -1125,6 +1144,21 @@ pub(super) fn press_keys(
         super::activation::append_note(&mut out.note, &notes);
     }
     Ok(out)
+}
+
+/// Characters per chunk of background typing: the lock is held per chunk.
+const TYPE_CHUNK: usize = 16;
+
+/// Posts `post` on a process route only while the app is not primed (under
+/// the lock entering a scope takes; [`super::activation::post_unprimed`]);
+/// other routes post at once.
+fn unprimed(route: Route, post: impl FnOnce() -> DResult<()>) -> DResult<()> {
+    match route {
+        Route::Pid { pid, .. } => super::activation::post_unprimed(pid, post).unwrap_or_else(|| {
+            Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
+        }),
+        _ => post(),
+    }
 }
 
 /// A refusal inside a key-in-app scope: the scope ends first (the app is
@@ -1268,7 +1302,7 @@ pub(super) fn scroll(
         PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
     };
     let route = d.pointer_route(&t, Delivery::Background)?;
-    input::scroll(route, at, dx, dy)?;
+    unprimed(route, || input::scroll(route, at, dx, dy))?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
 }
 
@@ -1296,7 +1330,7 @@ pub(super) fn drag(
         }
     }
     let route = d.pointer_route(&t, delivery)?;
-    input::drag(route, from, to, button)?;
+    unprimed(route, || input::drag(route, from, to, button))?;
     Ok(ActionOutcome::delivered(route.name()).at(to))
 }
 

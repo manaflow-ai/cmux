@@ -228,6 +228,10 @@ struct FakeOs {
     windows: std::cell::RefCell<Vec<(u32, i32)>>,
     fail_posts: std::cell::Cell<bool>,
     epoch: std::cell::Cell<u64>,
+    /// When set, every post records whether the registry still had the pid
+    /// open at that moment (the hand-back's ordering).
+    watch: std::cell::Cell<Option<(&'static activation::Registry, i32)>>,
+    open_at_post: std::cell::RefCell<Vec<bool>>,
 }
 
 impl activation::ScopeOs for FakeOs {
@@ -248,6 +252,9 @@ impl activation::ScopeOs for FakeOs {
         }
         let w = u32::from_le_bytes([r[0x3C], r[0x3D], r[0x3E], r[0x3F]]);
         self.posts.borrow_mut().push((r[0x08], w, r[0x8A]));
+        if let Some((reg, pid)) = self.watch.get() {
+            self.open_at_post.borrow_mut().push(reg.is_open(pid));
+        }
         true
     }
     fn window_exists(&self, window: u32, pid: i32) -> bool {
@@ -371,25 +378,78 @@ fn the_hand_back_names_a_window_that_still_exists() {
     assert!(note.starts_with("pressed; ") && note.matches("hand-back").count() == 1);
 }
 
-/// Review 4 (1): keys and text are never posted to an app while any scope
-/// on it is open: a chord's own scope ended, but another session's joined
-/// scope keeps the app primed, so posting waits and then refuses; once the
-/// last scope ends, posting goes ahead.
+/// Review 4 (1) and 5 (1): input is posted to an app only while no scope
+/// is open on it, its own or another session's, and the post runs under the
+/// lock that entering a scope takes (no scope can open mid-post); a joiner
+/// keeps the app primed after the first scope ended.
 #[test]
-fn no_keys_are_posted_while_any_scope_on_the_app_is_open() {
+fn input_is_posted_only_while_no_scope_is_open_and_under_the_entry_lock() {
     let os = fake(&[(10, 5)]);
     let reg = activation::Registry::new();
     let short = std::time::Duration::from_millis(60);
-    assert!(reg.wait_closed(5, short), "nothing open: post at once");
+    // Nothing open: the post runs at once, holding the entry lock.
+    let held = reg.post_unprimed(5, short, || reg.posting_held());
+    assert_eq!(held, Some(true), "posted under the lock enter_with takes");
     let own = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("own");
     let other = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("another session joins");
-    assert!(!reg.wait_closed(5, short), "own scope open: no keys");
+    let ran = std::cell::Cell::new(false);
+    assert_eq!(reg.post_unprimed(5, short, || ran.set(true)), None, "own scope open");
+    assert!(!ran.get(), "nothing posted while primed");
     assert_eq!(own.end(), activation::Ended::Fine);
     assert!(reg.is_open(5), "the joiner keeps the app primed");
-    assert!(!reg.wait_closed(5, short), "a Post after its own scope ended still waits");
-    assert!(reg.wait_closed(7, short), "another app is not held");
+    assert_eq!(reg.post_unprimed(5, short, || ran.set(true)), None, "still primed");
+    assert!(!ran.get());
+    assert_eq!(reg.post_unprimed(7, short, || 1), Some(1), "another app is not held");
     drop(other);
-    assert!(reg.wait_closed(5, short), "last scope out: keys may go");
+    assert_eq!(reg.post_unprimed(5, short, || 2), Some(2), "last scope out: input may go");
+}
+
+/// Review 5 (1B): the last scope's entry stays in the registry until its
+/// focus-out was posted, so no input reaches the app before it is handed
+/// back.
+#[test]
+fn the_app_counts_as_primed_until_the_focus_out_is_posted() {
+    let reg: &'static activation::Registry = Box::leak(Box::new(activation::Registry::new()));
+    let os = fake(&[(10, 5)]);
+    os.watch.set(Some((reg, 5)));
+    let key = activation::KeyInApp::enter_with(&os, reg, 10, 5).expect("entered");
+    assert_eq!(key.end(), activation::Ended::Fine);
+    let posts = os.posts.borrow().clone();
+    assert_eq!(posts.last(), Some(&(activation::RECORD_FOCUS, 10, activation::FOCUS_OUT)));
+    assert_eq!(os.open_at_post.borrow().last(), Some(&true), "open at the focus-out");
+    assert!(!reg.is_open(5), "removed after it");
+}
+
+/// Review 5 (follow-up): a joiner shares the first scope's deadline, so
+/// joins never extend priming past one bound from the first entry.
+#[test]
+fn a_joiner_does_not_extend_the_bound() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let first = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("first");
+    std::thread::sleep(activation::SCOPE_BOUND);
+    let joiner = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("joins");
+    assert!(!first.live() && !joiner.live(), "both past the first entry's bound");
+}
+
+/// Review 5 (1): long text is posted in chunks (the lock is held per
+/// chunk); a stop part way says how much was typed.
+#[test]
+fn text_is_posted_in_chunks() {
+    assert_eq!(roles::text_chunks("abcdefgh", 3), vec!["abc", "def", "gh"]);
+    assert_eq!(roles::text_chunks("é😀a", 2), vec!["é😀", "a"]);
+    assert!(roles::text_chunks("", 3).is_empty());
+    assert_eq!(roles::partial_typing_refusal(0, 9, "busy"), "busy");
+    assert!(roles::partial_typing_refusal(4, 9, "busy").contains("first 4 of 9"));
+}
+
+/// Review 5 (2): inside a scope only the item's title is read again; a
+/// changed or unreadable title is not pressed.
+#[test]
+fn a_menu_item_retitled_during_validation_is_not_pressed() {
+    assert_eq!(roles::same_item(Some("Undo Typing"), Some("Undo Typing")), Ok(()));
+    assert!(roles::same_item(Some("Undo Typing"), Some("Redo Typing")).is_err());
+    assert!(roles::same_item(Some("Save"), None).is_err());
 }
 
 #[test]

@@ -335,6 +335,19 @@ pub fn is_open_key_equivalent(key: &super::keymap::MenuItemKey, menu_mods: i64) 
     key.printable.is_some_and(|c| c.eq_ignore_ascii_case(&'o')) || key.codes.contains(&125)
 }
 
+/// Whether a menu item is still the one checked before the scope opened
+/// (pure, for tests): its title, read again inside the scope, is the same.
+/// Validation can retitle an item (Undo X, Show/Hide); a changed or
+/// unreadable title is not pressed.
+pub fn same_item(before: Option<&str>, now: Option<&str>) -> Result<(), &'static str> {
+    match (before, now) {
+        (Some(b), Some(n)) if b == n => Ok(()),
+        _ => Err(
+            "the menu item changed while it was being made available (its title is not the one checked), so nothing was pressed; read the menu again",
+        ),
+    }
+}
+
 /// What a click may do inside a key-in-app scope (pure, for tests): only
 /// the item's own press. Without a press action read (it may have timed
 /// out) nothing happens: no row select, no click at its center.
@@ -373,6 +386,21 @@ pub fn primed_press(
         );
     }
     Ok(())
+}
+
+/// Text split into chunks of at most `n` characters (pure, for tests).
+pub fn text_chunks(text: &str, n: usize) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    chars.chunks(n.max(1)).map(|c| c.iter().collect()).collect()
+}
+
+/// The refusal when typing stopped part way because the app became primed.
+pub fn partial_typing_refusal(sent: usize, total: usize, why: &str) -> String {
+    if sent == 0 {
+        why.to_string()
+    } else {
+        format!("{why} (the first {sent} of {total} characters were typed before it)")
+    }
 }
 
 /// What a pid-routed mouse event carries to reach its window: the window

@@ -231,7 +231,9 @@ impl ScopeOs for Real {
 /// driving the same target app at once are not coordinated (a shared lock
 /// per target pid would need a cleanup story for crashed holders; not done).
 pub(super) struct Registry {
-    open: Mutex<HashMap<i32, (u32, usize)>>,
+    /// pid -> (the window made key, scopes sharing it, when the first one
+    /// entered: joiners never extend past one bound from then).
+    open: Mutex<HashMap<i32, (u32, usize, Instant)>>,
     /// Held while records are posted, so a joiner returns only after the
     /// first scope's records went out, and a hand-back never races an entry.
     posting: Mutex<()>,
@@ -241,7 +243,7 @@ impl Registry {
     pub(super) fn new() -> Registry {
         Registry { open: Mutex::new(HashMap::new()), posting: Mutex::new(()) }
     }
-    fn map(&self) -> std::sync::MutexGuard<'_, HashMap<i32, (u32, usize)>> {
+    fn map(&self) -> std::sync::MutexGuard<'_, HashMap<i32, (u32, usize, Instant)>> {
         self.open.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     fn posting(&self) -> std::sync::MutexGuard<'_, ()> {
@@ -255,31 +257,42 @@ impl Registry {
         self.map().get(&pid).is_some_and(|e| e.1 > 0)
     }
 
-    /// Waits until no scope is open on `pid`, at most `bound`; whether none
-    /// is. Keys and text are never posted to an app while it is primed (it
-    /// would take them as its active app's).
-    pub(super) fn wait_closed(&self, pid: i32, bound: Duration) -> bool {
+    /// Runs `post` (posting keys, text or pointer input to the app with
+    /// `pid`) while no scope is open on it and none can open: the check and
+    /// the post happen under the posting lock that entering a scope takes.
+    /// While a scope is open the lock is let go and the check repeats, at
+    /// most `bound`; `None` when a scope stayed open (nothing was posted).
+    pub(super) fn post_unprimed<T>(&self, pid: i32, bound: Duration, post: impl FnOnce() -> T) -> Option<T> {
         let start = Instant::now();
         loop {
-            if !self.is_open(pid) {
-                return true;
+            {
+                let _posting = self.posting();
+                if !self.is_open(pid) {
+                    return Some(post());
+                }
             }
             if start.elapsed() >= bound {
-                return false;
+                return None;
             }
             std::thread::sleep(POLL);
         }
     }
+
+    /// Whether the posting lock is held right now (tests).
+    #[cfg(test)]
+    pub(super) fn posting_held(&self) -> bool {
+        self.posting.try_lock().is_err()
+    }
 }
 
-/// Whether keys or text may be posted to the app with `pid`: no scope is
-/// open on it, waiting at most [`SCOPE_BOUND`] for one to close.
-pub(super) fn may_post_keys(pid: i32) -> bool {
-    registry().wait_closed(pid, SCOPE_BOUND)
+/// Runs `post` for the app with `pid` only while it is not primed
+/// ([`Registry::post_unprimed`], at most [`SCOPE_BOUND`] of waiting).
+pub(super) fn post_unprimed<T>(pid: i32, post: impl FnOnce() -> T) -> Option<T> {
+    registry().post_unprimed(pid, SCOPE_BOUND, post)
 }
 
 /// The refusal when a scope stayed open on the app.
-pub(super) const PRIMED_KEYS_REFUSAL: &str = "another Computer Use call is making a menu item of this app available right now; keys are never sent to the app meanwhile, so nothing was sent. Try again";
+pub(super) const PRIMED_KEYS_REFUSAL: &str = "another Computer Use call is making a menu item of this app available right now; no input is sent to the app meanwhile, so nothing was sent. Try again";
 
 fn registry() -> &'static Registry {
     static R: OnceLock<Registry> = OnceLock::new();
@@ -386,21 +399,23 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         let front = || os.front_pid() == Some(pid);
         let posting = registry.posting();
         let open = registry.map().get(&pid).copied();
-        match entry(open, window, front()) {
+        match entry(open.map(|e| (e.0, e.1)), window, front()) {
             Entry::Refuse => return None,
             Entry::Join => {
                 let psn = os.psn_of(window)?;
+                let first = open.map_or_else(Instant::now, |e| e.2);
                 if let Some(e) = registry.map().get_mut(&pid) {
                     e.1 += 1;
                 }
                 drop(posting);
+                // A joiner shares the first scope's deadline: no extension.
                 return Some(KeyInApp {
                     os,
                     registry,
                     window,
                     pid,
                     psn,
-                    opened: Instant::now(),
+                    opened: first,
                     epoch: os.stop_epoch(),
                     ended: false,
                 });
@@ -408,7 +423,7 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
             Entry::Post => {}
         }
         let psn = os.psn_of(window)?;
-        registry.map().insert(pid, (window, 1));
+        registry.map().insert(pid, (window, 1, Instant::now()));
         let scope = KeyInApp {
             os,
             registry,
@@ -483,13 +498,16 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         let after = {
             let mut map = self.registry.map();
             let after = map.get(&self.pid).map_or(0, |e| e.1.saturating_sub(1));
-            if after == 0 {
-                map.remove(&self.pid);
-            } else if let Some(e) = map.get_mut(&self.pid) {
+            if after > 0
+                && let Some(e) = map.get_mut(&self.pid)
+            {
                 e.1 = after;
             }
             after
         };
+        // The last scope's entry goes only after its focus-out post (on every
+        // return below): until then the app counts as primed.
+        let _remove = (after == 0).then(|| RemoveOnDrop { registry: self.registry, pid: self.pid });
         let exists = self.os.window_exists(self.window, self.pid);
         let plan = hand_back(
             after,
@@ -523,6 +541,18 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
 impl<O: ScopeOs> Drop for KeyInApp<'_, O> {
     fn drop(&mut self) {
         self.finish();
+    }
+}
+
+/// Removes a pid's entry from the registry when dropped.
+struct RemoveOnDrop<'a> {
+    registry: &'a Registry,
+    pid: i32,
+}
+
+impl Drop for RemoveOnDrop<'_> {
+    fn drop(&mut self) {
+        self.registry.map().remove(&self.pid);
     }
 }
 
