@@ -294,11 +294,10 @@ fn a_scope_refuses_the_front_app_and_unknown_windows() {
     assert!(activation::KeyInApp::enter_with(&os, &reg, 99, 5).is_none());
     os.fail_posts.set(true);
     assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
-    // Review 4 (5): ended under the app's lock: no scope is left open. Its
-    // hand-back post failed too, so input to the app is held for a moment
-    // (review 6, 3); a new scope may still enter.
-    assert!(!reg.is_open(7));
-    assert!(reg.is_open(5), "input held after the failed hand-back");
+    // Review 4 (5), 8 (6): ended under the app's lock with nothing posted
+    // (its first record failed): no scope is left open and the app is not
+    // held; a new scope may enter.
+    assert!(!reg.is_open(5));
     os.fail_posts.set(false);
     // Nothing left open: a new scope enters.
     assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_some());
