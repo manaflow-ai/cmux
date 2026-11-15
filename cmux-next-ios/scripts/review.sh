@@ -65,6 +65,8 @@ source "$REPO_ROOT/scripts/lib/mobile-attach.sh"
 source "$REPO_ROOT/scripts/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/iphone-review-targets.sh
 source "$REPO_ROOT/scripts/lib/iphone-review-targets.sh"
+# shellcheck source=../../scripts/cmux-next/lib/origin-net.sh
+source "$REPO_ROOT/scripts/cmux-next/lib/origin-net.sh"
 
 REVIEW_CALLER="cmux-next-ios/scripts/review.sh"
 # The cmux-next app talks to the public dev mobile service: no tailnet note for a new phone.
@@ -447,11 +449,13 @@ phone_after_mac_restart() {
 
 # --- main ---------------------------------------------------------------------
 # HEAD is the head of its branch on origin, or on a remote-tracking branch already fetched.
+# Returns 0 pushed, 1 not pushed, 2 when origin did not answer (never read as "not pushed").
 head_pushed() {
-  local branch remote_head
+  local branch refs remote_head
   branch="$(git branch --show-current 2>/dev/null || true)"
   if [[ -n "$branch" ]]; then
-    remote_head="$(git ls-remote origin "refs/heads/$branch" 2>/dev/null | awk '{ print $1 }')"
+    refs="$(remote_refs "$REPO_ROOT" origin "refs/heads/$branch")" || return 2
+    remote_head="$(printf '%s\n' "$refs" | awk 'NF { print $1; exit }')"
     if [[ "$remote_head" == "$SHA" ]]; then
       # cmux-ci checks the head against remote-tracking branches; a clone that fetches only its base has none.
       [[ -n "$(git branch -r --contains "$SHA" 2>/dev/null)" ]] ||
@@ -486,7 +490,13 @@ main() {
   [[ -n "$WORKSPACE" ]] || WORKSPACE="$(gh pr view --json url --jq .url 2>/dev/null || true)"
   [[ -n "$WORKSPACE" ]] || WORKSPACE="cmux-next-ios-review/$SLUG"
   [[ -z "$(git status --porcelain --ignore-submodules=untracked)" ]] || die "commit every change first: the fleet builds the pushed HEAD"
-  head_pushed || die "push HEAD ($SHA) first: the fleet builds the pushed commit"
+  local pushed_rc=0
+  head_pushed || pushed_rc=$?
+  case "$pushed_rc" in
+    0) ;;
+    2) die "origin did not answer whether HEAD ($SHA) is pushed; check the network and rerun" ;;
+    *) die "push HEAD ($SHA) first: the fleet builds the pushed commit" ;;
+  esac
 
   # The personal profile (physical iPhones); never the agent one, never printed.
   cmux_dev_secrets_load --profile personal >/dev/null || die "the personal sign-in profile is incomplete (scripts/setup-team-dev.sh)"

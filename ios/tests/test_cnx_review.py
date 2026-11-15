@@ -12,6 +12,7 @@ import datetime
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import plistlib
 import subprocess
@@ -712,6 +713,41 @@ read_ios_artifact; echo "SIM=$REPORT_SIM\"""")
         r = self.zip_with([('App.app/x', '../../outside')])
         self.assertEqual(r.returncode, 1)
         self.assertIn('symlink out of the archive', r.stderr)
+
+
+class HeadPushedTests(unittest.TestCase):
+    """head_pushed tells "origin did not answer" (2) from "not pushed" (1) (origin-net guard)."""
+
+    def run_head_pushed(self, git_body, sha='a' * 40):
+        text = REVIEW.read_text()
+        func = re.search(r'\n(head_pushed\(\) \{\n.*?\n\})\n', text, re.S).group(1)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'bin').mkdir()
+            git = root / 'bin/git'
+            git.write_text('#!/bin/sh\n' + git_body)
+            git.chmod(0o755)
+            lib = (ROOT / 'scripts/cmux-next/lib/origin-net.sh').read_text()
+            script = (f'set -u\nREPO_ROOT="{root}"\nSHA={sha}\nORIGIN_NET_TRIES=1\nORIGIN_NET_SLEEP_S=0\n'
+                      + lib + '\n' + func + '\nhead_pushed; echo "rc=$?"\n')
+            env = dict(os.environ, PATH=f"{root / 'bin'}:/usr/bin:/bin")
+            return subprocess.run(['/bin/bash', '-c', script], env=env, capture_output=True, text=True, timeout=30)
+
+    def test_unreachable_origin_is_no_answer_not_unpushed(self):
+        body = ('case "$*" in *"branch --show-current"*) echo feat;; *ls-remote*) exit 128;; '
+                '*"branch -r --contains"*) ;; esac\n')
+        result = self.run_head_pushed(body)
+        self.assertIn('rc=2', result.stdout, result.stderr)
+
+    def test_pushed_head_passes(self):
+        body = ('case "$*" in *"branch --show-current"*) echo feat;; *ls-remote*) printf "%s\\trefs/heads/feat\\n" '
+                + 'a' * 40 + ';; *"branch -r --contains"*) echo origin/feat;; esac\n')
+        self.assertIn('rc=0', self.run_head_pushed(body).stdout)
+
+    def test_unpushed_head_is_refused(self):
+        body = ('case "$*" in *"branch --show-current"*) echo feat;; *ls-remote*) printf "%s\\trefs/heads/feat\\n" '
+                + 'b' * 40 + ';; *"branch -r --contains"*) ;; esac\n')
+        self.assertIn('rc=1', self.run_head_pushed(body).stdout)
 
 
 if __name__ == '__main__':
