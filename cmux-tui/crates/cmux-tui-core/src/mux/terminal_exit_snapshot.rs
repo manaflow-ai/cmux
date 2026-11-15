@@ -24,11 +24,8 @@ pub(super) fn render_terminal_output_plain<'a>(
 ) -> anyhow::Result<String> {
     const MAX_RENDER_SCROLLBACK_BYTES: usize = 64 * 1024 * 1024;
     let input_bytes = chunks.clone().map(<[u8]>::len).sum::<usize>();
-    let scrollback = input_bytes
-        .saturating_mul(64)
-        .max(input_bytes)
-        .max(1 << 20)
-        .min(MAX_RENDER_SCROLLBACK_BYTES);
+    let scrollback =
+        input_bytes.saturating_mul(64).max(input_bytes).clamp(1 << 20, MAX_RENDER_SCROLLBACK_BYTES);
     render_terminal_output_plain_with_scrollback(chunks, cols, rows, scrollback)
 }
 
