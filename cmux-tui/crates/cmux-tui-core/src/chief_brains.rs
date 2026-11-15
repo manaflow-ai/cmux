@@ -433,7 +433,7 @@ impl Slot {
     /// One counted signal was handled (or never reached the supervisor).
     fn handled(&self) {
         use std::sync::atomic::Ordering;
-        let _ = self.queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
+        let _ = self.queued.try_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
     }
 
     fn send(&self, signal: Signal) {

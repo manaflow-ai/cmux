@@ -13,3 +13,9 @@ serde_json = "1"
 url = "2"
 getrandom = "0.2"
 base64 = "0.22"
+# Fleet dev builds keep source locations without retaining full dependency DWARF.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

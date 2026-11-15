@@ -1,6 +1,6 @@
 {
-  "comment": "`rustc --print cfg --target <triple>` for every triple the notices tools accept, from rustc 1.95.0 (59807616e 2026-04-14) on a Blacksmith Testbox (cmux-tui toolchain). Regenerate there; never hand-edit. cargo_inputs.target_info reads this table, so cfg(...) follows rustc (x86_64-pc-windows-gnullvm is target_env=\"gnu\", target_abi=\"llvm\").",
-  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "comment": "`rustc --print cfg --target <triple>` for every triple the notices tools accept, from rustc 1.100.0 (0ef1bc386 2026-11-09) on a Blacksmith Testbox (cmux-tui toolchain). Regenerate there; never hand-edit. cargo_inputs.target_info reads this table, so cfg(...) follows rustc (x86_64-pc-windows-gnullvm is target_env=\"gnu\", target_abi=\"llvm\").",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
   "targets": {
     "aarch64-apple-darwin": {
       "flags": [

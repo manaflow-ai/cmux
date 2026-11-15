@@ -71,3 +71,9 @@ unsafe_code = "deny"
 [lints.clippy]
 all = "warn"
 pedantic = "warn"
+# Fleet dev builds keep source locations without retaining full dependency DWARF.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

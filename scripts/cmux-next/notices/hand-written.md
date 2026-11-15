@@ -1097,15 +1097,15 @@ the rustc that built it. The Rust project publishes the notices for that code
 with each release as `COPYRIGHT-library.html`. This app ships that file,
 unchanged, for each rustc that built one of its binaries:
 
-- `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html`:
+- `Contents/Resources/toolchain-licenses/rust-1.100.0/COPYRIGHT-library.html`:
   `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`, `bin/cmux-cloud`,
-  `bin/cmux-mobile-host` and `Helpers/cmux-remote-browser-host.app`
+  `bin/cmux-diff-sidecar` and `Helpers/cmux-remote-browser-host.app`
+- `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html`:
+  `bin/cmux-mobile-host`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
   no binary in this app is known to be built by rustc 1.91.0 since the app
   stopped linking iroh-ffi; the reviewed file still ships, for any Rust
   binary built by that rustc
-- `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
-  `bin/cmux-diff-sidecar`
 
 The app (GhosttyNextKit), `bin/cmux` and `bin/cmux-tui-ssh/*` (libghostty-vt)
 link the Zig 0.17.0 standard library and compiler_rt, and `bin/ghostty` links

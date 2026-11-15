@@ -219,7 +219,7 @@ impl ConnectionStats {
             }
             let pooled = self
                 .hung_up
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                     (count < limit).then_some(count + 1)
                 })
                 .is_ok();

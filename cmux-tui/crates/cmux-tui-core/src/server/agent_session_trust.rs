@@ -58,7 +58,7 @@ struct CallSlot;
 impl CallSlot {
     fn take() -> Option<Self> {
         RUNNING
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < MAX_CALLS).then_some(n + 1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < MAX_CALLS).then_some(n + 1))
             .ok()
             .map(|_| Self)
     }

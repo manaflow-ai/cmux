@@ -177,7 +177,7 @@ impl Drop for ServerSurfaceBytesPermit {
 /// Adds `amount` to `counter` when the sum stays within `capacity`; false (and nothing added) otherwise.
 fn reserve(counter: &AtomicUsize, amount: usize, capacity: usize) -> bool {
     counter
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |held| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |held| {
             held.checked_add(amount).filter(|total| *total <= capacity)
         })
         .is_ok()
@@ -185,9 +185,8 @@ fn reserve(counter: &AtomicUsize, amount: usize, capacity: usize) -> bool {
 
 /// Subtracts what a permit reserved; a release never goes below zero.
 fn release(counter: &AtomicUsize, amount: usize) {
-    let _ = counter.fetch_update(Ordering::AcqRel, Ordering::Acquire, |held| {
-        Some(held.saturating_sub(amount))
-    });
+    let _ = counter
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |held| Some(held.saturating_sub(amount)));
 }
 
 impl ServerSurfaceOperationAdmission {

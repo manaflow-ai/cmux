@@ -206,7 +206,7 @@ fn native_workflow_journal_repairs_a_garbled_final_record_without_replaying_it()
         work(journal.begin("machine", "build", &json!({})).unwrap()).0
     };
     let path = directory.path().join("activities.jsonl");
-    let corrupt = [0_u8; 32].into_iter().chain([b'\n']).collect::<Vec<_>>();
+    let corrupt = [0_u8; 32].into_iter().chain(*b"\n").collect::<Vec<_>>();
     std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(&corrupt).unwrap();
 
     let mut journal = Journal::open(directory.path(), "script", 0).unwrap();
