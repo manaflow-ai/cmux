@@ -34,6 +34,13 @@
 //! daemon runs this sibling only when it is the daemon's own build.
 
 fn main() -> std::process::ExitCode {
+    // glibc builds: one malloc arena for one terminal (malloc_arenas.rs).
+    // SAFETY: the first statement of main: no other thread runs yet.
+    unsafe {
+        cmux_tui_platform::malloc_arenas::cap(
+            cmux_tui_platform::malloc_arenas::TERMINAL_HOST_ARENAS,
+        )
+    };
     let mut args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]
     if args.first().map(String::as_str) == Some("--version") {
