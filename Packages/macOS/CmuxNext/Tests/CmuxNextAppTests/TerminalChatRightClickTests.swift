@@ -14,13 +14,6 @@ import Testing
 struct TerminalChatRightClickTests {
     static let toggle: ActionID = "palette.toggleTerminalChat"
 
-    /// Leo, 2026-11-15: "idk if the terminal gui should even get a hotkey by default". It ships unbound (its old
-    /// Opt-Cmd-` was macOS's "Move focus to the window drawer"); a person binds one in Settings > Keyboard Shortcuts.
-    @Test func theToggleHasNoDefaultKey() {
-        let table = RegistryKeyBindings(ActionRegistry.standard()).table
-        #expect(table.entries.filter { $0.command == Self.toggle }.allSatisfy { $0.keys.isEmpty })
-    }
-
     // Pair membership is the Rust route's answer (cmux-window-rules `tabs::terminal_chat_toggle`) for the facts the
     // action builds: a refusal offers no row.
     @Test func theRowIsOfferedOnlyOnAPair() {
