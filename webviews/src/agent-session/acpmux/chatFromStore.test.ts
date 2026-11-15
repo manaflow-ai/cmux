@@ -2,7 +2,8 @@
 // the mock daemon with the hold (`attach-hold-v1`) and a host that serves `chat.rows.*`: the switch
 // is asked before the v1 attach, which is the hold; the store's rows are the snapshot's; a text op
 // draws once and runs none of v1's rebuild; a chat left and opened again draws its kept window
-// before any change, and its first window replaces it in one step. The recording's rows are of kind
+// before any change, and its first window replaces it in one step. With the chat list still out, the
+// open asks the switch and draws from its attach alone (decision 289). The recording's rows are of kind
 // `assistant`, which the adapter draws nothing of; here they are read as `text` rows.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -159,6 +160,106 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
     expect(snapshots).toBe(before + 1);
     expect(rows.map((row) => row.id)).toEqual(Array.from({ length: 11 }, (_, n) => `row-${n + 1}`));
     expect(rows).not.toBe(kept);
+  } finally {
+    client.close?.();
+    resetChatRowsReceiver();
+  }
+});
+
+/// A daemon with the hold whose chat list never answers, and a host that answers `chat.rows.open`
+/// with `open`: the open's chat comes from its early attach alone (decision 289).
+async function listOut(open: (params: any) => Promise<unknown>) {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { mockSessions } = await import("./mockFixture");
+  const { setNativeHost } = await import("./native");
+  const { resetChatRowsState } = await import("./rows/chatSource");
+  resetChatRowsState();
+  const a = mockSessions[0]!.sessionId;
+  const asked: { to: string; method: string; params: any }[] = [];
+  setNativeHost(async (method, params) => {
+    asked.push({ to: "host", method, params });
+    return method === "chat.rows.open" ? open(params) : null;
+  });
+  class ListOut extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = async (method, params) => {
+        asked.push({ to: "daemon", method, params });
+        if (method === "_acpmux/watch") return new Promise(() => {});
+        if (method !== "_acpmux/attach" || params.hold !== true) return answer(method, params);
+        const page = (await answer(method, { sessionId: params.sessionId })) as any;
+        return { session: page.session, lastSeq: page.lastSeq, presence: {}, readThrough: null, hold: true };
+      };
+    }
+  }
+  let rows: Row[] = [];
+  const connecting = AcpmuxDirectClient.connect(
+    { ...mockHost, sessionId: a },
+    (snapshot) => {
+      rows = snapshot.rows as Row[];
+    },
+    undefined,
+    () => new ListOut() as unknown as WebSocket,
+  ).then((client) => client as any);
+  const hostPosts = () => asked.filter((ask) => ask.to === "host" && ask.method.startsWith("chat.rows."));
+  const attaches = () => asked.filter((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a);
+  return { a, asked, connecting, rows: () => rows, hostPosts, attaches };
+}
+
+test("with the list still out, a host without chat.rows: the chat draws from its attach, one host post", async () => {
+  const run = await listOut(() =>
+    Promise.reject(
+      Object.assign(new Error("unknown"), {
+        code: "native.invalid_request",
+        details: { protocol: "cmux.protocol.unknown_op" },
+      }),
+    ),
+  );
+  const client = await run.connecting;
+  try {
+    await settle(() => run.rows().length > 0);
+    // One open asked of the host, refused; then one plain attach, not the hold.
+    expect(run.hostPosts().map((post) => post.method)).toEqual(["chat.rows.open"]);
+    expect(run.attaches()).toHaveLength(1);
+    expect(run.attaches()[0]!.params.hold).toBeUndefined();
+    const open = run.asked.findIndex((ask) => ask.method === "chat.rows.open");
+    const attach = run.asked.findIndex((ask) => ask.method === "_acpmux/attach");
+    expect(open).toBeLessThan(attach);
+    expect(client.selectedSessionId).toBe(run.a);
+  } finally {
+    client.close?.();
+    resetChatRowsReceiver();
+  }
+});
+
+test("with the list still out, a host that opens: the hold's reply gives the row and the first window draws", async () => {
+  let sid = "";
+  const run = await listOut(async (params) => {
+    sid = String(params.sid);
+    return { sid };
+  });
+  const client = await run.connecting;
+  try {
+    await settle(() => run.attaches().length > 0);
+    expect(run.attaches()[0]!.params).toEqual({
+      sessionId: run.a,
+      hold: true,
+      eventStream: true,
+      kinds: [...HOLD_KINDS],
+      visible: expect.any(Boolean),
+    });
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
+      batch: 1,
+      changes: recorded("window", sid),
+    });
+    await settle(() => run.rows().length === 11);
+    expect(run.rows().map((row) => row.id)).toEqual(Array.from({ length: 11 }, (_, n) => `row-${n + 1}`));
+    // The chat's row came from the hold's reply: the list never answered.
+    expect(client.sessions.map((row: { sessionId: string }) => row.sessionId)).toContain(run.a);
+    expect(run.hostPosts().filter((post) => post.method === "chat.rows.open")).toHaveLength(1);
   } finally {
     client.close?.();
     resetChatRowsReceiver();

@@ -4265,8 +4265,10 @@ export class AcpmuxDirectClient {
         // must not take the chat from the select's attach.
         if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) mine = ++this.copyAttaches;
         try {
-          // The switch is asked once the kept draw is on screen; the attach goes after its answer.
-          if (this.chatRows.asks(this.capabilities)) await this.chatRows.choose(sessionId, this.capabilities);
+          // The switch is asked once the kept draw is on screen; the attach goes after its answer. The
+          // attach asked with the list asked it already (`sendAttachAfterSwitch`).
+          if (!adopted && this.chatRows.asks(this.capabilities))
+            await this.chatRows.choose(sessionId, this.capabilities);
           page = await this.attach(sessionId, generation, keptThrough, 1, adopted);
         } catch (error) {
           // A newer attach of the chat (a select, a switch) took it over while this one was out:
@@ -6447,7 +6449,16 @@ export class AcpmuxDirectClient {
   /// Where the chat on screen draws its rows from, the row store or v1 (rows/chatSource.ts). One that
   /// falls while shown is opened again, as v1.
   private readonly chatRows = new ChatSource(postNative, {
-    context: (chat) => ({ sessionId: chat, harness: this.sessions.find((row) => row.sessionId === chat)?.harness }),
+    // The harness is read as each row is adapted: a chat chosen with the list still out has no row yet.
+    context: (chat) => {
+      const sessions = () => this.sessions;
+      return {
+        sessionId: chat,
+        get harness() {
+          return sessions().find((row) => row.sessionId === chat)?.harness;
+        },
+      };
+    },
     rows: (sessionId) => {
       if (sessionId !== this.selectedSessionId) return;
       // Its first window ends the switch's hold (`select`): it replaces what is shown in one step.
@@ -6874,6 +6885,23 @@ export class AcpmuxDirectClient {
     return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined, hold: !!hold };
   }
 
+  /// The attach asked with the list for a chat that may draw from the store: the switch is asked
+  /// first (`OPEN_ANSWER_MS` bounds it), then the attach goes out, the hold when the chat is on the
+  /// store. Its reads start at once, as a plain one's do. `hold` is set before `attaching` settles,
+  /// so whoever reads it after awaiting the attach sees it.
+  private sendAttachAfterSwitch(sessionId: string, generation: number): SentAttach {
+    const sent: SentAttach = { attaching: Promise.resolve(), reads: this.startAttachReads(sessionId) };
+    sent.attaching = this.chatRows
+      .choose(sessionId, this.capabilities)
+      .catch(() => false)
+      .then(() => {
+        const out = this.sendAttach(sessionId, generation, false);
+        sent.hold = out.hold;
+        return out.attaching;
+      });
+    return sent;
+  }
+
   /// The chat's permission groups and handoff, read as its attach is asked rather than once it
   /// answers: each is a round trip as slow as the attach on a busy daemon, and the chat shows only
   /// once they are in (its asks and a handoff come with its rows, so nothing lands under them a
@@ -6908,8 +6936,6 @@ export class AcpmuxDirectClient {
       this.earlyTail.generation === this.selectionGeneration;
     if (
       !sessionId ||
-      // A chat that may draw from the store asks the switch first, and its attach after the answer.
-      this.chatRows.asks(this.capabilities) ||
       (!drawnEarly && (this.events.length > 0 || this.lastSeq > 0)) ||
       this.peerCopy?.sessionId === sessionId
     )
@@ -6923,7 +6949,11 @@ export class AcpmuxDirectClient {
       sessionId,
       generation,
       watch,
-      sent: this.sendAttach(sessionId, generation, true),
+      // A chat that may draw from the store asks the switch here, with the list still out, and sends
+      // its attach, plain or the hold, on the answer (decision 289): the open never waits on the list.
+      sent: this.chatRows.asks(this.capabilities)
+        ? this.sendAttachAfterSwitch(sessionId, generation)
+        : this.sendAttach(sessionId, generation, true),
       live: [],
     };
     // A dropped one is never awaited: its refusal (a peer chat's machine down) is not unhandled.
