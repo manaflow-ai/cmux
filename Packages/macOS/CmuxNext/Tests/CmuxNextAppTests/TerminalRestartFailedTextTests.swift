@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 @testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 @testable import CmuxNextTerminal
@@ -58,6 +59,13 @@ struct TerminalRestartFailedTextTests {
         TerminalStatusBanner.text(for: .exited, hostLoss: entry.session.hostLoss)
     }
 
+    /// Waits until the watch of `entry` gave its session a host loss that `matches`: the observed change
+    /// of the surface model's `hostLoss`, no poll. A change that never comes ends at the suite's time limit.
+    private func hostLoss(of entry: TerminalEntry, _ matches: (TerminalHostLoss?) -> Bool) async {
+        let session = entry.session
+        for await loss in ObservationStream({ session.model.hostLoss }) where matches(loss) { break }
+    }
+
     @Test func aRestartThatFoundNoFreeTerminalSaysWhatToDo() throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let daemon = makeDaemon(), store = daemon.store
@@ -88,17 +96,17 @@ struct TerminalRestartFailedTextTests {
 
         // A later show starts the restart of tab 2, whose view is there already: the words go.
         daemon.wakingParkedTabs.formUnion([second])
-        for _ in 0..<200 where resting.session.hostLoss != nil { await Task.yield() }
+        await hostLoss(of: resting) { $0 == nil }
         #expect(label(resting) == "Process exited")
 
         // The restart of tab 1 got its answer and the tab is still dead (a refused restart): the words are back.
         daemon.wakingParkedTabs.remove(first)
-        for _ in 0..<200 where waking.session.hostLoss == nil { await Task.yield() }
+        await hostLoss(of: waking) { $0 != nil }
         #expect(label(waking) == Self.general)
         // The launch of tab 2 found no free PTY after its answer: the words are back, with that cause.
         daemon.wakingParkedTabs.remove(second)
         pushDead(store, surface: 2, end: Self.noPtyEnd)
-        for _ in 0..<200 where label(resting) != Self.noFreeTerminal { await Task.yield() }
+        await hostLoss(of: resting) { $0 == .restartFailedNoFreeTerminal }
         #expect(label(resting) == Self.noFreeTerminal)
     }
 }
