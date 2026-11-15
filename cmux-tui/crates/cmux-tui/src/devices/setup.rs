@@ -865,7 +865,7 @@ impl Asking for Here {
         }
         let out = cmux_process::Command::new("codesign")
             .args(["-dv", "--verbose=2", APP])
-            .stdin(Stdio::null())
+            .stdin(cmux_process::Stdio::null())
             .output()
             .ok()?;
         String::from_utf8_lossy(&out.stderr)
