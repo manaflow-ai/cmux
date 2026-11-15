@@ -432,3 +432,100 @@ async fn v2_pr07b_callers() {
     drop(god.v2);
     drop(small.v2);
 }
+
+/// The fixtures of the usage pass's probe: `aged` is [`list_daemon::usage_beside`] (closed rows
+/// two days old or more, beside live and closed-today Claude chats with transcripts), `recent` is
+/// [`list_daemon::twenty_live_beside`] (closed rows a minute old, no agent session ids).
+async fn usage_probe_daemon(fixture: &str, closed: usize) -> (ListDaemon, tempfile::TempDir) {
+    let store = tempfile::tempdir().unwrap();
+    let path = store.path().to_path_buf();
+    let daemon = list_daemon::serve(Serves::List, |hub| match fixture {
+        "aged" => list_daemon::usage_beside(hub, closed, &path).unwrap(),
+        _ => list_daemon::twenty_live_beside(hub, closed).unwrap(),
+    })
+    .await
+    .unwrap();
+    (daemon, store)
+}
+
+/// The probe of a daemon's first usage read (before and after the usage pass read its
+/// candidates only): each part on a new daemon, timed twice, in µs. F: `Hub::refresh_usage_stats`
+/// in process; E: `_acpmux/info` by key over the socket, with `usage: true` and without; G:
+/// `ls --json --live`; A1: the first row text of a live chat, then of another. The second call
+/// of F, E and G comes inside `REFRESH_EVERY_MS`, so it reads no usage. Prints `PROBE` lines,
+/// asserts nothing of the times.
+#[ignore = "probe: the first usage read at 1,100, 11,000 and 110,000 closed rows"]
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_usage_first_read() {
+    let us = |at: Instant| at.elapsed().as_micros();
+    for fixture in ["aged", "recent"] {
+        let live = if fixture == "aged" { list_daemon::USAGE_LIVE } else { 20 };
+        let keys: Vec<String> = (0..live).map(|n| format!("live-{n:02}")).collect();
+        for closed in [1_100, 11_000, 110_000] {
+            let (d, _store) = usage_probe_daemon(fixture, closed).await;
+            let mut t = Vec::new();
+            for _ in 0..2 {
+                let at = Instant::now();
+                d.hub.refresh_usage_stats().await;
+                t.push(us(at));
+            }
+            eprintln!(
+                "PROBE fixture={fixture} closed={closed} part=F first_us={} second_us={}",
+                t[0], t[1]
+            );
+            drop(d);
+            for (part, usage) in [("E_usage", true), ("E_no_usage", false)] {
+                let (d, _store) = usage_probe_daemon(fixture, closed).await;
+                let client = Client::connect(&d.path).await.unwrap();
+                let mut t = Vec::new();
+                for _ in 0..2 {
+                    let mut params = json!({"sessionIds": keys, "row": true});
+                    if usage {
+                        params["usage"] = json!(true);
+                    }
+                    let at = Instant::now();
+                    let reply = client.request(crate::rpc::method::MUX_INFO, params).await.unwrap();
+                    t.push(us(at));
+                    assert_eq!(reply["rows"].as_array().map(Vec::len), Some(live));
+                }
+                eprintln!(
+                    "PROBE fixture={fixture} closed={closed} part={part} first_us={} second_us={}",
+                    t[0], t[1]
+                );
+                drop(d);
+            }
+            let (d, _store) = usage_probe_daemon(fixture, closed).await;
+            let mut t = Vec::new();
+            for _ in 0..2 {
+                let client = Client::connect(&d.path).await.unwrap();
+                let via = Via::List(d.path.clone());
+                let at = Instant::now();
+                super::ls::output(ls_args(&["--live"]), true, &client, via, 0).await.unwrap();
+                t.push(us(at));
+            }
+            eprintln!(
+                "PROBE fixture={fixture} closed={closed} part=G first_us={} second_us={}",
+                t[0], t[1]
+            );
+            drop(d);
+            let (d, _store) = usage_probe_daemon(fixture, closed).await;
+            let rows: Vec<_> = d
+                .hub
+                .session_handles()
+                .into_iter()
+                .filter(|s| s.id == "live-00" || s.id == "live-01")
+                .collect();
+            let mut t = Vec::new();
+            for session in &rows {
+                let at = Instant::now();
+                let _ = d.hub.own_row_text(session, false);
+                t.push(us(at));
+            }
+            eprintln!(
+                "PROBE fixture={fixture} closed={closed} part=A1 first_us={} second_us={}",
+                t[0], t[1]
+            );
+            drop(d);
+        }
+    }
+}
