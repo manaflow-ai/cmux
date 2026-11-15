@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43743214822",
+  "recorded_at": "2026-11-15T18:05:31Z",
+  "reason": "cmux-tui 0eb01a21a1e1 changes the image's cmux-tui (pinned 1ac41bf6344e)",
+  "dry_run": false,
+  "cmux_tui": "0eb01a21a1e1d3a479ceb4b3828de350f61aab74",
+  "fixes": [
+    {
+      "sha": "0eb01a21a1e1d3a479ceb4b3828de350f61aab74",
+      "mergedAt": "2026-11-15T17:32:18Z",
+      "subject": "acpmux: a signed-out Grok start on a Cloud VM says sign_in_required naming grok, not a bare refusal (#43839)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T18:05:31Z",
+    "snapshot_id": "sh-c5a1983ee7544f4fb1d7938317f5cac4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43743214822): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cb2a7812721c33c19e6893c7bd621982f67f29a3",
+    "image": "cloud-native-auto-0eb01a21-43743214822-1",
+    "revision": "ci-43743214822-1",
+    "at": "2026-11-15T18:05:31Z"
+  },
+  "rolled_back": false
+}
