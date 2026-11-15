@@ -1326,19 +1326,31 @@ impl Hub {
         let mut anchor = key;
         let mut pieces = 0;
         let page = loop {
-            let page = index
-                .read_page(
-                    anchor.as_ref(),
-                    side,
-                    false,
-                    MAX_WINDOW_ROWS,
-                    max - 8192 - request.sid.len(),
-                    Some(&filter),
-                )
-                .map_err(|error| self.page_error(error))?;
+            // The first piece is the read a local connection's page makes. A later one is read
+            // only because the one before held no row of this machine, and it is the full
+            // physical piece whatever the budget (decision 291): a skipped candidate costs
+            // nothing in the reply.
+            let read = if pieces == 0 {
+                SummaryIndex::read_page
+            } else {
+                SummaryIndex::read_page_full_piece
+            };
+            let page = read(
+                &index,
+                anchor.as_ref(),
+                side,
+                false,
+                MAX_WINDOW_ROWS,
+                max - 8192 - request.sid.len(),
+                Some(&filter),
+            )
+            .map_err(|error| self.page_error(error))?;
             pieces += 1;
             #[cfg(test)]
-            PEER_PIECES.with(|read| read.set(read.get() + 1));
+            PEER_PIECES.with(|read| {
+                let (count, bytes) = read.get();
+                read.set((count + 1, bytes + page.bytes_read));
+            });
             let (more, next) = match side {
                 ReadSide::Before => (page.has_before, &page.before_key),
                 _ => (page.has_after, &page.after_key),
@@ -1678,14 +1690,19 @@ pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageSha
     }
 }
 
-/// The pieces of up to MAX_WINDOW_ROWS candidates one peer `all` page reads before it answers
-/// empty (decision 285): 1,600 candidates.
+/// The pieces one peer `all` page reads before it answers empty (decisions 285 and 291): the
+/// first at the asker's budget, as a local page reads it, and up to three full ones. Computed,
+/// not measured: in memory a piece is MAX_WINDOW_ROWS + 1 hot candidates, so about 1,600 a
+/// page; from a snapshot a full piece is snapshot::PAGE_BYTES (256 KiB) or 400 records, so a
+/// page reads under 1 MiB, about 1,250 candidates at the serve_page gate's row size.
 pub(crate) const PEER_PAGE_PIECES: usize = 4;
 
 #[cfg(test)]
 thread_local! {
-    /// The pieces this thread's peer `all` pages read, for the tests that count them.
-    pub(crate) static PEER_PIECES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The pieces this thread's peer `all` pages read and their snapshot bytes, for the tests
+    /// that count them.
+    pub(crate) static PEER_PIECES: std::cell::Cell<(usize, usize)> =
+        const { std::cell::Cell::new((0, 0)) };
 }
 
 /// A `local` position past `last`, the last candidate a peer's `all` walk read on `side`,

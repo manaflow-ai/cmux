@@ -84,9 +84,9 @@ fn past(at: u64) -> ListKey {
 /// One page and the pieces it read. No frame names another machine or its rows, and every
 /// key it carries is `local`.
 fn read(hub: &Hub, page: &Page) -> (PageResult<Value>, usize) {
-    PEER_PIECES.with(|read| read.set(0));
+    PEER_PIECES.with(|read| read.set((0, 0)));
     let frame = hub.peer_page(page).expect("a peer's all page");
-    let pieces = PEER_PIECES.with(|read| read.get());
+    let (pieces, _) = PEER_PIECES.with(|read| read.get());
     let text = std::str::from_utf8(frame.payload()).unwrap();
     assert!(!text.contains("c-machine") && !text.contains("z-machine"), "{text}");
     assert!(!text.contains("\"c-") && !text.contains("\"z-"), "another machine's row: {text}");
@@ -105,7 +105,11 @@ fn walk(
     from: Option<ListKey>,
     filter: Option<ListFilter>,
 ) -> (Vec<String>, usize, usize) {
-    let mut page = all_page(side, from, filter);
+    walk_page(hub, side, all_page(side, from, filter))
+}
+
+/// [`walk`] from a page already built, with its own byte budget.
+fn walk_page(hub: &Hub, side: PageSide, mut page: Page) -> (Vec<String>, usize, usize) {
     let (mut pages_rows, mut pages, mut most) = (Vec::<Vec<String>>::new(), 0, 0);
     loop {
         let (result, pieces) = read(hub, &page);
@@ -259,4 +263,124 @@ fn a_past_key_is_refused_at_every_other_door() {
     let mut folders = all_page(PageSide::Before, Some(past(500)), None);
     folders.view = Some(ListView::Folders);
     assert!(hub.page(&folders).is_err(), "folders");
+}
+
+/// A hub whose rows are read from a sorted snapshot, as `rows` (activity, origin, chat id)
+/// list them, and its local chat ids in the keys' order.
+fn snapshot_hub(rows: &[(u64, &str, String)]) -> (Hub, Vec<String>, tempfile::TempDir) {
+    use acpmux_book::index::{DiskSnapshot, SortedSnapshot};
+    let mut index = SummaryIndex::new();
+    let mut local = Vec::new();
+    for (seq, (at, origin, id)) in rows.iter().enumerate() {
+        let mut summary = Summary::new(id.clone());
+        summary.origin = (*origin).to_owned();
+        summary.state = "closed".into();
+        summary.title = "a row of fixed width".into();
+        summary.last_activity = *at;
+        if *origin == "local" {
+            local.push((SortKey::of(&summary), id.clone()));
+        }
+        index = index.apply(seq as u64 + 1, summary);
+    }
+    local.sort();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("index.snap");
+    SortedSnapshot::write(&path, &index).unwrap();
+    let (hub, _writer) = Hub::new(SummaryIndex::from_disk(DiskSnapshot::open(&path).unwrap(), 1));
+    (hub, local.into_iter().map(|(_, id)| id).collect(), dir)
+}
+
+/// An `all` page on `side` from `from` whose budget holds 20 of these rows.
+fn budget_page(side: PageSide, from: Option<ListKey>) -> Page {
+    let mut row = Summary::new("b-00000".to_owned());
+    row.state = "closed".into();
+    row.title = "a row of fixed width".into();
+    let mut page = all_page(side, from, None);
+    page.max_bytes = u32::try_from(8192 + page.sid.len() + 20 * (row.encoded_len() + 1)).unwrap();
+    page
+}
+
+/// One page and its pieces and snapshot bytes, by the same checks as [`read`].
+fn read_counted(hub: &Hub, page: &Page) -> (PageResult<Value>, usize, usize, usize) {
+    let (result, _) = read(hub, page);
+    let (pieces, bytes) = PEER_PIECES.with(|read| read.get());
+    let frame_len = hub.peer_page(page).unwrap().encoded_len();
+    (result, pieces, bytes, frame_len)
+}
+
+#[test]
+fn a_snapshot_run_longer_than_the_cap_answers_empty_then_walks_on() {
+    // 2,000 third-machine rows on each side of local in the order, then 20 local rows.
+    let mut rows = Vec::new();
+    for m in 0..2_000u64 {
+        rows.push((5_000 - m, "c-machine", format!("c-{m:05}")));
+        rows.push((5_000 - m, "z-machine", format!("z-{m:05}")));
+    }
+    for n in 0..20u64 {
+        rows.push((1_000 - n, "local", format!("b-{n:05}")));
+    }
+    let (hub, local, _dir) = snapshot_hub(&rows);
+    let (result, pieces, _, _) = read_counted(&hub, &budget_page(PageSide::After, None));
+    assert_eq!(pieces, PEER_PAGE_PIECES, "the first request reads exactly the cap");
+    assert!(result.rows.is_empty() && result.has_after, "empty, with more to follow");
+    for (side, from) in [(PageSide::After, None), (PageSide::Before, Some(past(0)))] {
+        let (seen, _, most) = walk_page(&hub, side, budget_page(side, from));
+        assert_eq!(seen, local, "{side:?}: every local row once, and the walk ends");
+        assert!(most <= PEER_PAGE_PIECES, "{side:?}");
+    }
+}
+
+#[test]
+fn a_page_whose_first_piece_holds_a_local_row_reads_as_a_local_page_does() {
+    let mut rows = Vec::new();
+    for n in 0..20u64 {
+        rows.push((5_000 - n, "local", format!("b-{n:05}")));
+    }
+    for m in 0..2_000u64 {
+        rows.push((4_000 - m, "c-machine", format!("c-{m:05}")));
+    }
+    let (hub, _, _dir) = snapshot_hub(&rows);
+    let page = budget_page(PageSide::After, None);
+    let (result, pieces, bytes, _) = read_counted(&hub, &page);
+    assert_eq!(pieces, 1);
+    assert_eq!(result.rows.len(), 20);
+    let local = hub
+        .snapshot()
+        .read_page(
+            None,
+            ReadSide::After,
+            false,
+            MAX_WINDOW_ROWS,
+            page.max_bytes as usize - 8192 - page.sid.len(),
+            None,
+        )
+        .unwrap();
+    assert!(bytes > 0);
+    assert_eq!(bytes, local.bytes_read, "the bytes a local connection's page reads");
+}
+
+#[test]
+fn a_full_piece_with_more_local_rows_than_the_budget_is_cut_to_it() {
+    // A first piece of third-machine rows only, then a full piece of local rows.
+    let mut rows = Vec::new();
+    for m in 0..300u64 {
+        rows.push((9_000 - m, "c-machine", format!("c-{m:05}")));
+    }
+    for n in 0..500u64 {
+        rows.push((8_000 - n, "local", format!("b-{n:05}")));
+    }
+    for m in 0..300u64 {
+        rows.push((7_000 - m, "z-machine", format!("z-{m:05}")));
+    }
+    let (hub, local, _dir) = snapshot_hub(&rows);
+    for (side, from) in [(PageSide::After, None), (PageSide::Before, Some(past(0)))] {
+        let page = budget_page(side, from);
+        let (result, pieces, _, frame_len) = read_counted(&hub, &page);
+        assert!(pieces >= 2, "{side:?}: the first piece held no local row");
+        assert_eq!(result.rows.len(), 20, "{side:?}: cut to the budget");
+        assert!(frame_len <= page.max_bytes as usize, "{side:?}: within the asker's max");
+        // Each next page starts at the first row left out: the walk is every row once.
+        let (seen, _, _) = walk_page(&hub, side, page);
+        assert_eq!(seen, local, "{side:?}");
+    }
 }

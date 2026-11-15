@@ -89,10 +89,13 @@ fn fixture(closed: u64) -> Side {
     Side { hub, disk, _dir: dir, newest, deep: deep_page }
 }
 
-fn rows(hub: &Hub, page: &Page) -> Vec<Value> {
+/// The page's rows and the pieces it read.
+fn rows(hub: &Hub, page: &Page) -> (Vec<Value>, usize) {
+    PEER_PIECES.with(|read| read.set((0, 0)));
     let frame = hub.peer_page(page).expect("a peer's all page");
+    let (pieces, _) = PEER_PIECES.with(|read| read.get());
     let result: PageResult<Value> = frame.decode_json().expect("a page");
-    result.rows
+    (result.rows, pieces)
 }
 
 fn sample(hub: &Hub, page: &Page) -> u128 {
@@ -122,8 +125,12 @@ fn pr08b_serve_page() {
             ("deep", &side.hub, &side.deep),
             ("snapshot_deep", &side.disk, &side.deep),
         ] {
-            let rows = rows(hub, page);
+            let (rows, pieces) = rows(hub, page);
             assert_eq!(rows.len(), ROWS, "{name} {part}: a full page");
+            // From the snapshot the run is one budget piece and two full ones (decision 291).
+            if part == "snapshot_deep" {
+                assert_eq!(pieces, 3, "{name} {part}: pieces read");
+            }
             assert!(
                 rows.iter()
                     .all(|row| row["chatId"].as_str().is_some_and(|id| id.starts_with("b-"))),
