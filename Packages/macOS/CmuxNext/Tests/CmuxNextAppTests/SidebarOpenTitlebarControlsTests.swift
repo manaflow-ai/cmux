@@ -109,6 +109,10 @@ import Testing
 
     /// Turning Minimal Mode off brings them back at rest, with no relaunch.
     @Test func leavingMinimalModeShowsThemAgain() {
+        // The reveal's end state, not the fade's progress on the display clock.
+        let speed = DesignSettings.shared.animationSpeed
+        DesignSettings.shared.animationSpeed = .off
+        defer { DesignSettings.shared.animationSpeed = speed }
         with(minimal: true) {
             let (window, root) = root(sidebarHidden: false)
             defer { window.close() }
