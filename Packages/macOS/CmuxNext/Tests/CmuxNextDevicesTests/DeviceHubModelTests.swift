@@ -186,6 +186,46 @@ import Testing
         #expect(hub.status == .idle && hub.pendingRequests.isEmpty && hub.devices.isEmpty)
     }
 
+    /// The hub records what kind of device this is (PROTOCOL.md, Device kind); a record decodes it, and
+    /// one that never said (an older app, a row from before kinds) has none and draws its old icon.
+    @Test func aDeviceRecordCarriesItsKindAndItsGlyph() throws {
+        func decode(_ json: String) throws -> HubDevice { try JSONDecoder().decode(HubDevice.self, from: Data(json.utf8)) }
+        let mini = try decode(#"{"id":"a","name":"Mini","platform":"macos","kind":"mac-mini","online":true}"#)
+        #expect(mini.kind == "mac-mini" && mini.glyph?.symbol == "macmini")
+        let old = try decode(#"{"id":"b","name":"Old","platform":"macos","online":false}"#)
+        #expect(old.kind == nil && old.glyph == nil)
+        let null = try decode(#"{"id":"c","name":"Null","platform":"macos","kind":null}"#)
+        #expect(null.kind == nil && null.glyph == nil)
+        // A kind this build does not know, and `generic`, keep the record but draw the old icon.
+        let newer = try decode(#"{"id":"d","name":"Newer","kind":"vision-pro"}"#)
+        #expect(newer.kind == "vision-pro" && newer.glyph == nil)
+        #expect(try decode(#"{"id":"e","name":"G","kind":"generic"}"#).glyph == nil)
+        // A wrong type is no kind, never a failed list.
+        #expect(try decode(#"{"id":"f","name":"Odd","kind":7}"#).kind == nil)
+    }
+
+    @Test func startRegistersWithThisMacsKindAndAKindSaidLaterRegistersAgain() async {
+        let stub = StubHub.routes(["POST /v1/devices": (200, #"{"device":{"id":"x","name":"Studio"}}"#)])
+        let hub = DeviceHub(client: makeClient(stub, identity: me),
+                            socket: DeviceHubSocket(connector: FakeConnector([])), secrets: MemoryRelaySecretStore(),
+                            deviceName: "Studio", now: fixedNow)
+        // The daemon had not said yet: the first registration sends no kind.
+        await hub.start()
+        var registrations: [[String: Any]] { stub.requests.filter { $0.url.path == "/v1/devices" }.compactMap(\.jsonBody) }
+        #expect(registrations.count == 1 && registrations[0]["kind"] == nil)
+        // It says now: one more registration, with the kind.
+        await hub.reportKind("macbook")?.value
+        #expect(registrations.count == 2 && registrations[1]["kind"] as? String == "macbook")
+        // The same kind again, or none, registers nothing.
+        #expect(hub.reportKind("macbook") == nil && hub.reportKind(nil) == nil)
+        #expect(registrations.count == 2)
+        // The next start sends it with its own registration.
+        hub.stop()
+        await hub.start()
+        #expect(registrations.count == 3 && registrations[2]["kind"] as? String == "macbook")
+        hub.stop()
+    }
+
     @Test func aRemovedDeviceRegistersAgainAsANewDevice() async {
         let me = self.me, fresh = DeviceIdentity.software("b0b0b0b0-0000-4000-8000-000000000002")
         let stub = StubHub { request in

@@ -345,8 +345,42 @@ test("history cells wrap instead of widening the table", async () => {
 
 test("device rows keep their status and Copy at a narrow width: their lines wrap", async () => {
   const page = await open();
-  const rows = card(page.container).querySelectorAll<HTMLElement>("[data-device]");
+  // A row is an element whose data-device is its id; a device glyph inside it names its kind the same way.
+  const rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-device]")].filter(
+    (e) => !e.closest("svg"),
+  );
   expect(rows.length).toBeGreaterThan(1);
   for (const row of rows) expect(row.classList.contains("devices-device")).toBe(true);
+  page.unmount();
+});
+
+// Leo, 2026-11-14: "nicer icons ... across all the remote related areas". Each device draws the
+// glyph of the kind its device-hub record says; one that never said draws the generic glyph.
+test("each device draws the glyph of its kind, and one with no kind draws the generic glyph", async () => {
+  const page = await open();
+  const state = mockDevicesState();
+  await act(async () =>
+    page.provider.setDevices({
+      ...state,
+      others: [
+        ...state.others,
+        { ...state.others[1]!, id: "dev-mini", name: "Mac mini", kind: "mac-mini" },
+        { ...state.others[1]!, id: "dev-old", name: "Old Mac", kind: null },
+        { ...state.others[1]!, id: "dev-new", name: "New Mac", kind: "vision-pro" },
+      ],
+    }),
+  );
+  await settle();
+  const element = card(page.container);
+  const glyph = (id: string) => element.querySelector<SVGElement>(`[data-device="${id}"] svg.ui-device-glyph`);
+  expect(glyph("dev-mac-studio")!.getAttribute("data-symbol")).toBe("macstudio");
+  expect(glyph("dev-iphone")!.getAttribute("data-symbol")).toBe("iphone");
+  expect(glyph("dev-macbook")!.getAttribute("data-symbol")).toBe("macbook.gen2");
+  expect(glyph("dev-mini")!.getAttribute("data-symbol")).toBe("macmini");
+  expect(glyph("dev-old")!.getAttribute("data-device")).toBe("generic");
+  expect(glyph("dev-new")!.getAttribute("data-device")).toBe("generic");
+  // An offline device's glyph dims with its label.
+  expect(glyph("dev-macbook")!.hasAttribute("data-offline")).toBe(true);
+  expect(glyph("dev-iphone")!.hasAttribute("data-offline")).toBe(false);
   page.unmount();
 });

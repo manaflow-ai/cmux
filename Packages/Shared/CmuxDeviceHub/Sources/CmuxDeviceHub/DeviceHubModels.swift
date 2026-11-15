@@ -29,20 +29,26 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var createdAt: Date?
     public var lastSeenAt: Date?
     public var macScreenShared: Bool
+    /// What kind of device it is (`macbook`, `mac-mini`, `iphone`; PROTOCOL.md, Device kind); nil when
+    /// it never said (an older app, a row from before kinds).
+    public var kind: String?
     public var online: Bool
 
     public init(id: String, name: String, platform: DevicePlatform? = nil, signingKey: String? = nil, agreementKey: String? = nil,
-                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false) {
+                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, kind: String? = nil, online: Bool = false) {
         self.id = id; self.name = name; self.platform = platform; self.signingKey = signingKey
         self.agreementKey = agreementKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
-        self.macScreenShared = macScreenShared; self.online = online
+        self.macScreenShared = macScreenShared; self.kind = kind; self.online = online
     }
 
     /// The signing key's display fingerprint, when the key is valid.
     public var fingerprint: String? { signingKey.flatMap(DeviceIdentity.fingerprint(signingKey:)) }
 
+    /// The glyph its kind draws; nil (draw the old icon) when the kind is absent or unknown.
+    public var glyph: DeviceGlyphKind? { DeviceGlyphKind(name: kind) }
+
     enum CodingKeys: String, CodingKey {
-        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online
+        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, kind, online
     }
 
     public init(from decoder: any Decoder) throws {
@@ -55,6 +61,7 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         createdAt = c.date(.createdAt)
         lastSeenAt = c.date(.lastSeenAt)
         macScreenShared = c.flag(.macScreenShared)
+        kind = c.lenient(String.self, .kind).flatMap { $0.isEmpty ? nil : $0 }
         online = c.flag(.online)
     }
 }

@@ -100,9 +100,11 @@ public final class MacScreenDevicesSettings {
             var sharesText: String?
             var access: String?
             var removeConfirm: Confirm
+            /// What kind of device it is (`macbook`, `iphone`), as its hub record says; null when it never said.
+            var kind: String?
 
             enum CodingKeys: String, CodingKey {
-                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, removeConfirm
+                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, removeConfirm, kind
             }
 
             /// The page reads null for an absent value, never a missing key.
@@ -119,6 +121,7 @@ public final class MacScreenDevicesSettings {
                 try c.encode(sharesText, forKey: .sharesText)
                 try c.encode(access, forKey: .access)
                 try c.encode(removeConfirm, forKey: .removeConfirm)
+                try c.encode(kind, forKey: .kind)
             }
         }
 
@@ -292,7 +295,9 @@ public final class MacScreenDevicesSettings {
             id: device.id, name: device.name, platform: device.platform == .ios ? L.t("devices.platform.ios", "iPhone") : L.t("devices.platform.mac", "Mac"),
             fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), fingerprintFull: device.fingerprint, online: isMe || device.online, presence: presence,
             thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
-            access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue, removeConfirm: confirm)
+            access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue, removeConfirm: confirm,
+            // A phone that never said is an iPhone, as the platform line says; a Mac that never said is unknown.
+            kind: device.kind ?? (device.platform == .ios ? "iphone" : nil))
     }
 
     nonisolated static func modeText(_ mode: RelayAuthMode) -> String {

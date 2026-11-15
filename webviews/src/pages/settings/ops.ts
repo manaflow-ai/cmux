@@ -933,6 +933,9 @@ export type DevicesDevice = {
   access: DevicesScope | null;
   /** Removal confirmation texts for this row. */
   removeConfirm: { title: string; body: string; confirm: string };
+  /** What kind of device it is (`macbook`, `mac-mini`, `iphone`: cmux-device-kind), as its device-hub
+   * record says; null or absent when it never said, and the row draws the generic glyph. */
+  kind?: string | null;
 };
 export type DevicesRelayMode = "shared_secret" | "static";
 export type DevicesRelay = {

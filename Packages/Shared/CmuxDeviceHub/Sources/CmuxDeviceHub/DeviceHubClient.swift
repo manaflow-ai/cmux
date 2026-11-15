@@ -158,12 +158,13 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers.
-    public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String }
+    /// Registers or updates this device, signed by the key it registers. `kind` is what this device
+    /// is (PROTOCOL.md, Device kind); nil leaves it out, and the hub keeps the one it has.
+    public func registerDevice(name: String, platform: DevicePlatform, kind: String? = nil) async throws -> HubDevice {
+        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var kind: String? }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey)
+                        agreementKey: identity.agreementKey, kind: kind)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 

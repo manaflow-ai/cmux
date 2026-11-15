@@ -31,7 +31,6 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
-  type CustomizeTryOn,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -52,6 +51,7 @@ import {
   type SnapshotResult,
   type ThemeOverride,
   type WorkspaceBackground,
+  type CustomizeTryOn,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -1807,6 +1807,7 @@ export function mockDevicesState(): DevicesState {
         body: "This Mac leaves your devices. You can sign in again later.",
         confirm: "Remove",
       },
+      kind: "mac-studio",
     },
     others: [
       {
@@ -1821,6 +1822,7 @@ export function mockDevicesState(): DevicesState {
         sharesText: null,
         access: "full",
         removeConfirm: removeConfirm("Aziz's iPhone"),
+        kind: "iphone",
       },
       {
         id: "dev-macbook",
@@ -1834,6 +1836,7 @@ export function mockDevicesState(): DevicesState {
         sharesText: "Shares Mac Screen",
         access: "ask",
         removeConfirm: removeConfirm("MacBook Pro"),
+        kind: "macbook",
       },
     ],
     sharing: {
