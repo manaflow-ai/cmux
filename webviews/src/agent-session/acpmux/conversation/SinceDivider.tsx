@@ -129,7 +129,8 @@ export function SinceDivider({
   const label = t("since.label");
   const count = forcedCount ?? (unread?.mark === since.key ? unread.count : undefined);
   const counted = look === "count" || look === "count-accent";
-  const words = count !== undefined ? newMessagesLabel(t, count) : t("since.new");
+  // Before the rows are counted, or when only status rows came: "New".
+  const words = count ? newMessagesLabel(t, count) : t("since.new");
   return (
     <div className="cv-since" data-look={look} data-read={isRead ? "" : undefined} ref={useSinceObserver(since.key)}>
       <ContextMenu items={unreadMenu(t, since.key, mode)} className="cv-since__menu">
@@ -201,7 +202,7 @@ export function UnreadBanner({
   const mine = unread?.mark === mark ? unread : undefined;
   const shown = forceShown ?? bannerShown(mark, unread, mode);
   const collapsed = mode === "collapsed";
-  const messages = mine?.count;
+  const messages = mine?.count || undefined;
   const count = messages !== undefined ? newMessagesLabel(t, messages) : t("since.bannerCount", { n: turns });
   const short = messages !== undefined ? (messages > SINCE_COUNT_CAP ? `${SINCE_COUNT_CAP}+` : messages) : turns;
   const when = firstNewAt !== undefined ? t("since.bannerSince", { time: clockLabel(firstNewAt) }) : undefined;

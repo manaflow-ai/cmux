@@ -322398,13 +322398,13 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "رسالة جديدة واحدة"
+                  "value": "{n} رسالة جديدة"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "رسالتان جديدتان"
+                  "value": "{n} رسالتان جديدتان"
                 }
               },
               "few": {

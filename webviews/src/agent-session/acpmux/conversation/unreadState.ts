@@ -30,7 +30,7 @@ export type UnreadView = {
 /// How long the line stays once it has been on screen before it fades in place (Leo, 2026-11-15,
 /// of the terminal's "157 new messages" rule: "we needto properly do somthing like this in the gui
 /// somehow"). Long enough to see where the new part starts; scrolling past it fades it sooner.
-export const SINCE_FADE_MS = 6_000;
+export const SINCE_FADE_MS = 6_000; // motion-allow: how long a seen line stays before its fade (--agent-motion-calm), not an animation
 
 /// The most messages the line counts: past it the label reads "999+", and counting stays bounded
 /// however long the chat ran while the person was away.
