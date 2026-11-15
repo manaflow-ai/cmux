@@ -962,6 +962,7 @@ final class App: NSObject, NSApplicationDelegate {
     var form: FormWindow?, twin: FormWindow?, lab: LabForm?, text: LabText?, canvas: LabCanvas?
     var settings: SettingsWindow?, person: PersonWindow?
     var timer: Timer?
+    var stateTimer: Timer?
     let sock = ControlSocket(path: args.sock)
 
     func windows() -> [NSWindow] {
@@ -1116,6 +1117,9 @@ final class App: NSObject, NSApplicationDelegate {
         } else if args.activate {
             NSApp.activate(ignoringOtherApps: true)
         }
+        // Changes that send the app no notification (an AX value set on a text field) still reach the state file:
+        // rewrite it every 200 ms, so a checker reading the file sees what the window shows.
+        stateTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in oracle.writeState() }
         oracle.log("ready", win: "", el: "", ["mode": args.mode])
         oracle.writeState()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { oracle.writeState() }
