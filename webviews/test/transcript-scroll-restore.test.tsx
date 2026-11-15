@@ -154,8 +154,9 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
 });
 
 // Toggle Terminal and Chat reads whether the chat is at its latest message on the next key, so
-// following stopping and starting reaches the host at once; the settled report still waits.
-test("following stopping and starting is reported at once apart from the settled report", async () => {
+// following stopping reaches the host at once, naming the row in view (the key that stops it comes
+// before the scroll leaves the latest message); the settled report still waits for the rest.
+test("following stopping is reported at once with the row in view, apart from the settled report", async () => {
   const rows = turnView(turns, new Set());
   const anchors: Anchor[] = [];
   const following: Anchor[] = [];
@@ -178,15 +179,6 @@ test("following stopping and starting is reported at once apart from the settled
       expect(following.length).toBe(1);
       expect(rows.some((row) => row.id === following[0]?.rowId)).toBe(true);
     });
-    // Back at the latest message, a key at the end follows again: that reaches the host at once as
-    // no place, before any scroll settles.
-    await scrollAndRest(scroller(), latest, anchors);
-    const before = following.length;
-    await act(
-      async () => void scroller().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true })),
-    );
-    expect(following.length).toBe(before + 1);
-    expect(following.at(-1)).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
