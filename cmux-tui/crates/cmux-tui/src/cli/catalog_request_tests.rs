@@ -15,7 +15,27 @@ struct Case {
 
 /// One case per catalog row with a request (`every_request_row_has_a_cli_case`).
 fn cases() -> Vec<Case> {
-    vec![]
+    vec![
+        Case {
+            id: "history.removeSite",
+            argv: &["history", "remove-site", "example.com"],
+            values: vec![("argument:host", json!("example.com"))],
+        },
+        Case { id: "closed.clear", argv: &["closed", "clear"], values: vec![] },
+        Case {
+            id: "closed.delete",
+            argv: &["closed", "cl_1", "delete"],
+            values: vec![("argument:closed", json!("cl_1"))],
+        },
+        Case { id: "errors.clear", argv: &["errors", "clear"], values: vec![] },
+    ]
+}
+
+/// Whether `argv` runs the verb `cli_name`: its words in order (an id may sit between them, as
+/// in `closed <id> delete`).
+fn runs_verb(argv: &[&str], cli_name: &str) -> bool {
+    let mut words = argv.iter();
+    cli_name.split(' ').all(|verb| words.any(|word| *word == verb))
 }
 
 /// What the CLI sends for `argv`: its lane, operation and params. A verb the CLI resolves
@@ -81,7 +101,7 @@ fn catalog_request_matches_cli() {
             errors.push(format!("{}: a request row with no case in cases()", action.id));
             continue;
         };
-        if !case.argv.join(" ").starts_with(action.cli_name) {
+        if !runs_verb(case.argv, action.cli_name) {
             errors.push(format!("{}: the case does not run `{}`", action.id, action.cli_name));
         }
         errors.extend(drift(action, case));
