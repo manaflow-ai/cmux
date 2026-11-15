@@ -17,7 +17,11 @@ public nonisolated extension CloudCredentialRelay {
                 let approved = capability?.headers(installToken: bearer) ?? [:]
                 return try await transport.post(path, json: body, bearer: bearer, headers: headers.merging(approved) { $1 })
             },
-            token: { try await identity.installToken() },
+            // Signed in but not bound yet (the first call of a launch): wait for the bind, well inside the relay's deadline.
+            token: {
+                if await signedIn() { return try await identity.installToken(awaitingBind: .seconds(8)) }
+                return try await identity.installToken()
+            },
             invalidate: { capability?.drop(); await identity.invalidate() },
             session: {
                 guard await signedIn() else { return Session(signedIn: false, team: nil) }
@@ -25,6 +29,8 @@ public nonisolated extension CloudCredentialRelay {
                 let token = try? await identity.installToken()
                 return Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
+            // The relay's own checks never mint: a relayed op mints once, in its `token` step.
+            signedIn: signedIn,
             allowedOps: allowedOps,
             carrierSocket: carrierSocket)
     }

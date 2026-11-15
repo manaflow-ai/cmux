@@ -85,7 +85,7 @@ fn activity_parent(m: &SessionMeta) -> Option<&str> {
 }
 
 /// [`activity_parent`], for the closed-row cache (`Hub::cached_closed_summary`).
-pub(super) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
+pub(crate) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
     activity_parent(m)
 }
 
@@ -1043,7 +1043,11 @@ impl Hub {
             .await
             .disk_low_bytes
             .unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let sessions = self.sessions();
+        // Only the sessions that are not closed: a close ends a session's agent and its turn
+        // before its status (`Hub::live_session_handles`), so the closed ones hold no agent and
+        // none is stuck. Status costs the same beside 11k closed chats as beside none.
+        let sessions = self.indexed_live_sessions();
+        let (all, live_ids) = self.session_counts();
         let (host_pressure, disk, agents) = tokio::join!(
             within_status_budget(async {
                 if loading { Value::Null } else { self.host_pressure_status().await }
@@ -1081,11 +1085,20 @@ impl Hub {
         // Read after every wait above and held through no other.
         let cfg = self.config.read().await;
         let exe_unstable = crate::daemon::exe_path::current_unstable();
+        let closed = self.closed_listed(all.saturating_sub(live_ids));
         json!({
             "version": VERSION,
             "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
+            // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
+            // only the live view (agent service v2, row 7b). Not one snapshot with that read.
+            "closedListed": closed.all,
+            // Of those, the peers' and hub machines' (decision 213): the v2 list holds no closed
+            // row of another machine, so `ls --all` and the other forms that walk the whole view
+            // read v1 while this is not 0.
+            "closedRemoteListed": closed.remote,
             "pid": std::process::id(),
             // Its own executable, and whether it runs as `cmux-tui acp …`, so a
             // client (host enroll) tells which program runs it without scanning
@@ -1098,6 +1111,10 @@ impl Hub {
             "exeStable": exe_unstable.is_none(),
             "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
+            // What kind of device this machine is (`cmux-device-kind`), so the app draws This
+            // Mac with its own glyph (a Mac mini as a Mac mini) beside the peers' `health.device`.
+            "device": cmux_device_kind::this_device().kind.as_str(),
+            "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
             "personKey": self.person.has_key(),
@@ -1106,7 +1123,7 @@ impl Hub {
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),
             "store": cfg.store,
-            "sessions": sessions.len(),
+            "sessions": all,
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
@@ -1145,7 +1162,15 @@ impl Hub {
             "listReplies": crate::list_bytes::global().status(),
             // Startup phases, memory, list rebuilds and each connection's queued bytes
             // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
-            "gauges": crate::gauges::daemon_status(),
+            "gauges": ({
+                let mut gauges = crate::gauges::daemon_status();
+                gauges["v2SnapshotDamagedFrames"] = json!(self.events.damaged_snapshot_frames());
+                // The v2 list stream on peer links: frames dropped, held bytes (`link_v2.rs`).
+                if let Some(gauges) = gauges.as_object_mut() {
+                    gauges.insert("v2PeerLink".into(), self.link_v2.counters.status());
+                }
+                gauges
+            }),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),

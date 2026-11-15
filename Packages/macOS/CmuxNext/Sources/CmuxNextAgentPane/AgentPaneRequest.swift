@@ -137,12 +137,18 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
     /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
     case attachSource(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
+    /// `chat.attach.external`: the files another app sent to this chat, which the page adds as a
+    /// drop's (``AgentPaneDroppedPaths/hold(external:claimed:)``).
+    case attachExternal
     /// `attachment.sourceIcon {bundleId}`: an attachment source's app icon, as a small data URL.
     case attachmentSourceIcon(String)
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
     case projectIcon(String)
+    /// `folder.complete {path}`: an absolute folder's subfolders, for the New Tab omnibar's
+    /// "Start an agent in a folder" rows (``AgentPaneFolderCompletion``).
+    case completeFolder(String)
     /// `agent.avatar {sessionId}`: the person's own avatar for agent session `sessionId`, as a small
     /// data URL, for its cards and sender chip; none answers nothing.
     case agentAvatar(String)
@@ -258,6 +264,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
     case toastAvoidance(CGRect?)
+    /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
+    /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
+    case toast(message: String, isError: Bool, group: String?)
     /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
     /// (``AgentPaneHostGlass``); empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])

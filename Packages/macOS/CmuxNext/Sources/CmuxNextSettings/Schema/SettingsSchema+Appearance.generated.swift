@@ -305,7 +305,7 @@ nonisolated enum AppearanceSettingsSchema {
                 help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
                 kind: .choice([
                     SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(NekoIconTheme.neko.rawValue, "Neko"),
+                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
                 ]),
                 default: .string(NekoIconThemeSetting.fallback.rawValue),
                 keywords: ["icons", "icon", "theme", "neko", "cat"]

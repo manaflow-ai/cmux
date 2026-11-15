@@ -440,7 +440,7 @@ extension WindowManager {
             for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
-                    + [Self.profileTags(of: machines.local)] + PhoneIncognitoHiding.ephemeralIDs(machines.local).sorted()
+                    + [Self.profileTags(of: machines.local)] + EphemeralWorkspaces.ephemeralIDs(machines.local).sorted()
             }) {
                 self?.reconcileMembership()
                 self?.recordIncognitoWorkspaces()

@@ -24,6 +24,7 @@ import yaml
 SCRIPT = Path(__file__).with_name("verify_published_manifest.py")
 ROOT = SCRIPT.parents[2]
 ARTIFACT_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
+BUILD_PROFILES = ROOT / "scripts" / "cmux-next" / "cmux-tui-build-profiles.json"
 WINDOWS_INSTALLER = ROOT / "web" / "public" / "tui" / "install-static.ps1"
 SPEC = importlib.util.spec_from_file_location("verify_published_manifest", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
@@ -561,7 +562,14 @@ class VerifyPublishedManifestTests(TestCase):
     def test_artifact_workflow_verifies_unix_machine_manifest_before_latest(self) -> None:
         document = yaml.safe_load(ARTIFACT_WORKFLOW.read_text(encoding="utf-8"))
         build = document["jobs"]["build"]["with"]
-        windows = document["jobs"]["build-windows"]["with"]
+        # build-windows reads what it builds from the keyed profile file
+        # (scripts/cmux-next/cmux-tui-build-profiles.json, a tree-key input).
+        profile = json.loads(BUILD_PROFILES.read_text(encoding="utf-8"))["windows"]
+        ref = "${{ fromJSON(needs.tree-preflight.outputs.build_profiles).windows.%s }}"
+        windows = {
+            key: profile[key] if value == ref % key else value
+            for key, value in document["jobs"]["build-windows"]["with"].items()
+        }
         # The Windows daemon is built for GPUI's Windows daemon mode, but is
         # published only under cmux-tui-windows/<sha>/ and the tree: never in
         # cmux-tui/<sha>/ or cmux-tui/latest/, which the public Windows

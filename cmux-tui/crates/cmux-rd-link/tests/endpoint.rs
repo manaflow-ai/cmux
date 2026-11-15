@@ -4,7 +4,10 @@
 //! starts working takes over, and a route the peer's packets come from is
 //! learned.
 
-use cmux_rd_link::{Endpoint, EndpointEvent, Event, KeyPair, Role, Route};
+use cmux_rd_link::{
+    Endpoint, EndpointEvent, Event, HANDSHAKE_RETRY_US, HANDSHAKE_TIMEOUT_US, KeyPair, LinkError,
+    Role, Route,
+};
 use cmux_transport::PathKind;
 use std::net::SocketAddr;
 
@@ -141,4 +144,50 @@ fn control_flows_and_the_host_learns_the_viewers_route() {
         sent.iter().map(|t| t.route).collect::<Vec<_>>(),
         vec![Route::Udp(addr("192.168.1.30:4103"))]
     );
+}
+
+#[test]
+fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
+    for candidate_at in [1, HANDSHAKE_RETRY_US + 1] {
+        let viewer_key = KeyPair::generate().unwrap();
+        let host_key = KeyPair::generate().unwrap();
+        let mut viewer =
+            Endpoint::new(Role::Initiator, b"startup", &viewer_key, host_key.public, 0).unwrap();
+        let mut host =
+            Endpoint::new(Role::Responder, b"startup", &host_key, viewer_key.public, 0).unwrap();
+
+        // Signaling may supply the candidate before or after the first retry deadline.
+        assert!(viewer.poll_transmit(0).unwrap().is_empty(), "there is no route yet");
+        assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_RETRY_US));
+        if candidate_at > HANDSHAKE_RETRY_US {
+            assert!(viewer.poll_transmit(HANDSHAKE_RETRY_US).unwrap().is_empty());
+            assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_RETRY_US * 2));
+        }
+        viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, candidate_at);
+        let initial = viewer.poll_transmit(candidate_at).unwrap();
+        assert_eq!(initial.len(), 1, "send the queued handshake exactly once");
+        host.on_packet(Route::Udp(addr(VIEWER_WAN)), &initial[0].packet, candidate_at).unwrap();
+        for packet in host.poll_transmit(candidate_at).unwrap() {
+            viewer.on_packet(Route::Udp(addr(HOST_LAN)), &packet.packet, candidate_at).unwrap();
+        }
+        for packet in viewer.poll_transmit(candidate_at).unwrap() {
+            host.on_packet(Route::Udp(addr(VIEWER_WAN)), &packet.packet, candidate_at).unwrap();
+        }
+        assert!(viewer.link().is_established(), "viewer must connect without a retry");
+        assert!(host.link().is_established(), "host must connect without a retry");
+    }
+}
+
+#[test]
+fn a_missing_candidate_still_reaches_the_handshake_timeout() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"timeout", &viewer_key, host_key.public, 0).unwrap();
+
+    assert!(viewer.poll_transmit(0).unwrap().is_empty());
+    assert!(matches!(
+        viewer.poll_transmit(HANDSHAKE_TIMEOUT_US + 1),
+        Err(LinkError::HandshakeTimeout)
+    ));
 }

@@ -97,29 +97,38 @@ impl Runs {
         self.wake();
     }
 
-    fn mark(&self, parent: &str, child: &str) {
-        *self
-            .lock()
+    /// Whether this is the first wait for this child.
+    fn mark(&self, parent: &str, child: &str) -> bool {
+        let mut state = self.lock();
+        let count = state
             .waiting
             .entry(parent.to_owned())
             .or_default()
             .entry(child.to_owned())
-            .or_default() += 1;
+            .or_default();
+        let edge = *count == 0;
+        *count += 1;
+        edge
     }
 
-    fn unmark(&self, parent: &str, child: &str) {
-        let mut s = self.lock();
-        if let Some(map) = s.waiting.get_mut(parent) {
-            if let Some(n) = map.get_mut(child) {
-                *n = n.saturating_sub(1);
-                if *n == 0 {
+    /// Whether this removed the child's last wait. The guard is released
+    /// before a caller marks the v1 row.
+    fn unmark(&self, parent: &str, child: &str) -> bool {
+        let mut state = self.lock();
+        let mut edge = false;
+        if let Some(map) = state.waiting.get_mut(parent) {
+            if let Some(count) = map.get_mut(child) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
                     map.remove(child);
+                    edge = true;
                 }
             }
             if map.is_empty() {
-                s.waiting.remove(parent);
+                state.waiting.remove(parent);
             }
         }
+        edge
     }
 
     /// The workspace's own `maxRunning`, if the person set one.
@@ -177,15 +186,18 @@ impl Drop for RunSlot {
 }
 
 /// A sub-session counted as waiting for a slot while this lives.
-pub(super) struct WaitMark {
+pub(super) struct WaitMark<'a> {
     runs: Arc<Runs>,
     parent: String,
-    child: String,
+    child: &'a Session,
+    events: &'a super::list_guard::Events,
 }
 
-impl Drop for WaitMark {
+impl Drop for WaitMark<'_> {
     fn drop(&mut self) {
-        self.runs.unmark(&self.parent, &self.child);
+        if self.runs.unmark(&self.parent, &self.child.id) {
+            self.events.row_changed(self.child);
+        }
     }
 }
 
@@ -270,12 +282,19 @@ impl Hub {
     }
 
     /// Counts `session` as waiting for a slot of `parent` until the mark is dropped.
-    pub(super) fn mark_waiting_for_slot(&self, parent: &str, session: &Session) -> WaitMark {
-        self.subsession_runs.mark(parent, &session.id);
+    pub(super) fn mark_waiting_for_slot<'a>(
+        &'a self,
+        parent: &str,
+        session: &'a Session,
+    ) -> WaitMark<'a> {
+        if self.subsession_runs.mark(parent, &session.id) {
+            self.events.row_changed(session);
+        }
         WaitMark {
             runs: self.subsession_runs.clone(),
             parent: parent.to_owned(),
-            child: session.id.clone(),
+            child: session,
+            events: &self.events,
         }
     }
 

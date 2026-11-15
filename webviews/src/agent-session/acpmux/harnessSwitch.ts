@@ -136,7 +136,9 @@ export type SwitchView = {
   /// `from`, so a model the agent reports under another id never stays masked.
   model?: { sessionId: string; from?: string; model: string; answered?: boolean };
   /// A config option picked in a live session, drawn until the session reports the value.
-  config?: { sessionId: string; configId: string; from?: string; value: string };
+  /// `answered` as for `model`: once the agent answered, it draws only while the session still
+  /// reports `from`, so a value set elsewhere (another window, the CLI, a peer) shows as it is.
+  config?: { sessionId: string; configId: string; from?: string; value: string; answered?: boolean };
 };
 
 type Queued = QueuedSwitchPrompt & {
@@ -205,6 +207,21 @@ function deferred<T>() {
 
 const errorText = errorMessage;
 
+/// Whether a live pick (`SwitchView` `model` or `config`) has nothing left to draw on `snapshot`,
+/// whose session reports `reported` for it (HarnessSwitch.reconcile). A snapshot with no session
+/// yet (a chat still opening) settles nothing.
+function settledPick(
+  snapshot: Pick<AcpmuxSnapshot, "sessionId">,
+  pick: { sessionId: string; from?: string; answered?: boolean } & ({ model: string } | { value: string }),
+  reported: string | undefined,
+): boolean {
+  if (!snapshot.sessionId) return false;
+  if (snapshot.sessionId !== pick.sessionId) return true;
+  if (reported === undefined) return false;
+  const picked = "model" in pick ? pick.model : pick.value;
+  return reported === picked || (pick.answered === true && reported !== pick.from);
+}
+
 export class HarnessSwitch {
   private intent?: Intent;
   private modelPick?: SwitchView["model"];
@@ -238,15 +255,26 @@ export class HarnessSwitch {
   };
   readonly view = (): SwitchView => this.current;
 
-  /// Drops a live config pick once the host echoes the selected value. Keeping this in the
-  /// switch store prevents a late or reconnect snapshot from being masked by an old optimistic
-  /// value.
+  /// Drops a live model or config pick once it has nothing left to draw: the session reports the
+  /// picked value, the agent answered and the session reports a value other than the one the pick
+  /// left (it moved elsewhere: another window, the CLI, a peer, a restart), or the pane shows
+  /// another chat (a fork, a new chat in the pane, a chat picked in the list). A pick kept past any
+  /// of these drew again over the session's own value the next time the session reported the
+  /// value the pick left, after a restore, a reconnect or a return to the chat: the chip named a
+  /// model or level the chat no longer ran (Leo 2026-11-11: "switching models between chats, and
+  /// then the model picker state gets [messed up]").
   reconcile(snapshot: AcpmuxSnapshot): void {
-    const pick = this.configPick;
-    if (!pick || snapshot.sessionId !== pick.sessionId) return;
-    const option = snapshot.summary?.configOptions?.find((item) => item.id === pick.configId);
-    if (option?.currentValue !== pick.value) return;
-    this.configPick = undefined;
+    const model = this.modelPick && settledPick(snapshot, this.modelPick, snapshot.summary?.model);
+    const config =
+      this.configPick &&
+      settledPick(
+        snapshot,
+        this.configPick,
+        snapshot.summary?.configOptions?.find((item) => item.id === this.configPick?.configId)?.currentValue,
+      );
+    if (!model && !config) return;
+    if (model) this.modelPick = undefined;
+    if (config) this.configPick = undefined;
     this.changed();
   }
 
@@ -486,12 +514,19 @@ export class HarnessSwitch {
       this.configPick = pick;
       this.modelPick = undefined;
       this.changed();
-      void port.setConfig(configId, value).catch((error) => {
-        if (this.configPick !== pick) return;
-        this.configPick = undefined;
-        this.changed();
-        this.handlers.notice?.(switchFailedText("model", value, error));
-      });
+      void port.setConfig(configId, value).then(
+        () => {
+          if (this.configPick !== pick) return;
+          this.configPick = { ...pick, answered: true };
+          this.changed();
+        },
+        (error) => {
+          if (this.configPick !== pick) return;
+          this.configPick = undefined;
+          this.changed();
+          this.handlers.notice?.(switchFailedText("model", value, error));
+        },
+      );
       return true;
     }
     this.holdConfig(this.intent, configId, value);
@@ -905,6 +940,8 @@ export function applySwitch(
     if (!config || !summary || summary.sessionId !== config.sessionId) return raw;
     const option = summary.configOptions?.find((item) => item.id === config.configId);
     if (!option || option.currentValue === config.value) return raw;
+    // Answered, and the session reports another value than the pick left: it is the session's.
+    if (config.answered && option.currentValue !== config.from) return raw;
     return {
       ...raw,
       summary: {

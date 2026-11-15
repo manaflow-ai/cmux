@@ -148,6 +148,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-json",
+ "cmux-theme-tokens",
  "core-foundation",
  "core-foundation-sys",
  "notify",
@@ -187,6 +188,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -214,6 +223,10 @@ dependencies = [
  "sha2",
  "time",
 ]
+
+[[package]]
+name = "cmux-theme-tokens"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-unix-socket"
@@ -918,6 +931,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-mcp-connect",
+ "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
  "cmux-unix-socket",

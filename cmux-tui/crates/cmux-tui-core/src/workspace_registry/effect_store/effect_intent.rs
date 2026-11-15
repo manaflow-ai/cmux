@@ -172,7 +172,8 @@ impl WorkspaceRegistry {
     /// A sent intent returned an error. The writer may still commit it
     /// later (an indeterminate receipt), after this request released the
     /// registry: forget the public fold so the next commit cannot prune its
-    /// deltas against a revision that is no longer the journal head.
+    /// deltas against a revision that is no longer the journal head. The
+    /// next use starts the fold again, empty, at the head it then reads.
     pub(crate) fn abandon_effect_commit(&mut self) {
         self.public_fold = None;
     }

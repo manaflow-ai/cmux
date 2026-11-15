@@ -386,11 +386,11 @@ impl transport::Stream for Prefixed {
     }
 
     /// The replayed bytes are readable at once; then the socket's wait.
-    fn wait_readable(&self) -> std::io::Result<()> {
+    fn wait_readable(&self, waiter: &mut transport::ReadWaiter) -> std::io::Result<()> {
         if self.at < self.prefix.len() {
             return Ok(());
         }
-        transport::Stream::wait_readable(&self.inner)
+        transport::Stream::wait_readable(&self.inner, waiter)
     }
 }
 

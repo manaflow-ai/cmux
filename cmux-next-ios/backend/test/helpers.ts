@@ -74,7 +74,10 @@ export const connect = async (tok: string, teamId: string, deviceId: string, via
   let chain = Promise.resolve()
   ws.addEventListener("message", (e) => {
     chain = chain.then(async () => {
-      if (typeof e.data === "string") s.frames.push(JSON.parse(e.data))
+      // "pong" answers the application ping (PROTOCOL.md "Connection setup"); every other text frame is JSON.
+      if (typeof e.data === "string") {
+        if (e.data !== "pong") s.frames.push(JSON.parse(e.data))
+      }
       else s.binary.push(new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : (e.data as ArrayBuffer)))
       waiters.splice(0).forEach((w) => w())
     })

@@ -1067,27 +1067,27 @@ fn refused(reason: &str, why: &str, session: &Session) -> RpcError {
         .with_data(json!({"reason": reason, "lastSeq": last}))
 }
 
-/// Debug builds only: the restore of chat `id` fails once, after its first record (a disk that
+/// Debug and test builds only: the restore of chat `id` fails once, after its first record (a disk that
 /// fills midway), so a test sees a partial restore answered as one and finished by a retry. Armed
 /// per chat, so tests that run at once do not take each other's failure (review of #37284 at
 /// dd52b1d3, F2).
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 static FAIL_ONCE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 #[doc(hidden)]
 pub fn fail_once_after_first_record(id: &str) {
     FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
 }
 
 /// Whether the failure [`fail_once_after_first_record`] armed for chat `id` has not happened yet.
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 #[doc(hidden)]
 pub fn fail_once_armed(id: &str) -> bool {
     FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|armed| armed == id)
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 fn test_fails_here(id: &str, past_first: bool) -> bool {
     if !past_first {
         return false;
@@ -1102,7 +1102,7 @@ fn test_fails_here(id: &str, past_first: bool) -> bool {
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(not(debug_assertions), not(test)))]
 fn test_fails_here(_: &str, _: bool) -> bool {
     false
 }

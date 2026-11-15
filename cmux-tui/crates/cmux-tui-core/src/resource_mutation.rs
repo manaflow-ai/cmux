@@ -64,6 +64,10 @@ pub(crate) struct ResourceMutationPlan {
     /// The deltas are a topology projection's: the commit drops the upserts
     /// the journal already states (the registry's public fold).
     pub(crate) prunes_stated: bool,
+    /// The workspaces of which the deltas state each live value again
+    /// (`ResourceEffectProjection::restated`): the commit marks them whole in
+    /// the registry's public fold.
+    pub(crate) restated: Vec<crate::resource::WorkspacePublicId>,
     state_step: StateStep,
 }
 
@@ -85,6 +89,7 @@ impl ResourceMutationPlan {
             keeps_dock_columns: false,
             restates_all: false,
             prunes_stated: false,
+            restated: Vec::new(),
             state_step: StateStep::Apply(Box::new(apply)),
         }
     }
@@ -209,6 +214,14 @@ impl ResourceMutationPlan {
     pub(crate) fn projected(mut self, restates_all: bool) -> Self {
         self.restates_all = restates_all;
         self.prunes_stated = true;
+        self
+    }
+
+    /// Declare the workspaces that the projection's deltas state again, each
+    /// live value of them (`ResourceEffectProjection::restated`): the commit
+    /// marks them whole in the registry's public fold.
+    pub(crate) fn restating(mut self, workspaces: Vec<crate::resource::WorkspacePublicId>) -> Self {
+        self.restated = workspaces;
         self
     }
 

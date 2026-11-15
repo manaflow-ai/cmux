@@ -1,0 +1,26 @@
+[package]
+name = "acpmux-standalone"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The shipped standalone acpmux binary: acpmux without its build-id feature, the build id stamped in this binary only"
+
+# The packages stage it as `acpmux` (cmux-tui-build-package.yml). Its own name
+# here: a second `acpmux` binary in the workspace would collide with the acpmux
+# package's, which the acpmux tests run (CARGO_BIN_EXE_acpmux).
+[[bin]]
+name = "acpmux-standalone"
+path = "src/main.rs"
+
+[dependencies]
+# Without `build-id`: the acpmux lib then has no per-commit input, and a new
+# commit that leaves acpmux's sources alone recompiles only acpmux-build-id
+# and this binary (acpmux-build-id docs).
+acpmux = { path = "../acpmux", default-features = false }
+acpmux-build-id = { path = "../acpmux-build-id" }
+anyhow = "1"
+
+[lints]
+workspace = true

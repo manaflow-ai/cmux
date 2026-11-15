@@ -102,12 +102,12 @@ export default componentEntry<Props>({
   variants: {
     "turn-check": {
       props: { kind: "turn", look: "check" },
-      note: "Shipped. The chevron's slot draws a check, the label turns green, and both settle back in 700 ms.",
+      note: "Shipped. The chevron's slot draws a check in the row's own quiet ink and gives the chevron back in 700 ms; the label never changes color.",
       play: replay,
     },
     "turn-tint": {
       props: { kind: "turn", look: "tint" },
-      note: "The label's green alone: too quiet to catch at a glance.",
+      note: 'Rejected: the label turns green. A turn that ended is no success state (Leo, 2026-11-14: "why ... does worked for turn green after it\'s done").',
     },
     "turn-shine": {
       props: { kind: "turn", look: "shine" },
@@ -115,7 +115,7 @@ export default componentEntry<Props>({
     },
     "turn-reduced": {
       props: { kind: "turn", look: "check", reduced: true },
-      note: "Reduce Motion: the check and green, still.",
+      note: "Reduce Motion: the check, still, in the row's ink.",
     },
     "ci-ring": {
       props: { kind: "ci", look: "ring" },

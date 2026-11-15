@@ -38,6 +38,13 @@ fn scratch(tag: &str) -> PathBuf {
         ),
     )
     .unwrap();
+    let record_class = format!(
+        "printf '%s\\n' \"${{ACPMUX_SEND_CLASS-unset}}\" >> {}\n",
+        dir.join("classes").display()
+    );
+    let script = fs::read_to_string(&relay).unwrap();
+    fs::write(&relay, script.replacen("#!/bin/sh\n", &format!("#!/bin/sh\n{record_class}"), 1))
+        .unwrap();
     fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     fs::write(
@@ -57,6 +64,7 @@ fn cli_with(dir: &Path, args: &[&str], stdin: Option<&str>) -> Output {
     cmd.args(args)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_SEND_CLASS", "stale-inherited-class")
         .env_remove("ACPMUX_FROM")
         .env_remove("ACPMUX_SESSION_ID")
         .current_dir(dir.join("p"))
@@ -303,4 +311,31 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
         ],
         "the label's name is one line of at most 64 bytes"
     );
+}
+
+#[test]
+fn relay_preserves_explicit_message_class_and_clears_inherited_class() {
+    let dir = scratch("class");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
+    assert!(made.status.success(), "{}", text(&made));
+    for value in ["block", "question", "result", "fyi", "blocker", "action"] {
+        let sent =
+            cli(&dir, &["send", "--no-wait", "--class", value, "far/coordinator", "classed"]);
+        assert!(sent.status.success(), "{}", text(&sent));
+    }
+    let sent = cli(&dir, &["send", "--no-wait", "far/coordinator", "unclassed"]);
+    assert!(sent.status.success(), "{}", text(&sent));
+    // An agent's waiting send infers question for the direct path; that is not explicit relay metadata.
+    let waited =
+        cli(&dir, &["send", "--wait", "--from", "vm/lane", "far/coordinator", "unclassed wait"]);
+    assert!(waited.status.success(), "{}", text(&waited));
+    assert_eq!(
+        fs::read_to_string(dir.join("classes")).unwrap(),
+        "block\nquestion\nresult\nfyi\nblock\nresult\nunset\nunset\n"
+    );
+    let count = relayed(&dir).len();
+    let bad = cli(&dir, &["send", "--no-wait", "--class", "urgent", "far/coordinator", "invalid"]);
+    assert!(!bad.status.success());
+    assert_eq!(relayed(&dir).len(), count, "an invalid class never reaches the relay");
 }

@@ -39,13 +39,41 @@ extension NSWindow {
             standardWindowButton(.miniaturizeButton)?.isHidden = true
             standardWindowButton(.zoomButton)?.isHidden = true
         }
+        nameStandardWindowButtons()
         scope.adopt(self)
         let root: NSView = traits.surface == .backdrop ? WindowSurfaceView(content: content, activeLook: activeLook) : content
         (root as? any WindowSurfacePainting)?.paintWindowSurface(of: self)
         contentView = root
     }
 
+    /// Names the traffic lights. AppKit gives them a subrole and no name, so an accessibility
+    /// client that reads names meets three unnamed buttons in every window (goal a11y-baseline,
+    /// cmuxterm-hq synthetic-probes run 42599053150).
+    public func nameStandardWindowButtons() {
+        let names: [(NSWindow.ButtonType, String)] = [
+            (.closeButton, String(localized: "window.button.close", defaultValue: "Close", bundle: .module)),
+            (.miniaturizeButton, String(localized: "window.button.minimize", defaultValue: "Minimize", bundle: .module)),
+            (.zoomButton, String(localized: "window.button.zoom", defaultValue: "Zoom", bundle: .module)),
+        ]
+        for (type, name) in names {
+            guard let button = standardWindowButton(type), (button.accessibilityLabel() ?? "").isEmpty else { continue }
+            button.setAccessibilityLabel(name)
+        }
+    }
+
     /// The ``ActiveLookScope`` this window's backdrop was given, for a child window (DevTools, page
     /// info) to pass to its own `install`; nil when the window paints no window-kit backdrop.
     public var backdropActiveLook: ActiveLookScope? { (contentView as? any WindowSurfacePainting)?.backdropView.activeLook }
+
+    /// The ``ActiveLookScope`` the glass in this window takes: its backdrop's, else its owner's up
+    /// the parent chain (a menu over an app window, a submenu over that menu). Nil when no window
+    /// up the chain has one: that glass follows the key state.
+    public var inheritedActiveLook: ActiveLookScope? {
+        var window: NSWindow? = self
+        while let current = window {
+            if let scope = current.backdropActiveLook { return scope }
+            window = current.parent
+        }
+        return nil
+    }
 }

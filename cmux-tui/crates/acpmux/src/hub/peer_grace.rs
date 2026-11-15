@@ -4,7 +4,7 @@ use super::*;
 use crate::peer::PeerNotice;
 use tokio::time::{Duration, Instant};
 
-const DROP_GRACE: Duration = Duration::from_secs(10);
+pub(super) const DROP_GRACE: Duration = Duration::from_secs(10);
 
 /// The row deadline of each peer instance's pending outage. Failed retries never
 /// extend or re-arm it. A row, list, ready or restart notice ends it; removal or
@@ -103,6 +103,13 @@ impl Hub {
                         drops.remove(&(peer.clone(), generation));
                         if let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) {
                             current.outage_ended.store(true, Ordering::SeqCst);
+                            self.events.origin_tee(
+                                &peer,
+                                super::peers::peer_origin_state(&current),
+                                crate::store::now_ms(),
+                            );
+                        } else {
+                            continue;
                         }
                         self.mark_peer_unreachable(&peer, generation);
                     }
@@ -151,6 +158,11 @@ impl Hub {
                         drops.contains_key(&key) || current.outage_ended.load(Ordering::SeqCst);
                     if !ongoing {
                         drops.insert(key, Instant::now() + DROP_GRACE);
+                        self.events.origin_tee(
+                            &peer,
+                            super::peers::peer_origin_state(&current),
+                            crate::store::now_ms(),
+                        );
                     }
                     // The outage's first drop by this loop's own record: the link's
                     // attempt count may already be past it.

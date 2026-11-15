@@ -178,7 +178,9 @@ export function RepoRecoveryCard({
   const onAction = (action: RepoRecoveryAction) => {
     switch (action.id) {
       case "connect":
-        if (!recovery.retry) return void (installUrl && open(installUrl));
+        // No access is an install on an organization the account may not own, or a request its owner answers later:
+        // no connect to wait for (GitHub is connected already), so the card keeps its Try again for when it's done.
+        if (!recovery.retry || recovery.code === "repo.no_access") return void (installUrl && open(installUrl));
         return connect(installUrl);
       case "getLink":
         return getLink();

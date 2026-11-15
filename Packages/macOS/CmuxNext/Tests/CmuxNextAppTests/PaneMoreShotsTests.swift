@@ -8,11 +8,10 @@ import CmuxTheme
 import Foundation
 import Testing
 
-/// The pane toolbar's ⋮ next to the sidebar's (#22972, #23003): one `OverflowButton`, so the glyph,
-/// its size and the hover pill should match, with the pill as wide as each host's row of buttons.
-/// Renders both at rest, hovered and pressed, and the pane's lit (zoomed), in a dark, a light and an
-/// accent theme, on an opaque pane and on glass (the pane's color at 60% over
-/// stripes, so a fill that hides the glass shows), into one contact sheet a fleet run returns:
+/// The app's one ⋮ (`OverflowButton`, the sidebar's; #22972, #23003; the pane tab bar's is gone, user
+/// 2026-11-13) at rest, hovered and pressed, in a dark, a light and an accent theme, on an opaque pane
+/// and on glass (the pane's color at 60% over stripes, so a fill that hides the glass shows), into one
+/// contact sheet a fleet run returns:
 /// `cmux-ci run ... --artifact Packages/macOS/CmuxNext/.build/pane-more-shots.png`. The menu's rows draw
 /// only inside a menu window, so `PaneMoreOverflowButtonTests` checks that they are themed instead.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneMoreShotsTests {
@@ -55,7 +54,7 @@ import Testing
         #expect(clay.red - clay.blue > 0.15, "Clay Orange lit \(clay)")
     }
 
-    @Test func bothMoreButtonsRenderToTheContactSheet() throws {
+    @Test func theMoreButtonRendersToTheContactSheet() throws {
         _ = NSApplication.shared
         let original = ThemeScope.app.store.input
         defer { _ = ThemeScope.app.store.apply(original) }
@@ -74,12 +73,12 @@ import Testing
         print("pane-more-shots: wrote \(out.path)")
     }
 
-    /// One theme on one surface: a row per host (sidebar, pane) with a cell per look.
+    /// One theme on one surface: the sidebar's ⋮ in a cell per look.
     static func render(theme: String, glass: Bool) throws -> CGImage {
         let cell: CGFloat = 44, label: CGFloat = 70
         let looks = Look.allCases
         let width = label + CGFloat(looks.count) * cell + 8
-        let height = 2 * cell + 8
+        let height = cell + 8
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -110,7 +109,7 @@ import Testing
             root.layer?.backgroundColor = paneColor.cgColor
         }
         let ink = scope.perform { Palette.textSecondary }
-        for (index, host) in ["sidebar", "pane"].enumerated() {
+        for (index, host) in ["sidebar"].enumerated() {
             let y = height - CGFloat(index + 1) * cell
             let text = NSTextField(labelWithString: host)
             text.font = NSFont.monospacedSystemFont(ofSize: TypeScale.detail, weight: TypeScale.regular)
@@ -119,24 +118,12 @@ import Testing
             root.addSubview(text)
             for (column, look) in looks.enumerated() {
                 let x = label + CGFloat(column) * cell
-                if host == "sidebar" {
-                    guard look != .lit else { continue }
-                    let button = OverflowButton(label: "More")
-                    let side = SidebarStyle.controlSize
-                    button.frame = NSRect(x: x + (cell - side) / 2, y: y + (cell - side) / 2, width: side, height: side)
-                    root.addSubview(button)
-                    apply(look, to: button)
-                } else {
-                    let bar = PaneToolbarView(frame: NSRect(x: x, y: y + (cell - 30) / 2, width: cell, height: 30))
-                    root.addSubview(bar)
-                    bar.show(more: true, lit: look == .lit)
-                    bar.reveal.setPointerInside(true)
-                    // The reveal fades "⋮" in, and an offscreen fade never ends: show it revealed.
-                    bar.moreButton.alphaValue = 1
-                    bar.layoutSubtreeIfNeeded()
-                    bar.moreButton.frame = bar.moreFrame()
-                    apply(look, to: bar.moreButton)
-                }
+                guard look != .lit else { continue }
+                let button = OverflowButton(label: "More")
+                let side = SidebarStyle.controlSize
+                button.frame = NSRect(x: x + (cell - side) / 2, y: y + (cell - side) / 2, width: side, height: side)
+                root.addSubview(button)
+                apply(look, to: button)
             }
         }
         window.orderFrontRegardless()

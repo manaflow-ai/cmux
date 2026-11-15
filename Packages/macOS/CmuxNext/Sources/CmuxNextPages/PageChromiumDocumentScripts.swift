@@ -50,6 +50,40 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
         """
     }
 
+    /// Chromium's DPR includes page zoom. Publish the rendered zoom during resize, before paint:
+    /// the host's sizing script and SetZoomLevel travel over separate asynchronous channels.
+    static func pageZoomScript(backingScale: Double) -> String {
+        """
+        (() => {
+          if (window !== window.top) return;
+          if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(\(backingScale)); return; }
+          let deviceScale = \(backingScale);
+          const sync = (nextDeviceScale) => {
+            if (Number.isFinite(nextDeviceScale) && nextDeviceScale > 0) deviceScale = nextDeviceScale;
+            const root = document.documentElement;
+            if (!root) return;
+            const zoom = window.devicePixelRatio / deviceScale;
+            if (!Number.isFinite(zoom) || zoom <= 0) return;
+            const value = String(zoom);
+            if (root.style.getPropertyValue('--cmux-ui-scale') === value) return;
+            root.style.setProperty('--cmux-ui-scale', value);
+            window.dispatchEvent(new Event('cmux-ui-scale-change'));
+          };
+          window.__cmuxSyncPageZoom = sync;
+          window.addEventListener('resize', () => sync());
+          if (!document.documentElement) {
+            const observer = new MutationObserver(() => {
+              if (!document.documentElement) return;
+              observer.disconnect();
+              sync();
+            });
+            observer.observe(document, { childList: true, subtree: true });
+          }
+          sync();
+        })();
+        """
+    }
+
     /// A file drop the host takes (``PageWebView/fileDrop``). WebKit hands such a drag to the host
     /// before the page sees it; in Chromium the host learns the drag's files when it enters
     /// (``PageChromiumEvent/filesDragged(_:)``) and turns this script on with

@@ -74,7 +74,7 @@ func scaled(_ buffer: CVPixelBuffer) -> CGImage? {
           let data = context.data else { return nil }
     var destination = vImage_Buffer(data: data, height: vImagePixelCount(size.1), width: vImagePixelCount(size.0),
                                     rowBytes: context.bytesPerRow)
-    guard vImageScale_ARGB8888(&source, &destination, nil, vImage_Flags(kvImageHighQualityResampling)) == kvImageNoError else { return nil }
+    guard vImageScale_ARGB8888(&source, &destination, nil, vImage_Flags(kvImageNoFlags)) == kvImageNoError else { return nil } // as ComputerUseFrameRing.scaled
     return context.makeImage()
 }
 
@@ -152,11 +152,13 @@ while Date() < end {
             }
         }
     }
+    // Fixed one-second buckets, each stamped at its end as rd's series is (eval.py takes a row as
+    // one second and keeps rows whose stamp falls in a phase): a late tick never stretches a bucket.
     let now = unixMs()
-    if now - second.start >= 1000 {
-        series.append(["unix_ms": second.start, "bytes": second.bytes, "frames": second.frames,
+    while now >= second.start + 1000 {
+        series.append(["unix_ms": second.start + 1000, "bytes": second.bytes, "frames": second.frames,
                        "encode_ms": p50(second.ms) as Any])
-        second = (now, 0, 0, [])
+        second = (second.start + 1000, 0, 0, [])
     }
     let wait = next.timeIntervalSinceNow
     if wait > 0 { Thread.sleep(forTimeInterval: wait) }

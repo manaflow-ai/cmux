@@ -78,7 +78,7 @@ async fn the_kept_order_is_every_chat_sorted_after_every_kind_of_change() {
     hub.sessions.lock().unwrap().remove("s4");
     check(&hub, "a session taken out with no position");
     hub.edit_test_meta(s0, |m| m.updated_at = 1_000);
-    hub.events.changed();
+    hub.events.changed(None);
     check(&hub, "a barrier");
 }
 

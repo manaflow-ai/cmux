@@ -124,7 +124,7 @@ jobs:
     # re-run), then Blacksmith. iOS builds stay on Blacksmith: the side runners
     # do not carry the glaeda-ios-sim capability (an iOS Simulator runtime).
     # Any other label is honored.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26)) || startsWith(inputs.runner, 'depot-') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) || inputs.runner) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || (needs.resolve-ref.outputs.trusted_ref != 'true' && fromJSON(vars.RUNNER_POOLS).macos_26 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26))) || startsWith(inputs.runner, 'depot-') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.resolve-ref.outputs.trusted_ref != 'true' && fromJSON(vars.RUNNER_POOLS).macos_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26)) || inputs.runner) }}
     timeout-minutes: 60
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
@@ -263,7 +263,22 @@ jobs:
             ghostty_source=ghostty-next
           fi
           ghostty_sha="$(git rev-parse "HEAD:$ghostty_source")"
-          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$client_commit" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
+          # The commit path is an alias of a tree-addressed build: the client under
+          # cmux-tui/<client_commit>/ may have been built at another commit with the
+          # same cmux-tui and Ghostty trees, and it reports that commit (run
+          # 43685975924: 1c111e8b439's client is 45ad74a874d's build). Such a build is
+          # this tree's client; any other identity is still refused below.
+          identity="$(printf '%s' "$probe" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("build_identity") or "")')"
+          expected_identity="$client_commit"
+          if [[ "$identity" != "$client_commit" && "$identity" =~ ^[0-9a-f]{40}$ ]]; then
+            git cat-file -e "$identity^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$identity" || true
+            if git cat-file -e "$identity^{commit}" 2>/dev/null \
+              && git diff --quiet "$identity" HEAD -- cmux-tui ghostty ghostty-next; then
+              echo "The cmux-tui client published for $client_commit was built at $identity, with the same cmux-tui and Ghostty trees."
+              expected_identity="$identity"
+            fi
+          fi
+          PROBE="$probe" VERSION="$version" EXPECTED_COMMIT="$expected_identity" EXPECTED_GHOSTTY="$ghostty_sha" python3 - <<'PYVERIFY'
           import json
           import os
 

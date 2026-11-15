@@ -110,4 +110,35 @@ CMUX_ACTION_EXPORTS_REGEN="$CMUX_ACTION_EXPORTS_REGEN; grep -q '^E\$' $src || cp
   || fail "(i) failed: $(cat "$tmp/out.txt")"
 git diff --quiet -- plans/cmux-next/actions.md || fail "(i) the base's actions.md was left in the checkout"
 products_are_heads "(i)"
+
+# (j) The job built HEAD itself (CMUX_NEXT_JOB_BUILT=plain): HEAD's build is kept aside and put back,
+# so the base is built once and HEAD never again, with the same verdicts and HEAD's products after.
+counted="echo build >> $tmp/builds; $CMUX_ACTION_EXPORTS_BUILD"
+repo 's/^a$/A/' no 's/^e$/E/' yes
+: > "$tmp/builds"
+CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge || fail "(j) failed: $(cat "$tmp/out.txt")"
+grep -q 'base drift' "$tmp/out.txt" || fail "(j) no base drift warning: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(j) built $(wc -l < "$tmp/builds") times, not once (the base's)"
+products_are_heads "(j)"
+[[ ! -e "$pkg/.build-action-exports-head" ]] || fail "(j) the kept build was left beside .build"
+repo '' no 's/^e$/E/' no
+: > "$tmp/builds"
+if CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="$counted" judge; then fail "(j) a change's own stale export passed"; fi
+grep -q "leaves action exports stale.*$out" "$tmp/out.txt" || fail "(j) no error naming $out: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(j) built $(wc -l < "$tmp/builds") times on a stale change"
+products_are_heads "(j)"
+# An unbuildable base still gets HEAD's kept products back, with no rebuild.
+repo 's/^a$/A/' no 's/^e$/E/' no
+: > "$tmp/builds"
+CMUX_NEXT_JOB_BUILT=plain CMUX_ACTION_EXPORTS_BUILD="echo build >> $tmp/builds; grep -q '^E$' $src || exit 1; $CMUX_ACTION_EXPORTS_BUILD" judge \
+  && fail "(j) passed with an unbuildable base"
+grep -q "does not build here" "$tmp/out.txt" || fail "(j) wrong reason: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 1 ]] || fail "(j) rebuilt HEAD after an unbuildable base"
+products_are_heads "(j)"
+# Without the variable the restore still rebuilds HEAD (the base build, then HEAD's).
+repo 's/^a$/A/' no 's/^e$/E/' yes
+: > "$tmp/builds"
+CMUX_ACTION_EXPORTS_BUILD="$counted" judge || fail "(j) failed without the variable: $(cat "$tmp/out.txt")"
+[[ "$(wc -l < "$tmp/builds")" -eq 2 ]] || fail "(j) built $(wc -l < "$tmp/builds") times without a kept build, not twice"
+products_are_heads "(j)"
 echo "judge-action-exports: ok"

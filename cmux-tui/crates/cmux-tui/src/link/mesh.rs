@@ -1,34 +1,67 @@
 //! The overlay of a running link: one `cmux_wg::WgMesh` (one key, one UDP
-//! socket, one WireGuard session per paired peer).
+//! socket, one WireGuard session per paired peer). After the link adopted the
+//! node key, the peers not told yet stay on the retired key
+//! (`key_adoption.rs`).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use cmux_link::pairing::Pairings;
+use cmux_link::pairing::{PairingRecord, Pairings};
 use cmux_wg::{IpNetwork, PeerRoute, WgMesh, WgMeshListener, WgPeer, WgStream};
 
 use super::control::OverlayListener;
 use super::dial::Overlay;
+use super::key_adoption::RetiringPeers;
 use super::locked;
 
 /// Keepalives hold NAT mappings open on direct paths.
 const KEEPALIVE_SECONDS: u16 = 25;
 
-/// What the mesh was given for one peer, to skip unchanged peers on reload.
-type PeerShape = (Vec<IpNetwork>, Option<SocketAddr>);
+/// What the mesh was given for one peer, to skip unchanged peers on reload:
+/// its networks, its endpoint and whether it is on the retired key.
+type PeerShape = (Vec<IpNetwork>, Option<SocketAddr>, bool);
 
 pub(super) struct MeshOverlay {
     mesh: WgMesh,
     /// The peers the mesh holds now, updated after each step so a failed
     /// sync never forgets a peer it added.
     peers: Mutex<HashMap<[u8; 32], PeerShape>>,
+    /// The installs whose session stays on the retired key (a mesh started
+    /// with `WgMesh::start_retiring`).
+    retiring: Arc<RetiringPeers>,
 }
 
 impl MeshOverlay {
     pub(super) fn new(mesh: WgMesh) -> Self {
-        Self { mesh, peers: Mutex::new(HashMap::new()) }
+        Self { mesh, peers: Mutex::new(HashMap::new()), retiring: Arc::default() }
+    }
+
+    /// The installs kept on the retired key from the next sync on.
+    pub(super) fn set_retiring(&self, installs: BTreeSet<String>) {
+        self.retiring.set(installs);
+    }
+
+    /// Test only: whether the mesh holds a peer with `key` now.
+    #[cfg(test)]
+    pub(super) fn holds(&self, key: &[u8; 32]) -> bool {
+        locked(&self.peers).contains_key(key)
+    }
+
+    /// A handshake from the current key to `record`'s peer, while its
+    /// session stays on the retired key: whether the peer answered within
+    /// `wait` (it then is on the current key). The retired session carries
+    /// the peer throughout.
+    pub(super) async fn probe_current(&self, record: &PairingRecord, wait: Duration) -> bool {
+        let Some(key) = record.key() else { return false };
+        matches!(tokio::time::timeout(wait, self.mesh.probe_current(key)).await, Ok(Ok(true)))
+    }
+
+    /// Who stays on the retired key, shared with the inbound rekeys.
+    pub(super) fn retiring(&self) -> Arc<RetiringPeers> {
+        self.retiring.clone()
     }
 
     pub(super) async fn listen(&self, port: u16) -> io::Result<WgMeshListener> {
@@ -41,13 +74,17 @@ impl MeshOverlay {
 }
 
 /// The mesh shape of every paired peer.
-fn wanted(pairings: &Pairings) -> io::Result<HashMap<[u8; 32], PeerShape>> {
+fn wanted(
+    pairings: &Pairings,
+    retiring: &BTreeSet<String>,
+) -> io::Result<HashMap<[u8; 32], PeerShape>> {
     let mut wanted = HashMap::new();
     for record in &pairings.peers {
         let Some(public_key) = record.key() else { continue };
         let network =
             IpNetwork::new(IpAddr::V6(record.overlay_address()), 128).map_err(io::Error::other)?;
-        wanted.insert(public_key, (vec![network], record.endpoint));
+        let retired = retiring.contains(&record.install);
+        wanted.insert(public_key, (vec![network], record.endpoint, retired));
     }
     Ok(wanted)
 }
@@ -63,7 +100,8 @@ impl Overlay for MeshOverlay {
     /// keeps its install's `/128`, which would overlap). Replace endpoint-only
     /// changes in place so the stack preserves the same peer's streams.
     async fn sync_peers(&self, pairings: &Pairings) -> io::Result<()> {
-        let wanted = wanted(pairings)?;
+        let retiring = self.retiring.installs();
+        let wanted = wanted(pairings, &retiring)?;
         let current = locked(&self.peers).clone();
         for (key, shape) in &current {
             if wanted.get(key).is_none_or(|next| next.0 != shape.0) {
@@ -83,7 +121,12 @@ impl Overlay for MeshOverlay {
                 candidates: Vec::new(),
                 persistent_keepalive: Some(KEEPALIVE_SECONDS),
             };
-            self.mesh.add_peer(peer).await.map_err(io::Error::other)?;
+            let added = if shape.2 {
+                self.mesh.add_peer_on_retired_key(peer).await
+            } else {
+                self.mesh.add_peer(peer).await
+            };
+            added.map_err(io::Error::other)?;
             locked(&self.peers).insert(key, shape);
         }
         Ok(())

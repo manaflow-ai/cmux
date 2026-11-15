@@ -1283,7 +1283,10 @@ UNKNOWN_SCRIPT = "-c ?"
 
 def _script_index(values: list[str]) -> int | str | None:
     """The index in VALUES (a shell's words, its name first, quotes removed) of the script it runs with -c, read as
-    shell_string() says; UNKNOWN_SCRIPT when an option only a run can tell may hold c, None when no -c is given."""
+    shell_string() says; UNKNOWN_SCRIPT when an option only a run can tell may hold c, None when no -c is given or
+    the shell refuses its options. An option group is one argument: a character in it that is no option letter (a
+    space, a digit, a -) makes bash and sh refuse the whole command line and run nothing, so `bash '-c c1' c2` and
+    `env -S bash '-c c1' c2` run no c2 (upstream #4647 review, F1)."""
     c, i = False, 1
     while i < len(values):
         word = values[i]
@@ -1296,6 +1299,8 @@ def _script_index(values: list[str]) -> int | str | None:
         if word[:1] in "-+" and len(word) > 1 or word == "+":  # a lone + is an empty option group: bash -c + T runs T
             if "\0" in word:
                 return UNKNOWN_SCRIPT if c or "c" in word else None
+            if not all(ch.isascii() and ch.isalpha() for ch in word[1:]):
+                return None  # "-c c1": an invalid option, so the shell exits with its usage and runs nothing
             c = c or (word[0] == "-" and "c" in word[1:])
             i += word[1:].count("o") + word[1:].count("O")  # each o or O takes the next word: -o N, +O N, -coo A B
             continue
@@ -2617,23 +2622,29 @@ PROCESS_BUDGET = 64
 
 # Runs bash (argv[3:]) in a session of its own, writes its pid to argv[2], and waits for it and every process it
 # leaves: as the child subreaper (Linux), every orphan of the run is its child, a setsid one included, so it waits
-# until none is left. Past argv[1] seconds it kills every process below it, and exits 124. Elsewhere it kills bash's
-# process group and what /proc or ps shows below it. It waits for SIGCHLD with sigtimedwait where the host has it, and
-# else sleeps a few milliseconds between reaps (macOS has no sigtimedwait: cmux#41809 review, F2). It exits 0 when
-# every process is reaped and 124 past its time; any other status (a crash) is no answer (bash_writes()).
+# until none is left. Bash runs in a session and process group of its own, and the reaper also waits until that group
+# is empty: where it is no subreaper (macOS), a process bash leaves in the background is init's child, never its own,
+# and only the group still holds it (upstream #4647 review, F2). Past argv[1] seconds it kills the group and every
+# process below it, and exits 124. It waits for SIGCHLD with sigtimedwait where the host has it, and else sleeps a few
+# milliseconds between checks (macOS has no sigtimedwait: cmux#41809 review, F2). It writes "PID SUBREAPER" (1 or 0)
+# to argv[2]. Where it is no subreaper, a process that leaves the group (setsid, job control) is out of its sight:
+# with SHELL_TREE_NEEDS_SUBREAPER set it runs nothing and exits 126. It exits 0 when bash and every process it left
+# are gone; any other status (a crash) is no answer (bash_writes()). It owns bash from the moment it starts it: an
+# error anywhere after that, the pid write included, kills bash's group and every process below the reaper (what it
+# adopted, a setsid one included) before it exits 1, since once it is gone they are init's and nothing holds them
+# (cmux#41862 review, F1; upstream #4657 review, F2).
 REAPER = r"""
 import ctypes, os, signal, subprocess, sys, time
 deadline = time.monotonic() + float(sys.argv[1])
 try:
-    ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0)  # PR_SET_CHILD_SUBREAPER
+    subreaper = ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) == 0  # PR_SET_CHILD_SUBREAPER
 except (AttributeError, OSError):
-    pass
+    subreaper = False
+if not subreaper and os.environ.get("SHELL_TREE_NEEDS_SUBREAPER"):
+    os._exit(126)
 wait = getattr(signal, "sigtimedwait", None)
 if wait:
     signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGCHLD])
-bash = subprocess.Popen(sys.argv[3:], start_new_session=True, env=dict(os.environ, SHELL_TREE_ROOT=str(os.getpid())))
-with open(sys.argv[2], "w") as f:
-    f.write(str(bash.pid))
 
 
 def below():
@@ -2668,26 +2679,71 @@ def reap(block):
         return False
 
 
-while reap(False):
-    left = deadline - time.monotonic()
-    if left <= 0:
+# Whether a process (a zombie init has not reaped yet included) is left in bash's process group; True when the check
+# itself fails, so a doubt is never read as empty.
+def group():
+    try:
+        os.killpg(bash.pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def kill_group():
+    try:
+        os.killpg(bash.pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+# Kill bash's group and every process below the reaper until it has no child left, then wait (5 s at most) for the
+# group to empty. A below() that fails still kills the group and reaps what is left.
+def kill_all():
+    kill_group()
+    while True:
         try:
-            os.killpg(bash.pid, signal.SIGKILL)
-        except OSError:
-            pass
-        while True:
-            for pid in below():
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
-            if not reap(True):
-                os._exit(124)
-    if wait:
-        wait([signal.SIGCHLD], min(left, 0.05))
-    else:
-        time.sleep(min(left, 0.005))
-os._exit(0)
+            pids = below()
+        except Exception:
+            pids = []
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        kill_group()
+        if not reap(True):
+            break
+    end = time.monotonic() + 5
+    while group() and time.monotonic() < end:
+        kill_group()
+        time.sleep(0.01)
+
+
+def run():
+    with open(sys.argv[2], "w") as f:
+        f.write("%d %d\n" % (bash.pid, subreaper))
+    while True:
+        kids = reap(False)
+        if not kids and not group():
+            os._exit(0)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            kill_all()
+            os._exit(124)
+        if kids and wait:
+            wait([signal.SIGCHLD], min(left, 0.05))
+        else:
+            time.sleep(min(left, 0.005))
+
+
+bash = subprocess.Popen(sys.argv[3:], start_new_session=True, env=dict(os.environ, SHELL_TREE_ROOT=str(os.getpid())))
+try:
+    run()
+except BaseException:
+    kill_all()
+    os._exit(1)
 """
 # How long past its own deadline the reaper may take to stop before its own group is killed.
 REAPER_GRACE = 5
@@ -2707,6 +2763,9 @@ def below(root: int) -> list[tuple[int, str]]:
     else:
         ps = subprocess.run(["ps", "-Ao", "pid=,ppid=,state="], stdin=subprocess.DEVNULL, capture_output=True,
                             text=True, timeout=10)
+        if ps.returncode != 0:
+            # A failed ps is no answer: an empty or cut-off list would read as "nothing left below ROOT".
+            raise OSError(f"ps exited {ps.returncode}: cannot tell what is below {root}")
         for line in ps.stdout.split("\n"):
             if len(line.split()) == 3:
                 pid, ppid, state = line.split()
@@ -2723,34 +2782,61 @@ def kill_below(root: int, seconds: float = REAPER_GRACE) -> list[int]:
     """SIGKILL every process below ROOT, again as long as one is left (a fork between reads), for at most SECONDS; the
     pids of those still alive then (none, unless one cannot die). A zombie is dead: ROOT reaps it, or init once ROOT
     is gone."""
+    why = signal_refusal(root)
+    if why:
+        raise PermissionError(why)
     end = time.monotonic() + seconds
     while True:
-        live = [pid for pid, state in below(root) if state != "Z"]
+        try:
+            tree = below(root)
+        except OSError:
+            # Cannot tell what is left: try again until the deadline, then say so rather than report none.
+            if time.monotonic() >= end:
+                raise
+            time.sleep(0.01)
+            continue
+        live = [pid for pid, state in tree if state != "Z"]
         if not live or time.monotonic() >= end:
             return live
         for pid in live:
             try:
-                os.kill(pid, signal.SIGKILL)
+                _safe_kill(pid)
             except OSError:
                 pass
         time.sleep(0.01)
 
 
+PID_LINE = re.compile(r"([1-9][0-9]*) ([01])\n?")
+
+
+def read_pid(pidfile: str) -> tuple[int | None, bool | None]:
+    """(bash's pid, whether the reaper is a child subreaper) from the reaper's PIDFILE: (None, None) when it is
+    missing, or holds anything but the one line the reaper writes, "PID SUBREAPER" with SUBREAPER 1 or 0 (it never
+    wrote it, died mid-write, or something else did). A pid read from other text would name a process to kill
+    (stop_run()), so a doubt is no pid (cmux#41925 review, F1: `123 nope` and `123 0 extra` named pid 123)."""
+    try:
+        with open(pidfile) as f:
+            got = PID_LINE.fullmatch(f.read())
+    except (OSError, ValueError):
+        return None, None
+    if not got or int(got[1]) <= 1:
+        return None, None
+    return int(got[1]), got[2] == "1"
+
+
 def stop_run(pidfile: str) -> None:
     """SIGKILL the bash run whose pid PIDFILE holds (none when it is empty or missing), what is below it, and its
     process group: what a reaper that failed left running."""
-    try:
-        with open(pidfile) as f:
-            pid = int(f.read() or 0)
-    except (OSError, ValueError):
+    pid, _ = read_pid(pidfile)
+    if pid is None:
         return
-    if pid <= 0:
-        return
-    kill_below(pid)
     try:
-        os.killpg(pid, signal.SIGKILL)
-    except OSError:
-        pass
+        kill_below(pid)
+    finally:
+        try:
+            _safe_killpg(pid)
+        except OSError:
+            pass
 
 
 class OracleUnavailable(RuntimeError):
@@ -2776,6 +2862,86 @@ class BashTimeout(OracleUnavailable):
                               f"killed: {text}")
         self.reason, self.text, self.skipped = f"bash ran past its {timeout:g} s budget (ORACLE_SECONDS)", text, False
         self.pgid = pgid
+
+
+# Words in TEXT that may start a process outside bash's process group, which only a child subreaper (Linux) sees:
+# setsid, and job control (set -m, set -o monitor, a shell's own -i, -m or -o monitor), read in leaves_group()'s
+# plain text. A set or eval with a word only a run can tell ($o, $(...), `...`, $'...'), or a shell with one among its
+# options, may turn job control on too.
+_SHELL_OPTIONS = (r"(?<![\w.-])(?:ba|da|z|k|mk|a)?sh"
+                  r"(?:\s+(?:--[\w-]+|[-+][oO]\s+[^\s;|&-][^\s;|&]*|[-+][A-Za-z]+))*?\s+")
+_DYNAMIC_EXECUTABLE = (r"(?:^|[;&|]\s*)(?:(?:[A-Za-z_]\w*=)[^\s;&|]*\s+)*(?:\$\(|\$\{|\$[A-Za-z_]\w*|`)"
+                       r"|(?<![\w.-])env\b[^\n;|&]*\s(?:-S|--split-string(?:=|\s))\s*"
+                       r"(?:\$\(|\$\{|\$[A-Za-z_]\w*|`)")
+LEAVES_GROUP = re.compile(_DYNAMIC_EXECUTABLE + r"|(?<![\w.-])setsid(?![\w.-])|\bset\b[^\n;|&]*"
+                          r"(?:\s[-+][A-Za-z]*m|\bmonitor\b)|" + _SHELL_OPTIONS
+                          + r"(?:[-+][A-Za-z]*[im][A-Za-z]*(?![\w-])|[-+]o\s+monitor\b|--login\b|--interactive\b)|"
+                          r"\b(?:set|eval)\b[^\n;|&]*[$`]|" + _SHELL_OPTIONS + r"[-+]?[$`]")
+
+
+def leaves_group(text: str) -> bool:
+    """Whether TEXT may start a process outside bash's process group (LEAVES_GROUP), read as bash reads it: a
+    continued line joined, and quotes and backslashes taken out, so set '-m', s'e't -m and set -o mon''itor are set -m
+    and set -o monitor; an ANSI-C $'...' keeps its $ and is a word only a run can tell. A doubt is True: such a run is
+    then never made where the reaper is no subreaper (upstream #4657 review, F1). The parser supplements the text
+    check for a dynamic executable hidden behind command, env, nice or another wrapper, including in a compound
+    command; an unresolved wrapped command is unsafe because it may be a shell with job control."""
+    plain = re.sub(r"[\"'\\]", "", text.replace("\\\n", ""))
+    if LEAVES_GROUP.search(plain):
+        return True
+    try:
+        tree = parse(text)
+        for cmd in commands(tree):
+            run = resolve(text, cmd)
+            if run.words is UNRESOLVED or run.words and "\0" in run.values[0]:
+                return True
+    except Unparsed:
+        return True
+    return False
+
+
+def signal_refusal(target, group: bool = False) -> str:
+    """Refuse wide targets and the user manager, including a manager inside a target group.
+
+    Kept self-contained because this module is vendored without workspace helpers.
+    """
+    if not isinstance(target, int) or isinstance(target, bool) or target <= 1:
+        return f"refusing non-process target {target!r}"
+    members = [target]
+    if group and os.path.isdir('/proc/self'):
+        for name in os.listdir('/proc'):
+            if not name.isdigit():
+                continue
+            try:
+                with open(f'/proc/{name}/stat') as f:
+                    fields = f.read().rsplit(')', 1)[1].split()
+                if int(fields[2]) == target:
+                    members.append(int(name))
+            except (OSError, ValueError, IndexError):
+                continue
+    for pid in members:
+        try:
+            with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                argv = f.read().split(b'\0')
+        except OSError:
+            continue
+        if argv and os.path.basename(argv[0]) == b'systemd' and b'--user' in argv[1:]:
+            return f'refusing the user manager (pid {pid})'
+    return ""
+
+
+def _safe_kill(pid: int) -> None:
+    why = signal_refusal(pid)
+    if why:
+        raise PermissionError(why)
+    os.kill(pid, signal.SIGKILL)
+
+
+def _safe_killpg(pgid: int) -> None:
+    why = signal_refusal(pgid, group=True)
+    if why:
+        raise PermissionError(why)
+    os.killpg(pgid, signal.SIGKILL)
 
 
 # The wrappers that stay as a process of their own around the command they run (timeout and GNU time wait for it;
@@ -2942,6 +3108,8 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
             # bash's own messages go to a file, so a fork that failed is told from an answer (cmux#41336 review)
             f.write(f"exec 2>>'{errors}'\n" + script)
         env = {"PATH": bindir, "HOME": root, "USER": "u", "LC_ALL": "C", "TMPDIR": tmp}
+        if leaves_group(text):
+            env["SHELL_TREE_NEEDS_SUBREAPER"] = "1"  # the reaper refuses to run it where it cannot see such a process
         peak_log = os.path.join(root, "peak")
         if stats is not None:
             env["SHELL_TREE_PEAK"] = peak_log
@@ -2960,16 +3128,28 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
             # The reaper outlived its own deadline. What it holds is killed first: once it is gone, its children (a
             # setsid one included, in a session of its own) would be init's and out of reach (upstream #4441 review,
             # F6).
-            kill_below(run.pid)
-            os.killpg(run.pid, signal.SIGKILL)
+            try:
+                kill_below(run.pid)
+            finally:
+                _safe_killpg(run.pid)
             try:
                 run.wait(timeout=REAPER_GRACE)
             except subprocess.TimeoutExpired:
                 pass  # it cannot die (uninterruptible): BashTimeout names the fixture all the same
             code = 124
+        pid, _ = read_pid(pidfile)
+        if code == 126:
+            raise OracleUnavailable("the run may leave bash's process group (setsid, job control), and this host's "
+                                    "reaper is no child subreaper to see such a process", text, skipped=True)
         if code == 124:
-            with open(pidfile) as f:
-                raise BashTimeout(text, timeout, int(f.read() or 0)) from None
+            if pid is None:
+                # Its pid was never written: nothing is known of the run but what the reaper held, killed above
+                # (cmux#41862 review, F2: this read crashed on a missing file).
+                stop_run(pidfile)
+                raise OracleUnavailable("the reaper ran past its time and wrote no pid", text)
+            raise BashTimeout(text, timeout, pid)
+        if code == 0 and pid is None:
+            raise OracleUnavailable("the reaper exited 0 but wrote no pid: whether bash ran cannot be told", text)
         if code != 0:
             # The reaper failed (it raised, or was killed): bash and what it left may still run, and the scratch
             # folder holds no answer. Stop them, and answer nothing: a crash is never a verdict (cmux#41809 review,
@@ -3016,17 +3196,51 @@ TREE_ONLY = {
 }
 
 
+# Each capability (CAPABILITIES) with the text that may need it, for a row the tree cannot parse: needs() names none
+# there, so the oracle reads the words, and a host without one skips the row rather than run it.
+CAPABILITY_WORDS = {
+    "setsid": re.compile(r"(?<![\w.-])setsid(?![\w.-])"),
+    "timeout": re.compile(r"(?<![\w.-])timeout(?![\w.-])"),
+    "stdbuf": re.compile(r"(?<![\w.-])stdbuf(?![\w.-])"),
+    "gnu-time": re.compile(r"(?<![\w.-])time(?![\w.-])"),
+    "env-split": re.compile(r"(?<![\w.-])env(?![\w.-]).*(?:\s-\w*S|--split-string|--sp)"),
+    "coproc": re.compile(r"(?<![\w.-])coproc(?![\w.-])"),
+}
+
+
+def oracle_needs(text: str) -> list[str]:
+    """needs(TEXT), or, when TEXT does not parse, each capability whose words (CAPABILITY_WORDS) it holds: a row the
+    tree cannot read never runs without what it may need (a run without setsid is "command not found", a verdict
+    on a different script)."""
+    try:
+        programs(text)
+    except Unparsed:
+        # A continued line is one line to bash, so `env \` with -S on the next is env -S (cmux#41925 review, F2).
+        joined = text.replace("\\\n", "")
+        return [c for c, words in CAPABILITY_WORDS.items() if words.search(joined)]
+    return needs(text)
+
+
 def oracle(text: str, timeout: float = ORACLE_SECONDS, missing=None) -> bool:
     """bash_writes(TEXT) within the row's budget: True or False, else raises OracleUnavailable with why there is none.
-    MISSING, when given, maps a capability (needs()) to why this host lacks it, or None: a row that needs one it lacks
-    is never run, and its OracleUnavailable is SKIPPED."""
-    for capability in needs(text) if missing else ():
-        why = missing(capability)
-        if why:
-            raise OracleUnavailable(f"needs {capability}: {why}", text, skipped=True)
-    wrote = bash_writes(text, timeout=timeout)  # past MAX_BASH_PROCESSES it raises OracleUnavailable, never runs
+    MISSING, when given, maps a capability (oracle_needs()) to why this host lacks it, or None: a row that needs one
+    it lacks is never run, and its OracleUnavailable is SKIPPED. Any other error of the run (a ValueError for a
+    shadowed mktemp with env -i, an OSError, a bug) is this row's OracleUnavailable, named by its type and message,
+    never a crash of every row and never a verdict (cmux#41862 review, F1)."""
+    try:
+        for capability in oracle_needs(text) if missing else ():
+            why = missing(capability)
+            if why:
+                raise OracleUnavailable(f"needs {capability}: {why}", text, skipped=True)
+        wrote = bash_writes(text, timeout=timeout)  # past MAX_BASH_PROCESSES it raises OracleUnavailable, never runs
+    except OracleUnavailable:
+        raise
+    except Exception as error:
+        raise OracleUnavailable(f"the oracle raised {type(error).__name__}: {error}", text) from error
     if wrote is None:
         raise OracleUnavailable("bash -n refuses it", text)
+    if not isinstance(wrote, bool):
+        raise OracleUnavailable(f"the oracle answered {wrote!r}, not True or False", text)
     return wrote
 
 
@@ -3045,7 +3259,10 @@ def bash_verdicts(texts: list[str], timeout: float = ORACLE_SECONDS, missing=Non
     free = [PROCESS_BUDGET]
 
     def one(text: str):
-        cost = min(bash_processes(text), MAX_BASH_PROCESSES)
+        try:
+            cost = min(bash_processes(text), MAX_BASH_PROCESSES)
+        except Exception:  # oracle() names the row's error; its cost is the most a row may hold
+            cost = MAX_BASH_PROCESSES
         with room:
             room.wait_for(lambda: free[0] >= cost)
             free[0] -= cost

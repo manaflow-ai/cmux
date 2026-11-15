@@ -1,14 +1,28 @@
+#if os(iOS)
+import CmuxMobileDesign
+#endif
 import SwiftUI
 
 /// A small tokenizer: comments, strings, numbers, keywords, types, HTML tags. Linear in the
 /// line: one pass marks each character's role, then runs of one role become one attribute run.
 struct SyntaxHighlighter {
+    #if os(iOS)
+    // The chat's syntax palette, which follows light and dark (the viewer draws on
+    // .secondarySystemBackground, near-white in light mode).
+    static let keywordColor = Color.cmuxMobileSyntaxKeyword
+    static let stringColor = Color.cmuxMobileSyntaxString
+    static let commentColor = Color.cmuxMobileSyntaxComment
+    static let numberColor = Color.cmuxMobileSyntaxNumber
+    static let typeColor = Color.cmuxMobileSyntaxType
+    static let tagColor = Color.cmuxMobileSyntaxType
+    #else
     static let keywordColor = Color(red: 0.99, green: 0.37, blue: 0.64)
     static let stringColor = Color(red: 0.99, green: 0.42, blue: 0.36)
     static let commentColor = Color(red: 0.42, green: 0.47, blue: 0.53)
     static let numberColor = Color(red: 0.82, green: 0.75, blue: 0.43)
     static let typeColor = Color(red: 0.36, green: 0.85, blue: 0.95)
     static let tagColor = Color(red: 0.36, green: 0.85, blue: 0.95)
+    #endif
 
     static let keywords: Set<String> = [
         "func", "let", "var", "if", "else", "for", "while", "return", "import", "struct", "class", "enum", "case",

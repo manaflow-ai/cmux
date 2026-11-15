@@ -34,10 +34,16 @@ The upload job then `needs: [app-source, review-gate]` with `if: always() && ...
 `blocking` output is the number of blocking findings.
 
 A called or dispatched run (a submission) fails on any blocker. A direct
-feat-cmux-next push or pull request run judges the whole app at that commit,
-not the change that started it, so it reports the same ranked list in its
-summary and `blocking` output but stays green: until the app is ready, every
-app push would otherwise be red.
+feat-cmux-next push or pull request run reports the same ranked list and
+`blocking` output, and fails only on a blocker that is not in
+`known-blockers.json`: the blockers the app already had when this started
+(run 43002601165), each with the fix that owns it. So a change that breaks
+the reviewer's path is red on its own pull request, before it merges, instead
+of being found by App Review. A fix removes its entry (the report lists the
+known blockers it no longer sees). A pull request is judged on its base's
+list, and any key it adds to the list is itself a blocker, so a change can
+never pin its own regression. The agent reviewer pass is a model's judgement and can differ run to
+run, so it is listed on every run but fails only a submission.
 
 ## Checks
 
@@ -57,8 +63,20 @@ XCUITest cannot judge (live provider sheets, a live Chief reply, a confirmed
 deletion, a fold, iPad multitasking) is printed as a `GATE-NOTE` and listed as
 a warning.
 
-It runs on every feat-cmux-next push that touches the app and on pull requests
-that change the gate. When App Review rejects us anyway, add the rejection and
+On iPad the iPhone app runs in a compatibility window that does not start at
+the screen's corner, while the `XCUIApplication` element keeps the app's own
+phone-sized frame at (0, 0). A gate test therefore swipes, taps coordinates
+and takes screenshots through the app's window (`surface(_:)`) or the screen,
+never through `app` itself, judges only controls in the app's window (the
+system keyboard spans the whole screen), and tells iPad from iPhone by the
+simulator's model, since `UIDevice` says phone in compatibility mode.
+Each launch closes Safari first: after a link hands off to it, Safari stays in
+front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
+content, not a fixed number of swipes, since rows per swipe depend on the screen.
+
+It runs on every feat-cmux-next push and pull request that touches the app
+(one macOS job per device, side by side, about 30 minutes; the report fails if any
+device's job left no result). When App Review rejects us anyway, add the rejection and
 its new detector to `rejection-history.json` in the fix's PR.
 
 Run the lint locally (no build needed):
