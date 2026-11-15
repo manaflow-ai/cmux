@@ -156,7 +156,7 @@ extension SidebarBridge {
                 }
                 guard let builtIn = item.ref.builtIn else { continue }
                 var info = builtIn.defaultInfo
-                info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
+                info.isMissing = TopPageRoute.route(for: item.ref) == nil && !(builtInActions[builtIn].map(registered) ?? false)
                 info.shortcut = builtInActions[builtIn].flatMap(shortcut)
                 if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .home {
                     Self.markHomeUnread(&info, homeUnread)
