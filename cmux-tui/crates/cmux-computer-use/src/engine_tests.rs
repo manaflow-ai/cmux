@@ -239,22 +239,133 @@ fn the_settle_wait_never_passes_the_ceiling() {
     assert_eq!(*d.captures.lock().unwrap(), 1 + 10);
 }
 
-/// Bug 5: input the route only delivered, after which the window looked
-/// exactly as in the agent's last screenshot, says so instead of
-/// `delivered` (agents reported unchanged state as done, 31 of 70 trials).
+/// Bug 5 and the verified results: input the route only delivered, whose
+/// effect must show in the window (`shows`), after which nothing changed
+/// through a real settle wait (pixels, elements, windows of any process,
+/// the pasteboard, the app's accessibility signals) is `no_effect`, with the
+/// older `evidence: no_visible_change` and its note (agents reported
+/// unchanged state as done, 31 of 70 trials).
 #[test]
 fn a_delivered_action_with_no_visible_change_says_so() {
     let d = Arc::new(FakeDesktop::standard());
+    *d.shows.lock().unwrap() = Some("text".into());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
     let (e, _) = settling_engine(d);
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
     e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["state"]["unchanged"], true);
+    assert_eq!(out.body["outcome"], "no_effect", "{}", out.body);
     assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
+    assert!(out.body.get("shows").is_none(), "{}", out.body);
     let note = out.body["note"].as_str().unwrap();
     assert!(note.contains("no visible change within 1000 ms"), "{}", out.body);
     assert!(note.contains("take a screenshot before retrying"), "{}", out.body);
+}
+
+/// The truth matrix's FNs: a popover's button and a submenu item acted
+/// where the window showed nothing. An effect that may not show (no
+/// `shows`), or an app nobody could watch, is never `no_effect`.
+#[test]
+fn nothing_seen_is_no_effect_only_where_the_effect_must_show() {
+    for (shows, listening) in [(None, true), (Some("text"), false)] {
+        let d = Arc::new(FakeDesktop::standard());
+        *d.shows.lock().unwrap() = shows.map(String::from);
+        if listening {
+            *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+        }
+        let (e, _) = settling_engine(d);
+        assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+        let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
+        assert_eq!(out.body["state"]["unchanged"], true);
+        assert_eq!(out.body["outcome"], "uncertain", "{shows:?}: {}", out.body);
+        assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+    }
+}
+
+/// An app's signal (a value changed in a popover), or a copy to the
+/// pasteboard, is a change the window's pixels miss: `uncertain`, saying so,
+/// and the signals are in the result.
+#[test]
+fn a_signal_or_a_copy_outside_the_pixels_is_not_no_effect() {
+    for copy in [false, true] {
+        let d = Arc::new(FakeDesktop::standard());
+        *d.shows.lock().unwrap() = Some("text".into());
+        let mut signals = crate::desktop::Signals::default();
+        if !copy {
+            signals.elsewhere = 1;
+            signals.kinds.insert("AXValueChanged".into(), 1);
+        }
+        *d.signals.lock().unwrap() = Some(signals);
+        *d.copies_on_input.lock().unwrap() = copy;
+        let (e, _) = settling_engine(d);
+        assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+        let out = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "cmd+c"}));
+        assert_eq!(out.body["outcome"], "uncertain", "{}", out.body);
+        let reason = out.body["outcome_reason"].as_str().unwrap();
+        if copy {
+            assert!(reason.contains("pasteboard"), "{reason}");
+        } else {
+            assert!(reason.contains("AXValueChanged"), "{reason}");
+            assert_eq!(out.body["signals"]["elsewhere"], 1);
+        }
+    }
+}
+
+/// A route that reads the effect back is `confirmed`.
+#[test]
+fn a_read_back_is_confirmed() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    let (e, _) = settling_engine(d);
+    let out = e.call(
+        &ctx(None),
+        "set_value",
+        &json!({"window_id": "1", "element_id": "e1", "value": "x"}),
+    );
+    assert!(!out.is_error, "{}", out.body);
+    assert_eq!(out.body["outcome"], "confirmed", "{}", out.body);
+}
+
+/// The settle wait ends at a change only once the app has gone quiet: a
+/// signal since the capture before keeps it waiting (within the ceiling),
+/// and the changed capture is what comes back.
+#[test]
+fn the_settle_wait_holds_while_the_app_still_signals() {
+    struct Counting(std::sync::atomic::AtomicU32);
+    impl Watch for Counting {
+        fn signals(&self) -> crate::desktop::Signals {
+            // One more signal on each of the first three reads.
+            let n = self.0.fetch_add(1, Ordering::SeqCst).min(3);
+            crate::desktop::Signals { in_window: n, ..Default::default() }
+        }
+        fn listening(&self) -> bool {
+            true
+        }
+    }
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    *d.repaint_from.lock().unwrap() = Some((2, 55));
+    let counting = Counting(std::sync::atomic::AtomicU32::new(0));
+    let mut out = ToolOutput::ok(json!({"evidence": "delivered"}));
+    let app = e.app_of(&e.window("1").unwrap());
+    let settled = e.attach_state(
+        &ctx(None),
+        "1",
+        &app,
+        &mut out,
+        SettleMode::Adaptive,
+        false,
+        Some(&counting),
+    );
+    // Reads: 0 before, 1 (changed, not quiet), 2 (not quiet), 3, 3 (quiet).
+    assert_eq!(out.body["state"]["unchanged"], false, "{}", out.body);
+    assert!(out.png_base64.is_some());
+    assert_eq!(*d.captures.lock().unwrap(), 1 + 4);
+    assert_eq!(settled, Some(420));
+    assert_eq!(slept.0.lock().unwrap().len(), 1 + 3);
 }
 
 /// Bug 5 review: the openai and anthropic settle modes capture once (at
@@ -264,12 +375,14 @@ fn a_delivered_action_with_no_visible_change_says_so() {
 fn single_capture_settle_modes_never_claim_no_visible_change() {
     for mode in ["openai", "anthropic"] {
         let (d, e, _) = settled(mode);
+        *d.shows.lock().unwrap() = Some("text".into());
+        *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
         assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
         e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
         let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
         assert_eq!(out.body["state"]["unchanged"], true, "{mode}: {}", out.body);
         assert_eq!(out.body["evidence"], "delivered", "{mode}: {}", out.body);
-        drop(d);
+        assert_eq!(out.body["outcome"], "uncertain", "{mode}: {}", out.body);
     }
 }
 
@@ -311,16 +424,22 @@ fn a_window_of_another_process_over_the_target_is_a_visible_change() {
 }
 
 /// A result that reports a menu (a right-click that opened a context menu)
-/// is never marked no_visible_change: the menu is the effect (seen live on
-/// macOS 27.0.1: the menu opened, the window's pixels did not change).
+/// is never `no_effect`: the menu is the effect (seen live on macOS 27.0.1:
+/// the menu opened, the window's pixels did not change).
 #[test]
 fn a_result_that_reports_a_menu_is_not_no_visible_change() {
-    let mut body = json!({"evidence": "delivered", "menu": {"items": [{"title": "Copy"}]}});
-    mark_no_visible_change(&mut body, true, 1000);
-    assert_eq!(body["evidence"], "delivered");
-    let mut plain = json!({"evidence": "delivered"});
-    mark_no_visible_change(&mut plain, true, 1000);
-    assert_eq!(plain["evidence"], "no_visible_change");
+    let facts = crate::outcome::Facts {
+        evidence: "delivered".into(),
+        shows: Some("value".into()),
+        menu: true,
+        settled_ms: Some(1000),
+        changes: Some(json!({"pixels": "same", "elements_read": "all"})),
+        signals: Some(crate::desktop::Signals::default()),
+        outside: Some(vec![]),
+    };
+    assert_eq!(crate::outcome::decide(&facts).outcome, crate::outcome::Outcome::Uncertain);
+    let plain = crate::outcome::Facts { menu: false, ..facts };
+    assert_eq!(crate::outcome::decide(&plain).outcome, crate::outcome::Outcome::NoEffect);
 }
 
 /// The rule claims only what the engine saw: a redraw, or no capture before

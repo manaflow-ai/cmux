@@ -20,6 +20,7 @@ mod roles;
 mod sys;
 #[cfg(test)]
 mod tests;
+mod watch;
 mod workspace;
 
 use std::collections::{HashMap, HashSet};
@@ -494,6 +495,36 @@ impl Desktop for MacDesktop {
             .collect();
         ids.sort();
         Ok(ids)
+    }
+
+    /// The target window's app, watched for accessibility signals.
+    fn watch(&self, window_id: &str) -> Option<Box<dyn Watch>> {
+        let id = window_id.parse::<u32>().ok()?;
+        let cg = cgwindows::by_id(id)?;
+        Some(Box::new(watch::AxWatch::start(cg.pid, id)))
+    }
+
+    /// Every process's on-screen windows at the levels of normal windows
+    /// through menus (not this process's own, such as the agent cursor), the
+    /// pasteboard's change count and the front app.
+    fn world(&self) -> Option<World> {
+        let own = std::process::id() as i32;
+        let mut windows: Vec<String> = cgwindows::on_screen()
+            .into_iter()
+            .filter(|w| {
+                w.pid != own
+                    && (0..=101).contains(&w.layer)
+                    && w.frame.width >= 2.0
+                    && w.alpha > 0.0
+            })
+            .map(|w| w.id.to_string())
+            .collect();
+        windows.sort();
+        Some(World {
+            windows,
+            pasteboard: workspace::pasteboard_change_count(),
+            front_pid: workspace::frontmost_pid().map(|p| p as u32),
+        })
     }
 
     /// One window from the window server and its app alone; the full list

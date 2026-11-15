@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 use crate::cursor::{CursorEvent, CursorSink, NoCursor, caption};
 use crate::desktop::{
     Button, CaptureTarget, ClickSpec, Delivery, Desktop, DesktopError, Element, Point,
-    PointerTarget, Rect, TreeOptions, Window,
+    PointerTarget, Rect, TreeOptions, Watch, Window,
 };
 use crate::frame::{self, Geometry};
 use crate::keys::KeyCombo;
@@ -521,6 +521,17 @@ impl Engine {
         let had_screenshot = args_str(&args, "window_id").is_some_and(|id| {
             lock(&self.seen).contains_key(&(ctx.session.clone(), format!("w:{id}")))
         });
+        // An action whose window is watched through an adaptive settle: the
+        // app's accessibility signals and what is on screen outside the
+        // window are read from before it acts, for its outcome.
+        let watched = (tools::OBSERVES.contains(&name)
+            && name != "batch"
+            && args.get("observe").and_then(Value::as_bool) != Some(false)
+            && self.settle_mode(&args) == SettleMode::Adaptive)
+            .then(|| args_str(&args, "window_id"))
+            .flatten();
+        let world_before = watched.and_then(|_| self.desktop.world());
+        let watch = watched.and_then(|id| self.desktop.watch(id)).filter(|w| w.listening());
         let raising = self.foreground_begin(tool, &args);
         let mut guard = self.focus_begin(&ctx.session, tool, &args);
         let (mut out, app) = match self.dispatch(tool, ctx, &args) {
@@ -545,6 +556,7 @@ impl Engine {
         // After the record: a retry returns the action's result, and the agent
         // takes a fresh screenshot for the state then.
         // A batch attaches its own state, once, at its end.
+        let mut settled_ms = None;
         if !out.is_error
             && tools::OBSERVES.contains(&name)
             && name != "batch"
@@ -554,14 +566,14 @@ impl Engine {
             && let Some(app) = &app
         {
             let mode = self.settle_mode(&args);
-            self.attach_state(
+            settled_ms = self.attach_state(
                 ctx,
                 window_id,
                 app,
                 &mut out,
                 mode,
                 name == "type_text",
-                windows_before.as_deref(),
+                watch.as_deref(),
             );
         }
         // The state as the model reads it: the outline of what changed, and
@@ -575,6 +587,37 @@ impl Engine {
                 acted,
                 had_screenshot,
             );
+        }
+        // The outcome of an action (a result with the route's evidence).
+        if !out.is_error && name != "batch" && out.body.get("evidence").is_some() {
+            let signals = watch.as_ref().map(|w| w.signals());
+            drop(watch);
+            let outside = world_before.and_then(|before| {
+                let after = self.desktop.world()?;
+                let mut changes = after.changes_since(&before);
+                // A foreground action brings its own app to the front.
+                let raised = parse_delivery(&args).ok() == Some(Delivery::Foreground)
+                    && after.front_pid.is_some()
+                    && args_str(&args, "window_id")
+                        .and_then(|id| self.desktop.window(id).ok().flatten())
+                        .is_some_and(|w| Some(w.pid) == after.front_pid);
+                if raised {
+                    changes.retain(|c| c != crate::desktop::FRONT_APP_CHANGED);
+                }
+                Some(changes)
+            });
+            self.attach_outcome(&mut out, settled_ms, signals, outside);
+            // A retry returns the result with its outcome (not the state).
+            if let Some(call_id) = acting_id {
+                let mut record = out.clone();
+                if let Some(body) = record.body.as_object_mut() {
+                    body.remove("state");
+                }
+                record.png_base64 = None;
+                self.sessions.remember(&ctx.session, call_id, record.to_json().to_string());
+            }
+        } else if let Some(body) = out.body.as_object_mut() {
+            body.remove("shows");
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
@@ -1572,16 +1615,24 @@ impl Engine {
         out: &mut ToolOutput,
         mode: SettleMode,
         typed: bool,
-        windows_before: Option<&[String]>,
-    ) {
+        watch: Option<&dyn Watch>,
+    ) -> Option<u64> {
         let s = self.settle;
         let start = (self.clock)();
         let args = json!({"window_id": window_id});
         let forced = json!({"window_id": window_id, "force": true});
         let mut captures = 0u32;
+        // The app's signals at the previous capture: a change ends the wait
+        // once the app has gone quiet (no new signal since the capture
+        // before), so an effect still in progress is waited for, within
+        // the ceiling.
+        let mut signals_then = watch.map(|w| w.signals().total());
         let shot = match mode {
             SettleMode::Adaptive => {
                 (self.sleep)(s.floor);
+                // The newest capture that changed: a later one compares with
+                // it, so an unchanged one after it means the window held.
+                let mut changed_shot: Option<ToolOutput> = None;
                 loop {
                     // Checkpoint: the person's Stop ends the settle wait.
                     if let Err(stopped) = self.stops.check(&ctx.session) {
@@ -1591,10 +1642,22 @@ impl Engine {
                     captures += 1;
                     match self.capture_for(&config, ctx, &args, false, Check::StillAllowed(app)) {
                         Ok((shot, _)) => {
-                            let changed = shot.body["unchanged"] != json!(true);
                             let elapsed = (self.clock)().saturating_sub(start);
-                            if changed || elapsed >= s.ceiling {
-                                break Ok((shot, elapsed));
+                            let signals_now = watch.map(|w| w.signals().total());
+                            let quiet = signals_now == signals_then;
+                            signals_then = signals_now;
+                            let shot = if shot.body["unchanged"] != json!(true) {
+                                changed_shot = Some(shot);
+                                None
+                            } else {
+                                Some(shot)
+                            };
+                            if (changed_shot.is_some() && quiet) || elapsed >= s.ceiling {
+                                // One of the two is always set.
+                                match changed_shot.take().or(shot) {
+                                    Some(last) => break Ok((last, elapsed)),
+                                    None => break Err(ToolOutput::error("failed", "no capture")),
+                                }
                             }
                             (self.sleep)(s.step.min(s.ceiling - elapsed));
                         }
@@ -1620,21 +1683,14 @@ impl Engine {
                     "reason": e.body.get("error").or_else(|| e.body.get("message")).cloned().unwrap_or(json!(e.code)),
                     "next": "call list_windows, then screenshot the window you need",
                 });
-                return;
+                return None;
             }
         };
-        // Only after a real settle: the adaptive wait captured more than once
-        // and the window never changed. The other modes capture once, right
-        // away or after a fixed delay, which proves nothing.
-        mark_no_visible_change(
-            &mut out.body,
-            mode == SettleMode::Adaptive
-                && captures >= 2
-                && shot.body["unchanged"] == json!(true)
-                && windows_before
-                    .is_some_and(|b| self.window_ids_over_target(window_id).as_deref() == Some(b)),
-            elapsed.as_millis() as u64,
-        );
+        // A real settle: the adaptive wait captured more than once. The other
+        // modes capture once, right away or after a fixed delay, which proves
+        // nothing.
+        let settled =
+            (mode == SettleMode::Adaptive && captures >= 2).then_some(elapsed.as_millis() as u64);
         let mut state = shot.body.clone();
         state["settle"] = json!(mode.as_str());
         state["waited_ms"] = json!(elapsed.as_millis() as u64);
@@ -1660,6 +1716,35 @@ impl Engine {
         }
         out.body["state"] = state;
         out.png_base64 = shot.png_base64;
+        settled
+    }
+
+    /// Decides the action's outcome ([`crate::outcome`]) from its result,
+    /// its state's `changes`, the app's signals and what changed outside
+    /// the window, and writes it into the result.
+    fn attach_outcome(
+        &self,
+        out: &mut ToolOutput,
+        settled_ms: Option<u64>,
+        signals: Option<crate::desktop::Signals>,
+        outside: Option<Vec<String>>,
+    ) {
+        let shows = out
+            .body
+            .as_object_mut()
+            .and_then(|b| b.remove("shows"))
+            .and_then(|v| v.as_str().map(String::from));
+        let facts = crate::outcome::Facts {
+            evidence: out.body["evidence"].as_str().unwrap_or_default().to_string(),
+            shows,
+            menu: out.body.get("menu").is_some_and(|m| !m.is_null()),
+            settled_ms,
+            changes: out.body.pointer("/state/changes").cloned(),
+            signals,
+            outside,
+        };
+        let verdict = crate::outcome::decide(&facts);
+        crate::outcome::attach(&mut out.body, &facts, &verdict, no_visible_change_note);
     }
 
     /// The window is still `app`'s and `app` is still allowed (deny list,
@@ -1958,30 +2043,6 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     format!(
         "no visible change within {waited_ms} ms: this window and the windows over it looked the same in every capture. If the action should change what it shows, take a screenshot before retrying, then try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An effect outside this window (copy, save, another app) is not seen here."
     )
-}
-
-/// A result the route only delivered (nothing read back confirms it) whose
-/// window did not change through a real settle wait reports that, so an
-/// agent does not take the input for done when nothing happened. Only when
-/// `observed` (the engine saw it; see the caller): no prior capture, a
-/// redraw, a single capture or a confirmed route leave the result as it is.
-fn mark_no_visible_change(body: &mut Value, observed: bool, waited_ms: u64) {
-    // A result that reports a menu it opened, picked from or closed had a
-    // visible effect, whatever the window's pixels show (a menu window can
-    // fall outside the window's capture).
-    if !observed
-        || body.get("evidence") != Some(&json!("delivered"))
-        || body.get("menu").is_some_and(|m| !m.is_null())
-    {
-        return;
-    }
-    body["evidence"] = json!("no_visible_change");
-    let note = no_visible_change_note(waited_ms);
-    let note = match body.get("note").and_then(Value::as_str) {
-        Some(n) if !n.is_empty() => format!("{n}; {note}"),
-        _ => note,
-    };
-    body["note"] = json!(note);
 }
 
 #[path = "engine_observe.rs"]

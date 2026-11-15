@@ -32,6 +32,11 @@ fn outcome_after(route: &str, before: Option<String>, el: &Ax) -> ActionOutcome 
     } else {
         ActionOutcome::delivered(route)
     };
+    // An element with a value (a checkbox, a radio button, a slider) shows
+    // its press there; a button may act where nothing shows.
+    if before.is_some() {
+        out = out.showing("value");
+    }
     if let Some(frame) = el.frame() {
         out = out.at(roles::center(&frame));
     }
@@ -574,7 +579,8 @@ fn select_outcome(row: &Ax) -> ActionOutcome {
         ActionOutcome::confirmed("ax_select")
     } else {
         ActionOutcome::delivered("ax_select")
-    };
+    }
+    .showing("selection");
     if let Some(frame) = row.frame() {
         out = out.at(roles::center(&frame));
     }
@@ -750,7 +756,7 @@ fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     let Some(cf) = Cf::string(text) else { return Ok(None) };
     if el.settable("AXSelectedText") && el.set("AXSelectedText", &cf).is_ok() {
         if secure {
-            return Ok(Some(ActionOutcome::delivered("ax_insert_text")));
+            return Ok(Some(ActionOutcome::delivered("ax_insert_text").showing("text")));
         }
         let after = el.value_text().unwrap_or_default();
         if after != before && after.contains(text) {
@@ -768,7 +774,7 @@ fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     let mut out = if !secure && el.value_text().as_deref() == Some(wanted.as_str()) {
         ActionOutcome::confirmed("ax_set_value")
     } else {
-        ActionOutcome::delivered("ax_set_value")
+        ActionOutcome::delivered("ax_set_value").showing("text")
     };
     out.note = "appended to the field's value".into();
     Ok(Some(out))
@@ -787,6 +793,9 @@ pub(super) fn type_text(
         None => d.focused_in(&t),
     };
     let has_keys = text.contains(['\n', '\r', '\t']);
+    // Plain text typed into a text element shows in its value; into
+    // anything else (a canvas, a calculator's keypad) it may not show.
+    let shows_text = !has_keys && target.as_ref().is_some_and(is_text_element);
     if let Some(el) = &target {
         if delivery == Delivery::Background
             && !has_keys
@@ -855,10 +864,20 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
-        return Ok(ActionOutcome::delivered(route.name()));
+        return Ok(typed_outcome(route.name(), shows_text));
     }
     unprimed(route, |p| input::type_text(p, text))?;
-    Ok(ActionOutcome::delivered(route.name()))
+    Ok(typed_outcome(route.name(), shows_text))
+}
+
+/// Whether `el` is a text element whose value shows what is typed into it.
+fn is_text_element(el: &Ax) -> bool {
+    roles::is_text_input(&el.string("AXRole").unwrap_or_default())
+}
+
+fn typed_outcome(route: &str, shows_text: bool) -> ActionOutcome {
+    let out = ActionOutcome::delivered(route);
+    if shows_text { out.showing("text") } else { out }
 }
 
 pub(super) fn press_keys(
@@ -1148,8 +1167,11 @@ fn press_keys_inner(
     };
     // Never into a primed app (its own or another session's scope): posted
     // under the lock entering a scope takes, waiting at most the bound.
-    unprimed(route, |p| input::key(p, code, flags, keymap::carries_text(&combo.key, flags)))?;
-    let mut out = ActionOutcome::delivered(route.name());
+    let carries = keymap::carries_text(&combo.key, flags);
+    // A character key into a focused text element shows in its value.
+    let shows_text = carries.is_some() && d.focused_in(&t).as_ref().is_some_and(is_text_element);
+    unprimed(route, |p| input::key(p, code, flags, carries))?;
+    let mut out = typed_outcome(route.name(), shows_text);
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
@@ -1344,7 +1366,7 @@ pub(super) fn scroll(
     };
     let route = d.pointer_route(&t, Delivery::Background)?;
     unprimed(route, |p| input::scroll(p, at, dx, dy))?;
-    Ok(ActionOutcome::delivered(route.name()).at(at))
+    Ok(ActionOutcome::delivered(route.name()).at(at).showing("scroll"))
 }
 
 pub(super) fn drag(
@@ -1433,7 +1455,7 @@ pub(super) fn set_value(
     let read = el.value_text();
     let mut out = match &read {
         Some(r) if !secure && same_value(r, value) => ActionOutcome::confirmed("ax_set_value"),
-        _ => ActionOutcome::delivered("ax_set_value"),
+        _ => ActionOutcome::delivered("ax_set_value").showing("value"),
     };
     if !secure && read.as_deref().is_some_and(|r| !same_value(r, value)) {
         out.note = "the element reads back a different value".into();

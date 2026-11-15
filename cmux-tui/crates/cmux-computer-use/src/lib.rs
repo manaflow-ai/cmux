@@ -28,6 +28,7 @@ pub mod frame;
 pub mod keys;
 pub mod menus;
 pub mod observe;
+pub mod outcome;
 pub mod policy;
 pub mod session;
 pub mod stop;

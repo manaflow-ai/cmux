@@ -99,8 +99,28 @@ pub struct FakeDesktop {
     pub walks: Mutex<u32>,
     /// The element limit the latest walk was asked for.
     pub last_max_nodes: Mutex<usize>,
+    /// Where the effect of the next inputs must show ([`ActionOutcome::shows`]).
+    pub shows: Mutex<Option<String>>,
+    /// Set: a watch listens and reports these signals ([`Desktop::watch`]).
+    pub signals: std::sync::Arc<Mutex<Option<Signals>>>,
+    /// The pasteboard's change count ([`Desktop::world`]).
+    pub pasteboard: Mutex<i64>,
+    /// The next input writes to the pasteboard.
+    pub copies_on_input: Mutex<bool>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
+}
+
+/// A fake watch: the signals the desktop's `signals` holds when read.
+struct FakeWatch(std::sync::Arc<Mutex<Option<Signals>>>);
+
+impl Watch for FakeWatch {
+    fn signals(&self) -> Signals {
+        lock(&self.0).clone().unwrap_or_default()
+    }
+    fn listening(&self) -> bool {
+        lock(&self.0).is_some()
+    }
 }
 
 impl FakeDesktop {
@@ -172,6 +192,10 @@ impl FakeDesktop {
             walks: Mutex::new(0),
             last_max_nodes: Mutex::new(0),
             reframed: Mutex::new(Vec::new()),
+            shows: Mutex::new(None),
+            signals: std::sync::Arc::new(Mutex::new(None)),
+            pasteboard: Mutex::new(0),
+            copies_on_input: Mutex::new(false),
         }
     }
 
@@ -194,6 +218,9 @@ impl FakeDesktop {
         {
             self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(w);
         }
+        if std::mem::take(&mut *lock(&self.copies_on_input)) {
+            *lock(&self.pasteboard) += 1;
+        }
         let steal =
             self.steal_on_input.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         if let Some(stolen) = steal {
@@ -206,6 +233,11 @@ impl FakeDesktop {
     }
 
     /// The window's pop-ups as tree elements, an open one with its menu.
+    /// A delivered result, showing where [`Self::shows`] says.
+    fn delivered(&self) -> ActionOutcome {
+        ActionOutcome { shows: lock(&self.shows).clone(), ..ActionOutcome::delivered("fake") }
+    }
+
     /// The bundle ids of the installed or running apps named `name`.
     fn apps_named(&self, name: &str) -> Option<Vec<String>> {
         let installed = lock(&self.installed);
@@ -394,6 +426,21 @@ impl Desktop for FakeDesktop {
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         Ok(self.windows.iter().find(|w| w.id == id).cloned().map(|w| self.reframe(w)))
     }
+    fn watch(&self, _window_id: &str) -> Option<Box<dyn Watch>> {
+        Some(Box::new(FakeWatch(self.signals.clone())))
+    }
+    fn world(&self) -> Option<World> {
+        let opened = lock(&self.opened);
+        let mut windows: Vec<String> = self
+            .windows
+            .iter()
+            .chain(opened.iter())
+            .filter(|w| w.on_screen && !w.minimized)
+            .map(|w| w.id.clone())
+            .collect();
+        windows.sort();
+        Some(World { windows, pasteboard: Some(*lock(&self.pasteboard)), front_pid: None })
+    }
     fn window_ids_over(&self, frame: &Rect) -> DResult<Vec<String>> {
         let opened = self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut ids: Vec<String> = self
@@ -565,7 +612,7 @@ impl Desktop for FakeDesktop {
             }
         }
         self.push(event);
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn type_text(
         &self,
@@ -576,7 +623,7 @@ impl Desktop for FakeDesktop {
     ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
         self.push(Event::Type { window: window_id.into(), text: text.into() });
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn press_keys(
         &self,
@@ -586,12 +633,12 @@ impl Desktop for FakeDesktop {
     ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
         self.push(Event::Keys { window: window_id.into(), combo: combo.clone() });
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn scroll(&self, target: &PointerTarget, dx: f64, dy: f64) -> DResult<ActionOutcome> {
         self.known(target.window_id())?;
         self.push(Event::Scroll { window: target.window_id().into(), dx, dy });
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn drag(
         &self,
@@ -603,7 +650,7 @@ impl Desktop for FakeDesktop {
     ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
         self.push(Event::Drag { window: window_id.into(), from, to });
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn set_value(&self, window_id: &str, element_id: &str, value: &str) -> DResult<ActionOutcome> {
         self.known(window_id)?;

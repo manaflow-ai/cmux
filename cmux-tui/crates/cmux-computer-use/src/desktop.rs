@@ -282,6 +282,14 @@ pub struct ActionOutcome {
     /// The menu the action opened, picked from or cancelled ([`crate::menus`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub menu: Option<crate::menus::MenuReport>,
+    /// Where the intended effect must show when it happens, so seeing
+    /// nothing there means it did not: `value` (the element's value),
+    /// `selection`, `text` (typed into a text element), `scroll`. `None`: the
+    /// effect may not show at all (a button, a menu item, a chord, a click on
+    /// a canvas), so seeing nothing proves nothing. The engine reads it to
+    /// decide the outcome and drops it from the result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shows: Option<String>,
 }
 
 impl ActionOutcome {
@@ -293,6 +301,11 @@ impl ActionOutcome {
     }
     pub fn at(mut self, point: Point) -> Self {
         self.cursor_at = Some(point);
+        self
+    }
+    /// Where the intended effect must show ([`Self::shows`]).
+    pub fn showing(mut self, place: &str) -> Self {
+        self.shows = Some(place.into());
         self
     }
 }
@@ -360,6 +373,72 @@ pub struct FocusSnapshot {
     pub pointer: Option<Point>,
 }
 
+/// Accessibility signals an app sent while an action ran and settled: what
+/// changed by the app's own account (a value, a title, a selection, focus, a
+/// window or sheet, a menu), counted in the target window and elsewhere
+/// (another window, a menu, a popover, the app itself).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Signals {
+    /// Signals from elements of the target window.
+    pub in_window: u32,
+    /// Signals from anywhere else in the app.
+    pub elsewhere: u32,
+    /// Count per notification name (`AXValueChanged`, ...).
+    pub kinds: std::collections::BTreeMap<String, u32>,
+    /// When the last one came, ms after the watch started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_ms: Option<u64>,
+}
+
+impl Signals {
+    pub fn total(&self) -> u32 {
+        self.in_window + self.elsewhere
+    }
+}
+
+/// [`World::changes_since`]'s words for a new front app.
+pub const FRONT_APP_CHANGED: &str = "the front app changed";
+
+/// What outside the target window could show an action's effect, read before
+/// and after it: the on-screen windows of every process (a window, panel,
+/// menu or another app it opened), the pasteboard (a copy) and the front app.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct World {
+    pub windows: Vec<String>,
+    pub pasteboard: Option<i64>,
+    pub front_pid: Option<u32>,
+}
+
+impl World {
+    /// What changed from `before` to `self`, in words (empty: nothing).
+    pub fn changes_since(&self, before: &World) -> Vec<String> {
+        let mut out = Vec::new();
+        let opened = self.windows.iter().filter(|w| !before.windows.contains(w)).count();
+        let closed = before.windows.iter().filter(|w| !self.windows.contains(w)).count();
+        if opened > 0 {
+            out.push(format!("{opened} window(s) opened on screen"));
+        }
+        if closed > 0 {
+            out.push(format!("{closed} window(s) closed"));
+        }
+        if self.pasteboard != before.pasteboard {
+            out.push("the pasteboard changed".into());
+        }
+        if self.front_pid != before.front_pid {
+            out.push(FRONT_APP_CHANGED.into());
+        }
+        out
+    }
+}
+
+/// A watch on an app's accessibility signals; stops when dropped.
+pub trait Watch: Send {
+    /// The signals so far.
+    fn signals(&self) -> Signals;
+    /// Whether the watch is really listening (the app took the observer).
+    fn listening(&self) -> bool;
+}
+
 /// One desktop. Calls block; the engine runs them off any UI thread.
 pub trait Desktop: Send + Sync {
     fn info(&self) -> PlatformInfo;
@@ -385,6 +464,17 @@ pub trait Desktop: Send + Sync {
             .collect();
         ids.sort();
         Ok(ids)
+    }
+    /// Starts watching the app of `window_id` for accessibility signals
+    /// ([`Signals`]) until the returned watch is dropped. `None`: the
+    /// platform cannot watch (then nothing is known about effects outside the
+    /// window's pixels and elements).
+    fn watch(&self, _window_id: &str) -> Option<Box<dyn Watch>> {
+        None
+    }
+    /// The [`World`] now; `None` when the platform cannot read it.
+    fn world(&self) -> Option<World> {
+        None
     }
     /// Whether the app of `window` is the frontmost app (where the person's
     /// keys go). The default looks it up in [`Self::list_apps`].
