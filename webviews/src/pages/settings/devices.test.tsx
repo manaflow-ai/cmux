@@ -345,7 +345,10 @@ test("history cells wrap instead of widening the table", async () => {
 
 test("device rows keep their status and Copy at a narrow width: their lines wrap", async () => {
   const page = await open();
-  const rows = card(page.container).querySelectorAll<HTMLElement>("[data-device]");
+  // A row is an element whose data-device is its id; a device glyph inside it names its kind the same way.
+  const rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-device]")].filter(
+    (e) => !e.closest("svg"),
+  );
   expect(rows.length).toBeGreaterThan(1);
   for (const row of rows) expect(row.classList.contains("devices-device")).toBe(true);
   page.unmount();
