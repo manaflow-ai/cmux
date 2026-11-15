@@ -1886,7 +1886,8 @@ async fn run_registration_once(
     let mut renewal: Option<
         Pin<Box<dyn Future<Output = Result<DaemonControl, ProviderError>> + Send + '_>>,
     > = None;
-    let mut retiring: Option<(RelaySocket, Instant)> = None;
+    let mut retiring: Option<RelaySocket> = None;
+    let mut retire_until = Instant::now();
     let mut interval = tokio::time::interval(CHECK_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut nonce = 0_u64;
@@ -1910,7 +1911,8 @@ async fn run_registration_once(
                 match renewed {
                     Ok(control) => {
                         let old = std::mem::replace(&mut socket, control.socket);
-                        retiring = Some((old, Instant::now() + config.control_timeout));
+                        retiring = Some(old);
+                        retire_until = Instant::now() + config.control_timeout;
                         liveness = registration_liveness(control.lease_seconds);
                         renew_at = control.renew_at;
                     }
@@ -1927,7 +1929,7 @@ async fn run_registration_once(
                 }
                 continue;
             }
-            message = read_some(retiring.as_mut().map(|(old, _)| old)) => {
+            message = read_some(retiring.as_mut()) => {
                 match message {
                     Ok(RelayControl::Incoming { circuit, lane, generation, join_ticket }) => {
                         spawn_incoming(
@@ -1941,8 +1943,7 @@ async fn run_registration_once(
                 }
                 continue;
             }
-            _ = tokio::time::sleep_until(retiring.as_ref().map_or_else(far, |(_, until)| *until)),
-                if retiring.is_some() =>
+            _ = tokio::time::sleep_until(retire_until), if retiring.is_some() =>
             {
                 retiring = None;
                 continue;
