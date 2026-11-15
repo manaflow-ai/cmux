@@ -1248,7 +1248,13 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
             let at = started.elapsed().as_millis() as u64;
             // One short line per sample, as it is read: a CI log cuts long lines, and a run that
             // stalls still shows where.
-            println!("CHURN-RSS {at} {} {} {}", lists["lists"], lists["bytes"], rss / 1_048_576);
+            let events = &status["gauges"]["hubEvents"]["queued"];
+            println!(
+                "CHURN-RSS {at} {} {} {} {events}",
+                lists["lists"],
+                lists["bytes"],
+                rss / 1_048_576
+            );
             samples += 1;
         }
         (rpc, peak_bytes, peak_lists, samples)
@@ -1313,6 +1319,8 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
                 "CHURN-HEAP-{list} {} {} {} {}",
                 row["endBytes"], row["peakBytes"], row["totalBytes"], row["site"]
             );
+            // The library frames below the site that asked, by bytes at the peak.
+            println!("CHURN-HEAP-VIA {}", row["via"]);
         }
     }
     let _ = std::fs::remove_dir_all(&scratch);

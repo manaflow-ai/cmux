@@ -1168,6 +1168,9 @@ impl Hub {
                 // The v2 list stream on peer links: frames dropped, held bytes (`link_v2.rs`).
                 if let Some(gauges) = gauges.as_object_mut() {
                     gauges.insert("v2PeerLink".into(), self.link_v2.counters.status());
+                    // The hub's events not yet read by every receiver: held while one lags.
+                    let (queued, receivers) = self.events.queued();
+                    gauges.insert("hubEvents".into(), json!({"queued": queued, "receivers": receivers}));
                 }
                 gauges
             }),
