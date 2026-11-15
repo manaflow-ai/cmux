@@ -23,6 +23,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".github/scripts"))
+sys.path.insert(0, str(ROOT / "tests"))
+import git_fixture_env  # noqa: E402  (fixture repositories: no auto maintenance, no inherited GIT_DIR)
 import ios_link_ffi_key  # noqa: E402
 
 BUILD = "build-xcframework.sh"
@@ -33,7 +35,8 @@ ALWAYS_BUILDS = {"cmux-next-ios-kit.yml"}
 
 
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+                          env=git_fixture_env.fixture_env()).stdout.strip()
 
 
 def write(repo: Path, rel: str, text: str) -> None:
@@ -52,7 +55,7 @@ class KeyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)
-        git(self.repo, "init", "-q")
+        git_fixture_env.init_repo(self.repo)
         write(self.repo, "app/rust/Cargo.toml",
               '[workspace]\nmembers = ["ffi"]\n[patch.crates-io]\nnix = { path = "../../vendor/nix" }\n')
         write(self.repo, "app/rust/ffi/Cargo.toml",
