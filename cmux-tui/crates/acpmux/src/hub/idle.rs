@@ -72,7 +72,7 @@ impl Hub {
     /// A turn or permission an adopted host's recovery rebuilt (`hosts.rs` `recover_work`) counts
     /// like a live one: it sets `session.turn` (and holds `turn_lock` until the answer), registers
     /// the permission as pending, and moves the status off ready.
-    fn idle_eligible(&self, session: &Session) -> bool {
+    pub(super) fn idle_eligible(&self, session: &Session) -> bool {
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()

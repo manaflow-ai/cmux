@@ -68,7 +68,7 @@ enum MainMenu {
     /// a new catalog placement cannot silently reintroduce menu overload.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
         .app: [
-            "about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
+            "about", "openSettings", "customize.open", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
             "quitEndSessions", "quitEndEverything",
         ],
         .file: [
@@ -83,7 +83,7 @@ enum MainMenu {
         ],
         .server: ["server.addServer", "server.showPanel"],
         .window: [
-            "newWindow", "newIncognitoWindow", "window.mergeAll", "toggleFullScreen", "commandPalette", "goToWorkspace",
+            "newWindow", "newIncognitoWindow", "window.mergeAll", "space.new", "space.previous", "space.next", "toggleFullScreen", "commandPalette", "goToWorkspace",
             "globalSearch", "showMainWindow",
         ],
         .help: ["help.documentation", "palette.searchShortcuts", "updates.whatsNew", "sendFeedback", "help.showCrashLogs"],

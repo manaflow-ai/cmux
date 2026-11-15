@@ -26,8 +26,11 @@ export function useChatSearch(query: string, load: LoadChatsPage | undefined): r
   const text = query.trim();
   // `load` may be a new function on every parent render: keep the latest in a ref, so a render
   // never restarts the wait or drops an answer on its way (as allChatsListModel useChatPages).
+  // Written after commit, never during render; the settled read below runs later still.
   const latest = useRef(load);
-  latest.current = load;
+  useEffect(() => {
+    latest.current = load;
+  });
   const can = Boolean(load);
   useEffect(() => {
     if (!text || !can) return undefined;
@@ -55,16 +58,19 @@ export function useChatSearch(query: string, load: LoadChatsPage | undefined): r
 const NO_CHATS: readonly AllChatsRow[] = [];
 
 /// The subfolders of `parent` (absolute), once its listing lands; undefined before that, for no
-/// parent and when the host cannot list it. Each folder is read once per page.
+/// parent and when the host cannot list it. A folder read before shows its last answer at once
+/// and is read again each time the path comes back to it, so a folder made since shows.
 export function useFolderListing(parent: string | undefined, complete: CompleteFolder | undefined) {
   const [listings, setListings] = useState<ReadonlyMap<string, readonly string[]>>(() => new Map());
   const known = parent ? listings.get(parent) : undefined;
   // `complete` may be a new function on every parent render: the latest, from a ref (see above).
   const latest = useRef(complete);
-  latest.current = complete;
+  useEffect(() => {
+    latest.current = complete;
+  });
   const can = Boolean(complete);
   useEffect(() => {
-    if (!parent || !can || known) return undefined;
+    if (!parent || !can) return undefined;
     let live = true;
     const timer = setTimeout(() => {
       const read = latest.current;
@@ -72,10 +78,13 @@ export function useFolderListing(parent: string | undefined, complete: CompleteF
       Promise.resolve(read(parent))
         .then((folders) => {
           if (!live) return;
+          const answer = folders ?? [];
           setListings((before) => {
+            const was = before.get(parent);
+            if (was && sameNames(was, answer)) return before;
             const next = new Map(before);
             next.delete(parent);
-            next.set(parent, folders ?? []);
+            next.set(parent, answer);
             while (next.size > LISTINGS_KEPT) next.delete(next.keys().next().value!);
             return next;
           });
@@ -86,9 +95,13 @@ export function useFolderListing(parent: string | undefined, complete: CompleteF
       live = false;
       clearTimeout(timer);
     };
-  }, [parent, can, known]);
+  }, [parent, can]);
   return useMemo(
     () => (parent && known ? ({ parent, folders: known } satisfies FolderListing) : undefined),
     [parent, known],
   );
+}
+
+function sameNames(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((name, index) => name === b[index]);
 }

@@ -460,6 +460,7 @@ impl Mux {
         {
             selectors.pane = Some(pane.as_str().to_string());
         }
+        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?
@@ -586,6 +587,9 @@ impl Mux {
             )?,
             _ => anyhow::bail!("unsupported topology operation {}", operation_name(operation)),
         };
+        if let Some(at) = agent_layout {
+            self.narrow_agent_layout_marks(at, &commit.result);
+        }
         Ok(commit)
     }
 

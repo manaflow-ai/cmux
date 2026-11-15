@@ -1317,8 +1317,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "4b84a7d9daf435ad06dbe65ccf0ad9a03485d1e190768a48f9170c0e912c1e01",
-      "size": 19650
+      "sha256": "d0c625ce95d061f28b42ed77649eb4197937d3ca04edcc5306632a6cb32595cc",
+      "size": 19885
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1597,8 +1597,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "eabfd4afb7f2ded6e755c192f2b3912f200d5acf98977850b83a7ad20f49122c",
-      "size": 22506
+      "sha256": "baa2f783ae4f8cd0c3d8f672cb80a7f1f8e28f2a7b8384fc9c187e4a69bf59f4",
+      "size": 23298
     },
     {
       "path": "IdsRequest.java",
@@ -2207,8 +2207,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "049f9a9d7a096fe82d6b4c8afbff3672c5a26f5d6f4b3b5390201e07a2770553",
-      "size": 8000
+      "sha256": "de9ff5af4241c4f9ba3634c85eede8fb2e2382cc7a1144cce4cf7b077d9e9827",
+      "size": 8086
     },
     {
       "path": "ProtocolEvent.java",
@@ -2554,6 +2554,11 @@
       "path": "ScreenClosedEvent.java",
       "sha256": "1b817abbc1db7122564c561def82987ef5b1f202b3bb330a8c9f1309d60f0bec",
       "size": 4319
+    },
+    {
+      "path": "ScreenDeviceChangedEvent.java",
+      "sha256": "29100e7ce8b6bf51427ce41b8539ba216a33bd81cd9b041909f05a105b77ddbe",
+      "size": 2658
     },
     {
       "path": "ScreenRenamedEvent.java",
@@ -3707,7 +3712,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "145ed467dcba51946c60ca8de389e6ef76a985ab08b05534873aa9f18d93e9c0",
+  "ir_sha256": "dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

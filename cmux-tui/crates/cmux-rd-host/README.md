@@ -27,6 +27,38 @@ marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-r
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
+## Linux desktop host (shared with cmux on a Mac)
+
+A Linux desktop joins the person's devices and shows up on the Mac's Screen Sharing page
+like a shared Mac. On the desktop, as the user who is signed in to its graphical session:
+
+```
+cmux-rd linux-host enable --stack-token-file ~/.config/cmux/stack-token [--allow-control]
+install -Dm644 systemd/cmux-screen-host.service ~/.config/systemd/user/cmux-screen-host.service
+systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host.service
+```
+
+- `enable` signs in once with a cmux access token (a file only this user can read, mode 0600,
+  or `-` for stdin; it is not stored), creates this desktop's device keys in
+  `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
+  it and turns sharing on. The anchor lets the host renew its own session with its device key
+  for 30 days; after that, `share on --stack-token-file ...` again.
+- Consent is the Mac's: a viewer the person allowed on the hub (View or Full Control) is
+  served; anyone else's request waits for the person. `cmux-rd linux-host requests` lists
+  them (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
+  [--scope view|full]` or `deny SESSION` answers. The host never answers one by itself.
+  Control is off unless `enable --allow-control`; a View session applies no input.
+- The unit is a user unit: it must run in the seat0 session's user manager, with that
+  session's D-Bus and `DISPLAY`/`XAUTHORITY`/`XDG_SESSION_TYPE` (see the unit file).
+- Capture: X11 sessions stream the X screen (`--display`, else `$DISPLAY`, else `:0`;
+  `--xauthority` or `XAUTHORITY`). A Wayland session (`XDG_SESSION_TYPE=wayland`) uses the
+  portal backend (xdg-desktop-portal ScreenCast and PipeWire); until that backend is built in,
+  its sessions end with "portal capture not built in". `--capture x11|portal` overrides.
+- Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
+  yet; its session ends with that reason.
+- Relays the person added by hand are sealed to the device's agreement key and not opened
+  yet: the host uses the hub's ICE servers.
+
 ## Build
 
 ### Observe a viewer's presented marker (macOS bench build)

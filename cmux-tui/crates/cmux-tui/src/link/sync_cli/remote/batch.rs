@@ -37,36 +37,74 @@ pub(in crate::link::sync_cli) struct Batched {
     pub failed: Option<anyhow::Error>,
 }
 
+/// What [`Remote::call_batch`] got, as [`Batched`] does: each answer's `data`.
+pub(in crate::link::sync_cli) struct Called {
+    pub answers: Vec<Option<anyhow::Result<Value>>>,
+    pub failed: Option<anyhow::Error>,
+}
+
 impl Remote {
     /// Writes `files`, each as one `fs.write` overwrite exactly as [`Remote::write`] sends a file
     /// of one part (deflated when the machine takes it and the bytes shrink, `no_follow` when it
     /// takes that, under a held copy's hold), all sent before the first answer is read.
     pub(in crate::link::sync_cli) fn write_batch(&mut self, files: &[Whole<'_>]) -> Batched {
-        let mut answers: Vec<Option<anyhow::Result<String>>> = files.iter().map(|_| None).collect();
-        let failed = self.send_and_read(files, &mut answers).err();
-        Batched { answers, failed }
+        let mut requests = Vec::with_capacity(files.len());
+        for file in files {
+            let request = self.guarded(
+                json!({ "path": file.path, "mode": "overwrite", "permissions": file.permissions }),
+            );
+            let compress = self.deflate && shrinks(file.bytes);
+            match with_bytes(request, file.bytes, compress) {
+                Ok(request) => requests.push(("fs.write", request)),
+                Err(error) => {
+                    return Batched {
+                        answers: files.iter().map(|_| None).collect(),
+                        failed: Some(error),
+                    };
+                }
+            }
+        }
+        let called = self.call_batch(requests);
+        Batched {
+            answers: called
+                .answers
+                .into_iter()
+                .map(|answer| answer.map(|data| data.and_then(|data| revision_of(&data))))
+                .collect(),
+            failed: called.failed,
+        }
+    }
+
+    /// Sends every request of `requests` (`cmd` and its params) before reading any answer,
+    /// then reads their answers: each one's `data`, or the machine's refusal of it. The machine
+    /// runs a connection's requests in the order they came, so one may build on one before it
+    /// (a folder made before a folder in it).
+    pub(in crate::link::sync_cli) fn call_batch(
+        &mut self,
+        requests: Vec<(&'static str, Value)>,
+    ) -> Called {
+        let mut answers: Vec<Option<anyhow::Result<Value>>> =
+            requests.iter().map(|_| None).collect();
+        let failed = self.send_and_read(requests, &mut answers).err();
+        Called { answers, failed }
     }
 
     fn send_and_read(
         &mut self,
-        files: &[Whole<'_>],
-        answers: &mut [Option<anyhow::Result<String>>],
+        requests: Vec<(&'static str, Value)>,
+        answers: &mut [Option<anyhow::Result<Value>>],
     ) -> anyhow::Result<()> {
         let mut text = String::new();
         let first_id = self.next_id;
-        for file in files {
+        let count = requests.len();
+        for (cmd, mut request) in requests {
             // Each request passes the held copy's fence, as one sent alone does.
-            crate::link::sync_cli::fence::check("fs.write")?;
-            let mut request = self.guarded(
-                json!({ "path": file.path, "mode": "overwrite", "permissions": file.permissions }),
-            );
-            if let Some(job) = crate::link::sync_cli::fence::hold_for("fs.write") {
+            crate::link::sync_cli::fence::check(cmd)?;
+            if let Some(job) = crate::link::sync_cli::fence::hold_for(cmd) {
                 request.set("hold", json!(job));
             }
-            let compress = self.deflate && shrinks(file.bytes);
-            let mut request = with_bytes(request, file.bytes, compress)?;
             request.set("id", json!(self.next_id));
-            request.set("cmd", json!("fs.write"));
+            request.set("cmd", json!(cmd));
             self.next_id += 1;
             text.push_str(&request.to_string());
             text.push('\n');
@@ -83,7 +121,7 @@ impl Remote {
         let silence = self.read_timeout();
         let budget = answer_budget(silence, text.len());
         let mut answer_by = Instant::now() + budget;
-        let mut left = files.len();
+        let mut left = count;
         let mut others = 0;
         while left > 0 {
             let mut line = Vec::new();
@@ -127,7 +165,7 @@ impl Remote {
                 continue;
             };
             *slot = Some(if field("ok") == &json!(true) {
-                revision_of(field("data"))
+                Ok(field("data").clone())
             } else {
                 Err(FsRefusal {
                     code: field("error_code").as_str().unwrap_or("fs.unknown").to_string(),

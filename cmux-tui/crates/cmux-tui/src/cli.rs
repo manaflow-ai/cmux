@@ -92,6 +92,8 @@ mod command;
 mod completion;
 #[cfg(unix)]
 mod key_broker;
+#[cfg(unix)]
+mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod customize;
@@ -849,6 +851,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
+        .or_else(|| notification_banners::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;
@@ -1792,3 +1795,6 @@ escape for the legacy control protocol and provides no compatibility promise.
 
 #[cfg(test)]
 mod tests;
+// `app` is unix only.
+#[cfg(all(test, unix))]
+mod catalog_request_tests;

@@ -24,7 +24,7 @@
 use crate::hub::file_uploads;
 use base64::Engine;
 use serde_json::{Value, json};
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 /// The `tEXt` chunk every copy carries (keyword, NUL, text), by which [`scrub_logged`] knows
@@ -185,24 +185,13 @@ fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32
     None
 }
 
-/// Writes `bytes` to `path` whole or not at all (a temporary name, owner-only, then a rename).
-/// A copy that cannot be saved is made again next time. Under the held home it goes through
-/// that folder (`home_fs`): a home replaced after the check never gets the copy (#41372 review
-/// F5).
+/// Writes `bytes` to `path` whole or not at all ([`crate::config::write_atomic_unsynced`]: a
+/// temporary name, owner-only, then a rename, and the copies of a writer stopped before its rename
+/// removed). A copy that cannot be saved is made again next time. Under the held home it goes
+/// through that folder (`home_fs`): a home replaced after the check never gets the copy (#41372
+/// review F5).
 fn save(path: &Path, bytes: &[u8]) {
-    if crate::config::refuse_lost_home(path).is_err() {
-        return;
-    }
-    let tmp = path.with_extension(format!("tmp-{}", uuid::Uuid::now_v7()));
-    let wrote = crate::home_fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)
-        .and_then(|mut f| f.write_all(bytes));
-    if wrote.is_err() || crate::home_fs::rename(&tmp, path).is_err() {
-        let _ = crate::home_fs::remove_file(&tmp);
-    }
+    let _ = crate::config::write_atomic_unsynced(path, bytes);
 }
 
 /// A PNG's width and height from its header.

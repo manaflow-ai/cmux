@@ -123,6 +123,8 @@ SETTLE_THEME = 1.5
 SETTLE_WEB = 5.0
 SETTLE_DEV_SERVER = 10.0
 MAX_STEPS = 60
+ENGINES = ("webkit", "chromium")
+DEFAULT_ENGINE = "webkit"
 MAX_WAIT = 30.0
 STEP_KINDS = ("action", "rpc", "cmux", "wait", "shot", "waitFor", "chat", "move", "hover", "type", "key",
               "recording")
@@ -346,6 +348,18 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     fork = git(repo, "merge-base", base, head, check=False)
     if not SHA.fullmatch(fork):
         raise Usage(f"{head[:12]} shares no history with {base[:12]}")
+    # An app older than the change's own fork (a nightly lags feat-cmux-next): fork..head would count everything
+    # merged since the nightly as the change, so a 4-file Rust PR "needed a build" for 33 Swift files that were
+    # not its own. The change is what it adds to feat-cmux-next (own fork..head); the commits between the app and
+    # that fork are noted, and the web ABI check still compares the head with the app.
+    own = git(repo, "merge-base", head, base_tip(repo), check=False)
+    # fork == base: the app's commit is an ancestor of the head; own != base: the change forked later.
+    behind = (fork == base and SHA.fullmatch(own or "") is not None and own not in (base, head)
+              and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", base, own],
+                                 capture_output=True).returncode == 0)
+    if behind:
+        lag = git(repo, "rev-list", "--count", f"{base}..{own}", check=False) or "?"
+        fork = own
     # hot-apply's own rules over the change's own commits (fork..head), as a branch: its web is not published
     # per merge, so it comes back under LEFT_WEB, and its FFI is never swapped.
     planned = h._plan(rules, Path(NO_APP), head, True, fork)
@@ -353,6 +367,9 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
            "layers": [], "needs_build": False, "build": {}, "notes": src["notes"] + list(planned.get("notes") or [])}
     if src.get("pr"):
         out["pr"] = src["pr"]
+    if behind:
+        out["notes"].append(f"the app's commit {base[:12]} is {lag} commits behind the change's fork {fork[:12]} "
+                            "on feat-cmux-next: those commits are not the change, and a look does not show them")
     left = dict(planned.get("left") or {})
     web = left.pop(LEFT_WEB, [])
     helpers = left.pop(LEFT_HELPERS, [])
@@ -367,10 +384,13 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         else:
             out["layers"].append("web")
     if "rust" in planned.get("parts", []):
-        if fork != base and h.tree_key(rules, fork) != h.tree_key(rules, base):
+        if not behind and fork != base and h.tree_key(rules, fork) != h.tree_key(rules, base):
             out["build"]["Rust the app has and the change lacks"] = [
                 f"the app's commit {base[:12]} has cmux-tui changes the change (branched at {fork[:12]}) lacks: "
                 "rebase it onto the app's commit, or build it"]
+        elif behind and (pinned := lag_pins_daemon(h, repo, base, fork)):
+            # The head's daemon carries the lagging commits' FFI changes, which the app does not link.
+            out["build"]["Rust the app links (FFI), in the commits the app lacks"] = pinned
         else:
             out["layers"].append("rust")
             out["tree_key"] = planned.get("tree_key")
@@ -385,6 +405,15 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         out["build"]["Rust only bundled helpers use"] = list(helpers)
     out["needs_build"] = bool(out["build"])
     return out
+
+
+def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
+    """The Rust the app links through FFI that changed between the app's commit and the change's fork
+    (hot-apply's pins_daemon over that range): a daemon built at the head speaks those changes and the app does
+    not."""
+    files = h.live_apply.classify_range(str(repo), base, fork)["files"]
+    # As pins_daemon: since #43797 classify puts cmux-tui's own C, Objective-C and Zig in "daemon" too.
+    return h.linked_rust(repo, sorted(set(files.get("daemon", []))))
 
 
 def plan_text(planned: dict) -> str:
@@ -691,6 +720,37 @@ def load_steps(path: str | None, kit) -> list:
     return steps
 
 
+def steps_engine(path: str | None) -> str:
+    """The copy's browser.defaultEngine: the steps file's "engine", else webkit. The pr_capture kit's stopgap
+    (nightly_steps.py CHROMIUM_UNCAPTURABLE): since cmux#34904 a Chromium-default NEXT nightly turns uncapturable
+    10-25 s after launch (`screencapture -l`: "could not create image from window"), so every shot fails."""
+    if not path:
+        return DEFAULT_ENGINE
+    data = json.loads(Path(path).read_text())
+    engine = data.get("engine", DEFAULT_ENGINE) if isinstance(data, dict) else DEFAULT_ENGINE
+    if engine not in ENGINES:
+        raise Usage(f"--state {path}: a steps file's engine is one of {', '.join(ENGINES)}")
+    return engine
+
+
+def set_browser_engine(config: Path, engine: str) -> None:
+    """Set browser.defaultEngine in the copy's own settings file (CMUX_NEXT_CONFIG_FILE), keeping the rest. A file
+    this cannot read as JSON is left alone and the look stops: overwriting it would drop the copy's settings."""
+    data = {}
+    if config.exists():
+        try:
+            data = json.loads(config.read_text())
+        except ValueError as error:
+            raise LookError(f"the copy's settings file {config} is not plain JSON ({error}); "
+                            "not overwriting it to set browser.defaultEngine") from error
+        if not isinstance(data, dict):
+            raise LookError(f"the copy's settings file {config} is not a JSON object")
+    browser = data.get("browser") if isinstance(data.get("browser"), dict) else {}
+    data["browser"] = {**browser, "defaultEngine": engine}
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(json.dumps(data, indent=2) + "\n")
+
+
 def selected_kinds(sock: str) -> list[str]:
     """The kind of each pane's selected tab in the workspaces a visible window shows (snapshot.get)."""
     topology = rpc(sock, "snapshot.get", timeout=10).get("topology") or {}
@@ -990,6 +1050,8 @@ def finish(out: Path, receipt: dict, phases, began: float, code: int) -> int:
 def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int:
     kit = load_kit(args.kit)
     steps = load_steps(args.state, kit)
+    engine = steps_engine(args.state)
+    receipt["app"]["engine"] = engine
     shoot = Shooter(kit)
     rules = rules_for(repo)
     src_tree = resolve_tree(planned, args.source)
@@ -1001,6 +1063,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                 side.stop()
                 side.run("remove", timeout=300)
             side.run("make", "--from", str(the_app), "--label", SIDE_LABEL, timeout=600)
+            set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
             launched = side.run("launch", timeout=LAUNCH_SECONDS)
             found = re.search(r"pid (\d+)", launched)
             if not found:

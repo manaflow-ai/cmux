@@ -352,7 +352,7 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_device?:string,machine_symbol?:string,machine_capabilities?:array<string>,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
+object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_device?:string,machine_symbol?:string,machine_capabilities?:array<string>,screen_device_id?:string|null,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
 `machine_id` is the opaque owner ID returned by `machine.list`, persisted with the
@@ -367,6 +367,11 @@ kind of device the owner runs on (`macbook`, `mac-mini`, `linux-server`, `generi
 `cmux-device-kind` crate's list, from `sysctl hw.model` on a Mac and the desktop, DMI and
 virtualization facts on Linux) and `machine_symbol` the SF Symbol that kind draws; clients draw
 the symbol by that name and treat an unknown or absent kind as `generic`.
+
+With `machine-identity-v1`, `screen_device_id` is the independently generated
+UUID of the authenticated cmux Remote screen worker. It is present only in an
+enriched reply and is `null` when that worker is unavailable; it is unrelated to
+`machine_id`, joined ids, host names, and display names.
 
 With `revisions: true` the reply also carries `build_time`: unix seconds of the
 source commit the daemon was built from, or null when unknown. A client that
@@ -10380,7 +10385,15 @@ whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a
 mode that does not ask moves to its family's asking default; otherwise it is
-ended and the answer is `agent_session.not_asking`. When nothing listens on
+ended and the answer is `agent_session.not_asking`. A harness (or, with
+none named, a default) that acpmux's catalog does not have is not installed
+on this machine: `agent_session.harness_missing` with
+`data: {reason: "agent.not_installed", harness}` (`harness` only when it is a
+valid harness id). A `session/new` acpmux refuses for the route the agent's
+profile binds (`data.reason` `route.unavailable`, `route.not_found` or
+`route.invalid`: the cmux router harness on a machine with no signed-in local
+router, such as a Cloud machine) answers `agent_session.route_unavailable`
+with `data: {reason, harness}`, never acpmux's message (hq#11225). When nothing listens on
 the acpmux socket the daemon starts acpmux once (one start at a time), as
 `cmux acp` does, and answers `agent_session.acpmux_unavailable` if it still
 cannot connect (always, while acpmux is down, under `ACPMUX_SOCKET`). At
