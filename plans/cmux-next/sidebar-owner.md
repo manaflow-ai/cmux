@@ -2355,3 +2355,11 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `UpdateReadyCardLayoutTests.aPassOverTheCardOpensNothing`, `restingOnTheCardOpensThePopupAfterTheDelayAndAClickAtOnce`.
   Captures: `scripts/cmux-next/media/states/update-card-hover-early.json`, `update-card-hover-rested.json`.
   Sidebar-Look: the update card's popup waits for a rest before it opens.
+- 2026-11-15 (Lawrence, msg 33483, verbatim: "minimal mode should not change density at all"): Minimal Mode
+  (`sidebar.minimal`) only hides chrome until hover (`SidebarSectionsPreferences.hidesControlsUntilHover`). It no
+  longer shortens rows and group headers by 17%, drops a row's second line, status block, chip or time, overrides
+  Expanded's two-line rows, shortens the band rows, or turns section headers into the `lines` look. Removed:
+  `SidebarLayoutMetrics.minimal`, `SidebarLayoutOptions.minimal`/`minimalRow`, `SidebarModel.minimal`,
+  `SidebarRegionMetrics.standard(minimal:)` (now `.bands`). Regression: `MinimalModeKeepsDensityTests` (every
+  density, on vs off), `SidebarMinimalModeTests.minimalModeKeepsTheListAsItIs`.
+  Sidebar-Look: minimal mode should not change density at all.

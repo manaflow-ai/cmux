@@ -231,8 +231,8 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.minimal", "Minimal Mode"),
-                help: SettingsText.keyed("settings.sidebar.minimal.help", "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."),
-                summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Buttons show on hover; rows show icon, name and unread mark"),
+                help: SettingsText.keyed("settings.sidebar.minimal.help", "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."),
+                summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Buttons show only on hover"),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.minimalDefault),
                 keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]
