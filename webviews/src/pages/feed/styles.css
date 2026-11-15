@@ -344,7 +344,6 @@
   border-color: transparent;
   background: var(--ds-color-selection);
   color: var(--ds-color-fg);
-  font-weight: var(--weight-emphasis, 600);
 }
 
 .feed-chip:disabled {

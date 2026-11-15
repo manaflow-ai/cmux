@@ -1,5 +1,17 @@
 {
-  "title": "Toggle Terminal and Chat latency, held: the terminal face shows 70 s before each swap back to the chat",
+  "title": "Toggle Terminal and Chat latency, held: the terminal face shows 65 s before each swap back to the chat",
+  "harnessFixture": {
+    "harnesses": {
+      "claude": {
+        "kind": "claude-stdio",
+        "argv": [
+          "claude"
+        ],
+        "family": "claude",
+        "description": "Synthetic capture harness (Toggle Terminal and Chat tours)"
+      }
+    }
+  },
   "steps": [
     {
       "title": "New workspace Helper",
@@ -134,7 +146,7 @@
       "shot": false
     },
     {
-      "title": "Run 1 (e) held: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 1 (e) held: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -153,7 +165,7 @@
       "shot": false
     },
     {
-      "title": "Run 1: the terminal face shows for 70 s",
+      "title": "Run 1: the terminal face shows for 65 s",
       "daemon": true,
       "cmux": [
         "workspace",
@@ -170,49 +182,11 @@
         "--text",
         "true\r"
       ],
-      "wait": 70,
+      "wait": 30,
       "shot": false
     },
     {
-      "title": "Run 1 (f) held 70 s: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 2500
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 2 (e) held: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 2: the terminal face shows for 70 s",
+      "title": "Run 1: the terminal face shows for 65 s (35 s left)",
       "daemon": true,
       "cmux": [
         "workspace",
@@ -229,49 +203,11 @@
         "--text",
         "true\r"
       ],
-      "wait": 70,
+      "wait": 30,
       "shot": false
     },
     {
-      "title": "Run 2 (f) held 70 s: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 2500
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 3 (e) held: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 3: the terminal face shows for 70 s",
+      "title": "Run 1: the terminal face shows for 65 s (5 s left)",
       "daemon": true,
       "cmux": [
         "workspace",
@@ -288,70 +224,11 @@
         "--text",
         "true\r"
       ],
-      "wait": 70,
+      "wait": 5,
       "shot": false
     },
     {
-      "title": "Run 3 (f) held 70 s: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 2500
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 4 (e) held: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 4: the terminal face shows for 70 s",
-      "daemon": true,
-      "cmux": [
-        "workspace",
-        "name:Helper",
-        "screen",
-        "current",
-        "pane",
-        "current",
-        "tab",
-        "current",
-        "terminal",
-        "current",
-        "write",
-        "--text",
-        "true\r"
-      ],
-      "wait": 70,
-      "shot": false
-    },
-    {
-      "title": "Run 4 (f) held 70 s: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 1 (f) held 65 s: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {

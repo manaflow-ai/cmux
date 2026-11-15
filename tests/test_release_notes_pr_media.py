@@ -261,6 +261,9 @@ class GalleryPictureTests(HighlightRepo):
 
 
 WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 32
+# A hand-published clip (whats-new-clips.py publish): the highlight's `clip:` line.
+CLIP_LINE = release_notes.CLIP_PREFIX + "group-colors/0123456789ab.webp"
+CLIP_SHA = "c" * 64
 
 
 class RecordedClipTests(HighlightRepo):
@@ -292,6 +295,33 @@ class RecordedClipTests(HighlightRepo):
         self.assertEqual(urls({}, "h", "improved"), {"after": auto("after"), "before": auto("before")})
         self.assertEqual(urls({}, "h", "fixed"), {})
         self.assertEqual(urls({"clip": "x"}, "h", "new"), {})
+        # An Improved one's clip line is its after: it looks for its recorded before alone.
+        self.assertEqual(urls({"clip": "x"}, "h", "improved"), {"before": auto("before")})
+
+    def set_clip_line(self, category="improved"):
+        with open(os.path.join(self.repo, "release-notes/next/highlights/group-colors.md"), "w") as f:
+            f.write(f"title: Group labels keep their band color\ncategory: {category}\n"
+                    f"clip: {CLIP_LINE} | {CLIP_SHA}\n\nA label keeps its band's color.\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-q", "--amend", "-m", "sidebar: group labels keep their color (#123)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+
+    def test_an_improvement_with_a_clip_line_shows_its_recorded_before_beside_it(self):
+        self.set_clip_line()
+        published = {self.clip("before"): WEBP + b"b", self.clip("after"): WEBP, self.gallery("after"): PNG}
+        highlight = self.build("", published)
+        self.assertEqual([(m["url"], m["sha256"], m["role"]) for m in highlight["media"]],
+                         [(CLIP_LINE, CLIP_SHA, "after"),
+                          (self.clip("before"), hashlib.sha256(WEBP + b"b").hexdigest(), "before")])
+        # With no before published yet, the clip line alone, as before.
+        self.assertEqual(self.build("", {self.gallery("after"): PNG})["media"], [
+            {"url": CLIP_LINE, "sha256": CLIP_SHA, "kind": "image", "alt": "Group labels keep their band color"}])
+
+    def test_a_new_highlight_with_a_clip_line_takes_nothing_else(self):
+        self.set_clip_line("new")
+        highlight = self.build("", {self.clip("before"): WEBP, self.clip("after"): WEBP})
+        self.assertEqual([m["url"] for m in highlight["media"]], [CLIP_LINE])
+        self.assertNotIn("role", highlight["media"][0])
 
 
 class LatePictureTests(HighlightRepo):
@@ -391,6 +421,42 @@ class LatePictureTests(HighlightRepo):
         self.add_spec()
         del self.pictures[clip("after")]
         self.assertEqual(self.notes(stills), [])
+
+    def clip_line_history(self, spec=True):
+        """The highlight shipped with a hand-published `clip:` line (and its clip spec), then a later commit."""
+        git(self.repo, "reset", "-q", "--hard", self.base)
+        os.makedirs(os.path.join(self.repo, "release-notes/next/clips"), exist_ok=True)
+        os.makedirs(os.path.join(self.repo, "release-notes/next/highlights"), exist_ok=True)
+        with open(os.path.join(self.repo, "release-notes/next/highlights/group-colors.md"), "w") as f:
+            f.write("title: Group labels keep their band color\ncategory: improved\n"
+                    f"clip: {CLIP_LINE} | {CLIP_SHA}\n\nA label keeps its band's color.\n")
+        if spec:
+            with open(os.path.join(self.repo, "release-notes/next/clips/group-colors.json"), "w") as f:
+                f.write("{}\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-q", "-m", "sidebar: group labels keep their color (#123)")
+        self.shipped = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "later work (#124)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+
+    def test_a_clip_line_improvement_rides_along_once_with_its_recorded_before(self):
+        before = release_notes.clip_auto_url("group-colors", "before")
+        line = [{"url": CLIP_LINE, "sha256": CLIP_SHA, "kind": "image", "alt": "Group labels keep their band color"}]
+        self.clip_line_history()
+        self.pictures = {release_notes.gallery_auto_url("group-colors", r): PNG for r in ("after", "before")}
+        self.assertEqual(self.notes(line), [])  # no before recorded yet; gallery stills are not its pair
+        self.pictures[before] = WEBP + b"b"
+        highlights = self.notes(line)
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([(m["url"], m["role"]) for m in highlights[0]["media"]],
+                         [(CLIP_LINE, "after"), (before, "before")])
+        # Once the notes showed the pair, it rides no more.
+        self.assertEqual(self.notes(highlights[0]["media"]), [])
+
+    def test_a_clip_line_improvement_with_no_spec_rides_no_more(self):
+        self.clip_line_history(spec=False)
+        self.pictures = {release_notes.clip_auto_url("group-colors", "before"): WEBP}
+        self.assertEqual(self.notes([{"url": CLIP_LINE, "sha256": CLIP_SHA}]), [])
 
     def test_no_pictures_yet_or_no_feed_means_no_ride_along(self):
         self.assertEqual(self.notes([], pictures=False), [])
