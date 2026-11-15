@@ -162,4 +162,43 @@ import Testing
         #expect(opened == 0, "a refused open ran the banner click")
         withExtendedLifetime(services) {}
     }
+
+    /// A passkey banner's click starts a WebAuthn ceremony, which runs only on the person's own click
+    /// (agent-browser-passkey-DESIGN.md); the other special banners (iPhone pairing, attention, Runs,
+    /// a page's notification) likewise act on the person's intent. A script's open runs none of them.
+    @Test func aScriptCannotClickAPasskeyOrOtherSpecialBanner() async throws {
+        let services = appServices()
+        let router = makeReleaseRouter(services)
+        let desktop = services.notifications.desktop
+        var opened = 0, passkeys = 0
+        desktop.onOpen = { _, _ in opened += 1 }
+        services.notifications.onPasskeyBanner = { _ in passkeys += 1 }
+        let special = ["cmux-passkey-\(UUID().uuidString)", "cmux-attention.tab_1", "handoff.1", "sandbox-run.1"]
+        for id in special {
+            desktop.post(id: id, title: "Sign in", body: "", surface: 9, workspace: nil, defaultSound: false)
+            let result = await router.handle(ControlRequest(id: "1", method: "notifications.open", params: ["id": .string(id)]))
+            guard case .failure(let error) = result else {
+                Issue.record("notifications.open \(id) answered \(result)")
+                continue
+            }
+            #expect(error.code == "person_required", "\(id): \(error)")
+        }
+        #expect(opened == 0, "a script's open ran a special banner's click")
+        #expect(passkeys == 0, "a script's open started a passkey ceremony")
+        withExtendedLifetime(services) {}
+    }
+
+    /// An incognito window's banner names nothing of the window: not its tab's surface either.
+    @Test func anIncognitoBannerIsListedWithoutItsSurface() async throws {
+        let services = appServices()
+        let router = makeReleaseRouter(services)
+        services.notifications.desktop.post(id: "cmux-notification-4", title: "Claude finished", body: "secret", surface: 4,
+                                            workspace: nil, defaultSound: false, incognito: true)
+        let answer = try await router.handle(ControlRequest(id: "1", method: "notifications.banners", params: [:])).get()
+        let banner = try #require(answer.objectValue?["banners"]?.arrayValue?.last?.objectValue, "\(answer)")
+        #expect(banner["id"] == .string("cmux-notification-4"))
+        #expect(banner["surface"] == .null, "\(banner)")
+        #expect(banner["body"] != .string("secret"), "\(banner)")
+        withExtendedLifetime(services) {}
+    }
 }
