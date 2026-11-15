@@ -2876,6 +2876,9 @@ export class AcpmuxDirectClient {
   /// A request crossed its progress threshold on an open socket. This is a UI state, never a
   /// failure: a busy daemon may answer later, while a close still rejects promptly.
   private daemonWaitingSince?: number;
+  /// How many `pending` requests are `waiting` (`markWaiting`, `noteRequestSettled`): a reply asks
+  /// whether any still waits without walking every pending request (draining N cost N²).
+  private waitingRequests = 0;
   private daemonLastFrameAt = Date.now();
   /// The liveness probe out on the current socket, by request id and when it went; none while no
   /// request waits or once the daemon answered it.
@@ -5149,7 +5152,7 @@ export class AcpmuxDirectClient {
       if (request && busy && request.retryable) {
         // The daemon's count and this page's drifted: the request goes again later, never at once.
         request.busy += 1;
-        request.waiting = true;
+        this.markWaiting(request);
         this.daemonWaitingSince ??= Date.now();
         this.armDaemonLiveness();
         this.emit("waiting: daemon");
@@ -6627,7 +6630,7 @@ export class AcpmuxDirectClient {
         ? setTimeout(() => {
             const request = this.pending.get(id);
             if (!request || request.waiting) return;
-            request.waiting = true;
+            this.markWaiting(request);
             this.daemonWaitingSince ??= Date.now();
             this.armDaemonLiveness();
             this.emit("waiting: daemon");
@@ -6648,11 +6651,20 @@ export class AcpmuxDirectClient {
     });
   }
 
+  private markWaiting(request: { waiting?: boolean }): void {
+    if (request.waiting) return;
+    request.waiting = true;
+    this.waitingRequests += 1;
+  }
+
   private noteRequestSettled(id: number | string): void {
     const wasWaiting = this.daemonWaitingSince !== undefined;
     const request = this.pending.get(id);
-    if (request) request.waiting = false;
-    if (![...this.pending.values()].some((entry) => entry.waiting)) this.daemonWaitingSince = undefined;
+    if (request?.waiting) {
+      request.waiting = false;
+      this.waitingRequests -= 1;
+    }
+    if (this.waitingRequests === 0) this.daemonWaitingSince = undefined;
     if (this.daemonWaitingSince === undefined) {
       this.daemonProbe = undefined;
       if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
@@ -15573,6 +15585,7 @@ export class AcpmuxDirectClient {
       );
     }
     this.pending.clear();
+    this.waitingRequests = 0;
     this.daemonWaitingSince = undefined;
     this.daemonProbe = undefined;
     if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
