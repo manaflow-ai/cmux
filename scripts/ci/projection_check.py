@@ -296,7 +296,15 @@ def check(args) -> int:
             return failures
         finally:
             EDIT.write_text(original)
-            kill_group(server, signal.SIGTERM)
+            # SIGTERM, then SIGKILL to the dev server's group whether or not its leader left: a child that ignores
+            # SIGTERM must not outlive the check.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                if not kill_group(server, sig):
+                    break
+                try:
+                    server.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
 
     smoke.AFTER_RENDER = journey
     smoke.PREPARE_HOME = ui.login_keychain
