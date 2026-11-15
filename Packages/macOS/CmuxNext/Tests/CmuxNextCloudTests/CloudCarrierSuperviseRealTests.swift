@@ -145,6 +145,41 @@ struct CloudCarrierSuperviseRealTests {
         await serve.stop()
     }
 
+    /// A token read that never returns (an auth call that ignores its deadline and its cancellation) is
+    /// answered as failed at the edge's deadline, so the real supervisor gives back its lease and the next
+    /// connect reads again. Before, the connect and every later one waited forever (2026-11-15).
+    @Test func aTokenReadThatNeverReturnsIsAnsweredFailedAndTheNextConnectWorks() async throws {
+        let state = try Self.stateDirectory()
+        defer { try? FileManager.default.removeItem(at: state) }
+        let socket = Self.socket()
+        let reads = Counter()
+        let stuck = Stuck()
+        let serve = CloudCarrierServe(connector: try Self.connector(state: state) {
+            if await reads.next() == 1 { await stuck.wait() }
+        }, socket: socket, tokenReadDeadline: .seconds(1))
+        let failed = await Self.socketPath(serve, within: .seconds(10))
+        #expect(throws: CloudLinkError.self, "\(failed)") { try failed.get() }
+        let result = await Self.socketPath(serve)
+        #expect((try? result.get()) == socket, "\(result)")
+        await stuck.release()
+        await serve.stop()
+    }
+
+    /// A wait that ignores cancellation until ``release()``.
+    private actor Stuck {
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        private var released = false
+        func wait() async {
+            guard !released else { return }
+            await withCheckedContinuation { waiting.append($0) }
+        }
+        func release() {
+            released = true
+            for waiter in waiting { waiter.resume() }
+            waiting = []
+        }
+    }
+
     private actor Counter {
         private var count = 0
         func next() -> Int { count += 1; return count }

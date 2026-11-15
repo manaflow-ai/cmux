@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// The carrier's link of a Cloud machine (design/cloud-carrier.md): one `cmux carrier serve` child for the
 /// session (``CloudCarrierServe``), whose private socket dials the machine's `mux` once per connection, the
@@ -62,6 +63,8 @@ public struct CloudCarrierResolver: CloudLinkResolver {
 public actor CloudCarrierServe {
     private let connector: CloudCarrierDial.Connector
     private let socket: String
+    /// How long one token read may take before it is answered as failed.
+    private let readDeadline: Duration
     private var supervisor: ChildProcess?
     private var waiters: [UInt64: CheckedContinuation<String, any Error>] = [:]
     private var lastWaiter: UInt64 = 0
@@ -86,8 +89,9 @@ public actor CloudCarrierServe {
         self.init(connector: connector, socket: paths.linkSocket(machineID: connector.dial.machine))
     }
 
-    init(connector: CloudCarrierDial.Connector, socket: String) {
-        (self.connector, self.socket) = (connector, socket)
+    /// `tokenReadDeadline`: tests shorten ``CloudCarrierServe/tokenReadDeadline``.
+    init(connector: CloudCarrierDial.Connector, socket: String, tokenReadDeadline: Duration = CloudCarrierServe.tokenReadDeadline) {
+        (self.connector, self.socket, self.readDeadline) = (connector, socket, tokenReadDeadline)
     }
 
     func observeOwnership(_ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) { ownershipObserver = update }
@@ -102,7 +106,7 @@ public actor CloudCarrierServe {
         return try await withCheckedThrowingContinuation { continuation in
             waiters[waiter] = continuation
             guard let supervisor = running() else { return }
-            if !supervisor.writeInput(line: Self.line(["connect": waiter, "keep_refusal": keepingRefusal])) {
+            if !supervisor.writeInput(line: #"{"connect":\#(waiter),"keep_refusal":\#(keepingRefusal)}"#) {
                 waiters.removeValue(forKey: waiter)?.resume(throwing: Self.exited)
             }
         }
@@ -112,13 +116,15 @@ public actor CloudCarrierServe {
     public func stop() {
         stopped = true
         refusal = Self.closed
-        supervisor?.writeInput(line: Self.line(["stop": true]))
+        supervisor?.writeInput(line: #"{"stop":true}"#)
         supervisor?.closeInput()
     }
 
     /// Ends the child while the machine is paused; the next connect starts a fresh one.
     public func park() {
-        supervisor?.writeInput(line: Self.line(["park": true]))
+        if supervisor?.writeInput(line: #"{"park":true}"#) == false {
+            Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): the park did not reach the supervisor")
+        }
     }
 
     /// The running supervisor, started when none runs; nil (each waiter resumed) when it cannot start.
@@ -136,7 +142,7 @@ public actor CloudCarrierServe {
         // once; one that came first already did.
         if let streams = connector.streams {
             held = streams.hold(generation: connector.generation) { [weak self] in
-                process.writeInput(line: Self.line(["account_ended": true]))
+                process.writeInput(line: #"{"account_ended":true}"#)
                 process.closeInput()
                 // task-owner: one hop that tells the serve its account ended
                 Task { await self?.stop() }
@@ -177,25 +183,75 @@ public actor CloudCarrierServe {
         }
     }
 
-    /// Answers the supervisor's token read `read` with the connector's environment.
+    /// The longest a token read takes before it is answered as failed: the supervisor waits for this answer
+    /// with its lease held, and every connect of the session joins that wait, so an answer that never comes
+    /// wedges the machine's link for good (2026-11-15).
+    static let tokenReadDeadline: Duration = .seconds(75)
+
+    /// Answers the supervisor's token read `read` with the connector's environment, always: within
+    /// ``tokenReadDeadline`` an access token, `fenced` or why there is none.
     private func readToken(_ read: UInt64, for process: ChildProcess) {
-        let connector = connector
-        // task-owner: one token read; the supervisor drops an answer whose launch moved on
-        Task {
-            var reply: [String: Any] = ["token": read]
-            do {
-                let environment = try await connector.environment()
-                // A switch during the read hands the token to no one.
-                if connector.isFenced { reply["fenced"] = true } else { reply["env"] = environment }
-            } catch let error as CloudLinkError where error == CloudCarrierDial.Connector.fenced {
-                reply["fenced"] = true
-            } catch {
-                let failure = (error as? CloudLinkError) ?? .helperNotRunning(reason: "cmux carrier serve has no access token: \(error)")
-                reply["error"] = failure.wire
+        let (connector, machine, deadline) = (connector, connector.dial.machine, readDeadline)
+        Self.log.info("carrier supervise \(machine, privacy: .public): token read \(read) asked")
+        // task-owner: one token read, ended by its answer or its deadline; the supervisor drops an answer whose launch moved on
+        Task.detached(priority: .userInitiated) {
+            let started = ContinuousClock.now
+            let reply = await Self.tokenReply(read, connector: connector, deadline: deadline)
+            let line = Self.line(reply) ?? Self.line(["token": read, "error": CloudLinkError.helperNotRunning(reason: "the token answer did not encode").wire]) ?? ""
+            let wrote = process.writeInput(line: line, patience: .seconds(2))
+            let kind = reply["env"] != nil ? "env" : reply["fenced"] != nil ? "fenced" : "error"
+            let ms = Int(started.duration(to: .now) / .milliseconds(1))
+            if wrote {
+                Self.log.info("carrier supervise \(machine, privacy: .public): token read \(read) answered \(kind, privacy: .public) after \(ms) ms")
+            } else {
+                Self.log.error("carrier supervise \(machine, privacy: .public): token read \(read) answer (\(kind, privacy: .public)) did not reach the supervisor after \(ms) ms")
             }
-            process.writeInput(line: Self.line(reply))
         }
     }
+
+    /// The `token` line's object for read `read`: the environment, `fenced`, or the error; a read that outlives
+    /// `deadline` (an auth call that never returns) is answered as failed, and its late result is dropped.
+    static func tokenReply(_ read: UInt64, connector: CloudCarrierDial.Connector, deadline: Duration) async -> [String: Any] {
+        let outcome = await Self.race(deadline) { () async -> Result<[String: String], any Error> in
+            do { return .success(try await connector.environment()) } catch { return .failure(error) }
+        }
+        var reply: [String: Any] = ["token": read]
+        switch outcome {
+        case .success(let environment)?:
+            // A switch during the read hands the token to no one.
+            if connector.isFenced { reply["fenced"] = true } else { reply["env"] = environment }
+        case .failure(let error as CloudLinkError)? where error == CloudCarrierDial.Connector.fenced:
+            reply["fenced"] = true
+        case .failure(let error)?:
+            let failure = (error as? CloudLinkError) ?? .helperNotRunning(reason: "cmux carrier serve has no access token: \(error)")
+            reply["error"] = failure.wire
+        case nil:
+            reply["error"] = CloudLinkError.helperNotRunning(reason: "the access token read took longer than \(deadline)").wire
+        }
+        return reply
+    }
+
+    /// `operation`'s value, or nil once `limit` passed first. Never joins a late `operation` (one that ignores
+    /// its cancellation), unlike a task group, which waits for every child before it returns.
+    static func race<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async -> T) async -> T? {
+        let (results, sink) = AsyncStream.makeStream(of: T?.self)
+        // task-owner: the operation; its late value goes to a finished stream
+        let work = Task { sink.yield(await operation()); sink.finish() }
+        // task-owner: the deadline; cancelled by the answer
+        let timer = Task {
+            // wakeup-allow: one-shot deadline of one token read
+            try? await Task.sleep(for: limit)
+            sink.yield(nil)
+            sink.finish()
+        }
+        var first: T?
+        for await value in results { first = value; break }
+        timer.cancel()
+        if first == nil { work.cancel() }
+        return first
+    }
+
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.carrier")
 
     private func exited(_ process: ChildProcess) {
         guard process === supervisor else { return }
@@ -213,8 +269,10 @@ public actor CloudCarrierServe {
         for continuation in waiting.values { continuation.resume(with: result.mapError { $0 as any Error }) }
     }
 
-    private static func line(_ object: [String: Any]) -> String {
-        String(decoding: (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8), as: UTF8.self)
+    /// `object` as one JSON line; nil when it does not encode (never a `{}` the supervisor skips).
+    private static func line(_ object: [String: Any]) -> String? {
+        guard JSONSerialization.isValidJSONObject(object), let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 }
 
