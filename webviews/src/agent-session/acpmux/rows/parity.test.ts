@@ -47,26 +47,20 @@ const NAMED: readonly { field: string; row: string; why: string; view: "same" | 
   },
   {
     field: "row:activity",
-    row: "seed-turn:4",
+    row: "r1-reply-1:11",
     why: "v1 runs a turn's calls and thoughts together in one activity row as its reducer meets them; the store has a row per call or thought",
     view: "same",
   },
   {
     field: "activity.items",
-    row: "seed-turn:4",
+    row: "r1-reply-1:11",
     why: "as row:activity",
     view: "same",
   },
   {
     field: "activity.toolCount",
-    row: "seed-turn:4",
+    row: "r1-reply-1:11",
     why: "as row:activity: v1 counts the run's calls, a store row has one",
-    view: "same",
-  },
-  {
-    field: "activity.streaming",
-    row: "seed-turn:4",
-    why: "as row:activity: v1's run streams while its last item does, a store row while it is open",
     view: "same",
   },
 ];
@@ -83,6 +77,36 @@ const UNCOMPARED: readonly { field: string; why: string }[] = [
   },
 ];
 const UNCOMPARED_KEYS = new Set(UNCOMPARED.map((entry) => entry.field));
+
+/// What the view makes from a field on `notYet.ts` or UNCOMPARED, so it differs while that one does.
+/// Each leaves with the field it is made from; one that no longer differs fails, as on the lists.
+const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string }[] = [
+  {
+    field: "worked.at",
+    from: ["user.at"],
+    why: "a turn's fold is dated by its prompt",
+  },
+  {
+    field: "turnSummary.turnWork",
+    from: ["tool.startedAt", "tool.endedAt"],
+    why: "the turn's waterfall holds the calls that have both times",
+  },
+  {
+    field: "turnSummary.turnCopy",
+    from: ["tool.startedAt", "tool.endedAt", "tool.provenance"],
+    why: "the turn's copy holds its calls whole",
+  },
+  {
+    field: "turnSummary.answerId",
+    from: ["id"],
+    why: "the turn's answer is named by its row's id",
+  },
+  {
+    field: "turnSummary.retryRowId",
+    from: ["id"],
+    why: "the turn's Retry is named by its prompt row's id",
+  },
+];
 
 /// v1's snapshot of a corpus log: its records replayed through the direct client to the end.
 function v1(name: string): AcpmuxSnapshot {
@@ -268,10 +292,17 @@ test("the view draws both the same: turnView over v1's rows and over the adapter
   const allowed = new Set([
     ...NOT_YET.map((entry) => entry.field),
     ...NAMED.filter((entry) => entry.view === "differs").map((entry) => entry.field),
+    ...DRAWN_FROM.map((entry) => entry.field),
   ]);
   for (const [key, examples] of found)
     console.log(`VIEW ${allowed.has(key) ? "listed" : "OFF THE LIST"} ${key} | ${examples[0]}`);
   expect([...found.keys()].filter((key) => !allowed.has(key))).toEqual([]);
+  // A field made from another leaves with it, and stays only while it differs.
+  const sources = new Set([...NOT_YET.map((entry) => entry.field), ...UNCOMPARED_KEYS]);
+  expect(
+    DRAWN_FROM.filter((entry) => !entry.from.every((field) => sources.has(field))).map((entry) => entry.field),
+  ).toEqual([]);
+  expect(DRAWN_FROM.map((entry) => entry.field).filter((field) => !found.has(field))).toEqual([]);
 });
 
 /// The `<kind>.<field>` keys v1 draws anywhere in the corpus, with `row:<kind>` for each kind, and
@@ -291,7 +322,10 @@ async function shownByCorpus(): Promise<Set<string>> {
       shown.add(`row:${unit.kind}`);
       for (const field of Object.keys(unit.fields)) shown.add(`${unit.kind}.${field}`);
     }
-    for (const [field, value] of Object.entries(snapshot)) if (!empty(value)) shown.add(`snapshot.${field}`);
+    // `permissionGroups` is the page's permission client state; what FIELDS.md names is its groups.
+    for (const [field, value] of Object.entries(snapshot))
+      if (!empty(field === "permissionGroups" ? snapshot.permissionGroups?.groups : value))
+        shown.add(`snapshot.${field}`);
     for (const entry of snapshot.queue)
       for (const [field, value] of Object.entries(entry)) if (!empty(value)) shown.add(`queue.${field}`);
   }
@@ -300,7 +334,14 @@ async function shownByCorpus(): Promise<Set<string>> {
 
 /// The names FIELDS.md's "Not yet" gives in backquotes that are not one field the view reads: a
 /// type, a method or a wire name, each with what it stands for.
-const NOT_A_FIELD = new Map<string, string>([]);
+const NOT_A_FIELD = new Map<string, string>([
+  ["QueueItem", "the queue entry's wire type; its new fields are named one by one"],
+  ["queue", "the snapshot's queue, compared whole (home d); its new fields are named one by one"],
+  ["_acpmux/view", "the method that carries presence, typing and the read mark"],
+  ["page {turns: true}", "the request for a page of turns"],
+  ["tasks: [{sessionId, name?, harness?}]", "the shape of `tasks`"],
+  ["background_turn", "the record a background turn comes from"],
+]);
 
 test("each field FIELDS.md has not yet is on one of notYet's lists, and the corpus shows none of the second", async () => {
   const text = readFileSync(`${import.meta.dir}/FIELDS.md`, "utf8");
@@ -308,13 +349,22 @@ test("each field FIELDS.md has not yet is on one of notYet's lists, and the corp
   const names = new Set(
     [...section.matchAll(/`([^`]+)`/g)].map((match) => match[1]!).filter((name) => !NOT_A_FIELD.has(name)),
   );
-  // A key is `<kind>.<field>` or `row:<kind>`; FIELDS.md names the field, or the record a row is.
-  const named = new Set(
-    [...NOT_YET, ...NOT_IN_CORPUS].map((entry) => entry.field.replace(/^row:/, "").replace(/^[^.]+\./, "")),
-  );
-  expect([...names].filter((name) => !named.has(name)).sort()).toEqual([]);
+  // FIELDS.md names the field (`<kind>.<field>` ends with it), the record a row is (`row:<kind>`),
+  // or a name the entry covers.
+  const entries = [...NOT_YET, ...NOT_IN_CORPUS];
+  const placed = (name: string) =>
+    entries.some(
+      (entry) =>
+        entry.field === name ||
+        entry.field === `row:${name}` ||
+        entry.field.endsWith(`.${name}`) ||
+        entry.covers?.includes(name),
+    );
   const shown = await shownByCorpus();
   console.log(`SHOWN ${[...shown].sort().join(" ")}`);
+  const unplaced = [...names].filter((name) => !placed(name)).sort();
+  console.log(`UNPLACED ${unplaced.join(" ")}`);
+  expect(unplaced).toEqual([]);
   // The corpus showing one is a row to compare: it moves to NOT_YET, or off both lists once it draws the same.
   expect(NOT_IN_CORPUS.map((entry) => entry.field).filter((field) => shown.has(field))).toEqual([]);
 });
