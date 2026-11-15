@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43775478484",
+  "recorded_at": "2026-11-15T23:45:18Z",
+  "reason": "cmux-tui 829a459e1720 changes the image's cmux-tui (pinned 5f9ffecdcf02)",
+  "dry_run": false,
+  "cmux_tui": "829a459e17200d78e847e11126e9228f1c5e1b6e",
+  "fixes": [
+    {
+      "sha": "829a459e17200d78e847e11126e9228f1c5e1b6e",
+      "mergedAt": "2026-11-15T15:17:11-08:00",
+      "subject": "cmux-action-catalog: Unpin Workspace from Space, a catalog request row (batch 2) (#43944)"
+    },
+    {
+      "sha": "1c4f3722e050e98c2aed9b2f93c3217e5de3f4f8",
+      "mergedAt": "2026-11-15T23:12:18Z",
+      "subject": "fix(next): an open classic stops the launch's classic import preview (#43967)"
+    },
+    {
+      "sha": "8286bb5825cdf0857bbaa4b2f4a229b8acd734cb",
+      "mergedAt": "2026-11-15T15:07:22-08:00",
+      "subject": "perf(acpmux): a resend's prompt state reads one prompt's records, not the chat's whole copy (#43981)"
+    },
+    {
+      "sha": "0a02f56030efafe38a461628131543cad877b180",
+      "mergedAt": "2026-11-15T15:01:05-08:00",
+      "subject": "v2 peer pages: a peer's all page reads a bounded number of pieces (row 8b, decisions 285 and 290) (#43789)"
+    },
+    {
+      "sha": "b9625e0e0566f3ae768fbc354cb9bd82e429ccd5",
+      "mergedAt": "2026-11-15T14:49:19-08:00",
+      "subject": "acpmux: a daemon's start task sorts the list order first, before any log is read (#43852)"
+    },
+    {
+      "sha": "bcd73daa5a785782a6f145285cfb69117b70040c",
+      "mergedAt": "2026-11-15T14:39:32-08:00",
+      "subject": "cmux-remote: a daemon's relay registration renews its ticket make-before-break, and its open circuits outlive the control socket (#43954)"
+    },
+    {
+      "sha": "9750ac9e9926cfe6e9131c56ecd7c1efb22e391f",
+      "mergedAt": "2026-11-15T14:10:53-08:00",
+      "subject": "cmux-tui: acpmux-cgu-sweep.sh, acpmux release rebuild time, size and pipe numbers per codegen-units count (#43926)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T23:45:18Z",
+    "snapshot_id": "sh-775e5dec584343a8a79c69a4282dfd2c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43775478484): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fb36457443990b2c5c41105a8c04133ee4eb7b8d",
+    "image": "cloud-native-auto-829a459e-43775478484-1",
+    "revision": "ci-43775478484-1",
+    "at": "2026-11-15T23:45:18Z"
+  },
+  "rolled_back": false
+}
