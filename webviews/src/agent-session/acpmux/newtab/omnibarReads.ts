@@ -27,7 +27,9 @@ export function useChatSearch(query: string, load: LoadChatsPage | undefined): r
   // `load` may be a new function on every parent render: keep the latest in a ref, so a render
   // never restarts the wait or drops an answer on its way (as allChatsListModel useChatPages).
   const latest = useRef(load);
-  latest.current = load;
+  useEffect(() => {
+    latest.current = load;
+  });
   const can = Boolean(load);
   useEffect(() => {
     if (!text || !can) return undefined;
@@ -61,7 +63,9 @@ export function useFolderListing(parent: string | undefined, complete: CompleteF
   const known = parent ? listings.get(parent) : undefined;
   // `complete` may be a new function on every parent render: the latest, from a ref (see above).
   const latest = useRef(complete);
-  latest.current = complete;
+  useEffect(() => {
+    latest.current = complete;
+  });
   const can = Boolean(complete);
   useEffect(() => {
     if (!parent || !can || known) return undefined;
