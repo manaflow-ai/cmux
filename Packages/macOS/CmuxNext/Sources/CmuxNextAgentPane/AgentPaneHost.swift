@@ -289,7 +289,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        if let kept = prewarmed.take(at: .now) { return .acpmux(connection(kept), sessionId: sessionId) }
+        _ = prewarmed.take(at: .now) // red: the kept endpoint is never used
         // A handshake that looks up itself (it joins a launch prewarm still running, or asks again to
         // recover the person's proof) leaves nothing for a later one: that one looks up in full.
         prewarmed.drop()
