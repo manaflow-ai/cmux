@@ -2670,8 +2670,9 @@ RERUN_BOT = "cmux-bot[bot]"
 
 
 def rerun_capped_workflows() -> list[Path]:
-    """The workflows whose routes cap re-run attempts (`github.run_attempt <= N`)."""
-    return sorted(p for p in WORKFLOW.parent.glob("*.yml") if RERUN_ATTEMPT_CAP.search(p.read_text()))
+    """The workflows whose routes cap re-run attempts (`github.run_attempt <= N`), and cmux-next.yml, whose bot
+    re-runs are placed afresh at every attempt (macos-placement's `if`) instead of capped."""
+    return sorted(p for p in WORKFLOW.parent.glob("*.yml") if p == WORKFLOW or RERUN_ATTEMPT_CAP.search(p.read_text()))
 
 
 def rerun_routes(path: Path) -> dict[str, str]:
