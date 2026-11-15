@@ -65,10 +65,21 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
+/** The row's own asks, waiting their turn: a test runs each one (`nextAsk`) instead of waiting the time. */
+let due: { run: () => void; ms: number }[] = [];
+
 async function mount(snapshot: MachinesSnapshot = sampleSnapshot, options: { recheck?: readonly number[] } = {}) {
   act(() => root?.unmount());
+  due = [];
   const provider = new MockMachinesProvider(snapshot);
-  const store = new MachinesStore(provider, options);
+  const store = new MachinesStore(provider, {
+    ...options,
+    schedule: (run, ms) => {
+      const entry = { run, ms };
+      due.push(entry);
+      return () => void (due = due.filter((other) => other !== entry));
+    },
+  });
   root = createRoot(host);
   await act(async () => {
     root!.render(<MachinesSection store={store} strings={strings} />);
@@ -122,7 +133,21 @@ test("New Workspace runs only on a connected row; Add Machine… runs device.add
 });
 
 const add = (row: HTMLElement) => [...row.querySelectorAll<HTMLButtonElement>(".machines-action")].at(-1)!;
-const settle = () => act(async () => new Promise<void>((resolve) => setTimeout(resolve, 5)));
+/** Lets the host's answer (an already-settled promise) reach the row. */
+const answers = async () => {
+  for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+};
+const press = (button: HTMLElement) =>
+  act(async () => {
+    button.click();
+    await answers();
+  });
+/** The row's next ask, now. */
+const nextAsk = () =>
+  act(async () => {
+    due.shift()?.run();
+    await answers();
+  });
 
 test("a joined machine needs a link for New Workspace, except an online Mac, which asks first", async () => {
   await mount();
@@ -140,8 +165,10 @@ test("a joined machine needs a link for New Workspace, except an online Mac, whi
 test("New Workspace on a signed-in Mac asks it, waits on the row with no dialog, and opens once it allows", async () => {
   const { provider } = await mount(sampleSnapshot, { recheck: [0, 0] });
   provider.dialAnswers = [{ state: "consent_required" }, { state: "consent_required" }, { state: "opened" }];
-  await act(async () => add(rowNamed("studio-mini")).click());
-  await settle();
+  await press(add(rowNamed("studio-mini")));
+  expect(due.map((entry) => entry.ms)).toEqual([0]);
+  await nextAsk();
+  await nextAsk();
   const calls = ops(provider, "cmux.machines.openJoined").map((call) => call.params);
   // The person's click, then the row's own asks while the other Mac shows its card.
   expect(calls).toEqual([
@@ -160,11 +187,12 @@ test("New Workspace on a signed-in Mac asks it, waits on the row with no dialog,
 test("while the other Mac shows its card the row says so, with a spinner in New Workspace's place", async () => {
   const { provider } = await mount(sampleSnapshot, { recheck: [60_000] });
   provider.dialAnswers = [{ state: "consent_required" }];
-  await act(async () => add(rowNamed("studio-mini")).click());
+  await press(add(rowNamed("studio-mini")));
   const row = rowNamed("studio-mini");
   expect(row.getAttribute("data-dial")).toBe("waiting");
   expect(row.querySelector(".machines-state")?.textContent).toBe("Waiting for studio-mini to allow");
-  expect(row.querySelector('[role="status"]')?.textContent).toBe("Waiting for studio-mini to allow");
+  expect(row.querySelector("output.machines-state")?.textContent).toBe("Waiting for studio-mini to allow");
+  expect(due.map((entry) => entry.ms)).toEqual([60_000]);
   expect(row.querySelector(".machines-dial-spinner")).not.toBeNull();
   expect(row.querySelector(".machines-new")).toBeNull();
   expect(row.querySelector(".machines-retry")).toBeNull();
@@ -174,16 +202,16 @@ test("while the other Mac shows its card the row says so, with a spinner in New 
 test("Not now on the other Mac stops the row with Retry; nothing asks again until Retry", async () => {
   const { provider } = await mount(sampleSnapshot, { recheck: [0, 0, 0] });
   provider.dialAnswers = [{ state: "consent_declined" }];
-  await act(async () => add(rowNamed("studio-mini")).click());
-  await settle();
+  await press(add(rowNamed("studio-mini")));
+  expect(due).toHaveLength(0);
   const row = rowNamed("studio-mini");
   expect(row.getAttribute("data-dial")).toBe("declined");
   expect(row.querySelector(".machines-state")?.textContent).toBe("Not allowed on studio-mini");
   expect(ops(provider, "cmux.machines.openJoined")).toHaveLength(1);
   const retry = row.querySelector<HTMLButtonElement>(".machines-retry")!;
   expect(retry.textContent).toBe("Retry");
-  await act(async () => retry.click());
-  await settle();
+  await press(retry);
+  expect(due).toHaveLength(0);
   // Retry is the person's click again (no `again`), and it is asked once.
   expect(ops(provider, "cmux.machines.openJoined").map((call) => call.params)).toEqual([
     { row: "joined:m_mini" },
@@ -193,16 +221,14 @@ test("Not now on the other Mac stops the row with Retry; nothing asks again unti
 
 test("no answer within the wait stops asking and offers Retry", async () => {
   const { provider } = await mount(sampleSnapshot, { recheck: [0] });
-  await act(async () => add(rowNamed("studio-mini")).click());
-  await settle();
-  await settle();
+  await press(add(rowNamed("studio-mini")));
+  await nextAsk();
   const row = rowNamed("studio-mini");
   expect(row.getAttribute("data-dial")).toBe("unanswered");
   expect(row.querySelector(".machines-state")?.textContent).toBe("No answer from studio-mini");
   expect(row.querySelector(".machines-retry")).not.toBeNull();
   expect(ops(provider, "cmux.machines.openJoined")).toHaveLength(2);
-  await settle();
-  expect(ops(provider, "cmux.machines.openJoined")).toHaveLength(2);
+  expect(due).toHaveLength(0);
 });
 
 test("a Mac with an older cmux says to update it; an unreachable one says so", async () => {
@@ -211,19 +237,18 @@ test("a Mac with an older cmux says to update it; an unreachable one says so", a
     { state: "unavailable", reason: "service.unknown" },
     { state: "unavailable", reason: "carrier.off" },
   ];
-  await act(async () => add(rowNamed("studio-mini")).click());
-  await settle();
+  await press(add(rowNamed("studio-mini")));
   expect(rowNamed("studio-mini").querySelector(".machines-state")?.textContent).toBe("Update cmux on studio-mini");
-  await act(async () => rowNamed("studio-mini").querySelector<HTMLButtonElement>(".machines-retry")!.click());
-  await settle();
+  await press(rowNamed("studio-mini").querySelector<HTMLButtonElement>(".machines-retry")!);
   expect(rowNamed("studio-mini").querySelector(".machines-state")?.textContent).toBe("Could not reach studio-mini");
 });
 
 test("a second click while the ask runs asks nothing more", async () => {
-  const { provider } = await mount(sampleSnapshot, { recheck: [60_000] });
-  await act(async () => add(rowNamed("studio-mini")).click());
-  await act(async () => rowNamed("studio-mini").querySelector<HTMLElement>(".machines-dial-spinner")?.click());
-  await act(async () => rowNamed("studio-mini").querySelector<HTMLButtonElement>(".machines-new")?.click());
+  const { provider, store } = await mount(sampleSnapshot, { recheck: [60_000] });
+  await press(add(rowNamed("studio-mini")));
+  // The spinner holds New Workspace's slot (no button to click); a click that still lands asks nothing.
+  expect(rowNamed("studio-mini").querySelector(".machines-new")).toBeNull();
+  await act(async () => store.openJoined("joined:m_mini"));
   expect(ops(provider, "cmux.machines.openJoined")).toHaveLength(1);
 });
 
