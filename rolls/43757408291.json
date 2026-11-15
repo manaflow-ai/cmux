@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43757408291",
+  "recorded_at": "2026-11-15T20:27:17Z",
+  "reason": "cmux-tui 9db3e4d888b3 changes the image's cmux-tui (pinned da984c40c53e)",
+  "dry_run": false,
+  "cmux_tui": "9db3e4d888b33f50e58f2695153c7c1766c5da06",
+  "fixes": [
+    {
+      "sha": "dc7a352c625ed3c4b6be75104074cd36b1cfcb41",
+      "mergedAt": "2026-11-15T11:54:56-08:00",
+      "subject": "acpmux: the next atomic write removes the temporary copies a killed writer left (#43893)"
+    },
+    {
+      "sha": "7126140312b3e630ee4673122d40faf773dbcc37",
+      "mergedAt": "2026-11-15T11:44:02-08:00",
+      "subject": "Shared terminal never narrower than an iPhone while a wider view counts (#43501)"
+    },
+    {
+      "sha": "d48fa169121e4c5e069b6d2be1f9f575e141c5e3",
+      "mergedAt": "2026-11-15T11:40:48-08:00",
+      "subject": "perf(cmux-tui): the terminal host reads titles and OSC metadata in one output scan (CMUX-571) (#43817)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T20:27:17Z",
+    "snapshot_id": "sh-46a14f5785f84ef681d9866fc9ff7ee3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43757408291): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "dc2d76c17b46cc242b347bdb968c592155f3fc06",
+    "image": "cloud-native-auto-9db3e4d8-43757408291-1",
+    "revision": "ci-43757408291-1",
+    "at": "2026-11-15T20:27:17Z"
+  },
+  "rolled_back": false
+}
