@@ -170,13 +170,12 @@ class PlanTest(unittest.TestCase):
         self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
         self.assertEqual(planned["layers"], [])
 
-    def test_a_daemon_change_after_swift_drift_swaps_the_daemon(self):
+    def test_a_daemon_change_after_resource_drift_swaps_the_daemon(self):
         # The fleet's looks on cmux#43653 and cmux#43683 crashed here ("module 'hot_apply' has no attribute
-        # 'NATIVE_IN_TUI'", removed by #43797): Swift in the commits the app lacks puts files in classify's
-        # rebuild bucket, which the FFI check read with that pattern.
-        tip = self.advance_base({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
-                                 "struct App {\n    func title() -> String {\n        return \"drift\"\n"
-                                 "    }\n}\n"})
+        # 'NATIVE_IN_TUI'", removed by #43797): a resource, manifest or non-live Swift file in the commits the app
+        # lacks lands in classify's rebuild bucket, which the FFI check read with that pattern.
+        tip = self.advance_base({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings":
+                                 "{\"sourceLanguage\": \"en\", \"strings\": {}}\n"})
         head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
                               "change", parent=tip)
         planned = self.plan(head)
