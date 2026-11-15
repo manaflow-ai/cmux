@@ -17,7 +17,10 @@ actor MacTeamAuthOwner: InstallAuthTransport {
     private(set) var cancelledAtToken: Bool?
     private(set) var registrations = 0
     private(set) var grants: [[String]] = []
-    init(user: String = "user_1") { self.user = user }
+    /// The real owner's rule: a public key registers one install only; a second register of it is refused.
+    private let refusesKnownKeys: Bool
+    private var knownKeys: Set<Data> = []
+    init(user: String = "user_1", refusesKnownKeys: Bool = false) { self.user = user; self.refusesKnownKeys = refusesKnownKeys }
 
     func deny(_ team: String) { denied.insert(team) }
     func publicKey(_ install: String) -> Data? { keys[install]?.x963Representation }
@@ -36,6 +39,10 @@ actor MacTeamAuthOwner: InstallAuthTransport {
             guard body["op"] as? String == "install.register", let params = body["params"] as? [String: Any],
                   let jwk = params["public_jwk"] as? [String: String], let x = jwk["x"].flatMap(Data.init(base64URLEncoded:)),
                   let y = jwk["y"].flatMap(Data.init(base64URLEncoded:)) else { throw Failure.invalidRequest }
+            let point = Data([4]) + x + y
+            if refusesKnownKeys, !knownKeys.insert(point).inserted {
+                return try reply(["ok": false, "error": ["code": "validation.invalid", "message": "this public key is already registered"]])
+            }
             registrations += 1
             grants.append(params["op_classes"] as? [String] ?? [])
             let install = "inst_\(registrations)"

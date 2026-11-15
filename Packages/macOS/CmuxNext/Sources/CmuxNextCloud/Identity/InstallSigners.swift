@@ -30,79 +30,92 @@ struct FileInstallSigner: InstallSigner {
 /// encrypted key blob is stored, in the Keychain for this device only; the
 /// private key never leaves the enclave. No user-presence prompt.
 ///
-/// The blob is a generic password, service ``service`` (`<bundle id>.install-key[.<namespace>].<API host>`) and
-/// account ``account`` (`install-key-<16 hex>`), in the login Keychain. Every call on it (read, add, delete) runs
-/// on a thread of Rust's within Rust's deadline (``BoundedKeychain``): a Keychain that is locked, asking for its
-/// password, or stuck ends in ``KeychainTimedOut``, which names the item, never a mint (and the machine list behind
-/// it) that waits for good. None of them shows UI: an item another signature of this bundle id made, or a locked
-/// Keychain, is refused, never prompted for.
+/// The blob is a generic password, service ``LoginInstallKeyKeychain/service`` (`<bundle id>.install-key[.<namespace>].<API host>`)
+/// and account `install-key-<16 hex>` or a later generation of it (``InstallKeySlots``), in the login Keychain. Every
+/// call on it (list, read, add, delete) runs on a thread of Rust's within Rust's deadline (``BoundedKeychain``): a
+/// Keychain that is locked, asking for its password, or stuck ends in ``KeychainTimedOut``, which names the item,
+/// never a mint (and the machine list behind it) that waits for good. None of them shows UI: an item another
+/// signature of this bundle id made, or a locked Keychain, is refused, never prompted for; a delete another build's
+/// item refuses moves the key to the next generation.
 ///
 /// It stays in the login Keychain: the data-protection Keychain needs the keychain-access-groups entitlement, which
 /// cmux NEXT Nightly and Stable are signed without (no provisioning profile; scripts/ci/stable-next-identity.sh
 /// refuses it), so there it answers `errSecMissingEntitlement`.
 struct EnclaveInstallSigner: InstallSigner {
-    enum Failure: Error { case secureEnclaveUnavailable, keychain(OSStatus) }
+    enum Failure: Error, CustomStringConvertible {
+        case secureEnclaveUnavailable, keychain(OSStatus)
 
-    let service: String
-    let account: String
-    /// The app's one guard of the Keychain UI switch.
-    let loginKeychain: LoginKeychain
-
-    func publicKeyX963() async throws -> Data { try await key().publicKey.x963Representation }
-
-    func sign(_ message: Data) async throws -> Data { try await key().signature(for: message).rawRepresentation }
-
-    func rotate() async throws {
-        let (service, account, loginKeychain) = (service, account, loginKeychain)
-        let status = try await BoundedKeychain.run(service: service, account: account) {
-            loginKeychain.withoutUI { SecItemDelete(Self.query(service: service, account: account) as CFDictionary) }
+        /// The status and the system's words for it (`keychain(-25244: …)`): what a failed mint names.
+        var description: String {
+            switch self {
+            case .secureEnclaveUnavailable: "the Secure Enclave is unavailable"
+            case .keychain(let status):
+                "keychain(\(status)" + ((SecCopyErrorMessageString(status, nil) as String?).map { ": \($0)" } ?? "") + ")"
+            }
         }
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
     }
 
-    private func key() async throws -> SecureEnclave.P256.Signing.PrivateKey {
-        guard SecureEnclave.isAvailable else { throw Failure.secureEnclaveUnavailable }
-        if let blob = try await read() { return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob) }
+    private let signer: SlotInstallSigner<EnclaveKey>
+
+    init(service: String, account: String, loginKeychain: LoginKeychain) {
+        signer = SlotInstallSigner(slots: InstallKeySlots(account: account,
+                                                          keychain: LoginInstallKeyKeychain(service: service, loginKeychain: loginKeychain)))
+    }
+
+    func publicKeyX963() async throws -> Data { try await signer.publicKeyX963() }
+    func sign(_ message: Data) async throws -> Data { try await signer.sign(message) }
+    func rotate() async throws { try await signer.rotate() }
+}
+
+/// A private key kept as a blob in ``InstallKeySlots``.
+protocol SlotKey {
+    static func make() throws -> Self
+    init(blob: Data) throws
+    var blob: Data { get }
+    var publicKeyX963: Data { get }
+    func sign(_ message: Data) throws -> Data
+}
+
+/// An install key whose blob lives in ``InstallKeySlots``: made and stored at its first use, a fresh one at rotation.
+struct SlotInstallSigner<Key: SlotKey>: InstallSigner {
+    let slots: InstallKeySlots
+
+    func publicKeyX963() async throws -> Data { try await key().publicKeyX963 }
+    func sign(_ message: Data) async throws -> Data { try await key().sign(message) }
+    func rotate() async throws { try await slots.rotate { try Key.make().blob } }
+
+    private func key() async throws -> Key {
+        if let blob = try await slots.current() { return try Key(blob: blob) }
+        let made = try Key.make()
+        try await slots.store(made.blob)
+        return made
+    }
+}
+
+/// A Secure Enclave P-256 key; its blob is the enclave's encrypted key.
+struct EnclaveKey: SlotKey {
+    private let key: SecureEnclave.P256.Signing.PrivateKey
+
+    static func make() throws -> EnclaveKey {
+        guard SecureEnclave.isAvailable else { throw EnclaveInstallSigner.Failure.secureEnclaveUnavailable }
         var error: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                                                            .privateKeyUsage, &error) else {
-            throw Failure.keychain(errSecParam)
+            throw EnclaveInstallSigner.Failure.keychain(errSecParam)
         }
-        let made = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access)
-        try await write(made.dataRepresentation)
-        return made
+        return EnclaveKey(key: try SecureEnclave.P256.Signing.PrivateKey(accessControl: access))
     }
 
-    private static func query(service: String, account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
+    init(blob: Data) throws {
+        guard SecureEnclave.isAvailable else { throw EnclaveInstallSigner.Failure.secureEnclaveUnavailable }
+        key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)
     }
 
-    private func read() async throws -> Data? {
-        let (service, account, loginKeychain) = (service, account, loginKeychain)
-        let (status, data) = try await BoundedKeychain.run(service: service, account: account) { () -> (OSStatus, Data?) in
-            var query = Self.query(service: service, account: account)
-            query[kSecReturnData as String] = true
-            var out: CFTypeRef?
-            let status = loginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &out) }
-            return (status, out as? Data)
-        }
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess else { throw Failure.keychain(status) }
-        return data
-    }
+    private init(key: SecureEnclave.P256.Signing.PrivateKey) { self.key = key }
 
-    private func write(_ data: Data) async throws {
-        let (service, account, loginKeychain) = (service, account, loginKeychain)
-        let status = try await BoundedKeychain.run(service: service, account: account) {
-            var query = Self.query(service: service, account: account)
-            query[kSecValueData as String] = data
-            query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            // No UI either: a locked or prompting Keychain refuses the add at once.
-            return loginKeychain.withoutUI { SecItemAdd(query as CFDictionary, nil) }
-        }
-        guard status == errSecSuccess else { throw Failure.keychain(status) }
-    }
+    var blob: Data { key.dataRepresentation }
+    var publicKeyX963: Data { key.publicKey.x963Representation }
+    func sign(_ message: Data) throws -> Data { try key.signature(for: message).rawRepresentation }
 }
 
 /// A Keychain call on one of the app's own items that Rust's deadline ended (`cmux_keychain_bounded`,
