@@ -33,7 +33,9 @@ unit_times() { # acpmux's and acpmux-standalone's units in the newest --timings 
   local report
   report=$(ls -t "$CARGO_TARGET_DIR"/cargo-timings/cargo-timing-*.html 2>/dev/null | head -1)
   [[ -n "$report" ]] || return 0
-  grep -oE '\{[^{}]*"name": ?"acpmux(-standalone)?"[^{}]*\}' "$report" | sed 's/^/sweep: unit /' || true
+  grep -oE '"name": ?"acpmux(-standalone)?"[^]]{0,600}' "$report" | grep -oE '"(name|target|duration|rmeta_time)": ?("[^"]*"|[0-9.]+)' | paste -sd " " | sed 's/^/sweep: unit /' || true
+  # The raw entry too, in case a cargo release changes the report's layout.
+  grep -oE '.{0,40}"acpmux".{0,300}' "$report" | head -2 | sed 's/^/sweep: unit raw /' || true
 }
 echo "sweep: host $(uname -sm), $cores cores, target $target, features ${features:-none}, rustc $(rustc -V)"
 echo "sweep: warm-up build (dependencies) at codegen-units 1"
