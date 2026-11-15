@@ -219,7 +219,7 @@ if [[ -n "$release_retry" ]]; then
   retry_status=${PIPESTATUS[0]}
   set -e
   if [[ "$retry_status" -eq 124 ]]; then
-    stall_samples="$(find "$CMUX_XCODEBUILD_STALL_DIR" -name '*.sample.txt' 2>/dev/null | sort | paste -sd' ' -)"
+    stall_samples="$(find "$CMUX_XCODEBUILD_STALL_DIR" -name '*.sample.txt' 2>/dev/null | sort | paste -sd' ' - || true)"
     echo "::error::the Release build stalled again on its retry, with a new build service; the build service's stacks: ${stall_samples:-none taken (see $CMUX_XCODEBUILD_STALL_DIR)}"
   fi
   [[ "$retry_status" -eq 0 ]] || { fail_host_build "$retry_status"; exit "$retry_status"; }
