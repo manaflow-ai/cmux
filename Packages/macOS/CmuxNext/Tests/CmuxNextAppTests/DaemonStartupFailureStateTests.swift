@@ -111,8 +111,10 @@ struct DaemonStartupFailureStateTests {
         let connecting = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-a"), name: "A", kind: .cloud, status: .connecting)), nodes: [])
         let connected = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-b"), name: "B", kind: .cloud, status: .connected)), nodes: [])
         let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connecting)), nodes: [])
+        // Two waits run (A and This Mac): the continuation resumes when both ended, once.
+        var ends = 0
         await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
-            grace.onEnd = { ended.resume() }
+            grace.onEnd = { ends += 1; if ends == 2 { ended.resume() } }
             let held = grace.holdingConnectingLabels([connecting, connected, local])
             #expect(held.map { $0.machine?.holdsStatusLabel } == [true, false, true])
         }
