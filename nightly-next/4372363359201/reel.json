@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4372363359201",
+  "notes": "notes/4372363359201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43760,
+      "title": "New Tab omnibar reads: write the latest-callback refs after commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43663,
+      "title": "perf(cmux-tui): a terminal host's PTY reader sends a flood in 16 KiB frames, not one per 1 KiB read (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43674,
+      "title": "acpmux: run Codex app-server harnesses at normal CPU class",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43672,
+      "title": "Cloud Codex: the Mac's login reaches a team machine; a missing key says sign in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43614,
+      "title": "v2 peer mirror: dial follow-ups (each inbox's bytes, stored mark opens as the mirror's, refused takeover, gates in the row's shape)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43761,
+      "title": "nightly-next-one: the tick request at notarization runs through scripts/ci/timeout.sh (no GNU timeout on a signing Mac)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43757,
+      "title": "cmux-host updater: the Cloud report says whether a flip's build stayed (settled: updated or rolled_back)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43756,
+      "title": "fix: preserve session search replies across log rollover",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43682,
+      "title": "cloud copy: make a folder the push made with one request, not five",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
