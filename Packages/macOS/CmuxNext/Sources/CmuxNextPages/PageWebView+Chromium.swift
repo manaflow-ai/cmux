@@ -33,11 +33,22 @@ extension PageWebView {
     /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
     /// child window shows nothing there, and a hidden page drew a held chat only when its paint
     /// hold gave up (an adopted spare, HQ#5914).
+    /// A page out of sight (outside the window's content, or in an off-screen parking) is visible only
+    /// while it has to draw there (``drawsAway``, `PageWebView+AwayDrawing`), then hidden like a chat
+    /// behind another tab, so it can be frozen and released (CMUX-571).
     public func setChromiumVisibility(_ requested: Bool) {
-        let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && (liesOutsideWindowContent || sequence(first: self as NSView, next: \.superview).dropFirst()
-                .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking })
-        chromiumSession?.page.setVisible(visible)
+        guard let page = chromiumSession?.page else { return }
+        guard requested, window != nil, !isHiddenOrHasHiddenAncestor else { return page.setVisible(false) }
+        let ancestors = sequence(first: self as NSView, next: \.superview).dropFirst()
+        let clear = ancestors.contains { $0.alphaValue <= 0.001 && !($0 is PageOffscreenParking) }
+        let outside = liesOutsideWindowContent
+        let shown = outside || !clear
+        // Out of sight on purpose: parked, or outside the window under a clear ancestor (the reserved Cmd-N
+        // workspace, `addPrewarmedSubview`). A page outside the window with no clear ancestor (a column
+        // scrolled out of the viewport) keeps its visibility: nothing lays it out again when it scrolls back.
+        let away = shown && (inOffscreenParking || (outside && clear))
+        page.setVisible(away ? drawsAway : shown)
+        if away, drawsAway { drawAwayIfNeeded() }
     }
 
     /// Whether the page is laid out wholly outside its window's content (a page held away until it
