@@ -33,7 +33,10 @@ fn dir(tag: &str) -> PathBuf {
 
 fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fakeacp": {"argv": ["python3", FAKE_AGENT], "family": "sample"}},
+        "harnesses": {
+            "fakeacp": {"argv": ["python3", FAKE_AGENT], "family": "sample"},
+            "other": {"argv": ["python3", FAKE_AGENT], "family": "other"}
+        },
         "defaultHarness": "fakeacp",
         "permissionPolicy": "ask",
         "webRoots": [d.join("work")],
@@ -110,10 +113,13 @@ async fn a_chat_a_peer_daemon_started_runs_with_that_macs_answer() {
         ("peer-on", Origin::Peer, ConnAuth::PeerToken, Some("on"), "on"),
         // The Cloud carrier's owner connection (`ConnAuth::CarrierOwner`) needs an attested
         // carrier, which an in-process connection has not: the unit tests pin that it counts.
-        // Not a peer daemon: whatever it sends, the chat has no answer from elsewhere.
-        ("web", Origin::Web, ConnAuth::ListenerToken, Some("on"), ""),
-        // A peer daemon that sent none (an older Mac): this machine's own file applies.
-        ("peer-none", Origin::Peer, ConnAuth::PeerToken, None, ""),
+        // Not a peer daemon (a phone, a Web client): whatever it sends, its chat gets none of
+        // cmux's servers, so it runs with `off`.
+        ("web", Origin::Web, ConnAuth::ListenerToken, Some("on"), "off"),
+        // A peer daemon that sent none (an older Mac): a remote-origin chat with no answer, `off`.
+        ("peer-none", Origin::Peer, ConnAuth::PeerToken, None, "off"),
+        // A chat started on this machine: no answer in its env (its own file applies).
+        ("local", Origin::Local, ConnAuth::LocalSocket, Some("on"), ""),
     ] {
         let d = dir(tag);
         let hub = hub(&d);
@@ -166,6 +172,49 @@ fn a_start_forwarded_to_a_peer_carries_this_macs_answer_not_the_callers() {
         let _ = std::fs::remove_dir_all(&d);
         assert_eq!(seen, "off", "session/new");
         assert_eq!(seen_dispatched, "off", "dispatch");
+    });
+}
+
+/// A `/btw` side chat and a handoff target of a chat another Mac started keep that Mac's answer,
+/// as a fork and a sub-session do: their harnesses run with it.
+#[test]
+fn a_side_chat_and_a_handoff_target_keep_the_starting_macs_answer() {
+    big_stack(async {
+        let d = dir("btw-handoff");
+        let hub = hub(&d);
+        let mut peer = Client::new(&hub, Origin::Peer, ConnAuth::PeerToken);
+        let p = json!({"cwd": d.join("work"), "mcpServers": [],
+                       "_meta": {"acpmux": {"cmuxTools": "on", "harness": "fakeacp"}}});
+        let r = peer.call("session/new", p).await;
+        let chat = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        assert_eq!(peer.answer_of(&chat).await, "on");
+        let answer_in = |id: &str| {
+            hub.resolve(id)
+                .unwrap()
+                .meta()
+                .session_env
+                .get("CMUX_AGENT_TOOLS_ANSWER")
+                .cloned()
+                .unwrap_or_default()
+        };
+        let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+        let side = local.call("_acpmux/btw", json!({"sessionId": chat, "question": "why?"})).await;
+        let side =
+            side["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{side}")).to_owned();
+        let handoff = local
+            .call(
+                "_acpmux/handoff_prepare",
+                json!({"sessionId": chat, "harness": "other", "handoffKey": "k1"}),
+            )
+            .await;
+        let target = handoff["result"]["target"]["sessionId"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{handoff}"))
+            .to_owned();
+        let (side_answer, target_answer) = (answer_in(&side), answer_in(&target));
+        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(side_answer, "on", "/btw side chat");
+        assert_eq!(target_answer, "on", "handoff target");
     });
 }
 
