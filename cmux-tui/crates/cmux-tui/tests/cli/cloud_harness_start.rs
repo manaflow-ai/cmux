@@ -13,7 +13,7 @@
 //! Each run is a real daemon with its real acpmux on the test agent, whose
 //! `FAKE_AUTH_FILE` stands for the agent's own sign-in: missing, it answers
 //! `session/new` with ACP's auth_required (-32000 "Authentication required"),
-//! as cursor-agent does on a fresh VM.
+//! as a real agent CLI does on a fresh VM.
 
 use super::*;
 
@@ -88,8 +88,8 @@ fn every_signed_in_picker_harness_starts_on_a_fresh_cloud_vm() {
 }
 
 /// An agent CLI that refuses to start at all when it is not signed in (it prints
-/// "Authentication required" and exits before answering ACP's `initialize`, as a Grok CLI
-/// without a login does) is the same refusal naming it, not a bare `refused`.
+/// "Authentication required" and exits before answering ACP's `initialize`, as some agent
+/// CLIs do without a login) is the same refusal naming it, not a bare `refused`.
 #[test]
 fn a_picker_harness_that_dies_at_start_signed_out_says_sign_in_required_naming_it() {
     let config = json!({
