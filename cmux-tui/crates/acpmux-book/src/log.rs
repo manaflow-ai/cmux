@@ -464,6 +464,10 @@ pub struct Log {
     stats: Stats,
     #[cfg(test)]
     fail_after: Option<usize>,
+    /// Every segment read, as its segment and offset, so a test can say which records a read
+    /// touched (`take_segment_reads`); `stats.reads` only counts them.
+    #[cfg(test)]
+    segment_reads: Vec<(u32, u64)>,
 }
 
 fn segment_path(rows_dir: &Path, seg: u32) -> PathBuf {
@@ -891,6 +895,8 @@ impl Log {
             stats,
             #[cfg(test)]
             fail_after: None,
+            #[cfg(test)]
+            segment_reads: Vec::new(),
         };
         Ok((log, recovered))
     }
@@ -1578,10 +1584,18 @@ impl Log {
 
     /// Reads segment `seg` at `offset` into `buf`, until `buf` is full or the segment ends; the
     /// bytes read.
+    /// The segment reads since the last call, oldest first.
+    #[cfg(test)]
+    pub(crate) fn take_segment_reads(&mut self) -> Vec<(u32, u64)> {
+        std::mem::take(&mut self.segment_reads)
+    }
+
     fn read_segment(&mut self, seg: u32, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
+        #[cfg(test)]
+        self.segment_reads.push((seg, offset));
         let read = if seg == self.tail.seg {
             fsio::read_at(&self.tail.file, buf, offset)?
         } else {
