@@ -22,7 +22,7 @@
 //!   cmux app, which shows the ask in Settings > Keys with a secure field, and stores what the
 //!   person pastes with `put`, never through a chat.
 //! - **How a value goes out.** Only by reference, by this process: `use` puts it in a command's
-//!   env and masks it in what the command prints (as `op run` does); `write` copies it into a
+//!   env and masks it in what the command prints; `write` copies it into a
 //!   GitHub secret, a cloud secret, the machine vault, a 0600 file, a JSON or TOML field or an env
 //!   file; `fill` types it into a field of a cmux browser tab, refusing a page outside the key's
 //!   hosts. The `keys_fill` MCP tool also types it into a desktop app through Computer Use. A

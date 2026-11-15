@@ -22,9 +22,9 @@ cmux keys rm NAME
 The value comes on stdin only, never as an argument. At a terminal, `put` asks for it with a hidden prompt.
 
 ```
-wrangler secret ... | cmux keys put CF_DEPLOY_TOKEN --purpose "deploy the docs worker" --hosts api.cloudflare.com
-curl -s ... | jq -r .token | cmux keys put SENTRY_TOKEN --purpose "upload source maps" --ttl 30d
-cmux keys generate WEBHOOK_SECRET --purpose "stripe webhook signing"
+<provider CLI that prints a token> | cmux keys put DEPLOY_TOKEN --purpose "deploy the docs site" --hosts api.example.com
+curl -s ... | jq -r .token | cmux keys put UPLOAD_TOKEN --purpose "upload release files" --ttl 30d
+cmux keys generate WEBHOOK_SECRET --purpose "sign webhook payloads"
 ```
 
 - NAME is an env name: upper case letters, digits and `_`.
@@ -41,7 +41,7 @@ cmux keys generate WEBHOOK_SECRET --purpose "stripe webhook signing"
 When only the person has the key (a dashboard shows it once, it's their account), ask for it:
 
 ```
-cmux keys request OPENAI_API_KEY --purpose "run the evals in this repo" --hosts api.openai.com
+cmux keys request EVAL_API_KEY --purpose "run the evals in this repo" --hosts api.example.com
 ```
 
 The cmux app shows the ask in Settings > Keys and notifies the person, without taking focus. It names the key,
@@ -52,12 +52,12 @@ default, `--timeout 2h` for longer) and prints the stored record, or exits 1 if 
 ## Use a key
 
 **As env for one command.** The command gets the value; what it prints has the value replaced by
-`<concealed by cmux keys>`, as `op run` does. `--no-mask` passes output through untouched, for an interactive
+`<concealed by cmux keys>`. `--no-mask` passes output through untouched, for an interactive
 command that needs a terminal.
 
 ```
-cmux keys use CF_DEPLOY_TOKEN=CLOUDFLARE_API_TOKEN -- wrangler deploy
-cmux keys use SENTRY_TOKEN --env SENTRY_AUTH_TOKEN GH --env GH_TOKEN -- ./release.sh
+cmux keys use DEPLOY_TOKEN=API_TOKEN -- ./deploy.sh
+cmux keys use UPLOAD_TOKEN --env AUTH_TOKEN GH --env GH_TOKEN -- ./release.sh
 ```
 
 The exit code is the command's own.
@@ -82,7 +82,7 @@ key with `--hosts` is refused on any other page, before anything is typed. The a
 a secret, and the app's answer leaves the value out.
 
 ```
-cmux keys fill STRIPE_KEY --selector '#api-key'
+cmux keys fill DEPLOY_TOKEN --selector '#api-key'
 ```
 
 In a cmux chat, the `keys_fill` tool does the same, and with `target: "app"` it types a key into a desktop app

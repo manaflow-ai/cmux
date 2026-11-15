@@ -113,7 +113,7 @@ impl Fixture {
     }
 
     fn put(&self, flags: &str) -> Value {
-        self.run(&format!("put STRIPE_KEY {flags}"), &no_app()).unwrap()
+        self.run(&format!("put PAY_KEY {flags}"), &no_app()).unwrap()
     }
 
     fn audit(&self) -> String {
@@ -122,7 +122,7 @@ impl Fixture {
 
     fn record(&self) -> Value {
         let mut audit = read_audit(&self.paths.audit).unwrap();
-        find_local(&mut audit, "STRIPE_KEY").unwrap().clone()
+        find_local(&mut audit, "PAY_KEY").unwrap().clone()
     }
 
     /// Nothing this fixture wrote outside the OS store holds the value.
@@ -149,25 +149,22 @@ fn verbs_parse_and_never_take_a_value_in_argv() {
         })
     );
     assert_eq!(
-        parsed("use STRIPE_KEY=STRIPE_API_KEY GH --env GH_TOKEN -- deploy --prod"),
+        parsed("use PAY_KEY=PAY_API_KEY GH --env GH_TOKEN -- deploy --prod"),
         Local::Use(Use {
-            keys: vec![
-                ("STRIPE_KEY".into(), "STRIPE_API_KEY".into()),
-                ("GH".into(), "GH_TOKEN".into())
-            ],
+            keys: vec![("PAY_KEY".into(), "PAY_API_KEY".into()), ("GH".into(), "GH_TOKEN".into())],
             mask: true,
             argv: words("deploy --prod"),
         })
     );
     assert_eq!(
-        parsed("write K --to gh-secret:acme/app@prod:STRIPE --to json:/tmp/c.json#auth.token"),
+        parsed("write K --to gh-secret:acme/app@prod:PAY --to json:/tmp/c.json#auth.token"),
         Local::Write {
             name: "K".into(),
             targets: vec![
                 Target::Store(Store::GhSecret {
                     repo: "acme/app".into(),
                     environment: Some("prod".into()),
-                    prefix: "STRIPE".into(),
+                    prefix: "PAY".into(),
                 }),
                 Target::Json("/tmp/c.json".into(), vec!["auth".into(), "token".into()]),
             ],
@@ -208,24 +205,24 @@ fn verbs_parse_and_never_take_a_value_in_argv() {
 #[test]
 fn put_keeps_the_value_only_in_the_os_store_and_the_audit_names_it() {
     let f = Fixture::new();
-    let reply = f.put("--purpose stripe-checkout --hosts stripe.com");
-    assert_eq!(f.vault.items.borrow().get("key.STRIPE_KEY").map(String::as_str), Some(VALUE));
+    let reply = f.put("--purpose checkout --hosts pay.example");
+    assert_eq!(f.vault.items.borrow().get("key.PAY_KEY").map(String::as_str), Some(VALUE));
     let record = &reply["stored"];
-    assert_eq!(record["name"], "STRIPE_KEY");
+    assert_eq!(record["name"], "PAY_KEY");
     assert_eq!(record["provider"], "local");
     assert_eq!(record["source"], "stdin");
-    assert_eq!(record["purpose"], "stripe-checkout");
-    assert_eq!(record["hosts"], json!(["stripe.com"]));
+    assert_eq!(record["purpose"], "checkout");
+    assert_eq!(record["hosts"], json!(["pay.example"]));
     assert_eq!(record["state"], "live");
     assert!(record["by"].as_str().is_some());
     // A second put under the name is refused unless it replaces.
-    let refused = f.run("put STRIPE_KEY", &no_app()).unwrap_err();
+    let refused = f.run("put PAY_KEY", &no_app()).unwrap_err();
     assert!(refused.contains("--replace"), "{refused}");
-    let replaced = f.run("put STRIPE_KEY --replace", &no_app()).unwrap();
+    let replaced = f.run("put PAY_KEY --replace", &no_app()).unwrap();
     assert!(replaced["stored"]["replaced_at"].is_string());
     let listed = super::super::list(&f.paths).unwrap();
     assert_eq!(listed["keys"].as_array().unwrap().len(), 1);
-    assert_eq!(listed["keys"][0]["label"], "STRIPE_KEY");
+    assert_eq!(listed["keys"][0]["label"], "PAY_KEY");
     f.assert_no_value_outside_the_store(&[&reply, &replaced, &listed]);
     let mode = std::os::unix::fs::PermissionsExt::mode(
         &std::fs::metadata(&f.paths.audit).unwrap().permissions(),
@@ -317,13 +314,13 @@ impl Captured {
 fn use_gives_the_command_the_value_in_env_and_masks_what_it_prints() {
     let f = Fixture::new();
     f.put("");
-    let Local::Use(run) = parsed("use STRIPE_KEY=STRIPE_API_KEY -- sh -c x") else { panic!() };
+    let Local::Use(run) = parsed("use PAY_KEY=PAY_API_KEY -- sh -c x") else { panic!() };
     let run = Use {
         argv: vec![
             "sh".into(),
             "-c".into(),
             // The value really is there: its length, then the value itself on both streams.
-            "printf 'len=%s\\n' \"${#STRIPE_API_KEY}\"; printf 'key=%s\\n' \"$STRIPE_API_KEY\"; printf '%s' \"$STRIPE_API_KEY\" >&2; exit 7".into(),
+            "printf 'len=%s\\n' \"${#PAY_API_KEY}\"; printf 'key=%s\\n' \"$PAY_API_KEY\"; printf '%s' \"$PAY_API_KEY\" >&2; exit 7".into(),
         ],
         ..run
     };
@@ -333,7 +330,7 @@ fn use_gives_the_command_the_value_in_env_and_masks_what_it_prints() {
     assert_eq!(out.text(), format!("len={}\nkey={MASK}\n", VALUE.len()));
     assert_eq!(err.text(), MASK);
     let uses = &f.record()["uses"];
-    assert_eq!(uses[0]["target"], "env:STRIPE_API_KEY for sh");
+    assert_eq!(uses[0]["target"], "env:PAY_API_KEY for sh");
     assert_eq!(uses[0]["count"], 1);
     f.assert_no_value_outside_the_store(&[]);
 }
@@ -352,20 +349,20 @@ fn use_refuses_an_expired_removed_or_missing_key_and_runs_nothing() {
     {
         let _lock = AuditLock::take(&f.paths.audit).unwrap();
         let mut audit = read_audit(&f.paths.audit).unwrap();
-        find_local(&mut audit, "STRIPE_KEY").unwrap()["expires_at_s"] = json!(1);
+        find_local(&mut audit, "PAY_KEY").unwrap()["expires_at_s"] = json!(1);
         write_audit(&f.paths.audit, &audit).unwrap();
     }
     let expired =
-        run_use(&f.paths, &f.vault, &run("STRIPE_KEY"), Captured::default(), Captured::default())
+        run_use(&f.paths, &f.vault, &run("PAY_KEY"), Captured::default(), Captured::default())
             .unwrap_err();
     assert!(expired.contains("expired"), "{expired}");
     let missing =
         run_use(&f.paths, &f.vault, &run("NOPE"), Captured::default(), Captured::default())
             .unwrap_err();
     assert!(missing.contains("cmux keys put NOPE"), "{missing}");
-    f.run("put STRIPE_KEY --replace", &no_app()).unwrap();
+    f.run("put PAY_KEY --replace", &no_app()).unwrap();
     super::super::run(
-        super::super::Command::Revoke { id: "STRIPE_KEY".into() },
+        super::super::Command::Revoke { id: "PAY_KEY".into() },
         &f.paths,
         &FailingHttp,
         &f.sinks,
@@ -374,7 +371,7 @@ fn use_refuses_an_expired_removed_or_missing_key_and_runs_nothing() {
     .unwrap();
     assert!(f.vault.items.borrow().is_empty(), "removing deletes the value");
     let removed =
-        run_use(&f.paths, &f.vault, &run("STRIPE_KEY"), Captured::default(), Captured::default())
+        run_use(&f.paths, &f.vault, &run("PAY_KEY"), Captured::default(), Captured::default())
             .unwrap_err();
     assert!(removed.contains("removed"), "{removed}");
     assert!(!marker.exists(), "no refused use ran its command");
@@ -399,19 +396,19 @@ impl super::super::Http for FailingHttp {
 #[test]
 fn write_copies_into_files_and_fields_as_0600_and_records_each_copy() {
     let f = Fixture::new();
-    f.put("--hosts api.stripe.com");
+    f.put("--hosts api.pay.example");
     let json_path = f.root.join("app/config.json");
     std::fs::create_dir_all(json_path.parent().unwrap()).unwrap();
     std::fs::write(&json_path, r#"{"name": "app", "auth": {"user": "leo"}}"#).unwrap();
     let toml_path = f.root.join("app/config.toml");
     std::fs::write(&toml_path, "# keep this comment\n[server]\nport = 8080\n").unwrap();
     let env_path = f.root.join("app/.env");
-    std::fs::write(&env_path, "A=1\nexport STRIPE_API_KEY=old\nB=2\n").unwrap();
-    let file_path = f.root.join("app/secrets/stripe");
+    std::fs::write(&env_path, "A=1\nexport PAY_API_KEY=old\nB=2\n").unwrap();
+    let file_path = f.root.join("app/secrets/pay");
     let reply = f
         .run(
             &format!(
-                "write STRIPE_KEY --to file:{} --to json:{}#auth.token --to toml:{}#stripe.key --to env-file:{}#STRIPE_API_KEY --to gh-secret:acme/app:STRIPE_SECRET --to vault:STRIPE_API_KEY",
+                "write PAY_KEY --to file:{} --to json:{}#auth.token --to toml:{}#pay.key --to env-file:{}#PAY_API_KEY --to gh-secret:acme/app:PAY_SECRET --to vault:PAY_API_KEY",
                 file_path.display(),
                 json_path.display(),
                 toml_path.display(),
@@ -426,10 +423,10 @@ fn write_copies_into_files_and_fields_as_0600_and_records_each_copy() {
     assert_eq!(config, json!({"name": "app", "auth": {"user": "leo", "token": VALUE}}));
     let toml = std::fs::read_to_string(&toml_path).unwrap();
     assert!(toml.starts_with("# keep this comment\n[server]\nport = 8080\n"), "{toml}");
-    assert!(toml.contains(&format!("[stripe]\nkey = \"{VALUE}\"")), "{toml}");
+    assert!(toml.contains(&format!("[pay]\nkey = \"{VALUE}\"")), "{toml}");
     assert_eq!(
         std::fs::read_to_string(&env_path).unwrap(),
-        format!("A=1\nSTRIPE_API_KEY={VALUE}\nB=2\n")
+        format!("A=1\nPAY_API_KEY={VALUE}\nB=2\n")
     );
     for path in [&file_path, &json_path, &toml_path, &env_path] {
         let mode = std::os::unix::fs::PermissionsExt::mode(
@@ -438,16 +435,16 @@ fn write_copies_into_files_and_fields_as_0600_and_records_each_copy() {
         assert_eq!(mode & 0o777, 0o600, "{}", path.display());
     }
     let put = f.sinks.put.borrow();
-    assert_eq!(put[0].1, "STRIPE_SECRET", "the spec's last part is the whole secret name");
+    assert_eq!(put[0].1, "PAY_SECRET", "the spec's last part is the whole secret name");
     assert_eq!(put[0].2, VALUE);
     assert_eq!(
         put[1].0,
-        Store::Vault { prefix: "STRIPE_API_KEY".into(), hosts: vec!["api.stripe.com".into()] },
+        Store::Vault { prefix: "PAY_API_KEY".into(), hosts: vec!["api.pay.example".into()] },
         "a kept key with hosts is filled only toward them"
     );
     let stores = f.record()["stores"].clone();
     assert_eq!(stores.as_array().unwrap().len(), 6);
-    assert!(stores.as_array().unwrap().contains(&json!("gh-secret:acme/app:STRIPE_SECRET")));
+    assert!(stores.as_array().unwrap().contains(&json!("gh-secret:acme/app:PAY_SECRET")));
     assert!(
         stores
             .as_array()
@@ -466,14 +463,13 @@ fn write_refuses_a_link_and_a_file_that_is_not_json() {
     let link = f.root.join("link");
     std::os::unix::fs::symlink(&real, &link).unwrap();
     let error =
-        f.run(&format!("write STRIPE_KEY --to file:{}", link.display()), &no_app()).unwrap_err();
+        f.run(&format!("write PAY_KEY --to file:{}", link.display()), &no_app()).unwrap_err();
     assert!(error.contains("not a plain file"), "{error}");
     assert_eq!(std::fs::read_to_string(&real).unwrap(), "x");
     let broken = f.root.join("broken.json");
     std::fs::write(&broken, "{ not json").unwrap();
-    let error = f
-        .run(&format!("write STRIPE_KEY --to json:{}#a", broken.display()), &no_app())
-        .unwrap_err();
+    let error =
+        f.run(&format!("write PAY_KEY --to json:{}#a", broken.display()), &no_app()).unwrap_err();
     assert!(error.contains("not JSON"), "{error}");
     assert_eq!(std::fs::read_to_string(&broken).unwrap(), "{ not json");
 }
@@ -499,22 +495,22 @@ fn browser(url: &'static str, echo: bool) -> impl Fn(&str, &Value) -> Answer {
 #[test]
 fn fill_types_the_key_by_reference_into_a_page_on_its_hosts_only() {
     let f = Fixture::new();
-    f.put("--hosts stripe.com");
-    let app = FakeApp::new(browser("https://dashboard.stripe.com/apikeys", true));
-    let reply = f.run("fill STRIPE_KEY --selector #api-key", &app).unwrap();
+    f.put("--hosts pay.example");
+    let app = FakeApp::new(browser("https://dashboard.pay.example/apikeys", true));
+    let reply = f.run("fill PAY_KEY --selector #api-key", &app).unwrap();
     assert_eq!(app.methods(), vec!["browser.page.state", "browser.page.fill"]);
     let sent = app.calls.borrow()[1].1.clone();
     assert_eq!(sent["text"], VALUE, "the app gets the value, from this process");
     assert_eq!(sent["secret"], true);
-    assert_eq!(sent["secret_hosts"], json!(["stripe.com"]));
-    assert_eq!(reply["filled"], "STRIPE_KEY");
-    assert_eq!(reply["host"], "dashboard.stripe.com");
-    assert_eq!(f.record()["uses"][0]["target"], "browser:dashboard.stripe.com #api-key");
+    assert_eq!(sent["secret_hosts"], json!(["pay.example"]));
+    assert_eq!(reply["filled"], "PAY_KEY");
+    assert_eq!(reply["host"], "dashboard.pay.example");
+    assert_eq!(f.record()["uses"][0]["target"], "browser:dashboard.pay.example #api-key");
     f.assert_no_value_outside_the_store(&[&reply]);
 
     // Another site gets nothing.
-    let phishing = FakeApp::new(browser("https://stripe.com.evil.example/login", true));
-    let error = f.run("fill STRIPE_KEY --selector #api-key", &phishing).unwrap_err();
+    let phishing = FakeApp::new(browser("https://pay.example.evil.test/login", true));
+    let error = f.run("fill PAY_KEY --selector #api-key", &phishing).unwrap_err();
     assert!(error.contains("not filled"), "{error}");
     assert_eq!(phishing.methods(), vec!["browser.page.state"], "nothing typed");
     assert!(!error.contains(VALUE));
@@ -526,11 +522,11 @@ fn request_asks_the_app_and_answers_the_record_the_person_stored() {
     // The app: shows the ask, and stores what the person pastes as `cmux keys put --from-person` does.
     let app = FakeApp::new(|method, params| {
         assert_eq!(method, "keys.request");
-        assert_eq!(params["name"], "OPENAI_API_KEY");
+        assert_eq!(params["name"], "EVAL_API_KEY");
         assert_eq!(params["purpose"], "evals");
         assert!(params.get("value").is_none());
         let put = Put {
-            name: "OPENAI_API_KEY".into(),
+            name: "EVAL_API_KEY".into(),
             purpose: Some("evals".into()),
             hosts: vec![],
             ttl: None,
@@ -539,12 +535,12 @@ fn request_asks_the_app_and_answers_the_record_the_person_stored() {
             from_person: true,
         };
         store(&f.paths, &f.vault, &put, VALUE, "person").map_err(|e| e.to_string())?;
-        Ok(Ok(json!({"stored": true, "name": "OPENAI_API_KEY"})))
+        Ok(Ok(json!({"stored": true, "name": "EVAL_API_KEY"})))
     });
-    let reply = f.run("request OPENAI_API_KEY --purpose evals", &app).unwrap();
+    let reply = f.run("request EVAL_API_KEY --purpose evals", &app).unwrap();
     assert_eq!(reply["stored"]["source"], "person");
     assert!(reply["stored"]["asked_by"].is_string());
-    assert_eq!(f.vault.items.borrow().get("key.OPENAI_API_KEY").map(String::as_str), Some(VALUE));
+    assert_eq!(f.vault.items.borrow().get("key.EVAL_API_KEY").map(String::as_str), Some(VALUE));
     f.assert_no_value_outside_the_store(&[&reply]);
 
     let declined = FakeApp::new(|_, _| Ok(Err(json!({"code": "declined", "message": "no"}))));
@@ -557,14 +553,14 @@ fn request_asks_the_app_and_answers_the_record_the_person_stored() {
 
 #[test]
 fn hosts_match_the_host_or_a_subdomain_only() {
-    let hosts = vec!["stripe.com".to_owned()];
-    assert!(host_allowed("stripe.com", &hosts));
-    assert!(host_allowed("dashboard.stripe.com", &hosts));
-    assert!(!host_allowed("evilstripe.com", &hosts));
-    assert!(!host_allowed("stripe.com.evil.example", &hosts));
+    let hosts = vec!["pay.example".to_owned()];
+    assert!(host_allowed("pay.example", &hosts));
+    assert!(host_allowed("dashboard.pay.example", &hosts));
+    assert!(!host_allowed("evilpay.example", &hosts));
+    assert!(!host_allowed("pay.example.evil.test", &hosts));
     assert_eq!(
-        url_host("https://user@Dashboard.Stripe.com:443/x?y").as_deref(),
-        Some("dashboard.stripe.com")
+        url_host("https://user@Dashboard.Pay.Example:443/x?y").as_deref(),
+        Some("dashboard.pay.example")
     );
     assert_eq!(url_host("file:///etc/passwd"), None);
 }

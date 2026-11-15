@@ -20,7 +20,7 @@ fn keys_fill_refuses_a_value_the_agent_passes_itself() {
     let result = call(
         &mut server,
         "keys_fill",
-        json!({"name": "STRIPE_KEY", "target": "app", "tool": "type_text",
+        json!({"name": "PAY_KEY", "target": "app", "tool": "type_text",
                "arguments": {"text": "sk_live_typed_by_the_agent"}}),
     );
     assert_eq!(result["isError"], true, "{result}");
