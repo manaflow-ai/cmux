@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43665225995",
+  "recorded_at": "2026-11-15T02:01:26Z",
+  "reason": "cmux-tui 33b52ff88553 changes the image's cmux-tui (pinned 3897b68962bd)",
+  "dry_run": false,
+  "cmux_tui": "33b52ff8855345ad13f372fffc8486f331282e14",
+  "fixes": [
+    {
+      "sha": "33b52ff8855345ad13f372fffc8486f331282e14",
+      "mergedAt": "2026-11-14T17:36:06-08:00",
+      "subject": "cmux-tui: ship the release build with thin LTO (#43411)"
+    },
+    {
+      "sha": "711799dcf5ac044842e0ed672afeaf3dd8a703f4",
+      "mergedAt": "2026-11-14T17:21:26-08:00",
+      "subject": "cmux-tui: split workspace registry open and initialization (#43419)"
+    },
+    {
+      "sha": "84bb6dbfb41de212a3f1f5b69602441a6783f6cf",
+      "mergedAt": "2026-11-15T01:18:47Z",
+      "subject": "cmux-tui-core: 7c (a) review follow-ups (#43357)"
+    },
+    {
+      "sha": "7f7a727bb5254cd4c66f4b664a099ee2a6ec03b2",
+      "mergedAt": "2026-11-14T17:12:01-08:00",
+      "subject": "next-no-huge-files: split workspace registry session reset (#43399)"
+    },
+    {
+      "sha": "9fed4a8ebd8bb3b7ae47f67751fe7a4c977299a2",
+      "mergedAt": "2026-11-14T17:12:00-08:00",
+      "subject": "Extensions can draw a whole New Tab page the person picks (cmux.newtab/1, tabs.newTabApp) (#42998)"
+    },
+    {
+      "sha": "7ee9bca18fdb5406c12406fbefc6c41a3b736cc7",
+      "mergedAt": "2026-11-14T17:00:58-08:00",
+      "subject": "Cloud carrier: serve lifecycle as a Rust state machine (carrier supervise) (#43285)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T02:01:26Z",
+    "snapshot_id": "sh-473e6281074a41feb5132ace16b1ea8e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43665225995): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "de8a18d4a65e750fb668dbd2f97461d5d161b09e",
+    "image": "cloud-native-auto-33b52ff8-43665225995-1",
+    "revision": "ci-43665225995-1",
+    "at": "2026-11-15T02:01:26Z"
+  },
+  "rolled_back": false
+}
