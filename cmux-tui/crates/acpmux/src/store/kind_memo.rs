@@ -125,7 +125,7 @@ impl SegmentMemo {
             && a.len() <= b.len()
         {
             let merged: Arc<[Arc<Entry>]> = a.iter().chain(b.iter()).cloned().collect();
-            self.runs.truncate(self.runs.len() - 2);
+            self.runs.truncate(self.runs.len().saturating_sub(2));
             self.runs.push(merged);
         }
     }

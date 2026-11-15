@@ -480,15 +480,15 @@ impl LocalStore {
             }
         }
         let lines = std::mem::take(lines);
-        let on_disk = disk.map_or(0, |(_, n)| n);
-        let mut entries = kind_memo::entries(&lines[..on_disk]);
-        let disk = disk.map(|(len, n)| kind_memo::Disk {
+        let (saved, past) = lines.split_at(disk.map_or(0, |(_, n)| n).min(lines.len()));
+        let mut entries = kind_memo::entries(saved);
+        let disk = disk.map(|(len, _)| kind_memo::Disk {
             len,
             entries: entries.len(),
-            lines_len: n as u64,
-            lines_hash: fnv_on(FNV_START, &lines[..n]),
+            lines_len: saved.len() as u64,
+            lines_hash: fnv_on(FNV_START, saved),
         });
-        entries.extend(kind_memo::entries(&lines[on_disk..]));
+        entries.extend(kind_memo::entries(past));
         let memo = kind_memo::SegmentMemo::new(stamp.id, len, parsed, disk, entries);
         self.kind_memo.put(id, index, memo);
         Ok(true)
