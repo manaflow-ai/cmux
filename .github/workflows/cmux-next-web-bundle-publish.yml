@@ -22,7 +22,9 @@ name: cmux-next web bundle publish
 #   cmux-next-web/pr/<N>/<head>-<base>.json the same, for that head on that base
 # naming the key, the head, the base, the web ABI and what live_apply.py says
 # the PR changes (`cmux customize use pr:N` reads it). Same-repo PRs only; no web
-# update pointer moves.
+# update pointer moves. cmux-next-hot-verify.yml calls the same path as a reusable
+# workflow (workflow_call, pr=N) from its feat-cmux-next run, for every PR whose
+# plan has a web layer.
 on:
   push:
     branches: [feat-cmux-next, nightly-next]
@@ -71,6 +73,24 @@ on:
         description: "The commit the PR head is merged onto (default: the feat-cmux-next tip)"
         required: false
         default: ""
+  # The same PR layer as a reusable job (cmux-next-hot-verify.yml calls it from its feat-cmux-next run, so
+  # nothing dispatches and polls). The caller's ref is this run's ref: only a feat-cmux-next caller builds.
+  workflow_call:
+    inputs:
+      pr:
+        description: "A pull request's web layer: its number (same-repo PRs only)"
+        required: false
+        default: ""
+        type: string
+      base:
+        description: "The commit the PR head is merged onto (default: the feat-cmux-next tip)"
+        required: false
+        default: ""
+        type: string
+    outputs:
+      key:
+        description: "The source key the PR layer published"
+        value: ${{ jobs.build.outputs.key }}
 
 permissions:
   contents: read
