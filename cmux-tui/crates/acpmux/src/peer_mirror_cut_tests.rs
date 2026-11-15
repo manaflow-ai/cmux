@@ -757,24 +757,34 @@ async fn reopened_mirror(peer: &Arc<Hub>, directory: &std::path::Path) -> Arc<Hu
     local
 }
 
-/// Dials with nothing missed, `rounds` times: the time from the dial to the
-/// frame that ends the resume, and the link's bytes each dial. Each is one
-/// empty frame marked `end`, and no walk.
-async fn resume_rounds(closed: usize, rounds: usize) -> (Vec<u128>, Vec<u128>) {
-    let peer = shaped_peer(LIVE, closed).await;
-    let directory = tempfile::tempdir().unwrap();
-    let local = reopened_mirror(&peer, directory.path()).await;
-    let (mut times, mut bytes) = (Vec::with_capacity(rounds), Vec::with_capacity(rounds));
-    for _ in 0..rounds {
+/// A mirror reopened from its store over a peer of 500 live rows with
+/// `closed` closed rows beside them, for dials with nothing missed.
+struct Resumed {
+    peer: Arc<Hub>,
+    local: Arc<Hub>,
+    _directory: tempfile::TempDir,
+}
+
+impl Resumed {
+    async fn new(closed: usize) -> Self {
+        let peer = shaped_peer(LIVE, closed).await;
+        let directory = tempfile::tempdir().unwrap();
+        let local = reopened_mirror(&peer, directory.path()).await;
+        Self { peer, local, _directory: directory }
+    }
+
+    /// One dial: the time from the dial to the frame that ends the resume,
+    /// and the link's bytes. It is one empty frame marked `end`, and no walk.
+    async fn dial(&self) -> (u128, u128) {
         let started = Instant::now();
-        let (link, wire) = counted(&peer, &local);
+        let (link, wire) = counted(&self.peer, &self.local);
         until("the resume ended", || wire.ended_at.lock().unwrap().is_some()).await;
         let ended = wire.ended_at.lock().unwrap().unwrap();
-        times.push(ended.duration_since(started).as_nanos());
+        let time = ended.duration_since(started).as_nanos();
         until("the dialer read the end", || link.counters.resumes.load(Ordering::Relaxed) == 1)
             .await;
         tokio::time::sleep(Duration::from_millis(20)).await;
-        bytes.push(u128::from(wire.bytes.load(Ordering::Relaxed)));
+        let bytes = u128::from(wire.bytes.load(Ordering::Relaxed));
         let frames = wire.frames.lock().unwrap().clone();
         assert_eq!(frames.len(), 1, "one frame to the dialer: {frames:?}");
         assert_eq!(frames[0]["replay"], "end", "{frames:?}");
@@ -784,15 +794,31 @@ async fn resume_rounds(closed: usize, rounds: usize) -> (Vec<u128>, Vec<u128>) {
         );
         assert_eq!(link.counters.walks.load(Ordering::Relaxed), 0, "a resume, not a walk");
         link.end();
+        (time, bytes)
     }
-    (times, bytes)
+
+    /// The digits of the cursor the dial resumes from.
+    fn cursor_digits(&self) -> u128 {
+        let cursor = self.local.mirror_mark(ORIGIN).map_or(0, |mark| mark.cursor);
+        cursor.to_string().len() as u128
+    }
 }
 
 #[ignore = "Linux gate: a resume with nothing missed, 500 live with 11k closed beside them against none"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn v2_pr08_dial_resume() {
-    let (mut small, mut small_bytes) = resume_rounds(0, 60).await;
-    let (mut god, mut god_bytes) = resume_rounds(CLOSED, 60).await;
+    let (small_rig, god_rig) = (Resumed::new(0).await, Resumed::new(CLOSED).await);
+    let (mut small, mut god, mut small_bytes, mut god_bytes) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    // Rounds alternate, so drift on the runner falls on both sides alike.
+    for _ in 0..60 {
+        let (time, bytes) = small_rig.dial().await;
+        small.push(time);
+        small_bytes.push(bytes);
+        let (time, bytes) = god_rig.dial().await;
+        god.push(time);
+        god_bytes.push(bytes);
+    }
     let (small_p95, god_p95) = (p95(&mut small), p95(&mut god));
     let (small_b, god_b) = (p95(&mut small_bytes), p95(&mut god_bytes));
     emit(
@@ -800,7 +826,13 @@ async fn v2_pr08_dial_resume() {
         json!({"small_p95": small_p95, "god_p95": god_p95, "small_bytes": small_b, "god_bytes": god_b}),
     );
     assert!(god_p95 * 10 <= small_p95 * 12, "resume p95 {small_p95} -> {god_p95} ns");
-    assert_eq!(small_b, god_b, "the peer's closed rows put no byte on the link");
+    // The closed rows put no row on the link: the bytes differ only by the
+    // cursor's longer number, named in the sub and in the `end`.
+    let digits = god_rig.cursor_digits() - small_rig.cursor_digits();
+    assert!(
+        god_b <= small_b + 2 * digits,
+        "closed rows put bytes on the link: {small_b} -> {god_b}"
+    );
 }
 
 /// One walk in a new edition of a peer's 500 live rows with `closed` closed
