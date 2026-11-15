@@ -128,6 +128,8 @@ pub fn path_in(home: &Path) -> PathBuf {
 pub fn ensure(home: &Path) -> anyhow::Result<()> {
     let path = path_in(home);
     crate::config::refuse_lost_home(&path)?;
+    // The copy of a daemon stopped before its link (below) is removed by the next start.
+    crate::dead_temps::remove(home, &format!(".{FILE}.tmp-"));
     if crate::home_fs::exists_nofollow(&path) {
         if read_trusted(&path).is_none() {
             tracing::warn!(
