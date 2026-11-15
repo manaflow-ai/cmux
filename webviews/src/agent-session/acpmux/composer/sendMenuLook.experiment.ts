@@ -28,8 +28,7 @@ export const sendMenuLook = defineExperiment({
     },
     tiles: {
       label: "Icon tiles",
-      description:
-        "Each icon on a small tinted tile, the label a little heavier and the keys as caps: an action panel more than a list.",
+      description: "Each icon on a small tinted tile and the keys as caps: an action panel more than a list.",
     },
   },
   defaultArm: "text",
