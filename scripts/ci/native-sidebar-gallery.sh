@@ -8,11 +8,14 @@ client="${CMUX_CI_CLIENT:-cmux-ci}"
 key="native-sidebar-gallery-${ref}-${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-1}"
 receipt="$(mktemp)"
 trap 'rm -f "$receipt"' EXIT
+status=0
 "$client" run --class light --display --script scripts/ci/package-test-lane.sh \
   --ref "$ref" --key "$key" --timeout 2400 \
   --env CMUX_TEST_REQUIRE_GUI=1 \
   --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests/NativeSidebarGalleryTests \
-  --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar 2>&1 | tee "$receipt"
+  --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar 2> "$receipt" || status=$?
+cat "$receipt" >&2
+[[ "$status" == 0 ]] || exit "$status"
 
 # Read the submitted job ID from the client receipt, then verify its completed source.
 job_id="$(python3 -c '
@@ -29,7 +32,8 @@ with open(sys.argv[1]) as receipt:
 job_id="$("$client" status "$job_id" | python3 -c '
 import json, sys
 job = json.load(sys.stdin)
-if job.get("ref") != sys.argv[1] or job.get("state") != "done" or job.get("exit_code") != 0:
+if (job.get("ref") != sys.argv[1] or job.get("source_digest") != sys.argv[1]
+        or job.get("state") != "done" or job.get("exit_code") != 0):
     sys.exit("native sidebar capture has no passing receipt at the requested head")
 print(job["id"])
 ' "$ref")"

@@ -1,0 +1,79 @@
+name: native sidebar gallery
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - 'Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/**'
+      - 'Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NativeSidebarGalleryTests.swift'
+      - 'Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AANestedGroupsGalleryTests.swift'
+      - 'Packages/macOS/CmuxNext/Tests/Fixtures/SidebarGallery/**'
+      - 'webviews/src/sidebar/SidebarNativeGallery.gallery.ts'
+      - 'scripts/ci/native-sidebar-gallery.sh'
+      - '.github/workflows/native-sidebar-gallery.yml'
+
+permissions: {}
+
+concurrency:
+  group: native-sidebar-gallery-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    # Use the installed test gateway; native rendering happens on a GUI worker.
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_TEST_COMPILE_GATEWAY != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_TEST_COMPILE_GATEWAY || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 85
+    steps:
+      # No checkout or actions on the gateway. The fleet stores the archive;
+      # the summary names its exact job and the supported download command.
+      - name: Capture native sidebar states on the GUI fleet
+        env:
+          REF: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on $RUNNER_NAME; no native gallery verdict"
+            exit 1
+          fi
+          if ! [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::native gallery requires a full commit SHA"
+            exit 1
+          fi
+          log="$RUNNER_TEMP/native-sidebar-gallery.log"
+          # Exclusive creation: never overwrite a previous caller's log.
+          set -C
+          status=0
+          "$client" run --class light --display --script scripts/ci/package-test-lane.sh \
+            --ref "$REF" --key "native-sidebar-gallery-$REF-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --timeout 3600 --queue-timeout 1200 --env CMUX_TEST_REQUIRE_GUI=1 \
+            --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests/NativeSidebarGalleryTests \
+            --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar 2> "$log" || status=$?
+          id=""
+          step_re='^cmux-ci: step ([0-9a-f]{6,64}) '
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            printf '%s\n' "$line"
+            if [[ -z "$id" && "$line" =~ $step_re ]]; then id="${BASH_REMATCH[1]}"; fi
+          done < "$log"
+          if [[ "$status" != 0 || -z "$id" ]]; then
+            echo "::error::native gallery has no successful client receipt (exit $status, job $id)"
+            exit 1
+          fi
+          json="$("$client" status "$id")"
+          ref_re='"ref": *"([^"]*)"(.*)'
+          digest_re='"source_digest": *"([^"]*)"'
+          state_re='"state": *"([a-z_]*)"'
+          code_re='"exit_code": *(-?[0-9]+)'
+          artifact_re='"artifact": *"sha256:[0-9a-f]{64}"'
+          rest="$json"; refs=0
+          while [[ "$rest" =~ $ref_re ]]; do
+            [[ "${BASH_REMATCH[1]}" == "$REF" ]] || exit 1
+            rest="${BASH_REMATCH[2]}"; refs=$((refs + 1))
+          done
+          [[ "$refs" -gt 0 ]] || exit 1
+          [[ "$json" =~ $digest_re && "${BASH_REMATCH[1]}" == "$REF" ]] || exit 1
+          [[ "$json" =~ $state_re && "${BASH_REMATCH[1]}" == done ]] || exit 1
+          [[ "$json" =~ $code_re && "${BASH_REMATCH[1]}" == 0 ]] || exit 1
+          [[ "$json" =~ $artifact_re ]] || exit 1
+          printf 'Native sidebar gallery passed at `%s` (fleet job `%s`).\n\nDownload the six PNGs and manifest:\n\n```sh\ncmux-ci artifact %s native-sidebar-gallery.tar\n```\n' "$REF" "$id" "$id" >> "$GITHUB_STEP_SUMMARY"

@@ -62,8 +62,9 @@ scripts/ci/native-sidebar-gallery.sh FULL_SHA
 The helper submits the suite through the supported fleet runner with a GUI session
 and `CMUX_TEST_REQUIRE_GUI=1`, verifies the completed job's source SHA, then downloads
 `artifacts/native-sidebar-gallery.tar`. The archive contains six PNGs and a
-`manifest.json` mapping each fixture to its row IDs and image names. The existing
-fast-tier fleet gateway also captures and uploads the archive when that lane runs.
+`manifest.json` mapping each fixture to its row IDs and image names. The
+`native-sidebar-gallery.yml` workflow also runs the suite for sidebar changes and
+prints the fleet job ID and archive download command in its summary.
 The browser registers these native entries as metadata; native pixels come from
 the captured archive.
 
