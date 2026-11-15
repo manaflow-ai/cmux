@@ -25344,7 +25344,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : null,
+      "description" : "Opens a Screen Sharing tab. --device takes one of your devices by name (its Computer Name, matched without case; `air-blue` also finds \"Air Blue\") or by device id; an unknown or ambiguous name fails with your devices listed as name (id). Without --device it opens the Screen Sharing home page. From the CLI or an agent the tab waits at its Connect button: only a person's click connects.",
       "focuses" : false,
       "group" : "TabActionCatalog",
       "hint" : null,
