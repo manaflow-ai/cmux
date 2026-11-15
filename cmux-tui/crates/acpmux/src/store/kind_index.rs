@@ -412,7 +412,8 @@ impl LocalStore {
         Ok(())
     }
 
-    /// One segment of [`Self::scan_kinds_in`]; false when `visit` stopped the scan.
+    /// One segment of [`Self::scan_kinds_in`]; false when `visit` stopped the scan. A segment
+    /// whose lines a scan read before is read from its memo (`store/kind_memo.rs`), then past it.
     fn scan_segment(
         &self,
         id: &str,
@@ -424,6 +425,12 @@ impl LocalStore {
         let mut file = crate::config::private_state_file(path)?;
         // What a copy is of: the file this reads, however its path changes meanwhile.
         let stamp = if scan.copied { Some(Stamp::of(&file)?) } else { None };
+        if let Some(stamp) = &stamp
+            && let Some(memo) = self.kind_memo.get(id, index, stamp)
+            && (memo.parsed || !scan.strict)
+        {
+            return self.scan_memo(id, index, path, file, stamp, &memo, scan, visit);
+        }
         let (mut copy, from, mut parsed) = match stamp
             .as_ref()
             .and_then(|s| self.read_kind_index(id, index, s))
@@ -443,61 +450,147 @@ impl LocalStore {
         let lines = copy.get_or_insert_with(Vec::new);
         // The copy's own lines: an addition writes only the lines past them.
         let copied = lines.len();
-        // The bytes past `from` read up to the end of their last whole line.
-        let mut covered = 0u64;
-        let mut reader = BufReader::with_capacity(256 * 1024, file);
-        let mut line = Vec::new();
-        loop {
-            line.clear();
-            if reader.read_until(b'\n', &mut line)? == 0 {
-                break;
-            }
-            // A line still being written ends the read of this segment: the bytes of it that
-            // arrive later are no line of their own, and the copy covers none of it.
-            let torn = !line.ends_with(b"\n");
-            let blank = line.iter().all(u8::is_ascii_whitespace);
-            // A strict scan, and one that makes a copy, reads every line: a copy says whether
-            // all of its bytes read, so a strict scan of it fails where one of the segment would.
-            if !blank
-                && (scan.strict || stamp.is_some())
-                && let Err(e) = parse_record(&line)
-            {
-                if scan.strict {
-                    anyhow::bail!("{}: a record could not be read: {e}", path.display());
-                }
-                if !torn {
-                    parsed = false;
-                }
-            }
-            if !torn {
-                covered = covered.saturating_add(line.len() as u64);
-                if stamp.is_some() && indexed(&line) {
-                    lines.extend_from_slice(&line);
-                }
-            }
-            if !scan.line(path, &line, visit)? {
-                return Ok(false);
-            }
-            if torn {
-                break;
-            }
-        }
-        if let Some(stamp) = stamp
-            && (!had_copy || covered >= COPY_AFTER)
-        {
-            let len = from.saturating_add(covered);
+        let Some(covered) =
+            read_tail(path, file, scan, stamp.is_some(), lines, &mut parsed, visit)?
+        else {
+            return Ok(false);
+        };
+        let Some(stamp) = stamp else { return Ok(true) };
+        let len = from.saturating_add(covered);
+        // What the copy on disk covers once this scan saved it, or did not.
+        let mut disk = had_copy.then_some((from, copied));
+        if !had_copy || covered >= COPY_AFTER {
+            let (old, new) = lines.split_at(copied.min(lines.len()));
             let added = had_copy
                 && self
-                    .append_kind_index(id, index, &stamp, len, parsed, lines, copied)
+                    .append_kind_index(id, index, &stamp, len, parsed, old.len() as u64, fnv_on(FNV_START, old), new)
                     .unwrap_or_else(|e| {
                         tracing::debug!(session = %id, segment = index, "adding to the log's kind index failed: {e}");
                         false
                     });
-            if !added && let Err(e) = self.write_kind_index(id, index, &stamp, len, parsed, lines) {
-                tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
+            if added {
+                disk = Some((len, lines.len()));
+            } else {
+                match self.write_kind_index(id, index, &stamp, len, parsed, lines) {
+                    Ok(()) => disk = Some((len, lines.len())),
+                    Err(e) => {
+                        tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
+                    }
+                }
             }
         }
+        let lines = std::mem::take(lines);
+        let on_disk = disk.map_or(0, |(_, n)| n);
+        let mut entries = kind_memo::entries(&lines[..on_disk]);
+        let disk = disk.map(|(len, n)| kind_memo::Disk {
+            len,
+            entries: entries.len(),
+            lines_len: n as u64,
+            lines_hash: fnv_on(FNV_START, &lines[..n]),
+        });
+        entries.extend(kind_memo::entries(&lines[on_disk..]));
+        let memo = kind_memo::SegmentMemo::new(stamp.id, len, parsed, disk, entries);
+        self.kind_memo.put(id, index, memo);
         Ok(true)
+    }
+
+    /// [`Self::scan_segment`] of a segment with a memo: its lines, then the segment's bytes past
+    /// them, which are added to it (and to the copy on disk once [`COPY_AFTER`] bytes past it).
+    #[allow(clippy::too_many_arguments)]
+    fn scan_memo(
+        &self,
+        id: &str,
+        index: u32,
+        path: &Path,
+        mut file: std::fs::File,
+        stamp: &Stamp,
+        memo: &kind_memo::SegmentMemo,
+        scan: &Scan<'_>,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<bool> {
+        for entry in memo.entries() {
+            if !entry.may_match(scan.kinds) {
+                continue;
+            }
+            match entry.record() {
+                Some(rec) => {
+                    if scan.kinds.contains(&rec.kind.as_str()) && !visit(rec.clone()) {
+                        return Ok(false);
+                    }
+                }
+                None if scan.strict => {
+                    anyhow::bail!("{}: a record could not be read", path.display())
+                }
+                None => {}
+            }
+        }
+        if stamp.len == memo.len {
+            return Ok(true);
+        }
+        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(memo.len))?;
+        let mut lines = Vec::new();
+        let mut parsed = true;
+        let Some(covered) = read_tail(path, file, scan, true, &mut lines, &mut parsed, visit)?
+        else {
+            return Ok(false);
+        };
+        if covered == 0 {
+            return Ok(true);
+        }
+        let mut next = memo.clone();
+        next.len = next.len.saturating_add(covered);
+        next.parsed &= parsed;
+        next.push(kind_memo::entries(&lines));
+        if next.len.saturating_sub(next.disk.map_or(0, |d| d.len)) >= COPY_AFTER {
+            self.save_memo_copy(id, index, stamp, &mut next);
+        }
+        self.kind_memo.put(id, index, next);
+        Ok(true)
+    }
+
+    /// Saves `memo`'s lines past the copy on disk: added to it, or the copy written whole.
+    fn save_memo_copy(
+        &self,
+        id: &str,
+        index: u32,
+        stamp: &Stamp,
+        memo: &mut kind_memo::SegmentMemo,
+    ) {
+        let raw = |skip: usize| -> Vec<u8> {
+            memo.entries().skip(skip).flat_map(|e| e.raw().iter().copied()).collect()
+        };
+        let (len, parsed, count) = (memo.len, memo.parsed, memo.count());
+        if let Some(d) = memo.disk {
+            let new = raw(d.entries);
+            let added = self
+                .append_kind_index(id, index, stamp, len, parsed, d.lines_len, d.lines_hash, &new)
+                .unwrap_or_else(|e| {
+                    tracing::debug!(session = %id, segment = index, "adding to the log's kind index failed: {e}");
+                    false
+                });
+            if added {
+                memo.disk = Some(kind_memo::Disk {
+                    len,
+                    entries: count,
+                    lines_len: d.lines_len.saturating_add(new.len() as u64),
+                    lines_hash: fnv_on(d.lines_hash, &new),
+                });
+                return;
+            }
+        }
+        let all = raw(0);
+        memo.disk = match self.write_kind_index(id, index, stamp, len, parsed, &all) {
+            Ok(()) => Some(kind_memo::Disk {
+                len,
+                entries: count,
+                lines_len: all.len() as u64,
+                lines_hash: fnv_on(FNV_START, &all),
+            }),
+            Err(e) => {
+                tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
+                None
+            }
+        };
     }
 
     /// The copied lines of segment `index`, the bytes of it they cover, and whether every line of
@@ -572,10 +665,11 @@ impl LocalStore {
         crate::config::write_atomic_unsynced(&self.kind_index_path(id, index), &out)
     }
 
-    /// Adds `lines[copied..]`, the lines read past the copy of segment `index` that `lines[..copied]`
-    /// is, to that copy, which now covers the segment's first `len` bytes: the new lines at the end
-    /// of the copy's lines, then its header again in place ([module docs](self)). False (nothing
-    /// written) when the copy on disk is not the one the scan read, so the caller writes it whole.
+    /// Adds `new_lines`, the lines read past the copy of segment `index` whose lines are
+    /// `old_len` bytes with hash `old_hash`, to that copy, which now covers the segment's first
+    /// `len` bytes: the new lines at the end of the copy's lines, then its header again in place
+    /// ([module docs](self)). False (nothing written) when the copy on disk is not the one the
+    /// scan read, so the caller writes it whole.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn append_kind_index(
         &self,
@@ -584,8 +678,9 @@ impl LocalStore {
         segment: &Stamp,
         len: u64,
         parsed: bool,
-        lines: &[u8],
-        copied: usize,
+        old_len: u64,
+        old_hash: u64,
+        new_lines: &[u8],
     ) -> Result<bool> {
         use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
         if segment.id.2 == 0 {
@@ -604,11 +699,10 @@ impl LocalStore {
             return Ok(false);
         }
         let Ok(old) = serde_json::from_slice::<Header>(&head) else { return Ok(false) };
-        let (old_lines, new_lines) = lines.split_at(copied.min(lines.len()));
         if old.schema != SCHEMA
             || (old.dev, old.ino, old.born_ns) != segment.id
-            || old.lines_len != old_lines.len() as u64
-            || old.lines_hash != fnv_on(FNV_START, old_lines)
+            || old.lines_len != old_len
+            || old.lines_hash != old_hash
         {
             return Ok(false);
         }
@@ -616,7 +710,7 @@ impl LocalStore {
             segment.id,
             len,
             old.parsed && parsed,
-            lines.len() as u64,
+            old_len.saturating_add(new_lines.len() as u64),
             fnv_on(old.lines_hash, new_lines),
         );
         let Some(line) = header.line() else { return Ok(false) };
@@ -629,6 +723,60 @@ impl LocalStore {
         file.write_all(&line)?;
         Ok(true)
     }
+}
+
+/// Reads `file` from where it is to the end of its last whole line, visiting each record of a
+/// wanted kind; with `copying`, every line is parsed (`parsed` turns false on one that does not
+/// read) and the indexed ones added to `lines`. The bytes read, None when `visit` stopped.
+fn read_tail(
+    path: &Path,
+    file: std::fs::File,
+    scan: &Scan<'_>,
+    copying: bool,
+    lines: &mut Vec<u8>,
+    parsed: &mut bool,
+    visit: &mut dyn FnMut(EventRecord) -> bool,
+) -> Result<Option<u64>> {
+    // The bytes past `from` read up to the end of their last whole line.
+    let mut covered = 0u64;
+    let mut reader = BufReader::with_capacity(256 * 1024, file);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        // A line still being written ends the read of this segment: the bytes of it that
+        // arrive later are no line of their own, and the copy covers none of it.
+        let torn = !line.ends_with(b"\n");
+        let blank = line.iter().all(u8::is_ascii_whitespace);
+        // A strict scan, and one that makes a copy, reads every line: a copy says whether
+        // all of its bytes read, so a strict scan of it fails where one of the segment would.
+        if !blank
+            && (scan.strict || copying)
+            && let Err(e) = parse_record(&line)
+        {
+            if scan.strict {
+                anyhow::bail!("{}: a record could not be read: {e}", path.display());
+            }
+            if !torn {
+                *parsed = false;
+            }
+        }
+        if !torn {
+            covered = covered.saturating_add(line.len() as u64);
+            if copying && indexed(&line) {
+                lines.extend_from_slice(&line);
+            }
+        }
+        if !scan.line(path, &line, visit)? {
+            return Ok(None);
+        }
+        if torn {
+            break;
+        }
+    }
+    Ok(Some(covered))
 }
 
 #[cfg(test)]
