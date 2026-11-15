@@ -52,11 +52,6 @@
       "reason": "keep: location rows; the palette's recentlyFocused (Location History), history.reopen and history.show cover them"
     },
     {
-      "surface": "menu",
-      "name": "debugSidebarToggleIcon",
-      "reason": "keep: Debug-only icon choices; the same tunable is a Debug setting row in the palette (DebugSettingsService)"
-    },
-    {
       "surface": "action",
       "name": "import.list",
       "reason": "keep: an agent's read of the import cards it may suggest (`cmux import list`); a person imports with the palette's Import from Browser (importFromBrowser)"
@@ -446,7 +441,8 @@
       "palette": "palette.pro.upgrade"
     },
     {
-      "verb": "billing portal"
+      "verb": "billing portal",
+      "palette": "billing.openPortal"
     },
     {
       "verb": "billing status",
@@ -513,17 +509,20 @@
       "reason": "keep: a listing; the palette's Choose Browser Profile… (browser.profile.choose) lists them"
     },
     {
-      "verb": "browser profile move"
+      "verb": "browser profile move",
+      "palette": "browserProfile.move"
     },
     {
       "verb": "browser profile open",
       "palette": "browserProfile.newTab"
     },
     {
-      "verb": "browser profile proxy clear"
+      "verb": "browser profile proxy clear",
+      "palette": "browserProfile.clearProxy"
     },
     {
-      "verb": "browser profile proxy set"
+      "verb": "browser profile proxy set",
+      "palette": "browserProfile.setProxy"
     },
     {
       "verb": "browser reload",
@@ -1284,7 +1283,8 @@
       "palette": "remote.showStatus"
     },
     {
-      "verb": "remote-host stop"
+      "verb": "remote-host stop",
+      "palette": "remote.stopScreenSession"
     },
     {
       "verb": "room create",
@@ -1628,7 +1628,8 @@
       "verb": "setup mcp"
     },
     {
-      "verb": "setup notifications"
+      "verb": "setup notifications",
+      "palette": "notifications.allowDesktop"
     },
     {
       "verb": "setup status",
