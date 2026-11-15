@@ -99,14 +99,14 @@ CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
 # checks do not apply. The read-token successor (#42487, 2026-11-13) adds one
 # step that mints a read-only manaflow-glaeda-route App token (contents and
 # pull-requests read, this repository, continue-on-error) and passes it to the
-# bb9c7f4 action as CLA_READ_TOKEN, which sends only a read that GITHUB_TOKEN's
+# 0e326dc action as CLA_READ_TOKEN, which sends only a read that GITHUB_TOKEN's
 # spent budget refused once more on it. Writes stay on GITHUB_TOKEN.
 CLA_ACTION_PINNED_SUCCESSORS = [
   %w[
     manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
     6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
-    manaflow-ai/cla-github-action@bb9c7f4446683042d4427f4cd43ad21ae8b0ee5f
-    1bcbc7070941fcfc4ccd4a3069b39c6340f686a2524d1e149e2e02c07a7ad653
+    manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+    a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
   ].freeze
 ].freeze
 CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
@@ -210,7 +210,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "a1656069fc5d06ccb41d2c4480d4d0c1753a8005cc178ccbcc584120b6c5275a"
+EXPECTED_GUARD_SCRIPT_DIGEST = "93d510c001b7e2b67e6a17db736f3f1eccd757bf71a78c148d7919fc7ff03e6e"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
