@@ -77,10 +77,147 @@ class HotApplyRust(unittest.TestCase):
         self.env = dict(os.environ, CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
                         CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
                         CMUX_HOT_KEYS_BASE=(self.tmp / "hot-keys").as_uri(),  # none published: plan diffs
-                        CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
+                        CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"),
+                        # Never the person's own web-dev.json or overlay.
+                        CMUX_NEXT_CONFIG_FILE=str(self.tmp / "config/cmux-next.json"),
+                        CMUX_WEB_OVERLAY_DIR=str(self.tmp / "overlay"))
 
     def tearDown(self):
         subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def test_plan_names_a_web_dev_pointer_the_app_refuses(self):
+        abi = self.app / "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"
+        abi.parent.mkdir(parents=True)
+        abi.write_text('{"abi": 7}\n')
+        (self.tmp / "overlay").mkdir()
+        (self.tmp / "overlay/manifest.json").write_text(json.dumps({"commit": "01192304", "abi": 4}))
+        (self.tmp / "config").mkdir()
+        (self.tmp / "config/web-dev.json").write_text(json.dumps({"overlay": str(self.tmp / "overlay"), "enabled": True}))
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertEqual(plan["refused_overlay"]["abi"], 4)
+        self.assertTrue(any("drop-refused-overlay" in note for note in plan["notes"]), plan["notes"])
+        # plan only reads: the pointer is still there.
+        self.assertIn("overlay", json.loads((self.tmp / "config/web-dev.json").read_text()))
+
+    def team_signed_app(self):
+        """The app as a NIGHTLY is: its main executable signed by TEAM."""
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.base, "CFBundleExecutable": "cmux"}, handle)
+        (self.app / "Contents/MacOS").mkdir(parents=True)
+        (self.app / "Contents/MacOS/cmux").write_bytes(macho("com.cmuxterm.app.nightly", TEAM))
+
+    def test_a_team_signed_app_keeps_its_daemon_from_an_ad_hoc_build(self):
+        # 2026-11-15: a NIGHTLY (Team-signed, b1f76a2) took 20a18ceaa's ad-hoc tree build; its daemon could
+        # verify no app connection, so the Cloud machine list failed until rollback put the signed one back.
+        self.team_signed_app()
+        adhoc = macho("cmux_tui-8cc59fe5f00f9770", adhoc=True, pad=4096)
+        self.publish(adhoc, hashlib.sha256(adhoc).hexdigest())
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 3, err)
+        self.assertNotIn("rust", receipt["parts"])
+        why = receipt["left"]["Rust (the published build is not signed as this app is)"][0]
+        self.assertIn("ad-hoc", why)
+        self.assertIn(TEAM, why)
+        self.assertEqual(self.sha(), self.old)  # nothing swapped
+        # --unsigned-daemon takes it, and the receipt says what breaks.
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust", "--unsigned-daemon")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), hashlib.sha256(adhoc).hexdigest())
+        self.assertIn("ad-hoc", receipt["steps"]["unsigned_daemon"])
+
+    def test_a_team_signed_app_takes_a_build_of_its_own_team(self):
+        self.team_signed_app()
+        signed = macho("cmux_tui", TEAM)
+        self.publish(signed, hashlib.sha256(signed).hexdigest())
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["applied"], ["rust"])
+
+    def test_a_binary_not_signed_as_the_app_is_refused_before_anything_changes(self):
+        self.team_signed_app()
+        local = self.tmp / "local-cmux"
+        local.write_bytes(macho("cmux_tui", "ZZZZZ99999"))
+        signed = macho("cmux_tui", TEAM)
+        self.publish(signed, hashlib.sha256(signed).hexdigest())
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust", "--binary", str(local))
+        self.assertEqual(code, 1, err)
+        self.assertIn("ZZZZZ99999", receipt["error"])
+        self.assertEqual(self.sha(), self.old)
+
+    def publish_team_signed(self, files, team=None):
+        """cmux-tui-team-signed.yml's set for the tree: FILES (bin file -> bytes) signed by TEAM, each under its
+        sha256, and the completion.json naming them; every other companion the build has none of."""
+        signed = self.tmp / "tree" / self.key / "team-signed"
+        entries = {file: None for file in ("cmux", "cmux-app-host", "cmux-cloud", "cmux-browser-host",
+                                           "cmux-tui-host", "cmux-holder", "cmux-agent-screen-detection")}
+        for file, body in files.items():
+            digest = hashlib.sha256(body).hexdigest()
+            (signed / digest).mkdir(parents=True, exist_ok=True)
+            (signed / digest / file).write_bytes(body)
+            entries[file] = {"sha256": digest, "unsigned_sha256": "0" * 64, "size": len(body)}
+        (signed / "completion.json").write_text(json.dumps({
+            "schema": 1, "key": self.key, "target": self.name.removeprefix("cmux-tui-"), "team": team or TEAM,
+            "commit": FIX, "files": entries}))
+        return {file: hashlib.sha256(body).hexdigest() for file, body in files.items()}
+
+    def test_a_team_signed_app_takes_the_team_signed_set_over_the_ad_hoc_tree(self):
+        # cmuxterm-hq#11364: CI signs each tree's darwin build with the nightly's team, so the rust part
+        # reaches a NIGHTLY instead of being held back.
+        self.team_signed_app()
+        adhoc = macho("cmux_tui-8cc59fe5f00f9770", adhoc=True, pad=4096)
+        self.publish(adhoc, hashlib.sha256(adhoc).hexdigest())
+        (self.app / "Contents/Resources/bin/cmux-holder").write_bytes(b"the app's holder")
+        signed = self.publish_team_signed({"cmux": macho("cmux", TEAM), "cmux-cloud": macho("cmux-cloud", TEAM)})
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertIn("rust", plan["parts"])
+        self.assertEqual(plan["build"], f"team-signed ({TEAM})")
+        self.assertNotIn("Rust (the published build is not signed as this app is)", plan["left"])
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["applied"], ["rust"])
+        self.assertEqual(receipt["steps"]["build"], f"team-signed ({TEAM})")
+        self.assertEqual(self.sha(), signed["cmux"])
+        bin_ = self.app / "Contents/Resources/bin"
+        self.assertEqual(hashlib.sha256((bin_ / "cmux-cloud").read_bytes()).hexdigest(), signed["cmux-cloud"])
+        self.assertFalse((bin_ / "cmux-holder").exists())  # the signed build has none, as the tree's has none
+        code, receipt, err = self.hot("rollback", "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.old)
+        self.assertEqual((bin_ / "cmux-holder").read_bytes(), b"the app's holder")
+
+    def test_an_ad_hoc_app_keeps_taking_the_ad_hoc_tree(self):
+        self.publish_team_signed({"cmux": macho("cmux", TEAM)})
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["steps"]["build"], "ad-hoc")
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_team_signed_set_of_another_team_is_not_taken(self):
+        self.team_signed_app()
+        adhoc = macho("cmux_tui-8cc59fe5f00f9770", adhoc=True, pad=4096)
+        self.publish(adhoc, hashlib.sha256(adhoc).hexdigest())
+        self.publish_team_signed({"cmux": macho("cmux", "ZZZZZ99999")}, team="ZZZZZ99999")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 3, err)
+        self.assertIn("Rust (the published build is not signed as this app is)", receipt["left"])
+        self.assertEqual(self.sha(), self.old)
+
+    def test_a_team_signed_file_that_does_not_hash_to_its_completion_is_refused(self):
+        self.team_signed_app()
+        adhoc = macho("cmux_tui-8cc59fe5f00f9770", adhoc=True, pad=4096)
+        self.publish(adhoc, hashlib.sha256(adhoc).hexdigest())
+        signed = self.publish_team_signed({"cmux": macho("cmux", TEAM)})
+        (self.tmp / "tree" / self.key / "team-signed" / signed["cmux"] / "cmux").write_bytes(b"not it")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 1, err)
+        self.assertIn("does not hash", receipt["error"])
+        self.assertEqual(self.sha(), self.old)
 
     def publish(self, body, digest, listed=None):
         tree = self.tmp / "tree" / self.key
@@ -415,7 +552,9 @@ class HotKeys(unittest.TestCase):
         (self.tmp / "empty").mkdir()
         self.env = dict(os.environ, CMUX_HOT_KEYS_BASE=(self.tmp / "keys").as_uri(),
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"),
-                        CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri())
+                        CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
+                        CMUX_NEXT_CONFIG_FILE=str(self.tmp / "config/cmux-next.json"),
+                        CMUX_WEB_OVERLAY_DIR=str(self.tmp / "overlay"))
 
     def tearDown(self):
         subprocess.run(["rm", "-rf", str(self.tmp)])
@@ -478,6 +617,32 @@ class HotKeys(unittest.TestCase):
         plan = json.loads(done.stdout)
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff: no FFI file
+
+    def test_the_keys_plan_keeps_a_team_signed_apps_daemon_from_an_ad_hoc_build(self):
+        # The published-keys plan checks the signature as the diff plan does (2026-11-15's Cloud list failure).
+        app = self.tmp / "cmux NIGHTLY.app"
+        (app / "Contents/MacOS").mkdir(parents=True)
+        with open(app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.base, "CFBundleExecutable": "cmux"}, handle)
+        (app / "Contents/MacOS/cmux").write_bytes(macho("com.cmuxterm.app.nightly", TEAM))
+        self.publish(self.base)
+        self.publish(FIX, tree_key="8" * 40)
+        name = f"cmux-tui-{'aarch64' if platform.machine() in ('arm64', 'aarch64') else 'x86_64'}-" + (
+            "apple-darwin" if sys.platform == "darwin" else "unknown-linux-musl")
+        tree = self.tmp / "tree" / ("8" * 40)
+        tree.mkdir(parents=True)
+        (tree / name).write_bytes(macho("cmux_tui-8cc59fe5f00f9770", adhoc=True, pad=4096))
+        (tree / "completion.json").write_text(json.dumps({"key": "8" * 40, "binaries": {name: "a" * 64}}))
+        run = [sys.executable, str(SCRIPT), "plan", FIX, "--app", str(app), "--repo", str(self.tmp / "empty")]
+        done = subprocess.run(run, capture_output=True, text=True, env=self.env)
+        plan = json.loads(done.stdout)
+        self.assertEqual(done.returncode, 3, done.stderr)
+        self.assertEqual(plan["via"], "published keys")
+        self.assertEqual(plan["parts"], [])
+        self.assertIn(TEAM, " ".join(plan["left"]["Rust (the published build is not signed as this app is)"]))
+        done = subprocess.run([*run, "--unsigned-daemon"], capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["parts"], ["rust"])
 
     def test_equal_keys_are_a_no_op(self):
         self.publish(self.base)
@@ -1322,6 +1487,179 @@ class HotApplyFFI(unittest.TestCase):
             self.assertEqual(self.ffi.how_to_sign(self.app, None, False), "adhoc")
         finally:
             self.ffi.signature, self.ffi.validates_no_libraries = saved
+
+    def test_the_app_opens_through_launchd_where_open_fails(self):
+        # A terminal of the app outlives `cmux app quit --keep-sessions`, but `open` fails there (error -600), and
+        # over ssh: the user's GUI domain opens the app, and the one-shot agent goes once the app answers.
+        calls = []
+
+        def run(*args, check=True):
+            calls.append(args)
+            failed = args[0] == "open"
+            return subprocess.CompletedProcess(args, 1 if failed else 0, "",
+                                               "_LSOpenURLsWithCompletionHandler() failed with error -600." if failed else "")
+
+        saved = self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS
+        try:
+            self.ffi._run = run
+            self.ffi.answering_pid = lambda app: 4242
+            self.ffi.app_pid = lambda app: 4242
+            self.ffi.STAY_SECONDS = 0
+            step = self.ffi.launch(self.app, 4141)
+        finally:
+            self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS = saved
+        self.assertEqual((step["pid"], step["opened_via"]), (4242, "launchd"))
+        self.assertEqual([c[:2] for c in calls], [("open", str(self.app)), ("launchctl", "bootstrap"),
+                                                  ("launchctl", "bootout")])
+        plist = Path(calls[1][3])
+        self.assertFalse(plist.parent.exists(), "the one-shot agent's plist is removed")
+        self.assertEqual(calls[2][2], f"gui/{os.getuid()}/{plist.stem}")
+
+
+def load_hot(name):
+    spec = importlib.util.spec_from_file_location(name, SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def macho(identifier, team=None, adhoc=False, pad=0):
+    """A minimal arm64 Mach-O whose code signature names IDENTIFIER and TEAM (ad-hoc: no team, CS_ADHOC),
+    the signature PAD bytes in, as a large binary's sits at its end."""
+    import struct
+    strings = identifier.encode() + b"\0"
+    team_at = 0
+    if team:
+        team_at = 52 + len(strings)
+        strings += team.encode() + b"\0"
+    cd = struct.pack(">IIIIIIIIIBBBBII", 0xFADE0C02, 52 + len(strings), 0x20400, 0x2 if adhoc else 0,
+                     0, 52, 0, 0, 0, 32, 2, 0, 12, 0, 0) + struct.pack(">I", team_at) + strings
+    blob = struct.pack(">III", 0xFADE0CC0, 20 + len(cd), 1) + struct.pack(">II", 0, 20) + cd
+    offset = 32 + 16 + pad
+    header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 1, 16, 0, 0)
+    return header + struct.pack("<IIII", 0x1D, 16, offset, len(blob)) + b"\0" * pad + blob
+
+
+TEAM = "ABCDE12345"
+
+
+class CodeSignatures(unittest.TestCase):
+    """hot-apply reads a Mach-O's Team ID itself (no codesign on Linux): ad-hoc and unsigned are no team."""
+
+    def setUp(self):
+        self.hot = load_hot("hot_apply_sig_under_test")
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-webabi-sig-test-"))
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def team(self, body):
+        (self.tmp / "bin").write_bytes(body)
+        return self.hot.file_team(self.tmp / "bin"), self.hot.url_team((self.tmp / "bin").as_uri())
+
+    def test_a_team_signature_names_its_team_by_file_and_by_url(self):
+        self.assertEqual(self.team(macho("com.cmuxterm.app.nightly", TEAM, pad=300_000)), (TEAM, TEAM))
+
+    def test_ad_hoc_and_unsigned_have_no_team(self):
+        # CI's tree builds: `cmux_tui-8cc59fe5f00f9770`, ad-hoc (the 2026-11-15 run's 3a81a2e8 tree key).
+        self.assertEqual(self.team(macho("cmux_tui-8cc59fe5f00f9770", adhoc=True)), (None, None))
+        self.assertEqual(self.team(b"#!/bin/sh\necho new\n"), (None, None))
+
+    def test_a_fat_file_is_read_by_its_first_slice(self):
+        import struct
+        slice_ = macho("cmux", TEAM)
+        fat = struct.pack(">II", 0xCAFEBABE, 1) + struct.pack(">IIIII", 0x0100000C, 0, 4096, len(slice_), 12)
+        self.assertEqual(self.team(fat + b"\0" * (4096 - len(fat)) + slice_)[0], TEAM)
+
+
+class RefusedOverlayRollback(unittest.TestCase):
+    """Rollback puts back what the app served: an overlay it refused (another web ABI) was its bundled pages."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-webabi-rollback-test-"))
+        self.overlay = self.tmp / "overlay"
+        self.web_dev = self.tmp / "config/web-dev.json"
+        self.web_dev.parent.mkdir(parents=True)
+        self.saved_env = dict(os.environ)
+        os.environ.update(CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"),
+                          CMUX_NEXT_CONFIG_FILE=str(self.tmp / "config/cmux-next.json"),
+                          CMUX_WEB_OVERLAY_DIR=str(self.overlay))
+        self.hot = load_hot("hot_apply_webabi_overlay_under_test")
+        self.live = self.hot.load("live_apply_loop", "live-apply.py")
+        self.app = self.tmp / "cmux NIGHTLY.app"
+        abi = self.app / self.hot.APP_ABI
+        abi.parent.mkdir(parents=True)
+        abi.write_text('{"abi": 7}\n')
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.saved_env)
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def install(self, commit, abi, **web_dev):
+        gen = self.overlay / f".gen-{commit[:8]}"
+        (gen / "pages/settings").mkdir(parents=True)
+        (gen / "pages/settings/index.html").write_text(commit)
+        link = self.overlay / "pages"
+        if link.is_symlink():
+            link.unlink()
+        link.symlink_to(f".gen-{commit[:8]}/pages")
+        (self.overlay / "manifest.json").write_text(json.dumps({"commit": commit, "abi": abi}))
+        self.web_dev.write_text(json.dumps({"overlay": str(self.overlay), "enabled": True, **web_dev}))
+
+    def apply_then_put_back(self, prior_abi, check_at_apply=True, **web_dev):
+        self.install("01192304" + "0" * 32, prior_abi, **web_dev)
+        snap = self.hot.overlay_snapshot(self.live)
+        if check_at_apply:
+            snap = self.hot.in_effect(snap, 7, self.overlay)
+        self.install("20a18cea" + "0" * 32, 7, **web_dev)  # the apply's overlay
+        return snap, self.hot.put_back(self.app, {"web": snap}, None, self.tmp / "state", self.live)["web"]
+
+    def test_a_refused_prior_overlay_rolls_back_to_the_bundled_pages(self):
+        snap, out = self.apply_then_put_back(4)
+        self.assertEqual(snap["refused"]["abi"], 4)  # the undo record says so from the apply on
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["in_effect"], "the app's bundled pages")
+        self.assertEqual(out["dropped_refused_pointer"]["commit"], "01192304" + "0" * 32)
+        self.assertFalse(self.web_dev.exists())  # nothing else was in it
+
+    def test_an_undo_written_before_the_check_rolls_back_to_the_bundled_pages_too(self):
+        _, out = self.apply_then_put_back(4, check_at_apply=False)
+        self.assertEqual(out["in_effect"], "the app's bundled pages")
+        self.assertFalse(self.web_dev.exists())
+
+    def test_the_dev_server_entry_stays_when_the_pointer_goes(self):
+        _, out = self.apply_then_put_back(4, server="http://127.0.0.1:4200/", token="t" * 48)
+        kept = json.loads(self.web_dev.read_text())
+        self.assertNotIn("overlay", kept)
+        self.assertEqual(kept["server"], "http://127.0.0.1:4200/")
+
+    def test_a_served_prior_overlay_comes_back(self):
+        snap, out = self.apply_then_put_back(7)
+        self.assertNotIn("refused", snap)
+        self.assertEqual(out["commit"], "01192304" + "0" * 32)
+        self.assertEqual(json.loads(self.web_dev.read_text())["overlay"], str(self.overlay))
+        self.assertEqual((self.overlay / "pages/settings/index.html").read_text(), "01192304" + "0" * 32)
+
+    def drop(self):
+        done = subprocess.run([sys.executable, str(SCRIPT), "drop-refused-overlay", "--app", str(self.app)],
+                              capture_output=True, text=True, env=os.environ)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout.strip().splitlines()[-1])
+
+    def test_drop_refused_overlay_cleans_an_install_left_pointing_at_one(self):
+        self.install("01192304" + "0" * 32, 4, gallery="http://127.0.0.1:4178/")
+        receipt = self.drop()
+        self.assertEqual(receipt["dropped"]["abi"], 4)
+        self.assertEqual(json.loads(self.web_dev.read_text()), {"enabled": True, "gallery": "http://127.0.0.1:4178/"})
+        self.assertIsNone(self.drop()["dropped"])  # once is enough
+        self.assertFalse((self.tmp / "state/last.json").exists())  # `rollback` is not moved by it
+
+    def test_drop_refused_overlay_leaves_a_served_pointer(self):
+        self.install("20a18cea" + "0" * 32, 7)
+        self.assertIsNone(self.drop()["dropped"])
+        self.assertIn("overlay", json.loads(self.web_dev.read_text()))
 
 
 if __name__ == "__main__":
