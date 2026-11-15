@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CryptoKit
 public import Foundation
+import Security
 
 /// The two P-256 private keys of this device (docs/device-hub/PROTOCOL.md,
 /// Identity): one signs requests and session fingerprints, one opens relay
@@ -103,35 +104,37 @@ extension DeviceIdentity {
     /// the Keychain under `<bundleIdentifier>.device-hub`, created on first
     /// use. A missing or unreadable part makes a new identity (a new device).
     public static func forApp(bundleIdentifier: String, loginKeychain: LoginKeychain) throws -> DeviceIdentity {
-        try load(keychain: DeviceKeychain(service: bundleIdentifier + ".device-hub", loginKeychain: loginKeychain))
+        try load(keychain: DeviceKeychain(service: bundleIdentifier + ".device-hub", loginKeychain: loginKeychain), keys: .enclave)
     }
 
     /// Forgets this app's identity and makes a new one: the hub refused the old
     /// id (`device_removed`, `device_key_mismatch`), so this is a new device.
     public static func renew(bundleIdentifier: String, loginKeychain: LoginKeychain) throws -> DeviceIdentity {
-        let keychain = DeviceKeychain(service: bundleIdentifier + ".device-hub", loginKeychain: loginKeychain)
-        for account in [idAccount, signingAccount, agreementAccount] { try keychain.delete(account) }
-        return try load(keychain: keychain)
+        try renew(keychain: DeviceKeychain(service: bundleIdentifier + ".device-hub", loginKeychain: loginKeychain), keys: .enclave)
     }
 
-    static func load(keychain: DeviceKeychain) throws -> DeviceIdentity {
-        guard SecureEnclave.isAvailable else { throw Failure.secureEnclaveUnavailable }
+    static func renew(keychain: any DeviceIdentityKeychain, keys: DeviceKeyBlobs) throws -> DeviceIdentity {
+        for account in [idAccount, signingAccount, agreementAccount] {
+            let status = keychain.deleteStatus(account)
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
+        }
+        return try load(keychain: keychain, keys: keys)
+    }
+
+    static func load(keychain: any DeviceIdentityKeychain, keys: DeviceKeyBlobs) throws -> DeviceIdentity {
         if let idText = try keychain.read(Self.idAccount).flatMap({ String(data: $0, encoding: .utf8) }),
            let id = UUID(uuidString: idText),
            let signingBlob = try keychain.read(Self.signingAccount),
            let agreementBlob = try keychain.read(Self.agreementAccount),
-           let signing = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: signingBlob),
-           let agreement = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: agreementBlob) {
-            return DeviceIdentity(deviceID: id, keys: EnclaveDeviceKeys(signing: signing, agreement: agreement))
+           let material = try keys.open(signingBlob, agreementBlob) {
+            return DeviceIdentity(deviceID: id, keys: material)
         }
-        let access = try DeviceKeychain.keyAccessControl()
-        let signing = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access)
-        let agreement = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access)
+        let made = try keys.make()
         let id = UUID()
-        try keychain.write(signing.dataRepresentation, account: Self.signingAccount)
-        try keychain.write(agreement.dataRepresentation, account: Self.agreementAccount)
-        try keychain.write(Data(id.uuidString.lowercased().utf8), account: Self.idAccount)
-        return DeviceIdentity(deviceID: id, keys: EnclaveDeviceKeys(signing: signing, agreement: agreement))
+        try keychain.add(made.signing, account: Self.signingAccount)
+        try keychain.add(made.agreement, account: Self.agreementAccount)
+        try keychain.add(Data(id.uuidString.lowercased().utf8), account: Self.idAccount)
+        return DeviceIdentity(deviceID: id, keys: made.keys)
     }
 
     static let idAccount = "device-id"
@@ -140,4 +143,28 @@ extension DeviceIdentity {
 
     /// The only identity accounts a protected capture may remove.
     public static let captureIdentityAccounts = [idAccount, signingAccount, agreementAccount]
+}
+
+/// The device keys as the Keychain keeps them: the Secure Enclave's encrypted blobs in the app
+/// (``enclave``), software keys in tests.
+struct DeviceKeyBlobs: Sendable {
+    /// A new pair of keys and the blobs to store.
+    var make: @Sendable () throws -> (keys: any DeviceKeyMaterial, signing: Data, agreement: Data)
+    /// The keys of stored blobs; nil when they are not (a new identity replaces them).
+    var open: @Sendable (_ signing: Data, _ agreement: Data) throws -> (any DeviceKeyMaterial)?
+
+    static let enclave = DeviceKeyBlobs(
+        make: {
+            guard SecureEnclave.isAvailable else { throw DeviceIdentity.Failure.secureEnclaveUnavailable }
+            let access = try DeviceKeychain.keyAccessControl()
+            let signing = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access)
+            let agreement = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access)
+            return (EnclaveDeviceKeys(signing: signing, agreement: agreement), signing.dataRepresentation, agreement.dataRepresentation)
+        },
+        open: { signing, agreement in
+            guard SecureEnclave.isAvailable else { throw DeviceIdentity.Failure.secureEnclaveUnavailable }
+            guard let signing = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: signing),
+                  let agreement = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: agreement) else { return nil }
+            return EnclaveDeviceKeys(signing: signing, agreement: agreement)
+        })
 }
