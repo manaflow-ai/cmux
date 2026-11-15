@@ -60,17 +60,15 @@ class CountingMap<K, V> extends Map<K, V> {
   visited = 0;
   override values(): MapIterator<V> {
     const inner = super.values();
-    const self = this;
-    return Object.assign(Object.create(Object.getPrototypeOf(inner)), {
-      next() {
+    const counted = Object.create(Object.getPrototypeOf(inner)) as MapIterator<V>;
+    return Object.assign(counted, {
+      next: () => {
         const step = inner.next();
-        if (!step.done) self.visited += 1;
+        if (!step.done) this.visited += 1;
         return step;
       },
-      [Symbol.iterator]() {
-        return this;
-      },
-    }) as MapIterator<V>;
+      [Symbol.iterator]: () => counted,
+    });
   }
 }
 
