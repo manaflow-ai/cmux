@@ -255,7 +255,7 @@ function SheetArea({
           <li className="cls-row" key={row.key} data-category={row.category} data-entry={titleKey(row.title)}>
             {KIND_GLYPHS[row.category] && (
               <span className="cls-icon cls-kind" aria-hidden="true">
-                <svg viewBox="0 0 20 20" width="14" height="14">
+                <svg viewBox="0 0 20 20" width="14" height="14" {...GLYPH_PAINT}>
                   {KIND_GLYPHS[row.category]}
                 </svg>
               </span>
@@ -473,14 +473,25 @@ function firstParagraph(text: string): string | undefined {
 /** A 16 pt stroke glyph per app area, in the theme's accent (styles.css .cls-icon): the sidebar's
     column, a tab with a plus, a pencil, a speech bubble, a house, tabs, a prompt, a globe, a
     search lens, sliders, an update arrow, a keyboard, split panes, a window, a cloud; three dots
-    for Other. */
+    for Other. The glyphs are strokes and the svg carries their paint, so every host draws them the
+    same: the Updated card's popover set no stroke in its CSS and drew the cloud as a black fill and
+    Other's dots as nothing (Leo 2026-11-15: "theese are kinda crappy looking icons and stuff"). */
 export function AreaIcon({ area }: { area?: AreaKey }) {
   return (
-    <svg viewBox="0 0 20 20" width="16" height="16">
+    <svg viewBox="0 0 20 20" width="16" height="16" {...GLYPH_PAINT}>
       {AREA_GLYPHS[area ?? "other"]}
     </svg>
   );
 }
+
+/** The paint of every stroke glyph here (AreaIcon, KIND_GLYPHS), on the svg itself, not in a host's CSS. */
+export const GLYPH_PAINT = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
 
 /** A row's kind in the gutter (styles.css .cls-kind); Improved, the most common, shows none. */
 const KIND_GLYPHS: Partial<Record<WhatsNewCategory, ReactNode>> = {
