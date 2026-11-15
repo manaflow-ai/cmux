@@ -401,6 +401,10 @@ mod tests {
             "set BASH_FUNC_x",
             "set LC_ALL",
             "set TZ",
+            // The gateway's endpoints for Gemini and Grok: the platform withholds them (hq#11225).
+            "set GOOGLE_GEMINI_BASE_URL",
+            "set GROK_MODELS_BASE_URL",
+            "set grok_models_list_url",
             "set A-B",
             "set API_KEY --repo ../x",
             "set API_KEY --repo owner",
