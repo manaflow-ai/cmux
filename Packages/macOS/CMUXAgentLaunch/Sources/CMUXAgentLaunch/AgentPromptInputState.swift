@@ -98,11 +98,11 @@ extension AgentPromptInputState {
     /// - Parameters:
     ///   - rows: The visible screen, top to bottom; each row's spans in
     ///     column order.
-    ///   - promptStyles: The input rows to look for. Dialogs are recognized
-    ///     whatever this holds.
+    ///   - promptStyles: The input rows to look for: those of the agents
+    ///     running on the surface. Dialogs are recognized whatever this holds.
     public init(
         screenRows rows: [[AgentPromptScreenSpan]],
-        promptStyles: Set<AgentPromptStyle> = Set(AgentPromptStyle.allCases)
+        promptStyles: Set<AgentPromptStyle>
     ) {
         self = Self.detect(rows: rows, styles: promptStyles)
     }
