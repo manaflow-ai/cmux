@@ -58,6 +58,11 @@ def summary(runs, key):
 
 
 def launch(opts):
+    import bench_memory
+    # The app starts as this script's child, so macOS holds this script responsible for its WebKit processes: they count
+    # as the app's when they did not run before the launch (bench_memory.launch does the same).
+    bench_memory._direct_launch = True
+    bench_memory._webkit_before.update(p for p, _, cmd in bench_memory.process_table() if "com.apple.WebKit." in cmd)
     app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1440, 900))
     app.launch(timeout=180)
     # The group editor opens on the shown workspace's group (made by a script: no editor opens for it).
@@ -103,9 +108,7 @@ def main(argv=None):
             kind = KINDS[index % 2]
             app = launch(opts)
             try:
-                time.sleep(opts.settle if index == 0 else 5)  # bench pacing: past the launch settle
-                if index == 0:
-                    report["memory"].append(memory(app, "empty_at_rest"))
+                time.sleep(5)  # bench pacing: past the launch settle
                 reply = bench(app, kind, "as_is")
                 reply["arm"] = "launch"
                 launch_runs[kind].append(reply)
@@ -117,7 +120,8 @@ def main(argv=None):
 
         app = launch(opts)
         try:
-            time.sleep(5)  # bench pacing: past the launch settle
+            time.sleep(opts.settle)  # bench pacing: past the launch settle and its transient
+            report["memory"].append(memory(app, "empty_at_rest"))
             for kind in KINDS:
                 for arm in ("cold", "warm"):
                     runs = [bench(app, kind, arm) for _ in range(opts.rounds)]
