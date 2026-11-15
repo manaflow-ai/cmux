@@ -1383,6 +1383,37 @@ class Look:
     waiting: bool = False  # a persistent-pool job has no runner yet
 
 
+def refusal_rerun_now(jobs: Sequence[Mapping[str, Any]], target: "Target") -> bool:
+    """Whether a refusal in an unfinished run is re-run now rather than once the run ends: some other job is still
+    unfinished, every such job only waits for a runner (job_running(): none in a runner's setup or running, so a
+    cancel kills no work), and no job failed on its own (decided_failures(), which the re-run would repeat). Never for
+    a nightly (its unfinished work is never cancelled). Run 43716323834 (#43733, 2026-11-15): 'cmux-next generated
+    files' was refused at 14:32Z while the fast tier waited for a runner until 15:33Z; it was re-run at 15:47Z."""
+    unfinished = [job for job in jobs if job.get("status") != "completed"]
+    return bool(unfinished) and not target.nightly and not any(job_running(job) for job in unfinished) \
+        and not decided_failures(jobs, target.attempt_started_at)
+
+
+def refusal_guard(api: "GitHub", target: "Target", sleep: Callable[[float], None], log: Callable[[str], None],
+                  before_cancel: Callable[[], None] | None) -> Callable[[], None]:
+    """rescue()'s before_cancel for a refusal re-run now (refusal_rerun_now()), right before the cancel and every
+    re-send of it: the run must still be this attempt and unfinished, and still meet refusal_rerun_now(). Else the
+    cancel is dropped (OpenHeadStarted). The jobs are read last, as in open_head_guard()."""
+    def check() -> None:
+        if before_cancel is not None:
+            before_cancel()
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        attempt = int(run.get("run_attempt") or 0)
+        if attempt != target.attempt:
+            raise OpenHeadStarted(f"the run is at attempt {attempt}, not {target.attempt}")
+        if run.get("status") == "completed":
+            raise OpenHeadStarted("the run has finished")
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if not refusal_rerun_now(jobs, target):
+            raise OpenHeadStarted("another job of the run started before the cancel")
+    return check
+
+
 def decided_failures(jobs: Sequence[Mapping[str, Any]], attempt_started: dt.datetime | None = None) -> list[str]:
     """Names of this attempt's jobs that failed on their own: not a fleet refusal (refused()), not a
     job whose runner never ran a step (a lost runner, owned or not) and not one carried from an
@@ -2954,10 +2985,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 why = open_head_failover(api, target, now=now, sleep=sleep, log=log, first_seen=first_seen).why
                 if why:
                     return "failover", why
-            # A sibling with work a cancel would kill: one a runner holds (in its setup or running), or any
-            # unfinished job of a nightly (its started work is never cancelled).
-            busy = [job for job in jobs if job.get("status") != "completed" and (job_running(job) or target.nightly)]
-            if look.action == "refused" and not finished and seen_at < deadline and not target.main and not busy:
+            if look.action == "refused" and not finished and seen_at < deadline and not target.main \
+                    and refusal_rerun_now(jobs, target):
                 # Every other unfinished job only waits for a runner: a cancel kills no work, so the refused job is
                 # re-run now (cancel, then its failed and cancelled jobs) instead of after the run ends. Run
                 # 43716323834 (#43733, 2026-11-15): 'cmux-next generated files' was refused at 14:32Z while the
@@ -4915,6 +4944,14 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # Every finished job keeps its result; the stalled and waiting jobs (cancelled by the cancel) run again.
         failed_only = True
         before_cancel = stall_guard(api, target, sleep, log, before_cancel, stall_check, now)
+    elif refusal and run.get("status") != "completed" and target.pr_number and refusal_rerun_now(
+            read(lambda: api.jobs(target.run_id, target.attempt), sleep, log), target):
+        # A refused job whose siblings only wait for a runner: the cancel kills no work, so OPEN_HEAD_RULE (which
+        # keeps work) does not hold it until the run ends; refusal_guard() re-checks that right before the cancel.
+        log(f"a job was refused and no other job of run {target.run_id} is running: cancelling it to re-run its "
+            "failed and cancelled jobs now")
+        failed_only = True
+        before_cancel = refusal_guard(api, target, sleep, log, before_cancel)
     elif run.get("status") != "completed" and (target.pr_number or push_tip_failover(target) and not refusal):
         # pull_moved() just read the pull request open at this head (or found no newer push run on the branch).
         # A cmux-next push run at its tip is moved only by the failover too: a bot's re-run of its failed jobs keeps
