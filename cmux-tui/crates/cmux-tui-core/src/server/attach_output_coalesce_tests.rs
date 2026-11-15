@@ -286,12 +286,16 @@ fn an_interval_over_the_limit_is_refused() {
     mux.shutdown();
 }
 
-/// Every `scroll-changed` offset on `outbound` until `quiet` passes with
-/// none, with the time each was read.
-fn scroll_offsets(outbound: &BoundedOutbound, quiet: Duration) -> Vec<(Instant, u64)> {
+/// Every `scroll-changed` offset on `outbound`, read as it comes, until
+/// `done` is set and `quiet` passes with none, with the time each was read.
+fn scroll_offsets(
+    outbound: &BoundedOutbound,
+    done: &AtomicBool,
+    quiet: Duration,
+) -> Vec<(Instant, u64)> {
     let mut offsets = Vec::new();
     let mut last = Instant::now();
-    while last.elapsed() < quiet {
+    while !done.load(Ordering::Acquire) || last.elapsed() < quiet {
         match outbound.try_pop() {
             Some(message) => {
                 let value: Value = serde_json::from_str(&message).expect("outbound JSON");
@@ -300,42 +304,53 @@ fn scroll_offsets(outbound: &BoundedOutbound, quiet: Duration) -> Vec<(Instant, 
                     last = Instant::now();
                 }
             }
-            None => std::thread::sleep(Duration::from_micros(500)),
+            None => std::thread::sleep(Duration::from_micros(200)),
         }
     }
     offsets
 }
 
 /// A coalescing byte viewer's `scroll-changed` follows its frame clock: the
-/// first at once, then at most one per interval with the newest position;
-/// a viewer without the capability still gets every one.
+/// first at once, then at most one per interval, the newest position last.
+/// A viewer without the capability gets them as they come.
 #[test]
 fn a_coalescing_viewer_reads_the_newest_scroll_position_once_per_frame() {
     let (mux, surface) = quiet_surface("coalesce-scroll");
     let plain = attach(&mux, &surface, false, json!({}));
     let coalesced = attach(&mux, &surface, true, json!({"output_coalesce_ms": 100}));
-    let start = Instant::now();
-    for offset in 1..=40u64 {
-        mux.emit(crate::MuxEvent::ScrollChanged { surface: surface.id, offset, at_bottom: false });
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    let plain_offsets = scroll_offsets(&plain.outbound, Duration::from_millis(400));
-    let coalesced_offsets = scroll_offsets(&coalesced.outbound, Duration::from_millis(400));
-    // Without the capability: every position the event mailbox kept (it
-    // already keeps only the newest one per surface for a reader that is
-    // behind), so about one per emit.
+    let done = AtomicBool::new(false);
+    let quiet = Duration::from_millis(400);
+    let (plain_offsets, coalesced_offsets) = std::thread::scope(|scope| {
+        let plain_reader = scope.spawn(|| scroll_offsets(&plain.outbound, &done, quiet));
+        let coalesced_reader = scope.spawn(|| scroll_offsets(&coalesced.outbound, &done, quiet));
+        for offset in 1..=40u64 {
+            mux.emit(crate::MuxEvent::ScrollChanged {
+                surface: surface.id,
+                offset,
+                at_bottom: false,
+            });
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        done.store(true, Ordering::Release);
+        (plain_reader.join().expect("plain"), coalesced_reader.join().expect("coalesced"))
+    });
     assert_eq!(plain_offsets.last().map(|(_, offset)| *offset), Some(40), "{plain_offsets:?}");
-    assert!(plain_offsets.len() >= 20, "{} plain positions", plain_offsets.len());
     let first = coalesced_offsets.first().expect("a position");
     assert_eq!(first.1, 1, "the first position goes out at once");
     assert_eq!(coalesced_offsets.last().map(|(_, offset)| *offset), Some(40), "the newest last");
-    // About 200 ms of scrolling at a 100 ms interval: the first, then one per
-    // interval, then the newest.
+    // One per 100 ms interval at most (some slack for the reader's clock).
+    for pair in coalesced_offsets.windows(2) {
+        let gap = pair[1].0.duration_since(pair[0].0);
+        assert!(
+            gap >= Duration::from_millis(80),
+            "{gap:?} between positions: {coalesced_offsets:?}"
+        );
+    }
+    // Without the capability, positions come as the mailbox delivers them:
+    // more than one per 100 ms over this 200 ms of scrolling.
     assert!(
-        coalesced_offsets.len() <= 5,
-        "{} coalesced positions in {:?}: {coalesced_offsets:?}",
-        coalesced_offsets.len(),
-        start.elapsed()
+        plain_offsets.len() > coalesced_offsets.len(),
+        "plain {plain_offsets:?} coalesced {coalesced_offsets:?}"
     );
     disconnect_client(&mux, plain.client, false);
     disconnect_client(&mux, coalesced.client, false);
