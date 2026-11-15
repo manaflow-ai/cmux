@@ -23,7 +23,18 @@ pub struct ListedTerminal<'a> {
 }
 
 /// The ids that the pass reads before its first wait, in the order of
-/// `listed`: each listed terminal.
+/// `listed`: each listed terminal but one that ended and for which the
+/// detector holds no state.
+///
+/// A read of such a terminal gives the row that the list gave, and the
+/// detector has nothing to close for it. If the terminal gets a new process
+/// under the same id, the owner sends an upsert of the terminal on the
+/// session event stream, which the pass opened before it read the list: that
+/// wake gives the terminal its read.
 pub fn first_scan_ids<'a>(listed: impl IntoIterator<Item = ListedTerminal<'a>>) -> Vec<&'a str> {
-    listed.into_iter().map(|terminal| terminal.id).collect()
+    listed
+        .into_iter()
+        .filter(|terminal| !terminal.exited || terminal.known)
+        .map(|terminal| terminal.id)
+        .collect()
 }
