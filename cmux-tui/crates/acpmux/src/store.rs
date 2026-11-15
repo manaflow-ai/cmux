@@ -1428,7 +1428,7 @@ pub trait Store: Send + Sync {
     }
     /// Readies the store for a sealed segments' commit, with no lock of the chat held: the
     /// journal store's checkpoint. False: not now.
-    fn prepare_sealed(&self, _id: &str) -> Result<bool> {
+    fn prepare_sealed(&self, _id: &str, _staged: &StagedSealed) -> Result<bool> {
         Ok(true)
     }
     /// Puts staged sealed segments in place unless one changed since (false).
@@ -1619,6 +1619,8 @@ pub struct LocalStore {
     cold: Mutex<()>,
     /// [`Store::on_rehydrate`].
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
+    /// [`Store::on_segment_sealed`].
+    seal_hook: std::sync::OnceLock<SealHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
     #[cfg(test)]
@@ -1677,6 +1679,7 @@ impl LocalStore {
             unlisted: Default::default(),
             cold: Default::default(),
             rehydrate_hook: Default::default(),
+            seal_hook: Default::default(),
             parts: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
@@ -1951,6 +1954,8 @@ impl LocalStore {
             writers
                 .open
                 .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
+            // Segment `index - 1` is sealed: a worker may compact it (`store/sealed_compact.rs`).
+            self.note_sealed(id);
         }
         let Some(w) = writers.open.get_mut(id) else {
             anyhow::bail!("no segment writer for session {id}");
@@ -2524,6 +2529,18 @@ impl Store for LocalStore {
 
     fn on_rehydrate(&self, hook: RehydrateHook) {
         let _ = self.rehydrate_hook.set(hook);
+    }
+
+    fn stage_sealed(&self, id: &str, barriers: &[u64], max: usize) -> Result<Option<StagedSealed>> {
+        self.stage_sealed_segments(id, barriers, max)
+    }
+
+    fn commit_sealed(&self, id: &str, staged: StagedSealed) -> Result<bool> {
+        self.commit_sealed_segments(id, staged)
+    }
+
+    fn on_segment_sealed(&self, hook: SealHook) {
+        let _ = self.seal_hook.set(hook);
     }
 
     fn seal(&self) {

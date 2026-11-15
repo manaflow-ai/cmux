@@ -971,6 +971,44 @@ impl Store for JournalStore {
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         Store::stage_compaction(&self.inner.local, id, mode)
     }
+    /// The chat's newest journal record now goes with the copies: every line of its sealed
+    /// segments was journaled at or before it (they were sealed before this read).
+    fn stage_sealed(&self, id: &str, barriers: &[u64], max: usize) -> Result<Option<StagedSealed>> {
+        let lsn = self.inner.order.lock_or_recover().log_lsn.get(id).copied();
+        let staged = Store::stage_sealed(&self.inner.local, id, barriers, max)?;
+        Ok(staged.map(|mut staged| {
+            staged.lsn = lsn;
+            staged
+        }))
+    }
+    /// A checkpoint through the staged pass's newest record, with no lock of the chat held: a
+    /// replay must never write a line the compaction dropped back into its log (as
+    /// `commit_compaction`). False while frozen, or when the checkpoint stopped short of it.
+    fn prepare_sealed(&self, _id: &str, staged: &StagedSealed) -> Result<bool> {
+        let covered = |inner: &Inner| {
+            let order = inner.order.lock_or_recover();
+            !order.frozen && staged.lsn.is_none_or(|lsn| lsn <= order.checkpointed)
+        };
+        if covered(&self.inner) {
+            return Ok(true);
+        }
+        self.inner.checkpoint()?;
+        Ok(covered(&self.inner))
+    }
+    /// Only once [`Store::prepare_sealed`]'s checkpoint covers the pass (it runs it when the
+    /// caller did not). The renames and the folder's sync run in `counted_sync`.
+    fn commit_sealed(&self, id: &str, staged: StagedSealed) -> Result<bool> {
+        if !self.prepare_sealed(id, &staged)? {
+            return Ok(false);
+        }
+        let inner = &self.inner;
+        inner.counted_sync("a compacted sealed log segment failed to sync", || {
+            Store::commit_sealed(&inner.local, id, staged)
+        })
+    }
+    fn on_segment_sealed(&self, hook: SealHook) {
+        Store::on_segment_sealed(&self.inner.local, hook)
+    }
     /// Beside the log, not in the journal: what it keeps takes no seq (`hub/restore_writer.rs`).
     /// Not while a delete or a checkpoint works on the chat's folder.
     fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {

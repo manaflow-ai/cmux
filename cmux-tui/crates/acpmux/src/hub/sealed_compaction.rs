@@ -85,7 +85,7 @@ impl Hub {
         };
         let stats = staged.stats();
         // The journal's checkpoint, before the append lock: it may take seconds.
-        if !self.store.prepare_sealed(id)? {
+        if !self.store.prepare_sealed(id, &staged)? {
             return Ok(Compaction::default());
         }
         let committed = match session.as_deref() {

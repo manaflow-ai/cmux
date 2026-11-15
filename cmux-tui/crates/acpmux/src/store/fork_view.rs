@@ -298,6 +298,13 @@ impl ForkView {
         let refs = self.refs.read().unwrap_or_else(|e| e.into_inner());
         Ok(refs.by_fork.iter().filter(|(_, r)| r.session == id).map(|(f, _)| f.clone()).collect())
     }
+
+    /// The seqs the forks of `id` show its records through.
+    fn fork_throughs(&self, id: &str) -> Result<Vec<u64>> {
+        let forks = self.forks_of(id)?;
+        let refs = self.refs.read().unwrap_or_else(|e| e.into_inner());
+        Ok(forks.iter().filter_map(|f| refs.by_fork.get(f)).map(|r| r.through_seq).collect())
+    }
 }
 
 impl ForkView {
@@ -732,6 +739,28 @@ impl Store for ForkView {
             self.materialize_locked(&fork)?;
         }
         self.inner.commit_compaction(id, staged)
+    }
+    /// Each fork's `through_seq` of `id` is a barrier: an update it shows never goes for one
+    /// past it (`store/sealed_compact.rs`). The forks keep their references.
+    fn stage_sealed(&self, id: &str, barriers: &[u64], max: usize) -> Result<Option<StagedSealed>> {
+        let mut all = self.fork_throughs(id)?;
+        all.extend_from_slice(barriers);
+        self.inner.stage_sealed(id, &all, max)
+    }
+    fn prepare_sealed(&self, id: &str, staged: &StagedSealed) -> Result<bool> {
+        self.inner.prepare_sealed(id, staged)
+    }
+    /// Under `dropping`, as a compaction's commit is: no fork is reserved meanwhile, and one made
+    /// since the pass read the log through a seq it did not keep apart refuses it.
+    fn commit_sealed(&self, id: &str, staged: StagedSealed) -> Result<bool> {
+        let _dropping = self.exclusive();
+        if !staged.keeps_apart(&self.fork_throughs(id)?) {
+            return Ok(false);
+        }
+        self.inner.commit_sealed(id, staged)
+    }
+    fn on_segment_sealed(&self, hook: SealHook) {
+        self.inner.on_segment_sealed(hook)
     }
     fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
         self.inner.stage_cold(id)
