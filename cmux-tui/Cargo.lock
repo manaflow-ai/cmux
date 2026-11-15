@@ -40,6 +40,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-local-url",
  "cmux-mcp-connect",
+ "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-relay",
@@ -1492,6 +1493,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-app-manifest",
  "cmux-config",
+ "cmux-file-lock",
+ "cmux-theme-tokens",
  "fs4",
  "serde",
  "serde_json",
@@ -1549,6 +1552,7 @@ name = "cmux-extension-sdk"
 version = "1.0.0"
 dependencies = [
  "cmux-app-manifest",
+ "cmux-customize",
  "serde_json",
 ]
 
@@ -1794,6 +1798,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-netwatch"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-palette-eval"
 version = "0.1.0"
 dependencies = [
@@ -1948,6 +1960,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-json",
  "cmux-link",
+ "cmux-netwatch",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -2273,12 +2286,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
+ "tar",
  "tempfile",
  "terminput",
  "terminput-crossterm",
  "tokio",
  "tokio-tungstenite",
  "toml",
+ "toml_edit 0.22.27",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",

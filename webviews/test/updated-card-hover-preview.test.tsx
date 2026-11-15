@@ -546,6 +546,7 @@ describe("the card", () => {
           strings={createStrings(table)}
           actions={{ openChangelog: (target) => opened.push(target ?? "open"), dismiss: () => undefined }}
           mode="beside"
+          look="sections"
         />,
       ),
     );

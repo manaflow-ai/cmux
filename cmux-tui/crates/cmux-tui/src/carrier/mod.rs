@@ -143,6 +143,7 @@ mod serve_machine;
 mod serve_policy;
 mod source;
 mod ssh;
+mod state_root;
 mod supervise;
 mod supervise_wire;
 pub(crate) mod tunnel;
