@@ -155,6 +155,15 @@ extension CloudAuth {
                                   stackProjectID: configuration.stackProjectID)
     }
 
+    /// The bearer the platform's machine routes take (join-token mint, credentials list, revoke, rotate,
+    /// doctor): a cmux access token for the active team, as ``accessToken(requested:identity:)`` mints it.
+    /// Never ``tokens()``'s session token: those routes refuse it with 401 `machine.unauthorized`
+    /// (cloud-carrier-ssh-failover, 2026-11-15). Nil signed out or refused.
+    public func machineRoutesToken(identity: MacInstallIdentity) async -> String? {
+        guard isSignedIn else { return nil }
+        return try? await accessToken(requested: nil, identity: identity).accessToken
+    }
+
     /// `cmux auth token`'s mint: a fresh token from `identity` for the team ``accessTokenTeam(requested:)`` picks.
     /// Throws only ``CloudAccessToken/Refusal``, naming the team it was for: the picked one, else the install
     /// token's own (`cmux whoami` said "team -" for the app's own team, Leo's NIGHTLY, 2026-11-11).

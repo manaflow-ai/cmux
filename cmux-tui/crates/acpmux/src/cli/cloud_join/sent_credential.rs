@@ -17,9 +17,6 @@ const CMUX_ISSUER_PREFIX: &str = "https://cmux-api/";
 
 /// `token` as the hub's machine routes would read it, at `now_secs`.
 pub(super) fn describe(token: &str, now_secs: u64) -> String {
-    if now_secs > 0 {
-        return String::new();
-    }
     let Some(claims) = claims(token) else {
         return "an access token that is not a JWT (the hub's machine routes take only a cmux access token)".to_owned();
     };
