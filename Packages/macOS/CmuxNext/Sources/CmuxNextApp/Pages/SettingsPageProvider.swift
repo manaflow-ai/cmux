@@ -86,6 +86,12 @@ final class SettingsPageProvider: PageProvider {
     var setDeviceFullAccess: (@MainActor (String, Bool) async -> String?)?
     /// Settings > Devices' Screen sharing or Control switch of this joined Mac (`screen`, `control`): the error to show, or nil.
     var setJoinConsent: (@MainActor (String, Bool) async -> String?)?
+    /// Settings > Devices' Control switch of an owned machine (Control from this Mac): turns its Control and
+    /// Screen sharing on or off with a grant this Mac's key signs. The error to show, or nil.
+    var setRemoteControl: (@MainActor (String, Bool) async -> String?)?
+    /// Settings > Devices' answer to another Mac's key ask on this Mac (Allow, Not Now, Remove): the error
+    /// to show, or nil.
+    var trustGrantor: (@MainActor (String, Bool) async -> String?)?
     /// Whether the gesture at this uptime was the person's own input from the HID system
     /// (``PersonInputLedger/backs(_:)``); nil, never.
     var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
@@ -205,6 +211,29 @@ final class SettingsPageProvider: PageProvider {
                 "joinConsent \(surface)", on: on,
                 refusal: Self.personOnly
             ) { value in await write(surface, value) }.map { ["error": .string($0)] } ?? .object([:])
+        case "cmux.settings.devices.remote_control":
+            guard let id = params["id"]?.stringValue, !id.isEmpty, let on = params["on"]?.boolValue else {
+                throw PageError.invalidParams("id and on are required")
+            }
+            // SECURITY: an on signs a grant with this Mac's key that turns another machine's Control and Screen
+            // sharing on, so only the person's own HID click or key in this page (spent once, as join_consent's)
+            // and then Touch ID or the password reach the signer (``widen``); an agent driving this page with
+            // posted input never signs. The target takes it only under a key its own person pinned. Off only
+            // narrows, so it needs no gesture and takes any input.
+            let reason = RemoteControlStrings.confirmReason
+            return try await widen("remoteControl", id, reason: reason, on: on, context, Self.host(setRemoteControl, "devices"))
+                .map { ["error": .string($0)] } ?? .object([:])
+        case "cmux.settings.devices.grantor_trust":
+            guard let id = params["id"]?.stringValue, !id.isEmpty, let trusted = params["trusted"]?.boolValue else {
+                throw PageError.invalidParams("id and trusted are required")
+            }
+            // SECURITY: trusting another Mac's key lets that Mac turn this Mac's Control and Screen sharing on
+            // from afar, so it needs the person's own HID click or key in this page (spent once) and then Touch ID
+            // or the password (``widen``), and acpmux takes it only over a line proven as the person. Not Now and
+            // Remove only narrow, so they need no gesture.
+            let reason = JoinConsentStrings.grantorTrustReason
+            return try await widen("grantorTrust", id, reason: reason, on: trusted, context, Self.host(trustGrantor, "devices"))
+                .map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.machines.vm_host":
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")

@@ -174,6 +174,8 @@ struct PageFactory {
             guard let services, let surface = JoinConsentSurface(rawValue: surface) else { return nil }
             return await services.joinConsent.set(surface, on: on)
         }
+        provider.setRemoteControl = { [weak services] id, on in await services?.remoteControl.set(id: id, on: on) }
+        provider.trustGrantor = { [weak services] id, trusted in await services?.joinConsent.trustGrantor(id, trusted: trusted) }
         provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
         // Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs.
         provider.ownerConfirm = LocalDeviceOwnerAuthenticator()
@@ -231,7 +233,7 @@ struct PageFactory {
         }
         let devices = services.deviceHub.settingsModel
         provider.devicesState = { (try? JSONValue.parse(JSONEncoder().encode(devices.state))) ?? .null }
-        provider.devicesRun = { params in
+        provider.devicesRun = { [weak services] params in
             let run: MacScreenDevicesSettings.Run
             do {
                 run = try JSONDecoder().decode(MacScreenDevicesSettings.Run.self,
@@ -239,6 +241,7 @@ struct PageFactory {
             } catch {
                 throw PageError.invalidParams("unknown devices action")
             }
+            if params["action"]?.stringValue == "refresh" { services?.remoteControl.pageShown() } // Devices card shown: Control from this Mac reads again
             let result = await devices.run(run)
             return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }

@@ -393,7 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.cloud.machineWire.onSpareReady = { [weak services] machine in if let services { CloudStartChat.warmSpare(services, ready: machine) } } // login onto a spare the moment it is ready, before any claim
         services.configActions.start(settings: settings)
         services.personInput.start()
-        services.joinConsent.follow(settings: settings)
+        services.joinConsent.follow(settings: settings, folder: MachineConsentChanges.folder)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }

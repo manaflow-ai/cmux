@@ -73,10 +73,15 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
     public var signedInMachinesAskOpen: Bool
     /// When acpmux recorded the last refusal, a `signedInMachines` one (its milliseconds); nil otherwise.
     public var lastRefusalAt: Double?
+    /// The one pending ask of another Mac of the person's to have its key trusted here (`grantorAsk`): its
+    /// first signed Control grant left it. nil: none.
+    public var grantorAsk: JoinConsentGrantor?
+    /// The Macs whose keys this machine trusts to turn its Control and Screen sharing on and off (`grantors`).
+    public var grantors: [JoinConsentGrantor]
 
     public init(screen: Bool = false, control: Bool = false, lastRefusal: JoinConsentSurface? = nil, consentRequired: Bool? = nil,
                 signedInMachines: Bool = false, lastRefusalFrom: String? = nil, signedInMachinesAskOpen: Bool = false,
-                lastRefusalAt: Double? = nil) {
+                lastRefusalAt: Double? = nil, grantorAsk: JoinConsentGrantor? = nil, grantors: [JoinConsentGrantor] = []) {
         self.screen = screen
         self.control = control
         self.lastRefusal = lastRefusal
@@ -85,6 +90,8 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
         self.lastRefusalFrom = lastRefusalFrom
         self.signedInMachinesAskOpen = signedInMachinesAskOpen
         self.lastRefusalAt = lastRefusalAt
+        self.grantorAsk = grantorAsk
+        self.grantors = grantors
     }
 
     /// The record in a result; nil without a `consent` object. Only the word `granted` is on.
@@ -100,7 +107,9 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
         return JoinConsentRecord(screen: consent["screen"] as? String == "granted", control: consent["control"] as? String == "granted",
                                  lastRefusal: surface, consentRequired: result["consentRequired"] as? Bool,
                                  signedInMachines: consent["signedInMachines"] as? String == "granted", lastRefusalFrom: from,
-                                 signedInMachinesAskOpen: open, lastRefusalAt: surface == .signedInMachines ? askedAt : nil)
+                                 signedInMachinesAskOpen: open, lastRefusalAt: surface == .signedInMachines ? askedAt : nil,
+                                 grantorAsk: (result["grantorAsk"] as? [String: Any]).flatMap { JoinConsentGrantor($0) },
+                                 grantors: Array((result["grantors"] as? [[String: Any]] ?? []).compactMap { JoinConsentGrantor($0) }.prefix(16)))
     }
 
     public func allows(_ surface: JoinConsentSurface) -> Bool {
@@ -110,6 +119,44 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
         case .signedInMachines: signedInMachines
         }
     }
+}
+
+/// Another Mac of the person's, by the key it signs Control grants with (acpmux `grantors.json` and
+/// `grantor-ask.json`, as `machine_consent_get` reports them): a trusted one, or the pending ask.
+public nonisolated struct JoinConsentGrantor: Equatable, Sendable {
+    /// `mac-` and 16 hex digits of the key's hash.
+    public var id: String
+    /// The name the Mac gave (not signed: a hint only); nil when it gave none.
+    public var name: String?
+    /// The key's four words (acpmux `fingerprint_words`), which the person matches with the ones that Mac shows.
+    public var words: [String]
+    /// Where the ask came from (a host the hub lists); asks only.
+    public var from: String?
+    /// When it was trusted, or asked (acpmux's milliseconds).
+    public var at: Double?
+
+    public init(id: String, name: String? = nil, words: [String] = [], from: String? = nil, at: Double? = nil) {
+        self.id = id
+        self.name = name
+        self.words = words
+        self.from = from
+        self.at = at
+    }
+
+    /// One entry of `grantors` (`pinnedAt`) or the `grantorAsk` (`at`, `from`); nil without an id.
+    init?(_ json: [String: Any]) {
+        guard let id = json["id"] as? String, !id.isEmpty else { return nil }
+        let text = { (key: String) -> String? in (json[key] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(128)) } }
+        let time = { (key: String) -> Double? in
+            if let number = json[key] as? NSNumber, !(json[key] is Bool) { return number.doubleValue }
+            return (json[key] as? String).flatMap(Double.init)
+        }
+        self.init(id: String(id.prefix(64)), name: text("name"), words: Array((json["words"] as? [String] ?? []).prefix(4).map { String($0.prefix(32)) }),
+                  from: text("from"), at: time("pinnedAt") ?? time("at"))
+    }
+
+    /// What the person reads: its name, else its id.
+    var title: String { name ?? id }
 }
 
 /// One connection to this Mac's acpmux for the consent record (the app's ``AcpmuxPersonLine``). acpmux
@@ -126,7 +173,17 @@ public protocol JoinConsentLine: AnyObject {
     /// ``JoinConsentGrantTicket/write(_:)``, on the queue that writes the socket; a stale ticket sends
     /// nothing and answers nil. A revoke has none.
     func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord?
+    /// Any other request of the consent surface (`_acpmux/consent_grantor_trust`, `_acpmux/consent_remote_*`):
+    /// its `result`, or acpmux's own words for a refusal (nil words: no answer).
+    func call(_ method: String, _ params: [String: Any]) async -> Result<[String: Any], RemoteControlCallError>
     func close()
+}
+
+extension JoinConsentLine {
+    /// A line that serves only the record (a capture fixture): every other request fails.
+    public func call(_ method: String, _ params: [String: Any]) async -> Result<[String: Any], RemoteControlCallError> {
+        .failure(RemoteControlCallError(nil))
+    }
 }
 
 /// SECURITY: what makes a grant stale where its bytes go out (round 15 P1). A grant takes a ticket when it
@@ -476,6 +533,37 @@ public final class JoinConsentModel {
         return (written == nil ? failed : nil, written)
     }
 
+    /// Trusts (or stops trusting) another Mac's key to turn this machine's Control and Screen sharing on
+    /// and off: the pending ask's Allow (`trusted`), its Not Now, or a trusted Mac's Remove (both false).
+    /// The error to show, or nil. Reads again after, whichever way it went.
+    /// SECURITY: a trust widens, so only over a line acpmux proved as the person, with the Labs switch on
+    /// and this Mac joined; the page asked the person's own HID gesture and Touch ID or the password before
+    /// this. acpmux checks the person itself and pins only its own pending ask's key for the current
+    /// account. An untrust only narrows.
+    @discardableResult
+    public func trustGrantor(_ id: String, trusted: Bool) async -> String? {
+        let failed = trusted ? JoinConsentStrings.grantorTrustFailed : JoinConsentStrings.offFailed
+        guard !id.isEmpty else { return failed }
+        if trusted, !shown { return failed }
+        guard let line = await services.openLine() else { return failed }
+        var taken = false
+        if !trusted || (line.isPerson && enabled), line.supportsConsent {
+            if case .success = await line.call("_acpmux/consent_grantor_trust", ["id": id, "trusted": trusted]) { taken = true }
+        }
+        line.close()
+        await refresh()
+        return taken ? nil : failed
+    }
+
+    /// One request over a line acpmux proved as the person (Control from this Mac's status and sets): its
+    /// result, or the error to show (nil words: no answer). Nothing goes out over a line that is not the person's.
+    public func personCall(_ method: String, _ params: [String: Any]) async -> Result<[String: Any], RemoteControlCallError> {
+        guard let line = await services.openLine() else { return .failure(RemoteControlCallError(nil)) }
+        defer { line.close() }
+        guard line.isPerson else { return .failure(RemoteControlCallError(nil)) }
+        return await line.call(method, params)
+    }
+
     private func setWriting(_ on: Bool) {
         writing = on
         if ask != nil { redraw() }
@@ -578,6 +666,16 @@ public final class JoinConsentModel {
             switches: JoinConsentSurface.allCases.map {
                 JoinConsentPage.Switch(surface: $0.rawValue, title: JoinConsentStrings.title($0), help: JoinConsentStrings.switchHelp($0),
                                        on: consent?.allows($0) == true)
+            },
+            grantorAsk: consent?.grantorAsk.map { ask in
+                JoinConsentPage.GrantorAsk(id: ask.id, title: JoinConsentStrings.grantorAskTitle(ask.title),
+                                           help: JoinConsentStrings.grantorAskHelp(ask.title), words: ask.words,
+                                           allow: JoinConsentStrings.grantorAllow, dismiss: JoinConsentStrings.grantorDismiss)
+            },
+            grantors: (consent?.grantors ?? []).map { grantor in
+                JoinConsentPage.Grantor(id: grantor.id, title: grantor.title,
+                                        subtitle: JoinConsentStrings.grantorSubtitle(words: grantor.words),
+                                        remove: JoinConsentStrings.grantorRemove)
             })
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -592,6 +690,18 @@ private nonisolated struct JoinConsentPage: Encodable {
         var on: Bool
     }
 
+    /// Another Mac of the person's asks to have its key trusted here (its first signed Control grant).
+    struct GrantorAsk: Encodable {
+        var id, title, help: String
+        var words: [String]
+        var allow, dismiss: String
+    }
+
+    /// A Mac whose key this machine trusts, with its Remove.
+    struct Grantor: Encodable {
+        var id, title, subtitle, remove: String
+    }
+
     var title, joined, help: String
     var error: String?
     /// A write is in flight: the page disables the switches.
@@ -603,6 +713,27 @@ private nonisolated struct JoinConsentPage: Encodable {
     /// while it is known.
     var revokeAll: String?
     var switches: [Switch]
+    /// The pending key ask, `null` when none (always sent, so the page clears it).
+    var grantorAsk: GrantorAsk?
+    var grantors: [Grantor]
+
+    private enum CodingKeys: String, CodingKey {
+        case title, joined, help, error, busy, known, revokeAll, switches, grantorAsk, grantors
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(title, forKey: .title)
+        try c.encode(joined, forKey: .joined)
+        try c.encode(help, forKey: .help)
+        try c.encodeIfPresent(error, forKey: .error)
+        try c.encode(busy, forKey: .busy)
+        try c.encode(known, forKey: .known)
+        try c.encodeIfPresent(revokeAll, forKey: .revokeAll)
+        try c.encode(switches, forKey: .switches)
+        try c.encode(grantorAsk, forKey: .grantorAsk)
+        try c.encode(grantors, forKey: .grantors)
+    }
 }
 
 /// Text of the join consent (Resources/AddDevice.xcstrings).
@@ -680,4 +811,25 @@ public nonisolated struct JoinConsentStrings {
         surface == .signedInMachines ? s("devices.join.ask.notNow", "Not now") : deny
     }
     static var allow: String { s("devices.join.ask.allow", "Allow") }
+
+    // Another Mac of the person's asks to turn this machine's Control on and off (a signed grant).
+    static func grantorAskTitle(_ mac: String) -> String {
+        String(format: s("devices.join.grantor.askTitle", "%@ asks to turn Control on and off here"), mac)
+    }
+    static func grantorAskHelp(_ mac: String) -> String {
+        String(format: s("devices.join.grantor.askHelp",
+                         "Allow it only if these words match the ones %@ shows in Settings > Devices. After that, its switch turns this machine's Control and Screen sharing on and off without asking here again."),
+               mac)
+    }
+    static var grantorAllow: String { allow }
+    static var grantorDismiss: String { decline(.signedInMachines) }
+    static func grantorSubtitle(words: [String]) -> String {
+        String(format: s("devices.join.grantor.subtitle", "Can turn Control on and off here · %@"), words.joined(separator: " "))
+    }
+    static var grantorRemove: String { s("devices.remove", "Remove") }
+    static var grantorTrustFailed: String { s("devices.join.grantor.trustFailed", "Not allowed: this Mac could not confirm it was you. Try again.") }
+    /// The confirm's reason for trusting another Mac's key (LocalAuthentication shows it after the app's name).
+    public static var grantorTrustReason: String {
+        s("devices.join.grantor.confirmReason", "let your other Mac turn this Mac's Control and Screen sharing on and off")
+    }
 }

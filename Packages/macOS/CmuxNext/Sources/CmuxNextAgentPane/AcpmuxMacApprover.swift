@@ -144,6 +144,55 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         }
     }
 
+    /// What a consent grant does to one surface on the target (acpmux `consent_grant`'s `on|off|keep`).
+    public enum ConsentGrantChange: String, Sendable {
+        case on, off, keep
+    }
+
+    /// The domain of a consent grant's signed message (acpmux `consent_grant::DOMAIN`).
+    static let consentGrantDomain = "acpmux-consent-grant-v1"
+
+    /// A consent grant for a joined machine (acpmux `consent_grant`): this Mac, as the owner signed in on
+    /// `account`, turns Control and Screen sharing `on`, `off` or `keep` on the machine `machineId` whose
+    /// hub node key is `nodeKey`, signed off the main actor (the enclave). The grant JSON acpmux's
+    /// `_acpmux/consent_remote_set` carries: it lives ``lifetime`` (well under acpmux's 5 minutes),
+    /// `issuedAt` is `now` in milliseconds (the target's replay counter), and `publicKey` and `name`
+    /// (not signed) are what the target's one-time ask shows. nil when there is no key or it cannot sign.
+    /// SECURITY: the app calls this only after the person's own HID gesture and Touch ID or the password
+    /// (Settings > Devices' Control switch); the target takes it only under a key its own person pinned.
+    @concurrent public func consentGrant(account: String, machineId: String, nodeKey: String, control: ConsentGrantChange,
+                                         screen: ConsentGrantChange, name: String, now: Date = Date()) async -> [String: any Sendable]? {
+        guard let key = key() else {
+            Self.logger.error("mac approver has no key: no consent grant")
+            return nil
+        }
+        let issuedAt = UInt64(max(0, (now.timeIntervalSince1970 * 1000).rounded(.down)))
+        let expiresAt = issuedAt + UInt64(Self.lifetime * 1000)
+        let message = Self.consentGrantMessage(grantor: key.id, account: account, machineId: machineId, nodeKey: nodeKey,
+                                               control: control.rawValue, screen: screen.rawValue, issuedAt: issuedAt, expiresAt: expiresAt)
+        do {
+            let signature = try key.signer.sign(message)
+            return ["v": 1, "grantor": key.id, "account": account, "machineId": machineId, "nodeKey": nodeKey,
+                    "control": control.rawValue, "screen": screen.rawValue, "issuedAt": issuedAt, "expiresAt": expiresAt,
+                    "signature": Self.hex(signature.rawRepresentation), "publicKey": key.publicKey, "name": name]
+        } catch {
+            Self.logger.error("mac approver could not sign a consent grant: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// A consent grant's signed bytes (acpmux `consent_grant::message`): the domain, then each part after a
+    /// NUL, numbers as decimal ASCII.
+    static func consentGrantMessage(grantor: String, account: String, machineId: String, nodeKey: String, control: String,
+                                    screen: String, issuedAt: UInt64, expiresAt: UInt64) -> Data {
+        var out = Data(consentGrantDomain.utf8)
+        for part in [grantor, account, machineId, nodeKey, control, screen, String(issuedAt), String(expiresAt)] {
+            out.append(0)
+            out.append(contentsOf: Data(part.utf8))
+        }
+        return out
+    }
+
     /// The signed bytes (acpmux `mac_approvers::message`): the domain, then each part after a NUL.
     static func message(instance: String, mac: String, session: String, permission: String, toolCall: String,
                         option: String, nonce: String, expiresAt: UInt64, answers: String) -> Data {
