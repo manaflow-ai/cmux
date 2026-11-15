@@ -56,6 +56,13 @@ async fn live_agents(rpc: &mut Rpc) -> u64 {
     rpc.call("_acpmux/status", json!({})).await["liveAgents"].as_u64().unwrap_or(u64::MAX)
 }
 
+/// The person trusts the sub-sessions' folder, as the app asks before a chat's first prompt: a
+/// wake starts no agent in a folder with no trust answer (`hub/warm.rs`), so without it neither
+/// a read nor an open could start one and the test would prove nothing.
+async fn trust(rpc: &mut Rpc, folder: &Path) {
+    rpc.call("acp.trust.set", json!({"cwd": folder, "level": "trusted"})).await;
+}
+
 async fn until(what: &str, mut done: impl AsyncFnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(60);
     while !done().await {
@@ -86,6 +93,7 @@ async fn restored_idle_subsessions_start_no_agent_until_opened_or_sent_to() {
 
     // N sub-sessions of a Chief, each with one finished turn.
     let mut rpc = daemon.rpc().await;
+    trust(&mut rpc, &daemon.home).await;
     let mut ids = Vec::new();
     for i in 0..n {
         let name = format!("optchat-sub-test-a{i}");
@@ -204,6 +212,7 @@ async fn bench_idle_subsessions_two_minutes_after_a_restart() {
     daemon.env.push(("ACPMUX_IDLE_CHILD_SECS".into(), "1".into()));
     daemon.start();
     let mut rpc = daemon.rpc().await;
+    trust(&mut rpc, &daemon.home).await;
     let mut ids = Vec::new();
     for i in 0..n {
         let name = format!("optchat-sub-bench-a{i}");
