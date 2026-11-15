@@ -6,7 +6,7 @@ terminal switching to GUI and back type thing. How's that going?").
     terminal-chat-toggle-latency.py CAPTURE_DIR [CAPTURE_DIR ...]
 
 A tour holds at most 30 steps, so one case's 20 runs come from two captures: give every capture folder
-(~/.cache/pr-capture/SHA8/<state>) and the runs are pooled. Each run is one Opt-Cmd-` through the real key path
+(~/.cache/pr-capture/SHA8/<state>) and the runs are pooled. Each run is one Toggle Terminal and Chat through the real action path
 (`debug.new_tab frame_strip`): its time is the first composited frame after the key whose content area differs from
 the frame before the key and is not blank (`content_blank`), so a blank new terminal does not count as shown. Prints
 p50/p95 per case, the `debug.tab_switch` rows (apply and commit) by kind, each capture's chat open trace
