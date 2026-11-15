@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "build": "4372066027101",
+  "notes": "notes/4372066027101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43274,
+      "title": "Actions: Customize… in the palette and the app menu (step A, Rust catalog)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43754,
+      "title": "notices: the app binary links no Rust once the app FFI is a dylib",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43428,
+      "title": "Screen sharing step A: Rust screen-device identity and ScreenDeviceChanged event (#42277)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43751,
+      "title": "hot-verify: the side copy starts on WebKit, so its window can be captured",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43498,
+      "title": "Terminal sizing: never narrower than a showing phone; an agent's split waits for the person",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43586,
+      "title": "cmux-host: a test drives restart_after_flip itself",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43545,
+      "title": "Agent chat: the row parity test draws both paths through the view, and lists what the corpus does not show (v2 row 6c, 3 of 3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43687,
+      "title": "customize: name a hand-installed web-dev overlay, its age and an ABI refusal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43371,
+      "title": "cmux ext new --kind sidebar|pane|command: a working extension on the SDK, reloading a save in under a second",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/43371/cap-25a0b376-tour-ext-new-kinds.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 43734,
+      "title": "web lint: bound pre-push checks by the cores the process may use, in CI or not",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43542,
+      "title": "acpmux: a daemon restart wakes no hibernated chat its viewers open again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43697,
+      "title": "Daemon start: check the registry foreign keys once and read each topology table once",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43711,
+      "title": "measure: nightly-fresh-launch.sh splits a nightly's fresh-home launch (first exec vs first run)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43403,
+      "title": "v2 peer mirror, the dialing side's bounds (row 8 part two, PR C)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43713,
+      "title": "cmux-next: hot-verify.py, plan a change and look at it in a running app before testing it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43729,
+      "title": "Generated-files guard: the device glyph outlines from SF Symbols stay committed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43673,
+      "title": "ci(machine channel): identical code never moves the Cloud machine channel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43622,
+      "title": "ci(cmux-next): move 18 long comments to the workflow notes; the file is back under its room line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43715,
+      "title": "cmux-next quality report: room for the whole v2 gate script",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43074,
+      "title": "Bind remote capture cleanup to its lease and reaped workers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43667,
+      "title": "cloud copy: send small files several to a round trip (from-folder copies were bound by link round trips)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43647,
+      "title": "Sidebar: make the icon picker and group editor on first use, not at launch (Home -107 MB idle)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43668,
+      "title": "fix(rd): cmux-rd-host macOS clippy is green again (dead code in hybrid.rs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43620,
+      "title": "acpmux: split config operations into child module",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43721,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-7f4e8cd40dbf9424bac3229c3ecc24ac452256cc",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43628,
+      "title": "Agent chat: an older-history ask at rest reads a short page and none ahead (chat switch settles again)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43718,
+      "title": "acpmux: a carried turn is the owner phone's only when every line it reads is",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43720,
+      "title": "docs: the hot loop, put a change in your running cmux and use it before the slow checks",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
