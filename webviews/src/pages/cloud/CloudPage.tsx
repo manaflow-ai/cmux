@@ -105,14 +105,14 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     return (
       <>
         {known && downLasting && (
-          <div className="cloud-error cloud-disconnected-line" role="status">
+          <output className="cloud-error cloud-disconnected-line">
             <span className="cloud-error-text">{t(L.disconnected)}</span>
             {store.canRetry && (
               <button type="button" className="cloud-link-button cloud-retry-button" onClick={() => void store.retry()}>
                 {t(L.retry)}
               </button>
             )}
-          </div>
+          </output>
         )}
         <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />
         <MigrationBanner store={store} state={snap} strings={strings} />
