@@ -23,10 +23,27 @@ for sha in $SHAS; do
   cp -a "$TIP/bench" "$d/webviews/bench"
   cp -a "$TIP/test/support" "$d/webviews/test/support"
   ln -s "$TIP/node_modules" "$d/webviews/node_modules"
-  for top in Packages Resources cmux-tui config design schemas; do
-    [ -e "$ROOT/$top" ] && ln -s "$ROOT/$top" "$d/$top"
+  # Everything beside webviews/ (web/data, Packages, Resources...) from the tip: the pane imports some of it.
+  for top in "$ROOT"/* "$ROOT"/.[!.]*; do
+    name=$(basename "$top")
+    case "$name" in webviews | .git | .fast-checks-checkout) continue ;; esac
+    ln -s "$top" "$d/$name"
   done
+  # Gitignored generated files (strings, locales, theme tokens): made from the sha's own catalogs where its
+  # generators run, else the tip's copy of any still missing.
+  (cd "$d/webviews" && for g in gen-strings gen-design-scale gen-feature-tips; do
+    if [ -f "scripts/pages/$g.mjs" ]; then node "scripts/pages/$g.mjs" >/dev/null 2>&1 || echo "gen $g failed at ${sha:0:11}"; fi
+  done)
+  (cd "$TIP" && git ls-files --others --ignored --exclude-standard -- src | grep -E 'generated' | while read -r f; do
+    [ -e "$d/webviews/$f" ] || { mkdir -p "$d/webviews/$(dirname "$f")"; cp -a "$f" "$d/webviews/$f"; }
+  done)
 done
+# One pane build per sha, smoke-checked: say at once when a sha's sources do not build here.
+for sha in $SHAS; do
+  (cd "$WORK/$sha/webviews" && timeout 300 node_modules/.bin/vite build --config vite.config.acpmux-pane.mjs --outDir "$WORK/smoke-$sha" >"$OUT/logs/smoke-${sha:0:11}.log" 2>&1) \
+    && echo "SMOKE ${sha:0:11} ok" || { echo "SMOKE ${sha:0:11} FAILED"; tail -8 "$OUT/logs/smoke-${sha:0:11}.log"; smoke_failed=1; }
+done
+[ -z "${smoke_failed:-}" ] || { echo "a sha's pane does not build: stopping before the benches"; exit 3; }
 
 cmd_for() {
   case "$1" in
