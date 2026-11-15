@@ -59,6 +59,7 @@ mod observe;
 mod process_cpu;
 // Wayland capture (xdg-desktop-portal ScreenCast + PipeWire), view-only. Unused until the
 // capture-backend seam in serve/host calls `portal::PortalDesktop::open`.
+mod permissions;
 #[cfg(all(feature = "portal", target_os = "linux"))]
 #[allow(dead_code)]
 mod pipewire_capture;
@@ -67,7 +68,6 @@ mod pipewire_capture;
 mod portal;
 #[cfg(all(feature = "bench", target_os = "linux"))]
 mod present;
-mod permissions;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
