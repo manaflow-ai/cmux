@@ -13,8 +13,10 @@ import io
 import os
 import json
 import sys
+import subprocess
 import tarfile
 import tempfile
+import textwrap
 import unittest
 import zlib
 from pathlib import Path
@@ -297,6 +299,50 @@ class Workflow(unittest.TestCase):
         self.assertIn("gh workflow run cmux-next-web-bundle-publish.yml", text)
         self.assertNotIn("secrets: inherit", text)
         self.assertIn("--script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar", text)
+
+    def test_the_plan_fetch_finds_the_merge_base_after_a_depth_one_checkout(self) -> None:
+        # The fleet's looks on #43862, #43807, #43816 and #43779 failed at `git merge-base` (2026-11-15): the
+        # checkout's depth-1 fetch left the base tip shallow and the step's --shallow-since fetch did not deepen it.
+        lines = WORKFLOW.read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith('since="$(date'))
+        end = next(i for i in range(start, len(lines)) if 'git rev-parse refs/remotes/pr/head' in lines[i])
+        fetch = textwrap.dedent("\n".join(lines[start:end]))
+        with tempfile.TemporaryDirectory(prefix="hot-verify-fetch-") as scratch:
+            root = Path(scratch)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+
+            def git(cwd: Path, *args: str) -> str:
+                return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True,
+                                      env=env).stdout.strip()
+
+            src = root / "src"
+            src.mkdir()
+            git(src, "init", "-q", "-b", "feat-cmux-next")
+            git(src, "config", "uploadpack.allowFilter", "true")
+            for n in range(5):
+                (src / "f").write_text(f"{n}\n")
+                git(src, "add", "f")
+                git(src, "commit", "-q", "-m", f"base {n}")
+            fork = git(src, "rev-parse", "HEAD~2")
+            git(src, "checkout", "-q", "-b", "pr", fork)
+            (src / "g").write_text("change\n")
+            git(src, "add", "g")
+            git(src, "commit", "-q", "-m", "change")
+            head = git(src, "rev-parse", "HEAD")
+            git(src, "update-ref", "refs/pull/7/head", head)
+            git(src, "checkout", "-q", "feat-cmux-next")
+            clone = root / "clone"
+            clone.mkdir()
+            git(clone, "init", "-q")
+            git(clone, "remote", "add", "origin", src.as_uri())
+            # As actions/checkout: the base branch alone, at depth 1.
+            git(clone, "fetch", "-q", "--no-tags", "--depth=1", "origin",
+                "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next")
+            subprocess.run(["bash", "-euo", "pipefail", "-c", fetch], cwd=clone, check=True, capture_output=True,
+                           env={**env, "BASE_REF": "feat-cmux-next", "PR": "7"})
+            self.assertEqual(git(clone, "merge-base", "refs/remotes/pr/head", "refs/remotes/origin/feat-cmux-next"),
+                             fork)
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
