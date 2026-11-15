@@ -31,7 +31,8 @@ own paths, when the inputs that change build lines have no capture yet.
 
   hybrid_ref_capture.py have --key KEY --repo OWNER/NAME [--budget SECONDS]
       Prints complete=N, the hybrid-ref-capture-KEY artifacts that are unexpired and under 13
-      days old (a capture counts while its packs are readable in the store), and
+      days old (a capture counts while its packs are readable in the store; the manifest
+      expires after 7 days, the bound on every upload, so that is the window in practice), and
       recent_incomplete=M, the hybrid-ref-capture-incomplete-KEY ones under a day old (a key
       whose capture comes out incomplete is compiled for it again once a day, not on every
       landing). A rate limit (403 or 429 that says so) waits for its Retry-After or reset,

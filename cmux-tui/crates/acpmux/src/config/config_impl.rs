@@ -7,7 +7,24 @@ impl Config {
     /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`),
     /// `transport.wireguard` (`true`/`false`), else a
     /// session resource limit (`set_session_resource`).
+    ///
+    /// The whole resulting config must pass the daemon's start check
+    /// ([`Self::start_refusal`], `config/start_check.rs`): otherwise nothing changes and the
+    /// refusal says why, so `config --set` never writes a config the daemon refuses to start with.
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        let before = self.clone();
+        self.apply_setting(key, value)?;
+        if let Err(refused) = self.start_refusal() {
+            *self = before;
+            return Err(refused.context(format!(
+                "not set: the acpmux daemon would refuse to start with {key}={value}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// [`Self::set`]'s change alone, unchecked.
+    fn apply_setting(&mut self, key: &str, value: &str) -> Result<()> {
         if self.set_permission_mode(key, value)? {
             return Ok(());
         }
@@ -22,8 +39,8 @@ impl Config {
             };
             return Ok(());
         }
-        // The hub carrier runs on the WireGuard transport's key lock (`hub_carrier.rs`): a
-        // headless machine turns it on from the CLI.
+        // The Labs WireGuard transport. It needs `wireguardStatic` (the start check refuses it
+        // without); the hub carrier does not need it (`hub_carrier.rs`: the node key alone).
         if matches!(key.trim().to_ascii_lowercase().as_str(), "transport.wireguard") {
             self.transport.wireguard = match value.trim().to_ascii_lowercase().as_str() {
                 "true" | "on" | "1" => true,

@@ -1583,7 +1583,8 @@ pub struct Config {
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
-    /// Labs-only transport switches (`transport.wireguard`).
+    /// Labs-only transport switches (`transport.wireguard`, which needs `wireguardStatic`). The
+    /// hub carrier does not need them.
     #[serde(default)]
     pub transport: TransportConfig,
     /// `remoteDaemon`: the loopback `host:port` of this machine's cmux-tui remote daemon
@@ -1822,6 +1823,7 @@ pub use discover::{
 mod peer;
 pub use peer::PeerConfig;
 mod save_merge;
+mod start_check;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
