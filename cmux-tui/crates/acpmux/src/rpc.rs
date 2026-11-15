@@ -560,6 +560,10 @@ pub mod method {
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     /// The signed app gives the daemon its legacy Computer Use agent endpoint.
     pub const MUX_COMPUTER_USE_ENROLL: &str = "_acpmux/computer_use_enroll";
+    /// A local session reads the current legacy Computer Use endpoint (`cua_socket::from_env`):
+    /// its spawn env holds the endpoint of the app launch it started under, which an app
+    /// relaunch replaces (`cmux mcp serve`'s `cua_recovery.rs`).
+    pub const MUX_COMPUTER_USE_ENDPOINT: &str = "_acpmux/computer_use_endpoint";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";

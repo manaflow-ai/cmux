@@ -3104,6 +3104,14 @@ and refuses a Blacksmith macOS label for a route attempt 1 serves with an owned 
 
 ## note-351
 
+The same off-switch contract applies to every workflow, including auxiliary simulator and parity jobs. A new
+macOS job must select an owned sim-first or side route before its Blacksmith overflow, and must not spell a
+Blacksmith macOS label directly in `runs-on`. `BlacksmithMacosOffSwitch.test_every_blacksmith_macos_job_is_behind_the_off_switch`
+scans every workflow file and evaluates each route expression; add a regression case when a new picker shape is
+introduced so a direct label cannot return silently during a later attempt.
+
+## note-352
+
 Above `checks: Connection states wait or offer an action` in `.github/workflows/cmux-next.yml`.
 
 A connection state the person can do nothing about (reconnecting, retrying, restoring, handshaking, "Getting

@@ -29,7 +29,8 @@ PERF_ROW-style JSON line per headline, and --out JSON with every sample. Headlin
   per_item         (total at N - empty) / N;
   per_day          the least-squares slope over the simulated days (MB, disk MB) after creation.
 INFINITE-PERITEM lines give each role at each N: procs, threads, PSS MB and its MB per item over the empty
-pair, and idle wakeups/s. --terminal-host-model=holder runs the same counts with every terminal in the one
+pair, and idle wakeups/s. INFINITE-DISKGROW lines name the files whose bytes grow most per simulated day (paths
+with their ids folded to *, so a file per chat is one line), the next disk slope to bound. --terminal-host-model=holder runs the same counts with every terminal in the one
 holder process (CMUX_TUI_TERMINAL_HOST_MODEL=holder, off in the product) instead of a host per terminal.
 --browser-tabs adds a browser tab to each workspace: headless cmux-tui keeps only its model (the page and
 its renderer are the app's), so it measures the daemon's share of a browser tab and no renderer.
@@ -44,6 +45,7 @@ import json
 import os
 import platform
 import random
+import re
 import shutil
 import signal
 import socket
@@ -197,6 +199,27 @@ def du(path):
     return total
 
 
+# A path with its ids folded, so a file per chat, workspace or day sums into one group: hex runs of 8 or more and
+# digit runs become *.
+FILE_ID = re.compile(r"[0-9a-f]{8,}|[0-9]+")
+
+
+def file_groups(disks):
+    """{"home/path with ids as *": bytes on disk} for every file under each disk root."""
+    groups = {}
+    for name, path in disks.items():
+        for base, _, files in os.walk(path):
+            for file in files:
+                full = os.path.join(base, file)
+                try:
+                    st = os.lstat(full)
+                except OSError:
+                    continue
+                key = f"{name}/{FILE_ID.sub('*', os.path.relpath(full, path))}"
+                groups[key] = groups.get(key, 0) + (st.st_blocks * 512 if hasattr(st, "st_blocks") else st.st_size)
+    return groups
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
@@ -234,7 +257,7 @@ def idle_window(top, seconds, disks):
     for r in roles.values():
         r["pss_mb"] = round(r.pop("pss") / 1048576, 2)
         r["rss_mb"] = round(r.pop("rss") / 1048576, 2)
-    return {"total": total, "roles": roles, "disk": disk}
+    return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks)}
 
 
 # ------------------------------------------------------------------ sockets
@@ -713,6 +736,16 @@ def report(results):
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
                       f"cpu={v['cpu_pct']} "
                       f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds}", flush=True)
+        grown = r["samples"][1:]
+        if grown:
+            # The slope over the days after creation (day 0 holds what the open made), per file group.
+            keys = set().union(*(s.get("files", {}) for s in grown))
+            rates = {k: slope([s["day"] for s in grown], [s.get("files", {}).get(k, 0) / 1048576 for s in grown])
+                     for k in keys} if len(grown) > 1 else {}
+            for k, rate in sorted(rates.items(), key=lambda kv: -kv[1])[:12]:
+                if rate > 0:
+                    print(f"INFINITE-DISKGROW {n} {rate:+.3f} MB/day {grown[-1]['files'].get(k, 0) / 1048576:.2f} MB {k}",
+                          flush=True)
         if r.get("errors"):
             print(f"INFINITE-ERRORS {n} {json.dumps(r['errors'])}", flush=True)
         # A row is never negative (perf-cron and NOW read a negative number as none): a shrinking day is 0 growth.
