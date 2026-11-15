@@ -2404,30 +2404,49 @@ class DeeperDestination(unittest.TestCase):
         self.assertIn("cancel", api.calls)
 
     def test_a_resumed_failed_jobs_re_run_keeps_the_depth_rule(self):
-        # A rescue stopped between its cancel and its re-run: the successor's re-run of the failed jobs takes the
-        # side label too, so it waits while that queue is deeper than the one the jobs left. The run is cancelled
-        # already, so at the watch's end it goes ahead, saying so, rather than leave the pull request unchecked.
+        # A rescue stopped between its cancel and its re-run. Where the head places the bot's next attempt, the
+        # successor re-runs the placement, which picks the shallower pool. Else the failed jobs can only take the
+        # side label: the cancel gave up their place in line, so waiting gains nothing; it goes ahead at once and
+        # says the side queue is deeper, never silently.
         target = rescue.target_from_event(self.PAYLOAD, "manaflow-ai/cmux")
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: placed_jobs(label=GUI), snapshot=depth_snapshot(),
+                      workflow=rerun_workflow())
+        api.cancel(RUN_ID)
+        rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None, every_job=False,
+                            side_label=SIDE)
+        self.assertIn(f"rerun-job:{PLACEMENT_ID}", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+
         clock = Clock()
         api = FakeAPI(clock, gui_daemon_tests, snapshot=depth_snapshot())
         api.cancel(RUN_ID)
         lines = []
         rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lines.append, every_job=False,
-                            side_label=SIDE, deadline=clock.now() + dt.timedelta(minutes=20))
+                            side_label=SIDE)
         self.assertIn("rerun-failed", api.calls)
-        self.assertGreaterEqual(clock.seconds, 15 * 60)
+        self.assertLess(clock.seconds, rescue.STALL_RECHECK_SECONDS)
         self.assertTrue(any(f"goes ahead onto {SIDE} although {SIDE} has 61 queued" in line for line in lines),
                         lines)
 
-        def clears(seconds):
-            return depth_snapshot(destination=61 if seconds < 900 else 0, destination_oldest=203)(seconds)
+    def test_a_refused_placement_re_run_of_a_resume_re_runs_the_failed_jobs(self):
+        # The run is cancelled already: a placement re-run GitHub refuses falls back to the failed jobs, never
+        # leaving the pull request with no checks.
+        target = rescue.target_from_event(self.PAYLOAD, "manaflow-ai/cmux")
         clock = Clock()
-        api = FakeAPI(clock, gui_daemon_tests, snapshot=clears)
+        api = FakeAPI(clock, lambda seconds: placed_jobs(label=GUI), snapshot=depth_snapshot(),
+                      workflow=rerun_workflow())
         api.cancel(RUN_ID)
-        rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None, every_job=False,
-                            side_label=SIDE, deadline=clock.now() + dt.timedelta(hours=1))
+
+        def refused(run_id, job_id, next_attempt):
+            api.calls.append("rerun-job refused")
+            raise urllib.error.HTTPError("u", 422, "cannot re-run", None, io.BytesIO(b""))
+        api.rerun_job = refused
+        result = rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                     every_job=False, side_label=SIDE)
+        self.assertIn("rerun-job refused", api.calls)
         self.assertIn("rerun-failed", api.calls)
-        self.assertGreaterEqual(clock.seconds, 900)
+        self.assertIn("re-ran the failed jobs", result)
 
 
 PLACEMENT_ID = 700001
@@ -2646,6 +2665,15 @@ class RerunInput(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn(f"not re-run: attempt 5 takes {SIDE}, but {SIDE} has 42 queued (oldest 47 min), deeper than "
                       f"{GUI}'s 0 queued", summary)
+
+    def test_the_run_s_own_waiting_jobs_do_not_make_the_side_queue_deeper(self):
+        # Its one job waiting on side-std is that queue's only job: re-running it there joins no deeper queue.
+        clock = Clock()
+        generated = [{**job("cmux-next generated files", labels=[SIDE], created=0), "id": WAITING_ID}]
+        api = RerunAPI(clock, attempt=4, jobs=generated,
+                       snapshot=depth_snapshot(source=0, source_oldest=0, destination=1, destination_oldest=47))
+        run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertIn("rerun-failed", api.calls)
 
     def test_a_head_that_places_every_bot_attempt_is_re_placed_at_attempt_five(self):
         # cmux-next.yml's placement for every bot attempt (coord-deputy-2, 2026-11-15): the rerun input re-runs the
