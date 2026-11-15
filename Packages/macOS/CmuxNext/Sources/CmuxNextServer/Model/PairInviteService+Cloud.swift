@@ -90,7 +90,7 @@ extension PairInviteService {
         var request = URLRequest(url: watchURL(base, invite: invite.code))
         request.setValue(PairInviteFrame.protocols(secret: invite.watchSecret).joined(separator: ", "),
                          forHTTPHeaderField: "Sec-WebSocket-Protocol")
-        _ = buildSpace
+        try buildSpace.apply(to: &request)
         return request
     }
 
