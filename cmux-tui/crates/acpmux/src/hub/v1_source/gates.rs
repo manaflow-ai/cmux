@@ -54,6 +54,7 @@ struct Stretch {
     file: u64,
     shmem: u64,
     heap: u64,
+    free: u64,
     chunks_read: u64,
     bytes_read: u64,
     syncs: u64,
@@ -78,20 +79,28 @@ fn mapped_rss_kib(suffix: &str) -> u64 {
     kib
 }
 
-fn heap_kib() -> u64 {
+/// Whether the probe reads `/proc/self/smaps` (it allocates a copy of it, in the stretch).
+fn smaps_on() -> bool {
+    std::env::var_os("CATCHUP_PROBE_SMAPS").is_some()
+}
+
+/// glibc's heap: bytes in use, and bytes free but held (both KiB).
+fn heap_kib() -> (u64, u64) {
     // SAFETY: glibc's mallinfo2 takes no pointer and only reads the allocator's counters.
     let info = unsafe { libc::mallinfo2() };
-    ((info.uordblks + info.hblkhd) / 1024) as u64
+    (((info.uordblks + info.hblkhd) / 1024) as u64, (info.fordblks / 1024) as u64)
 }
 
 fn sample(n: u64, rise: u64) -> Stretch {
+    let (heap, free) = heap_kib();
     Stretch {
         n,
         rise,
         anon: memory_kib("RssAnon:"),
         file: memory_kib("RssFile:"),
         shmem: memory_kib("RssShmem:"),
-        heap: heap_kib(),
+        heap,
+        free,
         ..Stretch::default()
     }
 }
@@ -155,7 +164,9 @@ impl RawSource for Measured {
                 s.chunks_read = counters.chunks.load(Ordering::Relaxed);
                 s.bytes_read = counters.read.load(Ordering::Relaxed);
                 s.syncs = counters.syncs.load(Ordering::Relaxed);
-                s.idx_rss = mapped_rss_kib("/book/rows.idx");
+                if smaps_on() {
+                    s.idx_rss = mapped_rss_kib("/book/rows.idx");
+                }
                 {
                     let mut waits = counters.sync_waits.lock().unwrap();
                     s.waits_bytes = (waits.capacity() * 8) as u64;
@@ -168,7 +179,7 @@ impl RawSource for Measured {
                     stretches.push(s);
                 }
                 drop(stretches);
-                if n > 0 && n.is_multiple_of(128) {
+                if smaps_on() && n > 0 && n.is_multiple_of(128) {
                     smaps_top(&format!("stretch={n}"), &self.home);
                 }
             }
@@ -232,7 +243,9 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
     let last_rise = memory_kib("VmHWM:").saturating_sub(baseline);
     peak.fetch_max(last_rise, Ordering::SeqCst);
     let at_end = sample(u64::MAX, last_rise);
-    smaps_top(&format!("ready rows_msgs={}", shape.god_messages), &home_path);
+    if smaps_on() {
+        smaps_top(&format!("ready rows_msgs={}", shape.god_messages), &home_path);
+    }
     actor.join();
     let book_files = std::fs::read_dir(home.book())
         .into_iter()
@@ -253,7 +266,7 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
         let stretches = stretches.lock().unwrap();
         for s in stretches.iter().chain(std::iter::once(&at_end)) {
             eprintln!(
-                "v2.pr03b.catchup_peak_rss stretch msgs={} n={} rise={} d_anon={} d_file={} d_shmem={} d_heap={} chunks={} read={} syncs={} waits_bytes={} idx_rss={}",
+                "v2.pr03b.catchup_peak_rss stretch msgs={} n={} rise={} d_anon={} d_file={} d_shmem={} d_heap={} d_free={} chunks={} read={} syncs={} waits_bytes={} idx_rss={}",
                 shape.god_messages,
                 s.n as i64,
                 s.rise,
@@ -261,6 +274,7 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
                 s.file as i64 - b.file as i64,
                 s.shmem as i64 - b.shmem as i64,
                 s.heap as i64 - b.heap as i64,
+                s.free as i64 - b.free as i64,
                 s.chunks_read,
                 s.bytes_read,
                 s.syncs,
