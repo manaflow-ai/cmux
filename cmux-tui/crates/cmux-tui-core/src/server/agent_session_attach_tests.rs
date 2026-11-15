@@ -1083,6 +1083,24 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
 }
 
 #[test]
+fn an_unfiltered_stream_closes_on_a_sequence_gap_for_replay() {
+    let mut fake = FakeAcpmux::start("stream-gap");
+    let mux = mux_with(&fake, "asa-stream-gap");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-gap");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // The native client must not accept seq 4 while seq 3 is absent. Closing
+    // makes its normal after-seq attach replay the missing record.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 4, "kind": "agent_message"}));
+    let closed = client.event(WAIT).expect("a close for the gap");
+    assert_eq!(closed["event"], json!("agent-session-closed"));
+    assert_eq!(closed["reason"], json!("gap"));
+}
+
+#[test]
 fn a_rebound_tab_ends_its_attachment_at_the_next_record() {
     let mut fake = FakeAcpmux::start("rebound");
     let mux = mux_with(&fake, "asa-rebound");
