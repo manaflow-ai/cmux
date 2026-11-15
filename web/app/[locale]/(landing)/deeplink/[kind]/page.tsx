@@ -11,6 +11,7 @@ import {
   agentLink,
   agentLinkModel,
   agentReference,
+  agentReferenceHref,
 } from "./deeplink-agent";
 
 type SearchValue = string | string[] | undefined;
@@ -369,7 +370,9 @@ export default async function DeeplinkPage({
   // or a hint it cannot use, is ignored by name and the session still opens
   // (schemas/deeplinks/agent-link.json). The other kinds carry commands and stay strict.
   const agent = kind === "agent" ? agentLink(resolvedSearchParams) : null;
-  // A private reference in place of a session: say what it is, offer no Open.
+  // A public footer's opaque reference (`?id=aid-...`) in place of a session: the page
+  // looks nothing up and hands it to the app as `cmux://agent?id=`, where acpmux opens
+  // the chat only for a reader whose own machines list it.
   const reference =
     agent && !agent.model ? agentReference(resolvedSearchParams) : null;
   const issues: LinkIssues = agent
@@ -383,21 +386,20 @@ export default async function DeeplinkPage({
     : strictIssues(kind, resolvedSearchParams);
   // Never echo unvalidated input into a link.
   const href = agent
-    ? (agent.model?.href ?? "cmux://agent")
+    ? (agent.model?.href ??
+      (reference ? agentReferenceHref(reference) : "cmux://agent"))
     : nativeHref(kind, resolvedSearchParams);
   const canOpen = agent
-    ? agent.model !== null
+    ? agent.model !== null || reference !== null
     : Object.values(issues).every((names) => names.length === 0);
   // Only when the link opens: the sentence says the session still opens, and a
   // link that cannot open shows the one problem the reader has to fix instead.
   const ignoredMessage =
-    canOpen && agent && agent.ignored.length > 0
+    canOpen && agent?.model && agent.ignored.length > 0
       ? t("ignoredParams", { params: agent.ignored.join(", ") })
       : null;
   const issue = firstIssue(issues);
-  const errorMessage = reference
-    ? t("agent.reference")
-    : t(issue.message, { params: issue.params });
+  const errorMessage = t(issue.message, { params: issue.params });
 
   return (
     <div className="min-h-screen">
@@ -458,22 +460,18 @@ export default async function DeeplinkPage({
           </div>
         )}
 
-        {reference ? null : (
-          <>
-            <div className="rounded-lg border border-border">
-              <div className="border-b border-border px-4 py-3 text-[13px] font-medium text-muted">
-                {t("nativeURL")}
-              </div>
-              <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-                <code>{href}</code>
-              </pre>
-            </div>
+        <div className="rounded-lg border border-border">
+          <div className="border-b border-border px-4 py-3 text-[13px] font-medium text-muted">
+            {t("nativeURL")}
+          </div>
+          <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
+            <code>{href}</code>
+          </pre>
+        </div>
 
-            <p className="mt-5 text-[14px] leading-6 text-muted">
-              {canOpen ? t(`${kind}.fallback`) : t("fixParams")}
-            </p>
-          </>
-        )}
+        <p className="mt-5 text-[14px] leading-6 text-muted">
+          {canOpen ? t(`${kind}.fallback`) : t("fixParams")}
+        </p>
 
         <p className="mt-6 text-[14px] leading-6 text-muted">
           {t("examplePrefix")}{" "}

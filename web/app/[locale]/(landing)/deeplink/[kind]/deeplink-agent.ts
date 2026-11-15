@@ -193,6 +193,17 @@ export function agentReference(params: SearchParams): string | null {
   return params.session === undefined ? id : null;
 }
 
+/**
+ * The native link a reference opens: `cmux://agent?id=aid-...`. The app hands
+ * the id to acpmux, which opens the chat only when the reader's own machines
+ * list it (cmux-tui/crates/acpmux/src/opaque_agent_id.rs); otherwise the app
+ * says it isn't available to them. Only an id that matched
+ * AGENT_REFERENCE_PATTERN reaches this, so no input is echoed unvalidated.
+ */
+export function agentReferenceHref(reference: string): string {
+  return `cmux://agent?id=${reference}`;
+}
+
 // Invariant: this model holds only the URL's own harness/session/host/name/message plus the cmux:// href; no lookups, ever.
 export function agentLinkModel(params: SearchParams): AgentLinkModel | null {
   return agentLink(params).model;
