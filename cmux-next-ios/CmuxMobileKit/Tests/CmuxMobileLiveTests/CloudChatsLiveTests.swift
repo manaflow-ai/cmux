@@ -183,7 +183,8 @@ import Testing
         a.send(prompt: "continue-a")
         // Wait for the user_message the remote journal returned, then verify
         // which machine actually received the prompt.
-        #expect(await until { a.turns.count > 1 })
+        // The bubble shows as sent at once (`isUnconfirmed`); the machine's record confirms it.
+        #expect(await until { a.turns.count > 1 && !(a.turns.last?.isUnconfirmed ?? true) })
         #expect(wire.sent.contains { $0.0 == "vm-a" && $0.1 == "shared" && $0.2 == "continue-a" })
         #expect(!wire.sent.contains { $0.0 == "vm-b" })
         first.disconnect()
