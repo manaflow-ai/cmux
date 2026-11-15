@@ -161,6 +161,9 @@ nonisolated extension AgentWatchPage {
         for row in follow.rows {
             if let peer = row.peer {
                 setPeerRow(row.session, peer: peer, row: rows.peers[row.session]?[peer])
+                // Its lane too, as a whole list keeps it: without it a machine enrolled while the
+                // app ran had no chat here (`open-tab --host` refused it as no peer's, 2026-11-15).
+                if let lane = rows.lanes[row.session], lane.peer == peer { lanes[row.session] = lane }
                 continue
             }
             let id = row.session
@@ -171,6 +174,7 @@ nonisolated extension AgentWatchPage {
         for row in follow.gone {
             if let peer = row.peer {
                 setPeerRow(row.session, peer: peer, row: nil)
+                if lanes[row.session]?.peer == peer { lanes[row.session] = nil }
             } else {
                 setSession(row.session, state: nil, lastMessage: nil, muted: false, title: nil, generatedTitle: nil,
                            sessionName: nil, detail: nil, lane: nil, startedBy: nil)

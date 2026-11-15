@@ -51,7 +51,7 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { settings, .. } => {
+            ToHost::Init { main, settings, .. } => {
                 send(FromHost::Ready { runtime: "scripted".into() });
                 // An app with settings reports the values it loaded with.
                 if settings.as_object().is_some_and(|s| !s.is_empty()) {
@@ -59,6 +59,18 @@ fn scripted_app_host() {
                         level: "info".into(),
                         message: format!("init-settings {settings}"),
                     });
+                }
+                // Top-level code that subscribes, as `cmux.events.on(...)` does.
+                if let Some(stream) = main
+                    .split("SUBSCRIBE_AT_INIT ")
+                    .nth(1)
+                    .and_then(|rest| rest.split_whitespace().next())
+                {
+                    send(FromHost::Subscribe { sub: 1, stream: stream.into(), filter: json!({}) });
+                    send(FromHost::Log { level: "info".into(), message: "subscribed".into() });
+                }
+                if main.contains("EXIT_AFTER_READY") {
+                    std::process::exit(70);
                 }
             }
             ToHost::Mount { mount, export, ctx } => {
@@ -1089,3 +1101,6 @@ mod rollback_tolerance;
 
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
+
+#[path = "supervisor_activation_tests.rs"]
+mod activation;
