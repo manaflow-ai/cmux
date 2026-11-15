@@ -147,7 +147,7 @@ class HotApplyRust(unittest.TestCase):
         self.assertIn("ZZZZZ99999", receipt["error"])
         self.assertEqual(self.sha(), self.old)
 
-    def publish_team_signed(self, files, team=TEAM):
+    def publish_team_signed(self, files, team=None):
         """cmux-tui-team-signed.yml's set for the tree: FILES (bin file -> bytes) signed by TEAM, each under its
         sha256, and the completion.json naming them; every other companion the build has none of."""
         signed = self.tmp / "tree" / self.key / "team-signed"
@@ -159,7 +159,7 @@ class HotApplyRust(unittest.TestCase):
             (signed / digest / file).write_bytes(body)
             entries[file] = {"sha256": digest, "unsigned_sha256": "0" * 64, "size": len(body)}
         (signed / "completion.json").write_text(json.dumps({
-            "schema": 1, "key": self.key, "target": self.name.removeprefix("cmux-tui-"), "team": team,
+            "schema": 1, "key": self.key, "target": self.name.removeprefix("cmux-tui-"), "team": team or TEAM,
             "commit": FIX, "files": entries}))
         return {file: hashlib.sha256(body).hexdigest() for file, body in files.items()}
 

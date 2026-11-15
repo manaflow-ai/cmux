@@ -174,7 +174,7 @@ class TeamSignedWorkflow(unittest.TestCase):
 
     def test_it_signs_only_on_nightly_next_with_the_nightlys_environment(self):
         self.assertIn("refs/heads/nightly-next", self.jobs["plan"]["if"])
-        self.assertEqual(self.jobs["sign"]["environment"]["name"], "release-next")
+        self.assertEqual(self.jobs["sign"]["environment"], "release-next")
         self.assertEqual(self.jobs["sign"]["needs"], "plan")
 
     def test_only_the_sign_job_holds_the_signing_secrets_and_it_deletes_its_keychain(self):
@@ -208,6 +208,8 @@ class TeamSignedWorkflow(unittest.TestCase):
         self.assertIn('-f key="$KEY"', run)
         self.assertIn("inputs.key", self.doc["concurrency"]["group"])
         for name, job in jobs.items():
+            if name == "drop-build-artifacts":  # the run's cleanup waits for every job; it gates nothing
+                continue
             needs = job.get("needs") or []
             self.assertNotIn("request-team-signed-tree", [needs] if isinstance(needs, str) else needs, name)
 

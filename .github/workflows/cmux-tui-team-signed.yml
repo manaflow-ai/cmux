@@ -108,10 +108,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.needed == 'true'
     # The NEXT nightly's signing identity: release-next, the environment nightly.yml's
-    # build-sign-notarize-nightly takes for the nightly-next track.
-    environment:
-      name: release-next
-      deployment: false
+    # build-sign-notarize-nightly takes for the nightly-next track. A deployment, as there: its
+    # branch policy is what keeps the identity on nightly-next.
+    environment: release-next
     # A literal ephemeral label (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7):
     # the release signers' ephemeral macOS runner. It never takes a fleet Mac from the nightly.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
@@ -196,7 +195,7 @@ jobs:
     # R2 credentials, as cmux-tui-artifacts.yml's publish-tree has them.
     environment:
       name: artifacts
-      deployment: false
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     permissions:
