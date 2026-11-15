@@ -61,7 +61,7 @@ impl Fixture {
                 "Host *\n HostName 127.0.0.1\n HostKeyAlias first-contact-test\n User {user}\n\
                  IdentityFile {}\n IdentitiesOnly yes\n IdentityAgent none\n\
                  UserKnownHostsFile {}\n GlobalKnownHostsFile /dev/null\n\
-                 StrictHostKeyChecking yes\n UpdateHostKeys no\n VerifyHostKeyDNS no\n\
+                 StrictHostKeyChecking yes\n UpdateHostKeys no\n VerifyHostKeyDNS no\n LogLevel QUIET\n\
                  CheckHostIP no\n HostKeyAlgorithms ssh-ed25519\n\
                  ProxyCommand {} -i -e -f {}\n",
                 client_key.display(),
@@ -124,6 +124,16 @@ fn passed_host_key_check(result: std::result::Result<(), String>) {
     if let Err(stderr) = result {
         assert_eq!(SshFailure::of(&stderr), SshFailure::KeyRejected, "{stderr}");
     }
+}
+
+#[test]
+fn first_contact_quiet_probe_keeps_diagnostics() {
+    let Some(f) = Fixture::new() else { return };
+    let empty = f.stored();
+    let probe = host_candidates::probe_argv("first-contact-test").unwrap();
+    let unknown = f.run(&probe).expect_err("strict probe must reject an unknown key");
+    assert_eq!(SshFailure::of(&unknown), SshFailure::HostKeyUntrusted, "{unknown}");
+    assert_eq!(f.stored(), empty);
 }
 
 #[test]
@@ -192,6 +202,6 @@ fn first_contact_real_ssh_records_only_unknown_keys() {
     assert_eq!(SshFailure::of(&revoked), SshFailure::HostKeyRevoked, "{revoked}");
     assert_eq!(f.stored(), recorded);
     eprintln!(
-        "PASS first_contact_real_ssh: unknown/probe/accept/reconnect/changed/revoked/revocation-file; stored keys preserved"
+        "PASS first_contact_real_ssh: quiet-config/unknown/probe/accept/reconnect/changed/revoked/revocation-file; stored keys preserved"
     );
 }

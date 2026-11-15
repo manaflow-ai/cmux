@@ -113,6 +113,7 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
 }
 
 /// A read-only SSH probe, even when the user's configuration accepts new keys.
+/// Keep error diagnostics available for classification under quiet configurations.
 pub(crate) fn probe_argv(target: &str) -> Result<Vec<String>> {
     let target = checked_host(target)?;
     Ok([
@@ -124,6 +125,8 @@ pub(crate) fn probe_argv(target: &str) -> Result<Vec<String>> {
         "StrictHostKeyChecking=yes",
         "-o",
         "UpdateHostKeys=no",
+        "-o",
+        "LogLevel=ERROR",
         "--",
         target,
         "true",
@@ -345,6 +348,8 @@ mod tests {
                 "StrictHostKeyChecking=yes",
                 "-o",
                 "UpdateHostKeys=no",
+                "-o",
+                "LogLevel=ERROR",
                 "--",
                 "huge-blue",
                 "true"
