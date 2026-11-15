@@ -88,6 +88,28 @@ struct PageCommandFocusWaitTests {
         #expect(page.readiness.isReady)
     }
 
+    /// Cmd-F before the page's document loaded (60 fresh launches, 3 misses): the page runs the find command once it
+    /// loads. The new document's first report ended the wait, its editor took focus first, and the page turned ready:
+    /// the kept letters went to the editor, 40-210 ms before the find field had focus. A wait made before the document
+    /// is for that document: its start keeps it, and its bound counts from the document's first focus.
+    @Test func aWaitMadeBeforeTheDocumentLoadsHoldsUntilItsFindField() async throws {
+        let page = Page()
+        defer { page.window.closeAfterTest() }
+        page.readiness.focusWaitLimit = .milliseconds(200)
+        var ready = 0
+        page.readiness.onReady = { ready += 1 }
+        page.readiness.awaitFocus(on: "find")
+        // The document comes later than the bound (the page window is still being made).
+        try? await Task.sleep(for: .milliseconds(300))
+        await page.load()
+        try await page.run("document.getElementById('editor').focus();")
+        #expect(!page.readiness.isReady, "the new document's start or its editor's focus ended the wait: the letters went to the editor")
+        #expect(ready == 0, "the type-ahead was told the page is ready before its find field had focus: \(ready)")
+        try await page.run("document.getElementById('find').focus();")
+        #expect(page.readiness.isReady, "the find field took focus and the page is still not ready")
+        #expect(ready == 1)
+    }
+
     /// The find field already has focus (a second Cmd-F): nothing waits.
     @Test func aFieldThatAlreadyHasFocusHoldsNoKeys() async throws {
         let page = Page()
