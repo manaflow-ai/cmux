@@ -186,6 +186,11 @@ unsafe extern "C" {
     pub fn AXValueGetType(v: CFTypeRef) -> u32;
     pub fn AXValueGetValue(v: CFTypeRef, ty: u32, out: *mut c_void) -> u8;
     pub fn AXValueCreate(ty: u32, value: *const c_void) -> CFTypeRef;
+    pub fn AXUIElementGetAttributeValueCount(
+        e: CFTypeRef,
+        attr: CFTypeRef,
+        out: *mut CFIndex,
+    ) -> AXError;
     pub fn AXUIElementCopyParameterizedAttributeValue(
         e: CFTypeRef,
         attr: CFTypeRef,

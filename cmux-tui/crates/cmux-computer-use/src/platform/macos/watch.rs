@@ -78,35 +78,52 @@ unsafe extern "C" fn on_signal(
 /// answers each registration only at its AX timeout.
 const REGISTER_BUDGET: Duration = Duration::from_millis(150);
 
-/// Detached watches (still registering with a stalled app) kept at most per
-/// app: past it no new watch starts for the app (nothing listens, so its
-/// actions are never no_effect) until one ends.
-const DETACHED_MAX: usize = 2;
+/// Watch threads alive at most per app (attached ones end when their action
+/// does; detached ones end when a stalled app answers): past it no new watch
+/// starts for the app (nothing listens, so its actions are never no_effect)
+/// until one ends.
+const LIVE_MAX: usize = 4;
 
-/// Detached watches still running, per app.
-fn detached() -> std::sync::MutexGuard<'static, std::collections::HashMap<i32, usize>> {
-    static D: std::sync::OnceLock<Mutex<std::collections::HashMap<i32, usize>>> =
+/// Watch threads alive, per app. A place is taken and given back only under
+/// this lock: taking checks the cap in the same step, and a thread's
+/// [`Place`] gives its place back when the thread ends, a panic included.
+fn live() -> std::sync::MutexGuard<'static, std::collections::HashMap<i32, usize>> {
+    static L: std::sync::OnceLock<Mutex<std::collections::HashMap<i32, usize>>> =
         std::sync::OnceLock::new();
-    D.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    L.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-const RUNNING: u8 = 0;
-const DETACHED: u8 = 1;
-const ENDED: u8 = 2;
+/// Whether another watch may start for an app with `running` live ones.
+pub(super) fn may_start(running: usize) -> bool {
+    running < LIVE_MAX
+}
 
-/// One detached watch of `pid` ended.
-fn release(map: &mut std::collections::HashMap<i32, usize>, pid: i32) {
-    if let Some(n) = map.get_mut(&pid) {
-        *n = n.saturating_sub(1);
-        if *n == 0 {
-            map.remove(&pid);
+/// One app's place among the live watches, given back on drop.
+struct Place(i32);
+
+impl Place {
+    /// Takes a place for `pid` when the cap allows, in one locked step.
+    fn take(pid: i32) -> Option<Place> {
+        let mut map = live();
+        let n = map.entry(pid).or_insert(0);
+        if !may_start(*n) {
+            return None;
         }
+        *n += 1;
+        Some(Place(pid))
     }
 }
 
-/// Whether another watch may start for an app with `running` detached ones.
-pub(super) fn may_start(running: usize) -> bool {
-    running < DETACHED_MAX
+impl Drop for Place {
+    fn drop(&mut self) {
+        let mut map = live();
+        if let Some(n) = map.get_mut(&self.0) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                map.remove(&self.0);
+            }
+        }
+    }
 }
 
 /// A running watch (see the module notes).
@@ -129,23 +146,17 @@ impl AxWatch {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<bool>();
         let (sig, stp) = (signals.clone(), stop.clone());
         let started = Instant::now();
-        if !may_start(detached().get(&pid).copied().unwrap_or(0)) {
+        let Some(place) = Place::take(pid) else {
             return AxWatch { signals, stop, listening: false, started, thread: None };
-        }
-        // The watch's life, changed only under the detached map's lock: the
-        // thread ending and the caller detaching it can race, and exactly
-        // the one that comes second settles the count.
-        let life = Arc::new(std::sync::atomic::AtomicU8::new(RUNNING));
-        let ended = life.clone();
+        };
+        // The place moves into the thread and is given back when it ends
+        // (a panic included); a thread that could not start gives it back
+        // here, as `place` drops with the failed builder.
         let thread = std::thread::Builder::new()
             .name("cu-ax-watch".into())
             .spawn(move || {
+                let _place = place;
                 run(pid, target, sig, stp, ready_tx, started);
-                // A detached watch that ends frees its place.
-                let mut map = detached();
-                if ended.swap(ENDED, Ordering::AcqRel) == DETACHED {
-                    release(&mut map, pid);
-                }
             })
             .ok();
         let ready = thread.as_ref().map(|_| ready_rx.recv_timeout(REGISTER_BUDGET));
@@ -153,15 +164,6 @@ impl AxWatch {
             Some(Ok(ok)) => (ok, thread),
             // Past the budget: it stops when it gets there; never joined.
             Some(Err(_)) => {
-                let mut map = detached();
-                // Counted only if it has not ended meanwhile.
-                if life
-                    .compare_exchange(RUNNING, DETACHED, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
-                    *map.entry(pid).or_insert(0) += 1;
-                }
-                drop(map);
                 stop.store(true, Ordering::Release);
                 (false, None)
             }

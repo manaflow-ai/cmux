@@ -141,19 +141,42 @@ pub fn slider_tolerance(min: f64, max: f64) -> f64 {
     ((max - min) * 0.02).max(f64::EPSILON)
 }
 
-/// Whether a posted mouse press names its window (field 51 and its point
-/// in the window): only in the front app. There an unaddressed press is
-/// read as if in the menu bar (macOS 26.6 opened the Apple menu); in a
-/// background app an addressed press would order its window front.
-pub fn address_press(target_is_front_app: bool) -> bool {
-    target_is_front_app
+/// How a posted press is aimed, from the two readings of the front app
+/// taken right before the post.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Aiming {
+    /// The target is the front app by both readings: name its window.
+    Addressed,
+    /// Another app is front by both readings: a background press, not
+    /// addressed (an addressed one would raise the target's window).
+    Unaddressed,
+    /// The readings disagree about the target, or one cannot be read: an
+    /// unaddressed press could land as if in the target's menu bar (the
+    /// Apple menu), an addressed one could raise it. Nothing is posted.
+    Refuse,
 }
 
-/// [`address_press`] from the active app's and the keyboard's pids, read
-/// right before the post: both must be the target; unreadable is not front.
-pub fn address_press_for(active: Option<i32>, keyboard: Option<i32>, target: i32) -> bool {
-    address_press(active == Some(target) && keyboard == Some(target))
+/// [`Aiming`] from the active app's and the keyboard's pids.
+pub fn press_aiming(active: Option<i32>, keyboard: Option<i32>, target: i32) -> Aiming {
+    match (active, keyboard) {
+        (Some(a), Some(k)) if a == target && k == target => Aiming::Addressed,
+        (Some(a), Some(k)) if a != target && k != target => Aiming::Unaddressed,
+        _ => Aiming::Refuse,
+    }
 }
+
+/// The two readings agreed on, for "the person's front app" where one pid
+/// is needed (`None`: they disagree or one cannot be read; callers fail
+/// closed on it).
+pub fn agreed_front(active: Option<i32>, keyboard: Option<i32>) -> Option<i32> {
+    match (active, keyboard) {
+        (Some(a), Some(k)) if a == k => Some(a),
+        _ => None,
+    }
+}
+
+/// The refusal when the front app cannot be read consistently.
+pub const FRONT_UNSURE: &str = "which app is in front could not be read consistently (a panel such as Spotlight may hold the keyboard), so the click was not posted; try again, or use an element_id";
 
 /// Command-A alone: Select All.
 pub fn is_select_all(combo: &crate::keys::KeyCombo) -> bool {

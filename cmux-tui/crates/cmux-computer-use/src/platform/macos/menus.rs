@@ -565,7 +565,8 @@ impl MacDesktop {
     /// Refuses leaving a menu open in the app the person is using (it would
     /// track their pointer and keyboard until the next call).
     pub(super) fn refuse_left_open_in_persons_app(&self, t: &Target) -> DResult<()> {
-        if super::frontmost_pid() == Some(t.window.pid) {
+        // Either reading of the front app (unreadable: the person's).
+        if self.is_persons_app(t) {
             return Err(DesktopError::Unsupported(menus::PERSONS_APP_REFUSAL.into()));
         }
         Ok(())
@@ -904,7 +905,7 @@ impl MacDesktop {
     ) -> ActionOutcome {
         let hidden = all.iter().filter(|i| i.denied).count();
         // Read again after the settle: the menu is still shown.
-        let shown_check = super::readback::Check::Shown { el: menu.clone() };
+        let shown_check = super::readback::Check::shown(&menu);
         *self.opened.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
             window_id: t.id(),
             pid: t.window.pid,
@@ -927,7 +928,7 @@ impl MacDesktop {
             .collect();
         // The menu was read from accessibility: it opened.
         let mut out = ActionOutcome::confirmed(route);
-        out.expect = self.expect(Some(shown_check), false);
+        out.expect = self.expect(Some(shown_check));
         if let Some(note) = loading_note(workspace::app_names_ready()) {
             out.note = note.into();
         }
@@ -1104,6 +1105,11 @@ impl MacDesktop {
         let Some(item) = chosen else {
             return refuse(menus::not_found(value, &ItemMatch::NotFound, &[]));
         };
+        // The pop-up's baseline before the press (one already showing the
+        // item states no change; unreadable, no read-back).
+        let check = popup
+            .as_ref()
+            .and_then(|(el, _, _)| super::readback::Check::title(el, &item.info.title));
         if let Err(e) = item.el.perform("AXPress") {
             let failed = ax_error(e, &format!("the item {:?}", item.info.title));
             return Err(self.close_and_fail(t, &menu, &windows, failed));
@@ -1126,9 +1132,8 @@ impl MacDesktop {
         // settle); one that already showed it is done already. A context
         // menu closing says only that the item was pressed: delivered, its
         // effect is not read back.
-        let already = before.as_deref().is_some_and(|b| roles::same_title(b, &title));
         let confirmed = match &popup {
-            Some(_) => after.as_deref().is_some_and(|a| roles::same_title(a, &title)) && !already,
+            Some(_) => after.as_deref().is_some_and(|a| roles::same_title(a, &title)),
             None => false,
         };
         let route = if popup.is_some() { "ax_menu_open_pick" } else { "ax_context_menu_pick" };
@@ -1148,9 +1153,8 @@ impl MacDesktop {
         if stays {
             out.note = format!("{} {}", out.note, menus::MENU_DID_NOT_CLOSE).trim().to_string();
         }
-        if let Some((el, _, _)) = &popup {
-            let check = super::readback::Check::Title { el: (*el).clone(), title: title.clone() };
-            out.expect = self.expect(Some(check), already);
+        if popup.is_some() {
+            out.expect = self.expect(check);
         } else if closed && !stays {
             out.note = format!("{} pressed {title:?}; its effect is not read back", out.note)
                 .trim()
@@ -1186,7 +1190,7 @@ impl MacDesktop {
         let start = Instant::now();
         let route = Route::Pid { pid, window: t.window.id };
         super::activation::post_unprimed(route, |p| {
-            input::click(p, at, Button::Right, 1, 0, Duration::ZERO, super::target_is_front(pid))
+            input::click(p, at, Button::Right, 1, 0, Duration::ZERO, super::aimed(pid)?)
         })
         .unwrap_or_else(|| {
             Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))

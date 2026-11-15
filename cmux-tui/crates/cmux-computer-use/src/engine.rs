@@ -1754,43 +1754,48 @@ impl Engine {
         // Every confirmed result is read again too: an app can undo an
         // effect a moment after it read back (a field that reformats or
         // rejects a value, a list that reselects).
+        // The one place a result becomes, or stays, confirmed: its read-back
+        // after the settle shows the intended change, and the read-back
+        // states a change (before != wanted). A route's own confirmed
+        // without such a read-back, or one whose wanted state already held,
+        // is delivered.
         let mut already = false;
         let confirmed = out.body["evidence"] == json!("confirmed");
         let read = expect.map(|expect| {
-            already = expect.already;
+            already = !expect.states_change();
             match self.desktop.read_back(&expect) {
-                Some(true) if expect.already => "already".to_string(),
-                Some(true) => {
-                    out.body["evidence"] = json!("confirmed");
-                    expect.what
-                }
+                Some(true) if already => "already".to_string(),
+                Some(true) => expect.what,
                 Some(false) => "failed".to_string(),
                 None => "unread".to_string(),
             }
         });
-        // A confirmed result stays confirmed only when it reads back again
-        // after the settle; otherwise it is delivered, saying why.
-        let lost = match read.as_deref() {
-            Some("failed") => Some("read again after the settle, the effect no longer shows"),
-            Some("unread") | None => Some("the effect could not be read again after the settle"),
-            Some(_) => None,
-        };
-        if confirmed && let Some(why) = lost {
-            out.body["evidence"] = json!("delivered");
-            let mut note =
-                out.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
-            crate::outcome::append(&mut note, why);
-            out.body["note"] = json!(note);
-        } else if !confirmed && read.as_deref() == Some("failed") {
-            // A delivered result whose read-back shows the wrong effect (a
-            // type-to-select that picked another row) says so.
-            let mut note =
-                out.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
-            crate::outcome::append(
-                &mut note,
-                "read back after the settle: the intended effect does not show",
-            );
-            out.body["note"] = json!(note);
+        let shown = read.as_deref().is_some_and(|r| !matches!(r, "already" | "failed" | "unread"));
+        if shown {
+            out.body["evidence"] = json!("confirmed");
+        } else {
+            let why = match read.as_deref() {
+                Some("already") => Some(
+                    "the state already matched before the action, so nothing shows it was done",
+                ),
+                Some("failed") if confirmed => {
+                    Some("read again after the settle, the effect no longer shows")
+                }
+                Some("failed") => {
+                    Some("read back after the settle: the intended effect does not show")
+                }
+                _ if confirmed => Some("the effect could not be read again after the settle"),
+                _ => None,
+            };
+            if confirmed {
+                out.body["evidence"] = json!("delivered");
+            }
+            if let Some(why) = why {
+                let mut note =
+                    out.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
+                crate::outcome::append(&mut note, why);
+                out.body["note"] = json!(note);
+            }
         }
         if let Some(read) = read {
             out.body["read_back"] = json!(read);

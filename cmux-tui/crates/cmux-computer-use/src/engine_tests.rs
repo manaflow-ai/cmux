@@ -423,6 +423,46 @@ fn a_confirmed_result_that_cannot_be_reread_is_uncertain() {
     }
 }
 
+/// Review of e840a32 (root A, finding 1): a read-back that holds after the
+/// settle but states no change (its wanted state held before the action:
+/// a stepper asked for the value it had) never confirms, whether the route
+/// delivered or confirmed; the result is uncertain, saying so.
+#[test]
+fn a_read_back_that_states_no_change_never_confirms() {
+    for (tool, args) in [
+        ("type_text", json!({"window_id": "1", "text": "Zed"})),
+        ("set_value", json!({"window_id": "1", "element_id": "e1", "value": "x"})),
+        ("perform_action", json!({"window_id": "1", "element_id": "e1", "action": "press"})),
+    ] {
+        let d = Arc::new(FakeDesktop::standard());
+        *d.reads_back.lock().unwrap() = Some(true);
+        *d.unchanged.lock().unwrap() = true;
+        *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+        let (e, _) = settling_engine(d);
+        let out = e.call(&ctx(None), tool, &args);
+        assert_eq!(out.body["outcome"], "uncertain", "{tool}: {}", out.body);
+        assert_eq!(out.body["evidence"], "delivered", "{tool}: {}", out.body);
+        assert_eq!(out.body["read_back"], "already", "{tool}: {}", out.body);
+    }
+}
+
+/// Root B at the engine: a route whose baseline could not be read attaches
+/// no read-back, and a confirmed result without one is uncertain.
+#[test]
+fn a_route_with_no_baseline_is_never_confirmed() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.confirms_on_reread.lock().unwrap() = None;
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    let (e, _) = settling_engine(d);
+    let out = e.call(
+        &ctx(None),
+        "perform_action",
+        &json!({"window_id": "1", "element_id": "e1", "action": "press"}),
+    );
+    assert_eq!(out.body["outcome"], "uncertain", "{}", out.body);
+    assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+}
+
 /// Review of b4236e6 (10): a stalled app shows nothing because it does
 /// nothing; without an answer after the settle, never no_effect.
 #[test]

@@ -309,6 +309,21 @@ pub struct Expect {
     /// everything was selected, the value was the one asked for).
     #[serde(default)]
     pub already: bool,
+    /// The intended change the read-back checks: the state before the
+    /// action, read when the check was built, and the state wanted. The
+    /// engine confirms only a change: `before != wanted`.
+    #[serde(default)]
+    pub before: String,
+    #[serde(default)]
+    pub wanted: String,
+}
+
+impl Expect {
+    /// Whether the read-back states a change (its wanted state did not
+    /// already hold before the action).
+    pub fn states_change(&self) -> bool {
+        !self.already && self.before != self.wanted
+    }
 }
 
 impl ActionOutcome {

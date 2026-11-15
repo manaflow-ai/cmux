@@ -128,6 +128,60 @@ impl Ax {
         Ok(read)
     }
 
+    // Strict reads, for read-backs: `Err` when the read failed, `Ok(None)`
+    // when the attribute has no value. The lossy readers below map a failed
+    // read to "nothing", which a read-back must never take for an answer.
+
+    /// A string attribute.
+    pub fn try_string(&self, name: &str) -> Result<Option<String>, AXError> {
+        self.attr(name).map(|v| v.and_then(|v| v.as_string()))
+    }
+
+    /// A boolean attribute.
+    pub fn try_bool(&self, name: &str) -> Result<Option<bool>, AXError> {
+        self.attr(name).map(|v| v.and_then(|v| v.as_bool()))
+    }
+
+    /// A number attribute.
+    pub fn try_number(&self, name: &str) -> Result<Option<f64>, AXError> {
+        self.attr(name).map(|v| v.filter(Cf::is_number).and_then(|v| v.as_f64()))
+    }
+
+    /// The value as text (a string, or a number written out).
+    pub fn try_value_text(&self) -> Result<Option<String>, AXError> {
+        self.attr("AXValue").map(|v| v.and_then(|v| value_text(&v)))
+    }
+
+    /// The selected text range.
+    pub fn try_selected_range(&self) -> Result<Option<CFRange>, AXError> {
+        self.attr("AXSelectedTextRange").map(|v| v.and_then(|v| range_of(&v)))
+    }
+
+    /// One element attribute.
+    pub fn try_element(&self, name: &str) -> Result<Option<Ax>, AXError> {
+        self.attr(name).map(|v| v.and_then(Ax::from_cf))
+    }
+
+    /// An element-array attribute (no value: empty).
+    pub fn try_elements(&self, name: &str) -> Result<Vec<Ax>, AXError> {
+        self.attr(name).map(|v| {
+            v.map(|v| v.items().into_iter().filter_map(Ax::from_cf).collect()).unwrap_or_default()
+        })
+    }
+
+    /// How many values an array attribute holds, without reading them
+    /// (`AXUIElementGetAttributeValueCount`).
+    pub fn try_count(&self, name: &str) -> Result<usize, AXError> {
+        let key = Cf::string(name).ok_or(AX_CANNOT_COMPLETE)?;
+        let mut n: CFIndex = 0;
+        // SAFETY: self and key are live; n is an out parameter.
+        match unsafe { AXUIElementGetAttributeValueCount(self.ptr(), key.ptr(), &mut n) } {
+            AX_OK => Ok(n.max(0) as usize),
+            AX_NO_VALUE | AX_ATTRIBUTE_UNSUPPORTED => Ok(0),
+            e => Err(e),
+        }
+    }
+
     pub fn string(&self, name: &str) -> Option<String> {
         self.attr(name).ok().flatten().and_then(|v| v.as_string())
     }

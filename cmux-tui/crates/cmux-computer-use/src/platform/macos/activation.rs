@@ -278,8 +278,10 @@ pub(super) trait ScopeOs {
 pub(super) struct Real;
 
 impl ScopeOs for Real {
+    // Both readings of the front app, agreed (a non-activating panel over
+    // the target makes them disagree: None, and every check fails closed).
     fn front_pid(&self) -> Option<i32> {
-        super::frontmost_pid()
+        super::roles::agreed_front(super::active_pid(), super::frontmost_pid())
     }
     fn psn_of(&self, window: u32) -> Option<Psn> {
         let c = calls()?;

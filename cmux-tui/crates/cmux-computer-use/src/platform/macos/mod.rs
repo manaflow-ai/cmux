@@ -57,16 +57,11 @@ impl MacDesktop {
     }
 
     /// Keeps `check` for the engine's read-back after the settle.
-    /// Keeps `check` for the engine's read-back after the settle;
-    /// `already`: the state matched before the action.
-    fn expect(&self, check: Option<readback::Check>, already: bool) -> Option<Expect> {
+    /// Keeps `check` for the engine's read-back after the settle (its
+    /// intended change goes with it; see [`readback`]).
+    fn expect(&self, check: Option<readback::Check>) -> Option<Expect> {
         let check = check?;
-        Some(
-            self.checks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .add(check, already),
-        )
+        Some(self.checks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).add(check))
     }
 
     fn guard(&self) -> Option<Arc<dyn MenuGuard>> {
@@ -332,16 +327,26 @@ pub(super) fn frontmost_pid() -> Option<i32> {
 /// - [`active_pid`]: the active app (NSWorkspace `frontmostApplication`),
 ///   whose windows AppKit treats as active; a non-activating panel does not
 ///   change it.
-/// - [`target_is_front`]: a posted press may name its window only when the
-///   target is both the active app and the keyboard's, each read now; an
-///   unreadable answer is "not front" (an addressed press can raise a
-///   background app's window).
+/// - [`press_aiming`]: a posted press names its window only when the
+///   target is both the active app and the keyboard's, each read right
+///   before the post; readings that disagree, or one unread, post nothing.
 pub(super) fn active_pid() -> Option<i32> {
     workspace::frontmost_pid()
 }
 
-pub(super) fn target_is_front(pid: i32) -> bool {
-    roles::address_press_for(active_pid(), frontmost_pid(), pid)
+/// How a press posted to `pid` right now is aimed ([`roles::press_aiming`]).
+pub(super) fn press_aiming(pid: i32) -> roles::Aiming {
+    roles::press_aiming(active_pid(), frontmost_pid(), pid)
+}
+
+/// The press aiming as the posting function takes it: addressed or not,
+/// or the refusal.
+pub(super) fn aimed(pid: i32) -> DResult<bool> {
+    match press_aiming(pid) {
+        roles::Aiming::Addressed => Ok(true),
+        roles::Aiming::Unaddressed => Ok(false),
+        roles::Aiming::Refuse => Err(DesktopError::Unsupported(roles::FRONT_UNSURE.into())),
+    }
 }
 
 fn post_event_granted() -> bool {
@@ -579,7 +584,7 @@ impl Desktop for MacDesktop {
         Some(World {
             windows,
             pasteboard: Some(workspace::pasteboard_change_count()?),
-            front_pid: Some(frontmost_pid()? as u32),
+            front_pid: Some(active_pid()? as u32),
         })
     }
 
@@ -785,8 +790,11 @@ impl Desktop for MacDesktop {
         })
     }
 
+    // The person's focus is the active app (NSWorkspace): a non-activating
+    // panel (Spotlight, Raycast) holding the keyboard does not change it,
+    // and restoring "focus" to the panel's app would activate it.
     fn focus_snapshot(&self) -> Option<FocusSnapshot> {
-        let pid = frontmost_pid()?;
+        let pid = active_pid()?;
         let app_id =
             workspace::app_for_pid(pid).map(|a| a.id()).unwrap_or_else(|| format!("pid:{pid}"));
         let window_id = Ax::application(pid)
@@ -811,7 +819,7 @@ impl Desktop for MacDesktop {
         let yes =
             sys::Cf::boolean(true).ok_or_else(|| DesktopError::Failed("no boolean".into()))?;
         let mut accepted = true;
-        if frontmost_pid() != Some(pid) {
+        if active_pid() != Some(pid) {
             accepted = app.set("AXFrontmost", &yes).is_ok() || workspace::activate(pid);
         }
         let window = match prior.window_id.as_deref().and_then(|w| w.parse::<u32>().ok()) {

@@ -32,32 +32,29 @@ fn outcome_after(
     d: &MacDesktop,
     route: &str,
     action: &str,
-    before: Option<String>,
+    before: Result<Option<String>, super::sys::AXError>,
     el: &Ax,
     effects: Option<readback::Check>,
 ) -> ActionOutcome {
-    let after = el.value_text();
+    // Read strictly: a failed read is no value change and no baseline.
+    let after = el.try_value_text();
     let role = el.string("AXRole").unwrap_or_default();
     let mut out = match (&before, &after) {
-        (Some(b), Some(a)) if a != b => {
+        (Ok(Some(b)), Ok(Some(a))) if a != b => {
             let mut out = ActionOutcome::confirmed(route);
-            let check =
-                readback::Check::Value { el: el.clone(), wanted: a.clone(), tolerance: 0.0 };
-            out.expect = d.expect(Some(check), false);
+            out.expect = d.expect(Some(readback::Check::value_from(el, b, a, 0.0)));
             out
         }
         // A radio button already on stays on when pressed: done already,
-        // not "no effect".
-        (Some(b), _) if roles::press_already_done(&role, action, b) => {
+        // not "no effect" (the read-back states no change).
+        (Ok(Some(b)), _) if roles::press_already_done(&role, action, b) => {
             let mut out = ActionOutcome::delivered(route);
-            let check =
-                readback::Check::Value { el: el.clone(), wanted: b.clone(), tolerance: 0.0 };
-            out.expect = d.expect(Some(check), true);
+            out.expect = d.expect(Some(readback::Check::value_from(el, b, b, 0.0)));
             out
         }
         _ => {
             let mut out = ActionOutcome::delivered(route);
-            out.expect = d.expect(effects, false);
+            out.expect = d.expect(effects);
             out
         }
     };
@@ -65,7 +62,7 @@ fn outcome_after(
     // triangle, stepper, slider) pressed, incremented or decremented shows
     // it in its value; a button, a confirm or cancel, a custom action may
     // act where nothing shows.
-    if before.is_some()
+    if matches!(before, Ok(Some(_)))
         && roles::press_shows_value(&role, el.string("AXSubrole").as_deref(), action)
     {
         out = out.showing("value");
@@ -245,7 +242,7 @@ impl MacDesktop {
 
     /// Whether the window's app is the frontmost app, where the person's
     /// keys and caret are.
-    fn is_persons_app(&self, t: &Target) -> bool {
+    pub(super) fn is_persons_app(&self, t: &Target) -> bool {
         // The person's app: the active app or the one with the keyboard (a
         // non-activating panel); either unreadable counts as the person's
         // (fail closed).
@@ -498,8 +495,9 @@ fn click_point(
     let pid = t.window.pid;
     unprimed(route, |p| {
         let flags = keymap::flags(&spec.modifiers);
-        // Read under the posting lock, right before the post.
-        let front = super::target_is_front(pid);
+        // Read under the posting lock, right before the post; readings that
+        // disagree post nothing.
+        let front = super::aimed(pid)?;
         input::click(p, at, spec.button, spec.count, flags, spec.gap, front)
     })?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
@@ -551,7 +549,7 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
         roles::HitClick::Press => {
             d.refuse_submenu_open(&el)?;
             let holder = value_holder(&el);
-            let before = holder.value_text();
+            let before = holder.try_value_text();
             let effects = press_effects(&el, "AXPress");
             let mut out = match el.perform("AXPress") {
                 Ok(()) => outcome_after(d, "ax_hit_press", "AXPress", before, &holder, effects),
@@ -569,10 +567,11 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
         }
         roles::HitClick::Select => {
             let Some(row) = selectable(&el) else { return Ok(None) };
+            let check = select_check(&row);
             if !select_only(&row) {
                 return Ok(None);
             }
-            let mut out = select_outcome(d, &row, false);
+            let mut out = select_outcome(d, &row, check);
             out.cursor_at = Some(at);
             Ok(Some(out))
         }
@@ -619,34 +618,28 @@ fn press_effects(el: &Ax, action: &str) -> Option<readback::Check> {
         return None;
     }
     let mut checks = Vec::new();
-    if let Some(sheet) = readback::sheet_of(el) {
-        let win = sheet.element("AXParent");
-        checks.push(readback::Check::Gone { sheet, win });
+    if let Some(gone) = readback::Check::gone_of(el) {
+        checks.push(gone);
     }
     if let Some(win) = el.element("AXWindow") {
-        checks.push(readback::Check::Opened { before: readback::overlays(&win), win: win.clone() });
+        if let Some(opened) = readback::Check::opened(&win) {
+            checks.push(opened);
+        }
         // A "New …" button (Notes' New Note) adds a row to a list.
         let named_new = [el.string("AXTitle"), el.string("AXDescription")]
             .into_iter()
             .flatten()
             .any(|t| t.trim().starts_with("New "));
-        if named_new {
-            let lists: Vec<(Ax, Vec<Ax>)> = readback::lists_of(&win)
-                .into_iter()
-                .filter_map(|l| {
-                    let rows = l.elements("AXRows");
-                    (rows.len() <= readback::ROWS_MAX).then_some((l, rows))
-                })
-                .collect();
-            if !lists.is_empty() {
-                checks.push(readback::Check::RowsGrew { lists });
-            }
+        if named_new && let Some(grew) = readback::Check::rows_grew_in(&win) {
+            checks.push(grew);
         }
-        if let Some(ch) = digit_of(el) {
-            checks.push(readback::Check::EndsWith { texts: readback::texts(&win), ch });
+        if let Some(ch) = digit_of(el)
+            && let Some(digit) = readback::Check::digit(&win, ch)
+        {
+            checks.push(digit);
         }
     }
-    (!checks.is_empty()).then_some(readback::Check::Any(checks))
+    readback::Check::any(checks)
 }
 
 /// What a menu item titled `title` must show, read before it is pressed:
@@ -656,36 +649,24 @@ fn item_effect(d: &MacDesktop, t: &Target, title: Option<&str>) -> Option<readba
     let title = title?.trim();
     if title == "Save" {
         let (_, win) = d.ax_window(t).ok()?;
-        let path = readback::document_path(&win)?;
-        let before = readback::mtime(&path);
-        return Some(readback::Check::Saved { path, before, win });
+        return readback::Check::saved_doc(&win);
     }
     if title.starts_with("New ") {
         let list = d.focused_in(t).filter(|el| {
             matches!(el.string("AXRole").as_deref(), Some("AXTable" | "AXOutline" | "AXList"))
         })?;
-        // A huge list is not read before the press.
-        if list.elements("AXRows").len() > readback::ROWS_MAX {
-            return None;
-        }
-        let names = readback::row_names(&list, "AXRows");
-        return Some(readback::Check::NewRow { el: list, names });
+        return readback::Check::new_row(&list);
     }
     None
 }
 
-/// A menu item's toggle read-back joined with what its title must show.
+/// A menu item's toggle read-back joined with what its title must show;
+/// `None` when neither has a known baseline.
 fn menu_checks(
-    el: &Ax,
-    item_before: (readback::Read, readback::Read),
+    toggle: Option<readback::Check>,
     effect: Option<readback::Check>,
-) -> readback::Check {
-    let (title, mark) = item_before;
-    let toggle = readback::Check::MenuItem { el: el.clone(), title, mark };
-    match effect {
-        Some(e) => readback::Check::Any(vec![toggle, e]),
-        None => toggle,
-    }
+) -> Option<readback::Check> {
+    readback::Check::any(toggle.into_iter().chain(effect).collect())
 }
 
 /// The digit a button types: its title or description is one digit.
@@ -758,11 +739,12 @@ fn caret_click(d: &MacDesktop, t: &Target, el: &Ax, at: Point) -> DResult<Option
     }
     let Some(under) = el.range_for_position(at.x, at.y) else { return Ok(None) };
     let caret = super::sys::CFRange { location: under.location, length: 0 };
-    let already = el.bool("AXFocused") == Some(true) && el.selected_range() == Some(caret);
+    // The baseline, before the write (unread: no read-back, uncertain).
+    let check = readback::Check::range(el, caret);
     let AxWrite::Done(taken) = gated(d, t, || focus_and_select(el, caret))? else {
         return Ok(None);
     };
-    let mut out = if taken && el.selected_range() == Some(caret) && !already {
+    let mut out = if taken && el.selected_range() == Some(caret) {
         ActionOutcome::confirmed("ax_caret")
     } else {
         let mut out = ActionOutcome::delivered("ax_caret");
@@ -773,7 +755,7 @@ fn caret_click(d: &MacDesktop, t: &Target, el: &Ax, at: Point) -> DResult<Option
         }
         out
     };
-    out.expect = d.expect(Some(readback::Check::Range { el: el.clone(), range: caret }), already);
+    out.expect = d.expect(check);
     Ok(Some(out.showing("selection").at(at)))
 }
 
@@ -806,11 +788,11 @@ fn select_drag(
     if range.length == 0 {
         return Ok(None);
     }
-    let already = el.selected_range() == Some(range);
+    let check = readback::Check::range(&el, range);
     let AxWrite::Done(taken) = gated(d, t, || focus_and_select(&el, range))? else {
         return Ok(None);
     };
-    let mut out = if taken && el.selected_range() == Some(range) && !already {
+    let mut out = if taken && el.selected_range() == Some(range) {
         ActionOutcome::confirmed("ax_select_text")
     } else {
         let mut out = ActionOutcome::delivered("ax_select_text");
@@ -821,7 +803,7 @@ fn select_drag(
         }
         out
     };
-    out.expect = d.expect(Some(readback::Check::Range { el, range }), already);
+    out.expect = d.expect(check);
     Ok(Some(out.showing("selection").at(to)))
 }
 
@@ -874,8 +856,7 @@ fn slider_drag(
     }
     let wanted = slider_value_at(&frame, min, max, to);
     let tolerance = roles::slider_tolerance(min, max);
-    let before = slider.number("AXValue");
-    let already = before.is_some_and(|b| (b - wanted).abs() <= tolerance);
+    let check = readback::Check::value(&slider, &format!("{wanted}"), tolerance);
     let Some(cf) = Cf::number_f64(wanted) else { return Ok(None) };
     // Not in the person's app, not under another session's scope; from
     // here on a write was tried, so no drag is posted after it.
@@ -883,13 +864,12 @@ fn slider_drag(
         return Ok(None);
     };
     let after = slider.number("AXValue");
-    let mut out = if taken && after.is_some_and(|a| (a - wanted).abs() <= tolerance) && !already {
+    let mut out = if taken && after.is_some_and(|a| (a - wanted).abs() <= tolerance) {
         ActionOutcome::confirmed("ax_slider")
     } else {
         ActionOutcome::delivered("ax_slider")
     };
-    let check = readback::Check::Value { el: slider, wanted: format!("{wanted}"), tolerance };
-    out.expect = d.expect(Some(check), already);
+    out.expect = d.expect(check);
     Ok(Some(out.showing("value").at(to)))
 }
 
@@ -970,8 +950,6 @@ fn ax_scroll_run(
     at: Point,
     plan: ScrollPlan,
 ) -> DResult<Option<ActionOutcome>> {
-    // At the end it scrolls toward already: nothing to move.
-    let already = plan.iter().all(|(_, before, wanted, _)| (wanted - before).abs() < 1e-9);
     // From here on a write was tried: a failure is reported, no events.
     let written = gated(d, t, || {
         let (mut moved, mut failed) = (false, false);
@@ -997,11 +975,9 @@ fn ax_scroll_run(
         }
         out
     };
-    let bars = plan
-        .into_iter()
-        .map(|(el, before, _, sign)| readback::Bar { el, before: Some(before), sign })
-        .collect();
-    out.expect = d.expect(Some(readback::Check::Scroll { bars }), already);
+    // At the end it scrolls toward, wanted == before: the read-back states
+    // no change.
+    out.expect = d.expect(Some(readback::Check::scroll_planned(plan)));
     Ok(Some(out.showing("scroll").at(at)))
 }
 
@@ -1049,16 +1025,23 @@ fn key_in_app(_d: &MacDesktop, t: &Target) -> Option<super::activation::KeyInApp
     key.wait_until(KEY_SETTLE, &|| focused_on_target(t)).then_some(key)
 }
 
+/// The read-back of selecting `row` alone, its baseline read now (before
+/// the selection); `None` when its list or selection cannot be read.
+fn select_check(row: &Ax) -> Option<readback::Check> {
+    let list = row.try_element("AXParent").ok()??;
+    readback::Check::selected(row, &list)
+}
+
 /// `confirmed` when the row reads back as the only selected one (and again
-/// after the settle); `already`: it was before.
-fn select_outcome(d: &MacDesktop, row: &Ax, already: bool) -> ActionOutcome {
-    let mut out = if row.bool("AXSelected") == Some(true) && only_selected(row) && !already {
+/// after the settle, through `check`, built before the selection).
+fn select_outcome(d: &MacDesktop, row: &Ax, check: Option<readback::Check>) -> ActionOutcome {
+    let mut out = if row.bool("AXSelected") == Some(true) && only_selected(row) {
         ActionOutcome::confirmed("ax_select")
     } else {
         ActionOutcome::delivered("ax_select")
     }
     .showing("selection");
-    out.expect = d.expect(Some(readback::Check::Selected { row: row.clone() }), already);
+    out.expect = d.expect(check);
     if let Some(frame) = row.frame() {
         out = out.at(roles::center(&frame));
     }
@@ -1139,12 +1122,12 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
     let mut title_before: Option<String> = None;
     // A menu bar item's title and check mark before any scope: read back
     // after the settle (a toggle changes one of them).
-    let item_before = in_menu_bar.then(|| {
-        (readback::read_str(&el, "AXTitle"), readback::read_str(&el, "AXMenuItemMarkChar"))
-    });
-    let item_effect = item_before.as_ref().and_then(|(title, _)| {
-        item_effect(d, &t, title.as_ref().ok().cloned().flatten().as_deref())
-    });
+    let item_toggle = if in_menu_bar { readback::Check::menu_item(&el) } else { None };
+    let item_effect = if in_menu_bar {
+        item_effect(d, &t, el.try_string("AXTitle").ok().flatten().as_deref())
+    } else {
+        None
+    };
     // A disabled item of an app that cannot be made to validate (the
     // person's front app, or the scope off) is not pressed: the press would
     // do nothing.
@@ -1190,9 +1173,9 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         && !available.iter().any(|a| a == "AXPress")
         && let Some(row) = selectable(&el)
     {
-        let already = row.bool("AXSelected") == Some(true) && only_selected(&row);
+        let check = select_check(&row);
         if select_only(&row) {
-            return Ok(select_outcome(d, &row, already));
+            return Ok(select_outcome(d, &row, check));
         }
     }
     if semantic
@@ -1213,7 +1196,7 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         }
         // No value read inside a scope (the item has none to compare).
         let primed_press = menu_key.is_some();
-        let before = if menu_key.is_some() { None } else { el.value_text() };
+        let before = if menu_key.is_some() { Ok(None) } else { el.try_value_text() };
         // Read before the press: what it must show elsewhere.
         let effects = if menu_key.is_some() { None } else { press_effects(&el, action) };
         let mut out = match el.perform(action) {
@@ -1236,12 +1219,8 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         // Not after a scope: validation itself can change an item's title or
         // mark, and an app primed a moment ago may write its document on
         // its own; a primed press stays uncertain.
-        if let Some(before) = item_before
-            && out.evidence != "confirmed"
-            && menu_key.is_none()
-            && !primed_press
-        {
-            out.expect = d.expect(Some(menu_checks(&el, before, item_effect)), false);
+        if in_menu_bar && out.evidence != "confirmed" && menu_key.is_none() && !primed_press {
+            out.expect = d.expect(menu_checks(item_toggle, item_effect));
         }
         // AXPress runs the item's action before it returns: hand back now.
         if let Some(key) = menu_key.take()
@@ -1267,72 +1246,64 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
         return Ok(None);
     }
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
-    let before = el.value_text().unwrap_or_default();
+    // The baseline, strictly: unreadable before anything is written, keys
+    // are posted instead (nothing was inserted).
+    let (Ok(before), Ok(caret)) = (el.try_value_text(), el.try_selected_range()) else {
+        return Ok(None);
+    };
+    let before = before.unwrap_or_else(String::new);
     // A secure field hides its value; its length reads back the typing.
-    let count_before = readback::secure_count(el);
     let typed = text.encode_utf16().count() as f64;
-    let wanted_count = count_before.map(|n| n + typed);
     let length_check =
-        |el: &Ax| wanted_count.map(|count| readback::Check::Length { el: el.clone(), count });
-    let caret = el.selected_range();
+        || readback::secure_count(el).and_then(|n| readback::Check::length(el, n + typed));
     let Some(cf) = Cf::string(text) else { return Ok(None) };
-    if el.settable("AXSelectedText") && el.set("AXSelectedText", &cf).is_ok() {
-        if secure {
-            let grew = wanted_count.is_some() && readback::secure_count(el) == wanted_count;
-            let mut out = if grew {
+    if el.settable("AXSelectedText") {
+        let check = if secure {
+            length_check()
+        } else {
+            readback::Check::text_from(el, &before, text, caret)
+        };
+        if el.set("AXSelectedText", &cf).is_ok() {
+            // Taken: no keys after it, ever (a slow app shows the text
+            // within the settle; posting keys would type it twice). The
+            // read-back after the settle says whether it shows.
+            let shows = if secure {
+                false
+            } else {
+                el.try_value_text().ok().flatten().is_some_and(|after| match caret {
+                    Some(at) => readback::typed_at(&before, &after, text, at),
+                    None => readback::typed_shows(&before, &after, text),
+                })
+            };
+            let mut out = if shows {
                 ActionOutcome::confirmed("ax_insert_text")
             } else {
                 ActionOutcome::delivered("ax_insert_text")
             };
-            out.expect = d.expect(length_check(el), false);
+            out.expect = d.expect(check);
             return Ok(Some(out.showing("text")));
         }
-        let after = el.value_text().unwrap_or_default();
-        let shows = match caret {
-            Some(at) => readback::typed_at(&before, &after, text, at),
-            None => readback::typed_shows(&before, &after, text),
-        };
-        if shows {
-            let mut out = ActionOutcome::confirmed("ax_insert_text");
-            out.expect = d.expect(readback::Check::text_from(el, &before, text, caret), false);
-            return Ok(Some(out.showing("text")));
-        }
-        // The value changed but not as the text at the caret: the insert
-        // was taken (posting keys now would type it twice); delivered.
-        if after != before {
-            let mut out = ActionOutcome::delivered("ax_insert_text");
-            out.expect = d.expect(readback::Check::text_from(el, &before, text, caret), false);
-            out.note =
-                "inserted through accessibility; the field shows something else at the caret"
-                    .into();
-            return Ok(Some(out.showing("text")));
-        }
-        // The app took the call but kept its value: fall back to keys.
-        return Ok(None);
     }
     if !el.settable("AXValue") {
         return Ok(None);
     }
     let wanted = format!("{before}{text}");
     let Some(value) = Cf::string(&wanted) else { return Ok(None) };
-    el.set("AXValue", &value).map_err(|e| ax_error(e, "setting the value"))?;
-    let reads_back = if secure {
-        wanted_count.is_some() && readback::secure_count(el) == wanted_count
+    let check = if secure {
+        length_check()
     } else {
-        el.value_text().as_deref() == Some(wanted.as_str())
+        Some(readback::Check::value_from(el, &before, &wanted, 0.0))
     };
+    el.set("AXValue", &value).map_err(|e| ax_error(e, "setting the value"))?;
+    let reads_back =
+        !secure && el.try_value_text().ok().flatten().as_deref() == Some(wanted.as_str());
     let mut out = if reads_back {
         ActionOutcome::confirmed("ax_set_value")
     } else {
         ActionOutcome::delivered("ax_set_value")
     }
     .showing("text");
-    out.expect = if secure {
-        d.expect(length_check(el), false)
-    } else {
-        let check = readback::Check::Value { el: el.clone(), wanted, tolerance: 0.0 };
-        d.expect(Some(check), false)
-    };
+    out.expect = d.expect(check);
     out.note = "appended to the field's value".into();
     Ok(Some(out))
 }
@@ -1408,8 +1379,8 @@ pub(super) fn type_text(
     let check =
         target.as_ref().filter(|_| shows_text).and_then(|el| readback::Check::text(el, text));
     // Typed into a focused list: type-to-select picks a row by its name.
-    // A row starting with the text already selected is done already.
-    let mut already = false;
+    // A row starting with the text already selected is done already (the
+    // read-back states no change); an unreadable selection, no read-back.
     let check = check.or_else(|| {
         let list = target.as_ref().filter(|el| {
             matches!(el.string("AXRole").as_deref(), Some("AXTable" | "AXOutline" | "AXList"))
@@ -1417,9 +1388,7 @@ pub(super) fn type_text(
         if has_keys || text.trim().is_empty() {
             return None;
         }
-        already = readback::type_selected(&readback::row_names(list, "AXSelectedRows"), text)
-            == Some(true);
-        Some(readback::Check::TypeSelect { el: list.clone(), typed: text.to_string() })
+        readback::Check::type_select(list, text)
     });
     // Never into a primed app (another session's scope): each chunk is posted
     // under the lock entering a scope takes, so a scope can open between
@@ -1440,10 +1409,10 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
-        return Ok(typed_outcome(route.name(), shows_text, d.expect(check, already)));
+        return Ok(typed_outcome(route.name(), shows_text, d.expect(check)));
     }
     unprimed(route, |p| input::type_text(p, text))?;
-    Ok(typed_outcome(route.name(), shows_text, d.expect(check, already)))
+    Ok(typed_outcome(route.name(), shows_text, d.expect(check)))
 }
 
 /// Whether `el` is a text element whose value shows what is typed into it.
@@ -1544,18 +1513,16 @@ fn press_keys_inner(
     // A list or table: all of its rows selected.
     let select_all = if roles::is_select_all(combo) {
         d.focused_in(&t).and_then(|el| {
-            let check = if is_text_element(&el) {
-                readback::Check::SelectAll { el }
+            if is_text_element(&el) {
+                readback::Check::select_all(&el)
             } else if matches!(
                 el.string("AXRole").as_deref(),
                 Some("AXTable" | "AXOutline" | "AXList")
             ) {
-                readback::Check::AllRows { el }
+                readback::Check::all_rows(&el)
             } else {
-                return None;
-            };
-            let already = check.holds() == Some(true);
-            Some((check, already))
+                None
+            }
         })
     } else {
         None
@@ -1691,15 +1658,15 @@ fn press_keys_inner(
                     return Err(scope_refusal(primed.take(), why));
                 }
                 // A toggle's title and mark before (not read inside a scope).
-                let item_before = primed.is_none().then(|| {
-                    (
-                        readback::read_str(el, "AXTitle"),
-                        readback::read_str(el, "AXMenuItemMarkChar"),
+                let item_checks = if primed.is_none() {
+                    let title = el.try_string("AXTitle").ok().flatten();
+                    menu_checks(
+                        readback::Check::menu_item(el),
+                        item_effect(d, &t, title.as_deref()),
                     )
-                });
-                let effect = item_before.as_ref().and_then(|(title, _)| {
-                    item_effect(d, &t, title.as_ref().ok().cloned().flatten().as_deref())
-                });
+                } else {
+                    None
+                };
                 let mut out = match press_outcome(el.perform("AXPress"), "ax_menu_shortcut") {
                     Ok(out) => out,
                     Err(e) => return Err(with_hand_back(e, primed.take())),
@@ -1714,11 +1681,11 @@ fn press_keys_inner(
                 }
                 // Command-A in a text element selects all of it: read back
                 // after the settle.
-                if let Some((check, already)) = select_all {
+                if let Some(check) = select_all {
                     out = out.showing("selection");
-                    out.expect = d.expect(Some(check), already);
-                } else if let Some(before) = item_before {
-                    out.expect = d.expect(Some(menu_checks(el, before, effect)), false);
+                    out.expect = d.expect(Some(check));
+                } else if item_checks.is_some() {
+                    out.expect = d.expect(item_checks);
                 }
                 return Ok(out);
             }
@@ -1797,10 +1764,10 @@ fn press_keys_inner(
             return None;
         }
         let (_, win) = d.ax_window(&t).ok()?;
-        Some(readback::Check::EndsWith { texts: readback::texts(&win), ch })
+        readback::Check::digit(&win, ch)
     });
     unprimed(route, |p| input::key(p, code, flags, carries))?;
-    let mut out = typed_outcome(route.name(), shows_text, d.expect(check, false));
+    let mut out = typed_outcome(route.name(), shows_text, d.expect(check));
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
@@ -2004,7 +1971,7 @@ pub(super) fn scroll(
     let check = readback::Check::scroll(t.window.pid, at.x, at.y, dx, dy);
     unprimed(route, |p| input::scroll(p, at, dx, dy))?;
     let mut out = ActionOutcome::delivered(route.name()).at(at).showing("scroll");
-    out.expect = d.expect(check, false);
+    out.expect = d.expect(check);
     Ok(out)
 }
 
@@ -2044,7 +2011,7 @@ pub(super) fn drag(
     }
     let route = d.pointer_route(&t, delivery)?;
     let pid = t.window.pid;
-    unprimed(route, |p| input::drag(p, from, to, button, super::target_is_front(pid)))?;
+    unprimed(route, |p| input::drag(p, from, to, button, super::aimed(pid)?))?;
     Ok(ActionOutcome::delivered(route.name()).at(to))
 }
 
@@ -2101,39 +2068,30 @@ pub(super) fn set_value(
         )));
     }
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
-    // Before the write: whether the value (or a secure field's length)
-    // already was the wanted one.
-    let value_before = el.value_text();
-    let count_before = readback::secure_count(&el);
     let new_count = value.encode_utf16().count() as f64;
+    // The baseline, before the write: the value (or a secure field's
+    // length) now; unreadable, no read-back. One that already reads the
+    // wanted value states no change.
+    let check = if secure {
+        readback::Check::length(&el, new_count)
+    } else {
+        readback::Check::value(&el, value, 0.0)
+    };
     el.set("AXValue", &value_for(&el, value)?)
         .map_err(|e| ax_error(e, &format!("element {element_id}")))?;
-    let read = el.value_text();
-    let (already, holds) = if secure {
-        // The length must have become the new one: an unchanged length
-        // says nothing (the same count, or a field that ignored the write).
-        let count = readback::secure_count(&el);
-        (count_before == Some(new_count), count == Some(new_count) && count != count_before)
+    let read = el.try_value_text().ok().flatten();
+    let holds = if secure {
+        readback::secure_count(&el) == Some(new_count)
     } else {
-        (
-            value_before.as_deref().is_some_and(|b| same_value(b, value)),
-            read.as_deref().is_some_and(|r| same_value(r, value)),
-        )
+        read.as_deref().is_some_and(|r| same_value(r, value))
     };
-    let mut out = if holds && !already {
+    let mut out = if holds {
         ActionOutcome::confirmed("ax_set_value")
     } else {
         ActionOutcome::delivered("ax_set_value")
     }
     .showing("value");
-    let check = if secure {
-        readback::Check::Length { el: el.clone(), count: new_count }
-    } else {
-        let wanted =
-            read.clone().filter(|r| same_value(r, value)).unwrap_or_else(|| value.to_string());
-        readback::Check::Value { el: el.clone(), wanted, tolerance: 0.0 }
-    };
-    out.expect = d.expect(Some(check), already);
+    out.expect = d.expect(check);
     if !secure && read.as_deref().is_some_and(|r| !same_value(r, value)) {
         out.note = "the element reads back a different value".into();
     }
@@ -2223,7 +2181,9 @@ fn pick_closed(
     }
     let title = item.info.title.clone();
     let before = el.value_text();
-    let already = before.as_deref().is_some_and(|b| roles::same_title(b, &title));
+    // The baseline before the press (one already showing the item states
+    // no change).
+    let check = readback::Check::title(el, &title);
     item.el.perform("AXPress").map_err(|e| ax_error(e, &format!("the item {title:?}")))?;
     // Some pop-ups show the item a little after the press.
     let mut after = el.value_text();
@@ -2231,17 +2191,16 @@ fn pick_closed(
         after = el.value_text();
         after != before
     });
-    let confirmed = after.as_deref().is_some_and(|a| roles::same_title(a, &title)) && !already;
+    let confirmed = after.as_deref().is_some_and(|a| roles::same_title(a, &title));
     let mut out = if confirmed {
         ActionOutcome::confirmed("ax_menu_item")
     } else {
         ActionOutcome::delivered("ax_menu_item")
     };
-    if after == before && !confirmed && !already {
+    if after == before && !confirmed {
         out.note = "pressed the item; the pop-up reads back its old value".into();
     }
-    out.expect =
-        d.expect(Some(readback::Check::Title { el: el.clone(), title: title.clone() }), already);
+    out.expect = d.expect(check);
     out.menu = Some(menus::MenuReport::picked(&title, None));
     if let Some(frame) = el.frame() {
         out = out.at(roles::center(&frame));
@@ -2263,16 +2222,15 @@ fn write_attribute(
         )));
     }
     let cf = Cf::boolean(value).ok_or_else(|| DesktopError::Failed("no boolean".into()))?;
-    let already = el.bool(attr) == Some(value);
+    let check = readback::Check::flag(el, attr, value);
     el.set(attr, &cf).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
     let route = format!("ax_set_{}", roles::snake(attr));
-    let mut out = if el.bool(attr) == Some(value) && !already {
+    let mut out = if el.bool(attr) == Some(value) {
         ActionOutcome::confirmed(&route)
     } else {
         ActionOutcome::delivered(&route)
     };
-    let check = readback::Check::Bool { el: el.clone(), attr: attr.to_string(), value };
-    out.expect = d.expect(Some(check), already);
+    out.expect = d.expect(check);
     Ok(out.showing("value"))
 }
 
@@ -2330,7 +2288,7 @@ pub(super) fn perform_action(
         return d.open_and_list(&t, &el, ax_action);
     }
     d.check_menu_item(&t, &el, Delivery::Background)?;
-    let before = el.value_text();
+    let before = el.try_value_text();
     let effects = press_effects(&el, ax_action);
     el.perform(ax_action).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
     let route = if ax_action.starts_with("Name:") {
@@ -2532,6 +2490,10 @@ fn selectable(el: &Ax) -> Option<Ax> {
 /// toward `value` until the next step would pass it. Values may be given as
 /// the element's own number or as a percentage of its range ("25%"). None
 /// when the element cannot step or the value is not a number.
+/// How far a stepped value must move to count as moved (also the
+/// read-back's tolerance, so the two agree).
+const STEP_EPSILON: f64 = 1e-9;
+
 fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome>> {
     let actions = el.actions();
     if !(actions.iter().any(|a| a == "AXIncrement") && actions.iter().any(|a| a == "AXDecrement")) {
@@ -2544,7 +2506,6 @@ fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome
         return Ok(None);
     };
     let Some(target) = roles::step_target(value, min, max) else { return Ok(None) };
-    let already = (target - start).abs() <= 1e-9;
     let mut current = start;
     let mut capped = true;
     for _ in 0..200 {
@@ -2578,17 +2539,18 @@ fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome
         }
     }
     let read = number("AXValue").unwrap_or(current);
-    // Confirmed only when the value moved (the same 1e-9 as `already`).
-    let moved = (read - start).abs() > 1e-9;
-    let mut out = if roles::step_confirmed(capped, read, target, min, max) && !already && moved {
+    // One tolerance for "moved" and for the read-back's change: a stepper
+    // that never moved states no change and is never confirmed.
+    let moved = (read - start).abs() > STEP_EPSILON;
+    let mut out = if roles::step_confirmed(capped, read, target, min, max) && moved {
         ActionOutcome::confirmed("ax_step")
     } else {
         ActionOutcome::delivered("ax_step")
     };
     // Read again after the settle: the value it was stepped to.
     let check =
-        readback::Check::Value { el: el.clone(), wanted: format!("{read}"), tolerance: 1e-9 };
-    out.expect = d.expect(Some(check), already);
+        readback::Check::value_from(el, &format!("{start}"), &format!("{read}"), STEP_EPSILON);
+    out.expect = d.expect(Some(check));
     out = out.showing("value");
     out.note = format!(
         "stepped from {start} to {read} (asked {target}); the element moves in fixed steps"

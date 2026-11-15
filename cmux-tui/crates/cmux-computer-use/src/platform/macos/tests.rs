@@ -2462,16 +2462,6 @@ fn a_slider_tolerance_follows_its_range_and_circular_ones_are_left_alone() {
     assert!(!roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 20.0, height: 120.0 }));
 }
 
-/// A posted press names its window only in the front app: there an
-/// unaddressed left click at TextEdit's window point (12, 94) opened the
-/// Apple menu on macOS 26.6 (truth matrix, foreground scene); in a
-/// background app an addressed press orders its window front.
-#[test]
-fn a_press_is_addressed_only_in_the_front_app() {
-    assert!(roles::address_press(true));
-    assert!(!roles::address_press(false));
-}
-
 /// Review of e75f474 (3, 4, 10): the gate every AX pointer write (caret
 /// click, text drag, scroll, slider) goes through. In the person's front app
 /// nothing is written and the events run; while another session's scope is
@@ -2532,8 +2522,8 @@ fn a_pressed_radio_button_already_on_is_already_done() {
 #[test]
 fn detached_watches_are_capped_per_app() {
     assert!(watch::may_start(0));
-    assert!(watch::may_start(1));
-    assert!(!watch::may_start(2));
+    assert!(watch::may_start(3));
+    assert!(!watch::may_start(4));
 }
 
 /// Both priming defaults are one constant away: with the default off, only
@@ -2614,15 +2604,28 @@ fn the_priming_deny_list_covers_browsers_and_messaging() {
     assert!(!may_prime(PrimeApps::NotDenied, None), "unreadable bundle id");
 }
 
-/// Review of 13dca61 (6, 14): a press names its window only when the target
-/// is both the active app and the keyboard's; unreadable is not front, so an
-/// addressed press never raises a background window; a non-activating panel
-/// holding the keyboard is not the target being front.
+/// Review of e840a32 (6): a posted press is aimed from both readings of the
+/// front app: addressed when both are the target, a background press when
+/// both are another app, and refused (nothing posted) when they disagree or
+/// one is unread, so it can neither open the Apple menu nor raise a window.
 #[test]
-fn a_press_is_addressed_only_when_the_target_is_read_as_front() {
-    assert!(roles::address_press_for(Some(5), Some(5), 5));
-    assert!(!roles::address_press_for(None, Some(5), 5), "active app unread");
-    assert!(!roles::address_press_for(Some(5), None, 5), "keyboard app unread");
-    assert!(!roles::address_press_for(Some(5), Some(9), 5), "a panel has the keyboard");
-    assert!(!roles::address_press_for(Some(9), Some(9), 5));
+fn a_press_with_disagreeing_front_readings_is_not_posted() {
+    use roles::{Aiming, press_aiming};
+    assert_eq!(press_aiming(Some(5), Some(5), 5), Aiming::Addressed);
+    assert_eq!(press_aiming(Some(9), Some(9), 5), Aiming::Unaddressed);
+    assert_eq!(press_aiming(Some(9), Some(7), 5), Aiming::Unaddressed, "a panel over another app");
+    assert_eq!(press_aiming(Some(5), Some(9), 5), Aiming::Refuse, "a panel over the target");
+    assert_eq!(press_aiming(Some(9), Some(5), 5), Aiming::Refuse);
+    assert_eq!(press_aiming(None, Some(9), 5), Aiming::Refuse);
+    assert_eq!(press_aiming(Some(9), None, 5), Aiming::Refuse);
+}
+
+/// Review of e840a32 (4): where one front pid is needed (the scope's
+/// checks), the readings must agree; otherwise none, and the checks fail
+/// closed.
+#[test]
+fn one_front_pid_only_when_the_readings_agree() {
+    assert_eq!(roles::agreed_front(Some(5), Some(5)), Some(5));
+    assert_eq!(roles::agreed_front(Some(5), Some(9)), None);
+    assert_eq!(roles::agreed_front(None, Some(9)), None);
 }

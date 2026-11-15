@@ -115,6 +115,8 @@ pub struct FakeDesktop {
     pub responsive: Mutex<Option<bool>>,
     /// What a confirmed result reads back after the settle.
     pub confirms_on_reread: Mutex<Option<bool>>,
+    /// The read-backs state no change (their wanted state held before).
+    pub unchanged: Mutex<bool>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
 }
@@ -208,6 +210,7 @@ impl FakeDesktop {
             already: Mutex::new(false),
             responsive: Mutex::new(Some(true)),
             confirms_on_reread: Mutex::new(Some(true)),
+            unchanged: Mutex::new(false),
         }
     }
 
@@ -248,15 +251,27 @@ impl FakeDesktop {
     /// A confirmed result whose read-back after the settle answers
     /// [`Self::confirms_on_reread`].
     fn confirmed(&self, route: &str) -> ActionOutcome {
-        let expect = Some(Expect { token: 0, what: "value".into(), already: false });
+        let unchanged = *lock(&self.unchanged);
+        let expect = Some(Expect {
+            token: 0,
+            what: "value".into(),
+            already: false,
+            before: "a".into(),
+            wanted: if unchanged { "a".into() } else { "b".into() },
+        });
         ActionOutcome { expect, ..ActionOutcome::confirmed(route) }
     }
 
     /// A delivered result, showing where [`Self::shows`] says.
     fn delivered(&self) -> ActionOutcome {
         let already = *lock(&self.already);
-        let expect =
-            lock(&self.reads_back).map(|_| Expect { token: 1, what: "text".into(), already });
+        let expect = lock(&self.reads_back).map(|_| Expect {
+            token: 1,
+            what: "text".into(),
+            already,
+            before: "a".into(),
+            wanted: if *lock(&self.unchanged) { "a".into() } else { "b".into() },
+        });
         ActionOutcome {
             shows: lock(&self.shows).clone(),
             expect,

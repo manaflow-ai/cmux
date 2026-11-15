@@ -20,7 +20,7 @@
 //! (macOS 26.6: a left click at window point (12, 94) of TextEdit, and at
 //! (30, 102) of the truth fixture, opened the Apple menu instead of placing
 //! the caret; 27.0.1 dropped it). There is nothing to raise in the front
-//! app, so it is addressed ([`roles::address_press`]). Clicks on controls and list
+//! app, so it is addressed (`super::press_aiming`, read right before the post). Clicks on controls and list
 //! rows go through accessibility instead (`actions::ax_click_at`), which
 //! raises nothing. Foreground delivery posts at the HID tap, except key
 //! chords while an app is denied, which go to the raised target's process
@@ -219,7 +219,7 @@ pub fn click(
 ) -> DResult<()> {
     let route = p.route();
     let src = source()?;
-    let aim = if roles::address_press(front) { Aim::of(route) } else { None };
+    let aim = if front { Aim::of(route) } else { None };
     let paced = matches!(route, Route::Pid { .. });
     let (down, up, _) = button_events(button);
     post_mouse(route, aim, &mouse_event(&src, MOUSE_MOVED, at, Button::Left, flags)?, at);
@@ -246,7 +246,7 @@ pub fn click(
 pub fn drag(p: &Posting, from: Point, to: Point, button: Button, front: bool) -> DResult<()> {
     let route = p.route();
     let src = source()?;
-    let aim = if roles::address_press(front) { Aim::of(route) } else { None };
+    let aim = if front { Aim::of(route) } else { None };
     let (down, up, dragged) = button_events(button);
     post_mouse(route, aim, &mouse_event(&src, MOUSE_MOVED, from, Button::Left, 0)?, from);
     let press = |ty, at| -> DResult<Cf> {
