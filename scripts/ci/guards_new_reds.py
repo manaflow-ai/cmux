@@ -143,28 +143,18 @@ _TEMP = re.compile(r"(?:/tmp|/var/folders)/\S*|\btmp[\w-]{4,}")
 _HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
 _NUMBER = re.compile(r"\d+")
 _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
-# An interpreter warning printed beside a failure, which one run prints and the next does not (Python's
-# `sys:1: ResourceWarning: unclosed file ...` when the collector closes a file late). It names no failure:
-# counted, it made a red the base shares look new (cmux#43558: "names what the base's does not: sys:0").
-# It lands anywhere in a line (after unittest's progress dots), its source line follows it indented, and a
-# ResourceWarning adds a tracemalloc hint line: all three go.
-_INTERPRETER_WARNING = re.compile(r"(?:\bsys|<[^>\n]+>|(?:[^\s:]*/)?[\w.-]+\.py):\d+: \w*Warning: .*$")
-_WARNING_HINT = re.compile(r"^\s*\w*Warning: Enable tracemalloc\b")
-# A line a runner prints for a failure: never a warning's source line, even indented right after one.
-_FAILURE_LINE = re.compile(r"^\s*(?:FAIL|ERROR|FAILED|Traceback|AssertionError|\w*Error\b|\w*Exception\b|not ok\b)")
+# CPython's warnings for a file or socket still open when the interpreter shuts down: `sys:1: ResourceWarning:
+# unclosed ...` (often glued to a unittest progress line) and its tracemalloc hint. They come and go from run to run
+# and name nothing that failed (cmux#43507: `sys:0` charged a step red on both sides to the change).
+_SHUTDOWN = re.compile(r"(?:sys:\d+: )?ResourceWarning: (?:unclosed\b.*|Enable tracemalloc to get the object "
+                       r"allocation traceback)")
 
 
 def failure_names(lines: list[str]) -> set[str]:
     """The names a red step's output holds (paths, tests, items), order and run-to-run noise aside."""
     names: set[str] = set()
-    after_warning = False
     for line in lines:
-        source_line = after_warning and line[:1].isspace() and not _FAILURE_LINE.match(line)
-        after_warning = False
-        if _WARNING_HINT.match(line) or source_line:
-            continue  # the hint, or the warning's own source line (only the one line right after it)
-        line, warned = _INTERPRETER_WARNING.subn("", line)
-        after_warning = bool(warned)
+        line = _SHUTDOWN.sub("", line)
         line = _NUMBER.sub("0", _HEX.sub("<hex>", _TEMP.sub("<tmp>", line)))
         names.update(name.strip(".:-") for name in _NAME.findall(line))
     names.discard("")

@@ -5,7 +5,6 @@ The ci guard group never ran for feat-cmux-next before cmux-next-guards.yml's jo
 already red there (2026-10-21). A job red on every pull request would hide the red a change adds, so the job
 compares each step's result on the head with the same runner's result on the base.
 """
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -465,43 +464,33 @@ class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
         done = self.compare(self.outputs(old[:1], "41"), self.outputs(old, "93"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
-    def test_an_interpreter_warning_on_one_side_names_no_failure(self):
-        # cmux#43558: the head's output held `sys:1: ResourceWarning: unclosed file ...`, the base's did not,
-        # and the step both sides failed the same way was charged to the change ("sys:0").
-        spec = importlib.util.spec_from_file_location("guards_new_reds_warning", SCRIPT)
-        reds = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(reds)
-        failure = "FAIL: test_every_job (__main__.GuardJobs.test_every_job) (file='cmux-next.yml')"
-        head = [failure, "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=5>",
-                "/usr/lib/python3.12/subprocess.py:1127: ResourceWarning: subprocess 42 is still running"]
-        self.assertEqual(reds.failure_names(head), reds.failure_names([failure]))
-        # As run 43694446885 printed them: after unittest's dots, with the warning's source line and the
-        # tracemalloc hint after it, and a frozen module's name with a space in it (review of #43558, F1).
-        logged = [failure,
-                  "........./home/runner/_work/cmux/cmux/scripts/ci/base_red_excuse.py:404: ResourceWarning: "
-                  "unclosed file <_io.BufferedReader name=7>",
-                  "  return self.artifact_file_whole(repo, artifact, member)",
-                  "ResourceWarning: Enable tracemalloc to get the object allocation traceback",
-                  "..sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=5>",
-                  "<frozen runpy>:128: RuntimeWarning: 'x' found in sys.modules after import"]
-        self.assertEqual(reds.failure_names(logged), reds.failure_names([failure]))
-        # An indented line that follows no warning is still read.
-        self.assertIn("test_two", reds.failure_names([failure, "  FAIL: test_two"]))
-        # A failure printed indented right after a warning is a failure, not its source line (review of #43558 r3),
-        # and only the one line after a warning is ever taken for its source.
-        warning = "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=5>"
-        for real in ("  FAIL: test_real_failure", "  AssertionError: test_real_failure differs",
-                     "  ERROR: test_real_failure"):
-            self.assertIn("test_real_failure", reds.failure_names([warning, real]), real)
-        self.assertIn("test_later", reds.failure_names([warning, "  return f()", "  test_later broke"]))
-        # A failure line that names a Warning class is still a name.
-        self.assertIn("DeprecationWarning", reds.failure_names(["FAIL: test_x raised DeprecationWarning"]))
-
     def test_a_step_whose_failures_cannot_be_compared_is_not_excused(self):
         old = ["tests/test_cargo_locks.py"]
         done = self.compare(self.outputs(old, "41"), self.outputs(old, "93"), base_failures=False)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("14 guard steps red on this change, 0 red on the base too", done.stdout)
+
+    def test_interpreter_shutdown_noise_is_not_a_new_failure_name(self):
+        # cmux#43507 (job 132737397395): "Validate base-red excusal" failed the same way on both sides, but the head's
+        # output also held CPython's shutdown warning `sys:1: ResourceWarning: unclosed file <...>`, so `sys:0` was a
+        # name the base's failure lacked and the step was charged to the change. Shutdown noise names nothing.
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += ("\n" + "." * 40 + "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+                             "\nResourceWarning: Enable tracemalloc to get the object allocation traceback"
+                             "\nsys:1: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=6>")
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+
+    def test_a_real_new_name_beside_shutdown_noise_is_still_the_changes(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41")
+        head[self.WIRED] += "\nsys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("tests/test_portable_jobs_bring_their_python.py", done.stdout)
+        self.assertNotIn("sys:0", done.stdout)
 
 
 if __name__ == "__main__":

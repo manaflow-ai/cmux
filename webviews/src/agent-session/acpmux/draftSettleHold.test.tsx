@@ -56,7 +56,7 @@ function harness() {
     advance: (ms: number) =>
       act(() => {
         now += ms;
-        for (const [id, timer] of [...timers]) {
+        for (const [id, timer] of Array.from(timers)) {
           if (timer.at > now) continue;
           timers.delete(id);
           timer.run();
