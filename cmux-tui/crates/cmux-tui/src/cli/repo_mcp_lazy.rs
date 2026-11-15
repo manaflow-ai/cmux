@@ -236,6 +236,18 @@ fn serve_when_whole(
             return say(format!("{program} ended before it answered initialize"));
         };
         let message = serde_json::from_str::<Value>(&line).unwrap_or(Value::Null);
+        // The client's answers wait for the server to be live, so a ping the server sends while
+        // it initializes is answered here, or a server waiting on it would never answer.
+        if let (Some("ping"), Some(id)) =
+            (message.get("method").and_then(Value::as_str), message.get("id"))
+        {
+            if let Some(stdin) =
+                lock(&shared.starting).as_mut().and_then(|child| child.stdin.as_mut())
+            {
+                let _ = writeln!(stdin, "{}", answer(id, json!({}))).and_then(|()| stdin.flush());
+            }
+            continue;
+        }
         if message.get("id").and_then(Value::as_str) != Some(INIT_ID) {
             send_line(out, &line);
             continue;

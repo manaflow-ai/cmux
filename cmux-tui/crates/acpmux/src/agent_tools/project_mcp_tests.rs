@@ -116,6 +116,49 @@ fn a_nested_chat_gets_the_servers_of_each_folder_still_filling() {
     assert_eq!(wrapped["root"]["args"][2], web.to_str().unwrap(), "it starts in the chat's folder");
 }
 
+/// A closer folder's server of another type keeps its name: a parent's stdio server of that name
+/// is not wrapped in its place (it would replace the closer one through `--mcp-config`).
+#[test]
+fn a_closer_server_of_another_type_keeps_its_name() {
+    let world = World::new();
+    let web = world.repo.join("app/web");
+    world.servers(&world.repo, json!({"api": stdio("parent"), "root": stdio("r")}));
+    world.servers(&web, json!({"api": {"type": "http", "url": "https://example.com/mcp"}}));
+    assert_eq!(names(&world.wrapped(&web)), ["root"]);
+}
+
+/// A server a project settings file above the checkout disables is never wrapped.
+#[test]
+fn settings_above_the_checkout_disable_too() {
+    let world = World::new();
+    world.servers(&world.repo, json!({"local": stdio("node"), "kept": stdio("k")}));
+    world.write(
+        &world.top.join(".claude/settings.json"),
+        json!({"disabledMcpjsonServers": ["local"]}),
+    );
+    assert_eq!(names(&world.wrapped(&world.repo)), ["kept"]);
+}
+
+/// With no `CLAUDE_CONFIG_DIR`, the launch profile's `HOME` names a Claude home whose settings
+/// and `.claude.json` count; with one, only that directory does.
+#[test]
+fn the_launch_profiles_home_counts() {
+    let world = World::new();
+    let home = world.top.join("profile-home");
+    let env = BTreeMap::from([("HOME".to_owned(), home.to_string_lossy().into_owned())]);
+    let claude = Claude::of(&env, &world.repo);
+    assert!(claude.settings.contains(&home.join(".claude/settings.json")), "{:?}", claude.settings);
+    assert!(claude.configs.contains(&home.join(".claude.json")), "{:?}", claude.configs);
+    let dir = world.top.join("config-dir");
+    let env = BTreeMap::from([
+        ("HOME".to_owned(), home.to_string_lossy().into_owned()),
+        ("CLAUDE_CONFIG_DIR".to_owned(), dir.to_string_lossy().into_owned()),
+    ]);
+    let claude = Claude::of(&env, &world.repo);
+    assert!(claude.settings.contains(&dir.join("settings.json")));
+    assert!(!claude.settings.contains(&home.join(".claude/settings.json")));
+}
+
 /// A chat folder reached through a link counts as the folder it names, as Claude resolves it:
 /// its parents are the repository's, so the root's servers are wrapped, DIR is the real folder,
 /// and `projects` keys are the real paths.

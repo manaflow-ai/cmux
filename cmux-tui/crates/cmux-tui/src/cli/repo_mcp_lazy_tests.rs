@@ -223,3 +223,31 @@ fn a_lower_version_or_instructions_are_noted() {
     assert!(notes[0].contains("2024-11-05"));
     assert!(notes[1].contains("instructions"));
 }
+
+/// A server that pings before it answers `initialize` gets its answer from the proxy (the
+/// client's answers wait until it is live), then serves its tools.
+#[test]
+fn a_ping_during_initialize_is_answered() {
+    const PINGS_FIRST: &str = r#"
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([^,}]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":"server-ping","method":"ping"}\n'
+      IFS= read -r pong
+      case "$pong" in *'"id":"server-ping"'*) ;; *) exit 3 ;; esac
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}}}}\n' "$id" ;;
+    *'"method":"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo"}]}}\n' "$id" ;;
+  esac
+done
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().canonicalize().unwrap();
+    let mut client = Client::start_script(&dir, PINGS_FIRST, None);
+    client.initialize();
+    client.ready.send(Ok(())).unwrap();
+    assert_eq!(client.read()["method"], "notifications/tools/list_changed");
+    client.request(1, "tools/list");
+    assert_eq!(client.read()["result"]["tools"][0]["name"], "echo");
+    assert_eq!(client.close(), 0);
+}

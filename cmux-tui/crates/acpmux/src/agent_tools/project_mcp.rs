@@ -35,7 +35,19 @@ pub struct Claude {
 impl Claude {
     /// Claude Code's files for a start with env `env` in `cwd`.
     pub fn of(env: &BTreeMap<String, String>, cwd: &Path) -> Self {
-        let home = crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[env]);
+        // Claude's home: `CLAUDE_CONFIG_DIR`, else `.claude` under the launch's `HOME`. Both the
+        // profile's `HOME` and acpmux's own count: a server either one disables is never wrapped.
+        let mut homes: Vec<PathBuf> =
+            crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[env])
+                .into_iter()
+                .collect();
+        let configured = env.get("CLAUDE_CONFIG_DIR").is_some_and(|dir| !dir.is_empty());
+        if let Some(profile_home) = env.get("HOME").filter(|home| !configured && !home.is_empty()) {
+            let profile = Path::new(profile_home).join(".claude");
+            if !homes.contains(&profile) {
+                homes.push(profile);
+            }
+        }
         let managed_dir = if cfg!(target_os = "macos") {
             Path::new("/Library/Application Support/ClaudeCode")
         } else {
@@ -44,7 +56,7 @@ impl Claude {
         let managed = vec![managed_dir.join("managed-settings.json")];
         let mut configs = Vec::new();
         let mut settings = managed.clone();
-        if let Some(home) = home {
+        for home in homes {
             // `~/.claude.json` beside the default home, else `$CLAUDE_CONFIG_DIR/.claude.json`.
             configs.push(home.join(".claude.json"));
             if home.file_name().is_some_and(|name| name == ".claude")
@@ -82,9 +94,9 @@ pub fn wrapped(
     let settings: Vec<Value> = claude.settings.iter().filter_map(|file| read(file)).collect();
     let managed: Vec<Value> = claude.managed.iter().filter_map(|file| read(file)).collect();
     let mut disabled: BTreeSet<String> = settings.iter().flat_map(disabled_in).collect();
-    // A parent's project settings too, whether Claude reads them in a chat below or not: a
-    // server any of them disables is never wrapped.
-    for folder in &folders {
+    // Every parent's project settings too, also above the checkout, whether Claude reads them in
+    // a chat below or not: a server any of them disables is never wrapped.
+    for folder in cwd.ancestors() {
         for file in ["settings.json", "settings.local.json"] {
             disabled.extend(read(&folder.join(".claude").join(file)).iter().flat_map(disabled_in));
         }
@@ -98,11 +110,14 @@ pub fn wrapped(
             disabled.extend(disabled_in(project));
         }
     }
+    // A name a closer folder declares is its own, whatever its type: a parent's server of the
+    // same name never takes its place.
+    let mut declared = BTreeSet::new();
     for folder in folders {
         let Some(project) = read(&folder.join(".mcp.json")) else { continue };
         let Some(servers) = project.get("mcpServers").and_then(Value::as_object) else { continue };
         for (name, server) in servers {
-            if out.contains_key(name) || disabled.contains(name) {
+            if !declared.insert(name.clone()) || disabled.contains(name) {
                 continue;
             }
             let Some(command) = server.get("command").and_then(Value::as_str) else { continue };
