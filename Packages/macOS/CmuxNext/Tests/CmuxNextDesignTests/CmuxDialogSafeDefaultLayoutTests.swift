@@ -54,6 +54,19 @@ struct CmuxDialogSafeDefaultLayoutTests {
         #expect(pressed == ["keep", "cancel"])
     }
 
+    @Test(arguments: [false, true])
+    func hidingInlineAndKeycapGlyphsKeepsHelpWithoutReservingSpace(_ keycap: Bool) {
+        let button = CmuxDialogButton(id: "discard", title: "Discard", role: .destructive, key: "d")
+        let hidden = CmuxDialogButtonView(button, hint: .command("d"), showsKeyGlyph: false,
+                                          keycap: keycap, target: nil, action: NSSelectorFromString("noop:"))
+        let plain = CmuxDialogButtonView(button, hint: nil, keycap: keycap,
+                                         target: nil, action: NSSelectorFromString("noop:"))
+        #expect(hidden.accessibilityHelp() == "Command-D")
+        #expect(hidden.attributedTitle.string == button.title)
+        #expect(hidden.subviews.allSatisfy { !($0 is CmuxDialogKeycapView) })
+        #expect(hidden.intrinsicContentSize == plain.intrinsicContentSize)
+    }
+
     /// A quiet destructive title reads at 4.5:1 on the card, light and dark, in every state.
     @Test func aQuietDestructiveTitleReadsOnTheCard() {
         for input in [ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F)),

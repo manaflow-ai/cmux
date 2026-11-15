@@ -195,7 +195,8 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             for view in fieldViews(field, width: contentWidth) { body.addArrangedSubview(view) }
         }
         for button in spec.buttons {
-            buttonViews.append(CmuxDialogButtonView(button, hint: dialog.hint(for: button), quiet: safeDefault && button.role == .destructive,
+            buttonViews.append(CmuxDialogButtonView(button, hint: dialog.hint(for: button), showsKeyGlyph: !safeDefault,
+                                                    quiet: safeDefault && button.role == .destructive,
                                                     keycap: true, target: self, action: #selector(pressed(_:))))
         }
         let main = buttonViews.filter { !$0.isQuiet }

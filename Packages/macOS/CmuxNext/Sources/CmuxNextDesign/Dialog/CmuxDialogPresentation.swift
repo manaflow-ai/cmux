@@ -105,9 +105,9 @@ public final class CmuxDialogPresentation {
         return true
     }
 
-    /// The key that presses `button`, as the card shows it; nil when none does or the layout draws no key glyphs.
+    /// The key that presses `button`, including when the card hides its glyph.
     public func hint(for button: CmuxDialogButton) -> CmuxDialogKeyHint? {
-        spec.layout == .safeDefault ? nil : CmuxDialogKeys.hint(for: button, in: spec)
+        CmuxDialogKeys.hint(for: button, in: spec)
     }
 
     static func key(_ event: NSEvent) -> CmuxDialogKeys.Key? {

@@ -7,8 +7,10 @@ public import AppKit
 @MainActor
 public final class CmuxDialogButtonView: ClickableButton {
     public private(set) var button: CmuxDialogButton
-    /// The key that presses this button, drawn after its title (u2647); nil draws none.
+    /// The key that presses this button, also exposed to VoiceOver when its glyph is hidden.
     public let keyHint: CmuxDialogKeyHint?
+    /// Whether the key is drawn inline or on a keycap; accessibility help always keeps it.
+    public let showsKeyGlyph: Bool
     /// Drawn as text with no fill at rest (``CmuxDialogButtonLook`` `quiet`): a destructive choice in a
     /// ``CmuxDialogSpec/Layout/safeDefault`` dialog.
     public let isQuiet: Bool
@@ -31,12 +33,14 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// answers it (the overlay page's dialog through ``CmuxDialogKeys``), so pass the hint that
     /// ``CmuxDialogKeys/hint(for:in:)`` gives for the host's spec. `keycap` draws the hint on a plate at the
     /// button's trailing end (the cmux dialog card, ``CmuxDialogView``), on a taller, rounder button.
-    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, keycap: Bool = false,
+    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, showsKeyGlyph: Bool = true,
+                quiet: Bool = false, keycap: Bool = false,
                 target: AnyObject?, action: Selector) {
         self.button = button
         keyHint = hint
+        self.showsKeyGlyph = showsKeyGlyph
         isQuiet = quiet
-        keycapView = keycap ? hint.map { CmuxDialogKeycapView($0.glyph) } : nil
+        keycapView = keycap && showsKeyGlyph ? hint.map { CmuxDialogKeycapView($0.glyph) } : nil
         super.init(frame: .zero)
         if let keycapView {
             keycapView.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.keycap.\(button.id)")
@@ -226,7 +230,8 @@ public final class CmuxDialogButtonView: ClickableButton {
                 needsLayout = true
                 return
             }
-            attributedTitle = keyHint?.attributedTitle(button.title, font: font, color: look.title.nsColor, hintColor: look.keyHint.nsColor)
+            let visibleHint = showsKeyGlyph ? keyHint : nil
+            attributedTitle = visibleHint?.attributedTitle(button.title, font: font, color: look.title.nsColor, hintColor: look.keyHint.nsColor)
                 ?? NSAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
         }
         invalidateIntrinsicContentSize()
