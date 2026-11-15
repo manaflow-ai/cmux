@@ -15139,7 +15139,8 @@ export class AcpmuxDirectClient {
     }
     this.historyExhausted = !more || (this.firstSeq ?? 1) <= 1;
     if (this.historyExhausted) this.emit("history");
-    this.readOlderAhead(pagingEpoch);
+    // EXPERIMENT B: no read-ahead
+    void this.readOlderAhead;
   }
 
   /// Pages older turns in from the chat's Claude Code transcript, past the newest page its log was
