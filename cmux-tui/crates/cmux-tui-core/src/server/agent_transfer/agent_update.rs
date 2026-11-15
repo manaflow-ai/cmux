@@ -349,14 +349,16 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
 
 /// What [`list_threads`] read: its counts, and how many summaries its walk read (a bounded-away
 /// one counted once, its row by key not again), which a gate checks to prove the read did its work.
-pub(super) struct ListRead {
-    pub(super) live: usize,
-    pub(super) running: usize,
-    pub(super) rows: usize,
+struct ListRead {
+    live: usize,
+    running: usize,
+    // Read by the gate only (`list_tests`): the plan needs the counts.
+    #[cfg_attr(not(test), allow(dead_code))]
+    rows: usize,
 }
 
 /// [`list_threads`], with the rows it read.
-pub(super) fn list_read(link: &AcpmuxLink, socket: &Path) -> Result<Option<ListRead>, Failure> {
+fn list_read(link: &AcpmuxLink, socket: &Path) -> Result<Option<ListRead>, Failure> {
     use crate::server::agent_session_attach::agent_session_link::list_source::{
         self, Opened, bounded_away, extras, v1_status,
     };
