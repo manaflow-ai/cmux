@@ -82,6 +82,9 @@ public struct ComposerDictationTextMerger: Sendable {
 
     private var phrases: [Phrase] = []
 
+    private static let punctuation = CharacterSet.punctuationCharacters
+    private static let whitespace = CharacterSet.whitespacesAndNewlines
+
     /// Reset speech history when starting a new recording.
     public mutating func reset() {
         phrases.removeAll(keepingCapacity: true)
@@ -94,7 +97,7 @@ public struct ComposerDictationTextMerger: Sendable {
         isUtteranceFinal: Bool = false
     ) -> String {
         guard !transcript.allSatisfy(\.isWhitespace) else {
-            return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+            return merged(base: base, transcript: joinedPhrases())
         }
         let validTiming = startTime.map { $0.isFinite && $0 >= 0 } == true
             && endTime.map { $0.isFinite && $0 > (startTime ?? 0) } == true
@@ -116,7 +119,57 @@ public struct ComposerDictationTextMerger: Sendable {
             endTime: validTiming ? endTime : nil,
             isFinal: isUtteranceFinal
         ))
-        return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+        return merged(base: base, transcript: joinedPhrases())
+    }
+
+    /// Speech resets can split one dictated sentence into several timed
+    /// phrases. Join word-based scripts with a space, while preserving the
+    /// natural no-space boundary used by Chinese and Japanese text.
+    private func joinedPhrases() -> String {
+        phrases.reduce(into: "") { result, phrase in
+            guard !result.isEmpty else {
+                result = phrase.text
+                return
+            }
+            result += Self.separator(between: result, and: phrase.text)
+            result += phrase.text
+        }
+    }
+
+    private static func separator(between left: String, and right: String) -> String {
+        guard let first = firstNonWhitespaceScalar(in: right) else { return "" }
+        // Never put a synthetic space before punctuation, even when Speech
+        // reports it as the start of a new phrase.
+        if punctuation.contains(first) { return "" }
+
+        guard let leftEdge = meaningfulEdgeScalar(in: left, fromStart: false),
+              let rightEdge = meaningfulEdgeScalar(in: right, fromStart: true) else {
+            return " "
+        }
+        return isCJK(leftEdge) && isCJK(rightEdge) ? "" : " "
+    }
+
+    private static func firstNonWhitespaceScalar(in text: String) -> Unicode.Scalar? {
+        text.unicodeScalars.first { !whitespace.contains($0) }
+    }
+
+    private static func meaningfulEdgeScalar(in text: String, fromStart: Bool) -> Unicode.Scalar? {
+        let scalars = fromStart ? Array(text.unicodeScalars) : Array(text.unicodeScalars.reversed())
+        return scalars.first { !whitespace.contains($0) && !punctuation.contains($0) }
+    }
+
+    private static func isCJK(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x3040...0x30FF, // Hiragana and Katakana
+             0x31A0...0x31FF, // Bopomofo and Katakana extensions
+             0x3400...0x4DBF, // CJK Unified Ideographs Extension A
+             0x4E00...0x9FFF, // CJK Unified Ideographs
+             0xF900...0xFAFF, // CJK Compatibility Ideographs
+             0x20000...0x2FA1F: // CJK Extensions B through I
+            return true
+        default:
+            return false
+        }
     }
 
     /// Creates a merger.
@@ -148,6 +201,7 @@ public struct ComposerDictationTextMerger: Sendable {
         if let last = base.last, last.isWhitespace {
             return base + trimmedTranscript
         }
-        return base + " " + trimmedTranscript
+        let transcript = String(trimmedTranscript)
+        return base + Self.separator(between: base, and: transcript) + transcript
     }
 }

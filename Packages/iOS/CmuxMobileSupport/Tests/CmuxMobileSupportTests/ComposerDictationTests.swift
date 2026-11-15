@@ -51,6 +51,33 @@ import Testing
         #expect(textMerger.merged(base: "", transcript: "") == "")
     }
 
+    @Test func cjkPhraseResetPreservesNaturalChineseBoundary() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "今天天气很好。", startTime: 0, endTime: 2)
+        #expect(
+            merger.merged(base: "", transcript: "我们去公园吧", startTime: 3, endTime: 5)
+                == "今天天气很好。我们去公园吧"
+        )
+    }
+
+    @Test func cjkPhraseResetPreservesNaturalJapaneseBoundary() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "今日は晴れです。", startTime: 0, endTime: 2)
+        #expect(
+            merger.merged(base: "", transcript: "公園に行きます", startTime: 3, endTime: 5)
+                == "今日は晴れです。公園に行きます"
+        )
+    }
+
+    @Test func phraseResetRetainsEnglishWordSeparation() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "hello", startTime: 0, endTime: 1)
+        #expect(
+            merger.merged(base: "", transcript: "world", startTime: 2, endTime: 3)
+                == "hello world"
+        )
+    }
+
     @Test func transcriptResetAfterPauseKeepsEarlierSentences() {
         var merger = ComposerDictationTextMerger()
         let base = "Notes:\n"
