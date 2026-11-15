@@ -35,6 +35,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -42,6 +43,9 @@ HERE = Path(__file__).resolve().parent
 SMOKE_PATH = HERE.parent / "ci" / "fresh_home_launch_smoke.py"
 ARMS = ("fresh-copy", "same-copy", "warm")
 PHASE_KEYS = ("main_start", "first_window_frame_committed", "home.first_page", "reveal.home")
+# The sample's span (start_sample): from the first window frame (about 2.2 s after spawn on a fleet Mac) through the
+# wait for the Chief owner that Home's first page needs (home.chief_owner_ready about 4.1 s).
+SAMPLE_AT, SAMPLE_SECONDS = 2.2, 2
 
 
 def load_smoke():
@@ -115,8 +119,38 @@ def repeated_marks(path: Path) -> list[list]:
     return sorted(([name, times] for name, times in seen.items() if len(times) > 1), key=lambda item: item[1][0])
 
 
-def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, seconds: float, name: str) -> dict:
-    """One launch of APP from HOME_ROOT/h (the smoke's fresh_env), watched until Home rendered and SECONDS passed."""
+def start_sample(pid: int, path: Path) -> threading.Thread:
+    """`sample` of the app from SAMPLE_AT to SAMPLE_AT + SAMPLE_SECONDS after its spawn, through `sudo -n` (a hardened
+    app takes no task port from its own user), on a thread so the watch goes on. No passwordless sudo: no sample."""
+    spawned = time.monotonic()
+
+    def run() -> None:
+        time.sleep(max(0.0, SAMPLE_AT - (time.monotonic() - spawned)))
+        try:
+            subprocess.run(["sudo", "-n", "/usr/bin/sample", str(pid), str(SAMPLE_SECONDS), "1", "-mayDie", "-file", str(path)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=SAMPLE_SECONDS + 25)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread
+
+
+def main_thread_summary(path: Path, lines: int = 120) -> list[str]:
+    """The main thread's call graph from a sample report, its first LINES lines (the heaviest frames first)."""
+    try:
+        text = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    start = next((i for i, line in enumerate(text) if "Thread_" in line and ("main-thread" in line or "DispatchQueue_1" in line)), None)
+    return [] if start is None else [line.rstrip() for line in text[start:start + lines]]
+
+
+def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, seconds: float, name: str,
+           sample: bool = False) -> dict:
+    """One launch of APP from HOME_ROOT/h (the smoke's fresh_env), watched until Home rendered and SECONDS passed.
+    SAMPLE: also `sample` it over the span where Home waits (start_sample) and keep its main thread's call graph."""
     socket_path, marks_path = home_root / f"{name}.sock", home_root / f"marks-{name}"
     marks_read, marks_write = os.pipe()
     try:
@@ -129,16 +163,20 @@ def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, secon
                                            stderr=subprocess.STDOUT, pass_fds=(marks_write,), start_new_session=True)
         finally:
             os.close(marks_write)
+        sampler = start_sample(process.pid, home_root / f"sample-{name}.txt") if sample else None
         try:
             seen = smoke.watch(process, marks_read, marks_path, socket_path, seconds, max(seconds, 90.0))
         finally:
+            if sampler is not None:
+                sampler.join(timeout=30)
             smoke.stop_child(process)
             smoke.stop(smoke.own_pids(root))
     finally:
         os.close(marks_read)
     marks = dict(sorted(smoke.read_marks(marks_path).items(), key=lambda kv: kv[1]))
     return {"exit": seen["exit"], "rendered_at": seen["rendered_at"], "host": seen["host"],
-            "phases": phases(marks, seen["rendered_at"]), "marks": marks, "repeats": repeated_marks(marks_path)}
+            "phases": phases(marks, seen["rendered_at"]), "marks": marks, "repeats": repeated_marks(marks_path),
+            "sample_main": main_thread_summary(home_root / f"sample-{name}.txt", 200) if sample else None}
 
 
 def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: float, index: int,
@@ -156,9 +194,9 @@ def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds:
         first.mkdir()
         second.mkdir()
         with smoke.DefaultsAside(bundle_id, root):
-            rows.append({"arm": "fresh-copy", **launch(smoke, root, app, executable, first, seconds, "fresh")})
+            rows.append({"arm": "fresh-copy", **launch(smoke, root, app, executable, first, seconds, "fresh", sample=index == 1)})
         with smoke.DefaultsAside(bundle_id, root):
-            rows.append({"arm": "same-copy", **launch(smoke, root, app, executable, second, seconds, "same")})
+            rows.append({"arm": "same-copy", **launch(smoke, root, app, executable, second, seconds, "same", sample=index == 1)})
             rows.append({"arm": "warm", **launch(smoke, root, app, executable, second, seconds, "warm")})
         for row in rows:
             row["round"] = index
@@ -166,6 +204,8 @@ def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds:
                   flush=True)
             print("NFL-MARKS", index, row["arm"], json.dumps(row["marks"]), flush=True)
             print("NFL-REPEATS", index, row["arm"], json.dumps(row["repeats"]), flush=True)
+            for line in row.get("sample_main") or []:
+                print("NFL-SAMPLE", index, row["arm"], line, flush=True)
     finally:
         smoke.stop(smoke.own_pids(root))
         shutil.rmtree(root, ignore_errors=True)
