@@ -2,15 +2,10 @@
 import Foundation
 import Testing
 
-/// ``CloudCarrierServe`` driving the REAL `cmux-tui carrier supervise` (the same-tree build the suite runner
-/// fetches, `CMUX_NEXT_TUI_TREE_PATH`, or `CMUX_NEXT_TUI_BIN`), with an environment the way the app builds it:
-/// the token read hops to the main actor, and the token is a JWT the size of a real access token. The shell
-/// stand-in of ``CloudCarrierServeEdgeTests`` answers its own token reads, so it never showed whether the app's
-/// answer reaches the real supervisor (2026-11-15: every Cloud chat start of the NIGHTLY waited 180 s with the
-/// supervisor holding its lease and no `carrier serve` child).
-@Suite(.enabled(if: CloudCarrierSuperviseRealTests.binary != nil, "needs the same-tree cmux-tui"), .serialized, .timeLimit(.minutes(2)))
-struct CloudCarrierSuperviseRealTests {
-    static let binary: URL? = {
+/// The same-tree `cmux-tui` the suite drives, if the runner provides one. Outside the suite: a suite's own
+/// static in its `@Suite` trait is a circular macro reference.
+enum SuperviseBinary {
+    static let url: URL? = {
         let environment = ProcessInfo.processInfo.environment
         for key in ["CMUX_NEXT_TUI_BIN", "CMUX_NEXT_TUI_TREE_PATH"] {
             if let path = environment[key], !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) {
@@ -19,7 +14,16 @@ struct CloudCarrierSuperviseRealTests {
         }
         return nil
     }()
+}
 
+/// ``CloudCarrierServe`` driving the REAL `cmux-tui carrier supervise` (the same-tree build the suite runner
+/// fetches, `CMUX_NEXT_TUI_TREE_PATH`, or `CMUX_NEXT_TUI_BIN`), with an environment the way the app builds it:
+/// the token read hops to the main actor, and the token is a JWT the size of a real access token. The shell
+/// stand-in of ``CloudCarrierServeEdgeTests`` answers its own token reads, so it never showed whether the app's
+/// answer reaches the real supervisor (2026-11-15: every Cloud chat start of the NIGHTLY waited 180 s with the
+/// supervisor holding its lease and no `carrier serve` child).
+@Suite(.enabled(if: SuperviseBinary.url != nil, "needs the same-tree cmux-tui"), .serialized, .timeLimit(.minutes(2)))
+struct CloudCarrierSuperviseRealTests {
     /// A `cmux-link-<12 hex>.sock` in this user's private temporary folder, as ``CloudPaths/linkSocket(machineID:)``.
     static func socket() -> String {
         let hex = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12)
@@ -41,7 +45,7 @@ struct CloudCarrierSuperviseRealTests {
     /// The app's connector environment: a main-actor hop (CloudAuth is main-actor), then the dial environment.
     static func connector(machine: String = "vm_0123456789abcdef0123", state: URL,
                           read: @escaping @Sendable () async throws -> Void = {}) throws -> CloudCarrierDial.Connector {
-        let cli = try #require(binary)
+        let cli = try #require(SuperviseBinary.url)
         let token = accessToken()
         return CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: machine, service: .mux))) {
             let team = await MainActor.run { "team_test" }
