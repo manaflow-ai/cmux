@@ -1273,6 +1273,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
  "cmux-json",
@@ -1347,6 +1348,7 @@ dependencies = [
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
+ "cmux-build-space",
  "reqwest",
  "rustls",
  "serde",
@@ -2360,6 +2362,7 @@ dependencies = [
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
  "cmux-browser-import",
+ "cmux-build-space",
  "cmux-classic-import",
  "cmux-cloud-api",
  "cmux-conductor-import",

@@ -511,7 +511,10 @@ impl Platform {
             .enable_all()
             .build()
             .map_err(|e| internal(&e))?;
+        let space =
+            cmux_build_space::headers().map_err(|e| Failure::new("build_space", e.to_string()))?;
         let client = reqwest::Client::builder()
+            .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()

@@ -305,6 +305,12 @@ fn app_error(code: &str) -> RpcError {
             "github.app_token",
             "cmux could not get a GitHub token: the token cmux Cloud sent is not for this repository",
         ),
+        "build_space" => (
+            "build_space",
+            -32045,
+            "github.app_token",
+            "cmux could not get a GitHub token: this dev build was started without its build space (CMUX_BUILD_SPACE), so it asks cmux Cloud nothing",
+        ),
         _ => ("unknown", -32045, "github.app_token", "cmux could not get a GitHub token"),
     };
     let mut data = json!({"reason": reason, "code": code});
@@ -363,10 +369,15 @@ async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
 async fn mint_in(
     lent: &Lent,
     r: &GithubActionParams,
-    _space: cmux_build_space::Resolved,
+    space: cmux_build_space::Resolved,
 ) -> Result<String, RpcError> {
+    let space = space.map_err(|e| {
+        tracing::warn!("github app token: {e}");
+        app_error("build_space")
+    })?;
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers_for(space.as_ref()))
         .redirect(reqwest::redirect::Policy::none())
         .timeout(MINT_TIMEOUT)
         .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))

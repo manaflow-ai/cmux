@@ -53,6 +53,9 @@ pub(crate) struct RemoteCloudBackend {
     /// Attachment slot and signed URLs: never follows a redirect (the URL
     /// the daemon checked is the one it talks to).
     files: reqwest::Client,
+    /// The build space every request and socket upgrade carries (both
+    /// clients send it as a default header; [`Self::handshake`] adds it).
+    space: Option<cmux_build_space::BuildSpace>,
 }
 
 impl RemoteCloudBackend {
@@ -63,7 +66,9 @@ impl RemoteCloudBackend {
 
     /// The transport for `space`: a dev build's sends `x-cmux-build-space` on
     /// every request and socket upgrade; an unusable space builds none.
-    pub(crate) fn in_space(_space: cmux_build_space::Resolved) -> anyhow::Result<Self> {
+    pub(crate) fn in_space(space: cmux_build_space::Resolved) -> anyhow::Result<Self> {
+        let space = space?;
+        let headers = cmux_build_space::headers_for(space.as_ref());
         // reqwest's rustls-no-provider build and tokio-tungstenite's rustls
         // need the workspace's ring provider installed once per process.
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -73,16 +78,18 @@ impl RemoteCloudBackend {
             .enable_all()
             .build()?;
         let http = reqwest::Client::builder()
+            .default_headers(headers.clone())
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
         let files = reqwest::Client::builder()
+            .default_headers(headers)
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Self { runtime, http, files })
+        Ok(Self { runtime, http, files, space })
     }
 }
 
@@ -424,6 +431,7 @@ impl RemoteCloudBackend {
         request
             .headers_mut()
             .insert("sec-websocket-protocol", HeaderValue::from_static("cmux.wire.v1"));
+        cmux_build_space::insert_space(request.headers_mut(), self.space.as_ref());
         if let Some(version) =
             client_version.and_then(|version| HeaderValue::from_str(version).ok())
         {

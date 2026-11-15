@@ -167,7 +167,11 @@ impl Http {
     pub fn new(request: &Request) -> Result<Self, Failure> {
         let base = base_url(&request.api).map_err(Failure::Transport)?;
         let _ = rustls::crypto::ring::default_provider().install_default();
+        // A dev build's space on every request (`x-cmux-build-space`); a dev build
+        // without a usable one calls nothing rather than nightly's backend.
+        let space = cmux_build_space::headers().map_err(|e| Failure::Transport(e.to_string()))?;
         let client = reqwest::Client::builder()
+            .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -222,8 +226,9 @@ impl Http {
                 }
             }
             // RULE (cx-kvmz, hq-84): Authorization, Content-Type, Content-Length and x-cmux-team
-            // only. The Worker's invocation log records every other header and the URL, so no
-            // other header, no query and no path part that could hold a key is ever added.
+            // only, plus the client's x-cmux-build-space (a dev build's tag, no secret). The
+            // Worker's invocation log records every other header and the URL, so no other
+            // header, no query and no path part that could hold a key is ever added.
             Auth::Owner | Auth::Worker => {
                 if let Some(team) = &self.team {
                     builder = builder.header(crate::session::TEAM_HEADER, team);

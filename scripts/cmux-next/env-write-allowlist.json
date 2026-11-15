@@ -2,7 +2,8 @@
  "_comment": "Process environment writes allowed in Packages/macOS/CmuxNext/Sources (crash_ratchet.py env_write). Each entry: path -> call -> count, with the reason. Only writes in main before any thread starts and before ghostty_init qualify: libghostty keeps a slice of environ from ghostty_init, and a later setenv/unsetenv crashed it (cx-9dh7). Every allowed write runs inside ProcessEnvironmentGuard.write (CmuxNextProcessEnvironment), which skips it, logs a fault once, and stops a debug build when it comes after ProcessEnvironmentGuard.freeze(). Pass values to a child in its spawn environment instead.",
  "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift": {
   "unsetenv": 1,
-  "reason": "stripInheritedEnvironment, inside ProcessEnvironmentGuard.write: the first step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread, the guard's freeze, and ghostty_init; drops cmux variables inherited from another cmux."
+  "setenv": 1,
+  "reason": "stripInheritedEnvironment, inside ProcessEnvironmentGuard.write: the first step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread, the guard's freeze, and ghostty_init; drops cmux variables inherited from another cmux, then sets this build's own CMUX_BUILD_SPACE (a tagged dev build only), so every Rust child that inherits the app's environment sends the build's X-Cmux-Build-Space."
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/LaunchMarkSink.swift": {
   "unsetenv": 1,
