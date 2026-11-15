@@ -397,7 +397,9 @@ class Workflow(unittest.TestCase):
                       "a failed jobs read (a rate limit that outlasted the lookup) falls back to the decide step's start")
         self.assertEqual(capture["env"]["DECIDE_STARTED"], "${{ steps.hybrid-ref.outputs.started }}")
         self.assertIn("hybrid_ref_capture.py have --key", decide["run"], "the lookup that retries a rate limit")
-        self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
+        self.assertEqual(upload["with"]["retention-days"], 7,
+                         "the org's 7-day artifact bound (test_ci_upload_artifact_retention.py); the lookup counts"
+                         " only unexpired manifests, so a key captures again after 7 days")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])
         self.assertIn("steps.compile-cmux-next-dev-release.outcome == 'success'", capture["if"])
