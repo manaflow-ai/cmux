@@ -236,46 +236,77 @@ def landed(target):
     return at, bool(at and abs(at[0] - target[0]) < 2 and abs(at[1] - target[1]) < 2)
 
 
+def app_saw(move, route):
+    """Whether the app got the moves `move` (screen point -> None) makes onto a sidebar row: the list hovers the row,
+    or the hover coordinator counts an event or names a hit. A pointer that lands without one was warped
+    (CuaDriver's move_cursor sends no mouse-moved event: on cmux20-bench, 2026-11-15, step b13acff317b8d8977670a944,
+    the pointer sat on each row and `events` never changed), and a bench on it measures nothing. None when no row is
+    there to tell. Each check's readings go to the report's `route_checks`."""
+    found = wait(lambda: rows() or None, 5)
+    if not found:
+        return None
+    key, point, frame = found[0]
+    before = cards()
+    move(to_screen([frame[0] + frame[2] + 260, point[1]]))
+    move(to_screen(point))
+    seen = wait(lambda: (lambda c: c.get("events") != before.get("events") or c.get("last_hit", "-") != "-"
+                         or c.get("pending_target", "-") != "-")(cards()), 1.5)
+    hovered = row_hovered(key)
+    after = cards()
+    REPORT.setdefault("route_checks", []).append({
+        "route": route, "row": key, "row_hovered": hovered, "pointer": where(),
+        "events": [before.get("events"), after.get("events")], "last_hit": after.get("last_hit"),
+        "app_active": (rpc("debug.focus") or {}).get("app_active")})
+    move(to_screen([frame[0] + frame[2] + 260, point[1]]))  # off the row again: the first sample starts cold
+    return bool(seen) or bool(hovered)
+
+
 def real_input_works():
     """Picks the first real pointer route that moves the pointer (read back with pointer-probe where, which needs
-    no grant) and returns None; else why each route failed."""
+    no grant) and whose moves the app sees, and returns None; else why each route failed."""
     global ROUTE, CUA, CUA_SCALE
     f = (main_window() or {}).get("frame") or {}
     target = to_screen([f.get("width", 800) * 0.6, f.get("height", 600) * 0.5])
     run = subprocess.run([PROBE, "move", str(target[0]), str(target[1])], capture_output=True, text=True, timeout=20)
     at, ok = landed(target)
-    if ok:
+    if ok and app_saw(lambda p: probe("move", p[0], p[1]), "posted") is not False:
         ROUTE = "posted"
         return None
     why = [f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
-           f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}"]
+           f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}" + (", the app saw no move" if ok else "")]
     if not CUA_PATH:
         return "; ".join(why + [f"no cua-driver at {' or '.join(CUA_CANDIDATES)}"])
     try:
-        CUA = Cua(CUA_PATH)
+        CUA = CUA or Cua(CUA_PATH)
         CUA_SCALE = float(CUA.call("get_screen_size", {}).get("scale_factor") or 1.0)
         # Off the target first, so a pointer already there does not pass the check.
         cua_move(target[0] - 40, target[1])
         cua_move(target[0], target[1])
         at, ok = landed(target)
-        if ok:
+        if ok and app_saw(lambda p: cua_move(*p), "cua") is not False:
             ROUTE = "cua"
             return None
-        why.append(f"cua-driver move_cursor {target[0]:.0f} {target[1]:.0f} (scale {CUA_SCALE:g}): "
-                   f"pointer after {at}")
+        why.append(f"cua-driver move_cursor {target[0]:.0f} {target[1]:.0f} (scale {CUA_SCALE:g}): pointer after {at}"
+                   + (", the app saw no move (a warp sends no mouse-moved event)" if ok else ""))
     except (OSError, RuntimeError, ValueError) as error:
         why.append(f"cua-driver at {CUA_PATH}: {error}")
     return "; ".join(why)
 
 
 def activate():
+    global CUA
     if (rpc("debug.focus") or {}).get("app_active"):
         return True
-    if CUA_PATH:
-        done = subprocess.run([CUA_PATH, "call", "bring_to_front", json.dumps({"pid": APP_PID})], capture_output=True,
-                              text=True, timeout=60)
-        if done.returncode and not REPORT.get("activate_error"):
-            REPORT["activate_error"] = f"exit {done.returncode}: {(done.stderr or done.stdout).strip()[-300:]}"
+    try:
+        # Through a `cua-driver mcp` session, which starts its daemon when none answers: `cua-driver call` looks for
+        # the daemon's socket under HOME, and a fleet step's own HOME has none ("Cua Driver daemon is not running",
+        # step b13acff317b8d8977670a944).
+        if CUA is None and CUA_PATH:
+            CUA = CUA or Cua(CUA_PATH)
+        if CUA is not None:
+            CUA.call("bring_to_front", {"pid": APP_PID})
+    except (OSError, RuntimeError) as error:
+        REPORT.setdefault("activate_error", str(error)[-300:])
     return bool(wait(lambda: (rpc("debug.focus") or {}).get("app_active"), 3))
 
 
@@ -285,30 +316,57 @@ def pct(values, q):
 
 
 # --- one sample -----------------------------------------------------------------------------------
+def row_hovered(key):
+    """The sidebar's own hover state of row `key` (debug.sidebar_rows "hovered"): whether the list's tracking area
+    got the pointer, apart from the hover card coordinator. None when the row is not listed."""
+    for row in ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []:
+        if row.get("key") == key:
+            return row.get("hovered")
+    return None
+
+
+def row_target(key):
+    """The card target id of row `key`: "workspace(ID)" is shown as "ws:ID"."""
+    return "ws:" + key[key.find("(") + 1:-1] if key.startswith("workspace(") else key
+
+
 def sample(count, index, key, point, frame):
     off = [frame[0] + frame[2] + 260, point[1]]  # right of the sidebar, in the content, at the row's height
     move_path(point, off, 3)
-    wait(lambda: cards().get("phase") == "idle", 3)
+    # Cold start: no card open and the coordinator idle, or the sample is not counted (a card already open would
+    # read as shown in a few ms with no pending phase, as the 200 workspace cell did in step b13acff317b8d8977670a944).
+    cold = wait(lambda: (lambda c: c.get("phase") == "idle" and c.get("card_showing") != "true")(cards()), 3)
     time.sleep(0.45)  # test harness: past the quick-reshow window, so the card opens cold
     activate()
     start = [frame[0] + frame[2] + 40, point[1]]
     move_path(off, start, 3)
+    before = cards()
+    cold = bool(cold) and before.get("card_showing") != "true"
     last = move_path(start, point, 6)  # onto the row from its right edge, as a hand comes off the content
     pending = shown = None
     report = {}
     deadline = last + 2.0
-    while time.monotonic() < deadline:  # bounded: 2 s per sample
+    target = row_target(key)
+    while cold and time.monotonic() < deadline:  # bounded: 2 s per sample
         report = cards()
         now = time.monotonic()
-        if pending is None and report.get("pending_target", "-") != "-":
+        if pending is None and report.get("pending_target", "-") == target:
             pending = (now - last) * 1000
-        if report.get("card_showing") == "true" and report.get("shown_target", "-") != "-":
-            shown = (now - last) * 1000
+        if report.get("card_showing") == "true" and report.get("shown_target") == target:
+            shown = (now - last) * 1000  # only this row's card, opened after the sample began cold
             break
         time.sleep(0.005)  # test harness: about one read per frame
+    focus = rpc("debug.focus") or {}
     run = {"workspaces": count, "round": index, "row": key, "pending_ms": pending and round(pending, 1),
-           "shown_ms": shown and round(shown, 1), "target": report.get("shown_target")}
-    if shown is None:
+           "shown_ms": shown and round(shown, 1), "target": report.get("shown_target"),
+           # Where moves stop on a miss: a hovered row with no coordinator hit is the coordinator; a row the list
+           # never hovered is delivery (the window server sent the app no move).
+           "row_hovered": row_hovered(key), "events_delta": None if not report else
+           (int(report.get("events") or 0) - int(before.get("events") or 0)),
+           "active": focus.get("app_active"), "key_window": focus.get("key_window")}
+    if not cold:
+        run["not_cold"] = {k: before.get(k) for k in ("phase", "card_showing", "shown_target")}
+    if shown is None and cold:
         run["miss"] = {k: v for k, v in report.items() if k != "card_text"}
         run["pointer"] = where() if opts.input == "real" else None
         if report.get("last_hit", "-") == "-":
@@ -317,9 +375,10 @@ def sample(count, index, key, point, frame):
             run["row_frame"] = frame
             run["point"] = dict(LAST_POINT) if opts.input == "synthetic" else to_screen(point)
             run["rows_now"] = [(k, f) for k, _, f in rows()][:12]
-    run["active"] = (rpc("debug.focus") or {}).get("app_active")
-    print(f"   {count}w #{index} {key}: active {run['active']} pending {run['pending_ms']} shown {run['shown_ms']}"
-          + (f" MISS {json.dumps(run.get('miss'))[:600]}" if shown is None else "")
+    print(f"   {count}w #{index} {key}: active {run['active']} hovered {run['row_hovered']} events "
+          f"+{run['events_delta']} pending {run['pending_ms']} shown {run['shown_ms']}"
+          + (f" NOT COLD {run['not_cold']}" if not cold else "")
+          + (f" MISS {json.dumps(run.get('miss'))[:600]}" if "miss" in run else "")
           + (f" ROW {run['row_frame']} POINT {json.dumps(run['point'])[:400]} ROWS {json.dumps(run['rows_now'][:4])}"
              if "row_frame" in run else ""), flush=True)
     return run
