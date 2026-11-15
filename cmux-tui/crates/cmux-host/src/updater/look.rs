@@ -29,6 +29,21 @@ use serde_json::Value;
 
 use crate::config::Paths;
 
+/// The image's one pre-ready check, retained across exec and later updater checks.
+/// Versions are content-addressed cmux-tui binaries (SHA256), not profile numbers.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FirstReady {
+    pub image_behind: Option<bool>,
+    pub from_version: Option<String>,
+    pub to_version: Option<String>,
+    pub channel_commit: Option<String>,
+    pub started_at: u64,
+    pub finished_at: u64,
+    pub check_ms: u64,
+    pub update_ms: Option<u64>,
+    pub outcome: String,
+}
+
 /// The updater's last check and its last update run.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Look {
@@ -177,12 +192,22 @@ pub fn seen_of(outcome: &super::role::Outcome) -> Seen {
 /// state plus a pending update's swap (seconds in the pending file, ms
 /// here). None when this machine's updater never checked.
 pub fn report(paths: &Paths) -> Option<Value> {
-    let look = super::load_state(paths).look;
+    let state = super::load_state(paths);
+    let look = state.look;
     let look = match super::load_pending(paths) {
         Some(p) => Some(Look::with_pending(look, &p.commit, p.started_at.saturating_mul(1000))),
         None => look,
     };
-    look.map(|l| l.to_json())
+    look.map(|l| {
+        let mut report = l.to_json();
+        if let (Some(first), Some(map)) = (state.first_ready, report.as_object_mut()) {
+            map.insert(
+                "first_ready".to_owned(),
+                serde_json::to_value(first).unwrap_or(Value::Null),
+            );
+        }
+        report
+    })
 }
 
 /// The same block without its `at`: what makes a report due when it

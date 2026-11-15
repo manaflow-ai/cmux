@@ -187,7 +187,8 @@ cmux_attach_enable_pairing_host() {
 cmux_attach_mac_auth_account() {
   local tag="$1" repo_root="$2" slug status
   slug="$(cmux_attach__slug "$tag")"
-  status="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" auth status --json 2>/dev/null)" \
+  # `cmux whoami --json` (the `auth status` verb is gone): {signed_in, user, team, email}.
+  status="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" whoami --json 2>/dev/null)" \
     || return 1
   AUTH_STATUS="$status" /usr/bin/python3 - <<'PY'
 import json
@@ -197,18 +198,21 @@ try:
     status = json.loads(os.environ["AUTH_STATUS"])
 except (KeyError, TypeError, ValueError):
     raise SystemExit(1)
+# Older bundled CLIs answered auth.status's shape (user: {email}); current ones put email at the top.
 user = status.get("user")
-email = user.get("email") if isinstance(user, dict) else None
+email = status.get("email")
+if not isinstance(email, str) or not email.strip():
+    email = user.get("email") if isinstance(user, dict) else None
 if status.get("signed_in") is not True or not isinstance(email, str) or not email.strip():
     raise SystemExit(1)
 print(email.strip().lower(), end="")
 PY
 }
 
-# Ask the tagged Mac for its authoritative post-bootstrap auth status. The
-# `auth.status` RPC awaits AuthCoordinator bootstrap, which includes session
-# restore and DEBUG auto-login, so this is one lifecycle-owned check rather
-# than a shell polling loop.
+# Ask the tagged Mac which account it is signed in as (`cmux whoami --json`,
+# whose email comes from the app's `auth.status`; its `auth.token` read waits
+# for the session, including DEBUG auto-login), so this is one lifecycle-owned
+# check rather than a shell polling loop.
 cmux_attach_wait_for_mac_auth_account() {
   local tag="$1" repo_root="$2" expected="$3" actual=""
   expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"

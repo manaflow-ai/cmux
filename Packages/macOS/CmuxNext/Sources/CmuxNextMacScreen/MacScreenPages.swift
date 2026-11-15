@@ -58,12 +58,19 @@ public final class MacScreenPages {
             hubChanged(from: oldValue)
         }
     }
+    /// The service-owned capture barrier, available even after sign-out.
+    var captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)?
     /// Whether this build has a usable device hub address: always, unless a
     /// DEV build's `deviceHub.url` override is not valid. The home page says
     /// "sign in" when it does and asks to fix the address when it does not.
     public var hubConfigured: Bool {
         get { hubBox.configured }
         set { hubBox.configured = newValue }
+    }
+    /// Startup failure before a hub exists; cleared only on recovery or a changed account/address.
+    var hubStartupError: String? {
+        get { hubBox.startupError }
+        set { hubBox.startupError = newValue }
     }
     /// The hub as views observe it.
     let hubBox = MacScreenHubBox()
