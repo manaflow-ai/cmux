@@ -45,33 +45,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     }
 
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
-        queue.async { [self] in
-            // A `cancel()` queued before this block (a task cancelled as `oneShot` began) already
-            // finished the connection; connecting now would leak the descriptor and its read source.
-            guard !closed else { return }
-            self.onLine = onLine
-            self.onBytes = nil
-            self.rawMode = false
-            self.rawReadSuspended = false
-            self.onClose = onClose
-            guard let fd = Self.connect(path: path) else { return finish() }
-            descriptor = fd
-            // An impostor server must not get the request (or its token): the
-            // check is on this very connection, before its first byte.
-            if let acceptsServer {
-                let peer = UnixSocketPeer(descriptor: fd)
-                guard let peer, acceptsServer(peer) else {
-                    Self.logger.error("CUA socket \(self.path, privacy: .public): server \(peer?.executablePath ?? "unknown", privacy: .public) is not the signed helper; nothing sent")
-                    return finish()
-                }
-            }
-            let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-            reader.setEventHandler { [weak self] in self?.readable() }
-            reader.setCancelHandler { Darwin.close(fd) }
-            source = reader
-            reader.resume()
-            write(send)
-        }
+        queue.async { [self] in startConnected(send: send, raw: false, onLine: onLine, onBytes: nil, onClose: onClose) }
     }
 
     /// Fails a one-shot request at its deadline.
@@ -92,26 +66,36 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     /// chunks until their pending batch is drained. Existing `start` callers retain line mode.
     public func startBytes(send: Data, onBytes: @escaping @Sendable (Data) -> Void,
                            onClose: @escaping @Sendable () -> Void) {
-        queue.async { [self] in
-            guard !closed else { return }
-            self.onLine = nil
-            self.onBytes = onBytes
-            self.rawMode = true
-            self.rawReadSuspended = false
-            self.onClose = onClose
-            guard let fd = Self.connect(path: path) else { return finish() }
-            descriptor = fd
-            if let acceptsServer {
-                let peer = UnixSocketPeer(descriptor: fd)
-                guard let peer, acceptsServer(peer) else { return finish() }
+        queue.async { [self] in startConnected(send: send, raw: true, onLine: nil, onBytes: onBytes, onClose: onClose) }
+    }
+
+    private func startConnected(send: Data, raw: Bool,
+                                onLine: (@Sendable (Data) -> Void)?,
+                                onBytes: (@Sendable (Data) -> Void)?,
+                                onClose: @escaping @Sendable () -> Void) {
+        // A cancel queued before this block already finished the connection; connecting now would leak the fd.
+        guard !closed else { return }
+        self.onLine = onLine
+        self.onBytes = onBytes
+        self.rawMode = raw
+        self.rawReadSuspended = false
+        self.onClose = onClose
+        guard let fd = Self.connect(path: path) else { return finish() }
+        descriptor = fd
+        // Check the peer on this same descriptor before sending its first byte.
+        if let acceptsServer {
+            let peer = UnixSocketPeer(descriptor: fd)
+            guard let peer, acceptsServer(peer) else {
+                Self.logger.error("CUA socket \(self.path, privacy: .public): server \(peer?.executablePath ?? "unknown", privacy: .public) is not the signed helper; nothing sent")
+                return finish()
             }
-            let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-            reader.setEventHandler { [weak self] in self?.readable() }
-            reader.setCancelHandler { Darwin.close(fd) }
-            source = reader
-            reader.resume()
-            write(send)
         }
+        let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        reader.setEventHandler { [weak self] in self?.readable() }
+        reader.setCancelHandler { Darwin.close(fd) }
+        source = reader
+        reader.resume()
+        write(send)
     }
 
     /// Resumes a raw-byte connection after its consumer has delivered the current batch.
@@ -121,6 +105,25 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             guard rawReadSuspended else { return }
             rawReadSuspended = false
             source?.resume()
+        }
+    }
+
+    /// Hands a raw connection back to the line consumer after a v2 fallback.
+    /// `prefix` is delivered before any bytes read after the handback; no bytes
+    /// are interpreted beyond the existing newline framing.
+    public func handBackToLines(prefix: Data, onLine: @escaping @Sendable (Data) -> Void,
+                                onClose: @escaping @Sendable () -> Void) {
+        queue.async { [self] in
+            guard rawMode, !closed else { return }
+            rawMode = false
+            onBytes = nil
+            self.onLine = onLine
+            self.onClose = onClose
+            if rawReadSuspended {
+                rawReadSuspended = false
+                source?.resume()
+            }
+            consumeLines(prefix)
         }
     }
 
@@ -173,9 +176,13 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             onBytes?(Data(chunk[0..<count]))
             return
         }
+        consumeLines(Data(chunk[0..<count]))
+    }
+
+    private func consumeLines(_ data: Data) {
         // Only the new bytes can hold a newline: the rest was scanned already.
         var scan = buffer.endIndex
-        buffer.append(contentsOf: chunk[0..<count])
+        buffer.append(data)
         // One pass and one removal per chunk: removing each line from the front
         // moved the rest of the buffer once per line (quadratic in a large chunk).
         var start = buffer.startIndex
@@ -246,7 +253,6 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         }
         return fd
     }
-
 
     /// Sends one request line and returns the first reply line, or throws
     /// after `deadline`.
