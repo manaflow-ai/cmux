@@ -242,7 +242,7 @@ impl Hub {
         let url = Url::parse(&format!("{signal_url}{separator}ticket={ticket}"))?;
         // The ticket goes only to this hub.
         let hub = Url::parse(&self.origin)?;
-        if url.host != hub.host || url.tls != hub.tls {
+        if url.host != hub.host || url.tls != hub.tls || url.port != hub.port {
             return Err(format!("the ticket's signal URL is not on {}", self.origin).into());
         }
         let headers = self.device_headers("GET", &url.target, None)?;

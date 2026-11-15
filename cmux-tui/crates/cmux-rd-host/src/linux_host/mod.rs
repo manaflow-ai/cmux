@@ -409,15 +409,16 @@ fn status() -> Res<()> {
         println!("Not enabled.");
         return Ok(());
     };
-    let consent = LocalConsent::load(&dir)?;
+    // A missing consent file serves nothing; say so instead of failing.
+    let shares = match LocalConsent::load(&dir) {
+        Ok(c) if c.full => "view and control",
+        Ok(_) => "view only",
+        Err(_) => "nothing shared (consent.json missing or unreadable)",
+    };
     match Account::load(&dir)? {
         Some(a) => println!(
             "{} ({}) on {}, anchored until {} (Unix ms), {}",
-            device.name,
-            device.id,
-            a.hub,
-            a.anchored_until,
-            if consent.full { "view and control" } else { "view only" }
+            device.name, device.id, a.hub, a.anchored_until, shares
         ),
         None => println!("{} ({}), not signed in", device.name, device.id),
     }

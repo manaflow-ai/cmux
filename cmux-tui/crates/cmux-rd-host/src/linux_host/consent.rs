@@ -66,11 +66,15 @@ impl LocalConsent {
         }
     }
 
+    /// An error when the file is missing: `enable` always writes it, so a desktop without one
+    /// (deleted while the host runs) serves nothing.
     pub fn load(dir: &Path) -> Res<Self> {
-        Ok(match read_private(&dir.join("consent.json"))? {
-            Some(bytes) => serde_json::from_slice(&bytes)?,
-            None => Self::default(),
-        })
+        match read_private(&dir.join("consent.json"))? {
+            Some(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            None => {
+                Err("no consent.json: nothing is shared until `cmux-rd linux-host enable`".into())
+            }
+        }
     }
 
     pub fn save(&self, dir: &Path) -> Res<()> {
