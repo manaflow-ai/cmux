@@ -1603,7 +1603,7 @@ jobs:
           set -euo pipefail
           bin="$RUNNER_TEMP/checks-venv/bin"
           python3 -m venv "$RUNNER_TEMP/checks-venv"
-          "$bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          "$bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 Pillow==11.3.0
           # timeout: GNU timeout, else Homebrew's gtimeout, else scripts/ci/timeout.sh's perl watchdog.
           if ! command -v timeout >/dev/null; then
             if command -v gtimeout >/dev/null; then
@@ -1856,7 +1856,7 @@ jobs:
             python3 -I tests/test_git_history.py
             # A skip against an issue fails from its checked-in date on (tests/known_red.py).
             python3 -I tests/test_known_red.py
-            # The scripts/cmux-next Python tests no other line ran; each passes on Linux. A new test_*.py goes here too.
+            # The scripts/cmux-next Python tests no other line ran; each passes on Linux or skips naming the Mac it needs. A new test_*.py goes here too (ScriptTestsAreListed fails until it does).
             python3 scripts/cmux-next/notices/test_ghosttykit_repin.py
             python3 scripts/cmux-next/proxy-demo/test_proxy_demo.py
             python3 scripts/cmux-next/test_cloud_chat_matrix.py
@@ -1866,14 +1866,18 @@ jobs:
             python3 scripts/cmux-next/test_reduce_motion_audit.py
             python3 scripts/cmux-next/test_split_scale_background.py
             python3 scripts/cmux-next/test_split_scale_metrics.py
+            python3 scripts/cmux-next/tests/test_app_ffi_exports.py
             python3 scripts/cmux-next/tests/test_arch_layers.py
             python3 scripts/cmux-next/tests/test_arch_ratchet.py
             python3 scripts/cmux-next/tests/test_bench_arms.py
             python3 scripts/cmux-next/tests/test_bench_background.py
             python3 scripts/cmux-next/tests/test_bench_hover_preload_stalls.py
+            python3 scripts/cmux-next/tests/test_bench_launch.py
             python3 scripts/cmux-next/tests/test_bench_launch_calls.py
             python3 scripts/cmux-next/tests/test_bench_launch_executable.py
             python3 scripts/cmux-next/tests/test_bench_memory_webkit_direct.py
+            python3 scripts/cmux-next/tests/test_bench_power_guard.py
+            python3 scripts/cmux-next/tests/test_bench_power_loaded.py
             python3 scripts/cmux-next/tests/test_bench_startup_agent_mark.py
             python3 scripts/cmux-next/tests/test_bench_startup_daemon_build.py
             python3 scripts/cmux-next/tests/test_bench_startup_linger.py
@@ -1885,6 +1889,8 @@ jobs:
             python3 scripts/cmux-next/tests/test_chat_open_seed_cache.py
             python3 scripts/cmux-next/tests/test_check_pr_split.py
             python3 scripts/cmux-next/tests/test_ci_apply.py
+            python3 scripts/cmux-next/tests/test_diff_tab_cells.py
+            python3 scripts/cmux-next/tests/test_every_action_sweep.py
             python3 scripts/cmux-next/tests/test_ffi_caller_ratchet.py
             python3 scripts/cmux-next/tests/test_git_stdin_never_piped.py
             python3 scripts/cmux-next/tests/test_holder_dogfood.py
@@ -1899,6 +1905,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_memory_agents_cron.py
             python3 scripts/cmux-next/tests/test_open_panel_bench.py
             python3 scripts/cmux-next/tests/test_pane_perf_rows.py
+            python3 scripts/cmux-next/tests/test_perceived_speed.py
             python3 scripts/cmux-next/tests/test_perf_completeness.py
             python3 scripts/cmux-next/tests/test_perf_cron.py
             python3 scripts/cmux-next/tests/test_perf_cron_arch_report.py
@@ -3105,10 +3112,13 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-185
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-385
       - name: Keep Swift package builds on this owned Mac
         if: ${{ needs.swift-canary-fleet.outputs.verdict != 'pass' && (contains(runner.name, '-glaeda')) }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
       - name: Type-check changed CmuxNext targets
         if: ${{ needs.swift-canary-fleet.outputs.verdict != 'pass' }}
@@ -3584,11 +3594,14 @@ jobs:
 
       # Checkout removes .build. On an owned Mac the tier builds in one of the
       # Why: docs/ci/cmux-next-workflow-notes.md#note-41
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-385
       - name: Keep Swift package builds on this owned Mac
         id: spm-root
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
+          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
       # Owned minis keep their builds on their own SSD (above). Blacksmith overflow
       # restores the newest seed cmux-next-fast-tier-seed.yml saved from a
@@ -4038,10 +4051,13 @@ jobs:
 
       # Checkout removes .build. Link the owned Mac's kept build after Xcode
       # Why: docs/ci/cmux-next-workflow-notes.md#note-223
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-385
       - name: Keep Swift package builds on this owned Mac
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-374
       - name: Compute the fast-tier seed keys
@@ -4609,10 +4625,13 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-251
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-385
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-378
       - name: Compute the fast-tier seed keys
@@ -5050,10 +5069,13 @@ jobs:
 
       # Checkout removes .build. Link the owned Mac's kept build after Xcode
       # Why: docs/ci/cmux-next-workflow-notes.md#note-271
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-385
       - name: Keep Swift package builds on this owned Mac
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-379
       - name: Compute the fast-tier seed keys

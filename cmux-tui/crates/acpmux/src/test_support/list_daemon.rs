@@ -182,6 +182,49 @@ pub fn twenty_live_beside(hub: &Hub, closed: usize) -> io::Result<usize> {
     Ok(20 + closed)
 }
 
+/// The live and closed-today chats of [`usage_beside`]: each a Claude chat with its own
+/// transcript, so a usage pass reads every one of them.
+pub const USAGE_LIVE: usize = 8;
+pub const USAGE_CLOSED_TODAY: usize = 8;
+
+/// The usage pass's fixture (`hub/usage_view.rs`): [`USAGE_LIVE`] live Claude chats and
+/// [`USAGE_CLOSED_TODAY`] closed an hour ago, each with an agent session id and a transcript in
+/// `store` (their `CLAUDE_CONFIG_DIR`), and `closed` closed two days ago or more beside them,
+/// Claude chats with ids too, which the pass reads none of. The rows the v2 index holds.
+pub fn usage_beside(hub: &Hub, closed: usize, store: &Path) -> io::Result<usize> {
+    let now = crate::store::now_ms();
+    let day = crate::usage_stats::DAY_MS;
+    let projects = store.join("projects").join("-work");
+    std::fs::create_dir_all(&projects)?;
+    let claude = |id: &str, status: &str, at: u64, tags: Value| -> io::Result<_> {
+        let mut meta = meta(id, id, status, at, tags)?;
+        let sid = format!("sid-{id}");
+        meta.family = Some("claude".to_owned());
+        meta.agent_session_id = Some(sid.clone());
+        meta.chat_store = Some(store.to_path_buf());
+        Ok((meta, sid))
+    };
+    let add = |id: String, status: &str, at: u64, transcript: bool| -> io::Result<()> {
+        let tags = if status == "closed" { json!({}) } else { json!({"area": "acpmux"}) };
+        let (meta, sid) = claude(&id, status, at, tags)?;
+        if transcript {
+            std::fs::write(projects.join(format!("{sid}.jsonl")), "")?;
+        }
+        insert(hub, meta);
+        Ok(())
+    };
+    for n in 0..USAGE_LIVE as u64 {
+        add(format!("live-{n:02}"), "idle", now - n * 1_000, true)?;
+    }
+    for n in 0..USAGE_CLOSED_TODAY as u64 {
+        add(format!("today-{n:02}"), "closed", now - 3_600_000 - n * 1_000, true)?;
+    }
+    for n in 0..closed as u64 {
+        add(format!("closed-{n:06}"), "closed", now - 2 * day - n, false)?;
+    }
+    Ok(USAGE_LIVE + USAGE_CLOSED_TODAY + closed)
+}
+
 /// A proxy to a daemon's socket that counts the bytes the daemon sends, and the connections it
 /// relays. It relays until dropped.
 pub struct Counted {
