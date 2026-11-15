@@ -37,6 +37,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import deadline_http  # noqa: E402
+
 TUI_BASE = os.environ.get("CMUX_TEAM_SIGN_TUI_BASE") or "https://files.cmux.com/cmux-tui/tree"
 COMMIT_BASE = os.environ.get("CMUX_TEAM_SIGN_COMMIT_BASE") or TUI_BASE.rsplit("/", 1)[0]
 PREFIX = "cmux-tui/tree"
@@ -54,10 +57,10 @@ TEAM = re.compile(r"[A-Z0-9]{10}")
 
 
 def fetch(url: str, timeout: float = 300) -> bytes:
+    """URL's body within TIMEOUT seconds in all; an error status raises urllib's HTTPError."""
     # files.cmux.com answers Python's default user agent with 403.
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-team-sign/1"})
-    with urllib.request.urlopen(request, timeout=timeout) as answer:
-        return answer.read()
+    return deadline_http.request(request, timeout, raise_errors=True)[1]
 
 
 def fetch_json(url: str) -> dict:

@@ -323,6 +323,7 @@
     },
     "cmux-next-dev-daily.yml#sign": "apple-signing-release",
     "cmux-next-dev-daily.yml#sign-blacksmith": "apple-signing-release",
+    "cmux-tui-team-signed.yml#sign": "apple-signing-release",
     "cmux-next-dev-daily.yml#verify": "apple-signing-release",
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
