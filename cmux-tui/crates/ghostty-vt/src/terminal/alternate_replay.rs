@@ -55,7 +55,7 @@ impl Terminal {
         let complete = self.encode_snapshot(SnapshotPhase::Complete)?;
         let copy = DecodedTerminal::decode(&complete)?;
         unsafe { sys::ghostty_terminal_vt_write(copy.raw(), leave.as_ptr(), leave.len()) };
-        let mut primary = self.with_replay_grid(Some(&copy), |term| {
+        let primary = self.with_replay_grid(Some(&copy), |term| {
             let mut primary = term.plain_text_bounded(max_bytes)?.ok_or(Error::OutOfSpace)?;
             if !append_omitted_line_feeds(&mut primary, term, max_bytes) {
                 return Err(Error::OutOfSpace);
