@@ -38,7 +38,7 @@ public final class AppWebPaneProvider: PageProvider {
         nextID += 1
         let message: PageJSON = ["id": .string(String(nextID)), "op": .string(String(op.dropFirst(prefix.count))), "params": params]
         let answer: AppJSON
-        do {
+        do throws(AppsTransportError) {
             answer = try await call(message.compactText)
         } catch {
             throw PageError(code: error.code ?? "operation.failed", message: error.message, retryable: error.connectionLost)
