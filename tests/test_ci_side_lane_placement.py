@@ -70,7 +70,13 @@ def overflow(name: str, placed: bool = True) -> str:
     return FALLBACK
 
 sys.path.insert(0, str(ROOT / "tests"))
-from test_seed_derived_data import evaluate, github_context  # noqa: E402
+from test_seed_derived_data import evaluate, github_context as seed_github_context  # noqa: E402
+
+
+def github_context(event_name, ref="refs/heads/main", **variables):
+    """test_seed_derived_data.github_context with Blacksmith macOS on (vars.CI_BLACKSMITH_MACOS): these tests
+    model the Blacksmith routes; BlacksmithMacosOffSwitch reads the switch off."""
+    return seed_github_context(event_name, ref, **{"CI_BLACKSMITH_MACOS": "on", **variables})
 import workflow_jobs  # noqa: E402
 
 
@@ -384,8 +390,10 @@ class Decide(unittest.TestCase):
                     job = wiring.workflow()["jobs"][name]
                     # PRs use the generic picker cascade. A role runner is never a
                     # prerequisite: the placement's deferred side/std route is the
-                    # bounded fallback when no GUI/session role is available.
-                    expected = values["deferred_runner"] or FALLBACK
+                    # bounded fallback when no GUI/session role is available. A session job the placement
+                    # spilled to an idle session runner (session_spill()) takes it instead.
+                    expected = (values["session_spill_runner"] if f" {name} " in values.get("session_jobs", "")
+                                else values["deferred_runner"] or FALLBACK)
                     self.assertEqual(evaluate(runs_on_route(job, name), context), expected, name)
                     self.assertEqual(evaluate(job_env(job)["CMUX_NEXT_RUNNER"], context), expected, name)
 
@@ -966,7 +974,212 @@ class LightSpillRoute(unittest.TestCase):
                 self.assertNotEqual(evaluate(job["runs-on"], context("2")), LIGHT_SIDE)
 
 
+# The cmux-next.yml Mac jobs .github/runners.json `light_fit` measured to fit a 16 GiB light mini.
+LIGHT_FIT = ("fast-tier", "daemon-test", "generated-files")
+
+
+class LightRerunRoute(unittest.TestCase):
+    """Leo, 2026-11-15: "you can decide on best routing for stuff". 32 jobs stayed queued on the std side label
+    (2026-11-15 01:10Z) after light side runners freed: the light spill placed attempt 1 only, a queued job keeps
+    its label, and a re-run's jobs read attempt 1's light placement only (#18147). The rescue now re-runs the
+    placement of such a run (owned_pool_rescue.light_wait() on main), and that re-run moves each measured light-fit
+    job no idle std side runner took onto an idle light side runner, and the job's runs-on takes it."""
+
+    BOT = "cmux-bot[bot]"
+
+    def values(self, **overrides):
+        return env(**{"JOBS": "fast-tier " + " ".join(JOBS), "LIGHT_FIT_JOBS": " ".join(LIGHT_FIT),
+                      "CASCADE_RUNS": " fast-tier cmux-scheme-compile daemon-test generated-files ",
+                      "GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": self.BOT, **overrides})
+
+    def light(self, count: int, *, busy: int = 0):
+        return [runner(f"cmux{17 + index}-glaeda-1", busy=index < busy, labels=(LIGHT_SIDE,))
+                for index in range(count)]
+
+    def rerun(self, values, runners, seen=None):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()) as printed:
+            output = Path(tmp) / "out"
+            with mock.patch.object(placement.cascade, "read", return_value=(None, None, seen or light_seen())):
+                placement.rerun_main({**values, "GITHUB_OUTPUT": str(output)}, runners)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines()), printed.getvalue()
+
+    def test_the_rescues_rerun_moves_the_fit_jobs_to_idle_light_runners(self):
+        busy_std = [runner(f"mini-{host}-glaeda-3", busy=True) for host in "ab"]
+        lines, printed = self.rerun(self.values(), [*busy_std, *self.light(2)])
+        # Run order, one per idle light runner; the scheme compile is not shown to fit and stays off light.
+        self.assertEqual((lines["light_runner"], lines["light_jobs"]), (LIGHT_SIDE, " fast-tier daemon-test "))
+        for job in ("fast-tier", "daemon-test"):
+            self.assertNotIn(f" {job} ", lines["owned_jobs"])
+            self.assertNotIn(f" {job} ", lines.get("blacksmith_6_jobs", ""))
+            self.assertNotIn(f" {job} ", lines.get("blacksmith_12_jobs", ""))
+        self.assertIn(f"so they take idle light `{LIGHT_SIDE}`", printed)
+        # Three idle light runners: every fit job that runs, never the compile.
+        lines, _ = self.rerun(self.values(), [*busy_std, *self.light(3)])
+        self.assertEqual(lines["light_jobs"], " fast-tier daemon-test generated-files ")
+
+    def test_an_idle_std_runner_comes_first_and_nothing_known_places_nothing(self):
+        idle = self.light(3)
+        cases = {
+            "idle std takes them": (self.values(), [*(runner(f"mini-{host}-glaeda-3") for host in "abcdefg"), *idle],
+                                    None),
+            "a person's re-run": (self.values(GITHUB_TRIGGERING_ACTOR="teamleaderleo"), idle, None),
+            "past the bot's last placed attempt": (self.values(GITHUB_RUN_ATTEMPT="4"), idle, None),
+            "no fit jobs (push, fork)": (self.values(LIGHT_FIT_JOBS=""), idle, None),
+            "nightly waits on light": (self.values(), idle,
+                                       light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})),
+            "stale snapshot": (self.values(), idle, light_seen(stale=True)),
+            "busy light": (self.values(), self.light(2, busy=2), None),
+            "unread runners": (self.values(), None, None),
+        }
+        for why, (values, runners, seen) in cases.items():
+            with self.subTest(why=why):
+                self.assertEqual(placement.light_rerun_route(values, runners, seen or light_seen(),
+                                                             placement.pool.idle_placement(
+                                                                 runners or [], SIDE, values["JOBS"].split())),
+                                 ("", ()))
+
+    def test_a_replaced_attempt_takes_its_light_label_and_a_carried_one_never_does(self):
+        wiring = CmuxNextWiring()
+        jobs = wiring.workflow()["jobs"]
+
+        def context(attempt, actor):
+            value = wiring.context(attempt, runner=SIDE, triggering_actor=actor)
+            value["needs"].update({"swift-canary-fleet": {"outputs": {"verdict": ""}, "result": "skipped"},
+                                   "fast-tier-fleet": {"outputs": {"verdict": ""}, "result": "skipped"},
+                                   "fast-tier-handback-placement": {"outputs": {}, "result": "skipped"}})
+            value["needs"][wiring.PLACEMENT]["outputs"].update(light_runner=LIGHT_SIDE,
+                                                               light_jobs=f" {' '.join(LIGHT_FIT)} ")
+            return value
+
+        for name in LIGHT_FIT:
+            job = jobs[name]
+            routes = [runs_on_route(job, name)] + ([job_env(job)["CMUX_NEXT_RUNNER"]] if name in JOBS else [])
+            for route in routes:
+                with self.subTest(name=name, copy=route is not routes[0]):
+                    # The rescue's attempt 2 placed afresh: its light label, not attempt 1's queue (#18147).
+                    self.assertEqual(evaluate(route, context("2", self.BOT)), LIGHT_SIDE)
+                    self.assertEqual(evaluate(route, context("1", "teamleaderleo")), LIGHT_SIDE)
+                    # A person's re-run carries attempt 1's placement: it never reads that light runner.
+                    self.assertNotEqual(evaluate(route, context("2", "teamleaderleo")), LIGHT_SIDE)
+
+    def test_the_fit_set_is_the_measured_one_in_every_place(self):
+        runners_json = json.loads((ROOT / ".github/runners.json").read_text(encoding="utf-8"))["light_fit"]
+        measured = {key.split("#", 1)[1] for key, row in runners_json["jobs"].items()
+                    if key.startswith("cmux-next.yml#") and row["light"]["runs"] >= runners_json["min_light_runs"]
+                    and row["light"]["ok"] >= row["std"]["ok"] - runners_json["max_ok_drop"]}
+        # Every listed job passes the measured rule, and the list is LIGHT_FIT.
+        self.assertEqual(measured, {key.split("#", 1)[1] for key in runners_json["jobs"]})
+        self.assertEqual(measured, set(LIGHT_FIT))
+        jobs = CmuxNextWiring().workflow()["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        literal = re.findall(r"'([a-z -]+)'", place["env"]["LIGHT_FIT_JOBS"])
+        self.assertEqual(set(literal[-1].split()), measured)
+        # Exactly these jobs read light_jobs on the attempt their placement ran (the rescue moves only them).
+        rerun_clause = re.compile(r"needs\.macos-placement\.outputs\.placed_attempt == format\('\{0\}', "
+                                  r"github\.run_attempt\) && contains\(needs\.macos-placement\.outputs\.light_jobs, "
+                                  r"' ([a-z-]+) '\)")
+        readers = {name for name, job in jobs.items()
+                   if isinstance(job, dict) and any(match == name for match in rerun_clause.findall(
+                       str(job.get("runs-on") or "")))}
+        self.assertEqual(readers, measured)
+
+
 FRESH = "glaeda-dev-std-xcode-26.6"
+
+
+class SessionSpill(unittest.TestCase):
+    """2026-11-15 03:15Z: glaeda-side-std-xcode-26.6 had 57 jobs queued (oldest 76 min) on 8 online runners while
+    glaeda-session-std-xcode-26.6 had none queued on 13 online. A same-repo PR's daemon tests and generated files
+    take the session label while its queue is the shorter one; a push already does (session_runner)."""
+
+    def side(self, count: int, *, busy: int):
+        return [runner(f"mini{index}-glaeda-3", busy=index < busy) for index in range(count)]
+
+    def session(self, count: int, *, busy: int):
+        return [runner(f"mini{index}-glaeda-11", busy=index < busy, labels=(SESSION,)) for index in range(count)]
+
+    def seen(self, **queued):
+        return placement.cascade.Seen(waits={}, owned_queued=queued)
+
+    def test_the_incident_moves_the_session_jobs_off_the_deep_side_queue(self):
+        runners = self.side(8, busy=8) + self.session(13, busy=10)
+        seen = self.seen(**{SIDE: 57, SESSION: 0})
+        self.assertEqual(placement.session_spill(env(), runners, seen, SIDE),
+                         (SESSION, ("daemon-test", "generated-files")))
+        # Only the session jobs, never swift-test (it needs the gui token) or a compile.
+        self.assertEqual(placement.session_spill(env(JOBS="swift-test release-compile"), runners, seen, SIDE), ("", ()))
+        # A job an idle side or light runner took keeps that runner.
+        self.assertEqual(placement.session_spill(env(), runners, seen, SIDE, ("daemon-test",)),
+                         (SESSION, ("generated-files",)))
+
+    def test_it_joins_only_the_shorter_queue(self):
+        runners = self.side(4, busy=4) + self.session(4, busy=4)
+        # Session 7/4 ahead of a new job against side 8/4: the first job moves, then 8/4 ties and the second stays.
+        self.assertEqual(placement.session_spill(env(), runners, self.seen(**{SIDE: 8, SESSION: 7}), SIDE),
+                         (SESSION, ("daemon-test",)))
+        # The session queue as deep as the side one: nothing moves.
+        self.assertEqual(placement.session_spill(env(), runners, self.seen(**{SIDE: 4, SESSION: 4}), SIDE), ("", ()))
+        # A side runner idle beyond its queue: the side route is the shorter queue.
+        idle_side = self.side(4, busy=2) + self.session(4, busy=4)
+        self.assertEqual(placement.session_spill(env(), idle_side, self.seen(**{SIDE: 0, SESSION: 0}), SIDE), ("", ()))
+
+    def test_without_queue_counts_only_idle_session_runners_count(self):
+        runners = self.side(4, busy=4) + self.session(4, busy=3)
+        for seen in (None, placement.cascade.Seen(waits={}, owned_queued={SIDE: 50}, stale=True)):
+            with self.subTest(seen=seen):
+                self.assertEqual(placement.session_spill(env(), runners, seen, SIDE), (SESSION, ("daemon-test",)))
+        self.assertEqual(placement.session_spill(env(), self.side(4, busy=4) + self.session(4, busy=4), None, SIDE),
+                         ("", ()))
+
+    def test_an_unserved_full_offline_or_unread_session_label_takes_nothing(self):
+        runners = self.side(4, busy=4) + self.session(4, busy=4)
+        unserved = placement.cascade.Seen(waits={}, owned_queued={SIDE: 50}, unserved=frozenset({SESSION}))
+        full = placement.cascade.Seen(waits={}, owned_queued={SIDE: 50}, owned_full={SESSION: True})
+        for seen in (unserved, full):
+            with self.subTest(seen=seen):
+                self.assertEqual(placement.session_spill(env(), runners, seen, SIDE), ("", ()))
+        self.assertEqual(placement.session_spill(env(), self.side(4, busy=4), self.seen(**{SIDE: 50}), SIDE), ("", ()))
+        self.assertEqual(placement.session_spill(env(), None, self.seen(**{SIDE: 50}), SIDE), ("", ()))
+        # An AWS side label has no session route (a headless host).
+        aws = "glaeda-aws-side-std-xcode-26.6"
+        self.assertEqual(placement.session_spill(env(SIDE_LABEL=aws), runners, self.seen(**{aws: 50}), aws), ("", ()))
+
+    def test_placement_writes_the_spill_and_the_pr_jobs_take_it(self):
+        runners = self.side(8, busy=8) + self.session(13, busy=10)
+        seen = self.seen(**{SIDE: 57, SESSION: 0})
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), seen)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.return_value = runners
+                placement.main(env(GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux"))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+        self.assertEqual(lines["session_spill_runner"], SESSION)
+        self.assertEqual(lines["session_jobs"], " daemon-test generated-files ")
+        wiring = CmuxNextWiring()
+        jobs = wiring.workflow()["jobs"]
+        for name in SESSION_JOBS:
+            context = wiring.context(runner="")
+            context["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                deferred_runner=SIDE, session_spill_runner=SESSION, session_jobs=lines["session_jobs"],
+                placed_attempt="1")
+            for key in ("runs-on", "CMUX_NEXT_RUNNER"):
+                expression = runs_on_route(jobs[name], name) if key == "runs-on" else job_env(jobs[name])[key]
+                with self.subTest(job=name, key=key):
+                    self.assertEqual(evaluate(expression, context), SESSION)
+                    # Another attempt's reading is not this attempt's: the job keeps the side queue.
+                    stale = wiring.context("2", runner="")
+                    stale["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                        deferred_runner=SIDE, session_spill_runner=SESSION, session_jobs=lines["session_jobs"],
+                        placed_attempt="1")
+                    self.assertNotEqual(evaluate(expression, stale), SESSION)
+                    # A job the spill did not list keeps the side queue.
+                    unlisted = wiring.context(runner="")
+                    unlisted["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                        deferred_runner=SIDE, session_spill_runner=SESSION, session_jobs=" ", placed_attempt="1")
+                    self.assertEqual(evaluate(expression, unlisted), SIDE)
 
 
 class FreshRoute(unittest.TestCase):
@@ -2125,9 +2338,11 @@ class AppFfiBuildPlacement(unittest.TestCase):
 
     On 2026-11-10 vars.CI_NEXT_PROMOTE_POOL was unset and every FFI build queued on blacksmith-6vcpu-macos-26
     behind PR CI for 11 to 66 minutes, while feat-cmux-next stayed red until its re-pin landed. The build now
-    takes an idle promote runner, else a free Blacksmith slot (12 vCPU, then 6), never a side mini, and only the
-    fallback queue when the cascade places nothing. The placement step's env and the build's runs-on are
-    evaluated from the workflow itself, so a workflow edit reaches the test.
+    takes an idle promote runner, else a free Blacksmith slot (12 vCPU, then 6), and only the fallback queue when
+    the cascade places nothing. That is with vars.CI_BLACKSMITH_MACOS `on`. Unset (Blacksmith macOS off, cmux#43103)
+    it takes an idle promote runner, else vars.CI_SIDE_LANE_RUNNER: on 2026-11-14 blacksmith-6vcpu-macos-26 stalled
+    (104 queued, oldest 106 min) and "Check the app FFI pin" went red on every push (hq#10943). The placement step's
+    env and the build's runs-on are evaluated from the workflow itself, so a workflow edit reaches the test.
     """
 
     PROMOTE = "glaeda-promote-side-trusted-std-xcode-26.6"
@@ -2136,18 +2351,18 @@ class AppFfiBuildPlacement(unittest.TestCase):
     def workflow(self) -> dict:
         return yaml.safe_load((WORKFLOWS / "app-ffi-release.yml").read_text())
 
-    def context(self, *, promote: str, attempt: str = "1", event: str = "push") -> dict:
+    def context(self, *, promote: str, attempt: str = "1", event: str = "push", switch: str = "on") -> dict:
         context = github_context(event, ref="refs/heads/feat-cmux-next", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
-                                 CI_NEXT_PROMOTE_POOL=promote)
+                                 CI_NEXT_PROMOTE_POOL=promote, CI_BLACKSMITH_MACOS=switch)
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, event={}, token="g")
         context["steps"] = {"route-token": {"outputs": {"token": "t"}}}
         return context
 
     def route(self, runners: list[dict], *, promote: str = "", free: tuple[int, int] = (5, 10), attempt: str = "1",
-              event: str = "push", ran: bool = True, queued: int = 0) -> tuple[str, dict[str, str]]:
+              event: str = "push", ran: bool = True, queued: int = 0, switch: str = "on") -> tuple[str, dict[str, str]]:
         """(the build's runs-on, the placement's outputs) for `runners` and `free` (12 vCPU, 6 vCPU) Blacksmith slots."""
         workflow = self.workflow()
-        context = self.context(promote=promote, attempt=attempt, event=event)
+        context = self.context(promote=promote, attempt=attempt, event=event, switch=switch)
         step = next(step for step in workflow["jobs"]["placement"]["steps"] if step.get("id") == "place")
         self.assertEqual(step["run"].strip(), "python3 scripts/ci/side_lane_placement.py")
         values = {key: evaluate(value, context) if "${{" in str(value) else value for key, value in step["env"].items()}
@@ -2180,8 +2395,8 @@ class AppFfiBuildPlacement(unittest.TestCase):
         self.assertNotIn("app-ffi-build", lines["blacksmith_12_jobs"] + lines["blacksmith_6_jobs"])
 
     def test_no_promote_pool_takes_a_free_blacksmith_slot_never_an_idle_side_mini(self):
-        # The variable unset (2026-11-10), with an idle side mini: the side mini runs PR code, so it never
-        # takes a build whose artifact is published; the free 12 vCPU slot does.
+        # Blacksmith macOS on and the promote variable unset (2026-11-10), with an idle side mini: the free
+        # 12 vCPU slot takes the build.
         label, lines = self.route([runner("mini-a-glaeda-3")], promote="")
         self.assertEqual(label, self.LARGE)
         self.assertEqual(lines["blacksmith_12_jobs"], " app-ffi-build ")
@@ -2235,6 +2450,25 @@ class AppFfiBuildPlacement(unittest.TestCase):
         label, lines = self.route([idle], promote=self.PROMOTE, attempt="2")
         self.assertEqual(lines["promote_runner"], "")
         self.assertNotEqual(label, self.PROMOTE)
+
+    def test_blacksmith_macos_off_takes_the_side_pool_on_every_route(self):
+        # vars.CI_BLACKSMITH_MACOS unset (cmux#43103's off switch): no Blacksmith macOS label on any route, free
+        # slots, a stalled queue, a re-run, a dispatch or a placement that did not run alike.
+        for why, kwargs in {"free slots": {}, "no free slot": {"free": (0, 0)},
+                            "stalled 6 vCPU queue": {"free": (0, 0), "queued": placement.cascade.OVERFLOW_BACKLOG},
+                            "re-run": {"attempt": "2"}, "dispatch": {"event": "workflow_dispatch"},
+                            "no placement": {"ran": False},
+                            "busy promote pool": {"promote": self.PROMOTE}}.items():
+            with self.subTest(why=why):
+                runners = [runner("cmux14", busy=True, labels=(self.PROMOTE,))] if "promote" in kwargs else []
+                label, lines = self.route(runners, switch="", **kwargs)
+                self.assertEqual(label, SIDE)
+                self.assertNotIn("app-ffi-build", lines.get("blacksmith_12_jobs", "") + lines.get("blacksmith_6_jobs", ""))
+
+    def test_blacksmith_macos_off_still_takes_an_idle_promote_runner_first(self):
+        idle = runner("cmux14", labels=(self.PROMOTE,))
+        label, _ = self.route([idle], promote=self.PROMOTE, switch="")
+        self.assertEqual(label, self.PROMOTE)
 
     def test_the_build_runs_whatever_the_placement_did(self):
         build = self.workflow()["jobs"]["build"]

@@ -17,44 +17,70 @@
   var exports_main = {};
   __export(exports_main, {
     rank: () => rank,
-    renderPriority: () => renderPriority
+    renderPriority: () => renderPriority,
+    tier: () => tier
   });
   var TIERS = [
-    { state: "blocked", title: "Needs you", symbol: "exclamationmark.bubble", tone: "warning" },
-    { state: "done", title: "Finished", symbol: "checkmark.circle", tone: "success" },
-    { state: "working", title: "Working", symbol: "circle.dotted", tone: "accent" },
-    { state: "idle", title: "Idle", symbol: "moon", tone: "secondary" }
+    { title: "Needs you", symbol: "exclamationmark.bubble", tone: "warning" },
+    { title: "Finished", symbol: "checkmark.circle", tone: "success" },
+    { title: "Failed", symbol: "exclamationmark.triangle", tone: "danger" },
+    { title: "CI failing", symbol: "xmark.octagon", tone: "danger" },
+    { title: "Working", symbol: "circle.dotted", tone: "accent" },
+    { title: "Idle", symbol: "moon", tone: "secondary" }
   ];
-  var tier = (state) => {
-    const index = TIERS.findIndex((t) => t.state === state);
-    return index < 0 ? TIERS.length : index;
-  };
-  var label = (a) => {
-    const extra = a.extra ?? {};
-    return String(extra.name ?? extra.title ?? a.source_session ?? a.source);
-  };
-  function rank(agents, showIdle) {
-    return agents.filter((a) => showIdle || a.state !== "idle").slice().sort((a, b) => tier(a.state) - tier(b.state) || Number(b.updated_at_ms) - Number(a.updated_at_ms));
+  var NEEDS_YOU = 0;
+  var FINISHED = 1;
+  var FAILED = 2;
+  var CI_FAILING = 3;
+  var WORKING = 4;
+  var IDLE = 5;
+  var IDLE_HORIZON_MS = 24 * 60 * 60 * 1000;
+  function tier(c) {
+    const turn = c.state === "input" ? NEEDS_YOU : c.state === "working" ? WORKING : c.state === "failed" || c.state === "lost" ? FAILED : c.unread ? FINISHED : IDLE;
+    return c.ci_failing === true && CI_FAILING < turn ? CI_FAILING : turn;
   }
-  async function focusTerminal(terminal) {
+  var since = (c) => Number(c.since_ms ?? c.updated_ms ?? 0);
+  function rank(chats, showIdle, now = Date.now()) {
+    return chats.filter((c) => {
+      if (tier(c) !== IDLE || c.pinned)
+        return true;
+      return showIdle && now - since(c) <= IDLE_HORIZON_MS;
+    }).slice().sort((a, b) => tier(a) - tier(b) || Number(b.pinned) - Number(a.pinned) || since(b) - since(a) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+  var subtitle = (c) => {
+    const t = TIERS[tier(c)].title;
+    const where = [c.project, c.machine].filter(Boolean).join(" · ");
+    return where ? `${t} · ${where}` : t;
+  };
+  async function open(c) {
     const gesture = cmux.gesture() ?? undefined;
-    const t = await cmux.terminal.get({ terminal });
-    if (t.tab_id)
-      await cmux.tab.focus({ tab: t.tab_id }, { gesture });
+    if (c.workspace)
+      await cmux.workspace.focus({ workspace: c.workspace }, { gesture });
+    if (c.unread)
+      await cmux.chat.mark_read({ chat: c.id }, { gesture });
+  }
+  async function pin(c) {
+    await cmux.chat.pin({ chat: c.id, pinned: !c.pinned }, { gesture: cmux.gesture() ?? undefined });
+  }
+  async function markRead(c) {
+    await cmux.chat.mark_read({ chat: c.id }, { gesture: cmux.gesture() ?? undefined });
   }
   function renderPriority() {
-    const agents = cmux.live("agent.list", {});
-    const ranked = computed(() => rank(agents() ?? [], cmux.app.settings().showIdle === true));
-    const style = (a) => TIERS[tier(a.state)] ?? TIERS[TIERS.length - 1];
+    const chats = cmux.live("chat.list", {});
+    const ranked = computed(() => rank(chats() ?? [], cmux.app.settings().showIdle === true));
+    const style = (c) => TIERS[tier(c)];
     return VStack({ spacing: 2 }, [
-      ForEach({ items: ranked, key: (a) => a.id }, (a) => Row({
-        title: () => label(a()),
-        subtitle: () => style(a()).title,
-        symbol: () => style(a()).symbol,
-        tint: () => style(a()).tone,
-        unread: () => a().state === "blocked" || a().state === "done"
-      }).onTap(() => focusTerminal(a().terminal_id))),
-      () => agents.loading() || ranked().length ? null : EmptyState({ title: "Nothing needs you", symbol: "bell" })
+      ForEach({ items: ranked, key: (c) => c.id }, (c) => Row({
+        title: () => c().title,
+        subtitle: () => subtitle(c()),
+        symbol: () => c().pinned ? "pin.fill" : style(c()).symbol,
+        tint: () => style(c()).tone,
+        unread: () => c().unread
+      }).onTap(() => open(c())).contextMenu(() => [
+        Button(c().pinned ? "Unpin" : "Pin", () => pin(c())),
+        Button("Mark as Read", () => markRead(c())).disabled(() => !c().unread)
+      ])),
+      () => chats.loading() || ranked().length ? null : EmptyState({ title: "Nothing needs you", symbol: "bell" })
     ]);
   }
   globalThis.__cmuxAppExports = { ...exports_main };

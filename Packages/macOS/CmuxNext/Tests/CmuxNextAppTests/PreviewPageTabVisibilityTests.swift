@@ -8,16 +8,16 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Preview page tabs are kept in daemon and local state while Labs is off, but leave the mounted
-/// pane strip immediately. This exercises the pane's settings observation without a daemon event or
-/// an explicit strip sync (the original regression only changed after a later pane refresh).
+/// The App Store is no Labs preview (Leo 2026-11-14: "yeah the whole point is for it to be usable"):
+/// its tabs, stored and local, stay in the mounted pane strip when Labs is switched off, as What's
+/// New's do, and the selection stays on them.
 @MainActor @Suite(.serialized)
 struct PreviewPageTabVisibilityTests {
     private static func until(_ condition: @escaping @MainActor () -> Bool) async {
         for _ in 0..<400 where !condition() { await Task.yield() }
     }
 
-    @Test func previewPageTabsFollowLabsWithoutARefresh() async throws {
+    @Test func appStoreAndWhatsNewTabsStayWhenLabsTurnsOff() async throws {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-preview-tabs-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -55,25 +55,10 @@ struct PreviewPageTabVisibilityTests {
         #expect(pane.stripModel.selectedID?.rawValue == storedAppStoreID)
 
         try await settings.set(.bool(false), at: ["labs", "previewFeatures"])
-        await Self.until { !ids().contains(storedAppStoreID) && !ids().contains(localAppStoreID) &&
-            pane.stripModel.selectedID?.rawValue != storedAppStoreID }
-        #expect(!ids().contains(storedAppStoreID) && !ids().contains(localAppStoreID))
-        // What's New is no Labs preview: an update's See What's New opens it with Labs off
-        // (Leo 2026-10-29), so its tabs stay in the strip.
-        #expect(ids().contains(storedChangelogID) && ids().contains(localChangelogID),
-                "Labs off hid the What's New tab")
-        #expect(model.tabs.contains { $0.id == storedAppStoreID } && model.tabs.contains { $0.id == storedChangelogID },
-                "disabling Labs must not delete stored preview tabs")
-        #expect(services.pages.tabIDs(in: model.id).contains(localAppStoreID) &&
-            services.pages.tabIDs(in: model.id).contains(localChangelogID),
-                "disabling Labs must not delete local preview tabs")
-        let fallbackSelection = pane.stripModel.selectedID?.rawValue
-        #expect(fallbackSelection != storedAppStoreID)
-
-        try await settings.set(.bool(true), at: ["labs", "previewFeatures"])
-        await Self.until { ids().contains(storedAppStoreID) && ids().contains(localAppStoreID) }
-        #expect(ids().contains(storedAppStoreID) && ids().contains(localAppStoreID))
-        #expect(pane.stripModel.selectedID?.rawValue == fallbackSelection,
-                "re-enabling Labs must preserve the fallback selected while preview tabs were hidden")
+        await Self.until { settings.snapshot.previewFeatures == false }
+        #expect(settings.snapshot.previewFeatures == false)
+        #expect(ids().contains(storedAppStoreID) && ids().contains(localAppStoreID), "Labs off hid the App Store tab")
+        #expect(ids().contains(storedChangelogID) && ids().contains(localChangelogID), "Labs off hid the What's New tab")
+        #expect(pane.stripModel.selectedID?.rawValue == storedAppStoreID, "Labs off moved the selection off the App Store")
     }
 }

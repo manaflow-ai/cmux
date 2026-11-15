@@ -147,7 +147,8 @@ public struct ArtifactsBrowser: View {
                         Text(item == .all ? "All \(count)" : item.rawValue)
                             .font(.subheadline.weight(.medium))
                             .padding(.horizontal, 14)
-                            .frame(height: 34)
+                            .padding(.vertical, 6)
+                            .frame(minHeight: 34)
                             .background(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
                             // 44 pt target around the 34 pt capsule.
                             .frame(minHeight: 44)

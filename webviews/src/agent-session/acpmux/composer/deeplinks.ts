@@ -8,14 +8,16 @@ import { appHref, safeHref } from "../replyHref";
 
 export type Deeplink = { start: number; end: number; href: string };
 
-// A link starts at a word boundary (not inside a path or another URL) and runs to the first space
-// or bracket; trailing sentence punctuation stays text, as chips/paths.ts reads a URL.
+// A link starts at a word boundary (not inside a path or another URL) and runs to the first space,
+// bracket or U+FFFC (the draft's reading of an attachment or other leaf placed in the text, which
+// is never part of a URL: an image pasted right after a link had turned the link back into plain
+// text, Leo 2026-11-09); trailing sentence punctuation stays text, as chips/paths.ts reads a URL.
 const DEEPLINK =
-  /(?<![\w/.:~@+-])(?:cmux(?:-[a-z0-9-]+)?:\/\/|https:\/\/(?:www\.)?cmux\.com(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/deeplink\/)[^\s<>()"'`[\]]*/g;
+  /(?<![\w/.:~@+-])(?:cmux(?:-[a-z0-9-]+)?:\/\/|https:\/\/(?:www\.)?cmux\.com(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/deeplink\/)[^\s<>()"'`[\]\uFFFC]*/g;
 
 /// Where the run of link characters that holds `index` starts: the character after the last space or
-/// bracket before it (the characters DEEPLINK ends a link at).
-const RUN_END = /[\s<>()"'`[\]]/;
+/// bracket or leaf before it (the characters DEEPLINK ends a link at).
+const RUN_END = /[\s<>()"'`[\]\uFFFC]/;
 function runStart(text: string, index: number): number {
   let at = index;
   while (at > 0 && !RUN_END.test(text[at - 1]!)) at -= 1;

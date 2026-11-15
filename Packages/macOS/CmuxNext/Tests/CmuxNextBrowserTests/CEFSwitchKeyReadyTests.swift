@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextTestSupport
 import CmuxNextWakeups
 import Foundation
@@ -104,7 +105,11 @@ extension CEFDeferredFocusTests {
         let leavingPage = pageWindow(over: leaving, in: window)
         defer { leavingPage.closeAfterTest() }
         // The window of the page that shows. Both pages fill the same area. A hosted page's window is out of the
-        // cmux window while the page is detached: the fork's stand-in below puts it in only at the attach.
+        // cmux window while the page is detached. The fork's stand-in below is a model of the fork's order: it puts
+        // the window in from a run-loop observer in the pass after the attach call, right after that pass's Core
+        // Animation commit (before-waiting, order 2,000,000) and before the after-commit observer that ends the hold
+        // (order max). A grant at the attach call, or in that next pass before the stand-in's observer, finds no window
+        // to make key.
         let showingPage = NSWindow(contentRect: leavingPage.frame, styleMask: .borderless, backing: .buffered, defer: true)
         showingPage.setFrame(leavingPage.frame, display: false)
         defer { showingPage.closeAfterTest() }
@@ -112,7 +117,9 @@ extension CEFDeferredFocusTests {
         _ = try hostedPage(of: leavingHost, browser: 43) { _ in }
         let hosting = try hostedPage(of: showingHost, browser: 44) { detached in
             log.items.append(detached ? "detach" : "attach")
-            if !detached { window.addChildWindow(showingPage, ordered: .above) }
+            if !detached {
+                MainRunLoopObserver.once(activities: .beforeWaiting, order: 2_000_001) { window.addChildWindow(showingPage, ordered: .above) }
+            }
         }
         // The second workspace hides: the first one shows.
         workspaces[1].isHidden = true
@@ -138,12 +145,17 @@ extension CEFDeferredFocusTests {
         keys.key = window
         workspaces[1].isHidden = false
         showing.setFocused(true)
-        try #require(hosting.holdsFirstFrame() && log.items == ["detach"], "the page that shows took no first-frame hold: the test proves nothing (\(log.items))")
+        try #require(hosting.holdsFirstFrame() && showing.appearedThisTurn && log.items == ["detach"],
+                     "the page that shows took no first-frame hold in the turn of the switch: the test proves nothing (\(log.items))")
         #expect(!showing.pageReady, "a hosted page counts as ready for keys in the turn of the switch: a key typed now is not held")
 
         // The turn ends and its frame did not come yet (a test window is never on screen: its display link stays
         // still). The commit's grant found the hold, so the ask is kept: still no focus, no keys and no report.
-        Self.endTurn()
+        // The commit of the turn sets `appearedThisTurn` back in the block that tries the grant: the turns below wait
+        // for it (one turn on a host with free time), so the asserts after them do not pass before that try.
+        let commit = Date().addingTimeInterval(2)
+        repeat { Self.endTurn() } while showing.appearedThisTurn && Date() < commit
+        #expect(!showing.appearedThisTurn, "the commit of the switch's turn did not run its grant try: the asserts below prove nothing")
         #expect(hosting.holdsFirstFrame(), "the first-frame hold ended with no frame")
         #expect(!showing.pageReady, "a hosted page counts as ready for keys while its first-frame hold keeps its focus ask: a key typed now is not held and reaches no page")
         #expect(FocusSpyShim.granted.isEmpty, "a page took the focus before the frame of the switch: \(FocusSpyShim.granted)")

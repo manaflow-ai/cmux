@@ -99,7 +99,7 @@ test("frames are timed only while the page changes, and only while visible", () 
 });
 
 /// A watch on a hand-driven clock: `frame(t)` runs the pending frame at t.
-function drivenWatch() {
+function drivenWatch(stopWhenStill = false) {
   const reported: number[] = [];
   const summaries: FrameStats[] = [];
   let now = 0;
@@ -112,6 +112,7 @@ function drivenWatch() {
     },
     () => now,
     (stats) => summaries.push(stats),
+    stopWhenStill,
   );
   const frame = (time: number) => {
     now = time;
@@ -191,6 +192,36 @@ test("a change counts one interval, however many changes one frame draws", () =>
   for (let time = 56; time <= 1_100; time += 8) frame(time);
   expect(summaries.map((stats) => stats.n)).toEqual([2]);
   expect(summaries[0]!.max).toBe(16);
+});
+
+// A page at rest asks for no frame: with the engine's long-frame entries, a change costs the frame that draws it and the
+// one after (its interval), not a second of frames (chat_switch.*.idle_wakeups read 43 with nothing on screen moving).
+test("with the engine's long frames, a change at rest costs two frames, and summaries still come once a second", () => {
+  const { watch, frame, at, summaries, pending } = drivenWatch(true);
+  let frames = 0;
+  const run = (time: number) => {
+    frames += 1;
+    frame(time);
+  };
+  at(0);
+  watch.arm();
+  run(8); // draws the change
+  run(16); // the interval after it: counted, and nothing changed since
+  expect(pending()).toBeUndefined();
+  expect(frames).toBe(2);
+  // Changes a few frames apart (a streaming reply) keep one window: one summary a second, not one a change.
+  let time = 16;
+  while (time < 2_100) {
+    time += 50;
+    at(time);
+    watch.arm();
+    run((time += 8));
+    run((time += 8));
+  }
+  expect(summaries.length).toBeGreaterThanOrEqual(1);
+  expect(summaries.length).toBeLessThanOrEqual(2);
+  expect(summaries.every((stats) => stats.p50 === 8)).toBe(true);
+  expect(pending()).toBeUndefined();
 });
 
 // Chromium refuses a `setTimeout` called with another receiver ("Illegal invocation"). The log's

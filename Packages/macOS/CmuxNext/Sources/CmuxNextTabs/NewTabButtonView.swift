@@ -148,7 +148,7 @@ final class NewTabButtonView: NSView {
                     ? Self.splitFill(hovering: hovering, pressed: pressed, siblingHovered: siblingHovered)?.cgColor
                     : hoverStyle == .circle ? ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor : nil
                 glyphLayer.strokeColor = Self.glyphInk(hovering: hovering, pressed: pressed).cgColor
-                glyphLayer.lineWidth = Self.glyphLineWidth(pressed: pressed)
+                glyphLayer.lineWidth = Metrics.addGlyphLineWidth
             }
         }
     }
@@ -187,10 +187,6 @@ final class NewTabButtonView: NSView {
     static func glyphInk(hovering: Bool, pressed: Bool) -> NSColor {
         pressed ? Palette.litGlyph : (hovering ? Palette.textPrimary : Palette.textSecondary)
     }
-
-    /// The trailing controls' stroke: the +'s, and the ⌄'s so the two read as one weight. Neutral themes can use
-    /// the same ink for hover and selection; a heavier stroke keeps a held press visible there too, without a fill.
-    static func glyphLineWidth(pressed: Bool) -> CGFloat { pressed ? Metrics.addGlyphPressedLineWidth : Metrics.addGlyphLineWidth }
 
     /// Half the ⌄'s width: three quarters of the +'s arm (`Metrics.addGlyphExtent`), so it reads as the +'s companion,
     /// not its peer. The ⌄ is half as tall as it is wide (``chevronRise``), the SF Symbol chevron's proportion.

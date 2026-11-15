@@ -8,6 +8,8 @@ PATH... are the FFI inputs (scripts/cmux-next/check-app-ffi-pin.sh --list-inputs
 - Packaging is unchanged: the files that decide which headers ship, under which module names and module maps, and how
   the archive is built (PACKAGING: build-app-ffi.sh, the mtime stamp and the toolchain, and any module map or cbindgen.toml under PATH...) are the same at OLD and NEW. A
   module map edit in build-app-ffi.sh keeps every header and still breaks every Swift `import`.
+- The action catalog crate is unchanged. Its data can add an action without changing a C declaration, but the
+  app must bind that action. A catalog change needs the re-pin PR's runtime HandlerCoverageTests before landing.
 - Every `.h` under PATH... at OLD still exists at NEW.
 - Each such header has the same preprocessor directives at NEW, in the same order and under the same conditionals
   (`#define`, `#include`, `#pragma` and the `#if` lines themselves): a directive can change what an unchanged
@@ -109,6 +111,13 @@ def where(stack: tuple[str, ...]) -> str:
 
 def differences(old: str, new: str, paths: list[str]) -> list[str]:
     found = [f"{path}: packaging changed" for path in packaging_changes(old, new, paths)]
+    # Compare the installed release to the candidate, not the candidate to the tip:
+    # a lagging release also changes the catalog the app will read. Keep the whole
+    # crate (build script, strings and dependencies included) as the conservative
+    # boundary. No source-text heuristic can prove dynamic Swift registrations.
+    catalog = "cmux-tui/crates/cmux-action-catalog"
+    if git("diff", "--name-only", old, new, "--", catalog).strip():
+        found.append(f"{catalog}: changed; runtime handler coverage on the re-pin PR is required")
     new_headers = set(headers(new, paths))
     for header in headers(old, paths):
         if header not in new_headers:

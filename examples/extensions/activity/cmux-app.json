@@ -1,0 +1,37 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/activity",
+  "name": { "en": "Activity" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: each workspace with its working agents and the chats waiting for you, in a sidebar section, and a live feed of workspace, agent and chat events in a pane." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "waveform.path.ecg" },
+  "categories": ["sidebar"],
+  "keywords": ["workspaces", "agents", "chats", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": { "en": "Activity" },
+      "symbol": "waveform.path.ecg",
+      "options": { "defaultRegion": "top", "maxRows": 12 }
+    },
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": { "en": "Activity feed" },
+      "symbol": "list.bullet.rectangle"
+    }
+  },
+  "scopes": {
+    "workspace:read": "List your workspaces and hear when one changes.",
+    "workspace:write": "Show a workspace when you click its row.",
+    "agent:read": "Count the agents working in each workspace.",
+    "agent_chat:read": "Count the chats waiting for your answer."
+  },
+  "activation": ["onInterface:cmux.section/1", "onInterface:cmux.pane/1"],
+  "files": ["dist/"]
+}
