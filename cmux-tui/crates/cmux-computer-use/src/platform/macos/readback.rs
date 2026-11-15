@@ -114,9 +114,19 @@ impl Wanted {
     }
 }
 
+/// How a read value is compared with a wanted one: as numbers within a
+/// tolerance, only when the element's value is itself a number; otherwise
+/// the text exactly (a ZIP field reading "00501" is not 501).
+pub(super) type Tolerance = Option<f64>;
+
 /// Whether `after` is what was wanted from `before` (`tolerance`: how far a
 /// number may be from an asked one, e.g. one step of a stepper).
-pub(super) fn wanted_reached(before: &str, after: &str, wanted: &Wanted, tolerance: f64) -> bool {
+pub(super) fn wanted_reached(
+    before: &str,
+    after: &str,
+    wanted: &Wanted,
+    tolerance: Tolerance,
+) -> bool {
     match wanted {
         Wanted::Value(v) => value_matches(after, v, tolerance),
         Wanted::Direction(sign) => {
@@ -154,7 +164,7 @@ pub(super) enum Check {
     AllRows { el: Ax, selected: usize, rows: usize },
     /// `el`'s value went from `before` to what the request `wanted` (a
     /// number within `tolerance`).
-    Value { el: Ax, before: String, wanted: Wanted, tolerance: f64 },
+    Value { el: Ax, before: String, wanted: Wanted, tolerance: Tolerance },
     /// `el`'s selected text range went from `before` to `range`.
     Range { el: Ax, before: Option<CFRange>, range: CFRange },
     /// `row` is selected, and the only one; `before`: it already was.
@@ -481,15 +491,23 @@ pub(super) fn moved_toward(before: f64, after: f64, sign: f64) -> bool {
 }
 
 /// Whether a read value matches the wanted one: the same text, or numbers
-/// within `tolerance`.
-pub(super) fn value_matches(read: &str, wanted: &str, tolerance: f64) -> bool {
+/// within `tolerance` when the value is a number (`Some`).
+pub(super) fn value_matches(read: &str, wanted: &str, tolerance: Tolerance) -> bool {
     if read == wanted {
         return true;
     }
+    let Some(tolerance) = tolerance else { return false };
     match (read.trim().parse::<f64>(), wanted.trim().parse::<f64>()) {
         (Ok(a), Ok(b)) => (a - b).abs() <= tolerance,
         _ => false,
     }
+}
+
+/// The tolerance for comparing `el`'s value: `tolerance` when its value is
+/// a number, read strictly now; exact text otherwise (a failed read
+/// included: exact is the stricter comparison).
+pub(super) fn tolerance_for(el: &Ax, tolerance: f64) -> Tolerance {
+    matches!(el.try_number("AXValue"), Ok(Some(_))).then_some(tolerance)
 }
 
 /// Of sub-checks given as (states a change, holds), whether any of the
@@ -599,6 +617,7 @@ impl Check {
         wanted: Wanted,
         tolerance: f64,
     ) -> Check {
+        let tolerance = tolerance_for(el, tolerance);
         Check::Value { el: el.clone(), before: before.0.clone(), wanted, tolerance }
     }
 
@@ -1154,13 +1173,13 @@ mod tests {
     #[test]
     fn the_wanted_value_comes_from_the_request() {
         let to = |v: &str| Wanted::from_request(v);
-        assert!(!wanted_reached("5", "7", &to("10"), 1.0), "stopped short");
-        assert!(wanted_reached("5", "9.5", &to("10"), 1.0), "within one step");
-        assert!(wanted_reached("5", "6", &Wanted::Direction(1.0), 0.0));
-        assert!(!wanted_reached("5", "4", &Wanted::Direction(1.0), 0.0), "the other way");
-        assert!(!wanted_reached("5", "5", &Wanted::Direction(-1.0), 0.0));
-        assert!(wanted_reached("0", "1", &Wanted::Other, 0.0));
-        assert!(!wanted_reached("1", "1", &Wanted::Other, 0.0));
+        assert!(!wanted_reached("5", "7", &to("10"), Some(1.0)), "stopped short");
+        assert!(wanted_reached("5", "9.5", &to("10"), Some(1.0)), "within one step");
+        assert!(wanted_reached("5", "6", &Wanted::Direction(1.0), None));
+        assert!(!wanted_reached("5", "4", &Wanted::Direction(1.0), None), "the other way");
+        assert!(!wanted_reached("5", "5", &Wanted::Direction(-1.0), None));
+        assert!(wanted_reached("0", "1", &Wanted::Other, None));
+        assert!(!wanted_reached("1", "1", &Wanted::Other, None));
     }
 
     /// Notes on macOS 27.0.1: its window walk ran past its bound (708
@@ -1180,10 +1199,19 @@ mod tests {
 
     #[test]
     fn values_match_as_text_or_within_the_tolerance() {
-        assert!(value_matches("abc", "abc", 0.0));
-        assert!(!value_matches("abc", "abd", 1.0));
-        assert!(value_matches("60.4", "60", 1.0));
-        assert!(!value_matches("62", "60", 1.0));
-        assert!(value_matches("1", "1.0", 0.0));
+        assert!(value_matches("abc", "abc", Some(0.0)));
+        assert!(!value_matches("abc", "abd", Some(1.0)));
+        assert!(value_matches("60.4", "60", Some(1.0)));
+        assert!(!value_matches("62", "60", Some(1.0)));
+        assert!(value_matches("1", "1.0", Some(0.0)));
+    }
+
+    /// Review of e28e981 (2): numbers only when the value is a number; a
+    /// text value compares exactly (a ZIP code "00501" is not 501).
+    #[test]
+    fn a_text_value_compares_exactly() {
+        assert!(!value_matches("501", "00501", None), "text: exact");
+        assert!(value_matches("00501", "00501", None));
+        assert!(value_matches("501", "00501", Some(0.0)), "a number value: 501");
     }
 }

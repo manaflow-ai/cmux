@@ -2703,10 +2703,10 @@ fn an_unknown_web_walk_takes_the_safe_side_per_caller() {
 #[test]
 fn a_stepper_tolerance_is_half_a_step() {
     let tol = roles::step_tolerance(1.0);
-    assert!(!readback::value_matches("9", "10", tol), "one step short");
-    assert!(readback::value_matches("10", "10", tol));
-    assert!(readback::value_matches("10.4", "10", tol), "rounding within half a step");
-    assert!(!readback::value_matches("9", "10", roles::step_tolerance(1.0)), "not already");
+    assert!(!readback::value_matches("9", "10", Some(tol)), "one step short");
+    assert!(readback::value_matches("10", "10", Some(tol)));
+    assert!(readback::value_matches("10.4", "10", Some(tol)), "rounding within half a step");
+    assert!(!readback::value_matches("9", "10", Some(roles::step_tolerance(1.0))), "not already");
 }
 
 /// Review of 02ca109 (4): only a clear rejection of an AX insert falls back
@@ -2740,18 +2740,59 @@ fn a_web_walk_that_stops_short_is_unknown() {
     assert_eq!(roles::web_content(roles(&[])), Web::Unknown);
 }
 
-/// Coordinator, after 9c19632: keys follow an AX focus write only when the
-/// app reports the target as its focused element; otherwise none are posted
-/// (they would land in whatever field has focus).
+/// Review of e28e981 (1): keys follow an AX focus write only on the guard's
+/// rules. The app naming none (a background app) needs the target's own
+/// focus turned false to true by the write, its web host focused, one web
+/// area (an iframe refused) and no sheet or second window with no focused
+/// window; the app naming another element posts none.
 #[test]
-fn keys_follow_a_focus_write_only_once_the_target_is_focused() {
-    use roles::focus_is_target;
-    assert!(focus_is_target(Some(true), Some(true)));
-    assert!(!focus_is_target(Some(false), Some(true)), "the app names another element");
+#[allow(clippy::redundant_clone)] // each case starts from the same facts
+fn keys_follow_a_focus_write_only_on_the_guards_rules() {
+    use roles::{FocusFacts, focus_guard};
+    let safari_bg = FocusFacts {
+        app_names_target: None,
+        own_before: Some(false),
+        own_after: Some(true),
+        in_web: true,
+        web_areas: 1,
+        host_focused: Some(true),
+        no_focused_window: false,
+        other_targets: false,
+    };
+    assert!(focus_guard(&safari_bg));
+    assert!(focus_guard(&FocusFacts { app_names_target: Some(true), ..safari_bg.clone() }));
     assert!(
-        focus_is_target(None, Some(true)),
-        "a background app reports none; the field says it is"
+        !focus_guard(&FocusFacts { app_names_target: Some(false), ..safari_bg.clone() }),
+        "another element"
     );
-    assert!(!focus_is_target(None, Some(false)));
-    assert!(!focus_is_target(None, None));
+    assert!(
+        !focus_guard(&FocusFacts { own_before: Some(true), ..safari_bg.clone() }),
+        "already focused: no change seen"
+    );
+    assert!(!focus_guard(&FocusFacts { own_before: None, ..safari_bg.clone() }));
+    assert!(
+        !focus_guard(&FocusFacts { host_focused: Some(false), ..safari_bg.clone() }),
+        "inspector or other web view has the keys"
+    );
+    assert!(!focus_guard(&FocusFacts { host_focused: None, ..safari_bg.clone() }));
+    assert!(!focus_guard(&FocusFacts { web_areas: 2, ..safari_bg.clone() }), "an iframe");
+    assert!(
+        !focus_guard(&FocusFacts {
+            web_areas: 2,
+            app_names_target: Some(true),
+            ..safari_bg.clone()
+        }),
+        "an iframe"
+    );
+    assert!(
+        !focus_guard(&FocusFacts {
+            no_focused_window: true,
+            other_targets: true,
+            ..safari_bg.clone()
+        }),
+        "a sheet or a second window"
+    );
+    let native =
+        FocusFacts { in_web: false, web_areas: 0, host_focused: None, ..safari_bg.clone() };
+    assert!(focus_guard(&native), "outside web content no host is needed");
 }

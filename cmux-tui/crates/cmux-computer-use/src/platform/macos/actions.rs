@@ -50,7 +50,7 @@ fn outcome_after(
     let baseline = before.as_ref().filter(|b| !b.get().is_empty());
     let mut out = match (baseline, &after) {
         (Some(b), Some(a))
-            if readback::wanted_reached(b.get(), a, &wanted, 0.0) && a != b.get() =>
+            if readback::wanted_reached(b.get(), a, &wanted, Some(0.0)) && a != b.get() =>
         {
             let mut out = ActionOutcome::confirmed(route);
             out.expect = d.expect(Some(readback::Check::value_from(el, b, wanted, 0.0)));
@@ -187,7 +187,8 @@ impl MacDesktop {
             // (not AppKit) do not report one at all; those are typed into, as
             // the person's keys would be.
             let (app, win) = self.ax_window(t)?;
-            if app.element("AXFocusedWindow").is_some_and(|f| !f.same(&win)) {
+            let focused = app.try_element("AXFocusedWindow").map_err(|_| focus_unread(t))?;
+            if focused.is_some_and(|f| !f.same(&win)) {
                 return Err(DesktopError::Unsupported(format!(
                     "window {} did not become the app's key window when raised (an alert, sheet or panel of the app has it), so keys would reach another window; take a screenshot of the app and deal with that window first",
                     t.window.id
@@ -196,7 +197,9 @@ impl MacDesktop {
             return Ok(Route::Hid);
         }
         let (app, win) = self.ax_window(t)?;
-        let is_key = app.element("AXFocusedWindow").is_some_and(|f| f.same(&win));
+        // Read strictly: which window has the keys must be known.
+        let focused = app.try_element("AXFocusedWindow").map_err(|_| focus_unread(t))?;
+        let is_key = focused.as_ref().is_some_and(|f| f.same(&win));
         // Count the windows keys could go to instead: standard, not minimized.
         // Apps keep hidden helper windows (Safari lists 8 with one visible),
         // and counting those refused keys to an app's only real window.
@@ -213,9 +216,12 @@ impl MacDesktop {
         // if the app has no key window that could take them instead: none, or
         // one that is minimized or hidden. A dialog or panel as key window (a
         // Save sheet's alert, a floating panel) would get them otherwise.
-        let other_key_window = app
-            .element("AXFocusedWindow")
-            .is_some_and(|f| !f.same(&win) && f.bool("AXMinimized") != Some(true));
+        let other_key_window = match &focused {
+            Some(f) if !f.same(&win) => {
+                f.try_bool("AXMinimized").map_err(|_| focus_unread(t))? != Some(true)
+            }
+            _ => false,
+        };
         if roles::keys_reach_target(is_key, windows, target_is_standard, other_key_window) {
             return Ok(Route::Pid { pid: t.window.pid, window: t.window.id });
         }
@@ -318,7 +324,10 @@ impl MacDesktop {
             if self.menu_gate(&current)?.is_some() {
                 return Ok(Some(current));
             }
-            el = current.element("AXParent");
+            // Read strictly: a parent that cannot be read may be the opener.
+            el = current
+                .try_element("AXParent")
+                .map_err(|_| DesktopError::Unsupported(roles::MENU_UNREAD_REFUSAL.into()))?;
         }
         Ok(None)
     }
@@ -342,14 +351,19 @@ impl MacDesktop {
             })
         });
         let pid = on_menu.as_ref().map_or(t.window.pid, |w| w.pid);
-        let mut el = Ax::application(pid).and_then(|app| app.element_at(at.x, at.y));
+        // Read strictly: a failed hit test or read may hide a denied item.
+        let unread = || DesktopError::Unsupported(roles::MENU_UNREAD_REFUSAL.into());
+        let mut el = Some(
+            Ax::application(pid).and_then(|app| app.element_at(at.x, at.y)).ok_or_else(unread)?,
+        );
         let mut found_item = false;
         for _ in 0..4 {
             let Some(current) = el else { break };
-            found_item |= current.string("AXRole").as_deref() == Some("AXMenuItem");
+            let role = current.try_string("AXRole").map_err(|_| unread())?;
+            found_item |= role.as_deref() == Some("AXMenuItem");
             self.refuse_denied_item(&current)?;
             self.refuse_submenu_open(&current)?;
-            el = current.element("AXParent");
+            el = current.try_element("AXParent").map_err(|_| unread())?;
         }
         if on_menu.is_some() && !found_item {
             return Err(DesktopError::Unsupported(menus::NO_MENU_ITEM_AT_POINT.into()));
@@ -389,6 +403,14 @@ fn menu_role(el: &Ax) -> DResult<Option<String>> {
     let in_web = roles::menu_gate_web(in_web_area(el));
     let has_menu = menu_of(el).ok_or_else(unread)?.is_some();
     Ok(roles::opens_menu(&role, in_web, has_menu).then_some(role))
+}
+
+/// The refusal when which window has the keys cannot be read.
+fn focus_unread(t: &Target) -> DesktopError {
+    DesktopError::Unsupported(format!(
+        "which window of the app has the keys could not be read, so no keys were sent to window {}; try again",
+        t.window.id
+    ))
 }
 
 /// Whether the element is, or sits inside, web content (an `AXWebArea`),
@@ -1285,18 +1307,111 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
 /// write, before keys are posted to it.
 const FOCUS_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
-/// Whether the app reports `el` as its focused element within
-/// [`FOCUS_WAIT`] (read strictly; an unreadable focus is not focused).
-fn wait_focused(d: &MacDesktop, t: &Target, el: &Ax) -> bool {
-    let Ok((app, _)) = d.ax_window(t) else { return false };
-    let is_target = || {
-        // Read strictly: an unreadable focus posts no keys.
-        let Ok(app_focus) = app.try_element("AXFocusedUIElement") else { return false };
-        let Ok(own) = el.try_bool("AXFocused") else { return false };
-        roles::focus_is_target(app_focus.map(|f| f.same(el)), own)
-    };
-    is_target() || super::menus::wait_for(FOCUS_WAIT, is_target)
+/// The facts the focus guard reads before the focus write.
+struct FocusBefore {
+    /// The target's own AXFocused.
+    own: Option<bool>,
 }
+
+impl FocusBefore {
+    /// `None` when the target's focus cannot be read (no keys then).
+    fn read(el: &Ax) -> Option<FocusBefore> {
+        Some(FocusBefore { own: el.try_bool("AXFocused").ok()? })
+    }
+}
+
+/// The element just outside the web content `el` is in (the host view of
+/// its web area), and how many web areas the walk passed (more than one:
+/// an iframe or a nested web view). `None`: the walk failed.
+fn web_host(el: &Ax) -> Option<(Option<Ax>, usize)> {
+    let mut areas = 0;
+    let mut host = None;
+    let mut current = el.clone();
+    for _ in 0..64 {
+        let role = current.try_string("AXRole").ok()??;
+        if matches!(role.as_str(), "AXWindow" | "AXApplication") {
+            return Some((host, areas));
+        }
+        let parent = current.try_element("AXParent").ok()??;
+        if role == "AXWebArea" {
+            areas += 1;
+            host = Some(parent.clone());
+        }
+        current = parent;
+    }
+    None
+}
+
+/// Whether the app has a sheet open, or more than one standard window that
+/// keys could reach (read strictly; `None`: unreadable).
+fn other_key_targets(app: &Ax) -> Option<bool> {
+    let windows = app.try_elements("AXWindows").ok()?;
+    let mut standard = 0;
+    for w in &windows {
+        if w.try_string("AXSubrole").ok()?.as_deref() == Some("AXStandardWindow")
+            && w.try_bool("AXMinimized").ok()? != Some(true)
+        {
+            standard += 1;
+        }
+        for c in w.try_elements("AXChildren").ok()? {
+            if c.try_string("AXRole").ok()?.as_deref() == Some("AXSheet") {
+                return Some(true);
+            }
+        }
+    }
+    Some(standard > 1)
+}
+
+/// Whether focus is on the target within [`FOCUS_WAIT`], by
+/// [`roles::focus_guard`]: the app naming the target; or, when the app
+/// names no focused element, the target's own focus turned false to true by
+/// the write, its web host view focused (web content), no iframe, and no
+/// sheet or second window that could have the keys. Then the host's focus
+/// must hold for a moment before keys are posted. Every read is strict.
+fn wait_focused(d: &MacDesktop, t: &Target, el: &Ax, before: &FocusBefore) -> bool {
+    let Ok((app, _)) = d.ax_window(t) else { return false };
+    let host = match web_host(el) {
+        Some(h) => h,
+        None => return false,
+    };
+    let in_web = host.1 > 0;
+    let read = || -> Option<roles::FocusFacts> {
+        let app_focus = app.try_element("AXFocusedUIElement").ok()?;
+        let focused_window = app.try_element("AXFocusedWindow").ok()?;
+        Some(roles::FocusFacts {
+            app_names_target: app_focus.as_ref().map(|f| f.same(el)),
+            own_before: before.own,
+            own_after: el.try_bool("AXFocused").ok()?,
+            in_web,
+            web_areas: host.1,
+            host_focused: match &host.0 {
+                Some(h) => h.try_bool("AXFocused").ok()?,
+                None => None,
+            },
+            no_focused_window: focused_window.is_none(),
+            other_targets: if focused_window.is_none() { other_key_targets(&app)? } else { false },
+        })
+    };
+    let ok = || read().is_some_and(|f| roles::focus_guard(&f));
+    if !(ok() || super::menus::wait_for(FOCUS_WAIT, ok)) {
+        return false;
+    }
+    // Settled: the host view (web content) keeps its focus over two reads.
+    match &host.0 {
+        Some(h) if in_web => {
+            let focused = || h.try_bool("AXFocused").ok().flatten() == Some(true);
+            let mut streak = 0;
+            super::menus::wait_for(FOCUS_SETTLE, || {
+                streak = if focused() { streak + 1 } else { 0 };
+                streak >= 2
+            })
+        }
+        _ => true,
+    }
+}
+
+/// How long the web host view gets to hold its focus before keys go.
+const FOCUS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// How long an accepted AX insert gets to show in the field's value before
 /// the outcome is decided (never followed by keys).
@@ -1467,17 +1582,21 @@ pub(super) fn type_text(
         // Keys go to the focused element: focus this one first (it changes
         // focus inside the app, not which app is in front).
         if element_id.is_some() {
+            // The route first: a refusal must not move focus.
+            d.key_route(&t, delivery)?;
+            // What focus looked like before the write (read strictly).
+            let before = FocusBefore::read(el);
             // Not while another session's scope holds the app.
             let written = ax_unprimed(t.window.pid, || {
                 Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
             })?;
-            // Keys go only once the app reports the target focused: a write
-            // it ignored would send them to whatever field has focus.
-            let focused = written && wait_focused(d, &t, el);
+            // Keys go only once focus is on the target, by the guard's rules:
+            // a write the app ignored would send them to whatever has focus.
+            let focused = written && before.is_some_and(|b| wait_focused(d, &t, el, &b));
             if !focused {
                 let mut out = ActionOutcome::delivered("ax_focus");
                 out.note = format!(
-                    "the element did not take keyboard focus through accessibility within {} ms, so no keys were posted",
+                    "the element did not take keyboard focus through accessibility within {} ms (or focus could not be told apart from another field), so no keys were posted",
                     FOCUS_WAIT.as_millis()
                 );
                 return Ok(out);
@@ -2151,14 +2270,10 @@ fn value_for(el: &Ax, value: &str) -> DResult<Cf> {
     cf.ok_or_else(|| DesktopError::Failed("could not build the value".into()))
 }
 
-fn same_value(read: &str, wanted: &str) -> bool {
-    if read == wanted {
-        return true;
-    }
-    match (read.trim().parse::<f64>(), wanted.trim().parse::<f64>()) {
-        (Ok(a), Ok(b)) => (a - b).abs() < 1e-6,
-        _ => false,
-    }
+/// Whether a read value is the wanted one: as numbers (within 1e-6) only
+/// when `numeric` (the element's value is a number), else the text exactly.
+fn same_value(read: &str, wanted: &str, numeric: bool) -> bool {
+    readback::value_matches(read, wanted, numeric.then_some(1e-6))
 }
 
 pub(super) fn set_value(
@@ -2187,18 +2302,18 @@ pub(super) fn set_value(
     }
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
     let new_count = value.encode_utf16().count() as f64;
-    // The baseline, before the write: the value (or a secure field's
-    // length) now; unreadable, no read-back. One that already reads the
-    // wanted value states no change.
+    // Read before the write, once: whether the value is a number (then
+    // numbers compare within 1e-6, else the text exactly) and what the
+    // write sets, as value_for maps it ("on" -> 1).
+    let numeric = matches!(el.try_number("AXValue"), Ok(Some(_)));
+    let requested = roles::requested_value(numeric, value).unwrap_or_else(|| value.to_string());
+    // The baseline: the value (or a secure field's length) now; unreadable,
+    // no read-back. One that already reads the wanted value states no
+    // change.
     let check = if secure {
         readback::Check::length(&el, new_count)
     } else {
-        // What the write sets, the same way value_for maps it ("on" -> 1).
-        let current_is_number = el.try_number("AXValue").ok().flatten().is_some();
-        let wanted =
-            roles::requested_value(current_is_number, value).unwrap_or_else(|| value.to_string());
-        // The same float tolerance as same_value.
-        readback::Check::value(&el, readback::Wanted::from_request(wanted), 1e-6)
+        readback::Check::value(&el, readback::Wanted::from_request(requested.clone()), 1e-6)
     };
     el.set("AXValue", &value_for(&el, value)?)
         .map_err(|e| ax_error(e, &format!("element {element_id}")))?;
@@ -2206,10 +2321,7 @@ pub(super) fn set_value(
     let holds = if secure {
         readback::secure_count(&el) == Some(new_count)
     } else {
-        let requested =
-            roles::requested_value(el.try_number("AXValue").ok().flatten().is_some(), value)
-                .unwrap_or_else(|| value.to_string());
-        read.as_deref().is_some_and(|r| same_value(r, &requested))
+        read.as_deref().is_some_and(|r| same_value(r, &requested, numeric))
     };
     let mut out = if holds {
         ActionOutcome::confirmed("ax_set_value")
@@ -2218,10 +2330,7 @@ pub(super) fn set_value(
     }
     .showing("value");
     out.expect = d.expect(check);
-    let requested =
-        roles::requested_value(el.try_number("AXValue").ok().flatten().is_some(), value)
-            .unwrap_or_else(|| value.to_string());
-    if !secure && read.as_deref().is_some_and(|r| !same_value(r, &requested)) {
+    if !secure && read.as_deref().is_some_and(|r| !same_value(r, &requested, numeric)) {
         out.note = "the element reads back a different value".into();
     }
     if let Some(frame) = el.frame() {

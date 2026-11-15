@@ -49,8 +49,8 @@ const TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
 const TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 /// How long after a call arms the guard a theft counts as the call's menu.
 const ARMED_FOR: Duration = Duration::from_millis(2500);
-/// How long the release waits for the menu window before it releases anyway.
-// Longer than a call's own wait for its menu (menus::OPEN_WAIT, 1.5 s).
+/// How long the release waits for the menu window before it releases anyway
+/// (longer than a call's own wait for its menu, menus::OPEN_WAIT, 1.5 s).
 const MENU_WAIT: Duration = Duration::from_millis(2000);
 /// How long the menu's tap drops this process's own notice.
 const LOOKUP_FOR: Duration = Duration::from_millis(500);

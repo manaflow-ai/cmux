@@ -2189,8 +2189,8 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     )
 }
 
-/// What a batch step acts on: its element, else its point (a scroll or click
-/// at a point acts on the view under it), else the window (keys, typing).
+/// What a batch step acts on: its element, else the window (a point, keys
+/// or typing may reach any element of it).
 fn batch_target(step: &Value) -> String {
     if let Some(id) = step.get("element_id").and_then(Value::as_str) {
         return format!("element:{id}");

@@ -246,17 +246,44 @@ pub fn step_tolerance(step: f64) -> f64 {
 /// The refusal when an element that may open a menu cannot be read.
 pub const MENU_UNREAD_REFUSAL: &str = "this element could not be read well enough to tell whether it opens a menu, so nothing was done; try again, or take a screenshot and use another element";
 
-/// Whether keys may follow an AX focus write, from the app's focused
-/// element (`Some(true)`: it is the target; `Some(false)`: another element;
-/// `None`: the app reports none, as a background app with no key window
-/// does) and the target's own `AXFocused`. The app naming another element
-/// posts no keys (they would land there); naming none, the target must say
-/// it is focused itself (Safari's background web field, macOS 27.0.1: the
-/// app reports no focused element, the field reads AXFocused 1).
-pub fn focus_is_target(app_focus_is_target: Option<bool>, own_focused: Option<bool>) -> bool {
-    match app_focus_is_target {
-        Some(same) => same,
-        None => own_focused == Some(true),
+/// What the focus guard reads after an AX focus write ([`focus_guard`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FocusFacts {
+    /// The app's focused element: `Some(true)` the target, `Some(false)`
+    /// another, `None` none reported.
+    pub app_names_target: Option<bool>,
+    /// The target's own AXFocused before and after the write.
+    pub own_before: Option<bool>,
+    pub own_after: Option<bool>,
+    /// The target is in web content, through this many web areas.
+    pub in_web: bool,
+    pub web_areas: usize,
+    /// The web area's host view (the element just outside it) AXFocused.
+    pub host_focused: Option<bool>,
+    /// The app reports no focused window, and then whether it has a sheet
+    /// or more than one window keys could reach.
+    pub no_focused_window: bool,
+    pub other_targets: bool,
+}
+
+/// Whether keys may follow an AX focus write. The app naming the target
+/// posts keys; naming another element posts none. Naming none (a background
+/// app; Safari's background web field on macOS 27.0.1), the target's own
+/// focus must have turned false to true across the write (document-level
+/// focus alone could be another web view's, an inspector's), in web content
+/// its host view must be focused and the walk must pass one web area only
+/// (an iframe is refused), and with no focused window the app must have no
+/// sheet and only one window keys could reach.
+pub fn focus_guard(f: &FocusFacts) -> bool {
+    match f.app_names_target {
+        Some(same) => same && f.web_areas <= 1,
+        None => {
+            f.own_before == Some(false)
+                && f.own_after == Some(true)
+                && f.web_areas <= 1
+                && (!f.in_web || f.host_focused == Some(true))
+                && !(f.no_focused_window && f.other_targets)
+        }
     }
 }
 
