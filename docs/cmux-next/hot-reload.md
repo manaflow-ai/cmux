@@ -523,7 +523,8 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   the app's.
 - **App FFI:** Rust the app links (its FFI crates) swaps warm when the app carries it as one library,
   `Contents/Frameworks/libcmux_app_ffi.dylib`. The library of SHA's `cmux-app-ffi-<commit>` release
-  (the newest commit at or before SHA that changed an FFI input) replaces it, the app quits with
+  (the newest commit at or before SHA that changed an FFI input; for a commit that only moves the pin,
+  the release SHA pins, since an app links its commit's pin, which lags the sources) replaces it, the app quits with
   `cmux app quit --keep-sessions` and opens again, and the part is done once the app's control socket
   answers from a new pid that stays up. The daemon and its terminals never stop. The release must only
   add to the FFI the app's pin was built from (`scripts/cmux-next/app_ffi_additive.py`), and the
