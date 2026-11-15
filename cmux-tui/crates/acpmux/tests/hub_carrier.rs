@@ -1748,3 +1748,61 @@ async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
     bulk_down(&client, &daemon_client, 1 << 20, false).await.unwrap();
     assert!(client.snapshot().await.generation > 1, "the transfer never crossed a reconnect");
 }
+
+/// A joined machine whose config.json has no `websocket` (a Mac's plain `acpmux daemon start`
+/// under launchd) still runs its hub carrier, bridged to the daemon's own loopback listener, and
+/// its start says so in the log. A Mac's daemon.log said "mesh relay: on" and nothing at all
+/// about the carrier, so nobody could tell whether it ran.
+#[test]
+fn hub_carrier_a_joined_daemon_with_no_websocket_config_runs_it_on_loopback_and_logs_it() {
+    use std::io::BufRead;
+    use std::time::Instant;
+    // Short: the socket path must stay under the macOS limit.
+    let dir = std::env::temp_dir().join(format!("amx-hc-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    // Joined with the machine credential, and no `websocket` key at all. The hub is a closed
+    // port: the carrier's ticket requests fail and it keeps retrying, as with the platform down.
+    let config = json!({"meshRelay": {"url": "http://127.0.0.1:9", "credential": "join"}});
+    std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::Deny, &[])
+        .args(["daemon", "run", "--memory", "--log", "info"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", dir.join("s.sock"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let stdout = child.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut seen = Vec::new();
+    let carrier = loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(line) if line.contains("hub carrier") => break Some(line),
+            Ok(line) => seen.push(line),
+            Err(_) => break None,
+        }
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+    let line = carrier.unwrap_or_else(|| {
+        panic!("the start logged nothing about the hub carrier:\n{}", seen.join("\n"))
+    });
+    assert!(line.contains("hub carrier: on"), "the carrier is off: {line}");
+    assert!(line.contains("127.0.0.1:"), "the carrier is not on the loopback listener: {line}");
+}
