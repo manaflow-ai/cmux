@@ -130,15 +130,18 @@ try {
       expect(dom.window.document.querySelector(".acpmux-image-viewer video")).not.toBeNull();
       // Bytes arriving start the wait again: a slow stream is not a stalled one.
       await act(async () => {
+        // fixed-wait: the stall is the absence of any event; the wait is the shortened stall time.
         await new Promise((resolve) => setTimeout(resolve, 25));
         dom.window.document
           .querySelector(".acpmux-image-viewer video")!
           .dispatchEvent(new dom.window.Event("progress"));
+        // fixed-wait: the stall is the absence of any event; the wait is the shortened stall time.
         await new Promise((resolve) => setTimeout(resolve, 25));
       });
       expect(calls).toEqual(["media.load"]);
       // fixed-wait: the stall is the absence of any event; the wait is the stall time shortened.
       await act(async () => {
+        // fixed-wait: the stall is the absence of any event; the wait is the shortened stall time.
         await new Promise((resolve) => setTimeout(resolve, 80));
       });
       await settle();
@@ -169,6 +172,7 @@ try {
         dom.window.document
           .querySelector(".acpmux-image-viewer video")!
           .dispatchEvent(new dom.window.Event("loadeddata"));
+        // fixed-wait: the stall is the absence of any event; the wait is the shortened stall time.
         await new Promise((resolve) => setTimeout(resolve, 100));
       });
       expect(calls).toEqual(["media.load"]);

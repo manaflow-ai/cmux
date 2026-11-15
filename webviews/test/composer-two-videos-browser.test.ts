@@ -114,6 +114,7 @@ await requireBrowserLane("composer-two-videos-browser.test.ts", async () => {
       };
       state.calls = [];
       state.pending = 0;
+      // fixed-wait: the host's read time is the behavior measured (the page must not stall on it).
       const after = <T>(ms: number, value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
       const video = (src: unknown): Video | undefined => videos.find((v) => String(src).endsWith(v.name));
       /// `count` JPEGs of `video` at most `side` on a side: a screen's text, as noise, so each is as
@@ -356,6 +357,7 @@ await requireBrowserLane("composer-two-videos-browser.test.ts", async () => {
         const started = Date.now();
         await pasteVideo(page, videos, 0);
         // "one after the other really quickly"
+        // fixed-wait: the gap between the two pastes is the behavior measured.
         await page.waitForTimeout(150);
         await pasteVideo(page, videos, 1);
         await page.keyboard.type(" both of these recordings", { delay: 20 });
@@ -369,6 +371,7 @@ await requireBrowserLane("composer-two-videos-browser.test.ts", async () => {
           throw error;
         });
         // Let the last answer's render land.
+        // fixed-wait: a render after the last answer has no event of its own; the heartbeat must cover it.
         await page.waitForTimeout(300);
         const timed = await stopTiming(page);
         const calls = await page.evaluate(
