@@ -44,6 +44,15 @@ test("the text layout library measures on a canvas the chat replaces when its ca
     prepare("gamma delta", "13px Inter");
     expect(made[1]!.measured).toContain("gamma");
     expect(made[0]!.measured.length).toBe(old);
+
+    // A chat that never prepares enough text to clear the library's caches still gets a new canvas
+    // every MEASURES_PER_CANVAS measures, so no canvas holds more measured words than that.
+    const { MEASURES_PER_CANVAS } = await import("../src/agent-session/acpmux/measureContext");
+    const words = Array.from({ length: MEASURES_PER_CANVAS * 2 + 10 }, (_, index) => `w${index}`);
+    prepare(words.join(" "), "13px Inter");
+    expect(made.length).toBeGreaterThanOrEqual(4);
+    for (const each of made) expect(each.measured.length).toBeLessThanOrEqual(MEASURES_PER_CANVAS);
+    expect(made.at(-1)!.font).toBe("13px Inter");
   } finally {
     scope.OffscreenCanvas = before;
   }
