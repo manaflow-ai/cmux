@@ -8,13 +8,16 @@
 //! the owner's own on a personal machine), else a 401 that says `agent.sign_in_required`
 //! (`recovery::start_sign_in` and `claude_auth::is_sign_in_failure` type it as a sign-in).
 //!
-//! [`decide`] is `codex_cloud_auth::own_reason`'s rule for these two, on an owner machine with the
-//! image's own-or-team script:
+//! [`decide_launch`] is `codex_cloud_auth::own_reason`'s rule for these two, on an owner machine
+//! with the image's own-or-team script:
 //!   env       `CMUX_GEMINI_AUTH` / `CMUX_GROK_AUTH` = `own|team` pins the launch;
 //!   chosen    `~/.config/cmux/agent-auth/<agent>` holds `own` or `team` (`cr use`);
 //!   login     no choice; the agent has its own sign-in (`agent_login::signed_in_at`);
-//!   key       a key of its own in the launch's env: anything but the placeholder or a
-//!             `cmux-secret://` reference;
+//!   key       a key of its own in the env the launch gets ([`LaunchEnv`]: the vault's and
+//!             `machine.env`'s values too, as Claude's check reads them): anything but the
+//!             placeholder or a `cmux-secret://` reference, except the vault's own placeholder
+//!             for that name, which its egress proxy fills; or one the login shell sets that
+//!             this daemon has not read yet (#43800);
 //!   endpoint  the person points it somewhere themselves (a base URL, Gemini's Vertex or Google
 //!             sign-in switches, a Gemini `selectedType` other than an API key or gateway);
 //!   no-team-plane / probe-failed / not-served: no `https://` origin, or the origin's
@@ -27,9 +30,17 @@
 //! whose key is `GEMINI_API_KEY`, sent as `x-goog-api-key` to that base URL
 //! (`contentGenerator.ts`). With `selectedType` `gemini-api-key` it uses the same two. Grok
 //! (`11-custom-models.md`): `GROK_MODELS_BASE_URL` is its base URL for inference, `XAI_API_KEY`
-//! sent as `Authorization: Bearer`.
+//! sent as `Authorization: Bearer`. Grok CLI 1.0.77 in ACP mode offers its `xai.api_key` auth
+//! method, and so starts `session/new` with no sign-in, only when its probe of that key
+//! (`GET <xAI API base>/api-key`) does not call the key unusable. The default base is the public
+//! API, which refuses the placeholder, so `session/new` answered "Authentication required"
+//! (#43857). `GROK_XAI_API_BASE_URL` (its `--xai-api-base-url`) moves the probe, and the title
+//! and turn calls (`/responses`, `/chat/completions`), to the gateway. The gateway answers the
+//! probe's path with a 404 before it checks the machine token (cmux-platform `ProviderRoute.ts`
+//! `providerTarget`), which the probe takes as unknown, so the key method is offered. A 400, 401
+//! or 403 there would make the probe call the key unusable and bring the refusal back.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -86,7 +97,9 @@ impl Provider {
     fn endpoint_vars(self) -> &'static [&'static str] {
         match self {
             Provider::Gemini => &["GOOGLE_GEMINI_BASE_URL"],
-            Provider::Grok => &["GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL"],
+            Provider::Grok => {
+                &["GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL", "GROK_XAI_API_BASE_URL"]
+            }
         }
     }
 
@@ -113,6 +126,7 @@ impl Provider {
             ],
             Provider::Grok => vec![
                 pair("GROK_MODELS_BASE_URL", format!("{origin}/xai/v1")),
+                pair("GROK_XAI_API_BASE_URL", format!("{origin}/xai/v1")),
                 pair("XAI_API_KEY", PLACEHOLDER_KEY.to_owned()),
             ],
         }
@@ -167,8 +181,25 @@ impl Providers {
 }
 
 /// The mode of one launch (module docs). `probe` asks the origin what it serves; it runs only
-/// when nothing else decides, and None (no answer in time, any error) keeps own.
-pub async fn decide<F, Fut>(provider: Provider, inputs: &Inputs<'_>, probe: F) -> Mode
+/// when nothing else decides, and None (no answer in time, any error) keeps own. A launch goes
+/// through [`decide_launch`], which also knows the keys its env shows only as a reference.
+#[cfg(test)]
+async fn decide<F, Fut>(provider: Provider, inputs: &Inputs<'_>, probe: F) -> Mode
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Option<Providers>>,
+{
+    decide_holding(provider, inputs, &|_| false, probe).await
+}
+
+/// [`decide`], where `held` names the keys the launch gets a value of the person's own for
+/// that its env shows only as a reference ([`LaunchEnv::holds`]).
+async fn decide_holding<F, Fut>(
+    provider: Provider,
+    inputs: &Inputs<'_>,
+    held: &(dyn Fn(&str) -> bool + Sync),
+    probe: F,
+) -> Mode
 where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = Option<Providers>>,
@@ -193,7 +224,11 @@ where
         if crate::agent_login::signed_in_at(provider.agent(), &store) {
             return Mode::Own("login");
         }
-        if provider.key_vars().iter().any(|k| var(k).is_some_and(|v| own_key(&v))) {
+        let own = |k: &str| match var(k) {
+            Some(v) => own_key(&v) || (held(k) && v.trim() == cmux_vault_egress::placeholder(k)),
+            None => held(k),
+        };
+        if provider.key_vars().iter().any(|k| own(k)) {
             return Mode::Own("key");
         }
         let switched = provider == Provider::Gemini
@@ -212,6 +247,124 @@ where
         Some(p) if !p.serves(provider) => Mode::Own("not-served"),
         Some(_) => Mode::Team(provider.team_env(&origin)),
     }
+}
+
+/// What the own-key check reads for one Cloud machine launch (`hub/spawn.rs`: Gemini and Grok
+/// here, Claude through `claude_cloud_auth::launch_env`): the env the child gets
+/// (`login_env::effective_with`: the daemon's env, the allow-listed login values, the vault's
+/// entries, `machine.env`'s values, then the profile; for a remote-origin launch only the host
+/// base and the profile), and the key names it gets a value of the person's own for that this env
+/// shows only as a reference (#43800, #43821).
+#[derive(Debug, Clone, Default)]
+pub struct LaunchEnv {
+    env: BTreeMap<String, String>,
+    held: BTreeSet<String>,
+}
+
+impl LaunchEnv {
+    /// The view of a launch of `family` with the (resolved) profile env `profile`, over the
+    /// daemon's own env `daemon` (less `machine.env`'s names), the vault's entries `vault`
+    /// (`vault::env_for_children`: a proxy entry as its `cmux-secret://NAME` placeholder, which
+    /// the egress proxy fills), `machine.env`'s values `machine`, and `pending`, the secret names
+    /// the login shell sets that this daemon does not hold yet (`login_env::missing_secret_names`).
+    /// A `remote` (remote-origin) launch starts from the fixed host base `daemon`
+    /// (`agent::host_environment`) and its profile only: no login value, vault entry or
+    /// `machine.env` value reaches it (`agent/command.rs`), so none counts as its key.
+    pub fn new(
+        family: &str,
+        profile: BTreeMap<String, String>,
+        daemon: BTreeMap<String, String>,
+        vault: Vec<(String, String)>,
+        machine: BTreeMap<String, String>,
+        pending: Vec<String>,
+        remote: bool,
+    ) -> LaunchEnv {
+        if remote {
+            let mut env = daemon;
+            env.extend(profile);
+            return LaunchEnv { env, held: BTreeSet::new() };
+        }
+        let held = vault
+            .iter()
+            .filter(|(k, v)| *v == cmux_vault_egress::placeholder(k))
+            .map(|(k, _)| k.clone())
+            .chain(pending)
+            .collect();
+        let env = crate::login_env::effective_with(
+            Some(family),
+            &profile,
+            daemon.into_iter().collect(),
+            vault,
+            machine,
+        );
+        LaunchEnv { env, held }
+    }
+
+    /// [`LaunchEnv::new`] with this daemon's vault, `machine.env`, own env and pending secrets now;
+    /// for a `remote` launch, the host base it starts from instead.
+    pub fn now(family: &str, profile: BTreeMap<String, String>, remote: bool) -> LaunchEnv {
+        if remote {
+            let base = crate::agent::host_environment()
+                .into_iter()
+                .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+                .collect();
+            return LaunchEnv::new(
+                family,
+                profile,
+                base,
+                Vec::new(),
+                BTreeMap::new(),
+                Vec::new(),
+                true,
+            );
+        }
+        let vault = crate::vault::env_for_children();
+        let machine = crate::login_env::machine_values();
+        let daemon = crate::login_env::daemon_values().into_iter().collect();
+        LaunchEnv::new(
+            family,
+            profile,
+            daemon,
+            vault,
+            machine,
+            crate::login_env::missing_secret_names(),
+            false,
+        )
+    }
+
+    /// The env the launch gets, for a check that reads it whole (Claude's, `claude_auth::find_in`).
+    pub fn into_env(self) -> BTreeMap<String, String> {
+        self.env
+    }
+
+    /// The launch's value of `k`; None when unset or empty.
+    pub fn var(&self, k: &str) -> Option<String> {
+        self.env.get(k).cloned().filter(|v| !v.is_empty())
+    }
+
+    /// Whether the launch gets a value of the person's own for `k` though its env shows none, or
+    /// only `k`'s vault placeholder: a vault proxy entry, or a login-shell secret not read yet.
+    /// Any other `cmux-secret://` reference, or the gateway placeholder, is still no key.
+    pub fn holds(&self, k: &str) -> bool {
+        self.held.contains(k)
+    }
+}
+
+/// [`decide`] for one launch: its `HOME` (else this user's), the machine root `root`.
+pub async fn decide_launch<F, Fut>(
+    provider: Provider,
+    launch: &LaunchEnv,
+    root: &std::path::Path,
+    probe: F,
+) -> Mode
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Option<Providers>>,
+{
+    let var = |k: &str| launch.var(k);
+    let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    let inputs = Inputs { root, home: &home, var: &var, broker: false };
+    decide_holding(provider, &inputs, &|k| launch.holds(k), probe).await
 }
 
 /// Put team mode in a launch's profile env: [`Provider::team_env`] over whatever it had.
@@ -349,6 +502,12 @@ mod tests {
                     "GROK_MODELS_BASE_URL".to_owned(),
                     "https://coderouter.cmux.internal/xai/v1".to_owned()
                 ),
+                (
+                    // Grok CLI's key probe and turns go to the gateway too, or its ACP
+                    // `session/new` refuses the placeholder key (#43857).
+                    "GROK_XAI_API_BASE_URL".to_owned(),
+                    "https://coderouter.cmux.internal/xai/v1".to_owned()
+                ),
                 ("XAI_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
             ])
         );
@@ -374,7 +533,7 @@ mod tests {
         let Mode::Team(vars) = team(Provider::Grok) else { unreachable!() };
         apply_team(&mut env, vars);
         assert_eq!(env["XAI_API_KEY"], PLACEHOLDER_KEY);
-        assert_eq!(env.len(), 2);
+        assert_eq!(env.len(), 3);
     }
 
     #[tokio::test]
@@ -443,6 +602,7 @@ mod tests {
             (Provider::Gemini, "GOOGLE_GENAI_USE_VERTEXAI", "true"),
             (Provider::Gemini, "GOOGLE_GENAI_USE_GCA", "TRUE"),
             (Provider::Grok, "GROK_MODELS_BASE_URL", "https://proxy.example.test/v1"),
+            (Provider::Grok, "GROK_XAI_API_BASE_URL", "https://proxy.example.test/v1"),
         ] {
             assert_eq!(mode(&m, p, &[(k, v)], Some(BOTH)).await, Mode::Own("endpoint"), "{k}");
         }
@@ -491,6 +651,125 @@ mod tests {
         let plain = machine("owner");
         std::fs::remove_file(plain.root.join("etc/cmux/agent-auth.sh")).unwrap();
         assert_eq!(mode(&plain, Provider::Gemini, &[], Some(BOTH)).await, Mode::LeftAlone);
+    }
+
+    /// The view a launch's own-key check reads, with no daemon or login value but `HOME`.
+    fn launch(
+        m: &Machine,
+        p: Provider,
+        vault: &[(&str, &str)],
+        machine: &[(&str, &str)],
+        pending: &[&str],
+    ) -> LaunchEnv {
+        launch_from(m, p, vault, machine, pending, false)
+    }
+
+    /// [`launch`], local or `remote`-origin.
+    fn launch_from(
+        m: &Machine,
+        p: Provider,
+        vault: &[(&str, &str)],
+        machine: &[(&str, &str)],
+        pending: &[&str],
+        remote: bool,
+    ) -> LaunchEnv {
+        let pairs = |v: &[(&str, &str)]| -> Vec<(String, String)> {
+            v.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        };
+        let daemon = BTreeMap::from([("HOME".to_owned(), m.home.to_string_lossy().into_owned())]);
+        LaunchEnv::new(
+            p.name(),
+            BTreeMap::new(),
+            daemon,
+            pairs(vault),
+            pairs(machine).into_iter().collect(),
+            pending.iter().map(|n| (*n).to_owned()).collect(),
+            remote,
+        )
+    }
+
+    async fn launch_mode(m: &Machine, p: Provider, launch: &LaunchEnv) -> Mode {
+        decide_launch(p, launch, &m.root, |origin| async move {
+            assert_eq!(origin, "https://coderouter.cmux.internal");
+            Some(BOTH)
+        })
+        .await
+    }
+
+    /// #43800: a key of the person's own that only the vault or `machine.env` holds, or one the
+    /// login shell sets that this daemon has not read yet, keeps own mode; the gateway's
+    /// placeholder never replaces it.
+    #[tokio::test]
+    async fn a_vault_or_machine_env_key_keeps_own_mode() {
+        let m = machine("owner");
+        for (p, k) in [
+            (Provider::Gemini, "GEMINI_API_KEY"),
+            (Provider::Gemini, "GOOGLE_API_KEY"),
+            (Provider::Grok, "XAI_API_KEY"),
+            (Provider::Grok, "GROK_CODE_XAI_API_KEY"),
+        ] {
+            // A vault entry the egress proxy fills: the launch holds its `cmux-secret://` name.
+            let held = cmux_vault_egress::placeholder(k);
+            let got = launch_mode(&m, p, &launch(&m, p, &[(k, &held)], &[], &[])).await;
+            assert_eq!(got, Mode::Own("key"), "vault proxy {k}");
+            // A vault entry delivered as its value.
+            let got = launch_mode(&m, p, &launch(&m, p, &[(k, "real-key-123")], &[], &[])).await;
+            assert_eq!(got, Mode::Own("key"), "vault value {k}");
+            // `machine.env`, which `login_env::var` never shows.
+            let got = launch_mode(&m, p, &launch(&m, p, &[], &[(k, "real-key-123")], &[])).await;
+            assert_eq!(got, Mode::Own("key"), "machine.env {k}");
+            // The login shell sets it; this daemon has not read it yet.
+            let got = launch_mode(&m, p, &launch(&m, p, &[], &[], &[k])).await;
+            assert_eq!(got, Mode::Own("key"), "pending {k}");
+        }
+    }
+
+    /// #43800 review: a remote-origin launch (a Cloud chat the app starts through its peer link)
+    /// gets no vault, `machine.env` or login value (`agent/command.rs`), so a key held only there
+    /// is no key of its own: it goes to the team's gateway, never own mode with no key. A key in
+    /// its own profile still keeps own.
+    #[tokio::test]
+    async fn a_remote_launch_counts_only_the_key_it_gets() {
+        let m = machine("owner");
+        for (p, k) in [(Provider::Gemini, "GEMINI_API_KEY"), (Provider::Grok, "XAI_API_KEY")] {
+            let held = cmux_vault_egress::placeholder(k);
+            let cases: [(Vec<(&str, &str)>, Vec<(&str, &str)>, Vec<&str>); 4] = [
+                (vec![(k, held.as_str())], vec![], vec![]),
+                (vec![(k, "real-key-123")], vec![], vec![]),
+                (vec![], vec![(k, "real-key-123")], vec![]),
+                (vec![], vec![], vec![k]),
+            ];
+            for (vault, machine, pending) in cases {
+                let env = launch_from(&m, p, &vault, &machine, &pending, true);
+                assert_eq!(launch_mode(&m, p, &env).await, team(p), "remote {k}");
+            }
+            let mut env = launch_from(&m, p, &[], &[], &[], true);
+            env.env.insert(k.to_owned(), "real-key-123".to_owned());
+            assert_eq!(launch_mode(&m, p, &env).await, Mode::Own("key"), "remote profile {k}");
+        }
+    }
+
+    /// No key anywhere, or only a reference nothing fills, still goes to the team's gateway.
+    #[tokio::test]
+    async fn no_own_key_anywhere_still_goes_to_team_mode() {
+        let m = machine("owner");
+        for p in [Provider::Gemini, Provider::Grok] {
+            assert_eq!(launch_mode(&m, p, &launch(&m, p, &[], &[], &[])).await, team(p));
+            let k = p.key_vars()[0];
+            for v in [PLACEHOLDER_KEY, "cmux-secret://vault/XAI_API_KEY", ""] {
+                let got = launch_mode(&m, p, &launch(&m, p, &[], &[(k, v)], &[])).await;
+                assert_eq!(got, team(p), "machine.env {k}={v}");
+                let got = launch_mode(&m, p, &launch(&m, p, &[(k, v)], &[], &[])).await;
+                assert_eq!(got, team(p), "vault {k}={v}");
+            }
+            // The vault's placeholder for another name, and a secret the shell has not given yet
+            // for an unrelated name.
+            let other = cmux_vault_egress::placeholder("OTHER_API_KEY");
+            let got = launch_mode(&m, p, &launch(&m, p, &[(k, &other)], &[], &[])).await;
+            assert_eq!(got, team(p), "{k}={other}");
+            let got = launch_mode(&m, p, &launch(&m, p, &[], &[], &["OTHER_API_KEY"])).await;
+            assert_eq!(got, team(p));
+        }
     }
 
     #[test]
