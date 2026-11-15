@@ -141,6 +141,47 @@ pub fn slider_tolerance(min: f64, max: f64) -> f64 {
     ((max - min) * 0.02).max(f64::EPSILON)
 }
 
+/// How typed text reaches a text element in the background.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InsertRoute {
+    /// Insert through accessibility (AXSelectedText), never followed by keys.
+    Ax,
+    /// Posted keys, gated as always, read back at the caret: web content and
+    /// browser fields accept an AX write and ignore it.
+    Keys,
+}
+
+/// [`InsertRoute`] for an element inside web content (an AXWebArea
+/// ancestor) or in a browser app.
+pub fn insert_route(in_web_content: bool, browser_app: bool) -> InsertRoute {
+    if in_web_content || browser_app { InsertRoute::Keys } else { InsertRoute::Ax }
+}
+
+/// Browser engines by bundle id prefix (any case): their text fields
+/// accept AX writes without applying them.
+pub const BROWSERS: &[&str] = &[
+    "com.apple.Safari",
+    "com.google.Chrome",
+    "org.chromium.Chromium",
+    "company.thebrowser.",
+    "org.mozilla.",
+    "com.microsoft.edgemac",
+    "com.brave.Browser",
+    "com.operasoftware.Opera",
+    "com.vivaldi.Vivaldi",
+    "com.kagi.kagimacOS",
+    "app.zen-browser.",
+    "com.duckduckgo.macos.browser",
+];
+
+/// Whether the app with `bundle_id` is a browser ([`BROWSERS`]).
+pub fn is_browser(bundle_id: Option<&str>) -> bool {
+    bundle_id.is_some_and(|id| {
+        let id = id.to_ascii_lowercase();
+        BROWSERS.iter().any(|p| id.starts_with(&p.to_ascii_lowercase()))
+    })
+}
+
 /// How a posted press is aimed, from the two readings of the front app
 /// taken right before the post.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

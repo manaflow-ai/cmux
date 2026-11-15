@@ -1800,6 +1800,10 @@ impl Engine {
         if let Some(read) = read {
             out.body["read_back"] = json!(read);
         }
+        // no_effect needs the target read back after the settle: a read-back
+        // that could not be read leaves the effect unknown (a web field's
+        // value that does not answer).
+        let shows = if out.body["read_back"] == json!("unread") { None } else { shows };
         let facts = crate::outcome::Facts {
             evidence: out.body["evidence"].as_str().unwrap_or_default().to_string(),
             shows,

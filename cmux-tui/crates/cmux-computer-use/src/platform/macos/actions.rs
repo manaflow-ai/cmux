@@ -1240,6 +1240,15 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
 
 /// Inserts text through Accessibility: at the caret (AXSelectedText), or
 /// appended to the value. `None` when the element takes neither.
+/// How long an accepted AX insert gets to show in the field's value before
+/// the outcome is decided (never followed by keys).
+const INSERT_WAIT: std::time::Duration = std::time::Duration::from_millis(600);
+
+/// The bundle id of `t`'s app.
+fn app_bundle(t: &Target) -> Option<String> {
+    workspace::app_for_pid(t.window.pid).and_then(|a| a.bundle_id)
+}
+
 fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     let role = el.string("AXRole").unwrap_or_default();
     if !roles::is_text_input(&role) {
@@ -1265,21 +1274,36 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
         };
         if el.set("AXSelectedText", &cf).is_ok() {
             // Taken: no keys after it, ever (a slow app shows the text
-            // within the settle; posting keys would type it twice). The
-            // read-back after the settle says whether it shows.
-            let shows = if secure {
-                false
-            } else {
-                el.try_value_text().ok().flatten().is_some_and(|after| match caret {
-                    Some(at) => readback::typed_at(&before, &after, text, at),
-                    None => readback::typed_shows(&before, &after, text),
-                })
+            // later; posting keys would type it twice). Wait, bounded, for
+            // the value to change before deciding.
+            let shows = |after: &str| match caret {
+                Some(at) => readback::typed_at(&before, after, text, at),
+                None => readback::typed_shows(&before, after, text),
             };
-            let mut out = if shows {
+            let mut after = el.try_value_text().ok().flatten();
+            if !secure {
+                super::menus::wait_for(INSERT_WAIT, || {
+                    after = el.try_value_text().ok().flatten();
+                    after.as_deref().is_some_and(|a| a != before)
+                });
+            }
+            let applied = !secure && after.as_deref().is_some_and(&shows);
+            let mut out = if applied {
                 ActionOutcome::confirmed("ax_insert_text")
             } else {
                 ActionOutcome::delivered("ax_insert_text")
             };
+            if !secure && after.as_deref() == Some(before.as_str()) {
+                let app = el
+                    .pid()
+                    .and_then(workspace::app_for_pid)
+                    .map(|a| a.name)
+                    .unwrap_or_else(|| "the app".into());
+                out.note = format!(
+                    "{app} accepted the accessibility write but did not apply it within {} ms; no keys were posted after it",
+                    INSERT_WAIT.as_millis()
+                );
+            }
             out.expect = d.expect(check);
             return Ok(Some(out.showing("text")));
         }
@@ -1325,8 +1349,14 @@ pub(super) fn type_text(
     // anything else (a canvas, a calculator's keypad) it may not show.
     let shows_text = !has_keys && target.as_ref().is_some_and(is_text_element);
     if let Some(el) = &target {
+        // Web content (and a browser's fields) take an AX insert and ignore
+        // it: posted keys go there directly, gated as always, read back at
+        // the caret; nothing was written, so nothing can be typed twice.
+        let route =
+            roles::insert_route(in_web_area(el), roles::is_browser(app_bundle(&t).as_deref()));
         if delivery == Delivery::Background
             && !has_keys
+            && route == roles::InsertRoute::Ax
             && let Some(mut out) = ax_insert(d, el, text)?
         {
             if let Some(frame) = el.frame() {

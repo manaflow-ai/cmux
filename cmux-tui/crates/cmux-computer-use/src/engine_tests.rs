@@ -446,6 +446,26 @@ fn a_read_back_that_states_no_change_never_confirms() {
     }
 }
 
+/// A set_value whose read-back cannot be read after the settle is never
+/// no_effect, even with nothing else changed (a web field that does not
+/// answer); one that reads back unchanged, with nothing else changed, is.
+#[test]
+fn no_effect_needs_the_value_read_back() {
+    for (reads, outcome) in [(None, "uncertain"), (Some(false), "no_effect")] {
+        let d = Arc::new(FakeDesktop::standard());
+        *d.shows.lock().unwrap() = Some("value".into());
+        *d.reads_back.lock().unwrap() = Some(true);
+        *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+        let (e, _) = settling_engine(d.clone());
+        assert!(!e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1"})).is_error);
+        assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+        *d.reads_back.lock().unwrap() = reads;
+        *d.reads_back_expect.lock().unwrap() = true;
+        let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
+        assert_eq!(out.body["outcome"], outcome, "{reads:?}: {}", out.body);
+    }
+}
+
 /// Root B at the engine: a route whose baseline could not be read attaches
 /// no read-back, and a confirmed result without one is uncertain.
 #[test]

@@ -2629,3 +2629,26 @@ fn one_front_pid_only_when_the_readings_agree() {
     assert_eq!(roles::agreed_front(Some(5), Some(9)), None);
     assert_eq!(roles::agreed_front(None, Some(9)), None);
 }
+
+/// Coordinator decision after d2b779e: text into web content or a browser's
+/// field goes as posted keys (no AX write is attempted, so nothing can be
+/// typed twice); elsewhere through accessibility, never followed by keys.
+#[test]
+fn web_content_takes_keys_and_everything_else_the_ax_insert() {
+    use roles::{InsertRoute, insert_route, is_browser};
+    assert_eq!(insert_route(true, false), InsertRoute::Keys, "a web area in any app");
+    assert_eq!(insert_route(false, true), InsertRoute::Keys, "a browser's own field");
+    assert_eq!(insert_route(false, false), InsertRoute::Ax);
+    for id in [
+        "com.apple.Safari",
+        "com.google.Chrome.canary",
+        "org.mozilla.firefox",
+        "company.thebrowser.Browser",
+    ] {
+        assert!(is_browser(Some(id)), "{id}");
+    }
+    for id in ["com.apple.TextEdit", "com.apple.Notes"] {
+        assert!(!is_browser(Some(id)), "{id}");
+    }
+    assert!(!is_browser(None));
+}

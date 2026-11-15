@@ -117,6 +117,9 @@ pub struct FakeDesktop {
     pub confirms_on_reread: Mutex<Option<bool>>,
     /// The read-backs state no change (their wanted state held before).
     pub unchanged: Mutex<bool>,
+    /// Delivered results carry a read-back even when `reads_back` is None
+    /// (it then answers "unreadable").
+    pub reads_back_expect: Mutex<bool>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
 }
@@ -211,6 +214,7 @@ impl FakeDesktop {
             responsive: Mutex::new(Some(true)),
             confirms_on_reread: Mutex::new(Some(true)),
             unchanged: Mutex::new(false),
+            reads_back_expect: Mutex::new(false),
         }
     }
 
@@ -265,7 +269,8 @@ impl FakeDesktop {
     /// A delivered result, showing where [`Self::shows`] says.
     fn delivered(&self) -> ActionOutcome {
         let already = *lock(&self.already);
-        let expect = lock(&self.reads_back).map(|_| Expect {
+        let carries = lock(&self.reads_back).is_some() || *lock(&self.reads_back_expect);
+        let expect = carries.then(|| Expect {
             token: 1,
             what: "text".into(),
             already,
