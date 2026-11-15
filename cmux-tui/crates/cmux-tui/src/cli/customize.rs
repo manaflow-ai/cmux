@@ -419,20 +419,18 @@ pub(super) fn run_json(words: &[String], origin: &str) -> Result<Value, Value> {
 /// waiter lost to a reboot changes nothing but when the revert lands.
 fn spawn_try_on_waiter() {
     let Ok(exe) = std::env::current_exe() else { return };
-    let mut command = std::process::Command::new(exe);
+    let mut command = cmux_process::Command::new(exe);
     command
         .args(["customize", "settle", "--wait"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // Its own process group: the terminal's hangup or Ctrl-C does not reach it.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        // Its own session: the terminal's hangup or Ctrl-C does not reach it.
+        .new_session();
+    if let Ok(mut child) = command.spawn() {
+        // It returns once no try-on is left (kept, reverted or replaced), and init reaps it.
+        child.detach("a try-on reverts at its time after the command that started it exits");
     }
-    // Reaped by init once this process exits; it is never waited for here.
-    let _ = command.spawn();
 }
 
 /// One verb against one customization.
