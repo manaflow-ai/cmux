@@ -400,7 +400,6 @@ fn exited(_pid: u32) -> bool {
 pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
     stop(place);
     let script = teardown?;
-    let path = place.git_dir.join(LOG_FILE);
     let log = open_log(&place.git_dir)?;
     let start = log.metadata().map_or(0, |metadata| metadata.len());
     let _ = writeln!(&log, "$ {script}");
@@ -412,7 +411,8 @@ pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
         TEARDOWN_DEADLINE,
         None,
     );
-    let (output, _, _) = tail(&path, start, MAX_TEARDOWN_OUTPUT_BYTES);
+    // The teardown's lines are read from the log that it wrote, not from the log's name.
+    let (output, _, _) = tail_of(&log, start, MAX_TEARDOWN_OUTPUT_BYTES);
     Some(match outcome {
         Outcome::Exited(code) => json!({
             "output": output,
@@ -513,10 +513,19 @@ fn same_folder(left: &Path, right: &Path) -> bool {
     }
 }
 
-/// The text of `path` from `since` (or from where the last `limit` bytes
-/// start, if later) to its end, with that start and end.
+/// The text of the log at `path` from `since` (or from where the last
+/// `limit` bytes start, if later) to its end, with that start and end. A log
+/// that has a second name gives no text: its text is the text of the file at
+/// that name.
 fn tail(path: &Path, since: u64, limit: u64) -> (String, u64, u64) {
-    let Some(mut file) = open_own(path) else { return (String::new(), 0, 0) };
+    match open_own(path).filter(has_no_second_name) {
+        Some(file) => tail_of(&file, since, limit),
+        None => (String::new(), 0, 0),
+    }
+}
+
+/// [`tail`] of the open log `file`.
+fn tail_of(mut file: &File, since: u64, limit: u64) -> (String, u64, u64) {
     let end = file.metadata().map_or(0, |metadata| metadata.len());
     let start = since.min(end).max(end.saturating_sub(limit));
     let mut bytes = Vec::new();
@@ -542,12 +551,12 @@ fn stop(place: &Place) {
         };
         // The marker goes first: a run whose status says copying may not
         // hold its lock yet, and it checks the marker once it does. Only the
-        // marker's name is used, so its open writes nothing: no file that
-        // has this name as a second name changes.
+        // marker's name is used, so the marker is made with create-new: a
+        // file that is at the name is not opened.
         if read_status(&place.git_dir).is_some_and(|status| live(&status)) {
             let mut options = OpenOptions::new();
-            options.create(true).truncate(false).write(true);
-            drop(open_as_own(&mut options, &place.git_dir.join(CANCEL_FILE)));
+            let marker = place.git_dir.join(CANCEL_FILE);
+            drop(open_as_own(options.write(true).create_new(true), &marker));
         }
         if unfinished(read_status(&place.git_dir)) {
             let deadline = Instant::now() + STOP_WAIT;
@@ -607,10 +616,9 @@ fn running() -> &'static Mutex<HashMap<PathBuf, Arc<Run>>> {
 #[cfg(unix)]
 fn hold(git_dir: &Path) -> Option<File> {
     use std::os::fd::AsRawFd as _;
-    // A link or a named pipe in the lock's place is nobody's lock.
-    let mut options = OpenOptions::new();
-    let file =
-        open_as_own(options.create(true).truncate(false).write(true), &git_dir.join(LOCK_FILE))?;
+    // A link or a named pipe in the lock's place is nobody's lock, and a
+    // lock file that has a second name is made new.
+    let file = open_or_make_own(OpenOptions::new().write(true), &git_dir.join(LOCK_FILE))?;
     // SAFETY: a live descriptor; flock(2) only locks it.
     (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0).then_some(file)
 }
@@ -624,9 +632,10 @@ fn hold(_git_dir: &Path) -> Option<File> {
 /// holds the lock of the worktree whose git folder is `git_dir`.
 #[cfg(unix)]
 fn held(git_dir: &Path) -> bool {
-    // A link or a named pipe in the lock's place is nobody's lock.
-    let Some(file) = open_own(&git_dir.join(LOCK_FILE)) else { return false };
-    held_on(file)
+    // A link or a named pipe in the lock's place is nobody's lock, and so
+    // is a lock file that has a second name.
+    let lock = open_own(&git_dir.join(LOCK_FILE)).filter(has_no_second_name);
+    lock.is_some_and(held_on)
 }
 
 /// [`held`] on the lock file opened as `file`.
@@ -721,22 +730,26 @@ fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
 
 /// Opens the log of the worktree whose git folder is `git_dir`, for a read
 /// and for writes at its end, and makes it when there is none
-/// ([`open_as_own`]). A log that has a second name is not written: its
-/// lines would go into the file at that name too. The log's name is then
-/// removed and the log is made new with create-new, as the `.partial` file
-/// of a JSON file is ([`write_own`]): what comes to the name after the
-/// removal stops the open.
+/// ([`open_or_make_own`]).
 fn open_log(git_dir: &Path) -> Option<File> {
-    let path = git_dir.join(LOG_FILE);
-    let mut options = OpenOptions::new();
-    let log = open_as_own(options.create(true).read(true).append(true), &path)?;
-    if has_one_name(&log, &path) {
-        return Some(log);
+    open_or_make_own(OpenOptions::new().read(true).append(true), &git_dir.join(LOG_FILE))
+}
+
+/// Opens with `options` a file that cmux writes or locks in a git folder (a
+/// setup's log, its run lock, the lock of the repository's ports), and makes
+/// it when there is none ([`open_as_own`]). A file that has a second name is
+/// not used: a line written to it, or a lock on it, would be in the file at
+/// that name too. The name is then removed and the file is made new with
+/// create-new, as the `.partial` file of a JSON file is ([`write_own`]):
+/// what comes to the name after the removal stops the open.
+fn open_or_make_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
+    let file = open_as_own(options.create(true), path)?;
+    if has_one_name(&file, path) {
+        return Some(file);
     }
-    drop(log);
-    let _ = fs::remove_file(&path);
-    let mut options = OpenOptions::new();
-    open_as_own(options.create_new(true).read(true).append(true), &path)
+    drop(file);
+    let _ = fs::remove_file(path);
+    open_as_own(options.create_new(true), path)
 }
 
 /// Whether the open file `file` is the file at `path` and has no other name.
@@ -754,6 +767,20 @@ fn has_one_name(file: &File, path: &Path) -> bool {
 /// The count of a file's names is not read here.
 #[cfg(not(unix))]
 fn has_one_name(_file: &File, _path: &Path) -> bool {
+    true
+}
+
+/// Whether the open file `file` has no second name. A file that has no name
+/// now has none: its name went away after the open.
+#[cfg(unix)]
+fn has_no_second_name(file: &File) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    file.metadata().is_ok_and(|metadata| metadata.nlink() <= 1)
+}
+
+/// The count of a file's names is not read here.
+#[cfg(not(unix))]
+fn has_no_second_name(_file: &File) -> bool {
     true
 }
 

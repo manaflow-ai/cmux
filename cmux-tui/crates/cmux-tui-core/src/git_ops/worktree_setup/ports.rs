@@ -25,13 +25,12 @@ fn lock(path: &Path, wait: Duration) -> Lock {
     static LOCK: Mutex<()> = Mutex::new(());
     // No lock file is made through a link, and none is taken on a file
     // that is not a regular one: the allocation then has this process's
-    // lock alone, as when the file cannot be made.
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).write(true);
+    // lock alone, as when the file cannot be made. A lock file that has a
+    // second name is made new.
     let lock_path = path.with_extension("lock");
     // The wait comes before this process's lock: a lock file that stays
     // locked does not hold up the allocation of another repository.
-    let waited = open_as_own(&mut options, &lock_path)
+    let waited = open_or_make_own(OpenOptions::new().write(true), &lock_path)
         .map(|file| FileLock::take_within(file, Kind::Exclusive, wait, STEP));
     let guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
     // One more try, now with this process's lock: the file lock is free
