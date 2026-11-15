@@ -113,7 +113,9 @@ fn pr08b_serve_page() {
     for (name, side, closed) in [("small", small, ROWS as u64), ("god", god, 11_000)] {
         let index = side.hub.snapshot();
         assert_eq!(index.len() as u64, LIVE + closed + THIRD, "{name}: rows held");
-        let third = (0..THIRD).filter(|m| index.get(&format!("c-{m:06}")).is_none()).count();
+        let third = (0..THIRD)
+            .filter(|m| index.get_row(&RowKey::new("c-machine", format!("c-{m:06}"))).is_none())
+            .count();
         assert_eq!(third, 0, "{name}: every third-machine row is held");
         for (part, hub, page) in [
             ("newest", &side.hub, &side.newest),
