@@ -353,6 +353,47 @@ if leave_in_slot([OLD_HEAD], OLD_HEAD, asked_min_ago=30) != ("superseded=false",
 if leave_in_slot([NEW_HEAD], OLD_HEAD, LOOP_RETRY="1") != ("superseded=true", "LEFT_SLOT=1"):
     failures.append("a loop retry whose head nightly-next moved past leaves at the slot too")
 
+# The next run's set-up overlaps this one's notarization. Push runs 43634178843, 43642011551 and 43644053566 waited
+# 19.6-26.8 min from landing to run created behind the previous nightly-next-one, then 4.7 min more (21:38:45 to
+# 21:43:25) for wake, tick, promote, preflight, decide and resolve. nightly-next-one asks main's tick right before
+# its notarize step; main's tick (nightly_next_rolling.FINISH_STEPS) counts a run from that step on as finishing and
+# promotes ONE run, whose nightly-next-one then waits pending on nightly-next-one-push. wake-nightly-next-tick still
+# asks at the end, for a landing that came later.
+ASK_STEP, NOTARIZE_STEP = "Ask main's nightly-next tick at notarization", "Notarize app ticket through final DMG"
+names = [s.get("name") for s in one_steps]
+if ASK_STEP not in names or NOTARIZE_STEP not in names or names.index(ASK_STEP) + 1 != names.index(NOTARIZE_STEP):
+    failures.append(f"nightly-next-one must run {ASK_STEP!r} right before {NOTARIZE_STEP!r} (main's tick reads both "
+                    "names)")
+else:
+    ask = one_steps[names.index(ASK_STEP)]
+    ask_if = str(ask.get("if", ""))
+    for name, ctx in (("a push run", context()), ("the loop's retry", context("workflow_dispatch", **RETRY))):
+        if not evaluate(parse_expression(ask_if), ctx):
+            failures.append(f"{name} must ask main's tick at notarization")
+        if evaluate(parse_expression(ask_if), {**ctx, "env.LEFT_SLOT": "1"}):
+            failures.append(f"{name} that left the slot asks nothing at notarization")
+    if evaluate(parse_expression(ask_if), {**context("workflow_dispatch"), "github.ref": "refs/heads/main"}):
+        failures.append("only nightly-next loop runs ask the tick at notarization")
+    ask_run = str(ask.get("run", ""))
+    if "gh workflow run nightly-next-tick.yml" not in ask_run or "--ref main" not in ask_run or "-f sha=" in ask_run:
+        failures.append("the ask dispatches nightly-next-tick.yml on main with no sha (the rolling rule applies)")
+    if ask.get("continue-on-error") is not True:
+        failures.append("a failed ask never fails the build: the end's wake and the 5-minute cron still ask")
+    if str((ask.get("env") or {}).get("GH_BUDGET_WAIT_MAX_SECONDS")) != "0":
+        failures.append("the ask never waits through a rate limit before notarization (GH_BUDGET_WAIT_MAX_SECONDS 0)")
+if (ONE.get("permissions") or {}).get("actions") != "write":
+    failures.append("nightly-next-one dispatches main's tick at notarization: it needs actions: write")
+# The post-feed uploads and cleanup stay in the slot: the next nightly-next-one reuses this kept workspace (final-dmg/,
+# tested/, remote-daemon-assets/, build-universal's dSYMs) and this Mac's build.keychain and Rust target dirs, so a
+# job after the slot would upload, delete or prune what the next build is writing.
+release_at = names.index("Release the nightly-next publish lease") if "Release the nightly-next publish lease" in names \
+    else len(names)
+for kept in ("Upload nightly variant artifacts", "Keep the nightly-next dSYMs for publication",
+             "Bound the kept Rust target directories (warm nightly-next builder)", "Cleanup keychain",
+             "Wipe this job's credentials and temp files"):
+    if kept not in names[release_at:]:
+        failures.append(f"{kept!r} stays in nightly-next-one after the feed (the next build reuses its workspace)")
+
 if failures:
     print("FAIL: nightly-next push slot at nightly-next-one\n  " + "\n  ".join(failures))
     sys.exit(1)
