@@ -3,8 +3,9 @@
 # chat pages (webviews/bench/chat-pages-memory.bench.ts, RELEASE=1), at each count. Run at a pushed head:
 #   cmux-ci test -- bash -c 'scripts/measure/infinite-items-linux.sh [counts=10,100,1000] [days=3] [pages=0]; echo rc=$?'
 #   infinite-items-linux.sh build-only: only the release build.
-#   infinite-items-linux.sh base=REF ...: also builds REF's acpmux and cmux-tui (a worktree and target dir of their
-#     own) and runs this harness on them first: a change's before (BEFORE lines) and after from one runner in one job.
+#   infinite-items-linux.sh before=own-exe ...: first runs the same build with no cmux-tui-host beside its daemon (a
+#     copy of cmux-tui alone), so every terminal host re-execs the daemon's own file as before host_exe/linux.rs: the
+#     slim host's before (BEFORE lines) and after from one build on one runner in one job.
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
 set -euo pipefail
 counts="10,100,1000"
@@ -12,7 +13,7 @@ days=3
 pages=1
 page_counts=""
 build_only=0
-base=""
+before=""
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -20,7 +21,7 @@ for arg in "$@"; do
     days=*) days="${arg#days=}" ;;
     pages=*) pages="${arg#pages=}" ;;
     build-only) build_only=1 ;;
-    base=*) base="${arg#base=}" ;;
+    before=*) before="${arg#before=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -58,21 +59,16 @@ else
 fi
 status=0
 ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" || true
-if [ -n "$base" ]; then
-  base_dir="$(mktemp -d)"
-  git fetch --quiet origin "$base" || true
-  git worktree add --quiet --detach "$base_dir/src" "$base" 2>/dev/null \
-    || git worktree add --quiet --detach "$base_dir/src" FETCH_HEAD
-  # The base's own engine source would be an empty submodule: build it from this checkout's.
-  [ -n "${CMUX_GHOSTTY_SRC:-}" ] || export CMUX_GHOSTTY_SRC="$root/ghostty-next"
-  (cd "$base_dir/src/cmux-tui" && CARGO_TARGET_DIR="$base_dir/target" \
-    cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3)
-  echo "INFINITE-AB before=$(git -C "$base_dir/src" rev-parse HEAD) after=$(git rev-parse HEAD)"
-  python3 scripts/measure/infinite-items.py --acpmux "$base_dir/target/release/acpmux" \
-    --tui "$base_dir/target/release/cmux-tui" --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 \
-    | sed -u 's/^/BEFORE /' || status=$?
-  git worktree remove --force "$base_dir/src" || true
-  rm -rf "$base_dir"
+if [[ "$before" == own-exe ]]; then
+  own_dir="$(mktemp -d)"
+  cp "$target/release/cmux-tui" "$own_dir/cmux-tui"
+  echo "INFINITE-AB before=own-exe after=cmux-tui-host head=$(git rev-parse HEAD)"
+  python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$own_dir/cmux-tui" \
+    --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/BEFORE /' || status=$?
+  rm -rf "$own_dir"
+elif [ -n "$before" ]; then
+  echo "infinite-items-linux.sh: unknown before=$before (own-exe)" >&2
+  exit 2
 fi
 python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$target/release/cmux-tui" \
   --counts "$counts" --days "$days" --out "$out/infinite-items.json" ${extra[@]+"${extra[@]}"} || status=$?

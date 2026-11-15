@@ -159,9 +159,9 @@ pub(super) fn prepare_in_background() {
         if SIBLING_IDENTITY.get().is_none() {
             return;
         }
-        let _ = std::thread::Builder::new()
-            .name("cmux-host-exe".into())
-            .spawn(|| drop(SIBLING.get_or_init(find_sibling)));
+        let _ = std::thread::Builder::new().name("cmux-host-exe".into()).spawn(|| {
+            let _ = SIBLING.get_or_init(find_sibling);
+        });
     });
 }
 
