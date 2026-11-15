@@ -1614,6 +1614,8 @@ pub struct LocalStore {
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
+    /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
+    kind_heads: kind_heads::KindHeads,
     #[cfg(test)]
     pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -1671,6 +1673,7 @@ impl LocalStore {
             cold: Default::default(),
             rehydrate_hook: Default::default(),
             parts: Default::default(),
+            kind_heads: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
         })
@@ -2401,6 +2404,16 @@ impl Store for LocalStore {
         self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
     }
 
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_keyed_in(id, kinds, keep, visit)
+    }
+
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         std::fs::read(self.dir(id).join(RESTORE_POINT)).ok()
     }
@@ -2558,6 +2571,7 @@ impl Store for LocalStore {
     fn delete(&self, id: &str) -> Result<()> {
         let _open = self.writable()?;
         self.writers.lock_or_recover().open.remove(id);
+        self.kind_heads.forget(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;

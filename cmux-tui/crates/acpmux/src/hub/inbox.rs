@@ -2239,10 +2239,10 @@ impl Hub {
         let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
         // Only the records naming it are read whole: by `promptId`, or by a list of prompts
         // (`promptIds`), which the head does not hold.
-        let mut keep = |h: &crate::store::KindHead<'_>| {
+        let keep = &mut |h: &crate::store::KindHead<'_>| -> bool {
             h.unread || h.names_many || h.prompt_id == Some(prompt_id)
         };
-        let _ = self.scan_for_rebuild_keyed(session, &kinds, &mut keep, &mut |e: EventRecord| {
+        let _ = self.scan_for_rebuild_keyed(session, &kinds, keep, &mut |e: EventRecord| {
             let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
             match e.kind.as_str() {
                 "inbox" if own => found = true,
