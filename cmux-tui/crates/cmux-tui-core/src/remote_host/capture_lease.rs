@@ -93,6 +93,17 @@ pub(super) struct Lease {
     pub owner: Stamp,
     pub phase: Phase,
     pub host: Option<HostRecord>,
+    /// The host answered prepare with a bound lease, so its marker exists. A recorded host
+    /// alone is not that proof: grant or prepare may fail after the record.
+    #[serde(default)]
+    pub native_prepared: bool,
+}
+
+impl Lease {
+    /// Which cleanup the host can admit: the marker path, or the markerless one.
+    pub fn native_marker(&self) -> bool {
+        self.native_prepared || matches!(self.phase, Phase::Prepared | Phase::Active)
+    }
 }
 
 #[derive(Clone, Default)]

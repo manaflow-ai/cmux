@@ -21,7 +21,7 @@ pub(super) fn may_remove_record(inner: &Inner, record: &super::HostRecord) -> bo
     {
         replacement_verified(
             super::capture_platform::record_exited(record),
-            super::capture_platform::group_absent(record.pid),
+            super::capture_platform::exited_group_absent(record),
         )
     }
     #[cfg(not(target_os = "macos"))]
@@ -124,11 +124,19 @@ impl RemoteHostSupervisor {
                 {
                     return Err("remote_not_pristine".into());
                 }
-                Lease { binding, owner: app, phase: Phase::Preparing, host: None }
+                Lease {
+                    binding,
+                    owner: app,
+                    phase: Phase::Preparing,
+                    host: None,
+                    native_prepared: false,
+                }
             }
             _ => return Err("remote_lease_mismatch".into()),
         };
-        let unprepared_cleanup = method == "capture.cleanup" && lease.host.is_none();
+        // Keyed by the host's marker, never by a recorded host: grant or prepare can fail after it.
+        let unprepared_cleanup = method == "capture.cleanup" && !lease.native_marker();
+        lease.native_prepared = lease.native_marker();
         match method {
             "capture.resume" => {
                 if lease.phase != Phase::Prepared || lease.owner == app {
@@ -168,6 +176,13 @@ impl RemoteHostSupervisor {
             native_method,
             serde_json::to_value(&lease.binding).map_err(|_| "remote_invalid_binding")?,
         )?;
+        if method == "capture.prepare"
+            && result.get("lease_bound").and_then(Value::as_bool) == Some(true)
+        {
+            // The host's marker now exists, whatever later proof fails. Cleanup must take its path.
+            lease.native_prepared = true;
+            self.persist_lease(paths, lease.clone())?;
+        }
         let expected = Stamp::of_record(&connection.record);
         if result
             .get("host_stamp")
@@ -209,7 +224,7 @@ impl RemoteHostSupervisor {
             && let Some(previous) = &lease.host
         {
             if super::capture_platform::record_exited(previous) {
-                super::capture_platform::group_absent(previous.pid)?;
+                super::capture_platform::exited_group_absent(previous)?;
             } else {
                 // A missing adoption record does not erase the durable lease's original host.
                 let running = match &*lock(&self.inner.state) {
@@ -273,6 +288,17 @@ fn drain_and_verify(connection: &Arc<super::Connection>) -> Result<(), String> {
         let _ = connection;
         Err("cmux Remote capture runs on macOS only".into())
     }
+}
+
+/// The kernel never assigns a PID while a process group with that ID exists. So a group whose
+/// ID is now the PID of one live, differently stamped process (the same stamp before and after
+/// the group query) is a reuse: the exited host's own group has ended. Anything else fails closed.
+pub(super) fn group_reused(
+    leader_before: Option<(u64, u64)>,
+    leader_after: Option<(u64, u64)>,
+    recorded: (u64, u64),
+) -> bool {
+    leader_before.is_some() && leader_before == leader_after && leader_before != Some(recorded)
 }
 
 /// Only ESRCH proves the recorded owned group absent; EPERM and zombies fail closed.

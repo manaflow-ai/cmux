@@ -66,6 +66,7 @@ impl Fixture {
                 owner: self.owner,
                 phase,
                 host: Some(mock_record()),
+                native_prepared: phase != Phase::Preparing,
             },
         )
         .unwrap();
@@ -467,6 +468,7 @@ fn capture_failed_ensure_leaves_a_recoverable_durable_fence() {
                     owner: fixture.owner,
                     phase,
                     host: if phase == Phase::Preparing { None } else { Some(mock_record()) },
+                    native_prepared: false,
                 },
             )
             .unwrap();
@@ -525,6 +527,7 @@ fn capture_cleanup_recovers_after_prepare_failed_before_native_marker() {
             owner: fixture.owner,
             phase: Phase::Preparing,
             host: None,
+            native_prepared: false,
         },
     )
     .unwrap();
@@ -561,6 +564,7 @@ fn capture_cleanup_after_failed_prepare_with_a_recorded_host_takes_the_unprepare
             owner: fixture.owner,
             phase: Phase::Preparing,
             host: Some(mock_record()),
+            native_prepared: false,
         },
     )
     .unwrap();
@@ -708,6 +712,7 @@ fn capture_durable_prepared_record_survives_configure_and_malformed_record_fails
         owner: fixture.owner,
         phase: Phase::Active,
         host: Some(mock_record()),
+        native_prepared: false,
     };
     lease.binding.lease_id = "not-a-lease".into();
     persist(&fixture.paths.state, &lease).unwrap();
@@ -845,4 +850,17 @@ fn capture_reused_group_id_after_recorded_host_exit_does_not_block_cleanup() {
     // SAFETY: this signals only the process group this test itself just created.
     unsafe { libc::kill(-(group as i32), libc::SIGKILL) };
     assert!(!removable, "a leaderless surviving group can still hold the host's writers");
+}
+
+#[test]
+fn capture_group_reuse_needs_one_live_differently_stamped_leader() {
+    let recorded = (654, 987);
+    let other = Some((700, 1));
+    assert!(capture::group_reused(other, other, recorded));
+    // The recorded host itself, no leader, or a leader that changed during the query.
+    assert!(!capture::group_reused(Some(recorded), Some(recorded), recorded));
+    assert!(!capture::group_reused(None, None, recorded));
+    assert!(!capture::group_reused(other, None, recorded));
+    assert!(!capture::group_reused(None, other, recorded));
+    assert!(!capture::group_reused(other, Some((701, 1)), recorded));
 }
