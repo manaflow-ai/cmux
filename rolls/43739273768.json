@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43739273768",
+  "recorded_at": "2026-11-15T17:20:26Z",
+  "reason": "cmux-tui b0cfe5fb7932 changes the image's cmux-tui (pinned eddc31b0a854)",
+  "dry_run": false,
+  "cmux_tui": "b0cfe5fb79321b24867bcd6246b45f4321235104",
+  "fixes": [
+    {
+      "sha": "b0cfe5fb79321b24867bcd6246b45f4321235104",
+      "mergedAt": "2026-11-15T08:51:01-08:00",
+      "subject": "acpmux: a remote-origin Cloud Claude counts only the sign-in it gets (#43829)"
+    },
+    {
+      "sha": "70238613f50eef453d56f2981a210c8005ce9e6f",
+      "mergedAt": "2026-11-15T08:43:40-08:00",
+      "subject": "Remote capture lease: review follow-ups from #43074 (#43737) (#43746)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T17:20:26Z",
+    "snapshot_id": "sh-bc2e344361674b06bb99372745f684dd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43739273768): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "844bad61a60e7982990f432118329dc8d1bdad5d",
+    "image": "cloud-native-auto-b0cfe5fb-43739273768-1",
+    "revision": "ci-43739273768-1",
+    "at": "2026-11-15T17:20:26Z"
+  },
+  "rolled_back": false
+}
