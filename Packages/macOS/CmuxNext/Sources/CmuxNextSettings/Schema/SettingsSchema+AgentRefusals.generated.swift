@@ -168,6 +168,8 @@ extension SettingsSchema {
         "macScreen.systemShortcuts": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
+        // Bounds how long an agent's share of this Mac lasts with no viewer; an agent never lengthens its own window.
+        "remote.agentShareIdleMinutes": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
         "remote.ultra": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.

@@ -134,6 +134,9 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// Told whether a viewer is connected (the host's `busy`) on each status, and false when
+    /// the host goes away: the agent share's auto-off timer (`agent_share.rs`).
+    viewer_observer: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>>,
 }
 
 #[derive(Default)]
@@ -218,6 +221,11 @@ impl RemoteHostSupervisor {
         }
         let connection = Inner::ensure(&self.inner)?;
         connection.call(method, params)
+    }
+
+    /// Calls `observer` with whether a viewer is connected, on each host status (set once).
+    pub(crate) fn observe_viewer(&self, observer: Box<dyn Fn(bool) + Send + Sync>) {
+        let _ = self.inner.viewer_observer.set(observer);
     }
 
     /// The host's state for `remote-host-status` (never starts one).
@@ -438,6 +446,12 @@ impl Inner {
                 let status = message.get("status").cloned().unwrap_or(Value::Null);
                 let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
                 *lock(&connection.status) = status;
+                if let Some(inner) = this.upgrade()
+                    && let Some(observer) = inner.viewer_observer.get()
+                {
+                    // The timer only records the change; it never calls the host from here.
+                    observer(!idle);
+                }
                 if idle && this.upgrade().is_some_and(|inner| *lock(&inner.upgrade_pending)) {
                     // Never a call here: only this thread reads the answer.
                     connection.notify("drain");
@@ -448,6 +462,9 @@ impl Inner {
         *lock(&connection.closed.0) = true;
         connection.closed.1.notify_all();
         let Some(inner) = this.upgrade() else { return };
+        if let Some(observer) = inner.viewer_observer.get() {
+            observer(false);
+        }
         Self::host_gone(&inner, connection);
     }
 
@@ -637,5 +654,16 @@ impl crate::mux::Mux {
             return;
         };
         self.control_clients.remote_host.configure(paths_for(daemon_socket, &state_root));
+        // An agent's share turns itself off with no viewer: the host's status says who views,
+        // and the host's own session may turn sharing off (the hub allows it that much).
+        let agents = std::sync::Arc::clone(&self.control_clients.remote_agents);
+        self.control_clients
+            .remote_host
+            .observe_viewer(Box::new(move |viewer| agents.viewer(viewer)));
+        let mux = Arc::downgrade(self);
+        self.control_clients.remote_agents.set_turn_off(Box::new(move || {
+            let mux = mux.upgrade().ok_or("the daemon is stopping")?;
+            mux.control_clients.remote_host.call("screen.share", json!({"on": false})).map(|_| ())
+        }));
     }
 }

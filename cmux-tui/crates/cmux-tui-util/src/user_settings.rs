@@ -251,6 +251,39 @@ pub fn ultra() -> UltraConnection {
     }
 }
 
+/// The default of `remote.agentShareIdleMinutes`: sharing an owner's agent turned on turns
+/// itself off after this many minutes with no viewer.
+pub const AGENT_SHARE_IDLE_MINUTES_DEFAULT: u64 = 15;
+/// The schema's range of `remote.agentShareIdleMinutes` (schemas/settings/source/machines.json).
+pub const AGENT_SHARE_IDLE_MINUTES_RANGE: std::ops::RangeInclusive<u64> = 1..=240;
+
+/// `remote.agentShareIdleMinutes` of a settings file: a whole number in the schema's range;
+/// anything else, and a file that does not parse, is the default (15).
+pub fn agent_share_idle_minutes_from_config_text(text: &str) -> u64 {
+    serde_json::from_str::<Value>(&strip_jsonc(text))
+        .ok()
+        .and_then(|document| {
+            document.pointer("/remote/agentShareIdleMinutes").and_then(Value::as_u64)
+        })
+        .filter(|minutes| AGENT_SHARE_IDLE_MINUTES_RANGE.contains(minutes))
+        .unwrap_or(AGENT_SHARE_IDLE_MINUTES_DEFAULT)
+}
+
+/// [`agent_share_idle_minutes_from_config_text`] of the settings file, read each time an agent's
+/// share arms its timer; the default without a file, and always the default in unit tests.
+pub fn agent_share_idle_minutes() -> u64 {
+    if cfg!(test) {
+        return AGENT_SHARE_IDLE_MINUTES_DEFAULT;
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| agent_share_idle_minutes_from_config_text(&text))
+            .unwrap_or(AGENT_SHARE_IDLE_MINUTES_DEFAULT),
+        _ => AGENT_SHARE_IDLE_MINUTES_DEFAULT,
+    }
+}
+
 /// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
 /// outside strings (the dialect the app's `JSONC` parser reads).
 pub fn strip_jsonc(text: &str) -> String {
@@ -374,6 +407,27 @@ mod tests {
         assert_eq!(ultra(r#"{"remote": {"ultra": true}}"#), Auto, "not a choice");
         assert_eq!(ultra("{not json"), Auto);
         assert_eq!(super::ultra(), Auto, "unit tests never read the developer's file");
+    }
+
+    #[test]
+    fn agent_share_idle_minutes_is_fifteen_unless_the_file_names_a_value_in_range() {
+        use super::agent_share_idle_minutes_from_config_text as minutes;
+        assert_eq!(minutes(""), 15);
+        assert_eq!(minutes("{}"), 15);
+        assert_eq!(minutes(r#"{"remote": {"agentShareIdleMinutes": 5}}"#), 5);
+        assert_eq!(
+            minutes("{\n  // short\n  \"remote\": {\"agentShareIdleMinutes\": 240,},\n}"),
+            240
+        );
+        assert_eq!(minutes(r#"{"remote": {"agentShareIdleMinutes": 0}}"#), 15, "below the range");
+        assert_eq!(minutes(r#"{"remote": {"agentShareIdleMinutes": 241}}"#), 15, "above it");
+        assert_eq!(minutes(r#"{"remote": {"agentShareIdleMinutes": "5"}}"#), 15, "not a number");
+        assert_eq!(minutes("{not json"), 15);
+        assert_eq!(
+            super::agent_share_idle_minutes(),
+            15,
+            "unit tests never read the developer's file"
+        );
     }
 
     #[test]

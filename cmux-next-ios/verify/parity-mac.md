@@ -249,6 +249,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Mac Screen as a tab in a workspace | + › Screen Sharing, then Open as Tab: a phone-side Screen Sharing tab after the Mac's tabs (`WorkspaceScreenSharingTab.swift`) | done | The tab is the phone's own: the Mac lists no such tab, and Close Tab removes it on the phone only. It stays open for the app's run. sim-checked (ScreenSharingSheetUITests) |
 | Share This Mac (serve a session) | | not from a phone | A phone views Macs; it is not a screen host. |
 | Share another Mac of yours, confirmed on the device you are at (`remote.confirm {action: share, device}`: Allow signs a `cmux.share-approval.v1` with the device key) | | missing | The phone holds a device hub key too, so it can be the device that confirms. It needs the same dialog and signature (`CmuxRemoteShareApproval`), and delivery through hq#11046 cut 1's same-account trust, which the Mac does not have yet either. |
+| "My agents can turn screen sharing and control on my machines" (account setting, device hub `PUT /v1/settings`; Settings > Devices switch) | | missing | The setting is the account's, so a phone's full hub session may write it the same way; the phone needs the switch and the confirm on turning it on. An agent's no-dialog share itself is not from a phone: the phone is not a screen host. |
 
 ## Workspace list order (parity2 decision)
 
