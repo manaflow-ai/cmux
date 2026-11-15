@@ -4082,7 +4082,7 @@ jobs:
         with:
           name: cmux-next-tree-notify-pending
           path: ${{ runner.temp }}/tree-notify-pending/pending.json
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
       # This commit's tree-commit marker, the one nightly-next promotion
