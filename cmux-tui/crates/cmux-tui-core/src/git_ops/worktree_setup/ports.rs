@@ -7,7 +7,7 @@ use cmux_file_lock::{FileLock, Kind, LockError};
 /// thread forked meanwhile shares it until it execs). Then it lets go
 /// of this process's lock.
 struct Lock {
-    _file: Option<FileLock>,
+    file: Option<FileLock>,
     _guard: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -25,8 +25,9 @@ fn lock(path: &Path, wait: Duration) -> Lock {
     static LOCK: Mutex<()> = Mutex::new(());
     // No lock file is made through a link, and none is taken on a file
     // that is not a regular one: the allocation then has this process's
-    // lock alone, as when the file cannot be made. A lock file that has a
-    // second name is made new.
+    // lock alone, as when the file cannot be made, and the line on stderr
+    // says that the lock file is not opened. A lock file that has a second
+    // name is made new.
     let lock_path = path.with_extension("lock");
     // The wait comes before this process's lock: a lock file that stays
     // locked does not hold up the allocation of another repository.
@@ -39,18 +40,19 @@ fn lock(path: &Path, wait: Duration) -> Lock {
         Err(LockError::Busy(file)) => FileLock::try_take(file, Kind::Exclusive),
         waited => waited,
     });
-    let file = taken.and_then(|taken| {
-        taken
-            .inspect_err(|error| {
-                eprintln!(
-                    "cmux-tui: {}: {error}; the ports of this repository's worktrees have \
-                     no lock between session hosts now",
-                    lock_path.display()
-                );
-            })
-            .ok()
-    });
-    Lock { _file: file, _guard: guard }
+    let (file, why) = match taken {
+        Some(Ok(file)) => (Some(file), None),
+        Some(Err(error)) => (None, Some(error.to_string())),
+        None => (None, Some("the lock file is not opened".to_string())),
+    };
+    if let Some(why) = why {
+        eprintln!(
+            "cmux-tui: {}: {why}; the ports of this repository's worktrees have no lock \
+             between session hosts now",
+            lock_path.display()
+        );
+    }
+    Lock { file, _guard: guard }
 }
 
 /// The repository's port list, in its shared git folder (`git_dir` is a
@@ -138,9 +140,10 @@ mod lock_tests {
     }
 }
 
-/// The worktree's block, if it has one. The read takes no lock: the
-/// ports file is written to a `.partial` file that then takes its name
-/// ([`write_own`]), so a read gets a whole file.
+/// The worktree's block, if it has one. The read takes no lock: a
+/// writer that has the file lock writes the ports file to a `.partial`
+/// file that then takes its name ([`write_own`]), so a read gets a whole
+/// file then.
 pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {
     load(&path(git_dir)?).ok()?.get(&key(root)).copied()
 }
@@ -192,9 +195,15 @@ fn free_block(path: &Path, ports: &mut BTreeMap<String, u16>, root: &Path) -> Op
     Some(port)
 }
 
+/// Takes the worktree out of the list, so its block is free. With no file
+/// lock the list is not written: the block is free at a later allocation,
+/// when the worktree's folder is gone ([`free_block`]).
 pub(super) fn free(git_dir: &Path, root: &Path) {
     let Some(path) = path(git_dir) else { return };
-    let _guard = lock(&path, WAIT);
+    let held = lock(&path, WAIT);
+    if held.file.is_none() {
+        return;
+    }
     let Ok(mut ports) = load(&path) else { return };
     if ports.remove(&key(root)).is_some() {
         save(&path, &ports);

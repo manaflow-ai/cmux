@@ -17,7 +17,8 @@
 //! - `CMUX_WORKSPACE_PATH`: the worktree.
 //! - `CMUX_WORKSPACE_NAME`: the worktree's name (its folder's).
 //! - `CMUX_PORT`: the first of ten ports kept for this worktree
-//!   (`~/.cmux/worktree-ports.json`) until it is removed.
+//!   (`cmux-worktree-ports.json` in the repository's git folder) until it
+//!   is removed.
 //!
 //! Each also under the name an imported recipe may use
 //! (`cmux_conductor_import::VARIABLE_ALIASES`), so a script runs as written.
@@ -26,7 +27,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+use std::io::{Read as _, Write as _};
 use std::net::{Ipv4Addr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -518,21 +519,50 @@ fn same_folder(left: &Path, right: &Path) -> bool {
 /// that has a second name gives no text: its text is the text of the file at
 /// that name.
 fn tail(path: &Path, since: u64, limit: u64) -> (String, u64, u64) {
-    match open_own(path).filter(has_no_second_name) {
+    match open_own(path).filter(|file| has_one_name(file, path)) {
         Some(file) => tail_of(&file, since, limit),
         None => (String::new(), 0, 0),
     }
 }
 
 /// [`tail`] of the open log `file`.
-fn tail_of(mut file: &File, since: u64, limit: u64) -> (String, u64, u64) {
+fn tail_of(file: &File, since: u64, limit: u64) -> (String, u64, u64) {
     let end = file.metadata().map_or(0, |metadata| metadata.len());
     let start = since.min(end).max(end.saturating_sub(limit));
+    let bytes = bytes_between(file, start, end);
+    (String::from_utf8_lossy(&bytes).into_owned(), start, start + bytes.len() as u64)
+}
+
+/// The bytes of the open file `file` from `start` to `end`, or to where a
+/// read ends. The read does not move the place of the open file: a process
+/// that writes the log shares that place.
+#[cfg(unix)]
+fn bytes_between(file: &File, start: u64, end: u64) -> Vec<u8> {
+    use std::os::unix::fs::FileExt as _;
+    let mut bytes = vec![0_u8; usize::try_from(end.saturating_sub(start)).unwrap_or(0)];
+    let mut read = 0_usize;
+    while let Some(rest) = bytes.get_mut(read..).filter(|rest| !rest.is_empty()) {
+        match file.read_at(rest, start.saturating_add(read as u64)) {
+            Ok(0) => break,
+            Ok(count) => read = read.saturating_add(count),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+    bytes.truncate(read);
+    bytes
+}
+
+/// Where a file has no read at a given place, the read moves the place of
+/// the open file.
+#[cfg(not(unix))]
+fn bytes_between(mut file: &File, start: u64, end: u64) -> Vec<u8> {
+    use std::io::{Seek as _, SeekFrom};
     let mut bytes = Vec::new();
     if file.seek(SeekFrom::Start(start)).is_ok() {
-        let _ = file.take(end - start).read_to_end(&mut bytes);
+        let _ = file.take(end.saturating_sub(start)).read_to_end(&mut bytes);
     }
-    (String::from_utf8_lossy(&bytes).into_owned(), start, start + bytes.len() as u64)
+    bytes
 }
 
 /// Stops the setup still running in `root`, and waits for it to end. This
@@ -634,7 +664,8 @@ fn hold(_git_dir: &Path) -> Option<File> {
 fn held(git_dir: &Path) -> bool {
     // A link or a named pipe in the lock's place is nobody's lock, and so
     // is a lock file that has a second name.
-    let lock = open_own(&git_dir.join(LOCK_FILE)).filter(has_no_second_name);
+    let path = git_dir.join(LOCK_FILE);
+    let lock = open_own(&path).filter(|file| has_one_name(file, &path));
     lock.is_some_and(held_on)
 }
 
@@ -716,7 +747,8 @@ fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
 }
 
 /// [`open_as_own`], with the error of an open that fails. A thing at the
-/// name that is not a regular file gives `InvalidInput`.
+/// name that is not a regular file gives `InvalidInput` when its open
+/// succeeds, and the error of its open when it does not.
 fn try_open_as_own(options: &mut OpenOptions, path: &Path) -> std::io::Result<File> {
     #[cfg(unix)]
     {
@@ -745,48 +777,51 @@ fn open_log(git_dir: &Path) -> Option<File> {
 /// setup's log, its run lock, the lock of the repository's ports), and makes
 /// it when there is none ([`open_as_own`]). A file that has a second name is
 /// not used: a line written to it, or a lock on it, would be in the file at
-/// that name too. The name is then removed and the file is made new with
-/// create-new, as the `.partial` file of a JSON file is ([`write_own`]):
-/// what comes to the name after the removal stops the open.
+/// that name too. A look at the name comes first, so such a file is not
+/// opened. Its name is removed and the file is made new with create-new, as
+/// the `.partial` file of a JSON file is ([`write_own`]): what comes to the
+/// name after the removal stops the open.
 fn open_or_make_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
-    let file = open_as_own(options.create(true), path)?;
-    if has_one_name(&file, path) {
-        return Some(file);
+    if !has_a_second_name(path) {
+        let file = open_as_own(options.create(true), path)?;
+        // A second look, at the open file: a second name, or a different
+        // file, can come to the name after the first look.
+        if has_one_name(&file, path) {
+            return Some(file);
+        }
     }
-    drop(file);
     let _ = fs::remove_file(path);
     open_as_own(options.create_new(true), path)
 }
 
-/// Whether the open file `file` is the file at `path` and has no other name.
-/// One look at the name gives the file and the count of its names together,
-/// so no change between two looks is missed.
+/// Whether the thing at `path` is a regular file that has a second name.
+#[cfg(unix)]
+fn has_a_second_name(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    fs::symlink_metadata(path).is_ok_and(|named| named.is_file() && named.nlink() > 1)
+}
+
+/// The count of a file's names is not read here.
+#[cfg(not(unix))]
+fn has_a_second_name(_path: &Path) -> bool {
+    false
+}
+
+/// Whether the open file `file` is the file at `path` and has no second
+/// name. One look at the name gives the file and the count of its names
+/// together, so no change between two looks is missed.
 #[cfg(unix)]
 fn has_one_name(file: &File, path: &Path) -> bool {
     use std::os::unix::fs::MetadataExt as _;
     let (Ok(open), Ok(named)) = (file.metadata(), fs::symlink_metadata(path)) else {
         return false;
     };
-    named.nlink() == 1 && named.dev() == open.dev() && named.ino() == open.ino()
+    named.nlink() <= 1 && named.dev() == open.dev() && named.ino() == open.ino()
 }
 
 /// The count of a file's names is not read here.
 #[cfg(not(unix))]
 fn has_one_name(_file: &File, _path: &Path) -> bool {
-    true
-}
-
-/// Whether the open file `file` has no second name. A file that has no name
-/// now has none: its name went away after the open.
-#[cfg(unix)]
-fn has_no_second_name(file: &File) -> bool {
-    use std::os::unix::fs::MetadataExt as _;
-    file.metadata().is_ok_and(|metadata| metadata.nlink() <= 1)
-}
-
-/// The count of a file's names is not read here.
-#[cfg(not(unix))]
-fn has_no_second_name(_file: &File) -> bool {
     true
 }
 
@@ -811,9 +846,10 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
-/// The ports each worktree keeps, in `~/.cmux/worktree-ports.json`: the
-/// first port of a block of ten by worktree folder. A folder that is gone
-/// gives its block back on the next allocation.
+/// The ports each worktree keeps, in `cmux-worktree-ports.json` in the
+/// repository's git folder: the first port of a block of ten by worktree
+/// folder. A folder that is gone gives its block back on the next
+/// allocation.
 mod ports;
 
 #[cfg(test)]
