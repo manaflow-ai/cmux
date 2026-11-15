@@ -59,18 +59,18 @@ extension SidebarUpdateCardView {
     /// A pinned popup (a click on the card) may grow to this share of its window's height.
     static var pinnedMaxHeightFraction: CGFloat { 0.85 }
 
-    /// How long the pointer rests on the card before the popup opens (Lawrence 2026-11-12, msg 30807:
-    /// "hovering on update should wait longer before opening the card to the right"; it opened on
-    /// the first move). macOS tooltip territory, a beat past the workspace cards' 400 ms
-    /// (`HoverCardTiming.showDelay`): a pointer crossing the card on its way elsewhere is on it
-    /// for well under this, so it opens nothing. A click on the card opens it at once.
-    static var notesOpenDelay: Duration { .milliseconds(500) }
+    /// How long the pointer rests on the card before the popup opens: the delay every hover card
+    /// waits (`sidebar.hoverCards.delay`, Chrome's 1300 ms by default; Lawrence 2026-11-12, msg 30807:
+    /// "hovering on update should wait longer"; 2026-11-15, msg 32286: the same as every other card).
+    /// A click on the card opens it at once.
+    static var notesOpenDelay: Duration { DesignSettings.shared.hoverCardDelay }
 
-    /// How long the popup waits after the pointer left the card or the popup before it closes.
-    static var notesCloseDelay: Duration { .milliseconds(250) }
+    /// How long the popup waits after the pointer left the card or the popup before it closes: the
+    /// hover card grace (`HoverIntentTiming.cardGrace`), as a workspace card that lingers.
+    static var notesCloseDelay: Duration { HoverIntentTiming.current.cardGrace }
 
     /// The longest the corridor between the card and the popup keeps it open (a slow hand).
-    static var notesCorridorLimit: Duration { .milliseconds(1200) }
+    static var notesCorridorLimit: Duration { .milliseconds(1200) } // hover-timing: travel cap, not a delay
 
     /// The popup's height for a page `contentHeight` tall: capped to
     /// ``popoverMaxHeightFraction`` of the window (the page scrolls past it).

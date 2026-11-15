@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Live check: hover cards of sidebar workspace rows and tabs wait Chrome's delay, switch at once
-while warm, and can be turned off (cx-23e1f, Lawrence 2026-10-14: "dont show the card on hover for
-workspaces/tabs until XYZ seconds (see how long google chrome takes for this) make sure user can
-just turn it off as well").
+"""Live check: hover cards of sidebar workspace rows and tabs, the Update Ready card's highlights and
+the pull request badge's card wait Chrome's delay, switch at once while warm, and can be turned off
+(cx-23e1f, Lawrence 2026-10-14: "dont show the card on hover for workspaces/tabs until XYZ seconds
+(see how long google chrome takes for this) make sure user can just turn it off as well"; Lawrence
+2026-11-15: "copy chrome's delay exactly ... make sure it is consistent between every thing").
+
+Chromium 6845f5c3ba82, chrome/browser/ui/views/tabs/hovercard/tab_hover_card_controller.cc: 1300 ms
+at standard width (kMaximumTriggerDelay 800 + kTabHoverCardAdditionalMaxWidthDelay 500), and at once
+within kShowWithoutDelayTimeBuffer 300 ms after a card went (HoverIntentTiming.cardDelay, .cardReshow).
 
   nx-remote --needs input --input-reason "real pointer moves over sidebar rows and tabs" \\
     --app-from-fleet cmux --tag TAG --ref SHA -- \\
@@ -15,18 +20,24 @@ moves a synthetic pointer through the windows' tracking areas (`debug.pointer_ho
 the mouse-button check. The state is read from `debug.hover_cards`. Checks, for a workspace row
 and for a tab:
 
-  1. the default delay is 250 ms (HoverCardTiming.showDelay): no card at 0.11 s, the card at 0.21-1.75 s;
+  1. the default delay is 1300 ms (HoverCardTiming.showDelay): no card at 0.59 s, the card at 1.10-2.80 s;
   2. warm: with a card shown, the next row's (tab's) card shows at once (under 0.35 s);
   3. leaving a row before the delay cancels its card;
-  4. quick return: a hover just after the card went shows at once;
+  4. quick return: a hover within 300 ms after the card went shows at once;
   5. a held mouse button (a terminal selection dragged onto a row) shows no card (real input only);
   6. `sidebar.hoverCards.delay` 1000 holds the card until about 1 s;
-  7. `sidebar.hoverCards.enabled` false: no card after 2.5 s, and a shown card goes at once.
+  7. `sidebar.hoverCards.enabled` false: no card after 2.5 s, and a shown card goes at once;
+  8. the Update Ready card (`debug.updater stage`): its highlights card waits the same delay;
+  9. a workspace row's pull request badge (`debug.update_surfaces pull-request-badge`): its card waits the
+     same delay cold, and shows at once from a shown row card (warm).
+
+It ends with a `measured:` JSON line of every timed show (seconds from the pointer's arrival).
 
 With $NX_CAPTURE and --shots it writes PNGs of the window with the card and without it.
 Exits 1 when a check fails.
 """
-DEFAULT_DELAY_MS = 250  # HoverCardTiming.showDelay
+DEFAULT_DELAY_MS = 1300  # HoverCardTiming.showDelay = HoverIntentTiming.cardDelay (Chrome's)
+RESHOW_MS = 300  # HoverCardTiming.reshowWindow = HoverIntentTiming.cardReshow
 OTHER_DELAY_MS = 1000
 
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
@@ -45,6 +56,7 @@ opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 HERE = os.path.dirname(os.path.abspath(__file__))
 failures = []
+measured = {}  # what -> seconds from the pointer's arrival to the shown card
 
 
 def check(ok, what):
@@ -199,19 +211,26 @@ def settle():
     time.sleep(0.4)
 
 
-def cold(kind, point, delay_ms):
+def owned_showing(card_id):
+    """`card_id` when the owned card (an update or pull request card) shows, else None."""
+    report = cards()
+    return card_id if report.get("owned") == card_id and report.get("card_showing") == "true" else None
+
+
+def cold(kind, point, delay_ms, seen=showing):
     settle()
     start = time.monotonic()
     move(point)
     early = 0.45 * delay_ms / 1000
     time.sleep(max(0.0, early - (time.monotonic() - start)))
-    before = showing()
+    before = seen()
     report = cards()
     check(before is None, f"{kind}: no card {early:.2f} s after the hover (phase {report.get('phase', '')[:60]})")
-    shown = quiet_wait(showing, delay_ms / 1000 + 1.5, step=0.02)
+    shown = quiet_wait(seen, delay_ms / 1000 + 1.5, step=0.02)
     took = time.monotonic() - start
     check(bool(shown) and took >= delay_ms / 1000 * 0.85,
           f"{kind}: the card shows after {took:.2f} s (delay {delay_ms} ms; target {shown})")
+    measured.setdefault(f"{kind} cold", []).append(round(took, 3))
     return shown
 
 
@@ -221,6 +240,7 @@ def warm(kind, point, previous):
     shown = quiet_wait(lambda: (lambda s: s if s and s != previous else None)(showing()), 1.0, step=0.02)
     took = time.monotonic() - start
     check(bool(shown) and took < 0.35, f"{kind}: warm switch shows the next card at once ({took:.2f} s, {previous} -> {shown})")
+    measured.setdefault(f"{kind} warm switch", []).append(round(took, 3))
     return shown
 
 
@@ -238,7 +258,7 @@ def quick_return(kind, first, second, delay_ms, away):
     if not shown:
         return
     # The card lingers 200 ms after the pointer leaves (cardGrace), then hides; for 300 ms after
-    # that (HoverCardTiming.reshowWindow 500 ms) a new hover shows at once. `away` leaves away
+    # that (HoverCardTiming.reshowWindow, Chrome's kShowWithoutDelayTimeBuffer) a new hover shows at once. `away` leaves away
     # from the card (a path toward the card would hold it: the safe triangle). Return as soon as
     # the card has gone.
     move(away)
@@ -250,6 +270,7 @@ def quick_return(kind, first, second, delay_ms, away):
     took = time.monotonic() - start
     check(phase.startswith("grace") and bool(back) and took < 0.35,
           f"{kind}: a hover just after the card went shows at once ({took:.2f} s; phase before {phase[:24]}, shown {back})")
+    measured.setdefault(f"{kind} within {RESHOW_MS} ms after a card went", []).append(round(took, 3))
 
 
 def held_button(row_point):
@@ -356,6 +377,43 @@ try:
         away = [60, 8]
         quick_return(kind, points[0][1], points[1][1], DEFAULT_DELAY_MS, away)
 
+    def bottom_left_to_top_left(point):
+        height = ((main_window() or {}).get("frame") or {}).get("height", 0)
+        return [point[0], height - point[1]]
+
+    # The Update Ready card: its highlights card (owned "sidebar:update-highlights").
+    rpc("debug.updater", {"action": "stage", "version": "1.99.0", "changes": 6})
+    spot = quiet_wait(lambda: (lambda r: r if r.get("card") == "true" and r.get("x") else None)(
+        rpc("debug.update_surfaces", {"action": "card-point"}) or {}), 15, step=0.2) or {}
+    check(bool(spot), f"the Update Ready card shows ({spot})")
+    if spot:
+        point = bottom_left_to_top_left([float(spot["x"]), float(spot["y"])])
+        for _ in range(3):
+            cold("update card", point, DEFAULT_DELAY_MS, seen=lambda: owned_showing("sidebar:update-highlights"))
+
+    # A workspace row's pull request badge: its card (owned "sidebar:pull-requests").
+    row_entries = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+    ids = [str(r["key"])[len("workspace("):-1] for r in row_entries
+           if str(r.get("key", "")).startswith("workspace(") and str(r["key"]).endswith(")") and r.get("in_list")]
+    def stage_badge():
+        return rpc("debug.update_surfaces", {"action": "pull-request-badge", "workspace": ids[0]}) or {}
+    badge = (quiet_wait(lambda: (lambda b: b if b.get("x") else None)(stage_badge()), 5, step=0.2) or stage_badge()) if ids else {}
+    check(bool(badge.get("x")), f"a pull request badge to hover ({badge})")
+    if badge.get("x"):
+        point = bottom_left_to_top_left([float(badge["x"]), float(badge["y"])])
+        for _ in range(3):
+            cold("pull request badge", point, DEFAULT_DELAY_MS, seen=lambda: owned_showing("sidebar:pull-requests"))
+        # Warm: a shown row card (another row), then the badge: at once.
+        others = [p for _, p in row_points()[1:]]
+        if others and cold("rows (before the badge)", others[0], DEFAULT_DELAY_MS):
+            start = time.monotonic()
+            move(point)
+            shown = quiet_wait(lambda: owned_showing("sidebar:pull-requests"), 1.0, step=0.02)
+            took = time.monotonic() - start
+            check(bool(shown) and took < 0.35, f"pull request badge: from a shown row card its card shows at once ({took:.2f} s)")
+            measured.setdefault("pull request badge warm (from a row card)", []).append(round(took, 3))
+        rpc("debug.update_surfaces", {"action": "pull-request-badge", "workspace": ids[0], "off": True})
+
     if rows:
         set_setting("sidebar.hoverCards.delay", OTHER_DELAY_MS)
         quiet_wait(lambda: cards().get("delay_ms") == str(OTHER_DELAY_MS), 5)
@@ -394,5 +452,6 @@ finally:
         app.wait()
     teardown.end()
 
+print("measured: " + json.dumps(measured), flush=True)
 print(f"{len(failures)} failure(s)", flush=True)
 sys.exit(1 if failures else 0)

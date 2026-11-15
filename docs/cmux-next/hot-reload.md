@@ -22,8 +22,8 @@ a video, click through it; compile checks, CI and suites come after the look. Of
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
 | Swift, Rust the app links, resources | a build: `hot-apply.py plan SHA` says which | |
 
-`cmux customize use branch:`, `sha:` and `dir:` are coming. A tree build is not Team-signed, so Rust hot-apply from
-it into a Developer ID NIGHTLY is held back for now. Agents follow the same loop through the
+`cmux customize use branch:`, `sha:` and `dir:` are coming. Rust hot-apply into a Developer ID NIGHTLY takes the
+tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
 cmuxterm-hq [docs/design/cmux-next-hot-swap-layers.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/design/cmux-next-hot-swap-layers.md)
 (team only).
@@ -541,7 +541,12 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   starts and every user-origin call fail until `rollback`. So `plan` reads the published binary's
   signature (two range requests) and lists the Rust part under `left` when its team isn't the
   app's, and `apply` checks the file it swaps in, `--binary` included. `--unsigned-daemon` takes
-  it anyway, and the receipt says what breaks.
+  it anyway, and the receipt says what breaks. CI also signs each feat-cmux-next tree's darwin
+  build with the NEXT nightly's identity (`cmux-tui-team-signed.yml`, on ref nightly-next, where
+  that identity lives) and publishes it at `cmux-tui/tree/KEY/team-signed/`. An app signed by that
+  team takes it (`plan`'s `build`, the receipt's `steps.build`), so the Rust part reaches a NIGHTLY
+  once it is there. To sign one commit by hand: `gh workflow run cmux-tui-team-signed.yml --ref
+  nightly-next -f commit=SHA`.
 - **Neither:** Swift, resources, Rust the app links statically, and helpers such as
   cmux-mobile-host still need the nightly. `plan` lists them under `left`. C, Objective-C and Zig
   sources inside `cmux-tui/` (a companion's shim, the Zig binding) are not resources: the tree build

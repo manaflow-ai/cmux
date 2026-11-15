@@ -45,11 +45,14 @@ pub(super) struct Inputs {
 }
 
 /// The customize layers that are on, read from the library's files: no app
-/// needed, so a report from a cmux that a layer broke still says which.
-fn customize_facts() -> Value {
+/// needed, so a report from a cmux that a layer broke still says which. An
+/// overlay web-dev.json names is judged against `bundle`'s web ABI.
+fn customize_facts(bundle: Option<&Path>) -> Value {
+    let app_abi = super::super::customize::app_web_abi(bundle);
+    let now_ms = super::super::customize::now_ms();
     cmux_customize::Customize::from_env()
         .ok()
-        .and_then(|customize| serde_json::to_value(customize.layers()).ok())
+        .and_then(|customize| serde_json::to_value(customize.layers_at(app_abi, now_ms)).ok())
         .unwrap_or(Value::Null)
 }
 
@@ -88,7 +91,7 @@ pub(super) fn run(global: &GlobalArgs) -> i32 {
         updates,
         components,
         os: os_facts(),
-        customize: customize_facts(),
+        customize: customize_facts(bundle.as_deref()),
     };
     let value = report(&inputs);
     match global.output {

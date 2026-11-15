@@ -56,11 +56,18 @@ pub fn auth_kind(message: &str) -> Option<&'static str> {
     }
     if crate::claude_auth::is_expired_credential(message) {
         Some(kind::AUTH_EXPIRED)
-    } else if crate::claude_auth::is_sign_in_failure(message) {
+    } else if crate::claude_auth::is_sign_in_failure(message) || says_missing_openai_key(message) {
         Some(kind::AUTH_SIGNED_OUT)
     } else {
         None
     }
+}
+
+/// Whether `message` is codex's "Missing environment variable: `OPENAI_API_KEY`.": its provider
+/// has no key, so a Codex with no sign-in of its own (own mode with no login, or team mode with
+/// no placeholder) is signed out ([`auth_kind`]), and the chat shows Codex's Sign in card.
+pub fn says_missing_openai_key(message: &str) -> bool {
+    message.to_lowercase().contains("missing environment variable: `openai_api_key`")
 }
 
 /// Free space under this is `disk.low` unless the config sets `diskLowBytes`.
@@ -704,5 +711,27 @@ mod tests {
             assert!(!start_sign_in(&mut e, "cursor"), "{message}");
             assert!(e.data.is_none(), "{message}");
         }
+    }
+
+    /// The gateway's 401 for a Gemini or Grok call with no team or owner key says
+    /// `agent.sign_in_required`: a turn or start that fails on it is a sign-in, typed
+    /// `auth.signed_out`, and a start's refusal names the harness (hq#11225).
+    #[test]
+    fn the_gateways_sign_in_marker_is_a_sign_in() {
+        for message in [
+            "[API Error: 401 cmux: sign in required (agent.sign_in_required)]",
+            "agent process closed (grok): 401 Unauthorized: cmux: sign in required (agent.sign_in_required)",
+        ] {
+            assert_eq!(auth_kind(message), Some(kind::AUTH_SIGNED_OUT), "{message}");
+        }
+        let mut e = RpcError::new(
+            -32603,
+            "Request failed: 401 cmux: sign in required (agent.sign_in_required)",
+        );
+        assert!(start_sign_in(&mut e, "gemini"));
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], SIGN_IN_REQUIRED);
+        assert_eq!(data["errorKind"], kind::AUTH_SIGNED_OUT);
+        assert_eq!(data["details"]["harness"], "gemini");
     }
 }
