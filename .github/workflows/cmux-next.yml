@@ -3355,6 +3355,32 @@ jobs:
           judge 2 Packages/macOS/CmuxNext
           finish "$verdict"
 
+      # Native sidebar gallery capture uses the same allowed GUI fleet gateway
+      # as the fast tier. The capture script checks out this exact ref on the
+      # worker, runs the DEBUG-only AppKit suite, and returns its PNG tarball.
+      - name: Capture native sidebar gallery on the GUI fleet
+        if: ${{ always() && needs.path_route.outputs.swift == 'true' }}
+        env:
+          REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; native gallery capture did not run."
+            exit 127
+          fi
+          "$client" run --class light --display \
+            --script scripts/ci/native-sidebar-gallery.sh --ref "$REF" \
+            --timeout 2400 --artifact artifacts/native-sidebar-gallery.tar
+
+      - name: Upload native sidebar gallery artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.3.3
+        with:
+          name: native-sidebar-gallery-${{ github.sha }}
+          path: artifacts/native-sidebar-gallery.tar
+          if-no-files-found: warn
+
   # The fast tier's queued hand-back, placed again (side_lane_placement.handback()). When fast-tier-fleet hands
   # Why: docs/ci/cmux-next-workflow-notes.md#note-37
   fast-tier-handback-placement:

@@ -2,25 +2,25 @@
 import Foundation
 
 /// JSON-backed input for the native gallery's sidebar entries.
-public nonisolated struct SidebarGalleryFixture: Codable, Sendable {
-    public enum Scenario: String, Codable, CaseIterable, Sendable {
+nonisolated struct SidebarGalleryFixture: Codable, Sendable {
+    enum Scenario: String, Codable, CaseIterable, Sendable {
         case sessionTreeDeep = "session-tree-deep"
         case sidebarCustomization = "sidebar-customization"
         case needsYou = "needs-you"
     }
 
-    public let scenario: Scenario
+    let scenario: Scenario
 
-    public init(scenario: Scenario) {
+    init(scenario: Scenario) {
         self.scenario = scenario
     }
 
-    public init(jsonData: Data) throws {
+    init(jsonData: Data) throws {
         self = try JSONDecoder().decode(Self.self, from: jsonData)
     }
 
     /// The native model and session-tree state consumed by the capture.
-    public var snapshot: Snapshot {
+    var snapshot: Snapshot {
         switch scenario {
         case .sessionTreeDeep:
             return Self.deepTree()
@@ -37,12 +37,12 @@ public nonisolated struct SidebarGalleryFixture: Codable, Sendable {
         }
     }
 
-    public struct Snapshot: Sendable {
-        public let sections: [SidebarSection]
-        public let tree: SidebarSessionTreeState
-        public let width: Double
+    struct Snapshot: Sendable {
+        let sections: [SidebarSection]
+        let tree: SidebarSessionTreeState
+        let width: Double
 
-        public var rowIDs: [String] { sections.flatMap(\.workspaces).map(\.id.rawValue) }
+        var rowIDs: [String] { sections.flatMap(\.workspaces).map(\.id.rawValue) }
     }
 
     private static func deepTree() -> Snapshot {
