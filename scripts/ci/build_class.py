@@ -16,9 +16,10 @@ A crate is `app` when another language links it or the app build reads it:
   - every crate in the Cargo dependency closure of a staticlib, cdylib or *-ffi crate (in any
     workspace of the repo: CCmuxAppFFI, the iOS link FFI, cmux-rd-ffi, wasm), or of a crate a
     Package.swift names (a prebuilt xcframework such as cmux-terminal-client);
-  - the router's lists (scripts/ci/cmux_next_route.py): the CCmuxAppFFI sources (app_ffi_inputs)
-    and the files the app scheme's build phases name (scheme_phase_rust_inputs, read from
-    cmux.xcodeproj; the cmux-tui Cargo.toml and Cargo.lock are among them).
+  - the router's lists (scripts/ci/cmux_next_route.py): the CCmuxAppFFI sources (app_ffi_input:
+    the app FFI walk of scripts/ci/app_ffi_pin.py, the one definition the pin check lists) and the
+    files the app scheme's build phases name (scheme_phase_rust_inputs, read from cmux.xcodeproj;
+    the cmux-tui Cargo.toml and Cargo.lock are among them).
 A file in cmux-tui but in no crate, and every file outside cmux-tui, docs included (a crate can
 include_str! a doc, a generator can read an image), is `app`.
 
@@ -169,6 +170,7 @@ def crate_dir(root: Path, path: str) -> str | None:
 def classify_path(root: Path, path: str) -> tuple[str, str]:
     if not path.startswith(route_mod.CMUX_TUI):
         return "app", "outside cmux-tui: the app build's rules (cmux_next_route.py) place it"
+    # A refused app FFI walk makes every cmux-tui path an input here, the router's side (lead decision 2): `app`.
     if route_mod.app_ffi_input(root, path):
         return "app", "a CCmuxAppFFI source: the Swift compiles link it"
     if any(route_mod.matches(path, prefix) for prefix in route_mod.scheme_phase_rust_inputs(root)):

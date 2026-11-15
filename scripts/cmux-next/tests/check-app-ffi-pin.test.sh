@@ -11,6 +11,12 @@
 #    working directory is on its import path. base_red_excuse.py trusts the
 #    verdict of a PR that leaves the check's files alone, and a new file is not
 #    one of them.
+#  - the FFI inputs, fail-closed (app_ffi_pin.py walk): each crate cmux-app-ffi
+#    reaches is an input as a whole directory except its tests/, benches/ and
+#    examples/ and the reviewed TEST_ONLY files (on 2026-11-09 #39027 changed
+#    cmux-tui/bindings/rust/.cmux-resource-api.json, which only
+#    tests/catalog_manifest.rs reads, and staled the pin), plus every path a
+#    scanned source names; what cannot be listed refuses.
 set -euo pipefail
 # shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
@@ -42,6 +48,86 @@ crate cmux-rd-core
 crate cmux-layout-reducer-ffi
 crate cmux-remote-browser
 crate cmux-unrelated
+# Reached only through a [workspace.dependencies] path entry, once a crate inherits it (below).
+crate cmux-ws-only
+# cmux-app-ffi is its own workspace root, as in the repository, so cargo builds it with its own [patch], [profile] and
+# Cargo.lock; the cmux-tui workspace's apply only when it is not (the guard test below).
+printf '\n[workspace]\n' >> "$repo/cmux-tui/crates/cmux-app-ffi/Cargo.toml"
+echo "lock" > "$repo/cmux-tui/Cargo.lock"
+# cmux-rd-core's files: the crate directory is an input whole, except tests/, benches/ and examples/ (fail-closed).
+core="$repo/cmux-tui/crates/cmux-rd-core"
+mkdir -p "$core/tests/vectors" "$core/scripts" "$core/benches" "$core/examples"
+printf 'pub const DATA: &str = include_str!("../data.json");\n' >> "$core/src/lib.rs"
+# rustfmt's form of a long include (the path on its own line, a trailing comma), and the other delimiters.
+printf 'pub const ML: &str = include_str!(\n    "../ml.json",\n);\npub const BR: &[u8] = include_bytes!["../br.json"];\n' \
+  >> "$core/src/lib.rs"
+printf '/// A doc comment may spell out include_str!(PATH) with no literal.\n' >> "$core/src/lib.rs"
+printf 'fn main() { println!("cargo:rerun-if-changed=build-data.txt"); std::fs::read_to_string("build-data.txt").unwrap(); }\n' > "$core/build.rs"
+printf 'const V: &str = include_str!("../../cmux-rd-core/tests/vectors/lines.json");\n' > "$repo/cmux-tui/crates/cmux-rd-ffi/src/vectors.rs"
+printf 'const D: &str = include_str!("../.descriptor.json");\n' > "$core/tests/api.rs"
+for f in data.json ml.json br.json build-data.txt .descriptor.json README.md COPYING.txt tests/vectors/lines.json \
+  scripts/sync.py benches/b.rs examples/e.rs; do
+  echo "$f" > "$core/$f"
+done
+mkdir -p "$repo/cmux-tui/crates/cmux-rd-ffi/tests"
+echo "// a test" > "$repo/cmux-tui/crates/cmux-rd-ffi/tests/t.rs"
+# cmux-tui/bindings/rust, with the file app_ffi_pin.py TEST_ONLY lists (only its tests read it, #39027).
+bindings="$repo/cmux-tui/bindings/rust"
+mkdir -p "$bindings/src" "$bindings/tests"
+printf '[package]\nname = "cmux"\n\n[lib]\npath = "src/lib.rs"\n' > "$bindings/Cargo.toml"
+echo "// bindings" > "$bindings/src/lib.rs"
+echo '{}' > "$bindings/.cmux-resource-api.json"
+printf 'const API: &str = include_str!("../.cmux-resource-api.json");\n' > "$bindings/tests/catalog_manifest.rs"
+printf 'cmux = { path = "../../bindings/rust" }\n' >> "$repo/cmux-tui/crates/cmux-remote-browser/Cargo.toml"
+# The cmux-tui workspace manifest: cmux-rd-core inherits two [workspace.package] keys and two [workspace.dependencies]
+# entries (one in a target table) for its library, and one entry only for its tests.
+cat > "$repo/cmux-tui/Cargo.toml" <<'EOF'
+[workspace]
+members = ["crates/cmux-unrelated"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+homepage = "https://a.example"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+libc = "0.2"
+criterion = "0.5"
+tokio = "1"
+rusqlite = { version = "0.32", default-features = false }
+itoa = "1"
+cmux-ws-only = { path = "crates/cmux-ws-only" }
+
+[patch.crates-io]
+tokio = { path = "vendor/tokio" }
+
+[profile.release]
+opt-level = 3
+EOF
+cat > "$core/Cargo.toml" <<'EOF'
+[package]
+name = "x"
+edition.workspace = true
+license = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true, features = ["std"] }
+rusqlite.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+EOF
 git -C "$repo" init -q
 git -C "$repo" add -A
 git -C "$repo" commit -qm sources
@@ -65,6 +151,566 @@ out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail 
 echo "// changed" >> "$repo/cmux-tui/crates/cmux-unrelated/src/lib.rs"
 git -C "$repo" commit -qam unrelated
 out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "an unrelated crate made the pin stale: $out"
+
+# Not an input (fail-closed rule, lead decision 2026-11-10): an input crate's tests/, benches/ and examples/, and a
+# file on the reviewed app_ffi_pin.py TEST_ONLY list (.cmux-resource-api.json, which only a test reads, #39027).
+for f in cmux-tui/crates/cmux-rd-core/benches/b.rs cmux-tui/crates/cmux-rd-core/examples/e.rs \
+  cmux-tui/crates/cmux-rd-ffi/tests/t.rs cmux-tui/bindings/rust/tests/catalog_manifest.rs \
+  cmux-tui/bindings/rust/.cmux-resource-api.json; do
+  echo "changed" >> "$repo/$f"
+done
+git -C "$repo" commit -qam "test-only files"
+out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "a test-only file made the pin stale: $out"
+[[ "$out" == *"sources match $pinned"* ]] || fail "no match line after a test-only change: $out"
+# A library source that names a TEST_ONLY file refuses: the reviewed list holds only files that tests alone read.
+printf 'const API: &str = include_str!("../.cmux-resource-api.json");\n' >> "$bindings/src/lib.rs"
+git -C "$repo" commit -qam "a library source reads the test-only file"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a library source that names a TEST_ONLY file passed: $out"
+fi
+[[ "$out" == *"the app FFI inputs cannot be listed"*"TEST_ONLY"* ]] || fail "the TEST_ONLY read did not refuse: $out"
+git -C "$repo" reset -q --hard HEAD~1
+# Everything else in an input crate is an input: a file a library source includes (include_str!), one its build
+# script reads, the README, a script, a descriptor only a test reads but no reviewed list names, and a
+# tests/ file that a library source of another input crate includes (that crate's tests/ is then an input whole).
+for f in data.json ml.json br.json build-data.txt README.md scripts/sync.py .descriptor.json \
+  tests/vectors/lines.json tests/api.rs; do
+  echo "changed" >> "$core/$f"
+  git -C "$repo" commit -qam "input $f"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "a change to $f, which the library build reads, kept the pin current: $out"
+  fi
+  [[ "$out" == *"cmux-tui/crates/cmux-rd-core/$f"* ]] || fail "the stale report does not name $f: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+done
+# What cargo and rustup read above the crate files: the crate's own and its parents' cargo config and toolchain
+# (review of #40095).
+for f in cmux-tui/crates/cmux-app-ffi/.cargo/config.toml cmux-tui/crates/cmux-app-ffi/rust-toolchain.toml \
+  cmux-tui/crates/.cargo/config.toml cmux-tui/.cargo/config.toml .cargo/config.toml; do
+  mkdir -p "$(dirname "$repo/$f")"
+  echo "changed" > "$repo/$f"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "input $f"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "a change to $f, which cargo or rustup reads, kept the pin current: $out"
+  fi
+  [[ "$out" == *"$f"* ]] || fail "the stale report does not name $f: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+done
+# Of the cmux-tui workspace manifest, only what the FFI crates inherit for their library is an input: it changed 55
+# times on feat-cmux-next in the 14 days to 2026-11-10. cmux-app-ffi is its own workspace root, so the manifest's
+# members, lints, [patch] and [profile] do not reach the FFI build, nor do entries the crates do not inherit or
+# inherit only for tests.
+ws="$repo/cmux-tui/Cargo.toml"
+edit_ws() { # edit_ws FROM TO MESSAGE: replace FROM with TO in the workspace manifest and commit
+  python3 - "$ws" "$1" "$2" <<'EOF'
+import sys
+from pathlib import Path
+path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+text = path.read_text()
+assert text.count(old) == 1, old
+path.write_text(text.replace(old, new))
+EOF
+  git -C "$repo" commit -qam "$3"
+}
+edit_ws 'members = ["crates/cmux-unrelated"]' 'members = ["crates/cmux-unrelated", "crates/cmux-new"]' "ws members"
+edit_ws 'unsafe_code = "warn"' 'unsafe_code = "deny"' "ws lints"
+edit_ws 'criterion = "0.5"' 'criterion = "0.6"' "ws dev-only dependency"
+edit_ws 'tokio = "1"' 'tokio = "1.40"' "ws dependency no FFI crate inherits"
+edit_ws 'path = "vendor/tokio"' 'path = "vendor/tokio2"' "ws patch"
+edit_ws 'opt-level = 3' 'opt-level = 2' "ws profile"
+edit_ws 'rust-version = "1.80"' 'rust-version = "1.81"' "ws package key no FFI crate inherits"
+edit_ws 'homepage = "https://a.example"' 'homepage = "https://b.example"' "ws package key no FFI crate inherits yet"
+edit_ws 'itoa = "1"' 'itoa = "1.0.15"' "ws dependency no FFI crate inherits yet"
+echo "changed" >> "$repo/cmux-tui/crates/cmux-ws-only/src/lib.rs"
+echo "changed" >> "$repo/cmux-tui/Cargo.lock"
+git -C "$repo" commit -qam "a crate no FFI crate reaches yet, and the cmux-tui lock file"
+printf '\n[workspace.metadata.x]\ny = 1\n' >> "$ws"
+git -C "$repo" commit -qam "ws metadata"
+out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" \
+  || fail "a workspace manifest change no FFI crate inherits made the pin stale: $out"
+[[ "$out" == *"sources match $pinned"* ]] || fail "no match line after workspace manifest changes: $out"
+# What an FFI crate inherits for its library is an input: a [workspace.package] key in either form, and a
+# [workspace.dependencies] entry from [dependencies] or a target table.
+for change in 'edition = "2021"|edition = "2024"' 'license = "MIT"|license = "MIT OR Apache-2.0"' \
+  'features = ["derive"]|features = ["derive", "rc"]' 'features = ["derive"]|features = ["derive"], optional = true' \
+  'default-features = false|default-features = true' 'libc = "0.2"|libc = "0.2.170"'; do
+  edit_ws "${change%%|*}" "${change#*|}" "inherited ${change%%|*}"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "a change to the inherited ${change%%|*} kept the pin current: $out"
+  fi
+  [[ "$out" == *"cmux-tui/Cargo.toml"* ]] || fail "the stale report does not name cmux-tui/Cargo.toml: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+done
+# A crate that starts to inherit an entry is a changed input (its own Cargo.toml).
+printf 'tokio = { workspace = true }\n' >> "$core/Cargo.toml"
+git -C "$repo" commit -qam "inherit tokio"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a crate that starts to inherit an entry kept the pin current: $out"
+fi
+git -C "$repo" reset -q --hard HEAD~1
+before_ws="$(git -C "$repo" rev-parse HEAD)"
+repin() { # repin MESSAGE: pin the current HEAD (the tests below start from a pin of what they set up)
+  local head
+  head="$(git -C "$repo" rev-parse HEAD)"
+  perl -pi -e "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$head/" "$repo/Packages/macOS/CmuxNext/app-ffi-pin.json"
+  git -C "$repo" commit -qam "$1"
+  out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "$1: a current pin failed: $out"
+  [[ "$out" == *"sources match $head"* ]] || fail "$1: no match line: $out"
+}
+stale_after() { # stale_after WHY NAMED: the check fails, naming NAMED; then drop the last commit
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "$1 kept the pin current: $out"
+  fi
+  [[ "$out" == *"$2"* ]] || fail "the stale report for $1 does not name $2: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+}
+# What is inherited is read from the FFI crates' manifests on every run, never from a fixed list: once cmux-rd-core
+# inherits a package key, a library, build and dev dependency and the lints that no crate inherited before, each is
+# an input, and a crate reached only through an inherited [workspace.dependencies] path entry is an input crate.
+cat > "$core/Cargo.toml" <<'EOF'
+[package]
+name = "x"
+edition.workspace = true
+license = { workspace = true }
+homepage.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true, features = ["std"] }
+rusqlite.workspace = true
+cmux-ws-only = { workspace = true }
+
+[build-dependencies]
+itoa = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[lints]
+workspace = true
+EOF
+git -C "$repo" commit -qam "cmux-rd-core inherits more"
+repin "pin the new inheritance"
+edit_ws 'homepage = "https://b.example"' 'homepage = "https://c.example"' "newly inherited package key"
+stale_after "a change to a newly inherited package key" cmux-tui/Cargo.toml
+edit_ws 'itoa = "1.0.15"' 'itoa = "1.0.16"' "newly inherited build dependency"
+stale_after "a change to a newly inherited build dependency" cmux-tui/Cargo.toml
+edit_ws 'unsafe_code = "deny"' 'unsafe_code = "forbid"' "newly inherited lints"
+stale_after "a change to newly inherited lints" cmux-tui/Cargo.toml
+echo "changed again" >> "$repo/cmux-tui/crates/cmux-ws-only/src/lib.rs"
+git -C "$repo" commit -qam "a crate reached through an inherited path entry"
+stale_after "a change to a crate reached through an inherited path entry" cmux-tui/crates/cmux-ws-only/src/lib.rs
+# Still not an input: a dev-dependency entry (only tests build it).
+edit_ws 'criterion = "0.6"' 'criterion = "0.7"' "inherited dev-dependency"
+out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" \
+  || fail "a change to an entry inherited only as a dev-dependency made the pin stale: $out"
+git -C "$repo" reset -q --hard "$before_ws"
+# The narrowing holds only because cmux-app-ffi is its own workspace root (its [workspace] table; cargo then reads its
+# [patch], [profile] and Cargo.lock, never those of cmux-tui). Without that table it would build in the cmux-tui
+# workspace, so the whole cmux-tui manifest and the cmux-tui Cargo.lock are inputs again.
+python3 - "$repo/cmux-tui/crates/cmux-app-ffi/Cargo.toml" <<'EOF'
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace("\n[workspace]\n", "\n"))
+EOF
+git -C "$repo" commit -qam "cmux-app-ffi in the cmux-tui workspace"
+repin "pin cmux-app-ffi in the cmux-tui workspace"
+edit_ws 'opt-level = 2' 'opt-level = 1' "ws profile, cmux-app-ffi in the cmux-tui workspace"
+stale_after "a cmux-tui profile change when cmux-app-ffi builds in the cmux-tui workspace" cmux-tui/Cargo.toml
+echo "changed again" >> "$repo/cmux-tui/Cargo.lock"
+git -C "$repo" commit -qam "cmux-tui lock, cmux-app-ffi in the cmux-tui workspace"
+stale_after "a cmux-tui Cargo.lock change when cmux-app-ffi builds in the cmux-tui workspace" cmux-tui/Cargo.lock
+git -C "$repo" reset -q --hard "$before_ws"
+# The manifests are read line by line on every Python (/usr/bin/python3 on a macOS runner is 3.9, with no tomllib), so
+# a verdict does not depend on the runner; where tomllib exists every answer is also read through it. Both readings
+# agree on these manifests, an inherited path entry resolves in every form, and what the line reader cannot read or
+# the workspace does not have refuses.
+python3 -I - "$repo/scripts/ci" "$ws" "$core/Cargo.toml" <<'EOF' || fail "the line reader of the manifests is wrong"
+import sys
+sys.path.insert(0, sys.argv[1])
+import app_ffi_pin as m
+workspace, crate = open(sys.argv[2]).read(), open(sys.argv[3]).read()
+loads = m._toml_loads()
+readers = (None,) if loads is None else (None, loads)  # a macOS runner's python3 may have no tomllib
+assert len({m.workspace_view(workspace, [crate], loads=reader) for reader in readers}) == 1
+assert m.own_root("[package]\nname = \"x\"\n\n[workspace]\n", loads=None)
+assert not m.own_root("[package]\nname = \"x\"\n# [workspace]\n", loads=None)
+inheriting = ('[dependencies]\ncmux-ws-only = { workspace = true }\nserde.workspace = true\n'
+              "[target.'cfg(unix)'.build-dependencies.itoa]\nworkspace = true\n")
+for reader in readers:
+    assert m.workspace_paths(workspace, inheriting, loads=reader) == ["crates/cmux-ws-only"], reader
+    assert m.inherited(inheriting, loads=reader)[1] == {
+        ("dependencies", "cmux-ws-only"), ("dependencies", "serde"), ("build-dependencies", "itoa")}, reader
+for text, why in (("[dependencies]\nnot-in-the-workspace.workspace = true\n", "an entry the workspace does not have"),
+                  ('[package]\ndescription = """\nx\n"""\n', "a multi-line string")):
+    for reader in readers:
+        try:
+            m.workspace_paths(workspace, text, loads=reader)
+        except m.Unresolved:
+            continue
+        raise AssertionError(f"{why} was not refused")
+EOF
+
+# A manifest the line reader cannot read refuses, never leaves an input out (more refusals: the hole cases below).
+refuse() { # refuse FILE TEXT WHY
+  printf '%s\n' "$2" >> "$repo/$1"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "refuse $1"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "$3 passed: $out"
+  fi
+  [[ "$out" == *"the app FFI inputs cannot be listed"* ]] || fail "$3 did not refuse: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+}
+refuse cmux-tui/Cargo.toml '[[[' "a workspace manifest that is not TOML"
+# Inside a crate, a path computed from the crate (a build script's CARGO_MANIFEST_DIR join, concat! in an include, a
+# #[path] module outside src/) reads a file of the crate directory, which is an input whole.
+for case in 'build.rs|fn more() { let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("x.txt"); std::fs::read_to_string(&p).unwrap(); }|x.txt' \
+  'src/lib.rs|pub const Q: &str = include_str!(concat!("../", "q.json"));|q.json' \
+  'src/lib.rs|#[path = "../shared/foo.rs"] mod foo;|shared/foo.rs'; do
+  IFS='|' read -r file text read_file <<<"$case"
+  printf '%s\n' "$text" >> "$core/$file"
+  mkdir -p "$(dirname "$core/$read_file")"
+  echo "$read_file" > "$core/$read_file"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "computed $read_file"
+  repin "pin computed $read_file"
+  echo "changed" >> "$core/$read_file"
+  git -C "$repo" commit -qam "change $read_file"
+  stale_after "a change to $read_file, read by a path computed from the crate" "cmux-rd-core/$read_file"
+  git -C "$repo" reset -q --hard HEAD~2
+done
+
+# The build script is read whole (review round 2 of #40095): the file that Cargo.toml's `build` names (build.rs by
+# default) and every module it reaches through `mod` or #[path]. A file it names is an input (cmux-motion's
+# design-tokens.json, named by a '..' literal that names that file), and a Cargo.toml path is read in every TOML form
+# (a dotted key, single quotes).
+before_build="$(git -C "$repo" rev-parse HEAD)"
+motion="$repo/cmux-tui/crates/cmux-motion"
+mkdir -p "$motion/src" "$motion/build-support" "$repo/plans/cmux-next/spec-proposals/visuals"
+printf '[package]\nname = "cmux-motion"\n\n[lib]\npath = "src/lib.rs"\n' > "$motion/Cargo.toml"
+printf '// cmux-motion\n' > "$motion/src/lib.rs"
+cat > "$motion/build.rs" <<'EOF'
+#[path = "build-support/json.rs"]
+mod json;
+const TOKENS: &str = "../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json";
+fn main() {
+    let path = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join(TOKENS);
+    println!("cargo:rerun-if-changed={}", path.display());
+    println!("cargo:rerun-if-changed=build-support/json.rs");
+    let text = std::fs::read_to_string(&path).unwrap();
+}
+EOF
+printf 'pub fn parse(_: &str) {}\n' > "$motion/build-support/json.rs"
+echo "json data" > "$motion/json-data.txt"
+echo '{}' > "$repo/plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+printf 'cmux-motion = { path = "../cmux-motion" }\n' >> "$repo/cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "cmux-motion and its token file"
+repin "pin cmux-motion"
+echo '{"motion": {}}' > "$repo/plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+git -C "$repo" commit -qam "design tokens"
+stale_after "a change to design-tokens.json, which cmux-motion's build script compiles in" \
+  plans/cmux-next/spec-proposals/visuals/design-tokens.json
+printf 'fn data() { let _ = std::fs::read_to_string("json-data.txt"); }\n' >> "$motion/build-support/json.rs"
+git -C "$repo" commit -qam "the build script's module reads json-data.txt"
+repin "pin the module's read"
+echo "changed" >> "$motion/json-data.txt"
+git -C "$repo" commit -qam "json data"
+stale_after "a change to a file a build script module reads" cmux-tui/crates/cmux-motion/json-data.txt
+# A build script that Cargo.toml's `build` names, and a path dependency in single quotes.
+browser="$repo/cmux-tui/crates/cmux-remote-browser"
+mkdir -p "$browser/build-support"
+printf '[package]\nname = "x"\nbuild = "build-support/b.rs"\n\n[lib]\npath = "src/lib.rs"\n\n[dependencies]\n' \
+  > "$browser/Cargo.toml"
+printf "cmux-sq = { path = '../cmux-sq' }\n" >> "$browser/Cargo.toml"
+printf 'fn main() { let _ = std::fs::read_to_string("b-data.txt"); }\n' > "$browser/build-support/b.rs"
+echo "b data" > "$browser/b-data.txt"
+crate cmux-sq
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a named build script and a single-quoted path dependency"
+repin "pin the named build script"
+echo "changed" >> "$browser/b-data.txt"
+git -C "$repo" commit -qam "b data"
+stale_after "a change to a file the named build script reads" cmux-tui/crates/cmux-remote-browser/b-data.txt
+echo "// changed" >> "$repo/cmux-tui/crates/cmux-sq/src/lib.rs"
+git -C "$repo" commit -qam "single-quoted dependency"
+stale_after "a change to a crate named by a single-quoted path" cmux-tui/crates/cmux-sq/src/lib.rs
+git -C "$repo" reset -q --hard "$before_build"
+
+# Review round 3 of #40095 (ffi-pin-rev-3): forms a fine scan of Rust and TOML missed. The rule now is fail-closed
+# (lead decision, 2026-11-10): an FFI crate is an input as a whole directory except tests/, benches/ and examples/,
+# plus every file outside it that one of its sources names; a test-only file only through a short reviewed list. Each
+# form below hides a change from the old scan, and each must now count as an input (stale) or refuse, as the case says.
+crate cmux-hole
+printf 'cmux-hole = { path = "../cmux-hole" }\n' >> "$repo/cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml"
+mkdir -p "$repo/cmux-tui/shared"
+for f in x.rs d.txt e.txt j.txt k.txt l.txt; do echo "$f" > "$repo/cmux-tui/shared/$f"; done
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a crate for the hole fixtures"
+before_holes="$(git -C "$repo" rev-parse HEAD)"
+hole="$repo/cmux-tui/crates/cmux-hole"
+# PATH_SHIM, when set, comes first on PATH for every check run below (H: a python3 without tomllib).
+check_out() { (cd "$repo" && PATH="${PATH_SHIM:+$PATH_SHIM:}$PATH" bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1); }
+expect_out() { # expect_out WHY EXPECT: the check fails as EXPECT says (review round 4 of #40095: a bare non-zero exit
+  # proves nothing). EXPECT is "stale:NAMED" (the stale report names NAMED) or "refuse:REASON" (the refusal says REASON).
+  if out="$(check_out)"; then
+    fail "$1 kept the pin current: $out"
+  fi
+  case "$2" in
+    stale:*) [[ "$out" == *"changed since the pinned source"*"${2#stale:}"* ]] \
+      || fail "the stale report for $1 does not name ${2#stale:}: $out" ;;
+    refuse:*) [[ "$out" == *"the app FFI inputs cannot be listed"*"${2#refuse:}"* ]] \
+      || fail "$1 did not refuse with \"${2#refuse:}\": $out" ;;
+    *) fail "expect_out: no such expectation $2" ;;
+  esac
+}
+pin_head() { # pin_head MESSAGE: pin the current HEAD; exit 0 when the check then passes (not refused)
+  local head
+  head="$(git -C "$repo" rev-parse HEAD)"
+  perl -pi -e "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$head/" "$repo/Packages/macOS/CmuxNext/app-ffi-pin.json"
+  git -C "$repo" commit -qam "$1"
+  check_out >/dev/null
+}
+hole_case() { # hole_case WHY EXPECT CHANGED SETUP...: run SETUP (eval) and pin it. EXPECT "stale": the pin is current,
+  # and a change to CHANGED (created when missing) makes it stale, the report naming CHANGED. EXPECT "refuse:REASON": the
+  # check refuses the pinned setup, saying REASON (CHANGED is not used).
+  local why="$1" expect="$2" changed="$3"; shift 3
+  eval "$*"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "hole: $why"
+  if [[ "$expect" == refuse:* ]]; then
+    if pin_head "hole: pin $why"; then
+      fail "$why passed"
+    fi
+    expect_out "$why" "$expect"
+  else
+    pin_head "hole: pin $why" || fail "$why refused: $(check_out)"
+    mkdir -p "$(dirname "$repo/$changed")"
+    echo "changed" >> "$repo/$changed"
+    git -C "$repo" add -A
+    git -C "$repo" commit -qm "hole: change for $why"
+    expect_out "$why" "stale:$changed"
+  fi
+  git -C "$repo" reset -q --hard "$before_holes"
+}
+# F: a module the build script declares beside it (the crate root, not build.rs or build-support/).
+hole_case "a build script module at the crate root" stale cmux-tui/crates/cmux-hole/helper.rs \
+  'printf "mod helper;\nfn main() {}\n" > "$hole/build.rs"; echo "pub fn h() {}" > "$hole/helper.rs"'
+# G2: a C file a build script compiles with the cc crate.
+hole_case "a C file the build script compiles" stale cmux-tui/crates/cmux-hole/csrc/f.c \
+  'printf "fn main() { cc::Build::new().file(\"csrc/f.c\").compile(\"f\"); }\n" > "$hole/build.rs"; mkdir -p "$hole/csrc"; echo "int f;" > "$hole/csrc/f.c"'
+# C: a #[path] inside cfg_attr.
+hole_case "a cfg_attr path module outside the crate" stale cmux-tui/shared/x.rs \
+  'printf "#[cfg_attr(all(), path = \"../../../shared/x.rs\")] mod x;\n" >> "$hole/src/lib.rs"'
+# D: include_str through a use alias.
+hole_case "an include_str alias" stale cmux-tui/shared/d.txt \
+  'printf "use core::include_str as load;\npub const D: &str = load!(\"../../../shared/d.txt\");\n" >> "$hole/src/lib.rs"'
+# E: a space before the bang.
+hole_case "include_str with a space before the bang" stale cmux-tui/shared/e.txt \
+  'printf "pub const E: &str = include_str !(\"../../../shared/e.txt\");\n" >> "$hole/src/lib.rs"'
+# J: a file declared #[cfg(test)] and also include!d from the library.
+hole_case "a test module the library also include!s" stale cmux-tui/shared/j.txt \
+  'printf "#[cfg(test)]\nmod shared;\ninclude!(\"shared.rs\");\n" >> "$hole/src/lib.rs"; printf "pub const J: &str = include_str!(\"../../../shared/j.txt\");\n" > "$hole/src/shared.rs"'
+# K: a string that holds "//" at the start of a line.
+hole_case "an include after a string holding a comment marker" stale cmux-tui/shared/k.txt \
+  'printf "pub const K0: &str = \"\n// \"; pub const K: &str = include_str!(\"../../../shared/k.txt\");\n" >> "$hole/src/lib.rs"'
+# L: a cfg(test) item on the line above a library module.
+hole_case "a library module under a cfg(test) item" stale cmux-tui/shared/l.txt \
+  'printf "#[cfg(test)] fn helper() {}\nmod a;\n" >> "$hole/src/lib.rs"; printf "pub const L: &str = include_str!(\"../../../shared/l.txt\");\n" > "$hole/src/a.rs"'
+# A, B: a path dependency with a quoted key, or a path spelled with unicode escapes (review round 4: the escape must
+# really be one, so the line reader's own refusal is what passes).
+hole_case "the path dependency { \"path\" = ... }" "refuse:quoted key" - \
+  "crate cmux-sneak; printf '%s\n' 'cmux-sneak = { \"path\" = \"../cmux-sneak\" }' >> \"\$hole/Cargo.toml\""
+hole_case "an escaped path dependency" "refuse:unicode escape" - \
+  "crate cmux-sneak; printf '%s\n' 'cmux-sneak = { path = \"\\u002e\\u002e/cmux-sneak\" }' >> \"\$hole/Cargo.toml\""
+# I: package.workspace names another workspace manifest.
+hole_case "package.workspace" "refuse:package.workspace" - \
+  'mkdir -p "$repo/alt"; printf "[workspace]\n[workspace.package]\nedition = \"2021\"\n" > "$repo/alt/Cargo.toml"; python3 - "$hole/Cargo.toml" <<'"'"'EOF'"'"'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(p.read_text().replace("[package]\n", "[package]\nworkspace = \"../../../alt\"\n", 1))
+EOF'
+# A build script (build.rs, the file Cargo.toml's `build` names, build-support/ and the modules they reach) that walks up
+# from the crate refuses (lead decision, 2026-11-10): the path it computes outside the crate names no literal. So do
+# .pop(), Path::parent passed as a function, a '..' path component in a literal that names no file, a glob, Command and
+# read_dir (review round 4 of #40095). A reviewed app_ffi_pin.py BUILD_SCRIPT_REVIEWED entry is the only exception.
+# Elsewhere (a library source) .parent() is a runtime path and does not refuse.
+refuse_build() { # refuse_build WHY REASON SETUP: SETUP (eval) and pin; the check must refuse, saying REASON
+  eval "$3"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "build script: $1"
+  if pin_head "build script: pin $1"; then
+    fail "$1 passed"
+  fi
+  expect_out "$1" "refuse:$2"
+  git -C "$repo" reset -q --hard "$before_holes"
+}
+refuse_build "a build script that walks up with .parent()" "uses parent" \
+  'printf "fn main() { let p = std::path::PathBuf::from(env!(\"CARGO_MANIFEST_DIR\")).parent().unwrap().join(\"x\"); }\n" > "$hole/build.rs"'
+refuse_build "a build script module that walks up with .ancestors()" "uses ancestors" \
+  'mkdir -p "$hole/build-support"; printf "#[path = \"build-support/up.rs\"]\nmod up;\nfn main() {}\n" > "$hole/build.rs"; printf "pub fn up(p: &std::path::Path) { let _ = p.ancestors().nth(3); }\n" > "$hole/build-support/up.rs"'
+refuse_build "a module beside build.rs that walks up" "uses parent" \
+  'printf "mod walk;\nfn main() {}\n" > "$hole/build.rs"; printf "pub fn w(p: &std::path::Path) { let _ = p.parent(); }\n" > "$hole/walk.rs"'
+refuse_build "the build script Cargo.toml names, walking up" "uses parent" \
+  'mkdir -p "$hole/tools"; printf "fn main() { let _ = std::path::Path::new(\".\").parent(); }\n" > "$hole/tools/b.rs"; python3 - "$hole/Cargo.toml" <<'"'"'EOF'"'"'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(p.read_text().replace("[package]\n", "[package]\nbuild = \"tools/b.rs\"\n", 1))
+EOF'
+# S3: the other ways up.
+refuse_build "a build script that walks up with .pop()" "uses pop" \
+  'printf "fn main() { let mut p = std::path::PathBuf::from(env!(\"CARGO_MANIFEST_DIR\")); p.pop(); }\n" > "$hole/build.rs"'
+refuse_build "a build script that passes Path::parent as a function" "uses parent" \
+  'printf "fn main() { let _ = Some(std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\"))).and_then(std::path::Path::parent); }\n" > "$hole/build.rs"'
+refuse_build "a build script that joins \"..\"" "'..' path component" \
+  'printf "fn main() { let _ = std::path::PathBuf::from(env!(\"CARGO_MANIFEST_DIR\")).join(\"..\").join(\"shared\"); }\n" > "$hole/build.rs"'
+refuse_build "a build script that joins \"../../..\"" "'..' path component" \
+  'printf "const UP: &str = \"../../..\";\nfn main() { let _ = std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(UP).join(\"shared/x.rs\"); }\n" > "$hole/build.rs"'
+# R3: a build script that globs, runs a command (git rev-parse) or lists a directory reads what no literal names.
+refuse_build "a build script with a glob" "glob" \
+  'printf "fn main() { println!(\"cargo:rerun-if-changed=data/*.json\"); }\n" > "$hole/build.rs"'
+refuse_build "a build script that runs a command" "uses Command" \
+  'printf "fn main() { let _ = std::process::Command::new(\"git\").args([\"rev-parse\", \"HEAD\"]).output(); }\n" > "$hole/build.rs"'
+refuse_build "a build script that lists a directory" "uses read_dir" \
+  'printf "fn main() { for _ in std::fs::read_dir(\"data\").unwrap() {} }\n" > "$hole/build.rs"'
+printf 'pub fn here(p: &std::path::Path) -> Option<&std::path::Path> { p.parent() }\n' >> "$hole/src/lib.rs"
+git -C "$repo" commit -qam "a library source that uses .parent()"
+pin_head "pin the library .parent()" || fail "a library source's .parent() refused: $(check_out)"
+git -C "$repo" reset -q --hard "$before_holes"
+
+# Review round 4 of #40095 (ffi-pin-rev-4, ffi-pin-rev-5).
+# B: a found path is a git pathspec. A file named ":(exclude)cmux-tui" that a literal names would exclude every input;
+# every input is now a :(literal) pathspec, and a found path that starts with ':' or holds *?[\ refuses.
+hole_case "a literal naming a file called :(exclude)cmux-tui" "refuse:pathspec magic" - \
+  'echo m > "$repo/:(exclude)cmux-tui"; printf "pub const M: &str = include_str!(\"../../../../:(exclude)cmux-tui\");\n" >> "$hole/src/lib.rs"'
+hole_case "a literal naming a file with a glob character" "refuse:pathspec magic" - \
+  'echo w > "$repo/cmux-tui/shared/w*"; printf "pub const W: &str = include_str!(\"../../../shared/w*\");\n" >> "$hole/src/lib.rs"'
+# S1: a file in tests/ that a library source names is an input, so it is scanned too, and what it names is an input.
+hole_case "a tests/ file the library includes, naming a file outside" stale cmux-tui/shared/s1.txt \
+  'mkdir -p "$hole/tests"; echo s1 > "$repo/cmux-tui/shared/s1.txt"; printf "include!(\"../tests/gen.rs\");\n" >> "$hole/src/lib.rs"; printf "pub const S1: &str = include_str!(\"../../../shared/s1.txt\");\n" > "$hole/tests/gen.rs"; echo "// t" > "$hole/tests/t.rs"'
+# S2: a crate nested in another crate's tests/ is not excluded with that tests/.
+hole_case "a path dependency inside the crate's tests/" stale cmux-tui/crates/cmux-hole/tests/support/src/lib.rs \
+  'mkdir -p "$hole/tests/support/src"; echo "// t" > "$hole/tests/t.rs"; printf "[package]\nname = \"support\"\n\n[lib]\npath = \"src/lib.rs\"\n" > "$hole/tests/support/Cargo.toml"; echo "// support" > "$hole/tests/support/src/lib.rs"; printf "support = { path = \"tests/support\" }\n" >> "$hole/Cargo.toml"'
+# S4: a found path is resolved through git: another case, a path in a submodule, a path through a symlink (outside a
+# crate too) refuse.
+hole_case "a literal naming a file in another case" "refuse:another case" - \
+  'echo c > "$repo/cmux-tui/shared/case.txt"; printf "pub const C: &str = include_str!(\"../../../shared/CASE.txt\");\n" >> "$hole/src/lib.rs"'
+hole_case "a literal naming a file through a symlinked directory" "refuse:symlink" - \
+  'mkdir -p "$repo/cmux-tui/shared2"; echo s > "$repo/cmux-tui/shared2/s.txt"; ln -s ../shared2 "$repo/cmux-tui/shared/dirlink"; printf "pub const S: &str = include_str!(\"../../../shared/dirlink/s.txt\");\n" >> "$hole/src/lib.rs"'
+hole_case "a literal naming a symlink outside the crates" "refuse:symlink" - \
+  'ln -s x.rs "$repo/cmux-tui/shared/link.rs"; printf "pub const S: &str = include_str!(\"../../../shared/link.rs\");\n" >> "$hole/src/lib.rs"'
+submodule="$repo/cmux-tui/vendor-sub"
+git init -q "$submodule"
+echo x > "$submodule/x.txt"
+git -C "$submodule" add -A
+git -C "$submodule" commit -qm x
+hole_case "a literal naming a file in a submodule" "refuse:submodule" - \
+  'printf "pub const X: &str = include_str!(\"../../../vendor-sub/x.txt\");\n" >> "$hole/src/lib.rs"'
+rm -rf "$submodule"
+# A literal naming a path that exists but that git does not track refuses (the build would read it; git diff cannot).
+printf 'pub const U: &str = include_str!("../../../shared/untracked.txt");\n' >> "$hole/src/lib.rs"
+git -C "$repo" commit -qam "a literal naming a file not yet there"
+pin_head "pin the literal naming a file not yet there" || fail "a literal naming a missing file refused: $(check_out)"
+echo u > "$repo/cmux-tui/shared/untracked.txt"
+expect_out "a literal naming an untracked file" "refuse:does not track"
+rm -f "$repo/cmux-tui/shared/untracked.txt"
+git -C "$repo" reset -q --hard "$before_holes"
+# The inputs are listed at both commits a check compares, and the union is compared (lead decision, 2026-11-10): a file
+# added where a literal already named a missing path is an input, and so is a named file that the head deletes.
+hole_case "a file added at a path a literal names" stale cmux-tui/shared/later.txt \
+  'printf "pub const LATER: &str = include_str!(\"../../../shared/later.txt\");\n" >> "$hole/src/lib.rs"'
+echo gone > "$repo/cmux-tui/shared/gone.txt"
+printf 'pub const GONE: &str = include_str!("../../../shared/gone.txt");\n' >> "$hole/src/lib.rs"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a literal naming gone.txt"
+pin_head "pin gone.txt" || fail "a literal naming gone.txt refused: $(check_out)"
+git -C "$repo" rm -q cmux-tui/shared/gone.txt
+git -C "$repo" commit -qm "delete gone.txt"
+expect_out "a deleted file a literal still names" "stale:cmux-tui/shared/gone.txt"
+git -C "$repo" reset -q --hard "$before_holes"
+# S5: what the cargo configs that apply to the FFI build name ([patch] and `paths` crates, a rustc-wrapper), what
+# build-app-ffi.sh names, and the release workflow are inputs.
+hole_case "a [patch] crate a cargo config names" stale cmux-tui/vendor/foo/src/lib.rs \
+  'mkdir -p "$repo/cmux-tui/.cargo" "$repo/cmux-tui/vendor/foo/src"; printf "[package]\nname = \"foo\"\n" > "$repo/cmux-tui/vendor/foo/Cargo.toml"; echo "// foo" > "$repo/cmux-tui/vendor/foo/src/lib.rs"; printf "[patch.crates-io]\nfoo = { path = \"vendor/foo\" }\n" > "$repo/cmux-tui/.cargo/config.toml"'
+hole_case "a rustc-wrapper a cargo config names" stale cmux-tui/crates/tools/wrap.sh \
+  'mkdir -p "$repo/cmux-tui/crates/.cargo" "$repo/cmux-tui/crates/tools"; echo "exec rustc" > "$repo/cmux-tui/crates/tools/wrap.sh"; printf "[build]\nrustc-wrapper = \"tools/wrap.sh\"\n" > "$repo/cmux-tui/crates/.cargo/config"'
+hole_case "a file build-app-ffi.sh names" stale cmux-tui/ffi-flags.txt \
+  'echo "-C x" > "$repo/cmux-tui/ffi-flags.txt"; printf "flags=\"\$(cat \"\$repo_root/cmux-tui/ffi-flags.txt\")\"\n" > "$repo/scripts/cmux-next/build-app-ffi.sh"'
+hole_case "the release workflow" stale .github/workflows/app-ffi-release.yml \
+  'mkdir -p "$repo/.github/workflows"; echo "name: app FFI release" > "$repo/.github/workflows/app-ffi-release.yml"'
+# S6: a #[path] in an inline module resolves from that module's directory, as rustc does.
+hole_case "a #[path] module inside an inline module" stale cmux-tui/shared/s6.rs \
+  'echo "// s6" > "$repo/cmux-tui/shared/s6.rs"; printf "mod m {\n    #[path = \"../../../../shared/s6.rs\"]\n    mod x;\n}\n" >> "$hole/src/lib.rs"'
+# R1: a Cargo.toml literal naming a directory that holds the crate and is a package refuses (it was skipped as "..").
+hole_case "a path dependency on an ancestor package" "refuse:holds this crate" - \
+  'printf "w = { path = \"../..\" }\n" >> "$hole/Cargo.toml"'
+# R2: `mod NAME;` is resolved in every scanned file: a module in tests/ or benches/ is an input, its directory too.
+hole_case "mod tests; in build.rs" stale cmux-tui/crates/cmux-hole/tests/mod.rs \
+  'mkdir -p "$hole/tests"; printf "mod tests;\nfn main() {}\n" > "$hole/build.rs"; echo "pub fn t() {}" > "$hole/tests/mod.rs"; echo "// t" > "$hole/tests/t.rs"'
+hole_case "mod benches; at a crate root" stale cmux-tui/crates/cmux-hole/benches/mod.rs \
+  'mkdir -p "$hole/benches"; perl -pi -e "s{src/lib.rs}{lib.rs}" "$hole/Cargo.toml"; git -C "$repo" mv cmux-tui/crates/cmux-hole/src/lib.rs cmux-tui/crates/cmux-hole/lib.rs; printf "mod benches;\n" >> "$hole/lib.rs"; echo "pub fn b() {}" > "$hole/benches/mod.rs"; echo "// b" > "$hole/benches/b.rs"'
+# R4: a file a literal names is scanned whatever its suffix, and a module outside the crate brings its own modules.
+hole_case "a file an include! of a .rs.in file names" stale cmux-tui/shared/r4.txt \
+  'echo r4 > "$repo/cmux-tui/shared/r4.txt"; printf "include!(\"gen.rs.in\");\n" >> "$hole/src/lib.rs"; printf "pub const R4: &str = include_str!(\"../../../shared/r4.txt\");\n" > "$hole/src/gen.rs.in"'
+hole_case "a module of a #[path] module outside the crate" stale cmux-tui/shared/outer/inner.rs \
+  'mkdir -p "$repo/cmux-tui/shared/outer"; echo "mod inner;" > "$repo/cmux-tui/shared/outer/mod.rs"; echo "// inner" > "$repo/cmux-tui/shared/outer/inner.rs"; printf "#[path = \"../../../shared/outer/mod.rs\"]\nmod outer;\n" >> "$hole/src/lib.rs"'
+# R5: the C scanner reads strings and comments left to right: "/*" in a string opens no comment.
+hole_case "a C string holding a comment marker" stale cmux-tui/shared/r5.txt \
+  'mkdir -p "$hole/csrc"; echo r5 > "$repo/cmux-tui/shared/r5.txt"; printf "const char *a = \"/*\";\nconst char *p = \"../../../shared/r5.txt\";\nconst char *b = \"*/\";\n" > "$hole/csrc/r5.c"'
+# R7: a TEST_ONLY reader stays test-only: a library module that reaches it without #[cfg(test)], or a library include
+# of it, refuses.
+hole_case "a library module that reaches a TEST_ONLY reader" "refuse:TEST_ONLY" - \
+  'printf "#[path = \"../tests/catalog_manifest.rs\"]\nmod manifest;\n" >> "$bindings/src/lib.rs"'
+hole_case "a library include of a TEST_ONLY reader" "refuse:TEST_ONLY" - \
+  'printf "include!(\"../tests/catalog_manifest.rs\");\n" >> "$bindings/src/lib.rs"'
+# #41555 merged into the walk (2026-11-11): Cargo builds no crate's tests/, benches/ or examples/ into its library, so a
+# change that adds the first file of one to an input crate that has none (cmux#41508 added tests/ files) leaves the pin
+# current. The pinned tree has no such folder, and the union of the two trees' inputs must not take its crate directory
+# as the input there (#41555's agreement test: cmux-app-ffi/benches/new.rs is no input for any reader).
+for dir in tests benches examples; do
+  [[ ! -e "$hole/$dir" ]] || fail "the hole crate already has $dir/"
+  pin_head "pin before a first $dir/ file" || fail "the hole crate refused: $(check_out)"
+  mkdir -p "$hole/$dir"
+  echo "// a first file" > "$hole/$dir/new.rs"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "a first $dir/ file"
+  out="$(check_out)" || fail "a first file in cmux-hole/$dir/, which Cargo never builds into the library, made the pin stale: $out"
+  [[ "$out" == *"sources match"* ]] || fail "no match line after a first $dir/ file: $out"
+  git -C "$repo" reset -q --hard "$before_holes"
+done
+# Still fail-closed: a first tests/ file that a library source of the same change names is an input.
+pin_head "pin before a named first tests/ file" || fail "the hole crate refused: $(check_out)"
+mkdir -p "$hole/tests"
+echo '{}' > "$hole/tests/v.json"
+printf 'pub const V: &str = include_str!("../tests/v.json");\n' >> "$hole/src/lib.rs"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a library source names a first tests/ file"
+expect_out "a first tests/ file a library source names" "stale:cmux-tui/crates/cmux-hole/tests/v.json"
+git -C "$repo" reset -q --hard "$before_holes"
+# H: an inherited path entry spelled { "workspace" = true }, on a python3 without tomllib (a macOS runner's 3.9).
+shim="$tmp/no-tomllib"
+mkdir -p "$shim"
+real_python="$(command -v python3)"
+cat > "$shim/python3" <<EOF
+#!/bin/bash
+# python3 -I SCRIPT ARGS..., with tomllib missing.
+[[ "\$1" == -I ]] && shift
+exec "$real_python" -I -c 'import runpy, sys; sys.modules["tomllib"] = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "\$@"
+EOF
+chmod +x "$shim/python3"
+PATH_SHIM="$shim" hole_case "an inherited path entry with a quoted workspace key, without tomllib" "refuse:quoted key" - \
+  'crate cmux-hidden; printf "cmux-hidden = { path = \"crates/cmux-hidden\" }\n" >> "$ws"; printf "cmux-hidden = { \"workspace\" = true }\n" >> "$hole/Cargo.toml"'
+git -C "$repo" reset -q --hard "$before_build"
 
 # --verify-release reads the release-assets API's answer with python3 -c from
 # the repository root. A json.py there does not change that verdict. curl is a
@@ -306,5 +952,29 @@ if out="$(cd "$shallow" && CMUX_APP_FFI_PIN_NOW="$((behind_at + 4000))" bash scr
   fail "a shallow checkout passed an overdue pin: $out"
 fi
 [[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "a shallow checkout lost the first commit: $out"
+
+# The grace is dated with the union of the inputs of both trees (merge of feat into #40095): a file that only the
+# pinned tree names, changed first and then no longer named, dates the pin as behind from its own change. With the
+# head's inputs alone the later commit that drops the literal dated it, and an overdue pin passed.
+git -C "$repo" checkout -q -f "$rb~1"
+mkdir -p "$repo/cmux-tui/shared"
+echo u > "$repo/cmux-tui/shared/union-grace.txt"
+printf 'pub const UNION_GRACE: &str = include_str!("../../../shared/union-grace.txt");\n' \
+  >> "$repo/cmux-tui/crates/cmux-rd-core/src/lib.rs"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a literal naming union-grace.txt"
+pin_head "pin union-grace.txt" || fail "a literal naming union-grace.txt refused: $(check_out)"
+first_at="$(( $(git -C "$repo" show -s --format=%ct HEAD) + 60 ))"
+echo "changed" >> "$repo/cmux-tui/shared/union-grace.txt"
+GIT_COMMITTER_DATE="@$first_at +0000" git -C "$repo" commit -qam "union-grace.txt, while named"
+perl -ni -e 'print unless /UNION_GRACE/' "$repo/cmux-tui/crates/cmux-rd-core/src/lib.rs"
+GIT_COMMITTER_DATE="@$((first_at + 3000)) +0000" git -C "$repo" commit -qam "rd-core no longer names union-grace.txt"
+out="$(check_at "$((first_at + 600))" --stale-grace 3600)" || fail "a pin behind for 10 minutes (union) failed: $out"
+[[ "$out" == *"the app FFI sources changed 10 min ago"* ]] || fail "the union grace was not dated from the first change: $out"
+if out="$(check_at "$((first_at + 4000))" --stale-grace 3600)"; then
+  fail "a pin behind for 66 minutes passed: the grace was dated from the head's inputs only: $out"
+fi
+[[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "the union grace lost the first change: $out"
+[[ "$out" == *"cmux-tui/shared/union-grace.txt"* ]] || fail "the overdue report does not name the file only the pin names: $out"
 
 echo "check-app-ffi-pin.test.sh: ok"

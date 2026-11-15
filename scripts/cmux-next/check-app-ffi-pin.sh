@@ -71,58 +71,69 @@ manifest="$root/Packages/macOS/CmuxNext/Package.swift"
 pin_file="$root/Packages/macOS/CmuxNext/app-ffi-pin.json"
 asset="CCmuxAppFFI.xcframework.zip"
 
-# The FFI sources: cmux-app-ffi and every crate it reaches through Cargo path
-# dependencies (cmux-rd-ffi pulls cmux-remote-browser, which a hand list
-# missed on 2026-10-07), then the toolchain and the build script. Derived
-# from the Cargo.toml files at HEAD, so a new path dependency is never missed.
-ffi_crates() {
-  local queue=" cmux-tui/crates/cmux-app-ffi " seen=" " dir dep resolved
-  while [[ -n "${queue// /}" ]]; do
-    dir="$(awk '{print $1}' <<<"$queue")"
-    queue=" ${queue#*" $dir "} "
-    [[ "$seen" == *" $dir "* || ! -f "$root/$dir/Cargo.toml" ]] && continue
-    seen+="$dir "
-    while IFS= read -r dep; do
-      # [lib] and [[bin]] paths name files; only a directory with a Cargo.toml is a crate.
-      resolved="$(cd "$root/$dir/$dep" 2>/dev/null && pwd -P)" || continue
-      [[ -f "$resolved/Cargo.toml" && "$resolved" == "$root"/* ]] || continue
-      queue+="${resolved#"$root"/} "
-    done < <(grep -oE 'path[[:space:]]*=[[:space:]]*"[^"]+"' "$root/$dir/Cargo.toml" | sed -E 's/.*"([^"]+)"$/\1/')
-  done
-  tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort
-}
-paths=()
-while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
-# Not an input: plans/cmux-next/spec-proposals/visuals/design-tokens.json,
-# which cmux-motion's build.rs reads for its token table. A theme edit there
-# must not mark the pin stale; the app passes its own token values to the
-# motion C ABI (cmux_motion_resolve), and scripts/cmux-next/motion-parity.py
-# compares them with the spec's.
-paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
 # The pin is read only through scripts/ci/app_ffi_pin.py: the pin file strictly,
 # and Package.swift only for its one fixed loader block, whose checksum line
 # must equal the pin file's, and no pin of its own (the classifier, the repin
 # picker and the repin script read it the same way).
 pin_reader="$code/scripts/ci/app_ffi_pin.py"
-# Not inputs either: each crate's tests/, benches/ and examples/, which Cargo
-# never builds into the library (app_ffi_pin.py NOT_BUILT, the one definition
-# the router and the classifier read too; cmux#41522, cmux#41508). Every diff
-# and log below excludes them.
-excluded=()
-while IFS= read -r dir; do excluded+=("$dir"); done < <(python3 -I "$pin_reader" not-built "$root" "${paths[@]}")
-specs=("${paths[@]}")
-for dir in ${excluded[@]+"${excluded[@]}"}; do specs+=(":(exclude,literal)$dir"); done
-# --list-inputs prints the inputs and --list-excluded the directories left out
-# (tests/app-ffi-release-paths.test.sh keeps the release workflow's push paths
-# in step with both).
+workspace_manifest=cmux-tui/Cargo.toml
+# The cmux-tui workspace manifest: while cmux-app-ffi has its own [workspace] table (cargo builds it as its own
+# workspace root, with its own [patch], [profile] and Cargo.lock), only what the crates inherit of it is an input
+# (workspace_view below; app_ffi_pin.py workspace-view). Without that table cmux-app-ffi builds in the cmux-tui
+# workspace, so the whole manifest and the cmux-tui Cargo.lock are inputs.
+if ! own_root="$(python3 -I "$pin_reader" own-root "$root/cmux-tui/crates/cmux-app-ffi/Cargo.toml")"; then
+  echo "error: the app FFI inputs cannot be listed: cmux-tui/crates/cmux-app-ffi/Cargo.toml cannot be read (above)" >&2
+  exit 1
+fi
+narrowed=0
+[[ "$own_root" == yes ]] && narrowed=1
+# The FFI inputs (app_ffi_pin.py walk, fail-closed): cmux-app-ffi and every crate it reaches (cmux-rd-ffi pulls
+# cmux-remote-browser, which a hand list missed on 2026-10-07), each as a whole directory except its tests/, benches/
+# and examples/, every path a scanned source names (design-tokens.json, which cmux-motion's build script compiles in),
+# the cargo configs and toolchain files above the crates, build-app-ffi.sh and the release workflow. A file only tests
+# read is left out only through the reviewed app_ffi_pin.py TEST_ONLY list: #39027 changed
+# bindings/rust/.cmux-resource-api.json, which only a test reads, and staled the pin on 2026-11-09. Each is a git
+# pathspec with :(literal) magic (an excluded directory: :(exclude,literal)), so a found path is never read as a glob
+# or as magic. list_inputs REV... reads the trees of the commits a comparison has and takes the union: a path that
+# one side names is an input even when the other side does not have it.
+list_inputs() { # list_inputs REV...: set crates and paths to the FFI inputs of the REVs' trees, or refuse
+  local listed err input section=crates
+  err="$(mktemp)"
+  if ! listed="$(python3 -I "$pin_reader" inputs "$root" "$@" 2>"$err")"; then
+    echo "error: the app FFI inputs cannot be listed: $(sed 's/^error: //' "$err" | tail -1); fix the source the walk cannot read, or add a reviewed scripts/ci/app_ffi_pin.py entry" >&2
+    rm -f "$err"
+    exit 1
+  fi
+  rm -f "$err"
+  crates=()
+  paths=()
+  while IFS= read -r input; do
+    [[ -n "$input" ]] || continue
+    if [[ "$input" == -- ]]; then section=paths; continue; fi
+    if [[ "$section" == crates ]]; then crates+=("$input"); else paths+=("$input"); fi
+  done <<<"$listed"
+  if [[ "$narrowed" -eq 0 ]]; then
+    paths+=(":(literal)$workspace_manifest" ":(literal)cmux-tui/Cargo.lock")
+  fi
+}
+list_inputs HEAD
+# --list-inputs prints them and the workspace manifest (tests/app-ffi-release-paths.test.sh keeps the release
+# workflow's push paths in step with this list: a release run on any change to the manifest is cheap and safe).
 if [[ "$list_inputs" -eq 1 ]]; then
   printf '%s\n' "${paths[@]}"
+  [[ "$narrowed" -eq 1 ]] && printf '%s\n' ":(literal)$workspace_manifest"
   exit 0
 fi
+# --list-excluded prints the walk's excluded paths, the :(exclude,literal) entries above as plain paths: each input
+# crate's tests/, benches/ and examples/ that nothing built names, and the TEST_ONLY files (#41555's readers took this
+# list from its own not_built(); the walk is now the one definition, app_ffi_pin.py).
 if [[ "$list_excluded" -eq 1 ]]; then
-  [[ "${#excluded[@]}" -eq 0 ]] || printf '%s\n' "${excluded[@]}"
+  for input in "${paths[@]}"; do
+    [[ "$input" == ":(exclude,literal)"* ]] && printf '%s\n' "${input#":(exclude,literal)"}"
+  done
   exit 0
 fi
+
 # Every python3 here runs isolated (-I): neither the script's directory nor the working directory is on its import
 # path, and PYTHONPATH and the user site are ignored. Otherwise a module a change adds (scripts/ci/json.py beside the
 # reader, or json.py at the root for the python3 -c below) is imported in place of the standard library and decides
@@ -151,20 +162,60 @@ if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
   git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha" \
     || { echo "error: pinned source sha $sha is not available from $remote" >&2; exit 1; }
 fi
+# What the crates inherit of the workspace manifest at REV: the manifest and the crates' Cargo.toml files at REV (the
+# crates of both compared trees, list_inputs; a crate whose own Cargo.toml changed is a changed input anyway).
+workspace_view() { # workspace_view REV
+  local dir crate index=0 status=0
+  local manifests=()
+  dir="$(mktemp -d)"
+  git show "$1:$workspace_manifest" >"$dir/workspace.toml" 2>/dev/null || : >"$dir/workspace.toml"
+  for crate in "${crates[@]}"; do
+    git show "$1:$crate/Cargo.toml" >"$dir/$index.toml" 2>/dev/null || : >"$dir/$index.toml"
+    manifests+=("$dir/$index.toml")
+    index=$((index + 1))
+  done
+  python3 -I "$pin_reader" workspace-view "$dir/workspace.toml" "${manifests[@]}" || status=$?
+  rm -rf "$dir"
+  return "$status"
+}
+views_differ() { # views_differ A B: exit 0 when what the crates inherit of the workspace manifest differs
+  [[ "$narrowed" -eq 1 ]] || return 1
+  local a b
+  if ! a="$(workspace_view "$1")" || ! b="$(workspace_view "$2")"; then
+    echo "error: the app FFI inputs cannot be listed: what the FFI crates inherit of $workspace_manifest cannot be read (above)" >&2
+    exit 1
+  fi
+  [[ "$a" != "$b" ]]
+}
+inputs_differ() { # inputs_differ A B: exit 0 when an input differs between commits A and B
+  ! git diff --quiet "$1" "$2" -- "${paths[@]}" || views_differ "$1" "$2"
+}
 own_change=1
 if [[ -n "$base_ref" ]]; then
   if base_commit="$(git rev-parse --verify --quiet "$base_ref^{commit}")"; then
     # The base's pin through the same strict read; a base without a canonical pin file pins nothing here.
     base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/app-ffi-pin.json" 2>/dev/null \
       | python3 -I "$pin_reader" read /dev/stdin 2>/dev/null | awk '{print $1}' || true)"
-    if git diff --quiet "$base_commit" HEAD -- "${specs[@]}" && [[ "$base_pin" == "$sha" ]]; then
+    list_inputs "$base_commit" HEAD
+    if ! inputs_differ "$base_commit" HEAD && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
     fi
   else
     echo "warning: --base $base_ref is not a commit here; checking against the pin only" >&2
   fi
 fi
-# When the pin fell behind: the commit time of the first commit after the pinned source that changed an FFI input.
+list_inputs "$sha" HEAD
+drift=0
+shown=("${paths[@]}")
+git diff --quiet "$sha" HEAD -- "${paths[@]}" || drift=1
+# The report names the workspace manifest when what the crates inherit of it changed.
+if views_differ "$sha" HEAD; then
+  drift=1
+  shown+=("$workspace_manifest")
+fi
+# When the pin fell behind: the commit time of the first commit after the pinned source that changed an FFI input
+# (the union of the inputs of both trees, and the workspace manifest when what the crates inherit of it changed; a
+# manifest commit that changed only what they do not inherit can only date it earlier, so the grace ends sooner).
 # A shallow checkout (actions/checkout) holds no commit between the two, so its history is deepened, 50 commits at
 # a time and at most 400, until it reaches the pinned source. Nothing when that cannot be read: the caller then
 # fails as it would without --stale-grace.
@@ -176,12 +227,12 @@ behind_since() {
     git fetch --quiet --deepen=50 "$remote" "$(git rev-parse HEAD)" 2>/dev/null || return 1
   done
   git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || return 1
-  first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}" | head -n 1)"
+  first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${shown[@]}" | head -n 1)"
   [[ "$first" =~ ^[0-9]+$ ]] || return 1
   echo "$first"
 }
 behind_note=""
-if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 ]] && ! git diff --quiet "$sha" HEAD -- "${specs[@]}"; then
+if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 && "$drift" -eq 1 ]]; then
   # CMUX_APP_FFI_PIN_NOW: the clock, for the test.
   now="${CMUX_APP_FFI_PIN_NOW:-$(date +%s)}"
   if since="$(behind_since)"; then
@@ -197,19 +248,21 @@ if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 ]] && ! git diff --quiet "$sha
 fi
 if [[ "$behind_note" == note:* ]]; then
   echo "$behind_note"
-  git diff --stat "$sha" HEAD -- "${specs[@]}" || true
+  git diff --stat "$sha" HEAD -- "${shown[@]}" || true
   echo "Commits since the pin:"
-  git log --format='  %h %an: %s' "$sha..HEAD" -- "${specs[@]}" || true
-elif ! git diff --quiet "$sha" HEAD -- "${specs[@]}" && [[ "$own_change" -eq 0 ]]; then
+  git log --format='  %h %an: %s' "$sha..HEAD" -- "${shown[@]}" || true
+elif [[ "$drift" -eq 1 && "$own_change" -eq 0 ]]; then
   echo "note: base drift: the app FFI sources on $base_ref differ from the pinned source $sha, and this change touches neither; the base's push run reports it to the owning lane"
-  git diff --stat "$sha" HEAD -- "${specs[@]}" || true
-elif ! git diff --quiet "$sha" HEAD -- "${specs[@]}"; then
+  git diff --stat "$sha" HEAD -- "${shown[@]}" || true
+elif [[ "$drift" -eq 1 ]]; then
   echo "error: the app FFI sources changed since the pinned source $sha:" >&2
   [[ -z "$behind_note" ]] || echo "$behind_note" >&2
-  git diff --stat "$sha" HEAD -- "${specs[@]}" >&2
+  git diff --stat "$sha" HEAD -- "${shown[@]}" >&2
+  [[ ${#shown[@]} -gt ${#paths[@]} ]] \
+    && echo "  ($workspace_manifest: a key, dependency entry or lint table the FFI crates inherit changed)" >&2
   # Who owns the drift: the lane of each changed crate, and the commits.
   owners=""
-  for path in $(git diff --name-only "$sha" HEAD -- "${specs[@]}"); do
+  for path in $(git diff --name-only "$sha" HEAD -- "${shown[@]}"); do
     case "$path" in
       cmux-tui/crates/cmux-rd-*) owners+=$'\n  remote desktop lane (cmux-rd-core/proto/ffi)' ;;
       cmux-tui/crates/cmux-layout-reducer*) owners+=$'\n  sidebar lane (cmux-layout-reducer, -ffi)' ;;
@@ -220,7 +273,7 @@ elif ! git diff --quiet "$sha" HEAD -- "${specs[@]}"; then
   done
   echo "Owning lane(s), which publish the release and update the pin:$(sort -u <<<"$owners")" >&2
   echo "Commits since the pin:" >&2
-  git log --format='  %h %an: %s' "$sha..HEAD" -- "${specs[@]}" >&2 || true
+  git log --format='  %h %an: %s' "$sha..HEAD" -- "${shown[@]}" >&2 || true
   echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Packages/macOS/CmuxNext/app-ffi-pin.json in one commit, in the same push as the source change when possible." >&2
   # A release is published only from a feat-cmux-next push, so a pull request cannot pin its own FFI sources.
   echo "If this PR changes FFI inputs: split it into a Rust-only step A and a Swift step B after the re-pin (docs/ci/app-ffi-release.md, \"A pull request that changes FFI inputs\")." >&2
