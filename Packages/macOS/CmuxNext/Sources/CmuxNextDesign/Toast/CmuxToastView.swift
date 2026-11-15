@@ -261,6 +261,16 @@ public final class CmuxToastView: NSView {
             text.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: geometry.padding),
             row.bottomAnchor.constraint(greaterThanOrEqualTo: text.bottomAnchor, constant: geometry.padding),
         ])
+        // The buttons and the icon keep the same padding to the top and bottom as to the trailing edge
+        // (concentric with the toast): without these a one-line toast was its message's height, 31 pt, with its
+        // buttons 5 and 4 pt from the edges instead of the padding.
+        let edged: [NSView?] = [iconView, secondaryButton, actionButton, neverShowButton, closeButton]
+        for view in edged.compactMap({ $0 }) {
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: geometry.padding),
+                row.bottomAnchor.constraint(greaterThanOrEqualTo: view.bottomAnchor, constant: geometry.padding),
+            ])
+        }
         collapsed = [row.bottomAnchor.constraint(equalTo: content.bottomAnchor), heightAnchor.constraint(equalTo: row.heightAnchor)]
         NSLayoutConstraint.activate(collapsed)
     }

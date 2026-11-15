@@ -69,7 +69,8 @@ import Testing
         let view = Self.laidOut(Self.hint, style)
         let surface = try #require(view.surface)
         let message = try #require(view.messageLabel)
-        let leading = message.convert(message.bounds, to: view).minX - (style.look.accentBar ? CmuxToastView.accentBarWidth : 0)
+        // The text starts at the label's alignment rect (a label's frame reaches 2 pt past its glyphs).
+        let leading = message.convert(message.alignmentRect(forFrame: message.bounds), to: view).minX - (style.look.accentBar ? CmuxToastView.accentBarWidth : 0)
         #expect(abs(leading - surface.cornerRadius) <= 1,
                 "\(style): the message starts \(leading) pt in, the toast's corner is \(surface.cornerRadius) pt")
     }

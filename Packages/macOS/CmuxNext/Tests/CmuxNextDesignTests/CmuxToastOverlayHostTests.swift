@@ -105,7 +105,8 @@ struct CmuxToastOverlayHostTests {
         #expect(surface.tone == SurfaceRole.toast.tone)
         // The veil-tinted Liquid Glass (gallery 3) keeps the neutral rim, as the blur does.
         #expect(surface.rimView != nil)
-        #expect(surface.cornerRadius == SurfaceRole.toast.cornerRadius)
+        // Concentric with its buttons: the button corner plus the padding (Lawrence 2026-11-15).
+        #expect(surface.cornerRadius == view.geometry.outerRadius)
         handle.dismiss()
     }
 
