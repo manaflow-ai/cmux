@@ -399,7 +399,7 @@ fn recipes_lines(
     ));
     match opened {
         Some(Ok(())) => {
-            out.push_str("the guide is open in cmux: press Run on a recipe to try it\n")
+            out.push_str("the guide is open in cmux: press Run on a recipe to try it\n");
         }
         Some(Err(why)) => out.push_str(&format!(
             "cmux could not open the guide ({why}); it is at {}\n",
