@@ -120,6 +120,8 @@ public final class RemoteViewPageSession {
             rdSource.transport.stop()
         }
         pane.handlers.reconnect = { [weak self] in self?.reconnect() }
+        // A Cloud desktop whose path closed comes back by itself (conn-quiet): no Connection lost card first.
+        pane.autoReconnectsLost = record.cloudDesktop
         pane.handlers.close = closeTab
         if record.cloudDesktop {
             pane.handlers.selectMode = { [weak self] mode in self?.switchMode(control: mode == .control) }

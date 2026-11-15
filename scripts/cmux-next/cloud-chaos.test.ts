@@ -462,6 +462,13 @@ describe("judgeTerminal", () => {
     const behind: TerminalRead = { after: r[3].next, start: 0, next: r[3].next - 1, complete: true, text: all(5) };
     expect(judgeTerminal({ n: 50, reads: [...r, behind], machineSha256: sha(all(50)), sha256: sha }).ok).toBe(false);
   });
+
+  test("a repeated live snapshot at cursor zero replaces rather than duplicates", () => {
+    const snapshot: TerminalRead = { after: 0, start: 0, next: 0, complete: true, snapshot: true, text: all(3) };
+    const v = judgeTerminal({ n: 3, reads: [snapshot, snapshot], machineSha256: sha(all(3)), sha256: sha });
+    expect(v.ok).toBe(true);
+    expect(v.text).toContain("2 snapshot");
+  });
 });
 
 // Codex review F1: a session host restart restores the mux with new numeric surface ids; the chat's tab id stays.
