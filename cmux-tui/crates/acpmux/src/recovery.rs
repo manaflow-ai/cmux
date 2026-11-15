@@ -427,11 +427,12 @@ pub fn start_sign_in(e: &mut RpcError, harness: &str) -> bool {
     let kind = match auth_kind(&e.message) {
         Some(kind) => kind,
         None if crate::hub::turn_errors::says_unreachable(&e.message) => return false,
-        None if e.code == ACP_AUTH_REQUIRED
-            || lower.contains("authentication required")
+        // -32000 is also JSON-RPC's generic server error, so the code alone is never a sign-in:
+        // only with the agent's own words for one (an adapter's quota error stays as it is).
+        None if lower.contains("authentication required")
             || lower.contains("api key missing")
             || lower.contains("api key is missing")
-            || lower.contains("not authenticated") =>
+            || (e.code == ACP_AUTH_REQUIRED && lower.contains("not authenticated")) =>
         {
             kind::AUTH_SIGNED_OUT
         }
@@ -695,6 +696,9 @@ mod tests {
             (-32603, "spawn harness process: No such file or directory"),
             (-32603, "HTTP 503: authentication_failed"),
             (-32602, "bad params"),
+            (ACP_AUTH_REQUIRED, "quota exceeded for this project"),
+            (ACP_AUTH_REQUIRED, "internal server error"),
+            (-32603, "not authenticated yet, retrying"),
         ] {
             let mut e = RpcError::new(code, message);
             assert!(!start_sign_in(&mut e, "cursor"), "{message}");
