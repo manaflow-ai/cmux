@@ -159,9 +159,23 @@ extension CloudAuth {
     /// doctor): a cmux access token for the active team, as ``accessToken(requested:identity:)`` mints it.
     /// Never ``tokens()``'s session token: those routes refuse it with 401 `machine.unauthorized`
     /// (cloud-carrier-ssh-failover, 2026-11-15). Nil signed out or refused.
+    ///
+    /// The install is registered first when sign-in has not bound it yet (`signedIn` reuses a bound one): the
+    /// sign-in enroll asks as soon as the sign-in finishes, which can be before `CloudService` binds it, and a
+    /// nil then would leave the enroll waiting for a report that never comes (#43841 review F1).
     public func machineRoutesToken(identity: MacInstallIdentity) async -> String? {
-        guard isSignedIn else { return nil }
-        return try? await accessToken(requested: nil, identity: identity).accessToken
+        guard isSignedIn, let stackUser = user?.id else { return nil }
+        do {
+            try await identity.signedIn(stackUser: stackUser, session: { [weak self] in
+                guard let self else { throw MacInstallIdentity.Failure.signedOut }
+                return try await self.tokens().access
+            })
+            let token = try await accessToken(requested: nil, identity: identity).accessToken
+            // An account switch meanwhile: never the old account's token.
+            return user?.id == stackUser ? token : nil
+        } catch {
+            return nil
+        }
     }
 
     /// `cmux auth token`'s mint: a fresh token from `identity` for the team ``accessTokenTeam(requested:)`` picks.
