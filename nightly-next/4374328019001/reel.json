@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "4374328019001",
+  "notes": "notes/4374328019001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43616,
+      "title": "Agent chat: a chat draws from the row store: switch, hold attach, kept windows (v2 row 6c, 3 of 3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43688,
+      "title": "Agent chat: a ```chart fence (small JSON) draws natively through Vega-Lite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43781,
+      "title": "cloud journey (production): copy the login on spare.ready, as the app's SpareReady path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43835,
+      "title": "carrier: a chat streams through 5 s and 60 s machine drops; the chaos probe names the chat dial's story",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43854,
+      "title": "ci: iOS E2E pull_request runs skip the tailnet jobs until the Tailscale identity admits them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43780,
+      "title": "Overlay pages: free the icon picker and group editor after 10 min unused, made again at the next menu (CMUX-571, -97 MB)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43849,
+      "title": "ci: a status post refused on a spent pool waits for its reset, else NO_VERDICT naming the re-run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43839,
+      "title": "acpmux: a signed-out Grok start on a Cloud VM says sign_in_required naming grok, not a bare refusal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43438,
+      "title": "probe(acpmux): split replay append red by cause",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43592,
+      "title": "Cloud: a signed-in Mac stays signed in after an update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43844,
+      "title": "cmux-platform prod logs: the header counts the window's events before the id filter",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43853,
+      "title": "docs: the hot loop names customize use branch:, sha:, dir: --watch and forks, and library status, refresh, off --all",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43765,
+      "title": "Cloud: a new machine bootstrap waits until the machine runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43846,
+      "title": "customize: honest sha lookups, refresh in place, folder refresh never aborts",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
