@@ -36,7 +36,7 @@ public struct AwaitedContent: Equatable, Sendable {
         /// Whether a key typed now reaches the shown page (``shownPageReady``): a browser tab's page (`browser`), or the Chromium
         /// page window of a cmux page or an agent chat (`pageWindow`: Markdown, the chat pane), each only once its focus grant
         /// came (`BrowserTab.pageReady`). Nil and nil: the content has no Chromium page (a native page).
-        public static func pageReady(browser: Bool?, pageWindow: Bool?) -> Bool { browser ?? true }
+        public static func pageReady(browser: Bool?, pageWindow: Bool?) -> Bool { browser ?? pageWindow ?? true }
 
         public init(selectedTab: String?, shownTab: String?, shownKind: Kind?, selectedIsLiveTerminal: Bool, shownPageReady: Bool = true) {
             (self.selectedTab, self.shownTab, self.shownKind, self.selectedIsLiveTerminal) = (selectedTab, shownTab, shownKind, selectedIsLiveTerminal)
