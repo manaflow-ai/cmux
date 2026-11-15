@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4376000870601",
+  "notes": "notes/4376000870601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43932,
+      "title": "ci: seed the shared SwiftPM artifact cache on owned Macs, under one host lock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43924,
+      "title": "base_red_excuse: close #43915's five follow-ups to the other-PR setup rule (#43876)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43807,
+      "title": "acpmux: a usage pass reads the live chats and those changed in the last day, not every chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43918,
+      "title": "palette coverage: map closed clear, keep 18 agent, setup and read verbs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43874,
+      "title": "bench: paired god/small transcript replay (PAIRED=1) and god-ratio-ab.sh with an A/A side",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43660,
+      "title": "Cloud start: a missing agent or an unavailable cmux router says so by name (harness_missing, route_unavailable)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43895,
+      "title": "acpmux: a Mac machine's install and update scripts parse under macOS sh again (restart window check)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43921,
+      "title": "chat-disk-growth: hot bytes (all but cold-segments/) as the goal's ratio",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43920,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-da984c40c53e3c0e06c1184a49e27cd9a76c57f6",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43928,
+      "title": "cmux-next route: a hot-only PR runs no app build or test tier",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43753,
+      "title": "acpmux: the Mac app's and the Linux package's acpmux ship the hub carrier, and log its state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43683,
+      "title": "v2 peer pages, serve side: a peer's all and keys pages of this machine's rows (8b PR 1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43609,
+      "title": "acpmux-core: measure actor gates with alternating rounds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43889,
+      "title": "Terminal: a restart with no free terminal says what to do",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43927,
+      "title": "ci: name each GitHub API call again until 2026-11-19, with the token's fingerprint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43907,
+      "title": "ci(warm-sources): the test-compile job's entry follows its move to the Linux pool (base red since 2b74e78364f7)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43826,
+      "title": "cmux-action-catalog: Check, Rotate and Revoke on a joined machine are palette rows (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43903,
+      "title": "hover-instant bench: glide through the newest nightly's Computer Use app, not the stale installed one",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
