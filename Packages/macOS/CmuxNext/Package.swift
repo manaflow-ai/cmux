@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 22290222ea2e979ae0d564f8a1fbb476a47167f5b8f140beedcbaee9e4507254
+// app-ffi-pin-checksum: a0e82b130ac60cc80136af3e58b22ed6f4a4917054b72fcfac644e60a15feb5e
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1571,6 +1571,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -1648,6 +1649,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextMacScreen",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
@@ -1695,8 +1697,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextMacScreenTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextControl",
                 "CmuxNextMacScreen",
                 "CmuxNextRemoteView",
+                "CmuxNextSettings",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2481,6 +2486,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
                 "CmuxNextActions",
+                "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextProcessEnvironment",

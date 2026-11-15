@@ -1,7 +1,8 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! the group hover card's summary (`group_hover_summary`), the sidebar's
+//! the group hover card's summary (`group_hover_summary`), the ports a
+//! workspace's hover card opens (`workspace_port_links`), the sidebar's
 //! launch order hold (`sidebar_launch_order`), a workspace row's own layout
 //! (`sidebar_row_layout`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
@@ -205,6 +206,21 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_drop::tab_drop_refusal(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_change_failure" => {
+                // A refused or failed sidebar document change: its code (a reducer
+                // refusal, or `no_answer`, `unavailable`, `failed`) and the text the
+                // app shows when the person made the change.
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    code: String,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let text = cmux_layout_reducer::sidebar_doc::change_failure_text(&request.code);
+                let refusal =
+                    cmux_layout_reducer::sidebar_doc::Refusal::from_code(&request.code).is_some();
+                serde_json::to_vec(&serde_json::json!({ "text": text, "refusal": refusal }))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_layout_reduce" => {
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -264,6 +280,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::group_hover_summary::summarize(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"workspace_port_links" => {
+                use cmux_layout_reducer::workspace_port_links;
+                let request: workspace_port_links::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&workspace_port_links::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"new_placement" => {

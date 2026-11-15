@@ -20,6 +20,8 @@ import Testing
         var elapsed: Duration = .zero
         var busy: Set<String> = []
         var archived: Set<String> = []
+        /// Chats whose terminal face their pane draws now (Toggle Terminal and Chat).
+        var paired: Set<String> = []
         /// Chats whose page holds an unsaved send or edit (the page's `holdsEdits`).
         var edits: Set<String> = []
         /// Releases asked for, in order.
@@ -78,6 +80,7 @@ import Testing
         let host = Host()
         let planner = HiddenChatPages(host: host, deadline: Deadline(), freezeDeadline: Deadline())
         host.planner = planner
+        planner.pairedFace = { [weak host] in host?.paired.contains($0) ?? false }
         planner.update(setting: setting, pressure: pressure)
         return (planner, host)
     }
@@ -227,5 +230,29 @@ import Testing
         browserHost.edits = ["tab_browser"]
         Self.advance(11 * 60, byBrowser, browserHost)
         #expect(browserHost.released.isEmpty, "browser.hibernation's release dropped an unsaved edit")
+    }
+
+    /// The chat face of a session whose terminal face its pane draws (Toggle Terminal and Chat) keeps its page and
+    /// stays awake however long the terminal shows and whatever the pressure, so the swap back is a tab selection,
+    /// never a rebuild and replay (Leo, 2026-11-12: two live views of one session, instant both ways). Once that
+    /// terminal stops drawing, the chat's idle clock runs again.
+    @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
+    func theChatFaceOfAShownTerminalKeepsItsPage(_ pressure: MemoryPressureLevel) {
+        let (planner, host) = Self.make(pressure: pressure)
+        Self.hide("tab_face", planner, host)
+        host.paired = ["tab_face"]
+        Self.advance(60 * 60, planner, host)
+        #expect(host.released.isEmpty, "the chat face of a shown terminal was let go: the swap back rebuilds it")
+        #expect(planner.keepsPage("tab_face") == .pairedFace)
+
+        // Its terminal stops drawing: hidden from now, so a look at another tab and back keeps it.
+        host.paired = []
+        planner.replan()
+        let wait = pressure == .normal ? Self.idle : pressure == .warning ? HiddenChatPages<Host>.idleReleaseUnderWarning
+            : HiddenChatPages<Host>.minimumHidden
+        Self.advance(wait - 5, planner, host)
+        #expect(host.released.isEmpty, "the chat went as soon as its terminal stopped drawing, an hour after the swap hid it")
+        Self.advance(6, planner, host)
+        #expect(host.released == ["tab_face"], "a chat whose terminal no longer shows kept its page")
     }
 }

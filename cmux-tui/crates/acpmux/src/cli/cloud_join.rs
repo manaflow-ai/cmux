@@ -438,6 +438,49 @@ pub(crate) fn node_key_copied_at(home: &std::path::Path) -> bool {
         || crate::cli::mesh_node_key::serves_copied_key(home)
 }
 
+/// What the cmux link's Cloud tunnel (cmux `carrier/tunnel_keeper.rs`) needs of this box's join:
+/// the machine, its team, its name and the platform origin it joined through. Never the `cmm_`
+/// credential: the tunnel attaches with the signed-in person's token.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JoinedDevice {
+    pub machine_id: String,
+    pub team_id: String,
+    pub name: String,
+    pub hub_origin: String,
+}
+
+/// This box's join in acpmux home `home`, when it is one the tunnel may run for: a live record
+/// (not revoked, not a copy of another box's, its node key not a copied one) of a `machine_` id,
+/// with no sign-out leave pending and no queued revoke of its own. None otherwise: the tunnel
+/// stops then. A queued revoke of an earlier join does not stop it (`to_revoke::names`): the
+/// sign-in that cleared that sign-out's leave mark enrolled this join, and the old revoke is asked
+/// again at each start and sign-in, as the daemon's own start already reads it
+/// (`finish_leave_at_start`: no mark is `signedIn`). On a Mac that signs in and out often, one
+/// such revoke the hub never took kept the tunnel off for every join after it.
+pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
+    let record = load_at(home).ok().flatten()?;
+    let current = host_fingerprint::current();
+    let left = std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok()
+        || to_revoke::names(home, &record);
+    if record.revoked
+        || record.cloned
+        || left
+        || !record.machine_id.starts_with("machine_")
+        || record.team_id.is_empty()
+        || copied_here(home, &record, current.as_deref())
+        || node_key_copied_at(home)
+    {
+        return None;
+    }
+    let hub_origin = origin(Some(record.hub_origin.clone())).ok()?;
+    Some(JoinedDevice {
+        machine_id: record.machine_id,
+        team_id: record.team_id,
+        name: record.name,
+        hub_origin,
+    })
+}
+
 /// Whether `home`'s machine record provably belongs to this box: live, made (or settled) on a
 /// box with a fingerprint, that box this one, and no evidence of a copy
 /// (`home_copy_state`). A box that names no machine proves nothing.
@@ -1056,6 +1099,71 @@ mod tests {
         super::save_at(home, &record).unwrap();
         crate::cli::mesh_node_key::load_or_create_at(home).unwrap();
         std::fs::read(home.join("node.wg.key")).unwrap()
+    }
+
+    /// The cmux link's Cloud tunnel runs only for a live join of this box: a sign-out's leave
+    /// mark, a queued revoke of its own, a revoked record or no record at all stop it.
+    #[test]
+    #[cfg(unix)]
+    fn the_tunnel_runs_only_for_a_live_join_of_this_box() {
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "not joined");
+        let current = super::host_fingerprint::current();
+        joined_on(home.path(), current.as_deref());
+        let mut record = super::load_at(home.path()).unwrap().unwrap();
+        // The tunnel attaches only a `machine_` id.
+        record.machine_id = "vm_1".into();
+        super::save_at(home.path(), &record).unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None);
+        record.machine_id = "machine_original".into();
+        super::save_at(home.path(), &record).unwrap();
+        assert_eq!(
+            super::joined_device_at(home.path()),
+            Some(super::JoinedDevice {
+                machine_id: "machine_original".into(),
+                team_id: "team".into(),
+                name: "original".into(),
+                hub_origin: "https://example.com".into(),
+            })
+        );
+
+        let leave = home.path().join(super::enroll::LEAVE_FILE);
+        std::fs::write(&leave, b"{}").unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "a sign-out's leave is pending");
+        std::fs::remove_file(&leave).unwrap();
+        assert!(super::joined_device_at(home.path()).is_some());
+
+        // A revoke an earlier join's sign-out still owes (its row, and its credential) is not this
+        // join's: the sign-in since enrolled this one, so the tunnel runs (the probe
+        // cloud-carrier-ssh-failover: a shared runner home kept ssh `no_tunnel` for every run).
+        let earlier = super::MachineCredential {
+            credential: "cmm_earlier".into(),
+            machine_id: "machine_earlier".into(),
+            hub_origin: "https://other.example.com".into(),
+            ..Default::default()
+        };
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&earlier, false)).unwrap();
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&earlier, true)).unwrap();
+        assert!(super::to_revoke::any_queued(home.path()));
+        assert!(super::joined_device_at(home.path()).is_some(), "an earlier join's revoke");
+        // One owed for this join itself stops it, by its row or by its credential.
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&record, false)).unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "this join's row is queued");
+        let own_credential =
+            super::MachineCredential { machine_id: String::new(), ..record.clone() };
+        let other = tempfile::tempdir().unwrap();
+        joined_on(other.path(), current.as_deref());
+        super::to_revoke::queue(other.path(), &super::to_revoke::Row::of(&own_credential, true))
+            .unwrap();
+        assert_eq!(super::joined_device_at(other.path()), None, "this join's credential is queued");
+        for path in std::fs::read_dir(home.path().join("machine-join.to-revoke")).unwrap() {
+            std::fs::remove_file(path.unwrap().path()).unwrap();
+        }
+        assert!(super::joined_device_at(home.path()).is_some());
+
+        record.revoked = true;
+        super::save_at(home.path(), &record).unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "revoked");
     }
 
     /// Review F2 at 9e91bcea: the clone check the cmux link shares, by the home it names.

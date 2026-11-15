@@ -17,7 +17,12 @@ run-name: >-
 # blocker not in cmux-next-ios/AppStoreReview/known-blockers.json: a change
 # that breaks the reviewer's path is red before it merges, not found by Apple.
 # A scheduled run would fire only from the default branch's copy of this file,
-# so there is none here.
+# so there is none here. Notes (*.md) and cmux-next-ios/verify/ evidence are
+# not the app: a change to only those walks no reviewer path (cmux#43251,
+# SECURITY.md and verify/parity-mac.md, took a Mac per device and the agent
+# pass's quota). AppStoreReview/ stays in: the agent pass follows
+# reviewer-setup.md. The last matching pattern wins, so the negations come
+# after the includes they narrow and before the one they re-include.
 # docs: cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md.
 on:
   push:
@@ -29,6 +34,11 @@ on:
       - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
+      - ".github/ios-review-gate-devices.json"
+      - ".github/scripts/ios_review_gate_devices.py"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/AppStoreReview/**"
   # Every app pull request walks the reviewer path (one macOS job per device,
   # side by side, about 30 minutes), so a change that breaks it is red before
   # it merges.
@@ -40,6 +50,11 @@ on:
       - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
+      - ".github/ios-review-gate-devices.json"
+      - ".github/scripts/ios_review_gate_devices.py"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/AppStoreReview/**"
   workflow_dispatch:
     inputs:
       ref:
@@ -108,6 +123,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
+      # The device families the reviewer-path matrix walks, and the whole
+      # decision each leg checks against its image (see "Which device legs
+      # take a Mac" below).
+      families: ${{ steps.devices.outputs.families }}
+      devices: ${{ steps.devices.outputs.devices }}
       sha: ${{ steps.plan.outputs.sha }}
       lane: ${{ steps.plan.outputs.lane }}
       gate_sha: ${{ steps.plan.outputs.gate_sha }}
@@ -152,6 +172,47 @@ jobs:
             echo "lane=$lane"
           } >> "$GITHUB_OUTPUT"
           echo "App Review gate judges $sha ($lane)" | tee -a "$GITHUB_STEP_SUMMARY"
+      # Which device legs take a Mac, decided here on Linux: a family the
+      # macOS image has no simulator for (Duo today) used to wait a median
+      # 41 minutes in the macOS queue only to skip in one. Its skip marker
+      # now comes from this job, and every leg that does run checks the
+      # list against its image (.github/ios-review-gate-devices.json).
+      - name: Checkout the device list
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.plan.outputs.gate_sha }}
+          path: gate
+          persist-credentials: false
+          sparse-checkout: |
+            .github/ios-review-gate-devices.json
+            .github/scripts/ios_review_gate_devices.py
+            scripts/ci/xcode-pins.txt
+          sparse-checkout-cone-mode: false
+      - name: Which device legs take a Mac
+        id: devices
+        env:
+          # The list describes manaflow-ai's macOS 26 pool; another
+          # repository's image walks every family, as before.
+          TRUST: ${{ github.repository_owner == 'manaflow-ai' }}
+        run: |
+          set -euo pipefail
+          code=0
+          python3 -I gate/.github/scripts/ios_review_gate_devices.py plan \
+            --devices gate/.github/ios-review-gate-devices.json --pins gate/scripts/ci/xcode-pins.txt \
+            --trust "$TRUST" --out-dir "$RUNNER_TEMP/planned" \
+            >> "$GITHUB_OUTPUT" 2> "$RUNNER_TEMP/devices.txt" || code=$?
+          tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/devices.txt"
+          exit "$code"
+      - name: Upload the planned skips
+        if: steps.devices.outputs.skipped != '[]'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # The report downloads every review-gate-* and reads each
+          # <family>.skipped.json, wherever it came from.
+          name: review-gate-planned-skips-${{ steps.plan.outputs.lane }}
+          path: ${{ runner.temp }}/planned/*.skipped.json
+          if-no-files-found: error
+          retention-days: 3
 
   lint:
     needs: plan
@@ -246,7 +307,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        family: [iphone, ipad, duo]
+        # iphone and ipad always; duo only when the plan's device list says
+        # the image has it (it has not so far, so it takes no Mac).
+        family: ${{ fromJSON(needs.plan.outputs.families) }}
     # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs): the job holds a
     # secret (the agent pass's Claude token), so it takes no owned Mac
     # (.github/runners.json picker_followup). A fork pull request takes the
@@ -287,6 +350,7 @@ jobs:
             cmux-next-ios/scripts
             cmux-next-ios/AppStoreReview
             cmux-next-ios/UITests
+            .github/scripts
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
       - name: The source is the NEXT app
@@ -313,6 +377,19 @@ jobs:
         # Before the build: only the picker's no-simulator exit skips the
         # leg (with a marker the report reads); any other failure fails it.
         run: bash .review-gate/cmux-next-ios/scripts/app_review_pick_step.sh "$FAMILY"
+      - name: Check the plan's device list on this image
+        # The same picker for every family the plan decided, creating
+        # nothing: a family the plan skipped that this image has, or one it
+        # walks that the image lacks, is named here and fails the report.
+        # The walk still runs.
+        if: fromJSON(needs.plan.outputs.devices).decided
+        continue-on-error: true
+        env:
+          DEVICE_PLAN: ${{ needs.plan.outputs.devices }}
+        run: |
+          python3 -I .review-gate/.github/scripts/ios_review_gate_devices.py check --plan "$DEVICE_PLAN" \
+            --picker .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py \
+            --out "$RESULTS/device-plan-mismatch.json"
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
         if: env.UDID != ''
@@ -622,6 +699,14 @@ jobs:
           elif [ "$RATCHET" = true ] && grep -q '^\*\*NO\*\*' review-gate.md; then
             echo "::warning::App Review gate: no new blocker, but the app would still not pass App Review (known-blockers.json); a submission run refuses it"
           fi
+          # A leg whose image disagreed with the plan's device list: a
+          # family skipped that the image has, or walked that it lacks.
+          while IFS= read -r f; do
+            echo "::error::App Review gate: a device leg's image disagrees with the plan ($f); check .github/ios-review-gate-devices.json"
+            { echo; echo "**Device plan mismatch** ($f): this run fails until .github/ios-review-gate-devices.json is checked again."
+              echo '```json'; cat "$f"; echo '```'; } | tee -a review-gate.md >> "$GITHUB_STEP_SUMMARY"
+            code=1
+          done < <(find in -name 'device-plan-mismatch.json' -type f | sort)
           exit $code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
