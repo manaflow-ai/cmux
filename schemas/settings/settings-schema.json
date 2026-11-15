@@ -4307,7 +4307,9 @@
     },
     {
       "accepts" : [
-
+        "local/web-pane",
+        "local/showcase-newtab",
+        "manaflow-ai/launcher"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -4346,9 +4348,17 @@
       ],
       "placeholder" : null,
       "refuses" : [
+        "Foo/Bar",
+        "local/Web",
+        "a/b/c",
+        "launcher",
+        "/b",
+        "a/",
+        "-a/b",
+        "a b/c",
+        "",
         1,
-        true,
-        null
+        true
       ],
       "section" : "general",
       "summary" : {
@@ -4444,7 +4454,7 @@
         "key" : "settings.tabs.newTabApp",
         "text" : "New Tab App"
       },
-      "validation" : "portable"
+      "validation" : "domain:app_id"
     },
     {
       "accepts" : [
