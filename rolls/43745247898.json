@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43745247898",
+  "recorded_at": "2026-11-15T18:19:58Z",
+  "reason": "cmux-tui 98163c3fbc79 changes the image's cmux-tui (pinned b49692d1d6bc)",
+  "dry_run": false,
+  "cmux_tui": "98163c3fbc79771e33b73a7cb95d7853c1366988",
+  "fixes": [
+    {
+      "sha": "98163c3fbc79771e33b73a7cb95d7853c1366988",
+      "mergedAt": "2026-11-15T09:54:17-08:00",
+      "subject": "acpmux: the host keeps a once-an-hour restart window for every update and setup (#43709)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T18:19:58Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
