@@ -1377,7 +1377,7 @@ class WebLintPrePushTests(unittest.TestCase):
     def test_checks_run_one_per_core_and_the_type_aware_ones_one_per_two_cores_in_ci_or_not(self):
         # All the vp checks at once on a 4 vCPU fast-gates runner: the web lint took 185 to 698 s and once outgrew the
         # job's 15 min; sharing a slot per two cores took 99.9 and 135.8 s. On a 2 vCPU lane VM outside CI the hook had
-        # about 8 checks running for 141 s at load 17.8 (swarm-03, 2026-11-15): nice lowers priority, not the run
+        # about 8 checks running for 141 s at load 17.8 (2026-11-15): nice lowers priority, not the run
         # queue. So everywhere: at most one check per core, the type-aware ones one per two cores, light ones beside.
         self.heavy_fixture()
         lint = load_lint(self.repo)
