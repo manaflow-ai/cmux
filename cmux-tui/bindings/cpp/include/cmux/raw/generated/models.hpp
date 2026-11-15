@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5";
+inline constexpr std::string_view kProtocolIrSha256 = "725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -230,6 +230,9 @@ struct TerminalClipboardReplyResult;
 struct TerminalClipboardSubscribeResult;
 struct TerminalColorOverrides;
 struct TerminalColors;
+struct TerminalCommandContext;
+enum class TerminalCommandContextIntent;
+struct TerminalCommandContextResult;
 struct TerminalCommandDeleteResult;
 struct TerminalCommandHistoryResult;
 struct TerminalCommandList;
@@ -582,6 +585,7 @@ struct SubscribeActivityRequest;
 struct SwapPaneRequest;
 struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
+struct TerminalCommandContextRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
 struct TerminalLastCommandRequest;
@@ -5983,6 +5987,32 @@ struct TerminalClipboardSubscribeResult {
     friend bool operator==(const TerminalClipboardSubscribeResult&, const TerminalClipboardSubscribeResult&) = default;
 };
 
+struct TerminalCommandContext {
+    std::optional<std::string> command{};
+    std::optional<std::string> cwd{};
+    std::optional<std::int32_t> exit_code{};
+    std::string output{};
+    std::string text{};
+    bool truncated{};
+    friend bool operator==(const TerminalCommandContext&, const TerminalCommandContext&) = default;
+};
+
+enum class TerminalCommandContextIntent {
+    context,
+    fix,
+};
+
+struct TerminalCommandContextRequest {
+    std::optional<TerminalCommandContextIntent> intent{};
+    Id surface{};
+    friend bool operator==(const TerminalCommandContextRequest&, const TerminalCommandContextRequest&) = default;
+};
+
+struct TerminalCommandContextResult {
+    std::optional<TerminalCommandContext> context{};
+    friend bool operator==(const TerminalCommandContextResult&, const TerminalCommandContextResult&) = default;
+};
+
 struct TerminalCommandDeleteResult {
     std::uint64_t deleted{};
     friend bool operator==(const TerminalCommandDeleteResult&, const TerminalCommandDeleteResult&) = default;
@@ -7854,6 +7884,24 @@ template <>
 struct Codec<TerminalColors> {
     static Result<Json> encode(const TerminalColors& value);
     static Result<TerminalColors> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContext> {
+    static Result<Json> encode(const TerminalCommandContext& value);
+    static Result<TerminalCommandContext> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContextIntent> {
+    static Result<Json> encode(const TerminalCommandContextIntent& value);
+    static Result<TerminalCommandContextIntent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContextResult> {
+    static Result<Json> encode(const TerminalCommandContextResult& value);
+    static Result<TerminalCommandContextResult> decode(const Json& value);
 };
 
 template <>
@@ -9966,6 +10014,12 @@ template <>
 struct Codec<TerminalClipboardSubscribeRequest> {
     static Result<Json> encode(const TerminalClipboardSubscribeRequest& value);
     static Result<TerminalClipboardSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandContextRequest> {
+    static Result<Json> encode(const TerminalCommandContextRequest& value);
+    static Result<TerminalCommandContextRequest> decode(const Json& value);
 };
 
 template <>

@@ -349,6 +349,48 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "terminal.fixLastCommand",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.fixLastCommand", "Fix Last Command with Agent"),
+        keywords: &["fix", "error", "failed", "agent", "chat", "exit", "debug", "ask"],
+        category: "terminal",
+        symbol: "wrench.and.screwdriver",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "edit", 9)], ..SurfacePlan::DEFAULT },
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal fix-last-command",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "terminal.sendLastOutputToChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.sendLastOutputToChat", "Send Last Output to Chat"),
+        keywords: &["output", "command", "agent", "chat", "send", "ask", "result"],
+        category: "terminal",
+        symbol: "text.bubble",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "edit", 8)], ..SurfacePlan::DEFAULT },
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal send-last-output-to-chat",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "terminal.sendSelectionToChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.sendSelectionToChat", "Send Selection to Chat"),
+        keywords: &["selection", "agent", "chat", "send", "ask", "quote"],
+        category: "terminal",
+        symbol: "bubble.left.and.text.bubble.right",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menus: &[Placement::at("terminalSelection", "edit", 7)], ..SurfacePlan::DEFAULT },
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal send-selection-to-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.terminalOpenDirectory",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.terminalOpenDirectory", "Open Current Directory In…"),
