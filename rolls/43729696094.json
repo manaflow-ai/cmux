@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43729696094",
+  "recorded_at": "2026-11-15T15:32:16Z",
+  "reason": "cmux-tui ed10c9f084c0 changes the image's cmux-tui (pinned e335ca39ccc0)",
+  "dry_run": false,
+  "cmux_tui": "ed10c9f084c05a3d0dee59294affb176e0fde77b",
+  "fixes": [
+    {
+      "sha": "ed10c9f084c05a3d0dee59294affb176e0fde77b",
+      "mergedAt": "2026-11-15T07:08:52-08:00",
+      "subject": "acpmux: a host refuses a push of an older build than its own (#43770)"
+    },
+    {
+      "sha": "432fedad8556aa0e3b6f57257a5d72dd838f1b0a",
+      "mergedAt": "2026-11-15T06:56:56-08:00",
+      "subject": "feat(cmux-rd): share a Linux desktop with cmux on a Mac (linux-host); serve picks the capture backend (#43530)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T15:32:16Z",
+    "snapshot_id": "sh-7ea3683ef132418e9c279478b58216e6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43729696094): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a2ce745a5eb2854ab4ce75b00821a91797630d9e",
+    "image": "cloud-native-auto-ed10c9f0-43729696094-1",
+    "revision": "ci-43729696094-1",
+    "at": "2026-11-15T15:32:16Z"
+  },
+  "rolled_back": false
+}
