@@ -105,6 +105,14 @@ pub fn is_frame_line(line: &str) -> bool {
     line.starts_with(PREFIX)
 }
 
+/// The bytes the frame on `line` takes as a frame (its header, kind byte and payload), the
+/// measure the credit window counts: the line less its envelope. A kind of two digits counts
+/// one byte over.
+pub fn frame_bytes(line: &str) -> usize {
+    const ENVELOPE: usize = PREFIX.len() + 1 + r#","payload":"#.len() + "}}".len();
+    line.trim_end().len().saturating_sub(ENVELOPE) + HEADER_BYTES + 1
+}
+
 /// One frame read off a link: its kind byte and its payload's JSON, borrowed from the line.
 pub struct Incoming<'a> {
     pub kind: u8,

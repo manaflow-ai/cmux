@@ -55,7 +55,17 @@ pub struct DialCounters {
     pub restarts: AtomicU64,
     /// Rows of another origin than the peer's own, not mirrored.
     pub foreign_rows: AtomicU64,
+    /// Mirrors ended because the link's frames waiting for them passed
+    /// [`MIRROR_INBOX_BYTES`]: a peer that sent past its credit.
+    pub inbox_overflows: AtomicU64,
+    /// Frame bytes read off the link and not yet handed to the client.
+    pub inbox_bytes: AtomicU64,
 }
+
+/// The most frame bytes a link holds for its mirror: the client's credit
+/// window, which bounds what a peer may send ahead, and one frame more.
+pub const MIRROR_INBOX_BYTES: usize =
+    acpmux_client::wire::CREDIT_WINDOW_BYTES as usize + acpmux_client::wire::MAX_REPLAY_FRAME_BYTES;
 
 /// Why a mirror on a link ended.
 #[derive(Debug)]
@@ -170,7 +180,11 @@ impl<'a> Dial<'a> {
         if let Some(mark) = resume {
             sub = sub.from_cursor_in_edition(mark.cursor, mark.edition);
             (self.cursor, self.edition, self.whole) = (mark.cursor, mark.edition, mark.whole);
-            self.counters.resumes.fetch_add(1, Ordering::Relaxed);
+            // A mark that is not whole goes on with a walk the link cut; only a
+            // whole one resumes the peer's changes.
+            if mark.whole {
+                self.counters.resumes.fetch_add(1, Ordering::Relaxed);
+            }
         } else {
             (self.cursor, self.edition, self.whole) = (0, 0, false);
         }
@@ -245,9 +259,20 @@ impl<'a> Dial<'a> {
                     self.cursor = self.cursor.max(cursor.0);
                     self.whole = true;
                 }
-                // The client reopens at the head; its window walks.
+                // The serving end dropped the subscription and the client
+                // reopened it under `new_sid`: from the drop's cursor in the
+                // same edition when the drop names one, else as first asked
+                // (from the mark, or a walk). The marks sent so far stay.
                 Change::Dropped { sid, new_sid: Some(new_sid), .. } if sid == self.sid => {
                     self.sid = new_sid;
+                }
+                // A drop the client did not reopen. The list client reopens
+                // every drop of a subscription it holds, so this arm is a
+                // guard: no further frame comes on the sid, and the dialer
+                // starts again from the mark, sending nothing of this batch.
+                Change::Dropped { sid, new_sid: None, .. } if sid == self.sid => {
+                    self.restart().await;
+                    return None;
                 }
                 Change::Error { code, sid, .. }
                     if sid.as_deref().is_none_or(|sid| sid == self.sid) =>
