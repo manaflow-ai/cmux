@@ -17,7 +17,7 @@ if [[ -d "$target" ]]; then
   images+=("$target/Contents/MacOS/$name")
   # Debug builds keep the code in "<name>.debug.dylib" beside a stub executable.
   [[ -f "$target/Contents/MacOS/$name.debug.dylib" ]] && images+=("$target/Contents/MacOS/$name.debug.dylib")
-  # The app FFI as a dynamic library (scripts/cmux-next/embed-app-ffi.sh) is an image of its own.
+  # The app FFI as a dynamic library (Xcode embeds the dynamic CCmuxAppFFI.xcframework) is an image of its own.
   [[ -f "$target/Contents/Frameworks/libcmux_app_ffi.dylib" ]] && images+=("$target/Contents/Frameworks/libcmux_app_ffi.dylib")
 else
   images+=("$target")

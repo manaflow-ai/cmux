@@ -2,7 +2,7 @@
 
 The app carries the Rust it links (CCmuxAppFFI: the remote desktop core, the sidebar layout reducer, motion,
 the palette ranker, the daemon connection and launch rules, ...) as one dynamic library,
-Contents/Frameworks/libcmux_app_ffi.dylib (scripts/cmux-next/build-app-ffi.sh, embed-app-ffi.sh). Every
+Contents/Frameworks/libcmux_app_ffi.dylib (scripts/cmux-next/build-app-ffi.sh; Xcode embeds it from the dynamic xcframework). Every
 feat-cmux-next push that changes its sources publishes it (app-ffi-release.yml, release
 cmux-app-ffi-<commit>). For a commit SHA this part:
 

@@ -17,7 +17,7 @@ release create uses that token.
 The xcframework holds one dynamic library, `libcmux_app_ffi.dylib` (install name
 `@rpath/libcmux_app_ffi.dylib`, ad hoc signed, with its dSYM). An app built
 against such a pin carries it at `Contents/Frameworks/libcmux_app_ffi.dylib`
-(`scripts/cmux-next/embed-app-ffi.sh`), where the nightly's bundle signing signs
+(Xcode embeds and signs a package's dynamic binary target), where the nightly's bundle signing signs
 it with the app, and `hot-apply.py` can swap a newer release in warm. The
 release also carries `libcmux_app_ffi-prelinked.a`, the same objects as one
 archive, for the size and parity checks.

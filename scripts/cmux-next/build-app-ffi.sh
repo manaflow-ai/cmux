@@ -4,7 +4,7 @@
 # sidebar layout reducer C ABI + the cmux-motion C ABI over one Rust
 # runtime), as a dynamic library: libcmux_app_ffi.dylib, install name
 # @rpath/libcmux_app_ffi.dylib. The app carries it at
-# Contents/Frameworks/libcmux_app_ffi.dylib (scripts/cmux-next/embed-app-ffi.sh),
+# Contents/Frameworks/libcmux_app_ffi.dylib, which Xcode embeds from the package's dynamic xcframework,
 # so a change to the FFI crates alone swaps that one file and restarts the app
 # with its sessions kept (hot-apply.py's ffi part) instead of building the app.
 # Apple's compact unwind encodes at most three personality routines per image;

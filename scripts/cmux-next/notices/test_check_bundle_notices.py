@@ -230,7 +230,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         # The app binary carries iroh-ffi (Release merges Iroh.framework in), and CCmuxAppFFI while its
         # pin is the static library.
         "Contents/MacOS/cmux",
-        # CCmuxAppFFI (cmux-app-ffi) as a dynamic library (scripts/cmux-next/embed-app-ffi.sh).
+        # CCmuxAppFFI (cmux-app-ffi) as a dynamic library (Xcode embeds it from the dynamic xcframework).
         "Contents/Frameworks/libcmux_app_ffi.dylib",
     )
     ZIG_BINARIES = (
