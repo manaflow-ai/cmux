@@ -1328,127 +1328,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done. Agents you start in cmux get cmux’s tools."
+            "value": "Done. Agents you start in cmux’s terminals and agent chats get cmux’s tools."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم. تحصل الوكلاء التي تشغّلها في cmux على أدوات cmux."
+            "value": "تم. تحصل الوكلاء التي تشغّلها في طرفيات cmux ومحادثات الوكلاء على أدوات cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gotovo. Agenti koje pokreneš u cmuxu dobijaju cmux alate."
+            "value": "Gotovo. Agenti koje pokreneš u cmux terminalima i agentskim razgovorima dobijaju cmux alate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Færdig. Agenter, du starter i cmux, får cmux’ værktøjer."
+            "value": "Færdig. Agenter, du starter i cmux’ terminaler og agentchats, får cmux’ værktøjer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fertig. Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux."
+            "value": "Fertig. Agenten, die du in den Terminals und Agent-Chats von cmux startest, bekommen die Werkzeuge von cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Listo. Los agentes que inicias en cmux reciben las herramientas de cmux."
+            "value": "Listo. Los agentes que inicias en las terminales y los chats de agentes de cmux reciben las herramientas de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "C’est fait. Les agents que vous lancez dans cmux reçoivent les outils de cmux."
+            "value": "C’est fait. Les agents que vous lancez dans les terminaux et les discussions d’agents de cmux reçoivent les outils de cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fatto. Gli agenti che avvii in cmux ricevono gli strumenti di cmux."
+            "value": "Fatto. Gli agenti che avvii nei terminali e nelle chat degli agenti di cmux ricevono gli strumenti di cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "完了しました。cmux で起動したエージェントは cmux のツールを使えます。"
+            "value": "完了しました。cmux のターミナルとエージェントチャットで起動したエージェントは cmux のツールを使えます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រួចរាល់។ ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux។"
+            "value": "រួចរាល់។ ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុងស្ថានីយ និងការជជែកភ្នាក់ងាររបស់ cmux ទទួលបានឧបករណ៍ cmux។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "완료했습니다. cmux에서 시작한 에이전트는 cmux 도구를 사용합니다."
+            "value": "완료했습니다. cmux 터미널과 에이전트 채팅에서 시작한 에이전트는 cmux 도구를 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ferdig. Agenter du starter i cmux, får cmux-verktøyene."
+            "value": "Ferdig. Agenter du starter i cmux-terminaler og agentsamtaler, får cmux-verktøyene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gotowe. Agenci uruchamiani w cmux dostają narzędzia cmux."
+            "value": "Gotowe. Agenci uruchamiani w terminalach i czatach agentów cmux dostają narzędzia cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pronto. Os agentes que você inicia no cmux recebem as ferramentas do cmux."
+            "value": "Pronto. Os agentes que você inicia nos terminais e chats de agentes do cmux recebem as ferramentas do cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Готово. Агенты, которых вы запускаете в cmux, получают инструменты cmux."
+            "value": "Готово. Агенты, которых вы запускаете в терминалах и чатах агентов cmux, получают инструменты cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เสร็จแล้ว เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux"
+            "value": "เสร็จแล้ว เอเจนต์ที่คุณเริ่มในเทอร์มินัลและแชตเอเจนต์ของ cmux จะได้เครื่องมือของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamam. cmux’ta başlattığın ajanlar cmux araçlarını alır."
+            "value": "Tamam. cmux terminallerinde ve ajan sohbetlerinde başlattığın ajanlar cmux araçlarını alır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Готово. Агенти, яких ви запускаєте в cmux, отримують інструменти cmux."
+            "value": "Готово. Агенти, яких ви запускаєте в терміналах і чатах агентів cmux, отримують інструменти cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xong. Các tác tử bạn khởi chạy trong cmux nhận công cụ của cmux."
+            "value": "Xong. Các tác tử bạn khởi chạy trong terminal và cuộc trò chuyện tác tử của cmux nhận công cụ của cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "完成。你在 cmux 中启动的智能体会获得 cmux 的工具。"
+            "value": "完成。你在 cmux 终端和智能体聊天中启动的智能体会获得 cmux 的工具。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "完成。你在 cmux 中啟動的智慧代理會取得 cmux 的工具。"
+            "value": "完成。你在 cmux 終端機與代理聊天中啟動的智慧代理會取得 cmux 的工具。"
           }
         }
       }

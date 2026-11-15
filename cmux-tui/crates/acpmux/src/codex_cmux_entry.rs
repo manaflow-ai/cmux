@@ -1,9 +1,11 @@
-//! Whether a Codex launch can take this build's MCP server under the name
-//! `cmux` (agent_computer_use.rs `codex_settings`).
+//! Whether a Codex launch can take cmux's MCP server under the name `cmux`:
+//! one rule for both ways cmux gives it, the `codex` terminal shim (cmux-tui
+//! `agent_computer_use.rs` `codex_settings`) and Codex agent chats (acpmux
+//! `agent_tools::acp_servers_for`, through cmux-codex-acp's thread config).
 //!
-//! The shim passes `-c mcp_servers.cmux.command=…` (and args, env, cwd,
-//! `enabled=true`), which Codex merges key by key into a `cmux` entry its
-//! config layers already make. Codex refuses a server that has both a command
+//! Both pass the server's `command`, `args`, `env`, `cwd` and `enabled = true`
+//! under `cmux`, which Codex merges key by key into a `cmux` entry its config
+//! layers already make. Codex refuses a server that has both a command
 //! and an HTTP-only field (`url`, `bearer_token_env_var`, `http_headers`,
 //! `env_http_headers`, `oauth_resource`: "url is not supported for stdio",
 //! checked live with Codex 0.160.1 and 0.169.0), and `-c` cannot take a key
@@ -22,10 +24,10 @@
 //! Every other field of a person's `cmux` entry merges into this build's
 //! server for that launch (module docs of agent_computer_use.rs).
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use crate::agent_computer_use::SERVER;
+use crate::agent_tools::CMUX_SERVER as SERVER;
 
 /// The fields of a Codex MCP entry that only an HTTP server may have.
 const HTTP_ONLY: [&str; 5] =
@@ -34,7 +36,7 @@ const HTTP_ONLY: [&str; 5] =
 /// The options of the person's Codex arguments that choose the config files:
 /// `-C`/`--cd` and `-p`/`--profile`, in every form clap accepts.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct ConfigArgs {
+pub struct ConfigArgs {
     /// `-C DIR` / `--cd DIR`, as given (relative to the launch folder).
     pub cd: Option<PathBuf>,
     /// `-p NAME` / `--profile NAME`.
@@ -64,7 +66,7 @@ fn option_value<'a>(arg: &'a str, short: char, long: &str) -> Option<Option<&'a 
 
 /// `-C` and `-p` in Codex's argument list `args` (until `--`); the last of
 /// each wins, as for clap.
-pub(crate) fn config_args(args: &[OsString]) -> ConfigArgs {
+pub fn config_args(args: &[OsString]) -> ConfigArgs {
     let mut found = ConfigArgs::default();
     let mut args = args.iter();
     while let Some(raw) = args.next() {
@@ -89,39 +91,10 @@ pub(crate) fn config_args(args: &[OsString]) -> ConfigArgs {
 }
 
 /// The home folder as Codex finds it (dirs::home_dir): `HOME` when it is set
-/// and not empty, else the account's home from the user database.
-pub(crate) fn home_dir(getenv: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    getenv("HOME").filter(|home| !home.is_empty()).map(PathBuf::from).or_else(account_home)
-}
-
-/// This account's home folder from the user database (getpwuid_r).
-fn account_home() -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStrExt as _;
-    let mut buffer = vec![0 as libc::c_char; 4096];
-    let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
-    let mut result = std::ptr::null_mut();
-    // SAFETY: getpwuid_r writes into `entry` and `buffer` only, and `result`
-    // points at `entry` (or is null) when it returns.
-    let status = unsafe {
-        libc::getpwuid_r(
-            libc::getuid(),
-            entry.as_mut_ptr(),
-            buffer.as_mut_ptr(),
-            buffer.len(),
-            &mut result,
-        )
-    };
-    if status != 0 || result.is_null() {
-        return None;
-    }
-    // SAFETY: getpwuid_r filled `entry`; its strings live in `buffer`.
-    let entry = unsafe { entry.assume_init() };
-    if entry.pw_dir.is_null() {
-        return None;
-    }
-    // SAFETY: a non-null passwd field is a NUL-terminated string in `buffer`.
-    let dir = unsafe { std::ffi::CStr::from_ptr(entry.pw_dir) }.to_bytes();
-    (!dir.is_empty()).then(|| PathBuf::from(OsStr::from_bytes(dir)))
+/// and not empty, else the account's home (`dirs::home_dir`: the user database
+/// on Unix).
+pub fn home_dir(getenv: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    getenv("HOME").filter(|home| !home.is_empty()).map(PathBuf::from).or_else(dirs::home_dir)
 }
 
 /// The folder a launch's session runs in, as Codex computes it: the launch
@@ -164,7 +137,7 @@ fn names_http_cmux(file: &Path) -> bool {
 /// server named `cmux` (module docs): then this build's server cannot take
 /// the name, and the shim passes none. `args` are the person's Codex
 /// arguments, `cwd` the launch folder, `getenv` the pane's environment.
-pub(crate) fn http_cmux_entry(
+pub fn http_cmux_entry(
     args: &[OsString],
     cwd: &Path,
     getenv: &dyn Fn(&str) -> Option<OsString>,
@@ -192,7 +165,7 @@ pub(crate) fn http_cmux_entry(
     files.iter().any(|file| names_http_cmux(file))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

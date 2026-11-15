@@ -183,7 +183,7 @@ describe("cmux tools", () => {
     expect(text(adding)).toContain("Turning on…");
     expect(adding).toMatch(/data-primary="addTools"[^>]*disabled/);
     const added = render(agentToolsState("added"));
-    expect(text(added)).toContain("Done. Agents you start in cmux get cmux’s tools.");
+    expect(text(added)).toContain("Done. Agents you start in cmux’s terminals and agent chats get cmux’s tools.");
     expect(added.match(/data-tools="terminals"/g)?.length).toBe(2);
     expect(text(added)).toContain("Gets cmux’s tools in cmux");
     expect(added).toMatch(/data-primary="done"/);

@@ -35,7 +35,8 @@
 //!   person's own HTTP server named `cmux` (`url` or another HTTP-only
 //!   field) cannot merge: Codex refuses a command with a url, so there the
 //!   shim passes no server and the person's keeps the name
-//!   (codex_cmux_entry.rs).
+//!   (acpmux codex_cmux_entry.rs). An agent chat's Codex follows the same
+//!   rule (acpmux agent_tools.rs `acp_servers_for`).
 //!
 //! In a cmux terminal, with the person's yes to cmux's tools in agents
 //! started in cmux (`agents.cmuxMcp` on), this build's server takes the name

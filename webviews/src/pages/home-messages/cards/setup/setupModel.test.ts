@@ -54,7 +54,7 @@ describe("setupSteps", () => {
     expect(steps.map((step) => step.id)).toEqual(["agents", "tools", "account", "cli"]);
     expect(steps[1]).toMatchObject({
       title: "cmux tools in your agents",
-      detail: "Computer Use and more for Claude Code, Codex",
+      detail: "Computer Use and more for Claude Code, Codex, in cmux’s terminals and agent chats",
       done: false,
     });
     expect(steps[1]?.action).toEqual({ label: "Turn On", run: { kind: "addTools" } });

@@ -554,3 +554,53 @@ fn the_cmux_server_definition_names_the_settings_file() {
     assert!(all.env.is_empty());
     assert!(super::cmux_server(std::path::Path::new("/A/cmux"), false, Some("")).env.is_empty());
 }
+
+/// A Codex chat whose config layers hold the person's own HTTP server named `cmux` gets no `cmux`
+/// server (Codex would refuse the merged entry), the rule the `codex` terminal shim follows; its
+/// other servers stay. The session's own `CODEX_HOME` is the one read.
+#[test]
+fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
+    let root = tempfile::tempdir().unwrap();
+    let (codex_home, work) = (root.path().join("codex-home"), root.path().join("work"));
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "/x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([(
+        "CODEX_HOME".to_owned(),
+        codex_home.to_string_lossy().into_owned(),
+    )]);
+    let names = |t: super::AgentTools| t.servers.into_iter().map(|s| s.name).collect::<Vec<_>>();
+    // A stdio entry of the person's: no conflict, `cmux` stays.
+    std::fs::write(codex_home.join("config.toml"), "[mcp_servers.cmux]\ncommand = \"/opt/x\"\n")
+        .unwrap();
+    assert_eq!(
+        names(tools.clone().without_cmux_beside_an_http_entry(&work, &env)),
+        ["cmux", "acpmux"]
+    );
+    // An HTTP one: `cmux` goes, the rest stays.
+    std::fs::write(
+        codex_home.join("config.toml"),
+        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
+    )
+    .unwrap();
+    assert_eq!(names(tools.clone().without_cmux_beside_an_http_entry(&work, &env)), ["acpmux"]);
+    // In a project's own config above the chat's folder too.
+    std::fs::write(codex_home.join("config.toml"), "").unwrap();
+    std::fs::create_dir_all(root.path().join(".codex")).unwrap();
+    std::fs::write(
+        root.path().join(".codex/config.toml"),
+        "[mcp_servers.cmux]\nbearer_token_env_var = \"T\"\n",
+    )
+    .unwrap();
+    assert_eq!(names(tools.without_cmux_beside_an_http_entry(&work, &env)), ["acpmux"]);
+}

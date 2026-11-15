@@ -13,7 +13,11 @@
 #      `cmux mcp serve`, the scratch settings file); the Claude chat's MCP config
 #      names it; that server, started as the chat starts it, answers tools/list
 #      and a cmux tool call (cmux_docs);
-#   2. agents.cmuxMcp off or unanswered: neither chat gets `cmux`.
+#   2. agents.cmuxMcp off or unanswered: neither chat gets `cmux`;
+#   3. a Codex chat over the person's own global `cmux` entry with
+#      `enabled = false` still runs this build's server, never theirs;
+#   4. a Codex chat over the person's own HTTP `cmux` entry gets no `cmux`
+#      (Codex would refuse a command beside a url) and still starts.
 # Needs `node`, `claude` and `codex` on PATH; no sign-in. Never run it on a
 # person's laptop. Prints PASS or FAIL per check and exits 1 on any FAIL.
 set -u
@@ -87,27 +91,35 @@ for harness in claude codex; do
   if [ "$harness" = claude ]; then case " ${names#* | } " in *" cmux:connected "*) ;; *) ok=1 ;; esac; fi
   check "agent chat [$harness, agents.cmuxMcp on]: lists cmux (tool rows | harness: $names)" $ok
 done
-# Codex runs this build's `cmux mcp serve` under its app-server, with the settings file.
-python3 - "$CMUX" "$CMUX_NEXT_CONFIG_FILE" <<'PY'
+# The `cmux mcp serve` processes Codex runs for chat NAME (by the chat's session id in their env,
+# under a codex app-server), as "<count> <settings file of the first>".
+cat > "$D/codex-servers.py" <<'PY'
 import subprocess, sys
-cmux, settings = sys.argv[1:]
-ps = subprocess.run(["ps", "-Ao", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines()
+cmux, session = sys.argv[1:]
 procs = {}
-for line in ps:
+for line in subprocess.run(["ps", "-Ao", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines():
     pid, ppid, cmd = line.strip().split(None, 2)
     procs[pid] = (ppid, cmd)
 def ancestors(pid):
     seen = []
     while pid in procs and pid not in seen and pid != "1":
         seen.append(pid); pid = procs[pid][0]
-    return [procs[p][1] for p in seen]
-found = [pid for pid, (_, cmd) in procs.items()
-         if cmd.startswith(cmux + " mcp serve") and any("app-server" in a for a in ancestors(pid)[1:])]
-env = subprocess.run(["ps", "eww", "-o", "command=", "-p", found[0]], capture_output=True, text=True).stdout if found else ""
-print(f"codex's cmux servers: {found}")
-assert found and f"CMUX_NEXT_CONFIG_FILE={settings}" in env, env[-400:]
+    return [procs[p][1] for p in seen[1:]]
+found, settings = [], "-"
+for pid, (_, cmd) in procs.items():
+    if not cmd.startswith(cmux + " mcp serve") or not any("app-server" in a for a in ancestors(pid)):
+        continue
+    env = subprocess.run(["ps", "eww", "-o", "command=", "-p", pid], capture_output=True, text=True).stdout
+    if f"CMUX_AGENT_SESSION={session}" in env:
+        found.append(pid)
+        settings = next((w.split("=", 1)[1] for w in env.split() if w.startswith("CMUX_NEXT_CONFIG_FILE=")), "-")
+print(len(found), settings)
 PY
-check "agent chat [codex]: its app-server runs this build's cmux mcp serve with the app's settings file" $?
+session_id() { acp --json session info "$1" 2>/dev/null | python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("sessionId",""))'; }
+codex_servers() { python3 "$D/codex-servers.py" "$CMUX" "$(session_id "$1")"; }
+got=$(codex_servers gui-codex-on)
+[ "$got" = "1 $CMUX_NEXT_CONFIG_FILE" ]
+check "agent chat [codex]: its app-server runs this build's cmux mcp serve with the app's settings file ($got)" $?
 # The Claude chat's MCP config file: the one server definition.
 cfg=$(grep -l '"cmux"' "$ACPMUX_HOME"/run/mcp/*.json 2>/dev/null | head -1)
 python3 - "$cfg" "$CMUX" "$CMUX_NEXT_CONFIG_FILE" > "$D/cmux-server.json" <<'PY'
@@ -147,6 +159,35 @@ assert init["result"]["serverInfo"]["name"] == "cmux" and tools, tools
 assert "result" in call and not call["result"].get("isError"), call
 PY
 check "agent chat [claude]: its cmux server answers tools/list and a cmux tool call (cmux_docs)" $?
+
+# 3. A Codex chat over the person's own global `cmux` entry, turned off, in a folder of its own:
+# the chat's server is still this build's, on (cmux-codex-acp sends enabled and the session's cwd).
+L=$D/person.log; : > "$L"
+cat > "$D/person-mcp.js" <<'JS'
+require("fs").appendFileSync(process.argv[2], "started person\n");
+process.stdin.resume();
+JS
+mkdir -p "$D/person-cwd"
+cp "$CODEX_HOME/config.toml" "$D/codex-base.toml"
+printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["%s", "%s"]\nenabled = false\ncwd = "%s"\n' \
+  "$(command -v node)" "$D/person-mcp.js" "$L" "$D/person-cwd" >> "$CODEX_HOME/config.toml"
+start_chat gui-codex-global codex
+for _ in $(seq 1 40); do [ "$(codex_servers gui-codex-global)" != "0 -" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
+got=$(codex_servers gui-codex-global)
+[ "$got" = "1 $CMUX_NEXT_CONFIG_FILE" ] && [ ! -s "$L" ]
+check "agent chat [codex] over a global cmux entry with enabled = false: runs this build's server ($got), never the person's ($(tr '\n' ' ' < "$L"))" $?
+# 4. A Codex chat over the person's own HTTP `cmux` entry: no `cmux` (Codex would refuse a command
+# beside a url), the chat still starts, the other servers stay.
+cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
+printf '[mcp_servers.cmux]\nurl = "http://127.0.0.1:9/mcp"\n' >> "$CODEX_HOME/config.toml"
+start_chat gui-codex-http codex
+for _ in $(seq 1 40); do [ -n "$(session_id gui-codex-http)" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
+names=$(servers_of gui-codex-http)
+started=$(acp --json session info gui-codex-http 2>/dev/null | python3 -c 'import json,sys; print(bool(json.loads(sys.stdin.read() or "{}").get("agentSessionId")))')
+case " ${names%% | *} " in *" cmux "*) ok=1 ;; *) ok=0 ;; esac
+[ "$started" = True ] && [ "$(codex_servers gui-codex-http)" = "0 -" ] && case "$names" in *acpmux*) true ;; *) false ;; esac || ok=1
+check "agent chat [codex] over an HTTP cmux entry: no cmux, the chat starts (thread: $started), its other servers stay (tool rows | harness: $names)" $ok
+cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
 
 # 2. Off and unanswered
 for value in off ask; do

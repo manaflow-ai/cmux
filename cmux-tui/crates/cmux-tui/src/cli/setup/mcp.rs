@@ -15,6 +15,13 @@
 //! cmux's server in agents started elsewhere runs the `manual` lines this
 //! report names themselves, and removes them the same way.
 //!
+//! The only cmux commands that write an agent's own config are two other
+//! features the person runs themselves, each with its own server name:
+//! `cmux acp desktop link` (an `acpmux-mcp` guest entry named `cmux` for
+//! Claude desktop, Claude Code and Codex; `acpmux desktop_link.rs`) and
+//! `cmux acp bridge connect` (`cmux-bridge`; `acpmux cli/bridge.rs`). Neither
+//! runs from onboarding, Settings' cmux Tools row or this command.
+//!
 //! An installed agent is `terminals` once the person said yes and the server
 //! serves these agents (`mcp.enabled` not false), else `planned`; one not
 //! installed is `not_applicable` (named and missing: `needs_user`, install

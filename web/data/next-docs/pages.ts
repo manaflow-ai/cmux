@@ -424,6 +424,7 @@ export const nextDocPages: NextDocPage[] = [
       { p: "To use it in an agent you start somewhere else, add it to that agent's own settings yourself. cmux never does this for you; cmux setup mcp prints these lines with the path of your cmux." },
       { code: "claude mcp add --scope user cmux -- cmux mcp serve\ncodex mcp add cmux -- cmux mcp serve", lang: "bash" },
       { p: "When cmux is not on the client's PATH, use the one in the app: /Applications/cmux.app/Contents/Resources/bin/cmux. Each agent's own mcp remove cmux takes it out again." },
+      { p: "Only two cmux commands write an agent's own settings, and only when you run them: cmux acp desktop link (gives Claude desktop, Claude Code and Codex this Mac's sessions) and cmux acp bridge connect (connects Claude desktop and Codex desktop to cmux). Turning cmux Tools on writes nothing." },
       { h2: "Tools" },
       { p: "By default the server offers two tools: cmux_docs searches every cmux tool, and cmux_exec runs a short script that calls them. This keeps the client's tool list small. With --all-tools it offers every tool directly:" },
       { ul: [

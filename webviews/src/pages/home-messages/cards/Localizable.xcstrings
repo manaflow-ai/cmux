@@ -14341,127 +14341,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "استخدام الكمبيوتر والمزيد لـ %@"
+            "value" : "استخدام الكمبيوتر والمزيد لـ %@ في طرفيات cmux ومحادثات الوكلاء"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use i više za %@"
+            "value" : "Computer Use i više za %@, u cmux terminalima i agentskim razgovorima"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use og mere til %@"
+            "value" : "Computer Use og mere til %@ i cmux’ terminaler og agentchats"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use und mehr für %@"
+            "value" : "Computer Use und mehr für %@, in den Terminals und Agent-Chats von cmux"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use and more for %@"
+            "value" : "Computer Use and more for %@, in cmux’s terminals and agent chats"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use y más para %@"
+            "value" : "Computer Use y más para %@, en las terminales y los chats de agentes de cmux"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use et plus pour %@"
+            "value" : "Computer Use et plus pour %@, dans les terminaux et les discussions d’agents de cmux"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use e altro per %@"
+            "value" : "Computer Use e altro per %@, nei terminali e nelle chat degli agenti di cmux"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ に Computer Use など"
+            "value" : "cmux のターミナルとエージェントチャットの %@ に Computer Use など"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use និងច្រើនទៀតសម្រាប់ %@"
+            "value" : "Computer Use និងច្រើនទៀតសម្រាប់ %@ ក្នុងស្ថានីយ និងការជជែកភ្នាក់ងាររបស់ cmux"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@용 Computer Use 등"
+            "value" : "cmux 터미널과 에이전트 채팅의 %@에 Computer Use 등"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use og mer for %@"
+            "value" : "Computer Use og mer for %@ i cmux-terminaler og agentsamtaler"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use i więcej dla %@"
+            "value" : "Computer Use i więcej dla %@ w terminalach i czatach agentów cmux"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use e mais para %@"
+            "value" : "Computer Use e mais para %@, nos terminais e chats de agentes do cmux"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use и другое для %@"
+            "value" : "Computer Use и другое для %@ в терминалах и чатах агентов cmux"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use และอื่นๆ สำหรับ %@"
+            "value" : "Computer Use และอื่นๆ สำหรับ %@ ในเทอร์มินัลและแชตเอเจนต์ของ cmux"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ için Computer Use ve daha fazlası"
+            "value" : "cmux terminallerinde ve ajan sohbetlerinde %@ için Computer Use ve daha fazlası"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use та інше для %@"
+            "value" : "Computer Use та інше для %@ у терміналах і чатах агентів cmux"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer Use và hơn thế cho %@"
+            "value" : "Computer Use và hơn thế cho %@, trong terminal và cuộc trò chuyện tác tử của cmux"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "为 %@ 提供 Computer Use 等工具"
+            "value" : "在 cmux 终端和智能体聊天中为 %@ 提供 Computer Use 等"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "為 %@ 提供 Computer Use 等工具"
+            "value" : "在 cmux 終端機與代理聊天中為 %@ 提供 Computer Use 等"
           }
         }
       }

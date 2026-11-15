@@ -127,7 +127,7 @@ describe("cmux Tools in another language", () => {
     expect(agentToolsDetail(en, row, tools)).toBe("Gets cmux’s tools in cmux");
     expect(agentToolsDetail(de, row, tools)).toBe("Bekommt die Werkzeuge von cmux in cmux");
     expect(agentToolsStatus(de, tools)).toBe(
-      "Fertig. Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux.",
+      "Fertig. Agenten, die du in den Terminals und Agent-Chats von cmux startest, bekommen die Werkzeuge von cmux.",
     );
   });
 });

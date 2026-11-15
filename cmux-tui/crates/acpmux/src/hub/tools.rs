@@ -47,7 +47,14 @@ impl Hub {
         let tools = if left_out {
             crate::agent_tools::AgentTools::default()
         } else {
-            crate::agent_tools::current().scoped(&profile.env)
+            let tools = crate::agent_tools::current().scoped(&profile.env);
+            // The list a Codex chat gets (`spawn.rs` `acp_params`): no `cmux` beside the
+            // person's own HTTP `cmux` entry.
+            if super::spawn::is_codex(meta.family.as_deref()) {
+                tools.without_cmux_beside_an_http_entry(&meta.cwd, &profile.env)
+            } else {
+                tools
+            }
         };
         let mut cmux = tools.tool_rows(claude, claude);
         let all =

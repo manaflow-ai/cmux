@@ -119,14 +119,14 @@ struct McpLaunch<'a> {
 /// (agent_computer_use.rs) when the person said yes to cmux's tools in agents
 /// started in cmux (`choice`), unless a config Codex may load has the
 /// person's own HTTP server named `cmux`, which this build's command cannot
-/// merge into (codex_cmux_entry.rs): then none, and nothing is said.
+/// merge into (acpmux codex_cmux_entry.rs): then none, and nothing is said.
 fn mcp_settings(
     launch: &McpLaunch<'_>,
     choice: cmux_tui_core::user_settings::AgentsCmuxMcp,
     getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> Vec<OsString> {
     if !choice.injects()
-        || crate::codex_cmux_entry::http_cmux_entry(launch.args, launch.cwd, getenv)
+        || acpmux::codex_cmux_entry::http_cmux_entry(launch.args, launch.cwd, getenv)
     {
         return Vec::new();
     }

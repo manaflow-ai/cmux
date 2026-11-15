@@ -129,6 +129,12 @@ fn migrate_legacy_harness_state(
     Ok(())
 }
 
+/// Whether a session of model family `family` is Codex (its MCP servers become Codex config
+/// overrides, `agent_tools::acp_servers_for`).
+pub(super) fn is_codex(family: Option<&str>) -> bool {
+    family.is_some_and(|family| family.starts_with("codex"))
+}
+
 impl Hub {
     /// `session/new` or `session/load` params for acpmux session `id`'s ACP
     /// harness: its folder and cmux's MCP servers (agent_tools.rs), none for
@@ -145,8 +151,9 @@ impl Hub {
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
         // A fork through this child asks for the same list (`fork.rs`).
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        let codex = is_codex(meta.family.as_deref()).then_some(meta.cwd.as_path());
         let servers =
-            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
+            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all, codex);
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
         if let Some(dirs) = super::additional_dirs::acp_value(meta) {

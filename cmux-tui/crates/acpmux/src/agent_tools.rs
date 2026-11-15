@@ -502,17 +502,28 @@ pub fn is_claude_code(name: &str, profile: &crate::config::HarnessProfile) -> bo
 }
 
 /// `mcpServers` for acpmux session `session_id`'s ACP harness; `all_tools`
-/// from [`lists_all_tools`].
+/// from [`lists_all_tools`]. `codex_cwd` is the session's folder when the
+/// harness is Codex: cmux-codex-acp gives Codex these servers as its thread's
+/// `mcp_servers.<name>` override, which Codex merges into the person's own
+/// entry of that name, and where that is an HTTP server named `cmux` the
+/// merged entry has a command and a url, which Codex refuses
+/// ([`without_cmux_beside_an_http_entry`]).
 pub fn acp_servers_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     session_id: &str,
     all_tools: bool,
+    codex_cwd: Option<&Path>,
 ) -> Value {
     if left_out(remote_origin, env, &[]) {
         json!([])
     } else {
-        current().scoped(env).for_session(session_id).listing(all_tools).folded().acp_servers()
+        let tools = current().scoped(env);
+        let tools = match codex_cwd {
+            Some(cwd) => tools.without_cmux_beside_an_http_entry(cwd, env),
+            None => tools,
+        };
+        tools.for_session(session_id).listing(all_tools).folded().acp_servers()
     }
 }
 
@@ -723,7 +734,12 @@ impl AgentTools {
     /// the session's own display).
     pub fn scoped(mut self, session_env: &BTreeMap<String, String>) -> Self {
         // No `cmux` server without the person's yes ([`agents_get_cmux`]),
-        // except for a Chief turn, whose preset names its own cmux tools.
+        // except for a Chief turn (a preset that names its own cmux tools,
+        // `MCP_TOOLS_ENV`; `config/chief_builtins.rs`). The Chief is cmux's own
+        // orchestrator, not one of the person's agents: its turns work only
+        // through those tools (agents_snapshot, agents_terminal_send, …), and its
+        // preset already limits them to that list, so it keeps the server
+        // whatever the answer (decided 2026-11-14).
         if !self.cmux_for_agents && !session_env.contains_key(MCP_TOOLS_ENV) {
             self.servers.retain(|s| s.name != CMUX_SERVER);
         }
@@ -921,6 +937,25 @@ impl AgentTools {
             if all {
                 server.args.push("--all-tools".into());
             }
+        }
+        self
+    }
+
+    /// Without the `cmux` server for a Codex chat in `cwd` whose config layers hold the person's
+    /// own HTTP server named `cmux` (`codex_cmux_entry`, the rule the `codex` terminal shim
+    /// follows): Codex would refuse the merged entry and the chat would not start. The person's
+    /// server keeps the name; the session's other servers stay, standalone. `env` is the session's
+    /// (its `CODEX_HOME` wins over this daemon's).
+    pub fn without_cmux_beside_an_http_entry(
+        mut self,
+        cwd: &Path,
+        env: &BTreeMap<String, String>,
+    ) -> Self {
+        let getenv = |key: &str| {
+            env.get(key).map(std::ffi::OsString::from).or_else(|| std::env::var_os(key))
+        };
+        if crate::codex_cmux_entry::http_cmux_entry(&[], cwd, &getenv) {
+            self.servers.retain(|s| s.name != CMUX_SERVER);
         }
         self
     }

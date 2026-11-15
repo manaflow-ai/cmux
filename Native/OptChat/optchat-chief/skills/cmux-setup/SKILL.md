@@ -102,7 +102,9 @@ confirm an invite's address before you send it.
   it writes nothing. cmux gives the server only through the launch, once the
   person turned on `agents.cmuxMcp`; it never writes an agent's own config.
   For agents started elsewhere, show the person the report's `manual` lines
-  to run themselves; never run them.
+  to run themselves; never run them. The only cmux commands that write an
+  agent's own config are `cmux acp desktop link` and `cmux acp bridge
+  connect`, and only when the person runs them.
   `needs_user` with `user_action.kind` `setting` means the person answers
   the question (`agents.cmuxMcp`) or turns `"mcp": {"enabled": false}` off in
   the settings file the text names; hand them that line, do not edit the
