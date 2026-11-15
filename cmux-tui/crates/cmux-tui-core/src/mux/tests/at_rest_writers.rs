@@ -119,10 +119,29 @@ fn print_frame(surface: &Surface, tick: u64, at_ms: u64) {
     surface.note_output_at_for_test(at_ms);
 }
 
+/// What a caller of [`printing_terminals_at_rest_with`] checks after the
+/// span at rest; it returns its failures.
+pub(crate) type AfterSpan = Box<dyn FnOnce(&Arc<Mux>) -> Vec<String>>;
+
+fn nothing_attached(_: &Arc<Mux>, _: &[Arc<Surface>]) -> AfterSpan {
+    Box::new(|_: &Arc<Mux>| Vec::new())
+}
+
 /// `PRINTING_TERMINALS` terminals on a session of `workspaces` workspaces
 /// print for `SIMULATED_MINUTES`. Nothing durable changes, so the registry
 /// must not change. Then one real program status edge commits exactly once.
 fn printing_terminals_at_rest(workspaces: usize) {
+    printing_terminals_at_rest_with(workspaces, nothing_attached);
+}
+
+/// [`printing_terminals_at_rest`] with a client of the session: `attach`
+/// runs after the terminals started and before the span (what it writes is
+/// not in the span's counts, so it leaves the session settled), and what it
+/// returns runs after the span, with the session still open.
+pub(crate) fn printing_terminals_at_rest_with(
+    workspaces: usize,
+    attach: impl FnOnce(&Arc<Mux>, &[Arc<Surface>]) -> AfterSpan,
+) {
     let root = std::env::temp_dir()
         .join(format!("cmux-at-rest-writers-{}", crate::workspace_registry::new_uuid_v4()));
     let mux = open_persistent_test_mux("at-rest-writers", &root);
@@ -160,6 +179,7 @@ fn printing_terminals_at_rest(workspaces: usize) {
         mux.wait_for_terminal_publisher_for_test(Duration::from_secs(30)),
         "the terminal publisher did not drain"
     );
+    let after_span = attach(&mux, &terminals);
 
     let rows_before = journal_rows(&mux);
     let before = written(&mux);
@@ -250,6 +270,7 @@ fn printing_terminals_at_rest(workspaces: usize) {
         ));
     }
 
+    failures.extend(after_span(&mux));
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
     assert!(failures.is_empty(), "{failures:#?}");

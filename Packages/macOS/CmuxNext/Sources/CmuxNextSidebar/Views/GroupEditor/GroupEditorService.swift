@@ -216,7 +216,7 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
 
     init(content: NSView, width: CGFloat) {
         let size = NSSize(width: width, height: GroupEditorService.firstHeight)
-        card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        card = Glass.makeMenuPanel(content: content)
         super.init(contentRect: PopupStyle.standard.windowFrame(forCard: NSRect(origin: .zero, size: size)),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isReleasedWhenClosed = false

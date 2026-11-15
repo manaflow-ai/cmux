@@ -955,3 +955,25 @@ test("a turn the agent ran on its own opens with the turn gap, its rows and foot
   // The subagent's line is its one row: nothing of the agent's replies is counted in it.
   expect(layout.heights[2]).toBe(layoutConversation([done] as never, 720).heights[0]);
 });
+
+// Leo, 2026-11-14: "the spacing after the subagent starting is inconsistent? it grows too big". The
+// agent's reply under a subagent's start line is the agent's own words by the line's own sentence
+// ("… started working"), so it never takes the turn gap that keeps a reply off a subagent's done line
+// (above): it stands the run gap from the line, as any reply under a status line does
+// (transcriptSpacing.ts step-to-prose), whether or not it came in a turn the agent ran on its own.
+test("a reply under a subagent's start line stands the run gap from it, a turn of its own or not", () => {
+  const started = {
+    id: "subagentStarted:fixer",
+    version: 1,
+    at: 0,
+    kind: "subagentStarted",
+    subagents: [{ id: "fixer", parent: null, name: "fixer", state: "running", startedAt: 0 }],
+  };
+  const under = (text: string, inBackground?: string) => {
+    const rows = [reply("a", "Starting a subagent."), footer("f"), started, { ...reply("b", text), inBackground }];
+    const layout = layoutConversation(rows as never, 720);
+    return layout.tops[3]! - layout.tops[2]! - layout.heights[2]!;
+  };
+  expect(under("Here is the plan while it works.")).toBe(gridLength("gap-run"));
+  expect(under("Here is the plan while it works.", "bg-1")).toBe(gridLength("gap-run"));
+});

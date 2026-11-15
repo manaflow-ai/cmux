@@ -60,6 +60,7 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashComman
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
 import { type QueuedEntry, shownText } from "./composerQueueModel";
+import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
@@ -245,6 +246,7 @@ export function ComposerQueue({
   /// as `/$name` (slashCommands.ts), a skill added in the edit too.
   commands?: readonly SlashCommand[];
 }) {
+  acpmuxPerf.render("composer:queue");
   const skills = useSkillWords(commands);
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());

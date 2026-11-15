@@ -164,6 +164,8 @@ final class AppServices {
         #endif
         return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
     }).following(account: { [weak self] in self?.cloud.auth.accountKey })
+    /// Signing in enrolls this Mac on the hub; signing out leaves only that join (acpmux does both).
+    private(set) lazy var signInEnroll = CloudSignInEnroll.overAcpmux(auth: cloud.auth, buildTag: environment.tag, windows: chatsFeed?.windows) { [weak self] in self.flatMap(QuitAgents.environment) }
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
@@ -174,7 +176,6 @@ final class AppServices {
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
     let machineHealth = MachineHealthStore()
-    let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// The process's one guard of the Keychain UI switch: every store of cmux's own Keychain items gets this one.
     let loginKeychain = LoginKeychain()
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).

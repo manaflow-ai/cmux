@@ -16,12 +16,15 @@ public struct TerminalOutputQueue: Sendable {
         case alternateScreen(Bool)
         /// The Mac's grid for the bytes after it.
         case hostGrid(columns: Int, rows: Int)
+        /// The device that set the Mac's grid, from here on (nil: this phone, or unknown).
+        case hostGridOwner(String?)
     }
 
     private enum Item: Sendable {
         case bytes([Data])
         case alternateScreen(Bool)
         case hostGrid(columns: Int, rows: Int)
+        case hostGridOwner(String?)
     }
 
     /// Bytes handed to Ghostty per frame. Ghostty parses on its own queue, so
@@ -72,6 +75,12 @@ public struct TerminalOutputQueue: Sendable {
         items.append(.hostGrid(columns: columns, rows: rows))
     }
 
+    /// The device that sets the Mac's grid changed here: taken in order with
+    /// the grid events, so the note never names a new owner next to the old grid.
+    public mutating func append(hostGridOwner name: String?) {
+        items.append(.hostGridOwner(name))
+    }
+
     /// The next step for this frame: up to `budget` bytes joined into one
     /// piece, or the alternate screen switch at the front.
     public mutating func next(budget: Int = frameBudget) -> Step? {
@@ -83,6 +92,9 @@ public struct TerminalOutputQueue: Sendable {
         case .hostGrid(let columns, let rows):
             items.removeFirst()
             return .hostGrid(columns: columns, rows: rows)
+        case .hostGridOwner(let name):
+            items.removeFirst()
+            return .hostGridOwner(name)
         case .bytes(var chunks):
             var out = Data()
             var room = max(1, budget)

@@ -253,8 +253,9 @@ impl Checkpoint {
     }
 
     fn validate(&self) -> Result<(), Error> {
-        if self.edition == 0
-            || self.cursors.len() > 2
+        // Zero is a serializable staging edition; Log::write_checkpoint_in_edition
+        // and ordinary Log::open refuse it for a served book.
+        if self.cursors.len() > 2
             || self.open.len() > MAX_OPEN_BODIES
             || self.translator.len() > 32 * 1024
             || self.summary.len() > 2048
