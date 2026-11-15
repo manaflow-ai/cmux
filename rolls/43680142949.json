@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43680142949",
+  "recorded_at": "2026-11-15T05:20:18Z",
+  "reason": "cmux-tui 45ad74a874d8 changes the image's cmux-tui (pinned d2d0d8e0802f)",
+  "dry_run": false,
+  "cmux_tui": "45ad74a874d8b706043abe3a477406308c74c5f3",
+  "fixes": [
+    {
+      "sha": "45ad74a874d8b706043abe3a477406308c74c5f3",
+      "mergedAt": "2026-11-14T20:57:51-08:00",
+      "subject": "Cloud link: a carrier exit names which process, its status and last stderr line (#43470)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T05:20:18Z",
+    "snapshot_id": "sh-d9da25c0e1904b2f8856ccba807fbf74",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43680142949): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "582c175bb80fb57d37fa3485162e0322a763a285",
+    "image": "cloud-native-auto-45ad74a8-43680142949-1",
+    "revision": "ci-43680142949-1",
+    "at": "2026-11-15T05:20:18Z"
+  },
+  "rolled_back": false
+}
