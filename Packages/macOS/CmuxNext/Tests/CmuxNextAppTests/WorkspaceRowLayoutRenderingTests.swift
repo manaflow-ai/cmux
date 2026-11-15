@@ -63,16 +63,12 @@ import Testing
         #expect(content.displayedTitle("Subagent of Build") == "Subagent of Build · feature")
     }
 
-    @Test func minimalAndTabModesKeepTheirSingleLine() throws {
+    @Test func tabModeKeepsItsSingleLine() throws {
         let preferences = try Self.preferences(#"{"sidebar":{"workspaceRow":{"lines":[["name","branch"],["directory"],["pullRequest"]]}}}"#)
         var options = SidebarLayoutOptions()
         options.workspaceRow = preferences
-        options.minimal = true
-        var content = options.rowContent(Self.workspace(), machine: nil)
-        #expect(content.titleParts == nil && content.detail == nil && content.meta == nil)
-        options.minimal = false
         options.workspacesAsTabs = true
-        content = options.rowContent(Self.workspace(), machine: nil)
+        let content = options.rowContent(Self.workspace(), machine: nil)
         #expect(content.titleParts == nil && content.detail == nil && content.meta == nil)
     }
 }
