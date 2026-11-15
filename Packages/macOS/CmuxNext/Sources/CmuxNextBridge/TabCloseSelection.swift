@@ -26,7 +26,7 @@ public final class TabCloseSelection {
     /// The pane of each tab `openers` holds a number for (a relation's child or its opener), by the id the state knows.
     private var home: [String: String] = [:]
     /// A new foreground tab a pane is about to select: the tab it showed at the press, the tabs it listed then, the lifetime.
-    private var expected: [String: (opener: String, listed: Set<String>, quick: Bool, link: Bool)] = [:]
+    private var expected: [String: (opener: String, listed: Set<String>, quick: Bool, link: Bool, standIn: String?)] = [:]
     /// A person's selection that is about to land (a click, a shortcut, the palette, the switcher).
     private var gesture: (pane: String, tab: String)?
     /// The selection a close is about to cause: never a gesture (``closeSelects(_:in:)``).
@@ -49,10 +49,10 @@ public final class TabCloseSelection {
     /// new-tab key (a page that shows before its store tab exists, so ``made(_:from:in:quick:foreground:)`` has no
     /// tab to name yet): a foreground task tab, which first ends the pane's older relations, as a link's web tab does.
     /// `standIn`: the stand-in the pane's strip still shows for `opener` (the store replaced it, the strip shows that one
-    /// update later): `opener` is that item, so the selection that leaves the stand-in still gives the new tab its opener.
+    /// update later): the selection that leaves the stand-in still gives the new tab its opener. The stand-in keeps its own
+    /// id here until the strip swaps it (adopted early, the strip's stand-in counted as a tab that left: `d10` lost its opener).
     public func expect(in pane: String, opener: String, listed: [String], quick: Bool, link: Bool = false, standIn: String? = nil) {
-        if let standIn { adopt(opener, inPlaceOf: standIn) }
-        expected[pane] = (opener, Set(listed), quick, link)
+        expected[pane] = (opener, Set(listed), quick, link, standIn)
     }
 
     /// A person chose `tab` in `pane` (a click, a shortcut, the palette, the switcher); the selection
@@ -109,7 +109,7 @@ public final class TabCloseSelection {
         let to = id(new)
         // A tab that took the selected tab's place is the same item: nothing moved.
         guard from != to else { return }
-        if let made = expected.removeValue(forKey: pane), let from, from == id(made.opener), !made.listed.contains(new) {
+        if let made = expected.removeValue(forKey: pane), let from, from == id(made.opener) || from == made.standIn.map({ id($0) }), !made.listed.contains(new) {
             // The two modes of the decision: after the current tab = a task opener, not reported as foreground (the
             // pane's older relations stay); else the quick look-up. The move itself first: it ends a quick relation
             // of the tab the pane leaves.
