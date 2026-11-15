@@ -130,14 +130,22 @@ final class PaletteFontTunerView: NSView {
             sizeRow.frame = NSRect(x: padding, y: y, width: half, height: row)
             lineHeightRow.frame = NSRect(x: padding + half + Metrics.space4, y: y, width: half, height: row)
         case .side:
-            let stripHeight = row * CGFloat(tuner.targets.count)
+            // The column is as tall as the list, which can be short: the sliders stay pinned to
+            // the bottom, the sample gives up height first, then the target rows tighten.
+            let available = bounds.height - 2 * Self.verticalPadding
+            let sliders = row * 2 + Metrics.space2
+            let gaps = Metrics.space4 * 2
+            let minSample = PaletteLayout.rowHeight
+            let count = CGFloat(max(tuner.targets.count, 1))
+            let stripRow = max(0, min(row, (available - sliders - gaps - minSample) / count))
+            let stripHeight = stripRow * count
             strip.frame = NSRect(x: padding, y: y, width: width, height: stripHeight)
             y += stripHeight + Metrics.space4
-            sampleBox.frame = NSRect(x: padding, y: y, width: width, height: Self.sampleHeight * 1.5)
-            y += Self.sampleHeight * 1.5 + Metrics.space4
-            sizeRow.frame = NSRect(x: padding, y: y, width: width, height: row)
-            y += row + Metrics.space2
-            lineHeightRow.frame = NSRect(x: padding, y: y, width: width, height: row)
+            let sampleHeight = max(0, min(Self.sampleHeight * 1.5, available - stripHeight - gaps - sliders))
+            sampleBox.frame = NSRect(x: padding, y: y, width: width, height: sampleHeight)
+            let lineHeightY = bounds.height - Self.verticalPadding - row
+            lineHeightRow.frame = NSRect(x: padding, y: lineHeightY, width: width, height: row)
+            sizeRow.frame = NSRect(x: padding, y: lineHeightY - Metrics.space2 - row, width: width, height: row)
         }
         let inset = Metrics.space3
         sample.frame = sampleBox.bounds.insetBy(dx: inset, dy: inset / 2)
