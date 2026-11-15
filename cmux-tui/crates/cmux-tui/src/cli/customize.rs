@@ -379,6 +379,15 @@ fn reader(origin: &str) -> cmux_customize::Reader {
     if origin == "mcp" { cmux_customize::Reader::Agent } else { cmux_customize::Reader::Person }
 }
 
+/// The web ABI an app's own pages need: `bundle`'s, else the app this CLI is
+/// in (or `CMUX_CUSTOMIZE_APP`). What a web-dev overlay is judged against.
+pub(super) fn app_web_abi(bundle: Option<&std::path::Path>) -> Option<u32> {
+    match bundle {
+        Some(bundle) => pr::web_abi_of(bundle),
+        None => pr::App::find().abi,
+    }
+}
+
 pub(super) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
