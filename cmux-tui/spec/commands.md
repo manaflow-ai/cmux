@@ -9117,6 +9117,27 @@ again after a reflow), with `history_rows_omitted`, instead of the whole
 history; a viewer that does not declare it gets the whole history there, as
 before.
 
+Servers advertising `attach-output-coalesce-v1` coalesce the `output` events
+of a `mode:"bytes"` PTY attach that gets the replay stream (no snapshot) when
+the connection declared the same capability in `set-client-info` before
+attaching. Such an attach gets at most one `output` event per interval, as a
+browser coalesces a page's work to one frame per display refresh:
+`output_coalesce_ms` (uint32, 1 to 1000; default one 60 Hz frame, 16.667 ms;
+0 turns coalescing off for this attach). The bytes that arrive within one
+interval of the last event go out as one event at the interval's end,
+concatenated in order. The first bytes after an idle interval go out at once
+(a keypress echo is not delayed). An event never holds more than about 1 MiB:
+past that the held bytes go out at once. Any other attach event (`resized`,
+`colors-changed`, an `output` with `colors`, `detached`) first sends the held
+bytes, so stream order is unchanged. A viewer that cannot read that fast
+backs up the connection and gets `overflow` and reattaches, as without the
+capability. The attach's `scroll-changed` events follow the same interval:
+at most one per interval, carrying the newest position, the first after an
+idle interval at once; `notification` events are never held. A connection
+that did not declare the capability gets one `output` per PTY read and every
+`scroll-changed`, as before, and the field changes nothing for it; render
+mode and snapshot attaches ignore the field.
+
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
 Params:
@@ -9133,6 +9154,7 @@ Params:
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
 | `replay_history_start` | `uint64` | default null (the newest rows) | `attach-replay-history-window-v1`; only with `replay_history_rows` |
+| `output_coalesce_ms` | `uint32` | default null (16.667 ms when coalescing) | `attach-output-coalesce-v1` declared in `set-client-info`; 0 to 1000, 0 is off; bytes mode without `snapshot`; ignored without the capability |
 
 Result:
 
@@ -9148,6 +9170,7 @@ Errors:
 | `browser attach requires client capability browser-pointer-frame-guard-v1; ...` | The client did not advertise guarded pointer support |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
 | `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
+| `invalid: output_coalesce_ms <n> is over 1000` | A connection with `attach-output-coalesce-v1` asked for a longer interval |
 | `render attach requires protocol 7` | Server does not implement render mode |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |
@@ -10199,6 +10222,20 @@ another agent, another `op` or any other param is `agent_session.bad_request`.
 An observation attachment gets `agent_session.read_only`, and a teammate's or
 link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
 its agent in. The code and key are never logged.
+
+`agent-session-login-machine-v1` (advertised with `agent-session-login-v1`): a
+new chat that has no session yet (its start was refused
+`agent_session.sign_in_required`) signs its agent in on this machine. A step for
+a tab with no attachment that is an unbound agent tab of this store (the tab
+`agent-session-start` would start) takes the same fields plus an optional
+`vm_kind`, and sends acpmux's `_acpmux/agent_login/<op>` with no `sessionId`:
+the sign-in is this machine's own and no chat restarts. It is gated exactly as
+`agent-session-start`: a trusted carrier only (a teammate's or link guest's
+link is refused), the same host check (on a Cloud VM only the caller's
+`vm_kind:"owner"` lets it run, else `agent_session.host_unverified`; a team VM
+`agent_session.team_vm_blocked`). Any other tab with no attachment (one with a
+session, one of another store) is still `agent_session.not_attached`. The step
+runs on a worker; answers and refusals are as above.
 
 ### agent-session-btw
 
