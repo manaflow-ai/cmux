@@ -527,6 +527,7 @@ impl Supervisor {
 fn take_lease(path: &Path, wait: Duration) -> Option<FileLock> {
     let file =
         OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(path).ok()?;
+    // timeout: short-gate: the step between tries at the lease; `wait` bounds the wait.
     FileLock::take_within(file, Kind::Exclusive, wait, Duration::from_millis(50)).ok()
 }
 
