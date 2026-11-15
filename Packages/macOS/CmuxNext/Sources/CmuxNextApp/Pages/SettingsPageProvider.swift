@@ -45,6 +45,11 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
+    /// Settings > Keys (``SettingsKeys``): the keys `cmux keys ls` lists and the requests waiting for
+    /// the person, with Store, Decline and Revoke; nil in tests without an app.
+    var keys: SettingsKeys?
+    /// What a page watching Settings > Keys reads again on (``KeyRequests/revision``); nil in tests without an app.
+    var keysRevision: (@MainActor () -> Int)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
     /// hooks `cmux agent hook` installs; nil in tests without an app.
@@ -226,6 +231,18 @@ final class SettingsPageProvider: PageProvider {
             guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
             return try await Self.host(sharesRevoke, "shares")(id)
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
+        case "cmux.settings.keys.list": return try await Self.host(keys, "keys").list()
+        case "cmux.settings.keys.answer":
+            guard let id = params["request_id"]?.stringValue, !id.isEmpty, let value = params["value"]?.stringValue, !value.isEmpty else {
+                throw PageError.invalidParams("request_id and value are required")
+            }
+            return try await Self.host(keys, "keys").answer(id, value: value)
+        case "cmux.settings.keys.decline":
+            guard let id = params["request_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("request_id") }
+            return try Self.host(keys, "keys").decline(id)
+        case "cmux.settings.keys.revoke":
+            guard let id = params["id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("id") }
+            return try await Self.host(keys, "keys").revoke(id)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
@@ -354,6 +371,10 @@ final class SettingsPageProvider: PageProvider {
                 watch.cancel()
                 Task { @MainActor in watching?(false) }
             }
+        }
+        if stream == "cmux.settings.keys.changed", let keysRevision {
+            // The revision only: the page reads the list again (no request text in the event).
+            return Self.watch({ .object(["revision": .number(Double(keysRevision()))]) }, onEvent: onEvent)
         }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)

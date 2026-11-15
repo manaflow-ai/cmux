@@ -12124,3 +12124,10 @@ CmuxNextHome	extension	HomeChiefAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextHome	extension	HomeDockMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockMode+Enabled.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeTurnProgressChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+Styles.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeTopFadeChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+Styles.swift	AppKit/SwiftUI view or platform code
+CmuxNextApp	class	KeyRequests	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Keys/KeyRequests.swift	keys.request pending list (bounded, replace by name, end once); in memory, candidate to move into the Rust key broker
+CmuxNextApp	struct	KeysCLI	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Keys/KeysCLI.swift	Runs the Rust `cmux keys` CLI and reads its JSON answers
+CmuxNextApp	class	SettingsKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsKeys.swift	Settings > Keys page ops: thin bridge to KeysCLI and KeyRequests
+CmuxNextApp	extension	AppControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Keys.swift	keys.request control method wiring
+CmuxNextApp	struct	KeyRequestParams	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Keys.swift	keys.request params as the Rust CLI sends them
+CmuxNextApp	extension	KeyRequests	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Keys.swift	keys.request wait and cancel bridge
+CmuxNextApp	enum	KeyRequestNotices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Keys.swift	Key request banner and its click

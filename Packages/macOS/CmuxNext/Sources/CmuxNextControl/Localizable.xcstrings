@@ -5372,6 +5372,138 @@
         }
       }
     },
+    "control.error.secretHostMismatch": {
+      "comment": "Error when an agent fills a stored key into a browser tab on a site the key is not for. %1$@ is the sites the key is for; %2$@ is the tab's site.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This key is only for %1$@; the tab is on %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا المفتاح مخصص لـ %1$@ فقط؛ علامة التبويب على %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj ključ je samo za %1$@; kartica je na %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne nøgle er kun til %1$@; fanen er på %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Schlüssel ist nur für %1$@; der Tab ist auf %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta clave es solo para %1$@; la pestaña está en %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette clé est réservée à %1$@ ; l’onglet est sur %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chiave è solo per %1$@; la scheda è su %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このキーは %1$@ 専用です。タブは %2$@ にあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កូនសោនេះសម្រាប់តែ %1$@ ប៉ុណ្ណោះ; ផ្ទាំងស្ថិតនៅលើ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 키는 %1$@ 전용입니다. 탭은 %2$@ 에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne nøkkelen er bare for %1$@; fanen er på %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten klucz jest tylko dla %1$@; karta jest na %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta chave é só para %1$@; a aba está em %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот ключ только для %1$@; вкладка открыта на %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คีย์นี้ใช้ได้กับ %1$@ เท่านั้น แท็บอยู่ที่ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu anahtar yalnızca %1$@ için; sekme %2$@ üzerinde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей ключ лише для %1$@; вкладка відкрита на %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khóa này chỉ dành cho %1$@; thẻ đang ở %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此密钥仅用于 %1$@；标签页在 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此金鑰僅用於 %1$@；分頁在 %2$@"
+          }
+        }
+      }
+    },
     "control.error.pageTabNotFound": {
       "extractionState": "manual",
       "localizations": {

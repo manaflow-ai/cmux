@@ -31,6 +31,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -561,6 +562,11 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
       "cmux.settings.shares.list": () => this.shares,
+      "cmux.settings.keys.list": () => this.keys,
+      "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
+      "cmux.settings.keys.decline": (params) =>
+        this.declineKey(String((params as { request_id?: unknown }).request_id ?? "")),
+      "cmux.settings.keys.revoke": (params) => this.revokeKey(String((params as { id?: unknown }).id ?? "")),
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
@@ -685,6 +691,10 @@ export class MockSettingsProvider {
       "cmux.settings.environments.run",
       "cmux.settings.shares.list",
       "cmux.settings.shares.revoke",
+      "cmux.settings.keys.list",
+      "cmux.settings.keys.answer",
+      "cmux.settings.keys.decline",
+      "cmux.settings.keys.revoke",
       "cmux.settings.tailnet.state",
       "cmux.settings.tailnet.start",
       "cmux.settings.tailnet.login",
@@ -746,6 +756,7 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
+    provide("cmux.settings.keys.changed", (ctx) => this.track(this.keysChanged, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
@@ -760,6 +771,85 @@ export class MockSettingsProvider {
   setDevices(devices: DevicesState): void {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
+  }
+
+  /** Settings > Keys as the app answers it: one request waiting and three keys (live, expired,
+   * revoked). */
+  keys: KeysState = mockKeys(Date.now());
+  /** Every answer the page sent, value included, so tests can check it went to the host once (the
+   * real host pipes it to `cmux keys put` and keeps nothing). */
+  keyAnswers: { request_id: string; value: string }[] = [];
+  keyDeclines: string[] = [];
+  keyRevokes: string[] = [];
+  /** The host's refusal of the next Store (tests), else null. */
+  keyAnswerRefusal: string | null = null;
+  private keysRevision = 0;
+  private readonly keysChanged = new Set<EventSourceContext>();
+
+  /** Replaces the Keys part and tells the page, as the app does when a request arrives. */
+  setKeys(keys: KeysState): void {
+    this.keys = keys;
+    this.keysRevision += 1;
+    for (const ctx of this.keysChanged) ctx.emit({ revision: this.keysRevision });
+  }
+
+  private answerKey(params: { request_id?: unknown; value?: unknown }): { stored: boolean; name: string } {
+    const id = String(params.request_id ?? "");
+    const value = typeof params.value === "string" ? params.value : "";
+    const request = this.keys.requests.find((row) => row.id === id);
+    if (!request) throw new ProtocolError(ProtocolErrorCode.invalidParams, "keys.request_not_found");
+    if (!value) throw new ProtocolError(ProtocolErrorCode.invalidParams, "keys.value_required");
+    if (this.keyAnswerRefusal) {
+      const refusal = this.keyAnswerRefusal;
+      this.keyAnswerRefusal = null;
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, refusal);
+    }
+    this.keyAnswers.push({ request_id: id, value });
+    const at = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    this.keys = {
+      ...this.keys,
+      requests: this.keys.requests.filter((row) => row.id !== id),
+      keys: [
+        {
+          id: `local-${request.name.toLowerCase()}`,
+          label: request.name,
+          name: request.name,
+          provider: "local",
+          kind: "secret",
+          source: "person",
+          purpose: request.purpose,
+          hosts: request.hosts,
+          stores: [],
+          uses: [],
+          by: "user=you",
+          asked_by: request.requester,
+          created_at: at,
+          expires_at: null,
+          state: "live",
+        },
+        ...this.keys.keys.filter((key) => key.name !== request.name),
+      ],
+    };
+    return { stored: true, name: request.name };
+  }
+
+  private declineKey(id: string): Record<string, never> {
+    if (!this.keys.requests.some((row) => row.id === id))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "keys.request_not_found");
+    this.keyDeclines.push(id);
+    this.keys = { ...this.keys, requests: this.keys.requests.filter((row) => row.id !== id) };
+    return {};
+  }
+
+  private revokeKey(id: string): { revoked: string } {
+    if (!this.keys.keys.some((key) => key.id === id))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "keys.not_found");
+    this.keyRevokes.push(id);
+    this.keys = {
+      ...this.keys,
+      keys: this.keys.keys.map((key) => (key.id === id ? { ...key, state: "revoked" } : key)),
+    };
+    return { revoked: id };
   }
 
   /** Settings > Privacy and Security > Shared Links as this Mac's daemon answers it: a guest link with
@@ -1899,6 +1989,79 @@ export function mockDevicesState(): DevicesState {
         scope: "View only",
         detail: "Declined on this Mac",
         duration: "",
+      },
+    ],
+  };
+}
+
+/** Settings > Keys at `now`: Claude Code asks for a Stripe test key for two sites; a live key it
+ * stored and wrote to a GitHub secret, an expired R2 key, and a revoked key the person typed. */
+export function mockKeys(now: number): KeysState {
+  const day = 86_400_000;
+  const at = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+  return {
+    available: true,
+    requests: [
+      {
+        id: "kr_0001",
+        name: "STRIPE_TEST_KEY",
+        purpose: "Run the checkout tests against Stripe's test mode",
+        hosts: ["api.stripe.com"],
+        requester: "CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0-4d1a-9e3b-0c5d6e7f8a9b",
+        asked_at: at(now - 2 * 60_000),
+      },
+    ],
+    keys: [
+      {
+        id: "local-openai_api_key",
+        label: "OPENAI_API_KEY",
+        name: "OPENAI_API_KEY",
+        provider: "local",
+        kind: "secret",
+        source: "stdin",
+        purpose: "Embeddings for the search index",
+        hosts: ["api.openai.com"],
+        stores: ["gh-secret:acme/search:OPENAI_API_KEY"],
+        uses: [{ target: "api.openai.com", last_used_at: at(now - 3_600_000), count: 12 }],
+        by: "CLAUDE_CODE_SESSION_ID=9b1c2d3e-0000-4000-8000-000000000001",
+        asked_by: null,
+        created_at: at(now - 3 * day),
+        expires_at: at(now + 87 * day),
+        state: "live",
+      },
+      {
+        id: "cf-7d1e",
+        label: "R2 handoff (read and write)",
+        provider: "cloudflare",
+        kind: "r2",
+        source: "cloudflare",
+        bucket: "handoff",
+        purpose: null,
+        hosts: [],
+        stores: ["keychain:handoff"],
+        uses: [],
+        by: "CODEX_SESSION_ID=0c9d8e7f-1111-4000-8000-000000000002",
+        asked_by: null,
+        created_at: at(now - 10 * day),
+        expires_at: at(now - day),
+        state: "expired",
+      },
+      {
+        id: "local-npm_token",
+        label: "NPM_TOKEN",
+        name: "NPM_TOKEN",
+        provider: "local",
+        kind: "secret",
+        source: "person",
+        purpose: "Publish the CLI package",
+        hosts: ["registry.npmjs.org"],
+        stores: [],
+        uses: [],
+        by: "user=you",
+        asked_by: "CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0-4d1a-9e3b-0c5d6e7f8a9b",
+        created_at: at(now - 20 * day),
+        expires_at: null,
+        state: "revoked",
       },
     ],
   };
