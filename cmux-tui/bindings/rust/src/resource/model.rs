@@ -489,6 +489,10 @@ pub enum ClientTransport {
     Unix,
     #[serde(rename = "websocket")]
     WebSocket,
+    /// A client of another machine that reaches the daemon through its
+    /// remote link.
+    #[serde(rename = "remote")]
+    Remote,
 }
 
 /// Terminal dimensions reported by one connected client.
