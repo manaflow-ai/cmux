@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cb0daa422e27f7fc3c9c61a10a14024c2d3b24ca0cf48fb6388ec9f27778c548";
+inline constexpr std::string_view kProtocolIrSha256 = "d20a4715e13a8a5b7d7053b4f80ffb3e9fe841232c9f51d95d1862e647386666";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -951,6 +951,7 @@ struct AttachSurfaceRequest {
     Field<std::string> expected_generation{};
     Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
+    Field<std::uint32_t> output_coalesce_ms{};
     Field<std::uint32_t> replay_history_rows{};
     Field<std::uint64_t> replay_history_start{};
     Field<std::uint16_t> rows{};

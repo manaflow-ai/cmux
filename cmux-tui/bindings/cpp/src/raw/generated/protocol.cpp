@@ -17186,6 +17186,11 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("mode", std::move(encoded).value());
     }
+    if (!value.output_coalesce_ms.is_absent()) {
+        auto encoded = encode_value(value.output_coalesce_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("output_coalesce_ms", std::move(encoded).value());
+    }
     if (!value.replay_history_rows.is_absent()) {
         auto encoded = encode_value(value.replay_history_rows);
         if (!encoded) return std::move(encoded).error();
@@ -17276,6 +17281,16 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             auto decoded = decode_value<AttachSurfaceRequestMode>(*field_mode);
             if (!decoded) return std::move(decoded).error();
             result.mode = Field<AttachSurfaceRequestMode>(std::move(decoded).value());
+        }
+    }
+    const Json* field_output_coalesce_ms = value.find("output_coalesce_ms");
+    if (field_output_coalesce_ms) {
+        if (field_output_coalesce_ms->is_null()) {
+            result.output_coalesce_ms = Field<std::uint32_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint32_t>(*field_output_coalesce_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.output_coalesce_ms = Field<std::uint32_t>(std::move(decoded).value());
         }
     }
     const Json* field_replay_history_rows = value.find("replay_history_rows");
@@ -46135,11 +46150,12 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 12> kCommand4FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 13> kCommand4FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
     {"expected_generation", 0U, "attach-identity-v1"},
     {"expected_terminal_id", 0U, "attach-identity-v1"},
     {"mode", 7U, ""},
+    {"output_coalesce_ms", 0U, "attach-output-coalesce-v1"},
     {"replay_history_rows", 0U, "attach-replay-history-rows-v1"},
     {"replay_history_start", 0U, "attach-replay-history-window-v1"},
     {"rows", 0U, "attach-initial-size"},
