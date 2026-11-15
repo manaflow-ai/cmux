@@ -171,11 +171,16 @@ pub(super) fn run(
     max_total_bytes: u64,
     min_free: u64,
 ) -> usize {
-    let low = fs4::available_space(directory)
+    run_with(directory, parked, now_ms, max_total_bytes, low_disk(directory, min_free))
+}
+
+/// Whether the disk of `directory` is under the free-disk guard now ([`disk_low`]). A disk that cannot be read
+/// is not low.
+pub(super) fn low_disk(directory: &Path, min_free: u64) -> bool {
+    fs4::available_space(directory)
         .ok()
         .zip(fs4::total_space(directory).ok())
-        .is_some_and(|(available, capacity)| disk_low(available, capacity, min_free));
-    run_with(directory, parked, now_ms, max_total_bytes, low)
+        .is_some_and(|(available, capacity)| disk_low(available, capacity, min_free))
 }
 
 /// [`run`] with the free-disk guard already read (`disk_low`).
@@ -186,7 +191,7 @@ pub(super) fn run_with(
     max_total_bytes: u64,
     low: bool,
 ) -> usize {
-    let Ok(entries) = fs::read_dir(directory) else { return 0 };
+    let Ok(entries) = super::snapshot::list(directory) else { return 0 };
     let parked: Vec<Parked> = entries
         .flatten()
         .filter_map(|entry| {
