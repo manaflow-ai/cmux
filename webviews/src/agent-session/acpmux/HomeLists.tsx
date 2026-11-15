@@ -37,6 +37,7 @@ export function HomeLists({
 }) {
   const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
   const t = useT();
+  // homeListsShown (homeListsModel.ts) answers the same question for the pane's `data-home-lists`.
   if (waiting.length === 0 && review.length === 0) return null;
   return (
     <div className="acpmux-home">

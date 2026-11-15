@@ -213,3 +213,57 @@ test("a resume keeps its spinner's slot from the first frame and fills it only p
   expect(container.querySelector(".acpmux-unavailable-progress")).toBe(slot);
   expect(slot!.querySelector(".cv-spinner")).not.toBeNull();
 });
+
+test("the loading layout tells the pane in the commit that draws it, and stops telling it when it goes", async () => {
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  const seen: boolean[] = [];
+  const onLoadingLayout = (loading: boolean) => void seen.push(loading);
+  const render = (reason: "offline" | "deleted") =>
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason, machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        offlineDelayMs={40}
+        onLoadingLayout={onLoadingLayout}
+      />,
+    );
+  // A drop under the threshold draws the loading layout (styles.css `data-stage-loading`).
+  await act(async () => render("offline"));
+  expect(container.querySelector('[data-unavailable="connecting"]')).not.toBeNull();
+  expect(seen.at(-1)).toBe(true);
+  // Past it, the Reconnecting… card: no loading layout.
+  await act(async () => void jest.advanceTimersByTime(40));
+  expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
+  expect(seen.at(-1)).toBe(false);
+  await act(async () => render("deleted"));
+  expect(seen.at(-1)).toBe(false);
+  // A new drop draws the loading layout again; gone from the stage, the pane drops the mark.
+  await act(async () => render("offline"));
+  expect(seen.at(-1)).toBe(true);
+  await act(async () => root!.unmount());
+  root = undefined;
+  expect(seen.at(-1)).toBe(false);
+});
+
+test("a line under the header never claims the stage's loading layout", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const seen: boolean[] = [];
+  await act(async () =>
+    root!.render(
+      <ChatUnavailableState
+        line
+        unavailable={{ reason: "connecting" }}
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        onLoadingLayout={(loading) => void seen.push(loading)}
+      />,
+    ),
+  );
+  expect(container.textContent).toBe("");
+  expect(seen.includes(true)).toBe(false);
+});
