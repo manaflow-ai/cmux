@@ -560,7 +560,7 @@ class HotKeys(unittest.TestCase):
         subprocess.run(["rm", "-rf", str(self.tmp)])
 
     def publish(self, sha, **changed):
-        keys = {"schema": 1, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
+        keys = {"schema": 2, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
                 "shell": "3" * 64, "ffi": "4" * 64, "helpers": "5" * 64, **changed}
         (self.tmp / "keys" / f"{sha}.json").write_text(json.dumps(keys))
 
@@ -617,6 +617,14 @@ class HotKeys(unittest.TestCase):
         plan = json.loads(done.stdout)
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff: no FFI file
+
+    def test_a_pin_change_alone_is_planned_from_the_diff(self):
+        # A pin bump moves `ffi` with the same cmux-tui tree: the keys must not call the pair a no-op.
+        self.publish(self.base)
+        self.publish(FIX, ffi="9" * 64)
+        code, plan, err = self.plan()
+        self.assertNotEqual(code, 0, err)
+        self.assertNotIn("the app already runs SHA's parts", " ".join((plan or {}).get("notes", [])))
 
     def test_the_keys_plan_keeps_a_team_signed_apps_daemon_from_an_ad_hoc_build(self):
         # The published-keys plan checks the signature as the diff plan does (2026-11-15's Cloud list failure).

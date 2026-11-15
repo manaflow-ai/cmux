@@ -187,7 +187,9 @@ COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("b
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
 # Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
 HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
-HOT_KEYS_SCHEMA = 1
+# 2: the app FFI pin is in `ffi`, and `shell` reads Package.swift without its pin checksum line.
+HOT_KEYS_SCHEMA = 2
+FFI_PIN_PATHS = (live_apply.FFI_PIN, live_apply.FFI_PIN_MANIFEST)
 # Beside each tree, its darwin build signed by the NEXT nightly's team (cmux-tui-team-signed.yml,
 # scripts/ci/cmux_tui_team_sign.py): what a Team-signed app takes.
 TEAM_SIGNED = "team-signed"
@@ -537,12 +539,21 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
     # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
     shell = files.get("rebuild", []) + files.get("swift-live", [])
     daemon = files.get("daemon", [])
+    manifest = live_apply.FFI_PIN_MANIFEST
+    if manifest in blobs:
+        # A pin bump rewrites the manifest's checksum line too; the pin file carries it into `ffi`, so `shell` reads
+        # the manifest without it, and a pin change alone stays a pair `keys_plan` hands to the diff.
+        text = git(repo, "show", f"{sha}:{manifest}")
+        kept = "".join(line for line in text.splitlines(keepends=True)
+                       if not live_apply.FFI_PIN_LINE.match(line.rstrip("\n")))
+        blobs[manifest] = hashlib.sha256(kept.encode()).hexdigest()
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
             "web": set_digest(blobs, files.get("web-live", [])),
             "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
-            "ffi": set_digest(blobs, linked_rust(repo, daemon)), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
+            "ffi": set_digest(blobs, linked_rust(repo, daemon) + [p for p in daemon if p in FFI_PIN_PATHS]),
+            "helpers": set_digest(blobs, helper_rust(repo, daemon))}
 
 
 def valid_keys(keys, sha: str) -> bool:
@@ -623,18 +634,18 @@ def keys_plan(app: Path, sha: str, base: str, given_base: bool, unsigned: bool =
             out["web_key"] = remembered("web", sha, lambda: want["web_key"])
         else:
             out["left"]["web ABI"] = [f"SHA's web needs ABI {want['web_abi']}, the app has {abi}"]
+    if want["ffi"] != have["ffi"]:
+        # The app FFI may swap warm (cmux#43548): which files changed decides it (the Swift build's own Rust
+        # inputs still need an app), and only the diff knows them, so the diff plans this pair. A pin change alone
+        # moves `ffi` with the same cmux-tui tree.
+        return None
     if want["tree_key"] != have["tree_key"]:
         out["tree_key"], out["base_tree_key"] = want["tree_key"], have["tree_key"]
-        if want["ffi"] != have["ffi"]:
-            # The app FFI may swap warm (cmux#43548): which files changed decides it (the Swift build's own Rust
-            # inputs still need an app), and only the diff knows them, so the diff plans this pair.
-            return None
-        else:
-            out["published"] = published(want["tree_key"])
-            daemon_part(out, app, given_base, unsigned)
-            if want["helpers"] != have["helpers"]:
-                out["left"]["bundled helpers (cmux-mobile-host, ...)"] = [
-                    f"helpers key {have['helpers'][:12]} -> {want['helpers'][:12]}"]
+        out["published"] = published(want["tree_key"])
+        daemon_part(out, app, given_base, unsigned)
+        if want["helpers"] != have["helpers"]:
+            out["left"]["bundled helpers (cmux-mobile-host, ...)"] = [
+                f"helpers key {have['helpers'][:12]} -> {want['helpers'][:12]}"]
     if not out["parts"] and not out["left"]:
         out["notes"].append("the app already runs SHA's parts")
     return out
@@ -734,13 +745,15 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
             out["left"]["web ABI"] = [f"SHA's web needs ABI {want}, the app has {have}"]
     rust = files.get("daemon", [])
     if rust:
-        linked = linked_rust(repo, rust)
+        # A pin change alone (live_apply.py FFI_PIN: the release the app links) is the same swap as the FFI it pins.
+        pins = [p for p in rust if p in FFI_PIN_PATHS]
+        linked = linked_rust(repo, rust) + pins
         out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, since)
         if linked:
             # The app FFI library, when the app carries it as one (Contents/Frameworks/libcmux_app_ffi.dylib), swaps
             # warm (hot_apply_ffi.py): SHA's published release, paired with the app's pin. The daemon part then
             # goes with it. Rust the Swift build itself reads (the swift test job's inputs) still needs an app.
-            swift_read = [p for p in linked if not ffi_input(repo, p)]
+            swift_read = [p for p in linked if p not in pins and not ffi_input(repo, p)]
             try:
                 if swift_read:
                     raise ffi_part.Left("the Swift build reads " + ", ".join(swift_read[:3]))

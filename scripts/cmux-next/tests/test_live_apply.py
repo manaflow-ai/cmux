@@ -79,6 +79,15 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", "Resources/Localizable.xcstrings")]), "rebuild")
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/Package.swift")]), "rebuild")
 
+    def test_an_app_ffi_pin_change_alone_is_the_ffi_swap(self):
+        pin, manifest = "Packages/macOS/CmuxNext/app-ffi-pin.json", "Packages/macOS/CmuxNext/Package.swift"
+        bump = {manifest: [("-", "// app-ffi-pin-checksum: " + "1" * 64), ("+", "// app-ffi-pin-checksum: " + "2" * 64)]}
+        self.assertEqual(self.verdict([("M", manifest), ("M", pin)], bump), "daemon")
+        self.assertEqual(self.verdict([("M", pin)]), "daemon")
+        more = {manifest: bump[manifest] + [("+", '        .target(name: "CmuxNextNew"),')]}
+        self.assertEqual(self.verdict([("M", manifest), ("M", pin)], more), "rebuild")
+        self.assertEqual(self.verdict([("M", manifest)]), "rebuild")
+
     def test_native_sources_need_a_rebuild_except_the_ones_cmux_tui_builds(self):
         self.assertEqual(self.verdict([("M", "cmux-tui/crates/cmux-remote-browser-host/csrc/rb_shim.mm")]), "daemon")
         self.assertEqual(self.verdict([("M", "cmux-tui/bindings/zig/src/raw/generated/protocol.zig")]), "daemon")

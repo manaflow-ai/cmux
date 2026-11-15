@@ -7,7 +7,8 @@ Reads `git diff BASE HEAD` (no GitHub API) and prints the verdict of the heavies
 
   no-app      docs, CI, tests, scripts, website and backend only: nothing in the app changes
   web-live    plus the app's web bundles (webviews/): hot-swapped into the running app
-  daemon      plus Rust (cmux-tui, acpmux): a daemon or CLI restart with the change's binary
+  daemon      plus Rust (cmux-tui, acpmux): a daemon or CLI restart with the change's binary, or, for
+              the Rust the app links and its pin, hot-apply.py's warm swap of the app FFI library
   swift-live  plus app Swift changed only inside function bodies and computed properties, or new
               Swift files (the patch carries them: Prototypes/ViewShell/inject.sh), in a module the
               live code build patches (LIVE_MODULE)
@@ -42,6 +43,12 @@ IOS = re.compile(r"^(ios|cmux-next-ios|Packages/iOS)/")
 # companion's shim, the Zig binding), so they are daemon, as hot-apply.py applies them; its linked_rust still leaves
 # an app FFI crate's to the ffi part (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
 REBUILD_FILE = re.compile(r"\.(xcstrings|strings|xcassets|plist|entitlements|pbxproj|xcconfig|storyboard|xib|metal|png|pdf|car|icns)$|(^|/)Package\.(swift|resolved)$|Contents\.json$|\.xcodeproj/|/Resources/|^ghostty|^(?!cmux-tui/).*\.(c|h|m|mm|zig)$")
+# The app FFI pin (scripts/ci/app_ffi_pin.py): app-ffi-pin.json, and the one checksum comment line Package.swift
+# repeats it in, name the CCmuxAppFFI release the app links. The app carries that release as a replaceable library,
+# which hot-apply.py's ffi part swaps warm, so a pin change alone is daemon, like the FFI Rust it pins.
+FFI_PIN = "Packages/macOS/CmuxNext/app-ffi-pin.json"
+FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+FFI_PIN_LINE = re.compile(r"^// app-ffi-pin-checksum: [0-9a-f]{64}$")
 COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
 STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
@@ -109,6 +116,9 @@ def classify(files, diffs):
             note("no-app", path)
         elif WEB.search(path):
             note("web-live", path)
+        elif path == FFI_PIN or (path == FFI_PIN_MANIFEST and status == "M" and diffs.get(path)
+                                 and all(FFI_PIN_LINE.match(text) for _, text in diffs[path])):
+            note("daemon", path)
         elif REBUILD_FILE.search(path):
             note("rebuild", path, "resource or manifest")
         elif RUST.search(path):
