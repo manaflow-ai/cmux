@@ -32,6 +32,12 @@ KEY_PREFIX = "ios-link-ffi-xcframework-"
 # cmux-next-ios-kit.yml checks the build script itself (that it runs and leaves
 # the generated Swift unchanged), so it always builds.
 ALWAYS_BUILDS = {"cmux-next-ios-kit.yml"}
+# The gate's legs read cmux NEXT's R2 bucket (cmux-next-fast-tier-seed.yml),
+# under a namespace of their own: the key already names the Xcode build and
+# the runner, and the Linux job that writes it is not the Mac that built it.
+NEXT_PUBLIC_URL = "https://ci-cache-next.cmux.com"
+NAMESPACE = "ios-link-ffi"
+HANDOFF = "ios-link-ffi-framework"
 
 
 def git(repo: Path, *args: str) -> str:
