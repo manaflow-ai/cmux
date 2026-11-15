@@ -463,8 +463,7 @@ fn watch_folder(
                     continue;
                 }
                 let old = std::mem::replace(&mut layer, next.clone());
-                let applied =
-                    customize.library_use_code(next.clone(), Vec::new(), origin, now_ms());
+                let applied = customize.library_update_code(next.clone(), origin, now_ms());
                 // The replaced layer goes before the line that says so: a watch
                 // stopped right after it keeps no stale layer.
                 if applied.is_ok() && !old.web.is_empty() && old.web != next.web {
@@ -497,23 +496,26 @@ fn watch_folder(
 pub(super) fn refresh_entry(
     customize: &Customize,
     code: &CodeLayer,
-    on: bool,
     origin: &str,
     now: u64,
 ) -> Result<String, Failure> {
     let Ok(dir) = checkout(Path::new(&code.source)) else {
         return Ok(format!("{} is gone or no longer a cmux working copy", code.source));
     };
-    let (layer, seconds) = build_layer(customize, &dir, &App::find(), true)?;
+    // A folder that does not build is this entry's note, not the end of the
+    // refresh: the other entries are still checked.
+    let (layer, seconds) = match build_layer(customize, &dir, &App::find(), true) {
+        Ok(built) => built,
+        Err(error) => {
+            let first = error.message.lines().next().unwrap_or_default().to_owned();
+            return Ok(format!("did not build, the last layer stays: {first}"));
+        }
+    };
     if layer.web == code.web && layer.head == code.head {
         return Ok(format!("built again in {seconds:.0} s: up to date"));
     }
-    let name = layer.name();
     let old = code.web.clone();
-    customize.library_use_code(layer.clone(), Vec::new(), origin, now)?;
-    if !on {
-        customize.library_settle_code(&name, "", Some(false), origin, now)?;
-    }
+    customize.library_update_code(layer.clone(), origin, now)?;
     if !old.is_empty() && old != layer.web {
         prune(customize, &old);
     }

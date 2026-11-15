@@ -109,18 +109,41 @@ impl App {
     /// The app's commit in full: a short one is resolved on GitHub.
     pub(super) fn full_commit(&mut self, http: &Http) {
         let Some(commit) = self.commit.clone().filter(|commit| !is_sha(commit)) else { return };
-        self.commit = full_sha(http, &commit);
+        self.commit = full_sha(http, &commit).ok().flatten();
     }
 }
 
-/// A commit of manaflow-ai/cmux in full, from 7 or more hex.
-fn full_sha(http: &Http, commit: &str) -> Option<String> {
+/// A commit of manaflow-ai/cmux in full, from 7 or more hex: `Ok(None)` when
+/// GitHub says there is no such commit, `Err` when it could not be asked. The
+/// anonymous API allows 60 calls an hour per IP, which a shared office or
+/// fleet address runs out of, so a refusal is asked again through `gh`
+/// (signed in) when it is installed.
+fn full_sha(http: &Http, commit: &str) -> Result<Option<String>, String> {
     let url = format!("https://api.github.com/repos/{REPO}/commits/{commit}");
-    http.get_json(&url)
+    let found = match http.get_json(&url) {
+        Ok(answer) => {
+            answer.and_then(|value| value.get("sha").and_then(Value::as_str).map(str::to_owned))
+        }
+        // GitHub's answer for hex that names no commit.
+        Err(error) if error.message.contains("HTTP 422") => None,
+        Err(error) => match gh_sha(commit) {
+            Some(sha) => Some(sha),
+            None => return Err(error.message),
+        },
+    };
+    Ok(found.filter(|sha| is_sha(sha) && sha.starts_with(commit)))
+}
+
+/// `full_sha`'s question through `gh api`, signed in.
+fn gh_sha(commit: &str) -> Option<String> {
+    let output = cmux_process::Command::new("gh")
+        .args(["api", &format!("repos/{REPO}/commits/{commit}"), "--jq", ".sha"])
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .output()
         .ok()
-        .flatten()
-        .and_then(|value| value.get("sha").and_then(Value::as_str).map(str::to_owned))
-        .filter(|sha| is_sha(sha) && sha.starts_with(commit))
+        .filter(|output| output.status.success())?;
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|sha| is_sha(sha))
 }
 
 fn is_hex_commit(text: &str) -> bool {
@@ -572,12 +595,20 @@ pub(super) fn use_code(
         Source::Pr(pr) => Published::Pr(pr),
         Source::Branch(name) => Published::Ref { kind: CodeKind::Branch, name },
         Source::Sha(sha) => {
-            let full = if is_sha(&sha) { Some(sha.clone()) } else { full_sha(&http, &sha) };
-            let name = full.ok_or_else(|| {
-                failure(format!(
-                    "{sha} is no commit of {REPO} (a fork's commit: use OWNER/REPO@BRANCH)"
-                ))
-            })?;
+            let full = if is_sha(&sha) { Ok(Some(sha.clone())) } else { full_sha(&http, &sha) };
+            let name = match full {
+                Ok(Some(name)) => name,
+                Ok(None) => {
+                    return Err(failure(format!(
+                        "{sha} is no commit of {REPO} (a fork's commit: use OWNER/REPO@BRANCH)"
+                    )));
+                }
+                Err(why) => {
+                    return Err(failure(format!(
+                        "could not look {sha} up on GitHub ({why}); give the whole commit: cmux customize use sha:<40 hex>"
+                    )));
+                }
+            };
             Published::Ref { kind: CodeKind::Sha, name }
         }
         Source::Fork { repo, reference } => Published::Fork { repo, reference },
@@ -727,7 +758,7 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
         let Some(code) = entry.code.clone() else { continue };
         let name = entry.name.clone();
         let Some(published) = Published::of(&code) else {
-            let note = super::dir::refresh_entry(customize, &code, entry.on, origin, now_ms)?;
+            let note = super::dir::refresh_entry(customize, &code, origin, now_ms)?;
             human.push_str(&format!("{name}: {note}\n"));
             results.push(json!({ "name": name, "note": note, "turned_off": false }));
             continue;
@@ -768,11 +799,7 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
                 (format!("the branch is at {}; {asked}", short(&tip)), None)
             } else if !layer.same(&code) || layer.base != code.base || layer.web != code.web {
                 install(customize, &http, &layer)?;
-                let was_on = entry.on;
-                customize.library_use_code(layer.clone(), Vec::new(), origin, now_ms)?;
-                if !was_on {
-                    customize.library_settle_code(&name, "", Some(false), origin, now_ms)?;
-                }
+                customize.library_update_code(layer.clone(), origin, now_ms)?;
                 (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
             } else if code.has_web() && !layer.has_web() {
                 (
