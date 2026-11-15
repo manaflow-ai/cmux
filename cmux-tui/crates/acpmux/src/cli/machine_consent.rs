@@ -289,10 +289,9 @@ pub(crate) fn for_account(mut status: Value, account: Option<&str>) -> Value {
     let refusal = status.get("lastRefusal");
     if refusal.and_then(|r| r.get("surface")).and_then(Value::as_str) == Some(sim)
         && !mine(refusal.and_then(|r| r.get("user")))
+        && let Some(status) = status.as_object_mut()
     {
-        if let Some(status) = status.as_object_mut() {
-            status.insert("lastRefusal".into(), Value::Null);
-        }
+        status.insert("lastRefusal".into(), Value::Null);
     }
     status
 }
