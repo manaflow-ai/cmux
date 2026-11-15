@@ -432,3 +432,128 @@ async fn v2_pr07b_callers() {
     drop(god.v2);
     drop(small.v2);
 }
+
+// PROBE (diagnostic, not for merge): which request makes a fresh daemon's first `ls --json
+// --live` follow the closed rows. Each part on its own new daemon, each timed twice.
+#[ignore = "diagnostic probe of the first JSON read"]
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_first_read() {
+    use acpmux_client::wire::{Anchor, ListView, Sub};
+    let us = |at: Instant| at.elapsed().as_micros();
+    let keys: Vec<String> = (0..20).map(|n| format!("live-{n:02}")).collect();
+    let fresh = |closed: usize| async move {
+        list_daemon::serve(Serves::List, |hub| {
+            list_daemon::twenty_live_beside(hub, closed).unwrap()
+        })
+        .await
+        .unwrap()
+    };
+    for closed in [1_100, 11_000, 110_000] {
+        // A: rows_by_key, no socket.
+        let d = fresh(closed).await;
+        let mut t = Vec::new();
+        for _ in 0..2 {
+            let at = Instant::now();
+            let rows = d.hub.rows_by_key(&keys, false);
+            t.push(us(at));
+            assert_eq!(rows.iter().flatten().count(), 20);
+        }
+        eprintln!("PROBE closed={closed} part=A rows_by_key first_us={} second_us={}", t[0], t[1]);
+        drop(d);
+        // A1: own_row_text of one live session, then of another.
+        let d = fresh(closed).await;
+        let live: Vec<_> = d
+            .hub
+            .session_handles()
+            .into_iter()
+            .filter(|s| s.id == "live-00" || s.id == "live-01")
+            .collect();
+        let mut t = Vec::new();
+        for session in &live {
+            let at = Instant::now();
+            let _ = d.hub.own_row_text(session, false);
+            t.push(us(at));
+        }
+        eprintln!(
+            "PROBE closed={closed} part=A1 own_row_text first_us={} second_us={}",
+            t[0], t[1]
+        );
+        drop(d);
+        // A2: session_list_summary (summary_with_tools without tools), the same way.
+        let d = fresh(closed).await;
+        let live: Vec<_> = d
+            .hub
+            .session_handles()
+            .into_iter()
+            .filter(|s| s.id == "live-00" || s.id == "live-01")
+            .collect();
+        let mut t = Vec::new();
+        for session in &live {
+            let at = Instant::now();
+            let _ = d.hub.session_list_summary(session);
+            t.push(us(at));
+        }
+        eprintln!(
+            "PROBE closed={closed} part=A2 session_list_summary first_us={} second_us={}",
+            t[0], t[1]
+        );
+        drop(d);
+        // B: the v2 hub's subscribe to the live view, no socket.
+        let d = fresh(closed).await;
+        let v2 = d.v2.clone().unwrap();
+        let mut t = Vec::new();
+        for n in 0..2 {
+            let mut sub = Sub::new(format!("probe-{n}"), "list").around(Anchor::End, 100);
+            sub.view = Some(ListView::Live);
+            let at = Instant::now();
+            let subscription = v2.hub.subscribe(&sub).unwrap();
+            t.push(us(at));
+            drop(subscription);
+        }
+        eprintln!("PROBE closed={closed} part=B subscribe first_us={} second_us={}", t[0], t[1]);
+        drop(v2);
+        drop(d);
+        // C and D: over the socket, no proxy; D after 2 s idle.
+        for (part, idle) in [("C", false), ("D", true)] {
+            let d = fresh(closed).await;
+            if idle {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            for run in 1..=2 {
+                let client = Client::connect(&d.path).await.unwrap();
+                let at = Instant::now();
+                let stream = crate::local_stream::connect(&d.path).await.unwrap();
+                let (reader, writer) = crate::local_stream::split(stream);
+                let acpmux_client::tokio_list::Opened::List(mut connection) =
+                    acpmux_client::tokio_list::open(reader, writer).await.unwrap()
+                else {
+                    panic!("no list surface")
+                };
+                let upgrade = us(at);
+                let at = Instant::now();
+                let read = acpmux_client::tokio_list::Read::Window {
+                    view: ListView::Live,
+                    filter: None,
+                    rows: 100,
+                };
+                let mut reading = connection.read(read).await.unwrap();
+                let window = reading.next().await.unwrap().unwrap();
+                let sub = us(at);
+                drop(reading);
+                let at = Instant::now();
+                let reply = client
+                    .request(crate::rpc::method::MUX_INFO, json!({"sessionIds": keys, "row": true}))
+                    .await
+                    .unwrap();
+                let info = us(at);
+                assert_eq!(window.rows.len(), 20);
+                assert_eq!(reply["rows"].as_array().map(Vec::len), Some(20));
+                eprintln!(
+                    "PROBE closed={closed} part={part} run={run} upgrade_us={upgrade} \
+                     hello_sub_window_us={sub} info_us={info}"
+                );
+            }
+            drop(d);
+        }
+    }
+}
