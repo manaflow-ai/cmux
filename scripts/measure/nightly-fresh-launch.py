@@ -98,6 +98,23 @@ def phases(marks: dict, rendered_at: float | None) -> dict:
             "harness": None if rendered_at is None else round(rendered_at * 1000)}
 
 
+def repeated_marks(path: Path) -> list[list]:
+    """Every mark a launch wrote more than once, with each time (read_marks keeps only the first): a step that ran
+    again, such as a Home ensure that a later connection restarted."""
+    seen: dict[str, list[float]] = {}
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        name, _, ms = line.rpartition(" ")
+        try:
+            seen.setdefault(name, []).append(round(float(ms), 1))
+        except ValueError:
+            continue
+    return sorted(([name, times] for name, times in seen.items() if len(times) > 1), key=lambda item: item[1][0])
+
+
 def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, seconds: float, name: str) -> dict:
     """One launch of APP from HOME_ROOT/h (the smoke's fresh_env), watched until Home rendered and SECONDS passed."""
     socket_path, marks_path = home_root / f"{name}.sock", home_root / f"marks-{name}"
@@ -121,7 +138,7 @@ def launch(smoke, root: Path, app: Path, executable: str, home_root: Path, secon
         os.close(marks_read)
     marks = dict(sorted(smoke.read_marks(marks_path).items(), key=lambda kv: kv[1]))
     return {"exit": seen["exit"], "rendered_at": seen["rendered_at"], "host": seen["host"],
-            "phases": phases(marks, seen["rendered_at"]), "marks": marks}
+            "phases": phases(marks, seen["rendered_at"]), "marks": marks, "repeats": repeated_marks(marks_path)}
 
 
 def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: float, index: int,
@@ -148,6 +165,7 @@ def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds:
             print("NFL-LAUNCH", index, row["arm"], json.dumps({k: row[k] for k in ("exit", "rendered_at", "phases")}),
                   flush=True)
             print("NFL-MARKS", index, row["arm"], json.dumps(row["marks"]), flush=True)
+            print("NFL-REPEATS", index, row["arm"], json.dumps(row["repeats"]), flush=True)
     finally:
         smoke.stop(smoke.own_pids(root))
         shutil.rmtree(root, ignore_errors=True)
