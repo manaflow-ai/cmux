@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43766277600",
+  "recorded_at": "2026-11-15T22:03:44Z",
+  "reason": "cmux-tui 3d91283a04a5 changes the image's cmux-tui (pinned 5ef9e969a0e0)",
+  "dry_run": false,
+  "cmux_tui": "3d91283a04a5f9d9ea06848fce1332c53f1e02c2",
+  "fixes": [
+    {
+      "sha": "3d91283a04a5f9d9ea06848fce1332c53f1e02c2",
+      "mergedAt": "2026-11-15T13:37:46-08:00",
+      "subject": "Mac Screen: cmux app mac-screens reads each viewer tab's first frame, fps and round trip in every build (#43923)"
+    },
+    {
+      "sha": "9bfb0345ba8cce41806a75eadb93f846419efc4d",
+      "mergedAt": "2026-11-15T21:27:15Z",
+      "subject": "acpmux: cut the rest of the recorded v1 answer; an uncut session fails it (#43472)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T22:03:44Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
