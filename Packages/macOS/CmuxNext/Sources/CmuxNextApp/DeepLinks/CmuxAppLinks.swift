@@ -40,11 +40,11 @@ enum CmuxAppLinks {
     /// URL; false with agent links off.
     @MainActor
     static func openAgentWeb(_ url: URL, services: AppServices, click: LinkRouter.Click = .init()) -> Bool? {
-        let (link, bare) = (DeepLink.parseAgentWeb(url), DeepLink.agentWebSession(url))
+        let (link, bare) = (DeepLink.parseAgentWeb(url), DeepLink.agentWebSession(url) ?? DeepLink.agentReference(url, linkScheme: services.linkScheme))
         guard link != nil || bare != nil else { return nil }
         let web = { @MainActor in LinkRouter.shared.open(url, as: click) }
         let intent: WindowActivation.Intent = click.background ? .bringForward : .raise
-        return (try? DeepLinkNavigator(services: services).openAgentLink(link, bare: bare, intent, asking: false, notFound: web)) != nil
+        return (try? DeepLinkNavigator(services: services).openAgentLink(link, bare: bare, intent, asking: false, notFound: bare.map(DeepLink.isAgentReference) == true ? nil : web)) != nil
     }
 
     /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the
