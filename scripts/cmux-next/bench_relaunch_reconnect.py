@@ -70,6 +70,9 @@ AGENT = os.path.join(HERE, "idle_cost_agent.py")
 PHASES = [
     ("app main", "app", "main_start"),
     ("did finish launching", "app", "did_finish_launching_end"),
+    ("first window frame", "app", "first_window_frame_committed"),
+    ("Chromium start", "app", "cef.initialize_start"),
+    ("Chromium ready", "app", "cef.ready"),
     ("lookup start", "app", "acpmux.lookup_start"),
     ("build homes adopted", "app", "acpmux.adopted"),
     ("daemon status answered", "app", "acpmux.status_answered"),
@@ -199,6 +202,24 @@ def round_phases(timings: dict, page: dict, daemon: dict) -> dict:
     return out
 
 
+def all_marks(timings: dict, page: dict) -> dict:
+    """Every app launch mark and every page mark, in ms after did_finish_launching_end, in time
+    order: a mark added inside a phase (a new `DebugTimings.markLaunch` or a page `*_epoch_ms`
+    mark) shows up here with no harness change, as the fleet runs this script only from
+    feat-cmux-next."""
+    zero = timings.get("process_start_epoch_ms")
+    marks = dict(timings.get("launch_ms_since_process_start") or {})
+    if zero is not None:
+        for key, at in page.items():
+            if key.endswith("_epoch_ms") and isinstance(at, (int, float)):
+                marks["page." + key[:-len("_epoch_ms")]] = at - zero
+    base = marks.get("did_finish_launching_end")
+    if not isinstance(base, (int, float)):
+        return {}
+    out = {name: round(float(at) - base, 1) for name, at in marks.items() if isinstance(at, (int, float))}
+    return dict(sorted(out.items(), key=lambda item: item[1]))
+
+
 def median_table(rounds: list[dict], modes: list[str]) -> str:
     def cell(values):
         values = [v for v in values if v is not None]
@@ -282,6 +303,8 @@ def main(argv: list[str] | None = None):
                 rounds.append(entry)
                 print(f"PERF-RELAUNCH mode={mode} round={index + 1} live_ms={phases.get('first live event')} "
                       f"{json.dumps(phases)}", flush=True)
+                print(f"PERF-RELAUNCH-MARKS mode={mode} round={index + 1} "
+                      f"{json.dumps(all_marks(timings, page))}", flush=True)
     finally:
         bm.end_bundle(args.app)
         if scratch:
