@@ -2,8 +2,8 @@
 """Apply a merged feat-cmux-next commit's web and Rust parts to a running cmux NEXT app, no new build.
 
     hot-apply.py plan SHA [--app APP] [--repo DIR]
-    hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
-                       [--restart-acpmux] [--dry-run] [--base COMMIT]
+    hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust,ffi] [--socket P] [--acpmux-home H]...
+                       [--restart-acpmux] [--sign-identity ID | --reseal] [--dry-run] [--base COMMIT]
     hot-apply.py prefetch SHA [--app APP | --base COMMIT] [--repo DIR]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
@@ -36,7 +36,15 @@ with live_apply.py's rules:
          Chief home, Computer Use socket and policy stay). A daemon a restart would cost its chats
          (a memory store without agent hosts) or whose environment is unreadable is left, and the
          receipt lists every acpmux daemon left on the old build, with why.
-  left   what needs a new app: Swift, resources and manifests, Rust the app links, a web ABI
+  ffi    Rust the app links (its FFI crates) changed, and the app carries that Rust as one library,
+         Contents/Frameworks/libcmux_app_ffi.dylib: the library of SHA's published cmux-app-ffi
+         release replaces it across `cmux app quit --keep-sessions` and a relaunch (a warm swap:
+         the daemon and its terminals stay up), once the release is paired with the app (SHA's FFI
+         only adds to the release the app's commit pins, and the library exports every symbol the
+         app imports). A Developer ID app (a NIGHTLY) loads only libraries of its team:
+         --sign-identity signs with that team's identity, --reseal signs the app ad hoc too
+         (hot_apply_ffi.py has the rules). The rust part rides with it; without it, both are left.
+  left   what needs a new app: Swift, resources and manifests, Rust the app links (statically), a web ABI
          change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
          keep the app's build while the daemon part still applies)
 
@@ -80,6 +88,8 @@ another pauses it), so they add up to the run:
   swap      the files renamed into place; the web overlay installed
   reload    the daemon handoff until a new owner answers; the acpmux daemons restarted. The app's
             own reload of its pages (on the overlay's manifest.json) is not seen from here.
+  quit      ffi: `cmux app quit --keep-sessions` until the app's pid is gone
+  launch    ffi: `open APP` until a new pid answers on the app's control socket, then the stay-up check
   rollback  putting back what was there after a failed check
 
 `apply --dry-run` plans, fetches and verifies every part and stops before `backup`: nothing in the
@@ -126,6 +136,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import live_apply  # noqa: E402
+import hot_apply_ffi as ffi_part  # noqa: E402
 
 TUI_BASE = os.environ.get("CMUX_HOT_APPLY_TUI_BASE") or "https://files.cmux.com/cmux-tui/tree"
 # The commit-addressed builds a tree's source.json names, which publish its companions.
@@ -347,6 +358,13 @@ def linked_rust(repo: Path, paths: list[str]) -> list[str]:
             and not any(p.startswith(d + "/") for d in excluded)]
 
 
+def ffi_input(repo: Path, path: str) -> bool:
+    """PATH is a source of the app FFI library (cmux_next_route.app_ffi_inputs, less what Cargo never builds)."""
+    inputs, excluded = ffi_part.ffi_paths(repo)
+    return (any(path == i or path.startswith(i.rstrip("/") + "/") for i in inputs)
+            and not any(path.startswith(d + "/") for d in excluded))
+
+
 def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     """The changed Rust paths the app's other bundled helpers build from (the mobile host, the diff
     sidecar): those helpers keep the app's build."""
@@ -415,6 +433,21 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None)
     if rust:
         linked = linked_rust(repo, rust)
         out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, since)
+        if linked:
+            # The app FFI library, when the app carries it as one (Contents/Frameworks/libcmux_app_ffi.dylib), swaps
+            # warm (hot_apply_ffi.py): SHA's published release, paired with the app's pin. The daemon part then
+            # goes with it. Rust the Swift build itself reads (the swift test job's inputs) still needs an app.
+            swift_read = [p for p in linked if not ffi_input(repo, p)]
+            try:
+                if swift_read:
+                    raise ffi_part.Left("the Swift build reads " + ", ".join(swift_read[:3]))
+                if branch:
+                    raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
+                out["ffi"] = {**ffi_part.plan(repo, None if given_base else app, sha, base), "files": linked}
+                out["parts"].append("ffi")
+                linked = []
+            except ffi_part.Left as why:
+                out["notes"].append(f"ffi: {why}")
         if linked:
             out["left"]["Rust the app links (FFI)"] = linked
         elif out["tree_key"] != out["base_tree_key"]:
@@ -1043,6 +1076,26 @@ def command_apply(args) -> int:
     target = (app / BIN / "cmux").resolve()
     undo: dict = {}
     receipt["unchanged"] = []
+    ffi_how = ffi_new = ffi_checksum = None
+    if "ffi" in parts and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]:
+        # Before any part changes: the daemon part rides with the library, so one the app cannot take keeps both.
+        try:
+            ffi_how = ffi_part.how_to_sign(app, args.sign_identity, args.reseal)
+            ffi_new, ffi_checksum = ffi_part.fetch_library(planned["ffi"]["source"], state, fetch, fetch_kept)
+            with PHASES("verify"):
+                missing = sorted(ffi_part.imports(app) - ffi_part.exports(ffi_new))
+            if missing:
+                raise ffi_part.Left(f"the library lacks {len(missing)} symbol(s) the app imports: "
+                                    + ", ".join(missing[:5]))
+        except ffi_part.Left as why:
+            ffi_new = None
+            receipt["left"]["ffi"] = [str(why)]
+            receipt["left"]["Rust the app links (FFI)"] = planned["ffi"]["files"]
+            parts = [p for p in parts if p not in ("ffi", "rust")]
+            if not parts:
+                receipt["seconds"] = round(time.monotonic() - t0, 3)
+                record(state, receipt, last=False)
+                return 3
     try:
         if "rust" in parts:
             # --binary: a cmux binary built for SHA elsewhere (try-pr.sh: the PR's fleet dev build).
@@ -1096,6 +1149,22 @@ def command_apply(args) -> int:
                 undo["web"] = overlay_snapshot(live)
                 receipt["steps"]["web"] = apply_web(repo, args.sha, live)
                 receipt["applied"].append("web")
+        if "ffi" in parts:
+            # Last: the app quits (sessions kept) and opens again on the new library, and its pages with it.
+            source = planned["ffi"]["source"]
+            if ffi_new is None:  # the app was built with SHA's FFI sources
+                receipt["unchanged"].append("ffi")
+                receipt["steps"]["ffi"] = {"source": source, "unchanged": True}
+            else:
+                try:
+                    step, undo["ffi"] = ffi_part.swap(app, ffi_new, state, ffi_how, args.sign_identity, PHASES)
+                except Exception as error:
+                    if getattr(error, "undo", None):
+                        undo["ffi"] = error.undo  # quit and swapped: put the old library back
+                    raise
+                receipt["steps"]["ffi"] = {"source": source, "release": planned["ffi"]["release"],
+                                           "archive_sha256": ffi_checksum, **step}
+                receipt["applied"].append("ffi")
     except Exception as error:  # noqa: BLE001 - any failed step puts back what ran before
         receipt["error"] = str(error)
         receipt["rolled_back"] = True
@@ -1123,6 +1192,17 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
         if "web" in parts:
             key = web_key(repo, args.sha)
             receipt["steps"]["web"] = {"key": key, "commit": args.sha, "bundles": str(web_bundles(key, state))}
+        if "ffi" in parts and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]:
+            try:
+                new, checksum = ffi_part.fetch_library(planned["ffi"]["source"], state, fetch, fetch_kept)
+                receipt["steps"]["ffi"] = {"source": planned["ffi"]["source"], "archive_sha256": checksum,
+                                           "copy": str(new)}
+                if not args.base:  # an app to pair with: its imports, and how it would be signed
+                    missing = sorted(ffi_part.imports(app) - ffi_part.exports(new))
+                    receipt["steps"]["ffi"]["missing_symbols"] = missing
+                    receipt["steps"]["ffi"]["signed"] = ffi_part.how_to_sign(app, args.sign_identity, args.reseal)
+            except ffi_part.Left as why:
+                receipt["left"]["ffi"] = [str(why)]
     except Exception as error:  # noqa: BLE001 - the receipt says what failed; nothing to put back
         receipt["error"] = str(error)
         receipt["seconds"] = round(time.monotonic() - t0, 3)
@@ -1136,6 +1216,11 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
 def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> dict:
     """Restores each part in `undo` and checks it; returns what happened to each."""
     out: dict = {}
+    if "ffi" in undo:  # first: the app quits and opens again on the library it had
+        try:
+            out["ffi"] = ffi_part.put_back(app, undo["ffi"])
+        except Exception as error:  # noqa: BLE001
+            out["ffi"] = {"ok": False, "error": str(error)}
     if "web" in undo:
         try:
             overlay_restore(live, undo["web"])
@@ -1195,7 +1280,8 @@ def command_rollback(args) -> int:
 
 def command_prefetch(args) -> int:
     """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
-    args.dry_run, args.parts, args.binary = True, "web,rust", None
+    args.dry_run, args.parts, args.binary = True, "web,rust,ffi", None
+    args.sign_identity, args.reseal = None, False
     args.socket, args.acpmux_home, args.restart_acpmux = None, [], False
     return command_apply(args)
 
@@ -1220,7 +1306,12 @@ def main(argv=None) -> int:
                        help="SHA is a branch head (a pull request) that may predate the app's commit")
         p.add_argument("--base", help="stand in for the app's commit (plan, apply --dry-run): no app needed")
         if name == "apply":
-            p.add_argument("--parts", default="web,rust")
+            p.add_argument("--parts", default="web,rust,ffi")
+            p.add_argument("--sign-identity",
+                           help="ffi: sign the app FFI library with this keychain identity (a Developer ID app's team)")
+            p.add_argument("--reseal", action="store_true",
+                           help="ffi: a Developer ID app takes an ad hoc library by being signed ad hoc too "
+                                "(it starts signed out of its Keychain items; rollback puts the signature back)")
             p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
