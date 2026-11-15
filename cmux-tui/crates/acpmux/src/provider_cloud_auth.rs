@@ -30,7 +30,13 @@
 //! whose key is `GEMINI_API_KEY`, sent as `x-goog-api-key` to that base URL
 //! (`contentGenerator.ts`). With `selectedType` `gemini-api-key` it uses the same two. Grok
 //! (`11-custom-models.md`): `GROK_MODELS_BASE_URL` is its base URL for inference, `XAI_API_KEY`
-//! sent as `Authorization: Bearer`.
+//! sent as `Authorization: Bearer`. Grok CLI 1.0.77 in ACP mode offers its `xai.api_key` auth
+//! method, and so starts `session/new` with no sign-in, only when its probe of that key
+//! (`GET <xAI API base>/api-key`) does not call the key unusable. The default base is the public
+//! API, which refuses the placeholder, so `session/new` answered "Authentication required"
+//! (#43857). `GROK_XAI_API_BASE_URL` (its `--xai-api-base-url`) moves the probe, and the title
+//! and turn calls (`/responses`, `/chat/completions`), to the gateway; the gateway answers the
+//! probe's path with a 404, which the probe takes as unknown, so the key method is offered.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -89,7 +95,9 @@ impl Provider {
     fn endpoint_vars(self) -> &'static [&'static str] {
         match self {
             Provider::Gemini => &["GOOGLE_GEMINI_BASE_URL"],
-            Provider::Grok => &["GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL"],
+            Provider::Grok => {
+                &["GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL", "GROK_XAI_API_BASE_URL"]
+            }
         }
     }
 
@@ -116,6 +124,7 @@ impl Provider {
             ],
             Provider::Grok => vec![
                 pair("GROK_MODELS_BASE_URL", format!("{origin}/xai/v1")),
+                pair("GROK_XAI_API_BASE_URL", format!("{origin}/xai/v1")),
                 pair("XAI_API_KEY", PLACEHOLDER_KEY.to_owned()),
             ],
         }
@@ -491,6 +500,12 @@ mod tests {
                     "GROK_MODELS_BASE_URL".to_owned(),
                     "https://coderouter.cmux.internal/xai/v1".to_owned()
                 ),
+                (
+                    // Grok CLI's key probe and turns go to the gateway too, or its ACP
+                    // `session/new` refuses the placeholder key (#43857).
+                    "GROK_XAI_API_BASE_URL".to_owned(),
+                    "https://coderouter.cmux.internal/xai/v1".to_owned()
+                ),
                 ("XAI_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
             ])
         );
@@ -585,6 +600,7 @@ mod tests {
             (Provider::Gemini, "GOOGLE_GENAI_USE_VERTEXAI", "true"),
             (Provider::Gemini, "GOOGLE_GENAI_USE_GCA", "TRUE"),
             (Provider::Grok, "GROK_MODELS_BASE_URL", "https://proxy.example.test/v1"),
+            (Provider::Grok, "GROK_XAI_API_BASE_URL", "https://proxy.example.test/v1"),
         ] {
             assert_eq!(mode(&m, p, &[(k, v)], Some(BOTH)).await, Mode::Own("endpoint"), "{k}");
         }

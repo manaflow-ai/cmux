@@ -13,6 +13,7 @@ fn the_applier_keeps_its_files_private_and_never_routes_the_model_plane() {
         "GOOGLE_GEMINI_BASE_URL",
         "GROK_MODELS_BASE_URL",
         "GROK_MODELS_LIST_URL",
+        "GROK_XAI_API_BASE_URL",
         "OPTIND",
         "PS1",
         "ZDOTDIR",
