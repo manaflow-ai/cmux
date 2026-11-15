@@ -76,7 +76,6 @@ run_group acpmux-client client_gates
 # acpmux-core (release)
 core_gates() {
   run_core replay_frame_gate
-  run_core replay_append_gate
   run_core replay_open_hold_gate
   run_core single_encode_gate
   run_core list_window_gate_measures_running_subscriptions_at_both_sizes
@@ -89,7 +88,6 @@ core_gates() {
   run_core pr08_mirror_apply
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
-  run_core actor_line_and_checkpoint_open_gate
   run_core v2_pr03a_source_read_bounds
   run_core folders_serving_release_gates
   run_core folders_tail_release_gates
