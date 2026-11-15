@@ -248,10 +248,8 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
 /// `None` when the lock file cannot be opened (a read-only directory): the
 /// write then goes ahead like before, and the publish reports any error.
 ///
-/// The Mac app takes this lock the same way (`flock`, the same file name)
-/// around its own writes of the settings file, until those writes are
-/// `settings.*` ops: Swift `SettingsFileLock` in `CmuxNextSettings`. Change
-/// the lock kind or the file name in both places.
+/// The Mac app no longer writes the settings file (its writes are
+/// `settings.edit` ops), so only owners in this crate take the lock.
 pub(crate) fn lock_config(config_path: &Path) -> Option<ConfigLock> {
     // Beside the configured path, not a symlink's target: a dotfiles repo
     // never gets a lock file.

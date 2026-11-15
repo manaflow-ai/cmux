@@ -5,18 +5,18 @@ public import Observation
 
 /// Loads `~/.config/cmux/cmux-next.json`, applies it to `DesignSettings` and the
 /// action registry, and re-applies on every change to the file (kernel file
-/// events, no polling). Writes go through `file` and come back through the
-/// watcher, so the file stays the single source of truth.
+/// events, no polling). Writes go through `file` to the daemon's settings owner (`writer`) and come
+/// back through the watcher, so the file stays the single source of truth.
 ///
 /// App entry point:
 /// ```swift
-/// let settings = SettingsController(registry: registry)
+/// let settings = SettingsController(writer: DaemonSettingsFileWriter(...), registry: registry)
 /// settings.start()   // loads once, then watches
 /// ```
 @MainActor
 @Observable
 public final class SettingsController {
-    /// Serialized, off-main file access (also backs `settings.get/set`).
+    /// Serialized, off-main file reads and the writes it sends to the writer (also backs `settings.get/set`).
     @ObservationIgnored public let file: CmuxConfigFile
     /// Diagnostics from the last load: bad values, unknown action IDs,
     /// unsupported chords, and shortcut conflicts.
@@ -113,7 +113,9 @@ public final class SettingsController {
         let source: String?
     }
 
+    /// `writer` takes every write of the file (the app: the home daemon's settings owner); nil refuses them.
     public init(
+        writer: (any SettingsFileWriter)? = nil,
         registry: ActionRegistry,
         design: DesignSettings = .shared,
         fileURL: URL = CmuxConfigFile.defaultURL(),
@@ -122,7 +124,7 @@ public final class SettingsController {
         launch: LaunchRead? = nil,
         buildDefaults: SettingsBuildDefaults? = nil
     ) {
-        self.file = CmuxConfigFile(url: fileURL)
+        self.file = CmuxConfigFile(url: fileURL, writer: writer)
         self.launchRead = launch
         self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
         self.applier = SettingsApplier(design: design, registry: registry)

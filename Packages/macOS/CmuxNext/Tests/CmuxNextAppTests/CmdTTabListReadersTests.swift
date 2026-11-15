@@ -80,7 +80,7 @@ struct CmdTTabListReadersTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let keepAwake = KeepAwakeService()

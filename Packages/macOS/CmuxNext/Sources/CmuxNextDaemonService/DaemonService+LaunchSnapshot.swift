@@ -92,7 +92,13 @@ extension DaemonService {
                            // The App Store examples: listed, installed only by the person.
                            "CMUX_APPS_DIRS": AppPlatformResources.storeExamples.path]
         if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
-        environment.merge(DaemonDiagnosticKnobs(processEnvironment: ProcessInfo.processInfo.environment).daemonEnvironment) { own, _ in own }
+        let process = ProcessInfo.processInfo.environment
+        environment.merge(DaemonDiagnosticKnobs(processEnvironment: process).daemonEnvironment) { own, _ in own }
+        // The settings file the app reads, when a launch names another than the default
+        // (`CMUX_NEXT_CONFIG_FILE`, a tagged or test launch): the daemon's settings owner, the file's
+        // one writer, then serves the same file (settings-react.md section 7, item 1). A captured
+        // login environment would not carry it.
+        if let config = process["CMUX_NEXT_CONFIG_FILE"], !config.isEmpty { environment["CMUX_NEXT_CONFIG_FILE"] = config }
         return environment
     }
 

@@ -922,7 +922,7 @@ import Testing
         let url = directory.appending(path: "cmux.json")
         let labs = { (on: Bool) throws in try Data(#"{"labs": {"machineJoin": \#(on)}}"#.utf8).write(to: url) }
         try labs(true)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         #expect(settings.snapshot.machineJoin)
@@ -995,7 +995,7 @@ import Testing
         let url = directory.appending(path: "cmux.json")
         let labs = { (on: Bool) throws in try Data(#"{"labs": {"machineJoin": \#(on)}}"#.utf8).write(to: url) }
         try labs(true)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let fake = Fake()
@@ -1047,7 +1047,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let page = SettingsPageProvider(settings: settings)
@@ -1091,7 +1091,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let page = SettingsPageProvider(settings: settings)
