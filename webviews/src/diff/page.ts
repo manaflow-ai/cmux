@@ -7,6 +7,8 @@
 //   - the stream `cmux.diff.events` carries the sidecar's `DiffEvent`s;
 //   - `cmux.diff.languages` answers the user language pack, and the stream of the same name
 //     sends it again when the folder changes;
+//   - `cmux.diff.theme` answers `{themeCSS}`, the user's `<config dir>/diff/theme.css`, and the
+//     stream of the same name sends it again on every save ("" once it is deleted);
 //   - `cmux.diff.comments {method, params}` carries the classic `cmuxDiffComments` messages
 //     (comments, viewed files, viewer prefs). The page uses it only when `ops` lists it.
 // Patches are served by the host at `cmux-page://cmux.diff/__patch/<token>/...`.
@@ -14,10 +16,13 @@ import { createPageClient, isPageError, type PageClient } from "../pages/shared/
 import type { DiffViewerConfig } from "../types";
 import { setDiffChangeColors } from "../appearance";
 import { sanitizeViewerPrefs } from "../viewer-prefs";
+import { applyUserThemeCSS } from "../surfaces/installWebviewStyles";
 
 export const DIFF_PAGE_CONFIG_OP = "cmux.diff.config";
 export const DIFF_PAGE_EVENTS = "cmux.diff.events";
 export const DIFF_PAGE_LANGUAGES = "cmux.diff.languages";
+/** The user stylesheet, `<config dir>/diff/theme.css` (DiffPageProvider `themeOp`): op and stream. */
+export const DIFF_PAGE_THEME = "cmux.diff.theme";
 /** The host's prefs after each change made elsewhere (DiffPageProvider+Stores `prefsStream`). */
 export const DIFF_PAGE_PREFS_STREAM = "cmux.diff.prefs";
 export const DIFF_PAGE_COMMENTS_OP = "cmux.diff.comments";
@@ -118,6 +123,31 @@ export async function startPageDiffPrefs(page: Pick<PageClient, "subscribe">): P
     });
   } catch (error) {
     if (!isUnknownOp(error)) console.warn("cmux diff prefs stream failed", error);
+  }
+}
+
+/**
+ * Applies the user's `diff/theme.css` as the page's last stylesheet, then each save from the
+ * `cmux.diff.theme` stream in place ("" after a delete clears it). A host without the op or stream
+ * is fine (no user stylesheet). Resolves once the stream is subscribed.
+ */
+export async function startPageDiffTheme(
+  page: Pick<PageClient, "call" | "subscribe">,
+  doc: Document = document,
+): Promise<void> {
+  const apply = (value: unknown) => {
+    const css = (value as { themeCSS?: unknown } | null | undefined)?.themeCSS;
+    if (typeof css === "string") applyUserThemeCSS("diff", css, doc);
+  };
+  try {
+    apply(await page.call<unknown>(DIFF_PAGE_THEME, {}));
+  } catch (error) {
+    if (!isUnknownOp(error)) console.warn("cmux diff theme.css load failed", error);
+  }
+  try {
+    await page.subscribe<unknown>(DIFF_PAGE_THEME, apply);
+  } catch (error) {
+    if (!isUnknownOp(error)) console.warn("cmux diff theme.css stream failed", error);
   }
 }
 

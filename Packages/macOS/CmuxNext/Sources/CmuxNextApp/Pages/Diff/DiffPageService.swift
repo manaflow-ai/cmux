@@ -419,7 +419,8 @@ final class DiffPageService: InternalPageProvider {
             ?? tab.repository.map { tabRuntime.prepare(repository: $0, source: tab.source, turn: tab.turn) }
         let tabGit: (any DiffGitRunning)? = chat != nil ? nil : tab.gitLink.map { DiffAgentGit(link: $0) } ?? diffGit
         let provider = DiffPageProvider(ready: ready, sidecar: chat != nil ? nil : tabRuntime.sidecar, languages: tabRuntime.languages, host: host,
-                                        stores: stores, git: tabGit, machine: tab.machine.map { machineName($0) }, chatPatch: chat != nil)
+                                        stores: stores, git: tabGit, machine: tab.machine.map { machineName($0) }, chatPatch: chat != nil,
+                                        theme: tabRuntime.theme)
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .diff, routes: routes, options: Self.engineOptions, surface: .diff,
