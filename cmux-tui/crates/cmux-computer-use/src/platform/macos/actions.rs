@@ -586,6 +586,15 @@ pub(super) fn click(
     target: &PointerTarget,
     spec: &ClickSpec,
 ) -> DResult<ActionOutcome> {
+    super::activation::take_hand_back_failed();
+    with_hand_back_flag(click_inner(d, target, spec))
+}
+
+fn click_inner(
+    d: &MacDesktop,
+    target: &PointerTarget,
+    spec: &ClickSpec,
+) -> DResult<ActionOutcome> {
     let t = d.target(target.window_id())?;
     // menu_item: open the menu, press the item, close it, in this call.
     if let Some(value) = spec.menu_item.as_deref() {
@@ -858,6 +867,16 @@ pub(super) fn type_text(
 }
 
 pub(super) fn press_keys(
+    d: &MacDesktop,
+    window_id: &str,
+    combo: &KeyCombo,
+    delivery: Delivery,
+) -> DResult<ActionOutcome> {
+    super::activation::take_hand_back_failed();
+    with_hand_back_flag(press_keys_inner(d, window_id, combo, delivery))
+}
+
+fn press_keys_inner(
     d: &MacDesktop,
     window_id: &str,
     combo: &KeyCombo,
@@ -1163,6 +1182,28 @@ fn unprimed(
     })
 }
 
+/// Adds a failed hand-back to an action's result or refusal, however the
+/// scope ended (an explicit end or a drop on an early return).
+fn with_hand_back_flag(res: DResult<ActionOutcome>) -> DResult<ActionOutcome> {
+    if !super::activation::take_hand_back_failed() {
+        return res;
+    }
+    let note = super::activation::HAND_BACK_FAILED;
+    match res {
+        Ok(mut out) => {
+            super::activation::append_note(&mut out.note, note);
+            Ok(out)
+        }
+        Err(DesktopError::Unsupported(m)) if !m.contains(note) => {
+            Err(DesktopError::Unsupported(with_notes(m, note)))
+        }
+        Err(DesktopError::Failed(m)) if !m.contains(note) => {
+            Err(DesktopError::Failed(with_notes(m, note)))
+        }
+        other => other,
+    }
+}
+
 /// A refusal inside a key-in-app scope: the scope ends first (the app is
 /// handed back), and a failed hand-back is said in the message.
 fn scope_refusal(key: Option<super::activation::KeyInApp<'static>>, why: &str) -> DesktopError {
@@ -1223,6 +1264,9 @@ fn prime_block_of(
     let mut ancestors = Vec::new();
     let mut complete = true;
     let mut node = item.element("AXParent");
+    // The walk must reach the menu bar; anything short of it (a break, the
+    // depth limit, an unreadable role) leaves the place unread: blocked.
+    let mut reached_bar = false;
     for _ in 0..10 {
         let Some(n) = node else { break };
         if !live() {
@@ -1235,7 +1279,11 @@ fn prime_block_of(
                 Ok(t) => ancestors.push(t.and_then(|t| t.as_string()).unwrap_or_default()),
                 Err(_) => complete = false,
             },
-            Some("AXMenuBar") | Some("AXApplication") => break,
+            Some("AXMenuBar") => {
+                reached_bar = true;
+                break;
+            }
+            Some("AXApplication") => break,
             None => {
                 complete = false;
                 break;
@@ -1244,6 +1292,7 @@ fn prime_block_of(
         }
         node = n.element("AXParent");
     }
+    complete &= reached_bar;
     // Unreadable title or key equivalent: None (blocked).
     let title =
         item.attr("AXTitle").ok().map(|t| t.and_then(|t| t.as_string()).unwrap_or_default());

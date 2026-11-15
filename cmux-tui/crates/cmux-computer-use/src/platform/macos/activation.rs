@@ -248,6 +248,9 @@ pub(super) struct Registry {
     /// pid: a paced drag in one app never blocks another app's scope.
     busy: Mutex<std::collections::HashSet<i32>>,
     freed: std::sync::Condvar,
+    /// pid -> scope entries waiting for its lock: input yields to them, so a
+    /// long typing loop cannot keep a scope from entering between chunks.
+    entering: Mutex<HashMap<i32, usize>>,
 }
 
 /// One pid's lock ([`Registry::lock_pid`]); released when dropped.
@@ -272,6 +275,7 @@ impl Registry {
             held: Mutex::new(HashMap::new()),
             busy: Mutex::new(std::collections::HashSet::new()),
             freed: std::sync::Condvar::new(),
+            entering: Mutex::new(HashMap::new()),
         }
     }
     fn map(&self) -> std::sync::MutexGuard<'_, HashMap<i32, (u32, usize, Instant)>> {
@@ -285,6 +289,31 @@ impl Registry {
         }
         busy.insert(pid);
         PidLock { registry: self, pid }
+    }
+
+    /// Takes `pid`'s lock for a scope entry, ahead of input waiting for it.
+    pub(super) fn lock_pid_for_entry(&self, pid: i32) -> PidLock<'_> {
+        *self.entering.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(pid).or_insert(0) += 1;
+        let lock = self.lock_pid(pid);
+        let mut entering = self.entering.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(n) = entering.get_mut(&pid) {
+            *n -= 1;
+            if *n == 0 {
+                entering.remove(&pid);
+            }
+        }
+        lock
+    }
+
+    /// Whether a scope entry is waiting for `pid`'s lock.
+    fn entry_waiting(&self, pid: i32) -> bool {
+        self.entering.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains_key(&pid)
+    }
+
+    /// [`Self::entry_waiting`] for tests.
+    #[cfg(test)]
+    pub(super) fn entry_waiting_for_test(&self, pid: i32) -> bool {
+        self.entry_waiting(pid)
     }
 
     /// Whether `pid`'s lock is held right now (tests).
@@ -333,7 +362,8 @@ impl Registry {
     ) -> Option<T> {
         let start = Instant::now();
         loop {
-            {
+            // A scope entry waiting for this app goes first (fairness).
+            if !self.entry_waiting(pid) {
                 let _lock = self.lock_pid(pid);
                 if !self.is_open(pid) {
                     return Some(post(&Posting { route: Route::Pid { pid, window } }));
@@ -489,7 +519,7 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
     ) -> Option<KeyInApp<'a, O>> {
         // Fail closed on entry: an unreadable front app counts as the target.
         let front = || os.front_pid().is_none_or(|p| p == pid);
-        let posting = registry.lock_pid(pid);
+        let posting = registry.lock_pid_for_entry(pid);
         let open = registry.map().get(&pid).copied();
         match entry(open.map(|e| (e.0, e.1)), window, front()) {
             Entry::Refuse => return None,
@@ -547,7 +577,8 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
     pub(super) fn live(&self) -> bool {
         self.os.now().saturating_duration_since(self.opened) < SCOPE_BOUND
             && self.os.stop_epoch() == self.epoch
-            && self.os.front_pid() != Some(self.pid)
+            // Fail closed: an unreadable front app counts as the target.
+            && self.os.front_pid().is_some_and(|p| p != self.pid)
     }
 
     /// Polls `ready` until it holds, at most `budget` and never past the
@@ -600,6 +631,11 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         // The last scope's entry goes only after its focus-out post (on every
         // return below): until then the app counts as primed.
         let _remove = (after == 0).then(|| RemoveOnDrop { registry: self.registry, pid: self.pid });
+        // Fail closed: with the front app unreadable nothing is posted (it
+        // could be the target, now in the person's hands); input waits.
+        if after == 0 && self.os.front_pid().is_none() {
+            return self.failed();
+        }
         let exists = self.os.window_exists(self.window, self.pid);
         let plan = hand_back(
             after,
@@ -610,16 +646,16 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         );
         let name = match plan {
             HandBack::StillOpen | HandBack::TargetIsFront => return Ended::Fine,
-            HandBack::NoWindow => {
-                self.registry.hold(self.pid);
-                return Ended::HandBackFailed;
-            }
+            HandBack::NoWindow => return self.failed(),
             HandBack::Post(name) => name,
         };
         for _ in 0..2 {
-            // Read again right before posting: the app may have come to front.
-            if self.os.front_pid() == Some(self.pid) {
-                return Ended::Fine;
+            // Read again right before posting: the app may have come to front
+            // (unreadable: fail closed, no post).
+            match self.os.front_pid() {
+                Some(p) if p == self.pid => return Ended::Fine,
+                None => return self.failed(),
+                Some(_) => {}
             }
             if self.os.post(&self.psn, &record(RECORD_FOCUS, name, FOCUS_OUT)) {
                 return Ended::Fine;
@@ -629,10 +665,29 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
             "cmux computer use: could not hand window {name} of pid {} back (defocus record)",
             self.pid
         );
-        // It may still take itself for the active app: input waits a moment.
+        self.failed()
+    }
+
+    /// A failed hand-back: the app may still take itself for the active app,
+    /// so input to it waits a moment, and the call's result says so (the
+    /// flag is read by the action that owned the scope, whatever path ended
+    /// it: an explicit end or a drop on an early return).
+    fn failed(&self) -> Ended {
         self.registry.hold(self.pid);
+        HAND_BACK_FAILED_IN_CALL.with(|f| f.set(true));
         Ended::HandBackFailed
     }
+}
+
+thread_local! {
+    /// A hand-back failed on this thread since the last [`take_hand_back_failed`].
+    static HAND_BACK_FAILED_IN_CALL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether a hand-back failed on this thread since the last call (and
+/// clears it): an action adds [`HAND_BACK_FAILED`] to its result.
+pub(super) fn take_hand_back_failed() -> bool {
+    HAND_BACK_FAILED_IN_CALL.with(|f| f.replace(false))
 }
 
 impl<O: ScopeOs> Drop for KeyInApp<'_, O> {

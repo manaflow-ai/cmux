@@ -435,35 +435,51 @@ fn a_joiner_does_not_extend_the_bound() {
     assert!(!first.live() && !joiner.live(), "both end one bound after the first entry");
 }
 
-/// Review 6 (1): input reaches an app's process only through
-/// `activation::post_unprimed`: only input.rs calls the post-to-process API,
-/// and only activation.rs builds a `Posting` (its field is private there).
+/// Review 6 (1), 7: input reaches an app's process only through
+/// `activation::post_unprimed`. Every source file of this directory is read
+/// at test time (a new file is covered too): only input.rs posts events (to
+/// a process, a PSN, or the HID tap; CoreGraphics or SkyLight; called or
+/// looked up as a symbol), sys.rs only declares them, input.rs exposes no
+/// poster that takes a bare Route, and only activation.rs builds a Posting.
 #[test]
 fn only_post_unprimed_can_post_to_a_process() {
-    let files = [
-        ("actions.rs", include_str!("actions.rs")),
-        ("activation.rs", include_str!("activation.rs")),
-        ("ax.rs", include_str!("ax.rs")),
-        ("capture.rs", include_str!("capture.rs")),
-        ("cgwindows.rs", include_str!("cgwindows.rs")),
-        ("input.rs", include_str!("input.rs")),
-        ("key_focus.rs", include_str!("key_focus.rs")),
-        ("keymap.rs", include_str!("keymap.rs")),
-        ("menus.rs", include_str!("menus.rs")),
-        ("mod.rs", include_str!("mod.rs")),
-        ("roles.rs", include_str!("roles.rs")),
-        ("workspace.rs", include_str!("workspace.rs")),
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/platform/macos");
+    let posters = [
+        concat!("CGEvent", "PostToPid"),
+        concat!("CGEvent", "PostToPSN"),
+        concat!("SLEvent", "PostToPid"),
+        concat!("SLEvent", "PostToPSN"),
+        concat!("CGSPost", "Event"),
+        concat!("CGEvent", "Post("),
     ];
-    let post_to_pid = concat!("CGEvent", "PostToPid(");
     let build = concat!("Posting", " { route");
-    for (name, src) in files {
-        if name != "input.rs" {
-            assert!(!src.contains(post_to_pid), "{name} posts to a process directly");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(dir).expect("source directory") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        if name == "tests.rs" {
+            continue;
+        }
+        seen += 1;
+        let src = std::fs::read_to_string(&path).expect("read source");
+        if name != "input.rs" && name != "sys.rs" {
+            for p in posters {
+                assert!(!src.contains(p), "{name} uses {p}: post through input with a Posting");
+            }
         }
         if name != "activation.rs" {
             assert!(!src.contains(build), "{name} builds a Posting");
         }
+        if name == "input.rs" {
+            for line in src.lines().filter(|l| l.trim_start().starts_with("pub fn ")) {
+                assert!(!line.contains(": Route"), "input.rs exposes a bare-Route poster: {line}");
+            }
+        }
     }
+    assert!(seen >= 10, "the macOS sources were found ({seen})");
 }
 
 /// Review 5 (1B): the last scope's entry stays in the registry until its
@@ -513,6 +529,64 @@ fn a_menu_item_retitled_during_validation_is_not_pressed() {
     assert_eq!(roles::same_item(Some("Undo Typing"), Some("Undo Typing")), Ok(()));
     assert!(roles::same_item(Some("Undo Typing"), Some("Redo Typing")).is_err());
     assert!(roles::same_item(Some("Save"), None).is_err());
+}
+
+/// Review 7: the scope fails closed when the front app cannot be read:
+/// not live, and its hand-back posts nothing and holds the app's input.
+#[test]
+fn an_unreadable_front_app_fails_closed_in_live_and_hand_back() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    assert!(key.live());
+    os.front_unknown.set(true);
+    assert!(!key.live());
+    let before = os.posts.borrow().len();
+    activation::take_hand_back_failed();
+    assert_eq!(key.end(), activation::Ended::HandBackFailed);
+    assert_eq!(os.posts.borrow().len(), before, "no focus-out posted");
+    assert!(reg.is_open(5), "input held");
+    assert!(activation::take_hand_back_failed(), "the call learns of it");
+}
+
+/// Review 7: a failed hand-back is reported whatever path ended the scope:
+/// a drop on an early return sets the same flag the action reads.
+#[test]
+fn a_dropped_scope_reports_its_failed_hand_back() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    activation::take_hand_back_failed();
+    {
+        let _key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+        os.windows.borrow_mut().clear();
+    } // dropped, not ended
+    assert!(activation::take_hand_back_failed());
+    assert!(!activation::take_hand_back_failed(), "read once");
+}
+
+/// Review 7: input yields to a scope entry waiting for the same app, so a
+/// long typing loop cannot keep it out between chunks.
+#[test]
+fn input_yields_to_a_waiting_scope_entry() {
+    let reg = std::sync::Arc::new(activation::Registry::new());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let r2 = reg.clone();
+    // Hold the app's lock as a chunk would, while an entry starts waiting.
+    let lock = reg.lock_pid(5);
+    let waiter = std::thread::spawn(move || {
+        let _entry = r2.lock_pid_for_entry(5);
+        tx.send("entry").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(80));
+    });
+    while !reg.entry_waiting_for_test(5) {
+        std::thread::yield_now();
+    }
+    drop(lock);
+    // The next chunk waits for the entry instead of taking the lock first.
+    let r = reg.post_unprimed(5, 1, std::time::Duration::from_secs(2), |_| "chunk");
+    assert_eq!(rx.try_recv(), Ok("entry"), "the entry went first");
+    assert_eq!(r, Some("chunk"));
+    waiter.join().unwrap();
 }
 
 #[test]
