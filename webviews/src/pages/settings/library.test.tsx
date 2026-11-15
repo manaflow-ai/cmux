@@ -109,10 +109,12 @@ test("a refused toggle (a preview is open) shows the CLI's words and changes not
   expect(toggle("night").getAttribute("aria-checked")).toBe("true");
 });
 
-test("an empty library says how entries get there", async () => {
+const listed = () => page!.provider.log.filter((call) => call.op === "cmux.settings.customize.library").length;
+
+test("nothing applied yet: the library was read and no card draws (the person hasn't opted in)", async () => {
   await open({ library: mockEmptyLibrary() });
-  expect(names()).toEqual([]);
-  expect(card()!.querySelector("[data-library-empty]")!.textContent).toContain("Whatever you apply");
+  expect(listed()).toBeGreaterThan(0);
+  expect(card()).toBeNull();
 });
 
 test("fifty entries draw as fifty rows in order", async () => {
@@ -122,17 +124,17 @@ test("fifty entries draw as fifty rows in order", async () => {
   expect(names()[49]).toBe("look-50");
 });
 
-test("a host with no CLI draws one Unavailable line, never an error", async () => {
+test("a host with no CLI draws no card and no error", async () => {
   await open({ failing: { "cmux.settings.customize.library": "cmux.page.unavailable" } });
-  expect(names()).toEqual([]);
-  expect(card()!.querySelector("[data-library-unavailable]")!.textContent).toBe("The library could not be read.");
+  expect(listed()).toBeGreaterThan(0);
+  expect(card()).toBeNull();
 });
 
 // A `pr-N` entry (`cmux customize use pr:N`): an unmerged PR's web layer. Leo, 2026-11-14: "it's
 // obviously not going to show anything and not affect anything when there's nothing to toggle on and
 // off" and "I want people to not accidentally soft lock themselves and like have good recovery options".
 const { mockLibraryWithExperiments, PR_ON, PR_MERGED, PR_NATIVE } = await import("./mockLibrary");
-const { experimentsOn } = await import("./customizeLibrary");
+const { experimentsOn, entryDetail } = await import("./customizeLibrary");
 
 test("with no PR entry the card draws exactly as before: no PR row, nothing counts as an experiment", async () => {
   const listing = mockLibrary();
@@ -142,15 +144,16 @@ test("with no PR entry the card draws exactly as before: no PR row, nothing coun
   // A PR entry that is off is not an experiment that is on: the mark counts nothing.
   expect(experimentsOn(mockLibraryWithExperiments([]))).toEqual([]);
   await open();
-  // React's generated ids differ per render; everything else must match.
-  const markup = () => card()!.innerHTML.replace(/(id|aria-labelledby)="[^"]*"/g, "$1");
-  const before = markup();
   expect(card()!.querySelector("[data-library-code]")).toBeNull();
   expect(card()!.querySelector("[data-library-pr-link], [data-library-needs-build], [data-library-note]")).toBeNull();
-  page!.unmount();
-  // The same listing drawn again gives the same markup: the PR row adds nothing to an entry without `code`.
-  await open({ library: mockLibrary() });
-  expect(markup()).toBe(before);
+  // Each entry without `code` keeps its own name as its title and the detail line it had before
+  // (`entryDetail`), with no PR line under it.
+  for (const item of listing.entries) {
+    const row = entry(item.name);
+    expect(row.querySelector(".row-title")!.textContent).toBe(item.name);
+    expect(row.textContent).toContain(entryDetail(item));
+    expect(row.querySelector(".font-mono")).toBeNull();
+  }
 });
 
 test("a PR row names the PR, its short head, a link to it, what needs a build and the refresh's note", async () => {

@@ -36,6 +36,8 @@ public final class CustomizeExperiments {
     private var reading: Task<Void, Never>?
     private var readAgain = false
     private var started = false
+    /// A turn-off runs: another press waits for it (a double click runs `off` once per entry).
+    private var turningOff = false
 
     /// How it follows `web-dev.json` (tests pass their own).
     private let watch: (@escaping @MainActor () -> Void) -> Void
@@ -69,9 +71,11 @@ public final class CustomizeExperiments {
         let mark = CustomizeExperimentsMarkView()
         mark.onOpen = open
         mark.onTurnOff = { [weak self, weak mark] in
-            guard let self else { return }
-            Task { [weak mark] in // task-owner: one turn-off run per click, bounded by the CLI's deadline; on this main-actor model
+            guard let self, !self.turningOff else { return }
+            self.turningOff = true
+            Task { [weak mark] in // task-owner: one turn-off run at a time, bounded by the CLI's deadline; on this main-actor model
                 let refused = await self.turnOffAll()
+                self.turningOff = false
                 guard let first = refused.first, let window = mark?.window else { return }
                 _ = CmuxToastCenter.shared.show(CmuxToast(id: "customize-experiments", message: Self.turnOffFailed(first.name),
                                                           detail: first.message, tone: .error), in: window)
