@@ -103,7 +103,8 @@ def wait(label, predicate, timeout):
 def spare_ready():
     # No-activate slots have no key window: park the spare in window 0 as a key change does.
     rpc("debug.new_tab", {"action": "retarget"})
-    state = rpc("debug.new_tab", {"action": "state"}) or {}
+    # A launch makes no spare until the session's first New Tab open: ask for it as that open does (once per session).
+    state = rpc("debug.new_tab", {"action": "want_spare"}) or {}
     return any(s.get("ready") for s in state.get("spares") or [])
 
 

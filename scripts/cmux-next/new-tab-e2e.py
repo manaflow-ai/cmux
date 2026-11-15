@@ -303,6 +303,8 @@ try:
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
     safe_print("app is up", flush=True)
     time.sleep(2)  # test harness: let the first workspace settle
+    # A launch makes no spare until the session's first New Tab open: ask for it as that open does.
+    rpc("debug.new_tab", {"action": "want_spare"})
     if opts.bench:
         run_bench()
         sys.exit(0)

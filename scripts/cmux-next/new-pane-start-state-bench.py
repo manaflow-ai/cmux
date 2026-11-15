@@ -169,6 +169,7 @@ def one(arm, index, window):
     before = len(panes())
     if arm == "spare":
         rpc("debug.new_tab", {"action": "capacity", "count": 1})
+        rpc("debug.new_tab", {"action": "want_spare"})  # a launch makes none until the first New Tab open
         wait(lambda: [s for s in (rpc("debug.new_tab", {"action": "state"}) or {}).get("spares", []) if s.get("ready")], 20, 0.25)
     else:
         rpc("debug.new_tab", {"action": "capacity", "count": 0})
