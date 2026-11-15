@@ -85,8 +85,15 @@ def swaps(case_a, case_b, n):
     return steps
 
 
+# acpmux lists a `claude` harness only when the capture Mac has Claude Code on PATH; without one the toggle's View Only
+# chat refuses to adopt the session ("unknown harness \"claude\"") and every swap measures an error page. The fixture
+# lists `claude` on every mini; a View Only watch reads the transcript and never runs it.
+CLAUDE_FIXTURE = {"harnesses": {"claude": {"kind": "claude-stdio", "argv": ["claude"], "family": "claude",
+                                           "description": "Synthetic capture harness (Toggle Terminal and Chat tours)"}}}
+
+
 def tour(title, steps, **extra):
-    return {"title": title, **extra, "steps": steps}
+    return {"title": title, "harnessFixture": CLAUDE_FIXTURE, **extra, "steps": steps}
 
 
 def opened(title):
@@ -127,7 +134,7 @@ midturn_terminal = tour(
 
 # Held: the terminal face shows past the hidden chat's freeze (30 s) and idle release (60 s) before the swap back, so
 # a chat page let go behind its own terminal shows as a rebuild (a late settle) on the swap back.
-HOLD_S, RUNS_HOLD = 70, 4
+HOLD_S, RUNS_HOLD = 65, 1  # a capture drives at most 300 s and the setup takes most of it: one held run a capture, pool several
 
 
 def held_swaps(n):
