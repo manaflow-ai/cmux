@@ -2410,7 +2410,11 @@ fn start_try_on_timer() {
     let Ok(customize) = cmux_customize::Customize::from_env() else { return };
     let _ = std::thread::Builder::new().name("cmux-customize-try-on".into()).spawn(move || {
         if let Err(error) = customize.run_try_on_timer() {
-            tracing::warn!(code = error.code(), "customize try-on: {error}");
+            crate::client_log::stderr_log!(
+                "customize",
+                "customize try-on ({}): {error}",
+                error.code()
+            );
         }
     });
 }
