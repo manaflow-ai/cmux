@@ -1173,6 +1173,47 @@ def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
 
+
+APP_VM_TOOLS = (
+    # (tool, its arguments, lines kept): the app process's own memory by region, by footprint category, and by malloc
+    # zone and class. The goal's app process (~250 MB idle) had never been broken down (ram-baseline, CMUX-571).
+    ("vmmap", ["--summary"], 400),
+    ("footprint", [], 400),
+    ("heap", ["--sortBySize"], 160),
+)
+
+
+def app_vm(pid: int) -> dict:
+    """--app-vm: the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` (each output's first lines;
+    heap lists its zones, then the largest classes). A tool that fails keeps its error, so the report says why."""
+    out = {}
+    for tool, extra, keep in APP_VM_TOOLS:
+        if not shutil.which(tool):
+            out[tool] = {"error": "not installed"}
+            continue
+        try:
+            proc = subprocess.run([tool, *extra, str(pid)], capture_output=True, text=True, timeout=180)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            out[tool] = {"error": str(e)[:300]}
+            continue
+        lines = proc.stdout.splitlines()
+        out[tool] = {"rc": proc.returncode, "lines": lines[:keep], "total_lines": len(lines),
+                     "stderr": proc.stderr[-600:]}
+    return out
+
+
+def print_app_vm(label: str, vm: dict) -> None:
+    for tool, entry in ((t, e) for t, e in vm.items() if t != "pages"):
+        if "error" in entry:
+            print(f"APP-VM {label} {tool} error: {entry['error']}", flush=True)
+            continue
+        print(f"APP-VM {label} {tool} rc={entry['rc']} lines={entry['total_lines']}", flush=True)
+        for line in entry["lines"]:
+            print(f"APP-VM {label} {tool}| {line}", flush=True)
+        if entry.get("stderr") and entry["rc"]:
+            print(f"APP-VM {label} {tool} stderr: {entry['stderr']}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="the .app bundle")
@@ -1227,6 +1268,9 @@ def main():
     parser.add_argument("--js-heap", action="store_true",
                         help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
                              "(`js_heap` in the sample; a bench or DEV build)")
+    parser.add_argument("--app-vm", action="store_true",
+                        help="after the idle-launch sample: the app process's vmmap --summary, footprint and "
+                             "heap --sortBySize (`app_vm` in the sample, APP-VM lines)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1315,6 +1359,14 @@ def main():
             print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
                   f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
                   f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
+        if args.app_vm and label == "idle-launch":
+            result["app_vm"] = app_vm(app_pid)
+            try:  # which pages are live at idle (their engines own the WebContent and renderer processes)
+                result["app_vm"]["pages"] = (app.call("debug.page", {"action": "list"}, timeout=30) or {}).get("pages")
+            except Exception as e:  # noqa: BLE001 - a build without the debug op still gets its vmmap
+                result["app_vm"]["pages"] = {"error": str(e)[:300]}
+            print(f"APP-VM {label} pages: {json.dumps(result['app_vm']['pages'])[:3000]}", flush=True)
+            print_app_vm(label, result["app_vm"])
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]

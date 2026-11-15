@@ -186,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agents", default="10", help="agent chat counts, e.g. 10 or 10,20")
     parser.add_argument("--settle", default="20")
     parser.add_argument("--measure", default="30")
+    parser.add_argument("--app-vm", action="store_true",
+                        help="bench_memory --app-vm: the empty app process's vmmap, footprint and heap (report.json app_vm)")
     args, _rest = parser.parse_known_args(argv)  # split-spring's own args (--tag) are not this suite's
     out_dir = args.out or os.path.dirname(os.path.abspath(args.json))
     os.makedirs(out_dir, exist_ok=True)
@@ -193,6 +195,8 @@ def main(argv: list[str] | None = None) -> int:
     cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", args.app, "--workspaces", args.agents,
            "--mix", "terminal+chat", "--fake-agent", os.path.join(ROOT, FAKE_AGENT), "--settle", args.settle,
            "--measure", args.measure, "--top", "8", "--js-heap", "--out", raw]
+    if args.app_vm:
+        cmd.append("--app-vm")
     status = subprocess.run(cmd, cwd=ROOT).returncode
     try:
         with open(raw) as f:
@@ -204,6 +208,9 @@ def main(argv: list[str] | None = None) -> int:
     out = {"rows": rows + breakdown_rows, "agents": args.agents, "bench_status": status}
     if breakdown:
         out["breakdown"] = breakdown
+    empty = next((s for s in report.get("samples") or [] if isinstance(s, dict) and s.get("label") == "idle-launch"), {})
+    if empty.get("app_vm"):
+        out["app_vm"] = empty["app_vm"]
     # perf-cron.py: an incomplete report keeps its rows for diagnostics but is no done part (incomplete_why names it).
     missing = [] if any(r["name"].endswith(".empty.total_footprint_mb") for r in rows) else \
         [f"no empty-app sample (bench_memory.py exit {status})"]
