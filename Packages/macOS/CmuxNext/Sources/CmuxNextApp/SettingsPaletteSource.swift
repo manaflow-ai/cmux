@@ -53,7 +53,7 @@ final class SettingsPaletteSource: PaletteSettingsBatchSource {
             return
         }
         settings.previewsTerminalFont = false
-        settings.preview(descriptor, Self.value(option))
+        settings.preview(descriptor, SettingOption.value(id: option))
     }
 
     func commit(row: String, option: String) {
@@ -61,61 +61,47 @@ final class SettingsPaletteSource: PaletteSettingsBatchSource {
         let value: JSONValue? = switch option {
         case "on": .bool(true)
         case "off": .bool(false)
-        default: Self.value(option)
+        default: SettingOption.value(id: option)
         }
-        commitValue(descriptor, value)
+        commitValues([(descriptor, value)])
     }
 
     /// The font picker's preview: family, size and line height in one applied snapshot; the
     /// terminal shows its font's edits too (`SettingsController.previewsTerminalFont`).
     func preview(_ edits: [PaletteSettingEdit], terminal: Bool) {
-        let resolved = edits.compactMap { edit in descriptor(edit.row).map { (descriptor: $0, value: Self.value(edit.option)) } }
-        guard !resolved.isEmpty else { return settings.endPreview() }
+        let resolved = edits.compactMap { edit in descriptor(edit.row).map { (descriptor: $0, value: SettingOption.value(id: edit.option)) } }
         settings.previewsTerminalFont = terminal
         if !settings.preview(resolved) { settings.previewsTerminalFont = false }
     }
 
     /// The font picker's Return: every edit in one write, so the surfaces change once.
     func commit(_ edits: [PaletteSettingEdit]) {
-        let resolved = edits.compactMap { edit in descriptor(edit.row).map { (descriptor: $0, value: Self.value(edit.option)) } }
-        guard !resolved.isEmpty else { return }
-        let settings = settings
-        writeCount += 1
-        let token = writeCount
-        for edit in resolved { pending[edit.descriptor.id] = (token, edit.value) }
-        Task { [weak self] in
-            do {
-                try await settings.commitPreview(resolved)
-            } catch {
-                Self.logger.error("palette font settings failed: \(String(describing: error), privacy: .public)")
-            }
-            guard let self else { return }
-            for edit in resolved where self.pending[edit.descriptor.id]?.token == token { self.pending[edit.descriptor.id] = nil }
-            self.onChange?()
-        }
+        commitValues(edits.compactMap { edit in descriptor(edit.row).map { (descriptor: $0, value: SettingOption.value(id: edit.option)) } })
     }
 
     func commit(row: String, text: String) {
         guard let descriptor = descriptor(row), let value = descriptor.value(typed: text) else { return }
-        commitValue(descriptor, value)
+        commitValues([(descriptor, value)])
     }
 
-    /// The row shows `value` at once (the palette reloads after the command); when the write
-    /// lands, or fails and the row goes back to the stored value, the palette reloads again.
-    private func commitValue(_ descriptor: SettingDescriptor, _ value: JSONValue?) {
+    /// The rows show the values at once (the palette reloads after the command); when the write
+    /// lands, or fails and the rows go back to the stored values, the palette reloads again.
+    private func commitValues(_ edits: [(descriptor: SettingDescriptor, value: JSONValue?)]) {
+        guard !edits.isEmpty else { return }
         let settings = settings
-        let id = descriptor.id
         writeCount += 1
         let token = writeCount
-        pending[id] = (token, value)
+        for edit in edits { pending[edit.descriptor.id] = (token, edit.value) }
         Task { [weak self] in
             do {
-                try await settings.commitPreview(descriptor, value)
+                try await settings.commitPreview(edits)
             } catch {
-                Self.logger.error("palette setting \(id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                Self.logger.error("palette setting \(edits.map(\.descriptor.id).joined(separator: ","), privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
-            guard let self, self.pending[id]?.token == token else { return }
-            self.pending[id] = nil
+            guard let self else { return }
+            let landed = edits.map(\.descriptor.id).filter { self.pending[$0]?.token == token }
+            guard !landed.isEmpty else { return }
+            for id in landed { self.pending[id] = nil }
             self.onChange?()
         }
     }
@@ -127,8 +113,8 @@ final class SettingsPaletteSource: PaletteSettingsBatchSource {
     private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
         let isFont = descriptor.kind == .fontFamily
         let options = if descriptor.kind == .theme, let themes {
-            Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
-                              strip: themes.swatches(for:))
+            SettingOption.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
+                                       strip: themes.swatches(for:))
         } else if isFont {
             settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
@@ -141,9 +127,8 @@ final class SettingsPaletteSource: PaletteSettingsBatchSource {
             kind = .toggle(isOn: current?.boolValue ?? false)
         } else {
             let custom = Self.customInput(for: descriptor)
-            let faces = Self.choiceFaces[descriptor.id]
             kind = .options(options.map { option in
-                let face = isFont ? option.value?.stringValue : option.value?.stringValue.flatMap { faces?[$0] }
+                let face = isFont ? option.value?.stringValue : option.value?.stringValue.flatMap(descriptor.optionFace)
                 return PaletteSettingOption(id: option.id, title: option.title, swatches: option.swatches, isCurrent: option.isCurrent,
                                             fontFamily: face, isRecent: option.isRecent)
             }, customInput: custom)
@@ -152,31 +137,11 @@ final class SettingsPaletteSource: PaletteSettingsBatchSource {
             id: descriptor.id, title: descriptor.title, group: descriptor.group, value: label, kind: kind,
             keywords: descriptor.keywords + [descriptor.id, descriptor.section.title, descriptor.group],
             swatches: currentOption?.swatches ?? [], isEnabled: settings.managedKeys[descriptor.id] == nil, isFontFamily: isFont,
-            number: Self.number(descriptor, current: current)
+            number: descriptor.slider(current: current).map {
+                PaletteSettingNumber(range: $0.range, step: $0.step, value: $0.value, defaultValue: $0.defaultValue, format: $0.format)
+            }
         )
     }
-
-    /// A number setting's range and value for a slider (the font picker's size and line height).
-    static func number(_ descriptor: SettingDescriptor, current: JSONValue?) -> PaletteSettingNumber? {
-        guard case .number(let number) = descriptor.kind else { return nil }
-        let unit = number.unit
-        return PaletteSettingNumber(range: number.range, step: number.step,
-                                    value: current?.doubleValue ?? descriptor.defaultValue?.doubleValue ?? number.placeholder,
-                                    defaultValue: descriptor.defaultValue?.doubleValue,
-                                    format: { SettingDescriptor.format($0, unit) })
-    }
-
-    /// The face each value of a choice of fonts draws in, in the font picker (the chat's interface
-    /// font, the Markdown viewer's font). `.system`, `.serif` and `.mono` are the system's own faces
-    /// (`PaletteFontFaces`); a face only the web pages bundle draws in the body font here.
-    static let choiceFaces: [String: [String: String]] = [
-        "agentPane.display.font.ui": [
-            "system-ui": ".system", "system-ui-tight": ".system", "inter-tuned": "Inter", "inter": "Inter", "verdana": "Verdana",
-            "roboto": "Roboto", "plex": "IBM Plex Sans", "source-sans": "Source Sans 3", "geist": "Geist", "cmux-sans": "cmux Sans",
-            "hanken": "Hanken Grotesk", "atkinson": "Atkinson Hyperlegible Next",
-        ],
-        "markdown.font.preset": ["system": ".system", "serif": ".serif", "mono": ".mono"],
-    ]
 
     /// Typed text for kinds whose value is not in a list: a number off the
     /// steps, a hex color, a font, a sound, an address.
@@ -195,33 +160,5 @@ final class SettingsPaletteSource: PaletteSettingsBatchSource {
         case .sound, .url, .theme, .fontFamily, .text:
             PaletteSettingCustomInput(placeholder: descriptor.title) { descriptor.value(typed: $0) != nil }
         }
-    }
-
-    /// The value behind an option id (`SettingOption.id`): "reset" is nil.
-    static func value(_ option: String) -> JSONValue? {
-        guard option != "reset" else { return nil }
-        return (try? JSONValue.parse(Data(option.utf8))) ?? .string(option)
-    }
-
-    /// A theme setting's values (R98): the Ghostty config (reset) first,
-    /// onboarding's themes, then every other theme in `names`, each with its
-    /// swatch strip from `strip`; a current value not listed (a light/dark
-    /// pair, a path) is kept after the config row.
-    static func themeOptions(current: String?, names: [String], defaultLabel: String,
-                             strip: (String) -> [ThemeRGB]) -> [SettingOption] {
-        let curated = ActionArgument.curatedThemes.filter(names.contains)
-        let listed = curated + names.filter { !curated.contains($0) }
-        var options = [SettingOption(value: nil, title: defaultLabel, isCurrent: current == nil)]
-        if let current, !listed.contains(current) {
-            options.append(SettingOption(value: .string(current), title: current, swatches: strip(current), isCurrent: true))
-        }
-        options += listed.map { SettingOption(value: .string($0), title: $0, swatches: strip($0), isCurrent: current == $0) }
-        return options
-    }
-
-    /// A color setting's swatches from `tokens`: the foreground, the
-    /// background, then ANSI 0 to 15.
-    static func themeColors(_ tokens: ThemeTokens) -> [ThemeRGB] {
-        [tokens.textPrimary, tokens.windowBackground] + tokens.ansi
     }
 }

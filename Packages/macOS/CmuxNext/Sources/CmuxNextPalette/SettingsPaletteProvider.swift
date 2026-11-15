@@ -7,6 +7,8 @@ public final class SettingsPaletteProvider: PaletteProvider {
     public let id = "settings"
     public let showsItemsForEmptyQuery: Bool
     private let source: any PaletteSettingsSource
+    /// The font picker's last target, so Change Font… reopens where it was left.
+    private let fontTarget = PaletteFontTargetMemory()
 
     public init(source: any PaletteSettingsSource, showsItemsForEmptyQuery: Bool) {
         self.source = source
@@ -61,7 +63,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
             keywords: ["font", "fonts", "typeface", "family", "terminal", "chat", "code", "editor", "markdown", "size", "line height"],
             primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return", effect: .deferred {
                 // The rows as they are now: a font kept a moment ago is the current one.
-                guard let tuner = PaletteFontTuner(rows: source.rows, source: source) else { return .push(settingsList) }
+                guard let tuner = PaletteFontTuner(rows: source.rows, source: source, memory: fontTarget) else { return .push(settingsList) }
                 return .push(PaletteFontPage.page(tuner))
             }),
             frecencyKey: "settings:changeFont"

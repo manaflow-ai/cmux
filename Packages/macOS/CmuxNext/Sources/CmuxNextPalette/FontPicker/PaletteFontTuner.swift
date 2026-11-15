@@ -23,17 +23,18 @@ public final class PaletteFontTuner {
     /// The edits the target shows now, so a step that changes nothing previews nothing.
     @ObservationIgnored private var previewed: [PaletteSettingEdit] = []
 
-    /// The target the picker opened on last, for the next open (this process).
-    @ObservationIgnored static var lastTargetID: String?
+    /// The target the picker opened on last, kept by the page's provider for the next open.
+    @ObservationIgnored private let memory: PaletteFontTargetMemory?
 
     public init?(rows: [PaletteSettingRow], source: any PaletteSettingsSource, style: PaletteFontPickerStyle = PaletteTunables.fontPickerStyle.value,
-                 targetID: String? = nil) {
+                 targetID: String? = nil, memory: PaletteFontTargetMemory? = nil) {
         let targets = PaletteFontTargets.targets(from: rows)
         guard !targets.isEmpty else { return nil }
         self.targets = targets
         self.source = source
         self.style = style
-        let wanted = targetID ?? Self.lastTargetID
+        self.memory = memory
+        let wanted = targetID ?? memory?.targetID
         targetIndex = targets.firstIndex { $0.id == wanted } ?? 0
         resetValues()
     }
@@ -68,7 +69,7 @@ public final class PaletteFontTuner {
         guard wrapped != targetIndex else { return false }
         endPreview()
         targetIndex = wrapped
-        Self.lastTargetID = target.id
+        memory?.targetID = target.id
         resetValues()
         return true
     }
@@ -129,7 +130,7 @@ public final class PaletteFontTuner {
         highlightedOption = option
         let edits = edits
         previewed = []
-        Self.lastTargetID = target.id
+        memory?.targetID = target.id
         if edits.isEmpty { source.endPreview(row: target.family.id) } else { source.commitEdits(edits) }
     }
 
@@ -159,4 +160,12 @@ public final class PaletteFontTuner {
         lineHeight = target.lineHeight?.number?.value
         previewed = []
     }
+}
+
+/// The font picker's last target (``PaletteFontTarget/id``), owned by the provider that opens the
+/// picker, so Change Font… reopens on the surface it was left on.
+@MainActor
+public final class PaletteFontTargetMemory {
+    public var targetID: String?
+    public init() {}
 }

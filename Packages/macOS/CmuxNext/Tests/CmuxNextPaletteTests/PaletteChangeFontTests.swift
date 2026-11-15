@@ -45,7 +45,6 @@ struct PaletteChangeFontTests {
     }
 
     private func picker(_ source: Source) throws -> (PaletteFontTuner, PalettePageSpec) {
-        PaletteFontTuner.lastTargetID = nil
         let provider = SettingsPaletteProvider(source: source, showsItemsForEmptyQuery: true)
         let changeFont = try #require(provider.makeItems().first { $0.id == "settings:changeFont" })
         #expect(changeFont.title == PaletteStrings.changeFont)
@@ -119,6 +118,22 @@ struct PaletteChangeFontTests {
         #expect(tuner.target.id == "terminal")
         let page = PaletteFontPage.page(tuner)
         #expect(items(page).first { $0.fontFamily == ".system" } == nil)
+    }
+
+    @Test func changeFontReopensOnTheTargetLeftLast() throws {
+        let source = Source()
+        let provider = SettingsPaletteProvider(source: source, showsItemsForEmptyQuery: true)
+        func open() throws -> PaletteFontTuner {
+            let changeFont = try #require(provider.makeItems().first { $0.id == "settings:changeFont" })
+            guard case .push(let page) = changeFont.primary.effect.resolved() else { throw CancellationError() }
+            return try #require(page.fontTuner)
+        }
+        #expect(try open().selectTarget(1))
+        #expect(try open().target.id == "chat")
+        let fresh = SettingsPaletteProvider(source: source, showsItemsForEmptyQuery: true)
+        let changeFont = try #require(fresh.makeItems().first { $0.id == "settings:changeFont" })
+        guard case .push(let page) = changeFont.primary.effect.resolved() else { throw CancellationError() }
+        #expect(page.fontTuner?.target.id == "terminal")
     }
 
     @Test func aRowCarriesASampleInItsFaceInTheInlineLayout() throws {
