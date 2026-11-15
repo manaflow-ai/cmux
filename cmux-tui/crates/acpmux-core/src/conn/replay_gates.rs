@@ -310,20 +310,32 @@ impl ReplayProbeControl {
 
 type ReplayProbeSample = (HubWriter, u128, usize, bool);
 
-fn timed_append_plain(
+fn timed_append_armed(
     mut writer: HubWriter,
     target: u64,
     offset: usize,
     active: &AtomicBool,
+    arm: impl FnOnce(),
 ) -> Result<(HubWriter, u128), crate::hub::HubError> {
-    // The active flag is armed before the clock and cleared after it. Copiers
-    // use it only to prove overlap; it is not part of the timed append path.
+    // Arm the proof flag before any permit release, then start the clock only
+    // after the copier is allowed to enter its raw copy. The flag itself is
+    // outside the timed append path.
     active.store(true, Ordering::Release);
+    arm();
     let started = Instant::now();
     let result = writer.apply(summary(format!("probe-append-{offset}"), target + 1, true));
     let elapsed = started.elapsed().as_nanos().max(1);
     active.store(false, Ordering::Release);
     result.map(|_| (writer, elapsed))
+}
+
+fn timed_append_plain(
+    writer: HubWriter,
+    target: u64,
+    offset: usize,
+    active: &AtomicBool,
+) -> Result<(HubWriter, u128), crate::hub::HubError> {
+    timed_append_armed(writer, target, offset, active, || {})
 }
 
 async fn wait_for_count(count: &AtomicUsize) {
@@ -367,6 +379,9 @@ async fn append_replay_unobserved_sample(
                 panic!("probe retained replay copy lost its span");
             };
             replay_cursor = if span.last_seq >= target { cursor } else { span.last_seq };
+            if copy_active.load(Ordering::Acquire) {
+                copy_overlap.store(true, Ordering::Release);
+            }
             drop(span);
             if copy_active.load(Ordering::Acquire) {
                 copy_overlap.store(true, Ordering::Release);
@@ -384,8 +399,10 @@ async fn append_replay_unobserved_sample(
     // Release the permit before the timed interval. The appending thread does
     // not read or write the history's permit/counter while its clock runs.
     hub.reset_history_raw_copies();
-    permit.store(true, Ordering::Release);
-    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    let result = timed_append_armed(writer, target, offset, &active, || {
+        permit.store(true, Ordering::Release);
+    })
+    .unwrap();
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
     let copies = hub.history_raw_copies();
@@ -422,6 +439,9 @@ async fn append_foreign_hub_sample(
                 panic!("foreign probe retained replay copy lost its span");
             };
             replay_cursor = if span.last_seq >= foreign_target { cursor } else { span.last_seq };
+            if copy_active.load(Ordering::Acquire) {
+                copy_overlap.store(true, Ordering::Release);
+            }
             drop(span);
             if copy_active.load(Ordering::Acquire) {
                 copy_overlap.store(true, Ordering::Release);
@@ -437,8 +457,10 @@ async fn append_foreign_hub_sample(
     .await;
     assert!(started.is_ok(), "foreign probe copier did not enter its copy");
     foreign.reset_history_raw_copies();
-    permit.store(true, Ordering::Release);
-    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    let result = timed_append_armed(writer, target, offset, &active, || {
+        permit.store(true, Ordering::Release);
+    })
+    .unwrap();
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
     let copies = foreign.history_raw_copies();
