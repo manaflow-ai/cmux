@@ -9,6 +9,20 @@ export const SIGN_IN_REQUIRED = "agent_session.sign_in_required";
 /// acpmux's `data.reason` for that answer (recovery.rs `SIGN_IN_REQUIRED`).
 export const SIGN_IN_REASON = "agent.sign_in_required";
 
+/// A start of an agent the machine's acpmux catalog does not have (cmux-tui agent_session_start.rs
+/// `start_family`: pi on a Cloud machine whose image lacks its adapter), `data.reason`
+/// ``NOT_INSTALLED_REASON``. hq#11225.
+export const HARNESS_MISSING = "agent_session.harness_missing";
+export const NOT_INSTALLED_REASON = "agent.not_installed";
+/// A start whose agent's model route cannot serve it on the machine (cmux-tui
+/// `StartRefused::naming`: the cmux router on a Cloud machine with no signed-in local router).
+/// acpmux on this Mac answers the same with `data.reason` in ``ROUTE_REASONS`` (routes.rs), which
+/// harnessSwitch.ts reads as this code. hq#11225.
+export const ROUTE_UNAVAILABLE = "agent_session.route_unavailable";
+export const ROUTE_REASONS: ReadonlySet<string> = new Set(["route.unavailable", "route.not_found", "route.invalid"]);
+/// The cmux router's harness id: its route refusal names the router, not "cmux's model route".
+export const CMUX_ROUTER_HARNESS = "cmux";
+
 /// What the failed start card offers next to Retry.
 export type StartRefusalAction = "newCloudMachine" | "chooseFolder" | "signIn";
 

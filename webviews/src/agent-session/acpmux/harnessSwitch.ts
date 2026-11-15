@@ -8,7 +8,14 @@ import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
 import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
-import { SIGN_IN_REASON, SIGN_IN_REQUIRED } from "./startRefusal";
+import {
+  HARNESS_MISSING,
+  NOT_INSTALLED_REASON,
+  ROUTE_REASONS,
+  ROUTE_UNAVAILABLE,
+  SIGN_IN_REASON,
+  SIGN_IN_REQUIRED,
+} from "./startRefusal";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 // A harness or model switch as an intent. The pick changes the
@@ -844,6 +851,12 @@ export class HarnessSwitch {
       intent.code = SIGN_IN_REQUIRED;
       intent.signInExpired = signIn?.errorKind === "auth.expired" ? true : undefined;
     } else intent.signInExpired = undefined;
+    // A missing agent or an unserved model route: cmux-tui codes them for another machine; acpmux
+    // on this Mac says them in `data.reason` only. Either reads as the one code (hq#11225).
+    if (!intent.code && typeof signIn?.reason === "string") {
+      if (signIn.reason === NOT_INSTALLED_REASON) intent.code = HARNESS_MISSING;
+      else if (ROUTE_REASONS.has(signIn.reason)) intent.code = ROUTE_UNAVAILABLE;
+    }
     if (intent.queued.length) {
       this.handBack(intent.queued);
       // The prompts are back in the composer (`handedBack`); acpmux's refusal reason rides along.
