@@ -16,6 +16,7 @@ import {
   type LaunchAgent,
 } from "../src/agent-session/acpmux/newtab/launchRows";
 import {
+  MAX_SUGGESTIONS,
   inlineCompletion,
   rowSection,
   screenRows,
@@ -253,4 +254,52 @@ test("the folders are this Mac's projects, then the newest chats' folders, never
 test("without agent sources the rows are as before", () => {
   const before = screenRows("zqxv", { omnibar: EMPTY_OMNIBAR, ask });
   expect(kinds(before)).toEqual(["ask", "search"]);
+});
+
+test("the rows above the commands stay at most eight, whatever the chats and starts add", () => {
+  const many = Array.from({ length: 2 }, (_, i) => ({ id: `w${i}`, name: `cmux ${i}` }));
+  const chats = Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, title: `cmux chat ${i}`, at: i }));
+  const rows = screenRows(
+    "cmux",
+    context(
+      {
+        workspaces: many,
+        history: Array.from({ length: 6 }, (_, i) => ({ url: `https://cmux${i}.dev/`, title: `cmux ${i}` })),
+      },
+      { chats },
+    ),
+  );
+  const listed = rows.filter((row) => row.type !== "action" && row.type !== "create");
+  expect(listed.length).toBeLessThanOrEqual(MAX_SUGGESTIONS);
+  // Each section the text finds keeps a row: none is pushed out by another's many.
+  const sections = new Set<string>(listed.map(rowSection));
+  for (const section of ["open", "chats", "start", "pages"]) expect(sections).toContain(section);
+  // Named starts count too.
+  const named = screenRows(
+    "codex",
+    context({ workspaces: many }, { chats, folders: [...FOLDERS, ...FOLDERS.map((f) => `${f}2`)] }),
+  );
+  expect(named.filter((row) => row.type !== "action" && row.type !== "create").length).toBeLessThanOrEqual(
+    MAX_SUGGESTIONS,
+  );
+});
+
+test('Tab\'s folder completion keeps the words before the path, "in" and spacing included', () => {
+  const listing = { parent: "/Users/me/fun", folders: ["cmux", "games"] };
+  const { rows } = launchRows("codex in ~/fun/g", { agents: AGENTS, folders: FOLDERS, home: HOME, listing });
+  expect(rows[0]?.fill).toBe("codex in ~/fun/games/");
+  const screen = screenRows("codex in ~/fun/g", context({}, { listing }));
+  expect(inlineCompletion("codex in ~/fun/g", screen)).toBe("codex in ~/fun/games/");
+  expect(
+    launchRows("claude code  ~/fun/g", { agents: AGENTS, folders: FOLDERS, home: HOME, listing }).rows[0]?.fill,
+  ).toBe("claude code  ~/fun/games/");
+});
+
+test('a slash command is no path: "/model" never lists /, a path with a second part still does', () => {
+  expect(listingWanted("/model", AGENTS, HOME, "claude")).toBeUndefined();
+  expect(listingWanted("/rev", AGENTS, HOME, "claude")).toBeUndefined();
+  expect(listingWanted("/", AGENTS, HOME, "claude")).toBe("/");
+  expect(listingWanted("/Users/", AGENTS, HOME, "claude")).toBe("/Users");
+  expect(listingWanted("codex /Users/m", AGENTS, HOME)).toBe("/Users");
+  expect(launches(screenRows("/model", context()))).toEqual([]);
 });

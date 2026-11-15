@@ -396,6 +396,7 @@ public final class BrowserChromeView: NSView {
         extensionToolbar.bind(tab)
         toolbarButtons.bind(tab)
         addressBar.bindKeywords(of: tab)
+        addressBar.bindPreloading(of: tab)
         if let findBar = pageBars.findBarIfMade, !findBar.isHidden {
             old?.clearFind()
             findBar.isHidden = true

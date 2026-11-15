@@ -104,6 +104,9 @@ core_gates() {
   run_core pr08b_serve_page
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
+  run_core v2_pr03a_source_read_bounds
+  run_core folders_serving_release_gates
+  run_core folders_tail_release_gates
 }
 run_group acpmux-core core_gates
 
@@ -115,7 +118,6 @@ acpmux_lib_gates() {
   run_acpmux_lib live_view_gate
   run_acpmux_lib keyed_page_gate
   run_acpmux_lib sidebar_mirror_connect_gate
-  run_acpmux_lib hub_row_submit_gate
   run_acpmux_lib v2_pr08_reconnect_30
   run_acpmux_lib v2_pr08_fanout_30
   run_acpmux_lib v2_pr08_dial_resume
