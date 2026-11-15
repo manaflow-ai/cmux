@@ -46,8 +46,9 @@ pub struct Facts {
     pub shows: Option<String>,
     /// The result reports a menu it opened, picked from or closed.
     pub menu: bool,
-    /// Some(ms): an adaptive settle wait captured the window more than once
-    /// over ms; None: no real settle wait.
+    /// Some(ms): an adaptive settle wait ran for ms (one capture or more);
+    /// None: no real settle wait. no_effect also needs the window unchanged
+    /// (`changes.pixels` "same"), which takes a second capture.
     pub settled_ms: Option<u64>,
     /// The state's `changes` evidence (pixels, elements, windows).
     pub changes: Option<Value>,

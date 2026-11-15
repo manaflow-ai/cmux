@@ -267,7 +267,7 @@ impl MacDesktop {
     /// `Ok(Some(role))` opens one the setting allows; a menu bar menu, or
     /// any menu under `refuse`, is refused.
     fn menu_gate(&self, el: &Ax) -> DResult<Option<String>> {
-        let Some(role) = menu_role(el) else { return Ok(None) };
+        let Some(role) = menu_role(el)? else { return Ok(None) };
         if roles::is_menu_bar(&role) {
             return Err(DesktopError::Unsupported(menus::MENU_BAR_REFUSAL.into()));
         }
@@ -290,7 +290,7 @@ impl MacDesktop {
     /// arrows) where [`Self::menu_gate`] would. An editable combo box only
     /// types them.
     fn refuse_menu_keys(&self, el: &Ax) -> DResult<()> {
-        match menu_role(el) {
+        match menu_role(el)? {
             Some(role) if role != "AXComboBox" => {
                 // A menu opened by a key would skip the keyboard guard and
                 // the open-menu record: refuse in both modes, naming what works.
@@ -306,9 +306,10 @@ impl MacDesktop {
     /// hit a pop-up's inner cell or text), refused as [`Self::menu_gate`]
     /// says; a menu item there that leads to a denied app is refused too.
     fn menu_at(&self, t: &Target, at: Point) -> DResult<Option<Ax>> {
+        // A hit test that fails says nothing about a menu there: refused.
         let Some(hit) = Ax::application(t.window.pid).and_then(|app| app.element_at(at.x, at.y))
         else {
-            return Ok(None);
+            return Err(DesktopError::Unsupported(roles::MENU_UNREAD_REFUSAL.into()));
         };
         let mut el = Some(hit);
         for _ in 0..4 {
@@ -377,14 +378,17 @@ const MENU_CANDIDATES: &[&str] =
     &["AXPopUpButton", "AXMenuButton", "AXComboBox", "AXMenuBarItem", "AXMenuExtra"];
 
 /// The element's role when activating it opens a menu ([`roles::opens_menu`]).
-fn menu_role(el: &Ax) -> Option<String> {
-    let role = el.string("AXRole")?;
+/// Read strictly: an unreadable role, or children that cannot be read, may
+/// be a menu opener, and are refused (`Err`) rather than let through.
+fn menu_role(el: &Ax) -> DResult<Option<String>> {
+    let unread = || DesktopError::Unsupported(roles::MENU_UNREAD_REFUSAL.into());
+    let Some(role) = el.try_string("AXRole").map_err(|_| unread())? else { return Ok(None) };
     if !MENU_CANDIDATES.contains(&role.as_str()) {
-        return None;
+        return Ok(None);
     }
     let in_web = roles::menu_gate_web(in_web_area(el));
-    let has_menu = menu_of(el).is_some();
-    roles::opens_menu(&role, in_web, has_menu).then_some(role)
+    let has_menu = menu_of(el).ok_or_else(unread)?.is_some();
+    Ok(roles::opens_menu(&role, in_web, has_menu).then_some(role))
 }
 
 /// Whether the element is, or sits inside, web content (an `AXWebArea`),
@@ -396,26 +400,33 @@ fn in_web_area(el: &Ax) -> roles::Web {
 
 /// The roles from `el` up to its window (inclusive), or `None` when a read
 /// failed or the walk ran past its bound.
+/// Ends only at the window or the app: a missing parent or an unreadable
+/// role on the way is unknown.
 fn web_walk(el: &Ax) -> Option<Vec<String>> {
     let mut roles = Vec::new();
-    let mut current = Some(el.clone());
+    let mut current = el.clone();
     for _ in 0..64 {
-        let Some(node) = current else { return Some(roles) };
-        let role = node.try_string("AXRole").ok()?.unwrap_or_else(String::new);
-        let end = matches!(role.as_str(), "AXWindow" | "AXApplication" | "");
+        let role = current.try_string("AXRole").ok()??;
+        let end = matches!(role.as_str(), "AXWindow" | "AXApplication");
         roles.push(role);
         if end {
             return Some(roles);
         }
-        current = node.try_element("AXParent").ok()?;
+        current = current.try_element("AXParent").ok()??;
     }
     None
 }
 
 /// The menu a pop-up or menu button holds as its child, when it shows it
 /// while closed.
-fn menu_of(el: &Ax) -> Option<Ax> {
-    el.elements("AXChildren").into_iter().find(|c| c.string("AXRole").as_deref() == Some("AXMenu"))
+/// `None` when the children or a role cannot be read; `Some(None)`: no menu.
+fn menu_of(el: &Ax) -> Option<Option<Ax>> {
+    for c in el.try_elements("AXChildren").ok()? {
+        if c.try_string("AXRole").ok()?.as_deref() == Some("AXMenu") {
+            return Some(Some(c));
+        }
+    }
+    Some(None)
 }
 
 /// Whether a click opens a context menu: a right click, or a left click
@@ -1270,6 +1281,53 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
 
 /// Inserts text through Accessibility: at the caret (AXSelectedText), or
 /// appended to the value. `None` when the element takes neither.
+/// Focuses `el` with a posted plain click at its center (web content, whose
+/// AX focus writes may be ignored), aimed and gated like any click.
+fn focus_by_click(d: &MacDesktop, t: &Target, el: &Ax) -> DResult<()> {
+    let frame = el.frame().ok_or_else(|| {
+        DesktopError::Unsupported("the element has no frame to click to focus it".into())
+    })?;
+    let at = roles::center(&frame);
+    let route = d.pointer_route(t, Delivery::Background)?;
+    let pid = t.window.pid;
+    unprimed(route, |p| {
+        input::click(p, at, Button::Left, 1, 0, std::time::Duration::ZERO, super::aimed(pid)?)
+    })
+}
+
+/// set_value on a text field in web content (or where that is unknown): AX
+/// value writes are ignored there, so the field is focused with a click,
+/// its text selected with Command-A and the value typed, all as posted
+/// input, gated as always; read back as the value asked for.
+fn web_set_value(d: &MacDesktop, t: &Target, el: &Ax, value: &str) -> DResult<ActionOutcome> {
+    if value.contains(['\n', '\r', '\t']) {
+        return Err(DesktopError::Unsupported(
+            "set_value in web content types the value; use type_text for newlines and tabs".into(),
+        ));
+    }
+    if d.is_persons_app(t) {
+        return Err(DesktopError::Unsupported(
+            "this field is web content in the app the person is using; setting it types into it, which would move their caret. Use delivery foreground".into(),
+        ));
+    }
+    let check = readback::Check::value(el, readback::Wanted::from_request(value), 0.0);
+    focus_by_click(d, t, el)?;
+    let route = d.key_route(t, Delivery::Background)?;
+    let (a, _) = keymap::key_code(&crate::keys::Key::Char('a'))
+        .ok_or_else(|| DesktopError::Failed("no key for a".into()))?;
+    unprimed(route, |p| input::key(p, a, keymap::FLAG_COMMAND, None))?;
+    for chunk in roles::text_chunks(value, TYPE_CHUNK) {
+        unprimed(route, |p| input::type_text(p, &chunk))?;
+    }
+    let mut out = ActionOutcome::delivered(route.name()).showing("value");
+    out.note = "web content: focused with a click, selected with Command-A and typed".into();
+    out.expect = d.expect(check);
+    if let Some(frame) = el.frame() {
+        out = out.at(roles::center(&frame));
+    }
+    Ok(out)
+}
+
 /// How long an accepted AX insert gets to show in the field's value before
 /// the outcome is decided (never followed by keys).
 const INSERT_WAIT: std::time::Duration = std::time::Duration::from_millis(600);
@@ -1438,7 +1496,11 @@ pub(super) fn type_text(
         }
         // Keys go to the focused element: focus this one first (it changes
         // focus inside the app, not which app is in front).
-        if element_id.is_some()
+        if element_id.is_some() && !roles::native_route(in_web_area(el)) {
+            // Web content (or unknown): an AX focus write may be ignored;
+            // a posted click at the element focuses it, gated as any click.
+            focus_by_click(d, &t, el)?;
+        } else if element_id.is_some()
             && let Some(yes) = Cf::boolean(true)
         {
             // Not while another session's scope holds the app.
@@ -2148,6 +2210,10 @@ pub(super) fn set_value(
         )));
     }
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
+    // A text field in web content (or unknown): keys, like type_text.
+    if roles::is_text_input(&role) && !secure && !roles::native_route(in_web_area(&el)) {
+        return web_set_value(d, &t, &el, value);
+    }
     let new_count = value.encode_utf16().count() as f64;
     // The baseline, before the write: the value (or a secure field's
     // length) now; unreadable, no read-back. One that already reads the
@@ -2159,7 +2225,8 @@ pub(super) fn set_value(
         let current_is_number = el.try_number("AXValue").ok().flatten().is_some();
         let wanted =
             roles::requested_value(current_is_number, value).unwrap_or_else(|| value.to_string());
-        readback::Check::value(&el, readback::Wanted::from_request(wanted), 0.0)
+        // The same float tolerance as same_value.
+        readback::Check::value(&el, readback::Wanted::from_request(wanted), 1e-6)
     };
     el.set("AXValue", &value_for(&el, value)?)
         .map_err(|e| ax_error(e, &format!("element {element_id}")))?;
@@ -2230,7 +2297,8 @@ fn pick_closed(
     element_id: &str,
     value: &str,
 ) -> DResult<Option<ActionOutcome>> {
-    let Some(menu) = menu_of(el) else { return Ok(None) };
+    // Unreadable children: no pick here (the caller opens the menu).
+    let Some(Some(menu)) = menu_of(el) else { return Ok(None) };
     let items = super::menus::items(d, &menu);
     if items.is_empty() {
         return Ok(None);
@@ -2340,6 +2408,11 @@ pub(super) fn perform_action(
             // Expanding a pop-up or combo box opens its menu or list.
             if attr == "AXExpanded" && value && d.menu_gate(&el)?.is_some() {
                 return d.open_menu_of(&t, &el, element_id);
+            }
+            if attr == "AXFocused" && !roles::native_route(in_web_area(&el)) {
+                return Err(DesktopError::Unsupported(
+                    "this element is web content, where an accessibility focus write may be ignored; click it instead".into(),
+                ));
             }
             if attr == "AXFocused" && d.is_persons_app(&t) {
                 return Err(DesktopError::Unsupported(
@@ -2542,6 +2615,11 @@ pub(super) fn only_selected(row: &Ax) -> bool {
 /// to just this row when it can be set, else the row's AXSelected (which in a
 /// multi-select table may add to the selection).
 fn select_only(row: &Ax) -> bool {
+    // Web content (or unknown): its rows may ignore AX selection writes;
+    // the click's events select it instead.
+    if !roles::native_route(in_web_area(row)) {
+        return false;
+    }
     let table = row.element("AXParent").filter(|p| {
         matches!(p.string("AXRole").as_deref(), Some("AXTable" | "AXOutline" | "AXList"))
     });

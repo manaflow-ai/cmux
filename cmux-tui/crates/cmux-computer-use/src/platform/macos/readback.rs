@@ -22,9 +22,9 @@ use super::ax::Ax;
 use super::sys::{AXError, CFRange};
 use crate::desktop::Expect;
 
-/// Read-backs kept at most (the engine reads each one once, right after the
-/// action; older ones are dropped).
-const KEPT: usize = 8;
+/// Read-backs kept at most (the engine reads each one after its action, a
+/// batch's after the batch: up to its 20 steps; older ones are dropped).
+const KEPT: usize = 24;
 
 /// How far up from the element under a scroll the scroll area is looked for.
 const SCROLL_AREA_DEPTH: usize = 12;
@@ -947,6 +947,11 @@ impl Checks {
     pub(super) fn take(&mut self, token: u64) -> Option<Check> {
         let i = self.pending.iter().position(|(t, _)| *t == token)?;
         self.pending.remove(i).map(|(_, c)| c)
+    }
+
+    /// The check for `token`, left in place (read again later).
+    pub(super) fn get(&self, token: u64) -> Option<&Check> {
+        self.pending.iter().find(|(t, _)| *t == token).map(|(_, c)| c)
     }
 }
 

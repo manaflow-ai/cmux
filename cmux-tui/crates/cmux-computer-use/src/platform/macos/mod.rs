@@ -538,6 +538,11 @@ impl Desktop for MacDesktop {
         Ok(ids)
     }
 
+    fn peek_back(&self, expect: &Expect) -> Option<bool> {
+        let checks = self.checks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        checks.get(expect.token)?.holds()
+    }
+
     fn read_back(&self, expect: &Expect) -> Option<bool> {
         let check = self
             .checks

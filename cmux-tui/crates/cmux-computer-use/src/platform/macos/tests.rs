@@ -2718,3 +2718,24 @@ fn only_a_rejected_insert_falls_back_to_keys() {
     assert!(!roles::press_error_falls_back(-25204), "cannot complete");
     assert!(!roles::press_error_falls_back(-25200), "failure");
 }
+
+/// Review of d890b98 (2): the web walk ends only at the window or the app; a
+/// walk that stops anywhere else (a missing parent, an unreadable role) is
+/// unknown, never "not web".
+#[test]
+fn a_web_walk_that_stops_short_is_unknown() {
+    use roles::Web;
+    let roles = |v: &[&str]| Some(v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(roles::web_content(roles(&["AXTextField", "AXGroup", "AXWindow"])), Web::Out);
+    assert_eq!(
+        roles::web_content(roles(&["AXTextField", "AXGroup"])),
+        Web::Unknown,
+        "stopped short"
+    );
+    assert_eq!(
+        roles::web_content(roles(&["AXTextField", "AXGroup", ""])),
+        Web::Unknown,
+        "blank role"
+    );
+    assert_eq!(roles::web_content(roles(&[])), Web::Unknown);
+}

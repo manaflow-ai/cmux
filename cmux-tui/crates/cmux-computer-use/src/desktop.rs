@@ -519,6 +519,12 @@ pub trait Desktop: Send + Sync {
     fn read_back(&self, _expect: &Expect) -> Option<bool> {
         None
     }
+    /// Reads `expect`'s check now and keeps it for a later
+    /// [`Self::read_back`] (a batch step: right after the step, then after
+    /// the batch's settle). `None`: unreadable.
+    fn peek_back(&self, _expect: &Expect) -> Option<bool> {
+        None
+    }
     /// Whether the app of `window_id` answers an accessibility request now
     /// (a stalled app shows nothing new because it does nothing at all).
     /// `None`: unknown.

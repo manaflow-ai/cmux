@@ -1513,8 +1513,9 @@ impl Engine {
         }
         let mut results = Vec::new();
         // Steps that acted, kept whole until the batch's own settle: their
-        // outcomes are decided after it (their index in `results`).
-        let mut acted: Vec<(usize, ToolOutput)> = Vec::new();
+        // outcomes are decided after it (their index in `results`, what
+        // their read-back showed right after them, and what they acted on).
+        let mut acted: Vec<(usize, ToolOutput, Option<bool>, String)> = Vec::new();
         let mut acted_on: Option<TargetApp> = None;
         let mut failed: Option<ToolOutput> = None;
         for (index, action) in actions.iter().enumerate() {
@@ -1565,9 +1566,18 @@ impl Engine {
                         failed = Some(done);
                         break;
                     }
-                    // Its outcome is decided after the batch's settle, below.
+                    // Its read-back now, right after the step (a later step
+                    // must not confirm it); its outcome is decided after the
+                    // batch's settle, below.
                     if done.body.get("evidence").is_some() {
-                        acted.push((results.len(), done.clone()));
+                        let now = done
+                            .body
+                            .get("expect")
+                            .and_then(|e| {
+                                serde_json::from_value::<crate::desktop::Expect>(e.clone()).ok()
+                            })
+                            .and_then(|e| self.desktop.peek_back(&e));
+                        acted.push((results.len(), done.clone(), now, batch_target(&step)));
                     }
                     results.push(json!({"action": name, "ok": true, "result": done.body}));
                     acted_on = app.or(acted_on);
@@ -1607,7 +1617,30 @@ impl Engine {
         // Every step through the one confirm rule, its read-back read after
         // that settle (none: a step is at most delivered); the route's
         // internal keys go.
-        for (index, mut done) in acted {
+        let targets: Vec<String> = acted.iter().map(|(_, _, _, t)| t.clone()).collect();
+        for (n, (index, mut done, now, target)) in acted.into_iter().enumerate() {
+            // Confirmed needs the read-back to have held right after its own
+            // step too, and no later step to have acted on the same target
+            // (its effect could be what the read-back sees).
+            let touched_later = targets[n + 1..].iter().any(|t| roles_overlap(t, &target));
+            if now != Some(true) || touched_later {
+                let why = if touched_later {
+                    "a later step in the batch acted on the same element or view"
+                } else {
+                    "the effect did not read back right after this step"
+                };
+                if done.body.get("evidence") == Some(&json!("confirmed")) {
+                    done.body["evidence"] = json!("delivered");
+                }
+                let mut note =
+                    done.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
+                crate::outcome::append(&mut note, why);
+                done.body["note"] = json!(note);
+                // The read-back after the settle may not upgrade it either.
+                if let Some(body) = done.body.as_object_mut() {
+                    body.remove("expect");
+                }
+            }
             self.attach_outcome(&mut done, settled_ms, None, None, None);
             if let Some(body) = done.body.as_object_mut() {
                 body.remove("shows");
@@ -1723,15 +1756,8 @@ impl Engine {
                 return None;
             }
         };
-        // A real settle: the adaptive wait captured more than once. The other
-        // modes capture once, right away or after a fixed delay, which proves
-        // nothing.
-        // A real settle: the adaptive wait, its floor and then captures until
-        // the window changed and the app went quiet, or the ceiling (one
-        // capture or more). The other modes capture once, right away or
-        // after a fixed delay, and are no settle. no_effect needs more: an
-        // unchanged window, which the wait shows only after its second
-        // capture (outcome.rs, `pixels` "same").
+        // A real settle: the adaptive wait (one capture or more); the other
+        // modes capture once, right away or after a fixed delay.
         let settled =
             (mode == SettleMode::Adaptive && captures >= 1).then_some(elapsed.as_millis() as u64);
         let mut state = shot.body.clone();
@@ -2161,6 +2187,21 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     format!(
         "no visible change within {waited_ms} ms: this window and the windows over it looked the same in every capture. If the action should change what it shows, take a screenshot before retrying, then try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An effect outside this window (copy, save, another app) is not seen here."
     )
+}
+
+/// What a batch step acts on: its element, else its point (a scroll or click
+/// at a point acts on the view under it), else the window (keys, typing).
+fn batch_target(step: &Value) -> String {
+    if let Some(id) = step.get("element_id").and_then(Value::as_str) {
+        return format!("element:{id}");
+    }
+    "window".into()
+}
+
+/// Whether two batch targets may be the same thing: the same element, or
+/// either is the window or a point in it (which may be any element).
+fn roles_overlap(a: &str, b: &str) -> bool {
+    a == b || a == "window" || b == "window"
 }
 
 /// The record written before the outcome is decided: as [`retry_record`],

@@ -213,7 +213,11 @@ pub fn web_content(roles: Option<Vec<String>>) -> Web {
     match roles {
         None => Web::Unknown,
         Some(r) if r.iter().any(|r| r == "AXWebArea") => Web::In,
-        Some(_) => Web::Out,
+        // Not web only for a walk that reached the window or the app.
+        Some(r) if r.last().is_some_and(|l| matches!(l.as_str(), "AXWindow" | "AXApplication")) => {
+            Web::Out
+        }
+        Some(_) => Web::Unknown,
     }
 }
 
@@ -238,6 +242,9 @@ pub fn menu_gate_web(web: Web) -> bool {
 pub fn step_tolerance(step: f64) -> f64 {
     step.abs() / 2.0 + 1e-9
 }
+
+/// The refusal when an element that may open a menu cannot be read.
+pub const MENU_UNREAD_REFUSAL: &str = "this element could not be read well enough to tell whether it opens a menu, so nothing was done; try again, or take a screenshot and use another element";
 
 /// How a posted press is aimed, from the two readings of the front app
 /// taken right before the post.

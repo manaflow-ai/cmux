@@ -507,6 +507,37 @@ fn batch_steps_are_read_back_after_the_batch_settle() {
     }
 }
 
+/// Review of d890b98 (1): a batch step is confirmed only when its read-back
+/// held right after its own step as well as after the batch's settle (a
+/// later step's effect must not confirm it), and not when a later step acted
+/// on the same element.
+#[test]
+fn a_batch_step_is_not_confirmed_by_a_later_step() {
+    // Not shown right after its step: delivered, whatever the batch end shows.
+    let d = Arc::new(FakeDesktop::standard());
+    *d.holds_after_step.lock().unwrap() = Some(false);
+    let (e, _) = settling_engine(d);
+    let out = e.call(
+        &ctx(None),
+        "batch",
+        &json!({"window_id": "1", "actions": [{"action": "set_value", "element_id": "e1", "value": "x"}]}),
+    );
+    assert_eq!(out.body["results"][0]["result"]["evidence"], "delivered", "{}", out.body);
+    // A later step on the same element: the earlier one is capped.
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d);
+    let out = e.call(
+        &ctx(None),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "set_value", "element_id": "e1", "value": "x"},
+            {"action": "set_value", "element_id": "e1", "value": "y"}
+        ]}),
+    );
+    assert_eq!(out.body["results"][0]["result"]["evidence"], "delivered", "{}", out.body);
+    assert_eq!(out.body["results"][1]["result"]["evidence"], "confirmed", "{}", out.body);
+}
+
 /// Review of 02ca109 (follow-up): without an adaptive settle (observe false)
 /// nothing is confirmed.
 #[test]

@@ -120,6 +120,9 @@ pub struct FakeDesktop {
     /// Delivered results carry a read-back even when `reads_back` is None
     /// (it then answers "unreadable").
     pub reads_back_expect: Mutex<bool>,
+    /// What a batch step's read-back answers right after its step (`None`:
+    /// as after the batch).
+    pub holds_after_step: Mutex<Option<bool>>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
 }
@@ -215,6 +218,7 @@ impl FakeDesktop {
             confirms_on_reread: Mutex::new(Some(true)),
             unchanged: Mutex::new(false),
             reads_back_expect: Mutex::new(false),
+            holds_after_step: Mutex::new(None),
         }
     }
 
@@ -480,6 +484,12 @@ impl Desktop for FakeDesktop {
             return *lock(&self.confirms_on_reread);
         }
         *lock(&self.reads_back)
+    }
+    fn peek_back(&self, expect: &Expect) -> Option<bool> {
+        if let Some(step) = *lock(&self.holds_after_step) {
+            return Some(step);
+        }
+        self.read_back(expect)
     }
     fn responsive(&self, _window_id: &str) -> Option<bool> {
         *lock(&self.responsive)
