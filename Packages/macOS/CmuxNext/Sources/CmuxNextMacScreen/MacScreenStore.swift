@@ -16,21 +16,24 @@ public final class MacScreenStore {
     nonisolated private struct File: Codable, Sendable {
         var hubDeviceName: String?
         var deviceNames: [String: String] = [:]
+        var hasSharedBefore = false
         /// The link-pairing Keychain items were deleted (the one-time cleanup ran).
         var linkPairingsRemoved = false
 
-        init(hubDeviceName: String?, deviceNames: [String: String], linkPairingsRemoved: Bool) {
+        init(hubDeviceName: String?, deviceNames: [String: String], hasSharedBefore: Bool, linkPairingsRemoved: Bool) {
             self.hubDeviceName = hubDeviceName
             self.deviceNames = deviceNames
+            self.hasSharedBefore = hasSharedBefore
             self.linkPairingsRemoved = linkPairingsRemoved
         }
 
-        enum CodingKeys: String, CodingKey { case hubDeviceName, deviceNames, linkPairingsRemoved }
+        enum CodingKeys: String, CodingKey { case hubDeviceName, deviceNames, hasSharedBefore, linkPairingsRemoved }
 
         init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             hubDeviceName = try? c.decodeIfPresent(String.self, forKey: .hubDeviceName)
             deviceNames = (try? c.decodeIfPresent([String: String].self, forKey: .deviceNames)) ?? [:]
+            hasSharedBefore = (try? c.decodeIfPresent(Bool.self, forKey: .hasSharedBefore)) ?? false
             linkPairingsRemoved = (try? c.decodeIfPresent(Bool.self, forKey: .linkPairingsRemoved)) ?? false
         }
 
@@ -48,6 +51,8 @@ public final class MacScreenStore {
     public private(set) var hubDeviceName: String?
     /// The user's devices' names by id, as last seen from the hub (titles of restored device tabs).
     public private(set) var deviceNames: [String: String] = [:]
+    /// True after this Mac has successfully been enabled as a screen host once.
+    public private(set) var hasSharedBefore = false
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private let file: URL
     /// Deletes every link-pairing Keychain item of this build (tests replace it).
@@ -88,6 +93,7 @@ public final class MacScreenStore {
                 if let stored {
                     hubDeviceName = hubDeviceName ?? stored.hubDeviceName
                     deviceNames = stored.deviceNames.merging(deviceNames) { _, new in new }
+                    hasSharedBefore = stored.hasSharedBefore
                 }
                 if stored?.linkPairingsRemoved != true {
                     // One time: the Keychain items of link pairing (every saved Mac's room
@@ -113,6 +119,14 @@ public final class MacScreenStore {
         save()
     }
 
+    /// Records the first successful Share This Mac flow. This is deliberately a local
+    /// hint for the home-page guide; the hub's sharing bit remains authoritative.
+    public func markSharedBefore() {
+        guard !hasSharedBefore else { return }
+        hasSharedBefore = true
+        save()
+    }
+
     /// Keeps the names the hub lists now (a device's last name stays after it goes away). True when a name changed.
     @discardableResult
     public func rememberDeviceNames(_ names: [String: String]) -> Bool {
@@ -125,7 +139,8 @@ public final class MacScreenStore {
 
     /// Writes the file off the main thread, in order.
     private func save() {
-        let contents = File(hubDeviceName: hubDeviceName, deviceNames: deviceNames, linkPairingsRemoved: linkPairingsRemoved)
+        let contents = File(hubDeviceName: hubDeviceName, deviceNames: deviceNames, hasSharedBefore: hasSharedBefore,
+                            linkPairingsRemoved: linkPairingsRemoved)
         guard let data = try? JSONEncoder().encode(contents) else { return }
         let file = file, previous = saveTask
         saveTask = Task.detached {
