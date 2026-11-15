@@ -131,6 +131,8 @@ export function SettingsApp() {
       revision: state.revision,
     })[0]?.rows[0];
     if (first) reveal(first.key);
+    // Nothing matches: Return asks cmux for it, as the row under "No settings match." does.
+    else if (query.trim()) void store.askCmux(query);
   };
 
   return (
