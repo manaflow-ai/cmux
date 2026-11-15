@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43657372286",
+  "recorded_at": "2026-11-15T00:23:51Z",
+  "reason": "cmux-tui 2b4882297582 changes the image's cmux-tui (pinned a1a54cf11e38)",
+  "dry_run": false,
+  "cmux_tui": "2b4882297582085f1e53c101db7a6ab54fa1c852",
+  "fixes": [
+    {
+      "sha": "7561d29c056d5e9d53cf904f063a15f5d0ac2d04",
+      "mergedAt": "2026-11-14T15:54:52-08:00",
+      "subject": "infinite items: bound the disk that grows per day (CMUX-571 slope 3) (#43292)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T00:23:51Z",
+    "snapshot_id": "sh-1e588b03bc73415d85ad69e5e7747b52",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43657372286): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "48160476f048cb240ffed5c2166d53e09e427196",
+    "image": "cloud-native-auto-2b488229-43657372286-1",
+    "revision": "ci-43657372286-1",
+    "at": "2026-11-15T00:23:51Z"
+  },
+  "rolled_back": false
+}
