@@ -20,12 +20,16 @@ nonisolated public struct UpdatePreferences: Equatable, Sendable {
     /// `updates.oneClickInstall`: Update on a found update is also the restart's ask (its download
     /// shows its progress, then cmux installs and relaunches); off, the Update Ready card asks again.
     public var oneClickInstall: Bool
+    /// `updates.installAutomatically` (opt-in): found updates download and install with no click, at
+    /// a moment that cuts nothing off, then cmux relaunches. Off, only the person's click installs.
+    public var installAutomatically: Bool
     /// `updates.whatsNewInstall`: What's New lists Install on each build (ChangelogInstallProvider).
     public var whatsNewInstall: Bool
 
     public init(installOnQuit: Bool = false, notify: UpdateNotifyMode = .badge, keepPreviousVersions: Int = 1,
-                oneClickInstall: Bool = false, whatsNewInstall: Bool = false) {
+                oneClickInstall: Bool = false, whatsNewInstall: Bool = false, installAutomatically: Bool = false) {
         self.whatsNewInstall = whatsNewInstall
+        self.installAutomatically = installAutomatically
         self.installOnQuit = installOnQuit
         self.notify = notify
         self.keepPreviousVersions = keepPreviousVersions

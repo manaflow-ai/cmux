@@ -116,9 +116,9 @@ extension UpdaterService {
         WebUpdates.shared.follow(updates)
         WebDevOverride.setAllowed(updates.liveWebReload)
         let preferences = UpdatePreferences(
-            installOnQuit: updates.installOnQuit,
-            notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
-            keepPreviousVersions: updates.keepPreviousVersions, oneClickInstall: updates.oneClickInstall, whatsNewInstall: updates.whatsNewInstall)
+            installOnQuit: updates.installOnQuit, notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
+            keepPreviousVersions: updates.keepPreviousVersions, oneClickInstall: updates.oneClickInstall, whatsNewInstall: updates.whatsNewInstall,
+            installAutomatically: updates.installAutomatically)
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
