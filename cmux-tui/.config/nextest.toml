@@ -143,6 +143,20 @@ success-output = "final"
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::create_commit_cost::/)'
 success-output = "final"
 
+# Three tests of cmux-tui tests/holder_terminals/holder_late_start.rs print a HOLDER-LATE-START
+# line on stderr. The large-session restart: how many terminals re-attached inside the
+# start's wait for the holder and how many after the start. The two restarts while the holder
+# is stopped: each daemon's line of its ask of the holder. The listener with a connect whose
+# client is gone: what this system gives for that connect. A run shows these lines only when
+# a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = '''
+test(=holder_late_start::a_restart_of_a_large_session_reattaches_every_terminal)
+| test(=holder_late_start::a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal)
+| test(=holder_late_start::a_listener_with_a_connect_whose_client_is_gone_prints_what_the_system_gives)
+'''
+success-output = "final"
+
 # The git lane tests (cmux-tui-core tests/git_lane.rs) print their "git-lane:" lines on stderr:
 # what was answered while git was held, the git children at one time, and the wait of a
 # git.status on another connection. A fleet step shows them only when a passing test's output

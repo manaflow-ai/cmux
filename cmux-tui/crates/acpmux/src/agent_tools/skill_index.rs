@@ -90,7 +90,15 @@ mod tests {
         };
         assert_eq!(
             names(&full),
-            ["cmux-browser", "cmux-cua", "cmux-customization", "cmux-live", "acpmux", "cmux-sudo"]
+            [
+                "cmux-browser",
+                "cmux-cua",
+                "cmux-customization",
+                "cmux-live",
+                "cmux-rich-output",
+                "acpmux",
+                "cmux-sudo"
+            ]
         );
         for skill in full.skill_index() {
             assert_eq!(skill.dir, plugin.join("skills").join(&skill.name));
@@ -100,7 +108,7 @@ mod tests {
         let bare = AgentTools { servers: vec![server("cmux")], ..full.clone() };
         assert_eq!(
             names(&bare),
-            ["cmux-browser", "cmux-customization", "cmux-live", "acpmux"],
+            ["cmux-browser", "cmux-customization", "cmux-live", "cmux-rich-output", "acpmux"],
             "no computer use or secrets server, no cmux-cua or cmux-sudo"
         );
         assert!(AgentTools { plugin_dir: None, ..full }.skill_index().is_empty());

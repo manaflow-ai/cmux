@@ -165,7 +165,7 @@
       "shot": false
     },
     {
-      "title": "Run 1 (c) mid-turn terminal pair: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 1 (c) mid-turn terminal pair: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -184,7 +184,7 @@
       "shot": false
     },
     {
-      "title": "Run 1 (d) mid-turn terminal pair: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 1 (d) mid-turn terminal pair: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -203,7 +203,7 @@
       "shot": false
     },
     {
-      "title": "Run 2 (c) mid-turn terminal pair: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 2 (c) mid-turn terminal pair: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -222,7 +222,7 @@
       "shot": false
     },
     {
-      "title": "Run 2 (d) mid-turn terminal pair: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 2 (d) mid-turn terminal pair: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -241,7 +241,7 @@
       "shot": false
     },
     {
-      "title": "Run 3 (c) mid-turn terminal pair: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 3 (c) mid-turn terminal pair: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -260,7 +260,7 @@
       "shot": false
     },
     {
-      "title": "Run 3 (d) mid-turn terminal pair: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 3 (d) mid-turn terminal pair: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -279,7 +279,7 @@
       "shot": false
     },
     {
-      "title": "Run 4 (c) mid-turn terminal pair: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 4 (c) mid-turn terminal pair: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -298,7 +298,7 @@
       "shot": false
     },
     {
-      "title": "Run 4 (d) mid-turn terminal pair: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 4 (d) mid-turn terminal pair: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -317,7 +317,7 @@
       "shot": false
     },
     {
-      "title": "Run 5 (c) mid-turn terminal pair: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 5 (c) mid-turn terminal pair: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -336,7 +336,7 @@
       "shot": false
     },
     {
-      "title": "Run 5 (d) mid-turn terminal pair: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 5 (d) mid-turn terminal pair: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -355,7 +355,7 @@
       "shot": false
     },
     {
-      "title": "Run 6 (c) mid-turn terminal pair: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 6 (c) mid-turn terminal pair: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -374,7 +374,7 @@
       "shot": false
     },
     {
-      "title": "Run 6 (d) mid-turn terminal pair: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 6 (d) mid-turn terminal pair: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -393,7 +393,7 @@
       "shot": false
     },
     {
-      "title": "Run 7 (c) mid-turn terminal pair: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 7 (c) mid-turn terminal pair: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -412,7 +412,7 @@
       "shot": false
     },
     {
-      "title": "Run 7 (d) mid-turn terminal pair: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 7 (d) mid-turn terminal pair: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
