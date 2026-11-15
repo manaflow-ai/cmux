@@ -2530,3 +2530,62 @@ fn first_ready_cost_from_the_production_channel() {
         pct(&mut current, 90),
     );
 }
+
+/// Leo's item 1 ("no first-boot self-update"): "A spare whose services are restarting is not
+/// claimable." An update's flip, inside the gate, sends its `stopping` report before it
+/// restarts the services, and a report that fails or never answers still restarts them, within
+/// the report's bound (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s
+/// later, and its chat never connected).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_flip_reports_stopping_before_it_restarts_the_services() {
+    use std::cell::RefCell;
+    use std::time::{Duration, Instant};
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let steps = RefCell::new(Vec::new());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            steps.borrow_mut().push("flip");
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::report_then_restart(
+                || {
+                    steps.borrow_mut().push("stopping");
+                    Ok(())
+                },
+                || steps.borrow_mut().push("restart"),
+            );
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    assert_eq!(*steps.borrow(), ["flip", "stopping", "restart"], "the stopping report goes first");
+
+    // A refused report is logged, and the services restart anyway.
+    let restarted = RefCell::new(false);
+    role::report_then_restart(|| Err("HTTP 503".to_owned()), || *restarted.borrow_mut() = true);
+    assert!(*restarted.borrow(), "a failed stopping report stopped the restart");
+
+    // A report that never answers holds the restart for its bound, no longer.
+    let (_hang, hung) = std::sync::mpsc::channel::<()>();
+    let started = Instant::now();
+    let restarted = RefCell::new(false);
+    role::report_then_restart(
+        || {
+            crate::cloud::role::within(Duration::from_millis(200), move || {
+                let _ = hung.recv();
+                Ok(())
+            })
+        },
+        || *restarted.borrow_mut() = true,
+    );
+    assert!(*restarted.borrow(), "a hung stopping report stopped the restart");
+    assert!(started.elapsed() < Duration::from_secs(2), "the restart waited past the bound");
+    assert_eq!(crate::cloud::role::STOPPING_REPORT_BOUND, Duration::from_secs(2));
+}
