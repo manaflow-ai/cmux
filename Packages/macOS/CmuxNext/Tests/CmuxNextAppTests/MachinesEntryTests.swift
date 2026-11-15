@@ -24,19 +24,13 @@ struct MachinesEntryTests {
     }
 
     /// The setting: the App Store's sidebar card, listed with the other sidebar items (its on state is
-    /// whether the sidebar holds the item, so the default sidebar stays as it is), and Add to Sidebar.
-    @Test func theAppStoreAndAddToSidebarOfferIt() throws {
+    /// whether the sidebar holds the item, so the default sidebar stays as it is). `machines.show` in
+    /// Cmd+Shift+P and Add to Sidebar's "Machines" come from the Rust catalog with the next app FFI
+    /// re-pin (AWAITING_REPIN in cmux-action-catalog's swift_parity.rs); their checks land with it.
+    @Test func theAppStoreOffersIt() throws {
         let feature = try #require(AppFeature.catalog.first { $0.id == "machines.sidebarItem" })
         #expect(feature.on == .sidebarItem("machines"))
         #expect(feature.setting == "sidebar.layout")
-        let add = ActionCatalog.all.first { $0.id == "sidebar.item.add" }
-        #expect(add?.arguments.first?.suggestions?.pinned.map(\.value).contains("machines") == true)
-    }
-
-    @Test func thePaletteOffersMachines() throws {
-        let show = try #require(ActionCatalog.all.first { $0.id == "machines.show" })
-        #expect(show.surfaces.contains(.palette))
-        #expect(!show.title.isEmpty)
     }
 
     /// The page's provider makes the Machines section's host, which loads `cmux-page://cmux.machines/`.

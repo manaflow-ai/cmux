@@ -107,6 +107,20 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "machine reconnect",
         ..Action::DEFAULT
     },
+    // The Machines page (design/machines-section.md) on top of the window: from Cmd+Shift+P and the
+    // sidebar's Machines item (off by default; Add to Sidebar or the App Store's "Machines in Sidebar" adds it).
+    Action {
+        id: "machines.show",
+        group: GROUP,
+        title: t("RemoteActions", "action.machines.show", "Machines"),
+        keywords: &["machines", "devices", "computers", "remote", "ssh", "cloud", "server", "joined", "mac", "new workspace"],
+        category: "remote",
+        symbol: "desktopcomputer",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action machines-show",
+        ..Action::DEFAULT
+    },
     Action {
         id: "remote.newWorkspace",
         group: GROUP,
