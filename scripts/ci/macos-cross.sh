@@ -335,7 +335,7 @@ cmd_all() {
       "cmux-agent-screen-detection" "cd $(q "$tui") && $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
       "cmux-relay" "cd $(q "$tui") && $stamps $build -p cmux-relay --bin cmux-relay" \
       "chatmux-relay" "cd $(q "$tui") && $stamps $build -p chatmux-relay --bin chatmux-relay" \
-      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux-standalone --bin acpmux-standalone $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t" acpmux)"
+      "acpmux-standalone" "cd $(q "$tui") && $stamps $build -p acpmux-standalone --bin acpmux-standalone $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t" acpmux)"
     echo "all $t: $(( $(date +%s) - start )) s"
     local r="$target_dir/$t/release"
     # acpmux-standalone is acpmux with its build id stamped in this binary only, so a new commit
