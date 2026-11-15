@@ -4,6 +4,7 @@ public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextSettings
 import Foundation
 
 /// What cmux Remote's actions need from the app: the hub, a window to ask in, and Settings.
@@ -109,18 +110,31 @@ extension CmuxRemoteActionEnvironment {
                 let name = hub.devices.first { $0.id == device }?.name ?? device
                 let window = environment.window()
                 return .followUp {
-                    if action == "share" {
-                        guard let window else { return ["ok": false, "declined": true] }
-                        let shared = try await CmuxRemoteSharingSetup(host: environment.screenHost).confirm(in: window)
-                        return ["ok": .bool(shared), "declined": .bool(!shared)]
+                    // The dialog outlives the request: the CLI gives up after 130 s and the request's deadline
+                    // cancels this follow-up, but an Allow after that is still the person's answer. The dialog
+                    // and the change run in their own task, which that cancellation does not reach.
+                    let answer = Task {
+                        try await Self.answerConfirm(action: action, device: device, name: name, scope: scope,
+                                                     hub: hub, window: window, environment: environment)
                     }
-                    let (title, body) = await CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
-                    guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
-                    try await Self.applyAccess(device: device, scope: scope, hub: hub)
-                    return ["ok": true]
+                    return try await answer.value
                 }
             }.withDeadline(.fixed(.seconds(130))),
         ]
+    }
+
+    /// The person's answer to one `remote.confirm`, and the change it allows.
+    static func answerConfirm(action: String, device: String, name: String, scope: DeviceScope?, hub: DeviceHub,
+                              window: NSWindow?, environment: CmuxRemoteActionEnvironment) async throws -> CmuxNextSettings.JSONValue {
+        if action == "share" {
+            guard let window else { return ["ok": false, "declined": true] }
+            let shared = try await CmuxRemoteSharingSetup(host: environment.screenHost).confirm(in: window)
+            return ["ok": .bool(shared), "declined": .bool(!shared)]
+        }
+        let (title, body) = CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
+        guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
+        try await Self.applyAccess(device: device, scope: scope, hub: hub)
+        return ["ok": true]
     }
 
     /// The person's answer to one dialog (false without a window).
