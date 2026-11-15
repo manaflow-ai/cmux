@@ -7,7 +7,8 @@ Leo 2026-11-01: "i need these hover previews to appear a hell of a lot faster th
 
 Launches the tagged app (a bench build: `debug.hover_cards` is registered only with CMUX_BENCH_HOOKS or in Debug),
 fills the sidebar to each --workspaces count, and for --samples rows per count moves the real pointer onto the row
-and reads `debug.hover_cards` until the row's card shows. The real pointer moves by the first route that works:
+and reads `debug.hover_cards` until the row's card shows. The real pointer moves by the first route that works: the installed Nightly's Computer Use app
+(`--pointer-glide`, its own lasting Accessibility grant), then
 mouse moves this step posts itself (pointer-probe.swift; needs an Accessibility grant for this process, which a
 binary compiled per run never has), then CuaDriver's `move_cursor` (desktop scope, foreground delivery) through its
 daemon, which holds the host's Accessibility grant. Each route is checked by reading the pointer back. Only when
@@ -196,6 +197,34 @@ class Cua:
 CUA = None
 CUA_SCALE = 1.0
 
+# The installed Nightly's Computer Use app (com.cmuxterm.cua, Developer ID): a stable identity, so an Accessibility
+# grant given once at the host's console lasts across nightlies. Launched through LaunchServices, it is its own
+# responsible process and posts under its own grant (`--pointer-glide`, PointerGlide.swift); a binary this step
+# compiles or starts directly never holds one (cmux20-bench, 2026-11-15: AXIsProcessTrusted and
+# CGPreflightPostEventAccess false for the step's processes).
+HELPER_APP = os.environ.get("CMUX_BENCH_POINTER_APP",
+                            "/Applications/cmux NEXT.app/Contents/Library/cmux Computer Use.app")
+
+
+def helper_glide(x0, y0, x1, y1, steps):
+    """Posts `steps` real mouse moves from (x0, y0) to (x1, y1) (screen points, top left) through the helper app and
+    returns the monotonic time of its last post (time.monotonic and the helper's CLOCK_UPTIME_RAW are one clock on
+    macOS). RuntimeError with the helper's answer when it posted nothing."""
+    with tempfile.TemporaryDirectory(prefix="hover-glide-") as tmp:
+        out, err = os.path.join(tmp, "out"), os.path.join(tmp, "err")
+        subprocess.run(["open", "-g", "-n", "-W", "--stdout", out, "--stderr", err, HELPER_APP, "--args",
+                        "--pointer-glide", *[f"{v:.1f}" for v in (x0, y0, x1, y1)], str(steps)],
+                       capture_output=True, text=True, timeout=30)
+        text = open(out).read().strip() if os.path.exists(out) else ""
+        try:
+            answer = json.loads(text.splitlines()[-1]) if text else {}
+        except ValueError:
+            answer = {}
+        if not answer.get("ok") or not answer.get("last_post_uptime_ns"):
+            stderr = open(err).read().strip()[-200:] if os.path.exists(err) else ""
+            raise RuntimeError(f"helper --pointer-glide: {text[-300:] or 'no answer'} {stderr}".strip())
+        return answer["last_post_uptime_ns"] / 1e9
+
 
 def cua_move(x, y):
     """The real pointer to screen point (x, y) (top left) through CuaDriver: desktop scope takes the main display's
@@ -217,6 +246,13 @@ def move_path(start, end, steps):
                               reply=rpc("debug.pointer_hover", {"point": [x, height - y]}))
         return time.monotonic()
     (x0, y0), (x1, y1) = to_screen(start), to_screen(end)
+    if ROUTE == "helper":
+        try:
+            return helper_glide(x0, y0, x1, y1, steps)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:  # the sample shows a miss
+            if len(REPORT["notes"]) < 20:
+                REPORT["notes"].append(f"glide failed: {error}")
+            return time.monotonic()
     if ROUTE == "cua":
         for i in range(1, steps + 1):
             if i > 1:
@@ -267,12 +303,26 @@ def real_input_works():
     global ROUTE, CUA, CUA_SCALE
     f = (main_window() or {}).get("frame") or {}
     target = to_screen([f.get("width", 800) * 0.6, f.get("height", 600) * 0.5])
+    why = []
+    if os.path.isdir(HELPER_APP):
+        try:
+            helper_glide(target[0] - 40, target[1], target[0], target[1], 2)
+            at, ok = landed(target)
+            if ok and app_saw(lambda p: helper_glide(p[0] - 1, p[1], p[0], p[1], 2), "helper") is not False:
+                ROUTE = "helper"
+                return None
+            why.append(f"helper glide to {target[0]:.0f} {target[1]:.0f}: pointer after {at}"
+                       + (", the app saw no move" if ok else ""))
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            why.append(str(error)[-300:])
+    else:
+        why.append(f"no helper app at {HELPER_APP}")
     run = subprocess.run([PROBE, "move", str(target[0]), str(target[1])], capture_output=True, text=True, timeout=20)
     at, ok = landed(target)
     if ok and app_saw(lambda p: probe("move", p[0], p[1]), "posted") is not False:
         ROUTE = "posted"
         return None
-    why = [f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
+    why += [f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
            f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}" + (", the app saw no move" if ok else "")]
     if not CUA_PATH:
         return "; ".join(why + [f"no cua-driver at {' or '.join(CUA_CANDIDATES)}"])
@@ -431,7 +481,7 @@ try:
         REPORT["notes"].append(f"real input fell back to synthetic: {why}")
         safe_print(f"real input fell back to synthetic: {why}", flush=True)
         opts.input = REPORT["input"] = "synthetic"
-    REPORT["pointer_route"] = {"posted": "pointer-probe posted moves", "cua": "cua-driver move_cursor"}.get(ROUTE) \
+    REPORT["pointer_route"] = {"helper": "cmux Computer Use --pointer-glide", "posted": "pointer-probe posted moves", "cua": "cua-driver move_cursor"}.get(ROUTE) \
         if opts.input == "real" else "debug.pointer_hover"
     report = cards()
     REPORT["defaults"] = {k: report.get(k) for k in ("enabled", "delay_ms", "sources", "monitor", "suppressions", "quiet")}
