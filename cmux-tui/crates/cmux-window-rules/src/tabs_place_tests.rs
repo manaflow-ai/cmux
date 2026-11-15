@@ -116,13 +116,8 @@ fn a_prompt_the_screen_lost_falls_back_to_an_older_one() {
     ]);
     let rows = prompt_rows(&chat, &claude_screen(), 80);
     assert_eq!(rows, vec![None, Some(4), Some(9), Some(13)]);
-    let facts = ToTerminal {
-        prompts: chat.clone(),
-        at: Some(0),
-        screen: claude_screen(),
-        base: 0,
-        columns: 80,
-    };
+    let facts =
+        ToTerminal { prompts: chat, at: Some(0), screen: claude_screen(), base: 0, columns: 80 };
     // Nothing older on the screen: the terminal stays where it is.
     assert_eq!(terminal_place(&facts), TerminalPlace::Stay);
     // A prompt not drawn (a turn the terminal never printed) lands on the one before it.
