@@ -1,4 +1,4 @@
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
