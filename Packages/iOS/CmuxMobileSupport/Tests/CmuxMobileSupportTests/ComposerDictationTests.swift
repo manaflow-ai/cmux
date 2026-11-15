@@ -133,6 +133,16 @@ import Testing
                               isUtteranceFinal: true) == "A B")
     }
 
+    @Test func cumulativeTimedFinalPrunesHistoryAroundUntimedFinal() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        _ = merger.merged(base: "", transcript: "B", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A C", startTime: 0, endTime: 4,
+                              isUtteranceFinal: true) == "A C B")
+    }
+
     @Test func untimedCorrectionCannotKeepStaleTimingAndDuplicateItself() {
         var merger = ComposerDictationTextMerger()
         _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1.5)

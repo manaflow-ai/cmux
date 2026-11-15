@@ -113,20 +113,36 @@ public struct ComposerDictationTextMerger: Sendable {
                     }
                 }
             }
-            // Retain only phrases wholly before this result. Speech may send a
-            // cumulative final covering multiple previously separate phrases.
-            while let last = phrases.last {
-                if let endTime = last.endTime {
-                    guard endTime > startTime else { break }
-                    phrases.removeLast()
-                } else if last.isFinal {
-                    // Apple can mark a result final without exposing usable
-                    // segment timing. Keep that committed phrase when a later
-                    // timed result starts after it.
-                    break
-                } else {
-                    phrases.removeLast()
+            // Remove every overlapping timed hypothesis, even when an
+            // untimed finalized phrase sits between it and the new result.
+            // Insert the replacement where the first removed phrase lived so
+            // committed untimed phrases stay in their original order.
+            var removedIndices = Set<Int>()
+            for (index, phrase) in phrases.enumerated() {
+                if let endTime = phrase.endTime {
+                    if endTime > startTime {
+                        removedIndices.insert(index)
+                    }
+                } else if !phrase.isFinal {
+                    removedIndices.insert(index)
                 }
+            }
+            let replacement = Phrase(
+                text: String(transcript.drop(while: \.isWhitespace)),
+                endTime: endTime,
+                isFinal: isUtteranceFinal
+            )
+            if let firstRemoved = removedIndices.min() {
+                let insertionIndex = phrases[..<firstRemoved]
+                    .indices
+                    .filter { !removedIndices.contains($0) }
+                    .count
+                phrases = phrases.enumerated().compactMap { index, phrase in
+                    removedIndices.contains(index) ? nil : phrase
+                }
+                phrases.insert(replacement, at: insertionIndex)
+            } else {
+                phrases.append(replacement)
             }
         } else if phrases.last?.isFinal == false {
             // Untimed partials revise only the provisional phrase. A finished
@@ -135,11 +151,13 @@ public struct ComposerDictationTextMerger: Sendable {
             // this provisional text rather than append a duplicate of it.
             phrases.removeLast()
         }
-        phrases.append(Phrase(
-            text: String(transcript.drop(while: \.isWhitespace)),
-            endTime: validTiming ? endTime : nil,
-            isFinal: isUtteranceFinal
-        ))
+        if !validTiming {
+            phrases.append(Phrase(
+                text: String(transcript.drop(while: \.isWhitespace)),
+                endTime: nil,
+                isFinal: isUtteranceFinal
+            ))
+        }
         return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
     }
 
