@@ -1627,7 +1627,9 @@ def run_checks(repo: Path, plan: Plan, jobs: list[tuple]) -> list[Result]:
             return run(*jobs[index])
 
     order = sorted(range(len(jobs)), key=lambda index: not weighs[index])
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
+    # A thread per job: the slots, not the pool, bound what runs, so weighty jobs waiting on the gate never hold every
+    # worker while light ones queue behind them.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
         futures = {index: pool.submit(check, index) for index in order}
         return [futures[index].result() for index in range(len(jobs))]
 
