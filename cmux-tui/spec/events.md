@@ -1608,6 +1608,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
 | `pending` field | additive, `terminal-pending-sequence-v1` |
 | `history_rows_omitted` field | additive, `attach-replay-history-rows-v1` |
+| `history_rows_skipped` field | additive, `attach-replay-history-window-v1` |
 
 Payload:
 
@@ -1642,7 +1643,8 @@ object{
     cursor_blink:boolean|null
   },
   pending?:Base64,
-  history_rows_omitted?:uint64
+  history_rows_omitted?:uint64,
+  history_rows_skipped?:uint64
 }
 ```
 
@@ -1680,7 +1682,11 @@ string, and a resize there drops byte attachments so they reattach.
 `replay_history_rows` (`attach-replay-history-rows-v1`, see `attach-surface`):
 `data` then holds the active area and at most that many of the newest history
 rows, and the field counts the older history rows it left out (0 when the
-whole history fit).
+whole history fit). `history_rows_skipped` is present only for a window away
+from the active area (`replay_history_start`,
+`attach-replay-history-window-v1`): `data` holds the window's rows, then the
+active area, and the field counts the history rows between them that it
+left out.
 
 Example:
 
@@ -1721,10 +1727,12 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors,pending?:Base64}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors,pending?:Base64,history_rows_omitted?:uint64}
 ```
 
 Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Protocol v9 and v10 clients apply the Kitty sidecars with the same ordering as `vt-state`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay and sidecars, restore the supplied colors when present, write `pending` when present (with the same capability and meaning as on `vt-state`), then continue applying later `output` chunks.
+
+A viewer that declared `attach-replay-history-window-v1` in `set-client-info` and attached with `replay_history_rows` gets a replay of the active area and at most that many of the newest history rows, not the whole history, and `history_rows_omitted` counts the older rows left out (as on `vt-state`). Other viewers get the whole history and no field.
 
 Example:
 
