@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a";
+inline constexpr std::string_view kProtocolIrSha256 = "a871845adb653b0f5dcbe0f9ada6dd1b846fcb244241e6888e1811ad2f89428a";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3412,9 +3412,11 @@ struct IdentifyResult {
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_device{};
     std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
     std::optional<MachinePlatform> machine_platform{};
+    std::optional<std::string> machine_symbol{};
     Field<std::uint32_t> min_api_revision{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
