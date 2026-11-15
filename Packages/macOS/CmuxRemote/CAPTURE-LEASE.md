@@ -97,6 +97,13 @@ restarts and retries that sequence; Prepared and Active still require host proof
 Cleanup picks the host's path by whether its prepare completed (it answered
 with a bound lease, so its marker exists), never by whether a host is recorded:
 a failed grant or a refused prepare after the record still takes the markerless
-path, after an app relaunch too. The record keeps that flag through Cleaning.
-`capture_cleanup_after_failed_prepare_with_a_recorded_host_takes_the_unprepared_path`
-covers both directions.
+path, after an app relaunch too. The record keeps that flag through Cleaning;
+a record from before the flag chooses by its recorded host, as it did then.
+That choice is only a first try: only the host knows whether its marker exists
+(a prepare answer can be lost after the marker was written). When the host
+refuses the chosen path with `remote_lease_mismatch`, which both paths answer
+before any freeze, signal or delete, the daemon tries the other path once and
+persists the one the host admitted; a second refusal keeps the fence.
+`capture_cleanup_after_failed_prepare_with_a_recorded_host_takes_the_unprepared_path`,
+`capture_cleanup_falls_back_when_the_host_disagrees_about_its_marker` and
+`capture_record_from_before_native_prepared_keeps_its_recorded_host_choice` cover it.

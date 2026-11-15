@@ -104,7 +104,7 @@ impl Lease {
     /// Which cleanup the host most likely admits: the marker path, or the markerless one.
     /// Only a first choice: the host refuses the wrong one without effects (see `capture_locked`).
     pub fn native_marker(&self) -> bool {
-        self.native_prepared.unwrap_or(false)
+        self.native_prepared.unwrap_or(self.host.is_some())
             || matches!(self.phase, Phase::Prepared | Phase::Active)
     }
 }

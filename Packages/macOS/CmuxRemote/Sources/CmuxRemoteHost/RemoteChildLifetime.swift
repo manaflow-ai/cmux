@@ -192,6 +192,8 @@ private final class ChildReaper: Sendable {
         thread.start()
     }
 
+    /// A PID is reused only after its child was reaped, so a stored waiter for the same PID
+    /// belongs to an already reaped child whose own settle still holds it: replacing it is safe.
     func watch(_ waiter: Waiter) {
         waiting.withLock { $0[waiter.child.pid] = waiter }
         settle(waiter.child.pid)
@@ -215,7 +217,10 @@ private final class ChildReaper: Sendable {
     private func settle(_ pid: pid_t) {
         while let waiter = waiting.withLock({ $0[pid] }) {
             if let status = waiter.lifetime.reap(waiter.child) {
-                waiting.withLock { _ = $0.removeValue(forKey: pid) }
+                // Once reaped, the PID can belong to a new child whose waiter replaced this one.
+                waiting.withLock { stored in
+                    if stored[pid]?.child.lifetimeID == waiter.child.lifetimeID { stored[pid] = nil }
+                }
                 waiter.onExit(status)
                 return
             }

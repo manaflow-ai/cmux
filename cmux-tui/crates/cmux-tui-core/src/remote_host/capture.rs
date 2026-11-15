@@ -174,8 +174,7 @@ impl RemoteHostSupervisor {
         let native_method = if unprepared_cleanup { "capture.cleanup.unprepared" } else { method };
         let params = serde_json::to_value(&lease.binding).map_err(|_| "remote_invalid_binding")?;
         let mut result = connection.call(native_method, params.clone())?;
-        if false
-            && method == "capture.cleanup"
+        if method == "capture.cleanup"
             && result.get("code").and_then(Value::as_str) == Some("remote_lease_mismatch")
         {
             // Only the host knows whether its marker exists: a prepare answer lost after the
