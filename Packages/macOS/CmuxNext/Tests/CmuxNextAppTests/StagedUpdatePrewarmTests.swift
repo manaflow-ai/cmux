@@ -141,4 +141,53 @@ import Testing
             #expect(updater.prewarmedBuild == nil)
         }
     }
+
+    // Leo's NIGHTLY (cmux#43890's read-back): the update staged at 22:07:57Z, he clicked Restart to Update at
+    // 22:08:00Z and it relaunched at 22:08:03Z with no "launch pre-warm" line: a pre-warm that only runs while
+    // the update waits never finished for a person who installs at once. The click now waits for it, bounded.
+
+    /// The harness of the install click (the feed's newest is 300, staged build 400, so the click installs
+    /// what is staged) whose staged-build pre-warm runs until the returned continuation finishes.
+    static func clickHarness() -> (UpdateStagedYieldsToNewerTests.Harness, UpdateClickInstallsNewestTests.Installs,
+                                   AsyncStream<Void>.Continuation) {
+        let (h, installs) = UpdateClickInstallsNewestTests.make(newer: false)
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        h.updater.prewarmRunner = { _ in
+            for await _ in gate {}
+            return "pre-warmed"
+        }
+        // The harness's own staging pre-warmed build 300 (no staged bundle there); 400 is staged just now.
+        h.sparkle.staged = "400"
+        return (h, installs, open)
+    }
+
+    func eventually(_ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(3)
+        while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        return condition()
+    }
+
+    @Test func aClickRightAfterStagingInstallsOnceThePrewarmEnds() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        h.updater.followStagedUpdate(.ready(version: "4.0.0"))
+        h.updater.installClicked()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(installs.count == 0, "the click relaunched before the pre-warm of staged build 400 ended")
+        open.finish()
+        #expect(await eventually { installs.count == 1 }, "the click never installed")
+        #expect(h.updater.log.recent.contains { $0.hasPrefix("launch pre-warm before install: done, the install waited") },
+                "\(h.updater.log.recent)")
+    }
+
+    /// A click in the same turn as the staging (no phase change seen yet) starts the pre-warm itself.
+    @Test func aClickBeforeAnyPrewarmStartsOneAndWaitsForIt() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        h.updater.installClicked()
+        #expect(await eventually { h.updater.log.recent.contains("launch pre-warm of 400: started (install)") },
+                "the click did not start the pre-warm: \(h.updater.log.recent)")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(installs.count == 0, "the click relaunched before the pre-warm it started ended")
+        open.finish()
+        #expect(await eventually { installs.count == 1 })
+    }
 }
