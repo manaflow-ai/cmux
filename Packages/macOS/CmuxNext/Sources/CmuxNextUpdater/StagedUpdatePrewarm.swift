@@ -10,7 +10,9 @@ public import Foundation
 /// 1194 ms against 45 ms for the same copy relaunched (scripts/measure/nightly-fresh-launch.sh).
 /// Sparkle 2's installer puts a staged update in place with a rename on the same volume
 /// (`SUPlainInstaller`, `swapItemAtURL`), so the files the pre-warm ran are the files the first
-/// launch after the update runs.
+/// launch after the update runs. Measured (nightly-fresh-launch arms=extra, pool mini, 3 rounds): a copy
+/// pre-warmed this way and then renamed reached Home's first page in 2584 ms against 4507 ms for a cold
+/// copy and 3934 ms for one only `gktool scan`ned, as Sparkle does.
 ///
 /// What runs, one after another, each stopped after `timeout`: the staged app's executable with
 /// ``argument`` (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static
@@ -85,13 +87,13 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// (``AsyncProcess``, nothing waits on a thread). Returns a line for the update log.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
                         timeout: Duration = .seconds(20)) async -> String {
-        let found = try? await work.run(.bestEffort, mayBlock: .files) { [self] () -> (URL, [Run])? in
+        let scanned = try? await work.run(.bestEffort, mayBlock: .files) { [self] () -> (URL, [Run])? in
             stagedBundle().map { ($0, runs(bundle: $0)) }
         }
-        guard let found = found ?? nil else { return "launch pre-warm: no staged bundle of \(build) in \(installation.path)" }
-        let (bundle, runs) = found
+        guard let staged = scanned ?? nil else { return "launch pre-warm: no staged bundle of \(build) in \(installation.path)" }
+        let bundle = staged.0, planned = staged.1
         var parts: [String] = []
-        for run in runs {
+        for run in planned {
             let started = ContinuousClock.now
             let status: String
             do {
