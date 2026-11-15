@@ -38,7 +38,6 @@ struct ClosingPanesDockTests {
         // The strip pane springs over the dock's place: the docked pane does not hide in the close's turn.
         let hidden = rules.settle(frames: [Self.growing(to: 600, shift: shift)], rows: [])
         #expect(hidden == [])
-        #expect(rules.entries[2]?.minX.neighbours == [1])
         // Its leading side rides the strip pane's trailing edge where it shows (the dock's edge goes, so no gap stays).
         let mid = rules.rects(frames: [Self.growing(to: 750, shift: shift)], rows: [], strip: shift, restStrip: shift)
         #expect(mid.first?.0 == 2)
@@ -53,6 +52,10 @@ struct ClosingPanesDockTests {
         let began = rules.begin(1, shown: Self.inStrip(Self.strip, shift: 120).edges, panes: [Self.inStrip(Self.strip, shift: 120), Self.dock],
                                 handles: [Self.dockEdge], maxGap: 11, viewShift: nil, stripShift: 120)
         #expect(began)
-        #expect(rules.entries[1]?.maxX.neighbours == [2])
+        // The docked pane is its neighbour: with it on a spring, something moves over the closing pane (with no
+        // neighbour found, nothing would, and it would go at once).
+        let dockMoving = ClosingPanesRules.FrameFact(id: 2, now: .init(minX: 650, maxX: 900, minY: 0, maxY: 800), target: Self.dock.edges,
+                                                     moving: true, vx: -400, vy: 0, vw: 400, vh: 0, scrolls: false)
+        #expect(rules.settle(frames: [dockMoving], rows: []) == [])
     }
 }

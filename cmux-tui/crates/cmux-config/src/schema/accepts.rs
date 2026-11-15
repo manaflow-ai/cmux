@@ -80,6 +80,8 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an array of preset names and rule objects, each with a label and a program or match",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
+        Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else {
         accepted(&row.kind, domains)
     };
@@ -92,8 +94,14 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 }
 
 /// The stored value when valid, else the default (what the app applies).
+/// An unset row that replaced a retired key reads that key through the
+/// retired-keys table (`super::retired`), as the app does.
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
-    match crate::value::value_at(root, &row.path) {
+    let stored = crate::value::value_at(root, &row.path).or_else(|| {
+        let replaced = super::replaced_by_row(&row.path)?;
+        replaced.read(crate::value::value_at(root, &replaced.old)?)
+    });
+    match stored {
         Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
         _ => row.default.clone(),
     }
@@ -121,6 +129,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::CommandLabels) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_command_label));
+        }
+        super::Validation::Domain(DomainKind::AppId) => {
+            return value.as_str().is_some_and(super::app_id::is_valid_app_id);
         }
         _ => {}
     }
@@ -375,5 +386,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
+        DomainKind::AppId => "app_id",
     }
 }

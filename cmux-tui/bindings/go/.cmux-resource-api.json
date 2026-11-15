@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "e0127ee24849ae9ead8754508f29ec38638cfd1e3f8150b2a3c044365369683b",
+  "catalog_sha256": "da3108917eb263b9078a9f05fbd762283d799531f9974da19942e84760f55f9e",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -96,6 +96,15 @@
     },
     "browser_import.read": {
       "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
     },
     "chief.continue": {
       "class": "mutation"
@@ -386,6 +395,9 @@
       "class": "read"
     },
     "git.files.search": {
+      "class": "read"
+    },
+    "git.fingerprint": {
       "class": "read"
     },
     "git.push": {
@@ -980,6 +992,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

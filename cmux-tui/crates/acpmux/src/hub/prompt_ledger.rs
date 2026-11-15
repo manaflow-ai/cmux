@@ -68,6 +68,50 @@ fn persisted_outcome(result: Value, settled: Value) -> Result<Value, RpcError> {
     Ok(result)
 }
 
+/// The kinds `Hub::logged_prompt_state` reads a prompt's state from: each is in
+/// `INDEXED_KINDS`, so the read takes the log's copies (a test keeps them there).
+pub(crate) const PROMPT_STATE_KINDS: &[&str] = &[
+    "turn_stop_requested",
+    "queued",
+    "user_message",
+    "turn_started",
+    "turn_result",
+    "prompt_refused",
+    "queue_declined",
+    "queue_removed",
+    "dequeued",
+];
+
+/// The heads `Hub::logged_prompt_state` reads of prompt `prompt_id`, in log order: a superset of
+/// the records its arms act on. Each arm joins a record to the prompt by its `promptId`, by a
+/// turn id one of the prompt's records named (`turnId`, `joinedTurnId`), or by the digest a
+/// record named (`digestPromptId`, a digest's `took` list); a kept record's ids join the records
+/// after it. A Stop is kept whatever it names (`stopped_turns`), and joins only by its prompt.
+pub(crate) fn keep_prompt(prompt_id: &str) -> impl FnMut(&crate::store::KindHead<'_>) -> bool {
+    let mut prompts: HashSet<String> = HashSet::from([prompt_id.to_owned()]);
+    let mut turns: HashSet<String> = HashSet::new();
+    move |h| {
+        if h.unread {
+            return true;
+        }
+        let joined = h.prompt_id.is_some_and(|p| prompts.contains(p))
+            || h.turn_id.is_some_and(|t| turns.contains(t));
+        if h.kind == "turn_stop_requested" && !joined {
+            return true;
+        }
+        if !joined && !h.names_many {
+            return false;
+        }
+        for p in [h.prompt_id, h.digest_prompt_id].into_iter().flatten() {
+            prompts.insert(p.to_owned());
+        }
+        for t in [h.turn_id, h.joined_turn_id].into_iter().flatten() {
+            turns.insert(t.to_owned());
+        }
+        true
+    }
+}
+
 impl Hub {
     /// Read an accepted prompt without submitting another turn. An adopted active turn
     /// may have no in-memory ledger entry: its persisted completion wakes this wait.
@@ -418,7 +462,14 @@ impl Hub {
         // The inbox digest that took it, once one did (`inbox_digest.rs`). Its turn is the
         // digest's only once the digest's turn starts: one that never did gave it back.
         let mut digest: Option<String> = None;
-        let _ = self.store.scan(&session.id, 0, &mut |rec| {
+        // Every resend reads this (a team message, a watch, an outbox retry), on chats that
+        // grow to a million records: the kinds below only, from the log's copies of them
+        // (`store/kind_index.rs`), never the log.
+        // Only this prompt's records, as the arms below join them, are read whole: those naming
+        // it, those of a turn or digest one of them names, every Stop (`stopped_turns`), and
+        // those naming prompts by a list (a digest's `took`), which the head does not hold.
+        let (kinds, mut keep) = (PROMPT_STATE_KINDS, keep_prompt(prompt_id));
+        let _ = self.store.scan_kinds_keyed(&session.id, kinds, &mut keep, &mut |rec| {
             let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);
             // Admission installs the live turn before user_message is durable. Stop can
             // therefore be journaled before we learn which turn owns this prompt.
@@ -726,6 +777,7 @@ mod tests {
             notice: false,
             persons: true,
             accepted: true,
+            device: None,
         });
         // Legacy resend behavior stays intact, but recovery must not answer interrupted.
         assert_eq!(

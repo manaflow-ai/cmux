@@ -40,7 +40,7 @@ final class DeclarativePopupHost {
         SystemScrollers.follow(scroll)
         content.autoresizingMask = [.width]
         scroll.documentView = content
-        surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
+        surface = Glass.makeMenuPanel(content: scroll)
         surface.samplesBehindWindow = true
         panel.adoptPopupStyle(card: surface)
         popup.onDismiss = { [weak self] in

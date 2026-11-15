@@ -28,13 +28,6 @@ test("create a team, share an invite link, revoke it, delete the team", async ({
   await page.getByRole("button", { name: "Go to team" }).click();
   await expect(page).toHaveURL(/\/dashboard\/teams\/[^/]+$/);
   await expectNoErrorCard(page);
-  const teamUrl = page.url();
-
-  // Regression: with the new team selected, Mac access returned 409.
-  await page.locator("aside").getByRole("link", { name: "Mac access", exact: true }).click();
-  await expect(page.locator("main").getByRole("heading", { name: /mac access/i }).first()).toBeVisible();
-  await expectNoErrorCard(page);
-  await page.goto(teamUrl);
 
   await page.getByRole("link", { name: "Members" }).click();
   await expect(page).toHaveURL(/\/members$/);

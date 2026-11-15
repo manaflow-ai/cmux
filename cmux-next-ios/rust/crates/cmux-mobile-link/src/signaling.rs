@@ -300,6 +300,20 @@ pub(crate) fn keepalive_signals() -> [Signal; 2] {
     [Signal::Ping, Signal::Text(APP_PING.to_owned())]
 }
 
+/// The keepalive tick after `now` (a tick, or the socket's opening): one
+/// interval later, or with Align Keepalives on the next 10 s beat
+/// ([`crate::keepalive`]). The setting is read at every tick, so
+/// a socket kept warm across dials follows the setting from its next tick.
+/// Aligned, the socket pings every 10 s beat (15 s unaligned): never less
+/// often, so [`KEEPALIVE_TIMEOUT`] still sees at least as many pongs.
+pub(crate) fn next_keepalive(now: tokio::time::Instant) -> tokio::time::Instant {
+    if crate::keepalive::aligned() {
+        crate::keepalive::next_beat(now, crate::keepalive::BEAT)
+    } else {
+        now + KEEPALIVE_INTERVAL
+    }
+}
+
 struct Shared {
     device_id: String,
     /// Counts inbound frames (any kind); `probe` waits for it to move.
@@ -407,14 +421,13 @@ impl SignalingClient {
         let reader_shared = Arc::clone(&shared);
         tokio::spawn(async move {
             let shared = reader_shared;
-            let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
-            keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            keepalive.tick().await;
+            let mut keepalive = next_keepalive(tokio::time::Instant::now());
             let mut last_inbound = tokio::time::Instant::now();
             let reason = loop {
                 let next = tokio::select! {
                     next = source.next() => next,
-                    _ = keepalive.tick() => {
+                    () = tokio::time::sleep_until(keepalive) => {
+                        keepalive = next_keepalive(tokio::time::Instant::now());
                         if last_inbound.elapsed() >= KEEPALIVE_TIMEOUT {
                             pinger.close();
                             break "signaling keepalive timed out".to_owned();

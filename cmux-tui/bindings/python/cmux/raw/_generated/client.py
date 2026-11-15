@@ -24,8 +24,8 @@ class GeneratedClientMixin:
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
-    def attach_surface(self, surface: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_terminal_id: Union[str, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, replay_history_rows: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, snapshot: Union[str, None, MissingType] = MISSING, snapshot_images: Union[bool, MissingType] = MISSING, snapshot_local_history: Union[bool, MissingType] = MISSING, snapshot_version: Union[int, None, MissingType] = MISSING, viewer_backlog_bytes: Union[int, None, MissingType] = MISSING) -> Any:
-        return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, expected_generation=expected_generation, expected_terminal_id=expected_terminal_id, mode=mode, replay_history_rows=replay_history_rows, rows=rows, snapshot=snapshot, snapshot_images=snapshot_images, snapshot_local_history=snapshot_local_history, snapshot_version=snapshot_version, viewer_backlog_bytes=viewer_backlog_bytes))
+    def attach_surface(self, surface: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_terminal_id: Union[str, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, output_coalesce_ms: Union[int, None, MissingType] = MISSING, replay_history_rows: Union[int, None, MissingType] = MISSING, replay_history_start: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, snapshot: Union[str, None, MissingType] = MISSING, snapshot_images: Union[bool, MissingType] = MISSING, snapshot_local_history: Union[bool, MissingType] = MISSING, snapshot_version: Union[int, None, MissingType] = MISSING, viewer_backlog_bytes: Union[int, None, MissingType] = MISSING) -> Any:
+        return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, expected_generation=expected_generation, expected_terminal_id=expected_terminal_id, mode=mode, output_coalesce_ms=output_coalesce_ms, replay_history_rows=replay_history_rows, replay_history_start=replay_history_start, rows=rows, snapshot=snapshot, snapshot_images=snapshot_images, snapshot_local_history=snapshot_local_history, snapshot_version=snapshot_version, viewer_backlog_bytes=viewer_backlog_bytes))
 
     def bind_conversation_tab_session(self, surface: Id, expected_session: Union[str, None], session: str, *, harness: Union[str, None, MissingType] = MISSING) -> BindConversationTabSessionResult:
         return self._invoke_command('bind-conversation-tab-session', BindConversationTabSessionRequest(surface=surface, expected_session=expected_session, session=session, harness=harness))
@@ -441,8 +441,8 @@ class GeneratedClientMixin:
     def list_workspace_groups(self) -> JsonValue:
         return self._invoke_command('list-workspace-groups', ListWorkspaceGroupsRequest())
 
-    def list_workspaces(self) -> Tree:
-        return self._invoke_command('list-workspaces', ListWorkspacesRequest())
+    def list_workspaces(self, *, known: Union[ListWorkspacesKnown, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> Tree:
+        return self._invoke_command('list-workspaces', ListWorkspacesRequest(known=known, limit=limit))
 
     def machine_listening_tcp(self) -> MachineListeningTcpResult:
         return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())
@@ -822,6 +822,9 @@ class GeneratedClientMixin:
     def terminal_clipboard_subscribe(self, terminal_ids: List[str]) -> Any:
         return self._open_command_stream('terminal-clipboard-subscribe', TerminalClipboardSubscribeRequest(terminal_ids=terminal_ids))
 
+    def terminal_command_context(self, surface: Id, *, intent: Union[TerminalCommandContextIntent, MissingType] = MISSING) -> TerminalCommandContextResult:
+        return self._invoke_command('terminal-command-context', TerminalCommandContextRequest(surface=surface, intent=intent))
+
     def terminal_events(self, *, after_revision: Union[int, MissingType] = MISSING) -> TerminalEventsResult:
         return self._invoke_command('terminal-events', TerminalEventsRequest(after_revision=after_revision))
 
@@ -1186,6 +1189,7 @@ GeneratedClientMixin.subscribe_activity.__cmux_command__ = COMMANDS['subscribe-a
 GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_clipboard_reply.__cmux_command__ = COMMANDS['terminal-clipboard-reply']
 GeneratedClientMixin.terminal_clipboard_subscribe.__cmux_command__ = COMMANDS['terminal-clipboard-subscribe']
+GeneratedClientMixin.terminal_command_context.__cmux_command__ = COMMANDS['terminal-command-context']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
 GeneratedClientMixin.terminal_history.__cmux_command__ = COMMANDS['terminal-history']
 GeneratedClientMixin.terminal_last_command.__cmux_command__ = COMMANDS['terminal-last-command']

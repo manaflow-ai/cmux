@@ -15,6 +15,8 @@ pub(super) struct TurnMeasure {
     pub maintenance_keys: usize,
     pub apply_snapshot_pieces: usize,
     pub completed_log_bytes: Option<u64>,
+    /// A mirror unit's turn: building records, the append, the index apply, publishing.
+    pub unit_ns: [u128; 4],
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -52,20 +54,24 @@ impl HubWriter {
             return;
         };
         let current = self.published.load_full();
+        let published_seq = current.seq();
         self.hydration = None;
         self.maintenance = None;
         self.log = None;
-        if quarantine_index(&directory).is_err() {
-            // Keep the hub alive even if the quarantine itself hits a
-            // transient storage error; the old files are still ignored once
-            // the new writer is opened from an empty derived state.
-            self.log_errors.fetch_add(1, Ordering::Relaxed);
-        }
-        match IndexLog::open_with_snapshot(directory.join("index.log"), None) {
-            Ok(log) => self.log = Some(log),
-            Err(_) => {
-                self.log_errors.fetch_add(1, Ordering::Relaxed);
+        let quarantined = quarantine_index(&directory).is_ok();
+        let mut rebuild_error = !quarantined;
+        if quarantined {
+            match IndexLog::open_at(directory.join("index.log"), published_seq) {
+                Ok(log) => self.log = Some(log),
+                Err(_) => {
+                    rebuild_error = true;
+                }
             }
+        }
+        if rebuild_error {
+            // Keep the hub alive even if quarantine or opening the fresh log
+            // hits a transient storage error. Never reopen old files.
+            self.log_errors.fetch_add(1, Ordering::Relaxed);
         }
         let next = current.empty_for_rebuild();
         self.published.store(Arc::new(next));
@@ -123,6 +129,15 @@ impl HubWriter {
                     self.compaction_counters
                         .damaged_snapshot_frames
                         .fetch_add(1, Ordering::Relaxed);
+                }
+                Some(Err(error)) if acpmux_book::index::is_fatal_snapshot_read(&error) => {
+                    // A structural snapshot boundary is a rebuild request,
+                    // not a permanent hydration failure. Keep the daemon
+                    // ready while the writer quarantines the derived files.
+                    self.rebuild_requested.store(true, Ordering::Release);
+                    self.updates.notify.notify_one();
+                    finished = true;
+                    break;
                 }
                 Some(Err(_)) => {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
@@ -192,6 +207,9 @@ impl HubWriter {
         let origin_retries = self.origins.retry.len().min(limit);
         let keys: Vec<_> = self.retry_log.keys().take(limit - origin_retries).cloned().collect();
         let mut first_error = self.retry_origins(origin_retries).err();
+        if let Some(error) = self.retry_mirror() {
+            first_error.get_or_insert(error);
+        }
         for key in keys {
             let Some((source, record)) = self.retry_log.remove(&key) else { continue };
             if self.origins.ended.get(key.origin.as_ref()).is_some_and(|seq| record.seq <= *seq) {
@@ -237,8 +255,12 @@ impl HubWriter {
         let retry_budget = (self.origins.retry.len() + self.retry_log.len()).min(128);
         let arrival_budget = 256 - retry_budget;
         let used = self.advance_origins(if queued { arrival_budget / 2 } else { arrival_budget });
-        for (key, update) in self.updates.take_batch_limit(arrival_budget.saturating_sub(used)) {
-            if self.dispatch_update(key, update).is_err() {
+        let batch = self
+            .updates
+            .take_batch_limit(arrival_budget.saturating_sub(used), self.mirror.turn_changes);
+        for (key, update) in batch {
+            // A refusal has its own counter; only storage counts here.
+            if let Err(HubError::Log(_)) = self.dispatch_update(key, update) {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -247,9 +269,13 @@ impl HubWriter {
             self.storage_retry =
                 Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
         } else {
-            self.storage_retry = (!self.retry_log.is_empty() || !self.origins.retry.is_empty())
-                .then(std::time::Instant::now);
+            self.storage_retry = (!self.retry_log.is_empty()
+                || !self.origins.retry.is_empty()
+                || self.mirror.retry_pending())
+            .then(std::time::Instant::now);
             self.maybe_compact();
         }
+        // A retry written or an origin that finished leaving settles it.
+        self.mirror.counters.wake();
     }
 }

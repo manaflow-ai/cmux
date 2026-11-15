@@ -34,7 +34,7 @@ import Testing
                 let value = try #require(Self.live(name), "no metric \(name)")
                 #expect(value == expected, "\(name) at Compact is \(value), was \(expected)")
             }
-            #expect(Metrics.tabStripHeight == 26, "Compact's 20 pt pill with 3 pt above and below")
+            #expect(Metrics.tabStripHeight == 24, "Compact's 20 pt pill with its 2 pt gap above and below (Helium's design on 20 pt rows)")
             // Panels and items are levels of the one corner radius now (`Metrics.corners`), not tunables of their own.
             // Lawrence 2026-11-05: the one radius defaults to the omnibar's 8 pt, so panels are 8 pt and items 4 pt.
             // Compact's 20 pt tab rounds at 5 (8 on 30), so its items, nested from it, are concentric levels of it.
@@ -51,7 +51,7 @@ import Testing
     @Test func theDefaultDensityIsCompact() {
         #expect(DesignSettings().densityTokens == DensityPreset.compact.tokens)
         #expect(DensityPreset.compact.tokens.level == 0 && DensityPreset.compact.tokens.spacing == 1)
-        #expect(DensityPreset.compact.tokens.tokens == ["sidebarRowHeight": 20, "tabStripHeight": 26])
+        #expect(DensityPreset.compact.tokens.tokens == ["sidebarRowHeight": 20, "browserRowHeight": 20, "browserRowGap": 2, "panePadding": 2])
         #expect(DensityPreset.compact.tokens.fontSize == nil)
     }
 

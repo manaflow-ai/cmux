@@ -230,6 +230,9 @@ impl HostedReader {
             let generation = {
                 let mut term = pty.term.lock().unwrap();
                 **term = replacement_term;
+                if let Some(terminal_id) = pty.terminal_public_id.as_deref() {
+                    reconnect_mux.output_store.stream_gap(terminal_id, &pty.journal_generation);
+                }
                 self.shell_marks = crate::prompt_mode_reset::ShellMarks::joined_midway();
                 {
                     let mut metadata = pty.terminal_metadata.lock().unwrap();
@@ -253,7 +256,7 @@ impl HostedReader {
                 self.applied_color_overrides = replacement_snapshot.colors;
                 self.applied_color_revision = term.color_revision();
                 self.applied_cursor_activity = term.cursor_activity().ok();
-                pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+                let frame = AttachFrame::ResizedWithColors {
                     cols: replacement_snapshot.cols,
                     rows: replacement_snapshot.rows,
                     replay: replacement_snapshot.replay.into(),
@@ -261,7 +264,9 @@ impl HostedReader {
                     kitty_state: replacement_snapshot.kitty_state,
                     colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
                     pending_sequence: Arc::from([]),
-                });
+                    history_rows_omitted: None,
+                };
+                pty.broadcast_resized_locked(&mut term, frame);
                 pty.stream_progress.notify_reconnect();
                 pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
             };
@@ -321,9 +326,6 @@ impl HostedReader {
             pty.journal_host_reconnect_gap(&reconnect_mux);
             // The output store's tail must not continue across that gap
             // either: the next snapshot takes the replaced screen.
-            if let Some(terminal_id) = pty.terminal_public_id.as_deref() {
-                reconnect_mux.output_store.stream_gap(terminal_id);
-            }
             reconnect_mux
                 .reconcile_deferred_cell_pixel_ack(surface.id, replacement_snapshot.cell_pixels);
             surface.queue_pending_publications();

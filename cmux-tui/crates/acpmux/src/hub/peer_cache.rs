@@ -246,7 +246,7 @@ impl Hub {
 
     /// A peer `name` that is registered but whose link is down, having listed `rows` and taken
     /// attachments before it went: what a server test sends to while the peer is unreachable.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn seed_down_peer(&self, name: &str, rows: Vec<Value>) -> Arc<crate::peer::Peer> {
         use crate::peer::PeerNotice;
         let (tx, _rx) = tokio::sync::mpsc::channel(8);

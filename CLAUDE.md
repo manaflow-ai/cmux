@@ -6,6 +6,22 @@ Read the matching skill before changing an area, then only the references needed
 
 **Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
 
+## The loop: use it first, then test
+
+Write the code, put it into your running cmux, use it (screenshot, video, click through it), and only then run
+the slow checks: compile, CI, gallery, suites. 70% of recent Mac-app PRs go into a running app with no build (cmuxterm-hq hot-swap layers doc).
+Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md); for people:
+[docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
+
+| Layer | Into the running app |
+|---|---|
+| Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA`, `dir:PATH [--watch]` (re-applied about 19 s after a save on a fleet Mac) or a fork's `OWNER/REPO@REF` (from the fork's own CI); back with `cmux customize library off NAME` or `off --all`. `library status` shows what is on, `library refresh` re-pulls |
+| Terminal daemon, acpmux Rust (`cmux-tui/`) | `scripts/cmux-next/hot-apply.py plan SHA`, `apply SHA`, `rollback` (about 2.7 s; `--restart-sessions` also hands other sessions' daemons over, about 6.9 s once its fix lands) |
+| A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
+| Swift, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
+
+Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a Developer ID NIGHTLY is held back.
+
 ## Verification and isolation
 
 - Before committing, setup or a native build, [choose scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md).
@@ -48,6 +64,50 @@ Read the matching skill before changing an area, then only the references needed
   OS-dependent bug or a launch on 14/15 in Tart VMs: `scripts/cmux-next/os-matrix.sh --build JOB
   --os 14,15` ([MATRIX.md](scripts/fuzz/macos-matrix/MATRIX.md)). VM timing is not perf evidence.
 
+## Finishing a task
+
+A change to the Mac or iOS app is not done until the person can open it. Every agent report for
+such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
+Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
+A documentation-only change needs no build; give the file path instead.
+
+- **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
+
+  ```bash
+  JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  cmux-ci wait "$JOB_ID"
+  cmux-ci publish-hq "$JOB_ID"
+  ```
+
+  Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
+  to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
+- **iOS:** first check which app you changed. `ios/` is the classic iPhone app; `cmux-next-ios/` is
+  the cmux-next iPhone app, and `ios/scripts/reload.sh` does not build it. For the classic app, run
+  `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
+  fleet (the Mac build above included, same tag, published to HQ), installs on every connected
+  iPhone, not only the configured one, through the authenticated install
+  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
+  fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
+  boots in a simulator on the person's Mac. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+- **Install on every connected phone.** A phone that is connected gets the build, including one
+  you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
+  iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
+  tailnet-only `*.ts.net` host. A phone off the tailnet then installs the app but fails the auth
+  gate with "never published a signed-in app receipt"; report that as the phone's blocker and name
+  the cause. Locally built dev apps use the public staging API and have no such requirement.
+- **A phone is always connected.** No connected phone, a locked phone, a queued install or a
+  failed auth gate is a blocker to report with its error and retry command, never a step to skip
+  or replace with a simulator-only result.
+- End the report with:
+
+  ```text
+  Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
+  Simulator:  fleet simulator, signed in: <evidence dir> (screenshot.png and the recording)
+  iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
+              <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
+  ```
+
 ## cmux-next checks before every push
 
 Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it
@@ -72,6 +132,11 @@ Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks in
   [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
 - Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
+- A held button changes only its background fill: never its weight (no bold on press), font, size, scale,
+  offset, opacity or icon, on macOS, iOS and web. Use the shared looks (`ChromeHover`,
+  `.buttonStyle(.cmuxPressFill)` on macOS and iOS, web `.ui-btn`), never SwiftUI `.plain`/`.borderless`/`.link`
+  (they dim the label). `check-pressed-state.py` enforces it; rule and exceptions:
+  [design/pressed-state.md](design/pressed-state.md) (Lawrence 2026-11-15).
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
   needs a reason that proves the code is safe; it is not a way to pass the gate.
 - Never change a Ghostty-default shortcut without the user's explicit OK. Ghostty's split keys
@@ -238,20 +303,23 @@ such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
 capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
 enforces this.
 
-**Nightlies run on one Mac mini, and nobody cancels them** (Lawrence, 2026-11-04).
+**Nightlies run on one signing Mac, end to end, and nobody cancels them** (Lawrence,
+2026-11-04: "the single nightly mini: cmux15"; Leo, 2026-11-12, hq#10366: "ultra1
+signs the nightly too, cmux15 stays ready as the standby signer").
 The whole nightly (build, sign, notarize, verify and publish, for cmux-next on
-`nightly-next` and classic on `main`) runs on the single nightly mini: cmux15, the
-signing-reserved mini (its runners carry `glaeda-trusted-next-signing` and the
-nightly-only labels). This applies to humans, Leo and every agent:
+`nightly-next` and classic on `main`) runs on one signing Mac: ultra1 or cmux15,
+the hosts whose runners carry `glaeda-trusted-next-signing` (cmuxterm-hq
+`build-fleet/mini-fleet.json` `runner.trustedNextSigning`). This applies to humans,
+Leo and every agent:
 
-- Never move a nightly job to Blacksmith, a GitHub-hosted runner or another mini,
-  and never split one nightly across minis, also not "only for this run".
+- Never move a nightly job to Blacksmith, a GitHub-hosted runner or a Mac without
+  that label, and never split one nightly across Macs, also not "only for this run".
 - Never cancel a nightly run, a nightly job or the nightly queue to make room or
   to speed up a proof. A queued nightly waits its turn; the sign yield
   (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
   one without cancelling anything.
-- When the nightly mini is short of capacity or a nightly is slow, report it and
-  fix the mini or the workflow on that mini. Do not reroute the nightly.
+- When a signing Mac is short of capacity or a nightly is slow, report it and
+  fix that Mac or the workflow on it. Do not reroute the nightly.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).

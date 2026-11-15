@@ -246,6 +246,16 @@ acpmux register desktop-zoe            # in its Bash tool; then run the --code l
 acpmux send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
 ```
 
+An `acpmux send` from such a chat before it registers starts this itself
+(macOS): nothing can reply to it until it has a name, so the send also delivers
+the one-time code, under `claude-desktop-<first 8 of its session id>`, and
+prints on stderr that the receiver cannot reply yet. Run the
+`acpmux register NAME --code ...` line the message gives; replies then reach
+`HOST/NAME`, and your later sends carry that address. Send again what still
+needs an answer. The message itself is sent either way; no second code goes
+while one waits. A chat registered before (say `desktop-zoe`) that restarted
+gets its code under that name and keeps its address.
+
 The daemon checks who runs the shell by the kernel's process tree, never by
 what you type. A Claude Code session's message opens with its own
 `CLAUDE_CODE_MESSAGING_TOKEN` (the inbox Claude Code documents for a script or

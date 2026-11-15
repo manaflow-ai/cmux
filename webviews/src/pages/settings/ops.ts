@@ -178,20 +178,23 @@ export type DevicesHostState = {
   activity: Array<{ time: string; what: string; subject: string }>;
 };
 
-/** This Mac joined to a team with the one-line join: its consent switches, both off until the person turns them on. */
+/** A consent this joined Mac keeps (acpmux's machine consent): `signedInMachines` lets the person's other Macs signed in to this account open workspaces here. */
+export type JoinConsentSurface = "screen" | "control" | "signedInMachines";
+
+/** This Mac joined to a team with the one-line join: its consent switches, all off until the person turns them on. */
 export type DevicesJoinState = {
   title: string;
   /** "Joined to <team> as <name>". */
   joined: string;
   help: string;
   error: string | null;
-  /** A consent write is in flight: both switches are disabled until it ends. */
+  /** A consent write is in flight: the switches are disabled until it ends. */
   busy: boolean;
-  /** acpmux's record is known: without it both switches are disabled (an off nobody confirmed). */
+  /** acpmux's record is known: without it the switches are disabled (an off nobody confirmed). */
   known: boolean;
-  /** The label of the action that turns both off while the record is unknown; null while it is known. */
+  /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
-  switches: Array<{ surface: "screen" | "control"; title: string; help: string; on: boolean }>;
+  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
 };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
@@ -839,6 +842,22 @@ export type TailnetState = {
   error?: string;
 };
 
+/** A customization being tried on (`cmux customize try`; cmux-customize `try_on.rs`): applied now,
+ * back to generation `revert_to` by itself at `expires_ms` unless the person keeps it. */
+export type CustomizeTryOn = {
+  generation: number;
+  revert_to: number | null;
+  started_ms: number;
+  expires_ms: number;
+  /** What is tried on, in one line (the profile, or what was asked for). */
+  label: string;
+  origin: string;
+};
+
+/** `cmux --json customize status|keep|revert` as the host answers it: a status carries `try_on`; a
+ * refusal is the CLI's error envelope (`code`, `message`). */
+export type CustomizeAnswer = { try_on?: CustomizeTryOn | null; code?: string; message?: string };
+
 /** Settings > Privacy and Security > Shared Links (`cmux.settings.shares.list`): this Mac's daemon's
  * chat shares as `agent-session-share-list` answers them (cmux-tui server/agent_session_shares.rs),
  * and each chat's tab title by surface number. Times are milliseconds since the epoch. */
@@ -871,6 +890,55 @@ export type SharesState = {
   shares?: ShareWire[];
   /** A chat's tab title by its surface number; a chat with no open tab has none. */
   titles?: Record<string, string>;
+};
+
+/** Settings > Keys (`cmux.settings.keys.list`): what `cmux keys ls --json` lists (cmux-tui
+ * cli/key_broker.rs) and the key requests agents sent with `cmux keys request` that wait for the
+ * person. A record never carries a value. Times are RFC 3339 (UTC, `Z`). Older records may lack
+ * the newer fields, so each is optional here and read defensively (keys.ts). */
+export type KeyUseWire = { target: string; last_used_at?: string | null; count?: number };
+export type KeyRecordWire = {
+  id: string;
+  /** What to show; older records have none (keys.ts falls back to the name, bucket or id). */
+  label?: string | null;
+  /** Local keys only: the `[A-Z_][A-Z0-9_]*` name agents use. */
+  name?: string | null;
+  /** `local` or `cloudflare`. */
+  provider?: string;
+  /** `secret` or `r2`. */
+  kind?: string;
+  /** `stdin`, `generated`, `person` or `cloudflare`. */
+  source?: string;
+  bucket?: string | null;
+  purpose?: string | null;
+  /** The sites the key may be sent to; empty: any. */
+  hosts?: string[];
+  /** Where copies were written (`gh-secret:owner/repo:NAME`, `file:/path`). */
+  stores?: string[];
+  uses?: KeyUseWire[];
+  /** Who stored or minted it (`CLAUDE_CODE_SESSION_ID=…`, `user=leo`). */
+  by?: string | null;
+  asked_by?: string | null;
+  created_at?: string | null;
+  expires_at?: string | null;
+  /** `live`, `expired` or `revoked`. */
+  state?: string;
+};
+/** One `keys.request` waiting for the person; the app keeps it in memory only. */
+export type KeyRequestWire = {
+  id: string;
+  name: string;
+  purpose: string;
+  hosts: string[];
+  /** Who asked, as the CLI names it (`CLAUDE_CODE_SESSION_ID=…`). */
+  requester: string;
+  asked_at: string;
+};
+export type KeysState = {
+  /** False when this build's `cmux` could not list keys: the card says so instead of the list. */
+  available?: boolean;
+  requests: KeyRequestWire[];
+  keys: KeyRecordWire[];
 };
 
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
@@ -1178,8 +1246,8 @@ export type SettingsOps = {
   "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
   /** Native: Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (on: the person's gesture only). */
   "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
-  /** Native: Settings > Devices' Screen sharing or Control switch of this joined Mac (on: the person's gesture only). */
-  "cmux.settings.devices.join_consent": [{ surface: "screen" | "control"; on: boolean }, { error?: string }];
+  /** Native: Settings > Devices' consent switch of this joined Mac (Screen sharing, Control, Your other Macs) (on: the person's gesture only). */
+  "cmux.settings.devices.join_consent": [{ surface: JoinConsentSurface; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */
@@ -1224,10 +1292,22 @@ export type SettingsOps = {
   "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: signs the node out and closes its listeners. */
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
+  /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
+  "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
+  "cmux.settings.keys.list": [Record<string, never>, KeysState];
+  /** Native, the person's click: the value goes to `cmux keys put` on stdin only, and the agent's
+   * waiting `cmux keys request` is answered; a refusal rejects and the request stays. */
+  "cmux.settings.keys.answer": [{ request_id: string; value: string }, { stored: boolean; name?: string }];
+  /** Native, the person's click: the agent's request ends as declined. */
+  "cmux.settings.keys.decline": [{ request_id: string }, unknown];
+  /** Native, the person's click: a local key's value is deleted (its record stays, revoked); a
+   * provider key is deleted at the provider. */
+  "cmux.settings.keys.revoke": [{ id: string }, unknown];
   /** Native: Settings > Agents > Worktree Setup, the session host's `project.list`,
    * `git.worktree.setup` and (on your click) `project.update` field `worktree`, on the app's own
    * connection: a page may not reach them itself. */
@@ -1254,6 +1334,9 @@ export type SettingsOps = {
   "cmux.settings.theme.overrides.release": [Record<string, never>, { files: number }];
   /** Native: open the file of the first `theme_overrides` line in cmux's editor, at that line. */
   "cmux.settings.theme.overrides.open": [Record<string, never>, unknown];
+  /** Native, person only: open the active theme file (`appearance.themeFile`) in the default editor;
+   * with none active the bundled `cmux theme export --save my-look --use` makes one from the current look. */
+  "cmux.settings.theme.file.open": [Record<string, never>, unknown];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
@@ -1321,6 +1404,8 @@ export type SettingsStreams = {
   "cmux.settings.harnesses.changed": HarnessesState;
   /** The Devices part changed (the event carries the new state). */
   "cmux.settings.devices.changed": DevicesState;
+  /** A key request arrived or ended (the page reads `cmux.settings.keys.list` again). */
+  "cmux.settings.keys.changed": { revision: number };
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
@@ -1413,6 +1498,8 @@ export const settingsPageActions = [
   "importFromBrowser",
   // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).
   "palette.auth.signIn",
+  // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
+  "customize.open",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];

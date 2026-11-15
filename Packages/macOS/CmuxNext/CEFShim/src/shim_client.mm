@@ -602,7 +602,22 @@ class Client : public CefClient,
     // first activation; by its first load it does (the fork watches each
     // window once).
     if (fork_api().side_panel_watch) fork_api().side_panel_watch(browser->GetIdentifier());
-    Emit(CMUX_SHIM_LOADING_STATE, browser->GetIdentifier(), 0, (loading ? 1 : 0) | (back ? 2 : 0) | (forward ? 4 : 0));
+    // s1: the address Chrome's omnibox shows while this load is pending. CEF
+    // reports an address only at commit (OnAddressChange runs from
+    // DidFinishNavigation), so a tab a page opened (target=_blank,
+    // window.open) showed no address until its first response. Chrome shows
+    // the visible entry (NavigationControllerImpl::GetVisibleEntry): the
+    // pending entry of a browser-initiated load or of an unmodified new tab,
+    // else the committed one, which keeps a page from spoofing the address
+    // of a load it started. The pending entry exists before loading starts
+    // (Navigator::OnBeginNavigation makes it before TakeNavigationRequest).
+    std::string visible;
+    if (loading) {
+      CefRefPtr<CefNavigationEntry> entry = browser->GetHost()->GetVisibleNavigationEntry();
+      if (entry && entry->IsValid()) visible = DisplayAddress(browser, entry->GetURL().ToString());
+    }
+    Emit(CMUX_SHIM_LOADING_STATE, browser->GetIdentifier(), 0, (loading ? 1 : 0) | (back ? 2 : 0) | (forward ? 4 : 0), 0,
+         visible);
   }
 
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType) override {

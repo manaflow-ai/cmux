@@ -23,11 +23,15 @@ const needsGithub: RepoRecovery = {
   retry,
 };
 const needsGithubNoUrl: RepoRecovery = { code: "repo.needs_github", retry };
+/// No access carries the same add as its retry, with no GitHub wait (cloud_repos engine `add`): access is granted on
+/// GitHub, never by a connect this Mac can wait for.
 const noAccess: RepoRecovery = {
   code: "repo.no_access",
   org: "acme",
   installUrl: "https://github.com/apps/cmux/installations/new",
+  retry: { action: "cloud.repo.add", args: { session: "cloud-demo", repo: "acme/cmux-platform" } },
 };
+const { installUrl: _link, ...noAccessNoLink } = noAccess;
 const ambiguous: RepoRecovery = {
   code: "repo.ambiguous",
   choices: [
@@ -45,6 +49,8 @@ const reopen = { id: "reopen" as const, label: { key: "cloudRepository.openGithu
 const tryAgain = { id: "retry" as const, label: { key: "cloudRepository.tryAgain" as const } };
 const getLink = { id: "getLink" as const, label: { key: "cloudRepository.tryAgain" as const } };
 const connect = { id: "connect" as const, label: { key: "cloudRepository.connect" as const } };
+const installOn = { id: "connect" as const, label: literal("Install on acme") };
+const requestAccess = { id: "requestAccess" as const, label: { key: "cloudRepository.requestAccess" as const } };
 
 export default componentEntry<Props>({
   id: "agent-pane.repo-recovery",
@@ -206,7 +212,32 @@ export default componentEntry<Props>({
         alt: { tone: "done", message: literal("Connected"), actions: [] },
       },
     },
-    "no-access": { note: "The organization is named with install and request actions.", props: { recovery: noAccess } },
+    "no-access": {
+      note: "Picked: the organization named, Install on acme and Request access on GitHub, and Try again, which adds the repository again here once access is granted.",
+      props: { recovery: noAccess },
+    },
+    "no-access-no-link": {
+      note: "Picked: no install link for the organization. Request access, then Try again here.",
+      props: { recovery: noAccessNoLink },
+    },
+    "no-access-alt-web-only": {
+      note: "Rejected (before): Install and Request access only. Both open GitHub, and coming back there is nothing to click: Add repository must be found again.",
+      props: {
+        recovery: noAccess,
+        alt: {
+          tone: "plain",
+          message: literal("No access to acme repositories"),
+          actions: [installOn, requestAccess],
+        },
+      },
+    },
+    "no-access-alt-wait": {
+      note: "Rejected: Install waits a minute for GitHub, as Connect does. GitHub is connected already, so the wait ends at once and retries before the install is done.",
+      props: {
+        recovery: noAccess,
+        alt: { tone: "quiet", message: { key: "cloudRepository.waitingGithub" }, actions: [reopen], until: soon() },
+      },
+    },
     ambiguous: { note: "Several matching repositories are one tap away.", props: { recovery: ambiguous } },
     outcomes: {
       note: "Its later lines on the tool row's text column: waiting with its countdown, not connected with Check again, attaching, the connected chip, and failed with Try again.",

@@ -806,6 +806,29 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
             s.borrow_mut().push(FromHost::Done { cb: cb as u64, ok, body: parse(&json) }, bytes);
         })?,
     )?;
+    // Pure and local: no message to the supervisor, no state.
+    native
+        .set("zone", Function::new(ctx.clone(), |name: String, at: f64| zone_json(&name, at))?)?;
     ctx.globals().set("__cmuxAppNative", native)?;
     Ok(())
+}
+
+/// `__cmuxAppNative.zone(name, atMs)`: an IANA zone's UTC offset and abbreviation at
+/// an instant, as JSON (`{"offsetMinutes","abbreviation"}`, or `{"error"}` for a name
+/// the database does not know). QuickJS has no Intl, so this is how an extension shows
+/// the time in another zone (`cmux.time.zone`).
+pub(crate) fn zone_json(name: &str, at_ms: f64) -> String {
+    use chrono::{Offset as _, TimeZone as _};
+    use chrono_tz::OffsetName as _;
+    let Ok(tz) = name.parse::<chrono_tz::Tz>() else {
+        return json!({ "error": format!("{name} is not an IANA time zone") }).to_string();
+    };
+    let ms = if at_ms.is_finite() { at_ms as i64 } else { 0 };
+    let Some(instant) = chrono::DateTime::from_timestamp_millis(ms) else {
+        return json!({ "error": format!("{at_ms} is not a time") }).to_string();
+    };
+    let offset = tz.offset_from_utc_datetime(&instant.naive_utc());
+    let minutes = offset.fix().local_minus_utc() / 60;
+    let abbreviation = offset.abbreviation().unwrap_or_default();
+    json!({ "offsetMinutes": minutes, "abbreviation": abbreviation }).to_string()
 }

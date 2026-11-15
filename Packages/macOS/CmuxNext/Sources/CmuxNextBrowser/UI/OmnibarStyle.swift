@@ -100,14 +100,32 @@ enum OmnibarStyle {
     /// Chrome's omnibox padding, on the bar's height (Chrome's 30 pt row; Lucas 2026-11-14: "chrome's padding"): the
     /// chip's glyph centers 22 pt in and the text starts 42 pt in, so the typed text and each suggestion's text start
     /// on one column (the rows take these, `OmniboxSuggestionPanel`).
-    static var chipLeading: CGFloat { max(edgeInset, (barHeight * 22 / 30 - chipSize / 2).rounded()) }
-    /// Text distance after the chip: the text's column less the chip's end.
-    static var textLeading: CGFloat { max(fieldTrailingGap, (barHeight * 42 / 30 - chipLeading - chipSize).rounded()) }
+    ///
+    /// Only Spacious keeps Chrome's column (its `omnibarChromeColumn` token): every other density takes Helium's, on
+    /// its 28 pt bar the chip 2 pt in and the text 31 pt in (location-bar.patch: edge padding 2, a 24 pt decoration,
+    /// inner padding 5), the same shares of the bar (Lawrence 2026-11-13: "use helium for default, for spacious,
+    /// still keep helium details, but match chrome's sizing/padding").
+    static var chipLeading: CGFloat {
+        BrowserChromeTuning.override(.chipLeading) ?? BrowserChromeTuning.chipLeading(bar: barHeight, chromeColumn: usesChromeColumn)
+    }
+    /// Text distance after the chip: the text's start (``BrowserChromeTuning/textOrigin(bar:chromeColumn:)``) less the
+    /// chip's end and the field's own insets, so the text itself starts on the column.
+    static var textLeading: CGFloat {
+        let origin = BrowserChromeTuning.override(.textOrigin) ?? BrowserChromeTuning.textOrigin(bar: barHeight, chromeColumn: usesChromeColumn)
+        return max(0, origin - chipLeading - chipSize - fieldTextInsetCorrection - fieldTextInset)
+    }
+    /// Whether the density keeps Chrome's omnibox column (Spacious) rather than Helium's.
+    static var usesChromeColumn: Bool { BrowserChromeTuning.usesChromeColumn }
     /// The bar's field draws its text 1 pt further in than a suggestion row's label does at the same x (the field
     /// editor's and the label's fixed text insets differ), so the field sits 1 pt further right and the typed text
     /// starts on the rows' column (Lucas 2026-11-14: "like 1pt to the right for search input"). A fixed inset of the
     /// text views, so it does not scale with the density.
     static let fieldTextInsetCorrection: CGFloat = 1
+    /// The resting field's own text inset: its cell's title rect and its field editor's line fragment padding
+    /// (`OmnibarFieldEditor`) both start the text 2 pt inside the field.
+    static let fieldTextInset: CGFloat = 2
+    /// Where the URL's text starts in the bar: the chip, the gap after it, the field's correction and its own inset.
+    static var textOrigin: CGFloat { chipLeading + chipSize + textLeading + fieldTextInsetCorrection + fieldTextInset }
     /// The bar's trailing marks' distance from its edge.
     static let edgeInset: CGFloat = 2
     /// The field's distance from the trailing marks.

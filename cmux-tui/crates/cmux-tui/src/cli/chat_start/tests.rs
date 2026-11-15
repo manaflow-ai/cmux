@@ -652,8 +652,9 @@ fn a_joined_machine_is_a_chat_target_by_name_or_id() {
         on_joined("joined:m_desk", Some(joined_rows())),
         joined_at(Some("m_desk"), "Desk Mac", "mini-2")
     );
-    // Without the account's list, a name the hub lists still works.
-    assert_eq!(on_joined("mini-2", None), joined_at(None, "mini-2", "mini-2"));
+    // Without the account's list, a name the hub lists is refused as unverified
+    // (`a_machine_only_the_hub_lists_is_refused_when_the_account_cannot_be_read`).
+    assert_eq!(code(on_joined("mini-2", None)), "chat_target.unverified");
 }
 
 /// An offline or revoked joined machine is refused with what to do; nothing starts.
@@ -993,8 +994,6 @@ fn a_joined_machine_named_in_another_case_starts_under_its_own_name() {
     let Ok(Route::Joined(machine)) = found else { unreachable!() };
     let sent = joined::start_words(&start(&["--on", "STUDIO", "go"]), &machine, "n").unwrap();
     assert_eq!(sent, words(&["session", "start", "n", "--machine", "studio", "--json"]));
-    // Without the account's list, the hub's spelling.
-    assert_eq!(on_joined("Mini-2", None), joined_at(None, "mini-2", "mini-2"));
     // A label in another case: the account's label and the hub's host name.
     assert_eq!(
         on_joined("desk mac", Some(joined_rows())),
@@ -1038,4 +1037,157 @@ fn a_cmux_acp_that_hangs_ends_with_a_timeout_error() {
     assert_eq!(error["code"], "acpmux.timeout", "{error}");
     assert_eq!(error["retryable"], true);
     assert!(began.elapsed() < Duration::from_secs(20), "{:?}", began.elapsed());
+}
+
+/// #38355 review 2a: without the account's list nothing says a machine the hub lists is still
+/// the person's (the hub may list a revoked one), so it is refused as unverified, never started
+/// on with no id.
+#[test]
+fn a_machine_only_the_hub_lists_is_refused_when_the_account_cannot_be_read() {
+    for name in ["mini-2", "Mini-2", "studio"] {
+        let refused = on_joined(name, None).unwrap_err();
+        assert_eq!(refused["code"], "chat_target.unverified", "{name}: {refused}");
+        assert_eq!(refused["retryable"], false);
+        let message = refused["message"].as_str().unwrap();
+        assert!(message.contains("could not be verified against your account"), "{message}");
+        assert!(message.contains("not signed in"), "{message}");
+        assert!(refused["details"]["next"].as_str().unwrap().contains("cmux login"), "{refused}");
+    }
+    // A name neither list names keeps the catalog's own refusal.
+    assert_eq!(code(on_joined("nowhere", None)), "chat_target.unknown_device");
+}
+
+/// #38355 review 1: the prompt was written before the bound started, so a prompt larger than a
+/// pipe to a `cmux acp` that never reads its stdin hung for as long as it ran. It is written
+/// inside the bound now: the answer is `acpmux.timeout` at the limit.
+#[test]
+fn a_large_prompt_to_a_cmux_acp_that_never_reads_ends_with_a_timeout() {
+    let mut deaf = cmux_process::Command::new("/bin/sh");
+    // Never reads its stdin; ends on its own after 8 s, so the unbounded write ends too.
+    deaf.args(["-c", "exec sleep 8"]);
+    let prompt = "x".repeat(1 << 20);
+    let began = std::time::Instant::now();
+    let answer =
+        joined::run_acp(deaf, &["send", "h/n", "-"], Some(&prompt), Duration::from_millis(300));
+    let elapsed = began.elapsed();
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert!(elapsed < Duration::from_secs(4), "{elapsed:?}");
+}
+
+/// A fake `cmux acp`: each call takes `slow` (or its whole limit, when that is shorter, and then
+/// times out as [`joined::run_acp`] does); records each call's words and limit.
+fn slow_acp<'a>(
+    slow: Duration,
+    answer: impl Fn(&[&str]) -> Value + 'a,
+    calls: &'a std::cell::RefCell<Vec<(String, Duration)>>,
+) -> impl FnMut(&[&str], Option<&str>, Duration) -> Result<Value, Value> + 'a {
+    move |words, _stdin, limit| {
+        calls.borrow_mut().push((words.join(" "), limit));
+        if limit < slow {
+            std::thread::sleep(limit);
+            return Err(json!({"code": "acpmux.timeout", "retryable": true}));
+        }
+        std::thread::sleep(slow);
+        Ok(answer(words))
+    }
+}
+
+/// #38355 review 3: each `cmux acp` call of a start had its own 120 s and the receipt loop
+/// checked the deadline only between reads, so a start could take 360 s under an error that
+/// said 120 s. One deadline bounds them all now: two calls of 0.9 s under a 1 s deadline end
+/// at the deadline, the second given only what was left.
+#[test]
+fn two_slow_calls_end_at_the_one_start_deadline() {
+    let calls = std::cell::RefCell::new(Vec::new());
+    let pending = |words: &[&str]| {
+        if words.first() == Some(&"session") && words.get(1) == Some(&"start") {
+            json!({"messageId": "m1", "state": "queued"})
+        } else {
+            json!({"state": "queued"})
+        }
+    };
+    let steps = joined::Steps {
+        words: &["session", "start", "n", "--machine", "studio", "--json"],
+        target: "studio/n",
+        prompt: Some("go"),
+    };
+    let limit = Duration::from_secs(1);
+    let began = std::time::Instant::now();
+    let answer = joined::start_chat(
+        &steps,
+        limit,
+        Duration::from_millis(10),
+        slow_acp(Duration::from_millis(900), pending, &calls),
+    );
+    let elapsed = began.elapsed();
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "chat_target.unavailable", "{error}");
+    assert!(error["message"].as_str().unwrap().contains("after 1s"), "{error}");
+    assert!(elapsed < limit + Duration::from_millis(300), "{elapsed:?} for a {limit:?} deadline");
+    let calls = calls.into_inner();
+    assert!(calls.len() >= 2, "{calls:?}");
+    assert!(calls.iter().skip(1).all(|(_, left)| *left < Duration::from_millis(200)), "{calls:?}");
+}
+
+/// #38355 review 4: a first prompt whose send timed out answered `retryable: true`, but it may
+/// have been delivered, so a retry sent it twice. It is not retryable now, and says which
+/// prompt id to look for. The send waits only for acceptance (`--no-wait`): a peer link's
+/// `--wait` waits for the whole turn.
+#[test]
+fn a_first_prompt_not_confirmed_in_time_is_not_retryable() {
+    let calls = std::cell::RefCell::new(Vec::new());
+    let started = |words: &[&str]| {
+        if words.first() == Some(&"send") {
+            json!({"deliveryId": "mesh:1", "status": "queued"})
+        } else {
+            json!({"messageId": "m1", "state": "delivered", "detail": "s1"})
+        }
+    };
+    let steps = joined::Steps {
+        words: &["session", "start", "n", "--machine", "studio", "--json"],
+        target: "studio/n",
+        prompt: Some("go"),
+    };
+    // The start answers at once; the send takes longer than the deadline.
+    let mut acp = slow_acp(Duration::ZERO, started, &calls);
+    let mut slow_send = |words: &[&str], stdin: Option<&str>, limit: Duration| {
+        if words.first() == Some(&"send") {
+            std::thread::sleep(limit);
+            return Err(json!({"code": "acpmux.timeout", "retryable": true}));
+        }
+        acp(words, stdin, limit)
+    };
+    let answer = joined::start_chat(
+        &steps,
+        Duration::from_millis(500),
+        Duration::from_millis(10),
+        &mut slow_send,
+    );
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert_eq!(error["retryable"], false, "{error}");
+    assert!(error["message"].as_str().unwrap().contains("do not send it again"), "{error}");
+    assert!(
+        error["details"]["prompt_id"].as_str().is_some_and(|id| id.starts_with("cmux-chat-")),
+        "{error}"
+    );
+    // Accepted once queued, never after the turn; queued behind a running turn.
+    let words = joined::send_words("studio/n", "cmux-chat-0001");
+    assert!(words.iter().any(|word| word == "--no-wait"), "{words:?}");
+    assert!(words.iter().any(|word| word == "--no-steer"), "{words:?}");
+    assert!(!words.iter().any(|word| word == "--wait"), "{words:?}");
+    let id = words.iter().position(|word| word == "--prompt-id").unwrap();
+    assert_eq!(words[id + 1], "cmux-chat-0001");
+    // Started, then sent: both answers.
+    let calls = std::cell::RefCell::new(Vec::new());
+    let (receipt, sent) = joined::start_chat(
+        &steps,
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        slow_acp(Duration::ZERO, started, &calls),
+    )
+    .unwrap();
+    assert_eq!(receipt["detail"], "s1");
+    assert_eq!(sent.unwrap()["status"], "queued");
 }

@@ -21,6 +21,7 @@ import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactN
 import { AgentMark } from "../agent-session/shared/AgentMark";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { STATUS_UNREAD } from "../theme/statusColors";
+import { motionMode } from "../ui/motion/motionMode";
 import { capProjects } from "./projectCapsFixtures";
 import { layoutProject, moreLabel, needsYou, type CapChat, type CapProject, type CapRow } from "./projectCapsModel";
 import "./ProjectCapsDesigns.css";
@@ -196,8 +197,11 @@ function Project({
   const collapse = useCallback(() => {
     const element = section.current;
     const scroll = scroller();
-    if (element && scroll && element.offsetTop < scroll.scrollTop)
-      scroll.scrollTo({ top: element.offsetTop, behavior: "smooth" });
+    if (element && scroll && element.offsetTop < scroll.scrollTop) {
+      // Reduce Motion (or motion off): the same scroll, as a jump.
+      const behavior = motionMode(scroll.ownerDocument, scroll) === "full" ? "smooth" : "auto";
+      scroll.scrollTo({ top: element.offsetTop, behavior });
+    }
     setOpen(0);
   }, [scroller]);
   return (

@@ -60,6 +60,23 @@ impl Surface {
             .last_command()
     }
 
+    /// The newest command the terminal's shell finished, read from its screen
+    /// now (`terminal-command-context`); `None` without one to read.
+    pub(crate) fn terminal_command_context(
+        &self,
+    ) -> Option<crate::command_context::CommandContext> {
+        // The status is read under the terminal lock too: the output thread
+        // writes a command's screen and its `D` mark under that lock, so all
+        // three belong to the same command.
+        let (read, exit_code, cwd) = self.with_terminal(|term| {
+            let read = term.last_command_output(crate::command_context::MAX_OUTPUT_ROWS)?;
+            let exit_code = self.terminal_last_command().and_then(|last| last.exit_code);
+            let cwd = term.pwd().as_deref().and_then(crate::shell_history::command_cwd);
+            Some((read, exit_code, cwd))
+        })??;
+        Some(crate::command_context::CommandContext::new(read, exit_code, cwd))
+    }
+
     /// When a client last wrote input: `extra.last_input`
     /// (`terminal-activity-v1`, read-time only).
     pub(crate) fn terminal_last_input(&self) -> Option<u64> {

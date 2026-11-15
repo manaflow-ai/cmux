@@ -197,13 +197,16 @@ impl Hub {
             here.push(host);
         }
         let hashes = |s: &Value, hosts: &[&str]| {
-            s["agentSessionId"]
-                .as_str()
-                .is_some_and(|session| hosts.iter().any(|h| key.id(h, family_of(s), session) == id))
+            s["agentSessionId"].as_str().is_some_and(|session| {
+                hosts.iter().any(|h| {
+                    minted_harnesses(family_of(s)).any(|harness| key.id(h, harness, session) == id)
+                })
+            })
         };
         let keep = |r: &RemoteSession| {
             r.summary.agent_session_id().is_some_and(|session| {
-                key.id(r.peer.as_str(), r.summary.family().unwrap_or_default(), session) == id
+                minted_harnesses(r.summary.family().unwrap_or_default())
+                    .any(|harness| key.id(r.peer.as_str(), harness, session) == id)
             })
         };
         let here: Vec<&str> = here.iter().map(String::as_str).collect();
@@ -337,6 +340,16 @@ fn bare_name(summary: &Value) -> &str {
 /// harness. `link_of` writes the same.
 fn family_of(summary: &Value) -> &str {
     summary["family"].as_str().or(summary["harness"].as_str()).unwrap_or_default()
+}
+
+/// The harness names an opaque id for a session of `family` may be minted under: the family
+/// itself, then the harness it runs when that is another name. agent-identity names a Claude
+/// Code session `claude` from inside it (CLAUDE_CODE_SESSION_ID) whatever profile started it,
+/// so a `claude-sr2` chat's PR footer hashes as `claude`; the part before the first `-` is that
+/// harness, as `config::derive_family` falls back to. At most two names, so two hashes a row.
+fn minted_harnesses(family: &str) -> impl Iterator<Item = &str> {
+    let base = family.split('-').next().filter(|base| !base.is_empty() && *base != family);
+    std::iter::once(family).chain(base)
 }
 
 /// The sessions whose harness session id and family are the link's, those on the host the link
