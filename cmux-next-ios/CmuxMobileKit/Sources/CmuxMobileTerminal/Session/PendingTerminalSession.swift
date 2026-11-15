@@ -57,7 +57,13 @@ public enum TerminalSessionChoice {
             #if os(iOS)
             // The phone re-wraps the Mac's terminal at its own width; the Mac
             // keeps its size (Settings → Terminal → Fit to Phone resizes it).
-            if TerminalProjectingSession.isEnabled { return TerminalProjectingSession(inner: live) }
+            // Mixed: only a plain shell's output is re-wrapped; Claude Code and
+            // the other agents draw boxes and dividers at the Mac's width, so
+            // their pane resizes to the phone as before.
+            let program = live.programName.isEmpty ? programName : live.programName
+            if TerminalProjectingSession.isEnabled, TerminalProjectingSession.reflows(program: program) {
+                return TerminalProjectingSession(inner: live)
+            }
             #endif
             return live
         }

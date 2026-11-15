@@ -26,6 +26,20 @@ public final class TerminalProjectingSession: TerminalSession {
     /// Whether new terminal pages project (Settings → Terminal → Fit to Phone off).
     public static var isEnabled: Bool { !CmuxMobilePreferences.terminalFitToPhone() }
 
+    /// Mixed sizing: the phone re-wraps only a plain shell (its output is
+    /// soft-wrapped lines). A full-screen app (the alternate screen) claims
+    /// the phone's size inside a projected shell, as below; Claude Code and
+    /// the other agents redraw their boxes and dividers at the PTY's width
+    /// on the primary screen, so their pane is not projected: it resizes.
+    /// Decided when the page opens, by the program the Mac names.
+    public static func reflows(program: String) -> Bool {
+        let name = program.split(separator: "/").last.map(String.init)?.lowercased() ?? ""
+        let bare = name.hasPrefix("-") ? String(name.dropFirst()) : name
+        return bare.isEmpty || plainShells.contains(bare)
+    }
+
+    static let plainShells: Set<String> = ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "pwsh", "xonsh", "elvish"]
+
     /// The Mac's session.
     public let inner: any TerminalSession
     private let projection: TerminalProjection
