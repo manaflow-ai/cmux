@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-15",
+  "row": "app_lines",
+  "allow": 43,
+  "why": "Toggle Terminal and Chat's approval while the terminal drives (Leo 2026-11-12: the toggle is 'the sauce', two live views of one session, instant both ways). The watch (TerminalChatApproving) and the terminal face (TerminalApprovalFace) are in CmuxNextWindowRules, the page bridge in CmuxNextAgentPane, the parse and keys in Rust (cmux-window-rules tabs::approval). The App keeps only what needs App-only types: TerminalChatApprovals.follow (AppServices.agentTabs and machines, the chat's AgentPaneView), AgentPaneView's conformance to the WindowRules protocol (no target imports both), and the two follow calls in TerminalChatHandler. The Handlers folder has no domain package yet (architecture-refactor-DESIGN.md B5).",
+  "author": "toggle-approvals helper (claude opus 5.5)",
+  "owner": "toggle-approvals helper",
+  "receipt": "Review (claude opus subagent 16d8087b): SHIP at edab23abe4297aac6bae4a8962d64d3c28841e50",
+  "expiry": "2026-11-29"
+}
