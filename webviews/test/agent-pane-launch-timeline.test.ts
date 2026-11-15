@@ -2,7 +2,7 @@
 // connect path on the wall clock: the first time of each mark, and the first event of the shown
 // chat that arrives live (within LIVE_EVENT_LAG_MS of when acpmux recorded it), past any backlog.
 import { expect, test } from "bun:test";
-import { AcpmuxPerf, LIVE_EVENT_LAG_MS } from "../src/agent-session/acpmux/perf";
+import { AcpmuxPerf, LIVE_EVENT_LAG_MS, pageLoadMarks } from "../src/agent-session/acpmux/perf";
 
 test("a page's launch marks keep their first time; a retried handshake counts but keeps the first start", () => {
   const perf = new AcpmuxPerf();
@@ -34,4 +34,37 @@ test("backlog events are the first event; the first that arrives within the lag 
   const timeline = perf.launchTimeline();
   expect(timeline.firstEvent_epoch_ms).toBe(20_000);
   expect(timeline.liveEvent_epoch_ms).toBe(20_100);
+});
+
+test("the page's own load (document, pane.js, parse) comes from navigation and resource timing on the wall clock", () => {
+  const entries: Record<string, unknown[]> = {
+    navigation: [
+      { requestStart: 4, responseEnd: 12.4, domInteractive: 180, domContentLoadedEventEnd: 181, loadEventEnd: 0 },
+    ],
+    resource: [
+      { name: "cmux-page://cmux.agent/pane.css", startTime: 13, responseEnd: 14 },
+      { name: "cmux-page://cmux.agent/pane.js", startTime: 13, responseEnd: 40 },
+    ],
+  };
+  const marks = pageLoadMarks({
+    timeOrigin: 1_000_000,
+    getEntriesByType: (type: string) => entries[type] ?? [],
+  } as never);
+  expect(marks).toEqual({
+    documentRequest_epoch_ms: 1_000_004,
+    documentResponse_epoch_ms: 1_000_012,
+    domInteractive_epoch_ms: 1_000_180,
+    domContentLoaded_epoch_ms: 1_000_181,
+    paneScriptRequest_epoch_ms: 1_000_013,
+    paneScriptFetched_epoch_ms: 1_000_040,
+  });
+  // No timing (a test page, a host without the API): no marks.
+  expect(pageLoadMarks(undefined)).toEqual({});
+});
+
+test("bundleEvaluated is a launch mark like the connect path's", () => {
+  const perf = new AcpmuxPerf();
+  perf.markLaunch("bundleEvaluated", 500);
+  perf.markLaunch("bundleEvaluated", 900);
+  expect(perf.launchTimeline().bundleEvaluated_epoch_ms).toBe(500);
 });
