@@ -42,6 +42,11 @@ const START_BACKOFF: Duration = Duration::from_secs(60);
 /// One call, unless the spec says (`callTimeoutSecs`: acpmux gives the
 /// secret card, which waits for the person, an hour).
 const CALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// A server's process ends after this long with no call; its tools stay listed and the next
+/// call starts it again. A harness keeps an idle chat's `cmux mcp serve` running for days (one
+/// Codex app-server held 15 on Leo's Mac, 2026-11-14), and each kept its computer use proxy and
+/// acpmux's servers running under it: 90 processes, about 300 MB, for chats no one used.
+pub(super) const IDLE_STOP: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,6 +176,9 @@ pub(super) struct Upstream {
     /// The legacy computer use proxy's current endpoint, read when a call finds the
     /// helper unreachable (`cua_recovery.rs`); `None` for every other server.
     endpoint: Option<cua_recovery::EndpointSource>,
+    /// When it last started or answered a call: its process ends [`IDLE_STOP`] after
+    /// ([`stop_idle`]).
+    used: Instant,
 }
 
 /// Why a request has no result.
@@ -357,7 +365,23 @@ impl Upstream {
             failed: None,
             listings,
             endpoint,
+            used: Instant::now(),
         }
+    }
+
+    /// Ends its process when it has had no call for `idle`, keeping its tools listed (the next
+    /// call starts it again). While a process runs, how long until it would be idle; `None`
+    /// when none runs.
+    pub(super) fn stop_if_idle(&mut self, idle: Duration) -> Option<Duration> {
+        self.conn.as_ref()?;
+        let left = idle.saturating_sub(self.used.elapsed());
+        if left.is_zero() {
+            // The child ends with its connection (`Conn::drop`); a shared one once no other
+            // server holds it.
+            self.conn = None;
+            return None;
+        }
+        Some(left)
     }
 
     /// The same server with its stored lists kept in `dir` (none: never stored).
@@ -493,12 +517,15 @@ impl Upstream {
         if !self.conn.as_ref().is_some_and(|conn| conn.alive()) {
             self.start().map_err(|error| (error, "not_run"))?;
         }
+        self.used = Instant::now();
         let mut params = json!({"name": tool, "arguments": arguments});
         if let (Some(meta), Some(fields)) = (meta, params.as_object_mut()) {
             fields.insert("_meta".to_owned(), meta.clone());
         }
         let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
-        match self.request("tools/call", params, timeout) {
+        let answered = self.request("tools/call", params, timeout);
+        self.used = Instant::now();
+        match answered {
             Ok(result) => Ok(result),
             Err(Failure::Refused(error)) => Err((error, "not_run")),
             Err(Failure::Lost(error)) => {
@@ -568,6 +595,7 @@ impl Upstream {
         }
         self.tools = Some(tools);
         self.failed = None;
+        self.used = Instant::now();
         Ok(())
     }
 
@@ -625,6 +653,32 @@ impl Proxied {
     pub(super) fn lists(&self, name: &str) -> bool {
         self.listed.iter().any(|tool| tool["name"] == name)
     }
+}
+
+/// Ends each server's process once it has had no call for `idle` ([`IDLE_STOP`]), on a thread
+/// that sleeps until the next one could be idle and ends once every server is dropped. A server
+/// a call holds is skipped: the call marks it used when it ends.
+pub(super) fn stop_idle(
+    servers: Vec<Weak<Mutex<Upstream>>>,
+    idle: Duration,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new().name("cmux-mcp-upstream-idle".into()).spawn(move || {
+        loop {
+            let mut next = idle;
+            let mut any = false;
+            for server in &servers {
+                let Some(server) = server.upgrade() else { continue };
+                any = true;
+                if let Ok(mut upstream) = server.try_lock() {
+                    next = next.min(upstream.stop_if_idle(idle).unwrap_or(idle));
+                }
+            }
+            if !any {
+                return;
+            }
+            std::thread::sleep(next.max(Duration::from_millis(10)));
+        }
+    })
 }
 
 /// Claude Code's name of the tool call a `tools/call` runs for (`_meta`), which its PreToolUse
