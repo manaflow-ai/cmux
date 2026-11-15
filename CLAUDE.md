@@ -116,6 +116,11 @@ Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks in
   [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
 - Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
+- A held button changes only its background fill: never its weight (no bold on press), font, size, scale,
+  offset, opacity or icon, on macOS, iOS and web. Use the shared looks (`ChromeHover`,
+  `.buttonStyle(.cmuxPressFill)` on macOS and iOS, web `.ui-btn`), never SwiftUI `.plain`/`.borderless`/`.link`
+  (they dim the label). `check-pressed-state.py` enforces it; rule and exceptions:
+  [design/pressed-state.md](design/pressed-state.md) (Lawrence 2026-11-15).
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
   needs a reason that proves the code is safe; it is not a way to pass the gate.
 - Never change a Ghostty-default shortcut without the user's explicit OK. Ghostty's split keys
