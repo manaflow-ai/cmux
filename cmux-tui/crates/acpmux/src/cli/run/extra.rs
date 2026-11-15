@@ -662,9 +662,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 // one is an error, so callers such as `host setup` see it.
                 Err(e) if start => return Err(e),
                 Err(e) => {
-                    // Why a start would fail, when config.json already says (a network listen
-                    // without its opt-in): the person sees it here, not only in daemon.log.
-                    let refused = crate::daemon::saved_listen_refusal().await;
+                    // Why a start would fail, when config.json already says (the daemon's start
+                    // check): the person sees it here, not only in daemon.log.
+                    let refused = crate::daemon::saved_start_refusal().await;
                     if json_out {
                         let out = match &refused {
                             Some(why) => {
@@ -891,6 +891,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::command_host::VaultCmd::Forget => {
                 crate::cli::host_vault::forget_cmd(json_out).await
             }
+            crate::cli::command_host::VaultCmd::Keep { name, hosts, env } => {
+                crate::cli::host_vault::keep_cmd(name, hosts, env, json_out).await
+            }
+            crate::cli::command_host::VaultCmd::Drop { name } => {
+                crate::cli::host_vault::drop_cmd(name, json_out).await
+            }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
         Command::Host(PeerCmd::Consent { cmd }) => {
@@ -1099,9 +1105,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
-                PeerCmd::Setup { host, name, port, no_auto_update } => {
+                PeerCmd::Setup { host, name, port, no_auto_update, allow_downgrade } => {
                     let auto = !no_auto_update;
-                    return crate::cli::hosts::setup(client, &host, name, port, auto, json_out)
+                    let (allow, json) = (allow_downgrade, json_out);
+                    return crate::cli::hosts::setup(client, &host, name, port, auto, allow, json)
                         .await;
                 }
                 // Dispatched before the connect (above); kept here so the
@@ -1115,7 +1122,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Approvals { cmd } => {
                     return crate::cli::host_approvals::run(cmd, json_out).await;
                 }
-                PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer } => {
+                PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer, allow_downgrade } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
                     let caller = match std::env::var("ACPMUX_SESSION_ID") {
                         Ok(session) if if_idle && !session.is_empty() => {
@@ -1130,6 +1137,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         binary_dir,
                         if_idle,
                         keep_newer,
+                        allow_downgrade,
                         caller,
                     };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;

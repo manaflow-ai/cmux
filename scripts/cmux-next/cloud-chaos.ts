@@ -465,6 +465,35 @@ export class ChatClient {
     return this.held >= seq;
   }
 
+  /**
+   * Why a catch-up wait timed out, as a clause for the verdict. It asks `agent-session-events` past the seq held
+   * (the mux Bulk lane, as the chat's own pushes) and then `identify` (the Control lane), and keeps nothing either
+   * answers: the client's view, and so the verdict, stays what the product delivered.
+   */
+  async stallDiagnosis(eventsMs = 10_000, identifyMs = 5_000): Promise<string> {
+    const held = this.held;
+    const asked = async (frame: Record<string, unknown>, ms: number): Promise<{ answer?: any; error?: string }> => {
+      try {
+        return { answer: answerOf(await this.dial.request(frame, ms)) };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    };
+    const events = await asked({ cmd: "agent-session-events", surface: this.surface, after_seq: held, limit: 500 }, eventsMs);
+    const identify = await asked({ cmd: "identify" }, identifyMs);
+    const timedOut = (r: { error?: string }) => /^no answer within/.test(r.error ?? "");
+    const seqs: number[] = (events.answer?.events ?? []).map((e: any) => Number(e?.seq)).filter((s: number) => s > held);
+    const eventsText = events.answer
+      ? seqs.length ? `events answered from seq ${Math.min(...seqs)} (${seqs.length} records)` : "events answered with nothing past it"
+      : timedOut(events) ? `events timed out (${eventsMs / 1000} s)` : `events failed: ${events.error}`;
+    const identifyText = identify.answer ? "identify answered" : timedOut(identify) ? `identify timed out (${identifyMs / 1000} s)` : `identify failed: ${identify.error}`;
+    const verdict = seqs.length ? "attachment dead, transport fine"
+      : timedOut(events) && identify.answer ? "bulk lane stalled"
+      : timedOut(events) && timedOut(identify) ? "carrier dead"
+      : "no conclusion";
+    return `after seq ${held}: ${eventsText}, ${identifyText}: ${verdict}`;
+  }
+
   private onLine(m: any): void {
     if (m?.surface !== this.surface) return;
     if (m.event === "agent-session-record" && m.record && typeof m.record.seq === "number") {
@@ -596,6 +625,7 @@ export class SeqTerminal {
   terminal = "";
   error = "";
   private offset = 0;
+  private recovery = "";
   private stopped = false;
   private loop: Promise<void> | null = null;
 
@@ -630,10 +660,11 @@ export class SeqTerminal {
   private async poll(): Promise<void> {
     while (!this.stopped) {
       try {
-        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), max_bytes: 1_048_576 } }, 10_000));
-        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, text: String(r.text ?? "") };
+        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), recovery: this.recovery, max_bytes: 1_048_576 } }, 10_000));
+        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, snapshot: r.snapshot === true, text: String(r.text ?? "") };
         this.reads.push(read);
         this.offset = read.next;
+        this.recovery = typeof r.recovery === "string" ? r.recovery : "";
       } catch (e) {
         this.error = (e as Error).message;
       }
@@ -836,7 +867,8 @@ async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, bas
   const client = slice.map((r) => journalEvent(tag, r.record) ?? { seq: r.seq, ks: [] });
   const reconnects = chat.reconnects.filter((i) => i >= from).map((i) => i - from);
   const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted, injection });
-  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""})`;
+  // A stalled client is asked why before the verdict is written; the diagnosis never changes the verdict.
+  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""}; ${await chat.stallDiagnosis()})`;
   const pages = slice.filter((r) => r.via === "page").length;
   const why = ranNone ? `; ${journalNotesText(notes)}` : "";
   return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)${why}` };
@@ -1203,7 +1235,7 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
 }
 
 /** One `terminal.output_read` answer: the offset asked for and what came back. */
-export type TerminalRead = { after: number; start: number; next: number; complete: boolean; text: string };
+export type TerminalRead = { after: number; start: number; next: number; complete: boolean; snapshot?: boolean; text: string };
 
 /**
  * The terminal's text as the client holds it after `reads` (each asked from the last one's `next_offset`), and what was
@@ -1223,7 +1255,10 @@ export function assembleTerminal(reads: TerminalRead[]): { text: string; problem
     const want = i === 0 ? 0 : reads[i - 1].next;
     if (r.after !== want) problems.push(`read ${i} asked from ${r.after}, not the last read's end ${want}`);
     if (!r.complete) problems.push(`read ${i} from ${r.after} was not complete (output past retention)`);
-    if (r.start === r.after) {
+    if (r.snapshot === true) {
+      if (!r.complete || r.start !== 0 || r.next < 0) problems.push(`read ${i} returned an invalid snapshot projection`);
+      else { snapshots += 1; text = r.text; }
+    } else if (r.start === r.after) {
       text += r.text;
     } else if (r.start === 0 && r.after > 0 && r.complete && r.next >= r.after) {
       snapshots += 1;
@@ -1260,7 +1295,7 @@ export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machine
   const sha = input.sha256(text);
   if (sha !== input.machineSha256) problems.push(`sha256 ${sha.slice(0, 12)} differs from the machine copy's ${input.machineSha256.slice(0, 12)}`);
   if (problems.length) return { ok: false, text: `terminal output lost: ${problems.slice(0, 4).join("; ")}` };
-  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} after the terminal ended taken in place of what was held` : "";
+  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} taken in place of what was held` : "";
   return { ok: true, text: `terminal: all ${n} lines over ${reads.length} reads, offsets contiguous${snap}, sha256 matches the machine copy` };
 }
 

@@ -1028,6 +1028,74 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.assertIn("--expect-agent", report)
         self.assertIn("--agent-skipped", report)
 
+    def test_notes_and_verify_evidence_alone_never_start_the_gate(self) -> None:
+        # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
+        # app and still walked the reviewer path on every device, agent pass included.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        for event in ("push", "pull_request"):
+            patterns = on[event]["paths"]
+            with self.subTest(event=event):
+                for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/alignment/alignscan.swift", "Packages/Shared/README.md"):
+                    self.assertFalse(github_paths_match(patterns, path), path)
+                for path in ("cmux-next-ios/CmuxMobileApp/App.swift", "cmux-next-ios/project.yml",
+                             "cmux-next-ios/AppStoreReview/reviewer-setup.md",
+                             "cmux-next-ios/AppStoreReview/known-blockers.json",
+                             "Packages/Shared/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
+                    self.assertTrue(github_paths_match(patterns, path), path)
+
+    def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
+        # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
+        # app and still ran CmuxMobileKit's tests, then went red on kit tests it never touched.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        for event in ("push", "pull_request"):
+            patterns = on[event]["paths"]
+            with self.subTest(event=event):
+                for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/alignment/alignscan.swift",
+                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
+                    self.assertFalse(github_paths_match(patterns, path), path)
+                for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
+                             "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
+                             "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Resources/notes.md",
+                             "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
+                             "Packages/iOS/CmuxConversation/Sources/X.swift",
+                             ".github/workflows/cmux-next-ios-kit.yml"):
+                    self.assertTrue(github_paths_match(patterns, path), path)
+
+
+def github_paths_match(patterns: list[str], path: str) -> bool:
+    """GitHub's `paths` filter: the last pattern that matches PATH decides; a `!` one excludes it."""
+    def regex(glob: str) -> str:
+        out, i = [], 0
+        while i < len(glob):
+            if glob.startswith("**/", i):
+                out.append("(?:.*/)?")
+                i += 3
+            elif glob.startswith("**", i):
+                out.append(".*")
+                i += 2
+            elif glob[i] == "*":
+                out.append("[^/]*")
+                i += 1
+            else:
+                out.append(re.escape(glob[i]))
+                i += 1
+        return "".join(out)
+
+    included = False
+    for pattern in patterns:
+        negated = pattern.startswith("!")
+        if re.fullmatch(regex(pattern.removeprefix("!")), path):
+            included = not negated
+    return included
+
 
 DEVICES_SCRIPT = ROOT / ".github/scripts/ios_review_gate_devices.py"
 DEVICES_LIST = ROOT / ".github/ios-review-gate-devices.json"

@@ -127,6 +127,7 @@ rquickjs.workspace = true
 toml.workspace = true
 base64.workspace = true
 getrandom.workspace = true
+toml_edit.workspace = true
 glob.workspace = true
 libc.workspace = true
 fs4.workspace = true
@@ -149,8 +150,15 @@ ring.workspace = true
 # start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
 acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
+# A device row's kind and glyph (`devices/model.rs`).
+cmux-device-kind = { path = "../cmux-device-kind" }
 
 [target.'cfg(unix)'.dependencies]
+# The browser host and the app host run from this binary, chosen by argv[0]
+# (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
+# src/main.rs): one copy of std, serde and QuickJS instead of three.
+cmux-browser-host = { path = "../cmux-browser-host" }
+cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
@@ -165,6 +173,8 @@ cmux-file-lock.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
 cmux-vnc.workspace = true
 flate2.workspace = true
+# `cmux customize use pr:N` unpacks a published web bundle archive (cli/customize/pr.rs).
+tar.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
@@ -207,6 +217,8 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 serde_json.workspace = true
 
 [dev-dependencies]
+# cli/ext tests: the fake daemon renders a mount with the real QuickJS app host.
+cmux-app-host = { workspace = true, features = ["engine"] }
 # carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.
 cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
 # tests/carrier_dial.rs: a real relay for `cmux carrier dial`.

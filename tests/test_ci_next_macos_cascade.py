@@ -2504,6 +2504,7 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "cmux-next-dev-daily.yml sign: runs-on[0]",
         "cmux-next-dev-daily.yml sign-blacksmith: runs-on[0]",
         "cmux-next-dev-daily.yml verify: runs-on[0]",
+        "cmux-tui-team-signed.yml sign: runs-on[0]",
         "ios-appstore-upload.yml upload: runs-on[0]",
         "ios-e2e.yml mac-ios-e2e: runs-on[0]",
         "ios-internal-nightly.yml archive: runs-on[0]",

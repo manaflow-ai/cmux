@@ -51,6 +51,9 @@ pub mod clock;
 pub mod cloud_host;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
+/// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod cmux_tui_service;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
@@ -182,6 +185,7 @@ pub mod prompt_provenance;
 pub mod prompt_uploads;
 pub mod protected_folders;
 pub mod protocol;
+mod provider_cloud_auth;
 pub mod qos;
 pub mod question_answer;
 #[cfg(target_os = "linux")]
@@ -214,6 +218,9 @@ pub mod session_liveness;
 pub mod session_name;
 mod session_scope;
 pub mod session_search;
+/// A workspace here for the person's other machines, over the hub carrier (`session_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod session_service;
 pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).

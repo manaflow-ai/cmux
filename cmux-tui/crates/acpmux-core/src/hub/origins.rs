@@ -1,4 +1,5 @@
 //! Origin ownership and the bounded end of an origin's life.
+use super::mirror::TakeoverTurn;
 use super::*;
 use std::collections::VecDeque;
 
@@ -207,6 +208,7 @@ impl HubWriter {
             return Ok(());
         }
         REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
+        self.origins_refused.fetch_add(1, Ordering::Release);
         Err(HubError::OriginLimit)
     }
 
@@ -243,15 +245,22 @@ impl HubWriter {
 
     pub fn takeover(&mut self, origin: &str, source: Source) -> Result<(), HubError> {
         validate_takeover(origin, source)?;
-        self.admit_origin(origin)?;
+        if let Err(error) = self.admit_origin(origin) {
+            // Counted, so a dialer waiting on this takeover sees it end.
+            self.mirror.counters.note_takeover(origin, TakeoverTurn::Refused);
+            return Err(error);
+        }
         if self.holds_origin(origin) {
-            return self.hold_update(
+            let held = self.hold_update(
                 UpdateKey::Source(origin.into()),
                 PendingUpdate::Takeover { origin: origin.into(), source },
             );
+            self.mirror.counters.note_takeover(origin, TakeoverTurn::Held);
+            return held;
         }
         // Even a takeover by the owner starts a walk: its mark goes off now.
         self.write_mark_off(origin);
+        self.mirror.counters.note_takeover(origin, TakeoverTurn::Applied);
         if self.sources.load().get(origin) == Some(&source) {
             self.origins.ended.remove(origin);
             return Ok(());
@@ -404,15 +413,32 @@ impl HubWriter {
             && !self.origins.held.contains_key(id)
         {
             let mut sources = self.sources.load_full().as_ref().clone();
-            sources.remove(id);
+            let dropped = sources.remove(id).is_some();
             self.sources.store(Arc::new(sources));
             self.origins.ended.remove(id);
+            if dropped {
+                self.origin_slot_freed();
+            }
         }
     }
 
-    pub(super) fn retire_origin_sources(&mut self, old: &SummaryIndex, next: &SummaryIndex) {
+    /// A source or record was dropped: a slot of `MAX_ORIGINS` may be free
+    /// (`Hub::origin_slots_freed`). Called after the index without it is published.
+    pub(super) fn origin_slot_freed(&self) {
+        self.origin_slots_freed.fetch_add(1, Ordering::Release);
+    }
+
+    /// Answers whether `next` dropped a removed origin's record (a compaction
+    /// does), which frees its slot whether or not a source goes with it.
+    pub(super) fn retire_origin_sources(
+        &mut self,
+        old: &SummaryIndex,
+        next: &SummaryIndex,
+    ) -> bool {
         let mut sources = None;
+        let mut freed = false;
         for origin in old.origins() {
+            freed |= next.origin(&origin.id).is_none();
             if origin.state == OriginState::Removed
                 && next.origin(&origin.id).is_none()
                 && !next.has_origin_rows(&origin.id)
@@ -427,5 +453,6 @@ impl HubWriter {
         if let Some(sources) = sources {
             self.sources.store(Arc::new(sources));
         }
+        freed
     }
 }

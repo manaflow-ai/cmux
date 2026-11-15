@@ -17,7 +17,12 @@ run-name: >-
 # blocker not in cmux-next-ios/AppStoreReview/known-blockers.json: a change
 # that breaks the reviewer's path is red before it merges, not found by Apple.
 # A scheduled run would fire only from the default branch's copy of this file,
-# so there is none here.
+# so there is none here. Notes (*.md) and cmux-next-ios/verify/ evidence are
+# not the app: a change to only those walks no reviewer path (cmux#43251,
+# SECURITY.md and verify/parity-mac.md, took a Mac per device and the agent
+# pass's quota). AppStoreReview/ stays in: the agent pass follows
+# reviewer-setup.md. The last matching pattern wins, so the negations come
+# after the includes they narrow and before the one they re-include.
 # docs: cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md.
 on:
   push:
@@ -31,6 +36,9 @@ on:
       - ".github/workflows/ios-review-gate.yml"
       - ".github/ios-review-gate-devices.json"
       - ".github/scripts/ios_review_gate_devices.py"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/AppStoreReview/**"
   # Every app pull request walks the reviewer path (one macOS job per device,
   # side by side, about 30 minutes), so a change that breaks it is red before
   # it merges.
@@ -44,6 +52,9 @@ on:
       - ".github/workflows/ios-review-gate.yml"
       - ".github/ios-review-gate-devices.json"
       - ".github/scripts/ios_review_gate_devices.py"
+      - "!**/*.md"
+      - "!cmux-next-ios/verify/**"
+      - "cmux-next-ios/AppStoreReview/**"
   workflow_dispatch:
     inputs:
       ref:
@@ -379,22 +390,56 @@ jobs:
           python3 -I .review-gate/.github/scripts/ios_review_gate_devices.py check --plan "$DEVICE_PLAN" \
             --picker .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py \
             --out "$RESULTS/device-plan-mismatch.json"
+      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
+      # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
+      # about 3 minutes of a Mac (run 43652999096). A pull request only
+      # reads the cache; other events save what they built.
+      - name: The framework's inputs
+        id: ffi-key
+        if: env.UDID != ''
+        run: |
+          set -euo pipefail
+          # A ref from before the key script, or a key that fails, builds as before.
+          if [ -f .review-gate/.github/scripts/ios_link_ffi_key.py ]; then
+            python3 -I .review-gate/.github/scripts/ios_link_ffi_key.py --repo . --explain \
+              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT" \
+              || echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
+          fi
+      - name: Restore the framework built from the same inputs
+        id: ffi
+        if: env.UDID != '' && steps.ffi-key.outputs.key != ''
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
-        if: env.UDID != ''
+        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Cache cargo
-        if: env.UDID != ''
+        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: ios-review-gate
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: env.UDID != ''
+        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+      - name: Save the framework for later runs
+        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        # Another job saving the same key first is not a failure.
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
       - name: Build the app and the gate for testing
         if: env.UDID != ''
         working-directory: cmux-next-ios

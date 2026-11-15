@@ -187,6 +187,10 @@ pub enum PeerCmd {
         /// keeps it off across updates; remove it to turn the timer on).
         #[arg(long)]
         no_auto_update: bool,
+        /// Replace the machine's acpmux even when it is built from a newer
+        /// commit than this one (the machine refuses that otherwise).
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Copy this binary to a machine you added (or every one with --all) and restart
     /// its daemon. The previous binary is kept and put back when the
@@ -210,6 +214,12 @@ pub enum PeerCmd {
         /// than the one pushed, or one with local changes: never a move back.
         #[arg(long)]
         keep_newer: bool,
+        /// Install the pushed binary even when the machine's acpmux is built
+        /// from a newer commit. Without it the machine refuses that move back
+        /// (`current`, reason `newerInstalled`) in its own install step, so a
+        /// push from an older build never undoes its self-update.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Hold a machine (a machine name or its ssh host) off `machine update`: the
     /// update, `--all` and the app's own update queue leave it alone (`held`)
@@ -333,6 +343,24 @@ pub enum VaultCmd {
     /// Remove this machine's vault env values and its vault state. The daemon
     /// pulls again while the vault is shared with this machine.
     Forget,
+    /// Keep a key an agent made on this machine, with no sign-in or click: the
+    /// value comes piped on stdin (never argv) and goes to the Keychain or
+    /// Secret Service only. Agents started from then on get the placeholder
+    /// `cmux-secret://NAME`, which the egress proxy fills only in HTTPS
+    /// requests to the --host patterns. Example:
+    /// `mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com`.
+    Keep {
+        /// The env name agents get, like DEPLOY_TOKEN.
+        name: String,
+        /// Where the key may be sent: a host or `*.domain` (repeatable).
+        #[arg(long = "host", value_name = "H")]
+        hosts: Vec<String>,
+        /// Give agents the value itself instead (weaker: agents can read it).
+        #[arg(long, conflicts_with = "hosts")]
+        env: bool,
+    },
+    /// Remove a kept key (`keep`) from this machine.
+    Drop { name: String },
 }
 
 #[derive(Subcommand)]

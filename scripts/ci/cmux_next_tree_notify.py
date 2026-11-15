@@ -154,6 +154,9 @@ class GitHub:
         # dispatched.
         self.spare = spare if spare and spare != token else ""
         self.api_url = api_url.rstrip("/")
+        # The last answer, (status, payload, headers): a caller that may wait out a rate limit (the same-tree
+        # status post) reads its Retry-After or x-ratelimit-reset here. This client itself never sleeps.
+        self.last: tuple[int, bytes, dict[str, str]] = (0, b"", {})
 
     def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
         """One call, with its response headers. RequestTimeout past self.timeout."""
@@ -174,6 +177,7 @@ class GitHub:
                   f"on a spent rate limit (HTTP {status}); the notify continues on the spare token")
             self.token, self.spare = self.spare, ""
             status, payload, headers = self._send(method, url, body)
+        self.last = (status, payload, headers)
         return status, payload
 
     def get(self, path: str):
@@ -561,9 +565,13 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
                     log(f"::warning::run {run_id}: could not cancel the superseded same-tree runs on {branch}: {error}")
             continue
         if marker["origin"] == "pull_request" and state == "failed":
-            log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
-                f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
-            continue
+            # STATUS_FROM_OUTSIDE (cmux#43368): a notice alone left the pull request's required status absent
+            # forever. The failed same-tree run creates no pin ref (its same-tree-cmux-tui skips a pull request);
+            # its reporter posts the tiers red with this reason. The marker stays: a later trusted publication
+            # of the key still dispatches the ready tree jobs.
+            log(f"::notice title=same-tree cmux-tui unavailable::run {run_id} ({marker['status_sha'][:12]}): "
+                f"tree {key} is unavailable; no pin ref is created, the tiers are reported red. Re-run after a "
+                "trusted publication.")
         if state == "failed" and marker.get("reported"):
             log(f"run {run_id}: its same-tree run {marker.get('reported_run') or '?'} already reported tree {key} "
                 f"red; not dispatched again (a publication of the key starts it)")
