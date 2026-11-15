@@ -139,6 +139,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Clear Screen (⇧⌘K) | page menu Clear | works | `clear-history`. |
 | Find, Copy | Files and Links, selection | partial | |
 | Restart Shell Here | overlay and page menu on a dead terminal | works (round 2) | See Tabs. |
+| Why a kept terminal stopped: the Mac's status line under a dead terminal names the cause ("Terminal stopped: it could not restart"; for a restart that found no free terminal, "Terminal stopped: out of terminals. Close some, then restart.", the tab end's `launch_failure`; 2026-11-15) | — | missing | The phone says "The shell ended." for each end and reads no reason of a tab's `end`, so none of the Mac's "Terminal stopped: …" lines is on the phone yet. Restart Shell Here works as before; when no terminal is free the restart fails again and the phone does not say why. |
 | Reset Terminal, Keep Running After Close | — | not from a phone | Program lifetime stays the Mac's (`set-terminal-keep` not allowlisted). |
 | A clicked terminal link goes to the extension whose link handler (`cmux.opener/1` `options.urls`) matches it (`apps-open-link`; 2026-11-14) | — | not from a phone | The handler is an extension's code on the Mac, and `apps-*` commands are local connections only (`server/apps.rs`): a paired phone may not run app code on the Mac (SECURITY.md, "Remote CLI relay"). A link tapped on the phone opens on the phone. |
 

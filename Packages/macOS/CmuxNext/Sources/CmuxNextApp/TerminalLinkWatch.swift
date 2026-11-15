@@ -129,7 +129,7 @@ final class TerminalLinkWatch {
         case .sessionShutdown: return .sessionShutdown
         case .missingRecord, .incarnationMismatch: return .hostMissing
         case .restartExhausted: return .restartExhausted
-        case .restartFailed: return .restartFailed
+        case .restartFailed: return end.launchFailure == .ptyCapacityExhausted ? .restartFailedNoFreeTerminal : .restartFailed
         case .deadBeforeAdoption, .diedDuringAdoption, .diedWithoutExitStatus, .missingExitReceipt,
              .unadoptableHostEnded, .other, nil:
             return .hostEnded
