@@ -82,6 +82,7 @@ impl Peer {
             native_history: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
             features: StdMutex::new(Vec::new()),
+            mirror: dialer::MirrorLink::default(),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
@@ -687,6 +688,7 @@ impl Peer {
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
         self.features.lock_or_recover().clear();
+        self.end_mirror();
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.github_revoked.notify_waiters();
     }
