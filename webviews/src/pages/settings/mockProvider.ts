@@ -30,6 +30,8 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -58,6 +60,7 @@ import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
+import { mockLibrary, runLibrary } from "./mockLibrary";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
@@ -85,6 +88,10 @@ export type MockOptions = {
   themeOverrides?: ThemeOverride[];
   /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
   devicesJoin?: DevicesJoinState;
+  /** The customize library (`cmux customize library`); default a few entries with one conflict. */
+  library?: LibraryListing;
+  /** The CLI refuses every library change with this message (a preview is open). */
+  libraryRefusal?: string;
 };
 
 /** This Mac joined to a team with the one-line join, both consent switches off. */
@@ -224,6 +231,8 @@ export class MockSettingsProvider {
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
+    if (options.library) this.library = options.library;
+    if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -561,6 +570,7 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
       "cmux.settings.shares.list": () => this.shares,
+      "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
@@ -684,6 +694,7 @@ export class MockSettingsProvider {
       "cmux.settings.environments.state",
       "cmux.settings.environments.run",
       "cmux.settings.shares.list",
+      "cmux.settings.customize.library",
       "cmux.settings.shares.revoke",
       "cmux.settings.tailnet.state",
       "cmux.settings.tailnet.start",
@@ -760,6 +771,25 @@ export class MockSettingsProvider {
   setDevices(devices: DevicesState): void {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
+  }
+
+  /** What `cmux customize library` lists (Personalization > Customization Library). */
+  library: LibraryListing = mockLibrary();
+  /** The CLI's refusal of every library change (a preview is open); null: changes run. */
+  libraryRefusal: string | null = null;
+  /** Every library change the page ran, in order (tests). */
+  readonly libraryRuns: LibraryRun[] = [];
+
+  /** `cmux --json customize library VERB`: the listing, or the CLI's error envelope as the host
+   * answers it (a refusal is an answer, not a failed call). */
+  private runLibrary(run: LibraryRun): { library?: LibraryListing; code?: string; message?: string } {
+    if (run.verb === "list") return { library: this.library };
+    this.libraryRuns.push(run);
+    if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
+    const next = runLibrary(this.library, run);
+    if (!next) return { code: "customize.library", message: `there is no library entry "${run.name}"` };
+    this.library = next;
+    return { library: next };
   }
 
   /** Settings > Privacy and Security > Shared Links as this Mac's daemon answers it: a guest link with

@@ -51,6 +51,8 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -797,6 +799,19 @@ export class SettingsStore {
   async shares(): Promise<SharesState | null> {
     const reply = await this.request("cmux.settings.shares.list", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+   * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
+   * own words (a toggle while a preview is open), else null. */
+  async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {
+    const reply = await this.request("cmux.settings.customize.library", run);
+    if (!reply.ok) return { library: null, refusal: userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? {};
+    const refusal = answer.library
+      ? null
+      : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
+    return { library: answer.library ?? null, refusal };
   }
 
   /** Settings > Server > This Mac on Your Tailnet: one `_acpmux/tailnet/<verb>` the app relays; the node's

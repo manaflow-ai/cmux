@@ -839,6 +839,48 @@ export type TailnetState = {
   error?: string;
 };
 
+/** One entry of the customize library (`cmux --json customize library`; cmux-customize
+ * `library.rs` `Listed`): something the person applied, kept as a layer they turn on and off. */
+export type LibraryEntry = {
+  /** 1 is the top: it wins over every entry below it. */
+  position: number;
+  name: string;
+  on: boolean;
+  /** How it came in: `ask`, `profile`, `try-on`, `by hand`, `import`. */
+  source: string;
+  /** The words that asked for it, oldest first. */
+  words: string[];
+  description: string;
+  /** What it looks like at a glance: the colors it sets and the keys it sets (no capture). */
+  thumbnail: { swatches: string[]; keys: string[] };
+  settings: string[];
+  files: string[];
+  added_ms: number | null;
+  /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
+  overridden: string[];
+};
+
+/** Two or more entries that are on set the same key or file; the highest one's value is in use. */
+export type LibraryConflict = { kind: string; key: string; winner: string; losers: string[] };
+
+/** The library, top first. */
+export type LibraryListing = { entries: LibraryEntry[]; conflicts: LibraryConflict[] };
+
+/** A library verb the page runs. `order` takes `position` (`top`, `bottom` or a number from 1). */
+export type LibraryRun =
+  | { verb: "list" }
+  | { verb: "on" | "off" | "remove"; name: string }
+  | { verb: "order"; name: string; position: string };
+
+/** `cmux --json customize library …` as the host answers it: a listing (`library`), and for a
+ * change what it did; a refusal is the CLI's error envelope (`code`, `message`). */
+export type LibraryAnswer = {
+  library?: LibraryListing;
+  generation?: unknown;
+  code?: string;
+  message?: string;
+};
+
 /** Settings > Privacy and Security > Shared Links (`cmux.settings.shares.list`): this Mac's daemon's
  * chat shares as `agent-session-share-list` answers them (cmux-tui server/agent_session_shares.rs),
  * and each chat's tab title by surface number. Times are milliseconds since the epoch. */
@@ -1228,6 +1270,9 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: one `cmux customize library` verb through the bundled CLI (Personalization >
+   * Customization Library). A change runs only on the person's click or key in the page. */
+  "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
   /** Native: Settings > Agents > Worktree Setup, the session host's `project.list`,
    * `git.worktree.setup` and (on your click) `project.update` field `worktree`, on the app's own
    * connection: a page may not reach them itself. */

@@ -49,7 +49,7 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.appTheme"),
         ],
-        lead: [.personalization], legacyIDs: ["theme"]
+        lead: [.personalization], trail: [.customizeLibrary], legacyIDs: ["theme"]
     )
 
     /// Change Background… lands here: the art picker draws appearance.background and appearance.backgroundOpacity (search still shows them as rows). The density card draws appearance.density, .customDensity and .customDensities.
