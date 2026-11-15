@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43711929069",
+  "recorded_at": "2026-11-15T12:14:56Z",
+  "reason": "cmux-tui dea4cecffb7f changes the image's cmux-tui (pinned e870e5c06973)",
+  "dry_run": false,
+  "cmux_tui": "dea4cecffb7f7dfd14d06e9029a737f98884d601",
+  "fixes": [
+    {
+      "sha": "dea4cecffb7f7dfd14d06e9029a737f98884d601",
+      "mergedAt": "2026-11-15T11:47:27Z",
+      "subject": "cmux-host: an updater flip replaces the old-build session host once no session needs it (#43555)"
+    },
+    {
+      "sha": "89926db99db4e5be7573da1b55b2ab2e1d2aeab6",
+      "mergedAt": "2026-11-15T03:44:38-08:00",
+      "subject": "kin_table_change_gate reads the row it changed (#43699)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T12:14:56Z",
+    "snapshot_id": "sh-43355db1491040d8b025d92e2260250b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43711929069): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f5e5ae800a93978e06a6e184447502b7888e041e",
+    "image": "cloud-native-auto-dea4cecf-43711929069-1",
+    "revision": "ci-43711929069-1",
+    "at": "2026-11-15T12:14:56Z"
+  },
+  "rolled_back": false
+}
