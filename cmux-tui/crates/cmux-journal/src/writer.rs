@@ -38,7 +38,14 @@
 //! taken for `Config::kept_sync_quiet` after the last write. A burst of them (a person typing, a
 //! script renaming) writes each batch at once and syncs none until it pauses, and the next acked
 //! batch then syncs only its own records: before, it synced the whole burst in its turn (316
-//! records, 1.17 MB: 7.3 ms against 2.3 ms, probe job 01189fd6, aws-m4pro-8).
+//! records, 1.17 MB: 7.3 ms against 2.3 ms, probe job 01189fd6, aws-m4pro-8). The quiet time is
+//! longer than the gap between two typed keys: at 10 ms every key was a sync of its own.
+//!
+//! Group commit of acked batches: an acked batch that comes within `Config::ack_group_window` of
+//! the last sync that held an acked record is written at once and synced when that window ends,
+//! with whatever came meanwhile. A turn's end and the next prompt append about ten acked records
+//! within two milliseconds; each used to get a sync of its own (cmuxterm-hq#11322). The first
+//! acked batch after a quiet time is synced at once, so a prompt or a click waits for no window.
 //!
 //! The thread sleeps on a condition variable while nothing is owed. It sets a timer only while
 //! written stream or kept records wait for their sync, synced records for their full sync, or a
@@ -133,6 +140,8 @@ pub(crate) struct Writer {
     full_durable: Lsn,
     /// When a barrier sync first made records durable that no full sync covers yet.
     unfull_since: Option<Instant>,
+    /// When the last sync that held an acked record ended ([module docs](self)).
+    acked_synced_at: Option<Instant>,
     retry_at: Option<Instant>,
     backoff: Duration,
 }
@@ -167,6 +176,7 @@ impl Writer {
             durable,
             full_durable: durable,
             unfull_since: None,
+            acked_synced_at: None,
             retry_at: None,
             backoff,
         }
@@ -213,6 +223,7 @@ impl Writer {
                 || (state.closed && owed)
                 || self.sync_due(now)
                 || self.kept_due(now)
+                || self.ack_due(now)
                 || self.full_due(now)
             {
                 return Job { close: state.closed, last: false };
@@ -293,6 +304,16 @@ impl Writer {
             && self.written_at.is_some_and(|at| passed(at, self.shared.config.kept_sync_quiet, now))
     }
 
+    /// Written acked records, and the group window of the last acked sync has ended (or none
+    /// ran): they are synced now ([module docs](self)).
+    fn ack_due(&self, now: Instant) -> bool {
+        self.retained_ack && self.written == self.retained.len() && self.ack_window_over(now)
+    }
+
+    fn ack_window_over(&self, now: Instant) -> bool {
+        self.acked_synced_at.is_none_or(|at| passed(at, self.shared.config.ack_group_window, now))
+    }
+
     /// Synced records waited out the full-sync interval.
     fn full_due(&self, now: Instant) -> bool {
         self.unfull_since
@@ -312,8 +333,13 @@ impl Writer {
         } else {
             None
         };
+        let acked = if written && self.retained_ack {
+            self.acked_synced_at.and_then(|at| at.checked_add(config.ack_group_window))
+        } else {
+            None
+        };
         let full = self.unfull_since.and_then(|since| since.checked_add(config.full_sync_interval));
-        [stream, kept, full].into_iter().flatten().min()
+        [stream, kept, acked, full].into_iter().flatten().min()
     }
 
     fn work(&mut self, close: bool) -> Result<(), Failure> {
@@ -366,7 +392,7 @@ impl Writer {
         let held = !self.retained.is_empty();
         let stream_delay = self.shared.config.stream_sync_delay;
         let due = held
-            && (self.retained_ack
+            && ((self.retained_ack && self.ack_window_over(now))
                 || self.retained.len() >= MAX_UNSYNCED_BYTES
                 || self.unsynced_since.is_some_and(|since| passed(since, stream_delay, now))
                 || self.kept_due(now));
@@ -409,6 +435,9 @@ impl Writer {
                     self.unfull_since = Some(now);
                 }
             }
+        }
+        if self.retained_ack {
+            self.acked_synced_at = Some(now);
         }
         self.retained.clear();
         self.retained_ack = false;
