@@ -83,7 +83,6 @@ public struct ComposerDictationTextMerger: Sendable {
     private var phrases: [Phrase] = []
 
     private static let punctuation = CharacterSet.punctuationCharacters
-    private static let whitespace = CharacterSet.whitespacesAndNewlines
 
     /// Reset speech history when starting a new recording.
     public mutating func reset() {
@@ -126,46 +125,42 @@ public struct ComposerDictationTextMerger: Sendable {
     /// phrases. Join word-based scripts with a space, while preserving the
     /// natural no-space boundary used by Chinese and Japanese text.
     private func joinedPhrases() -> String {
-        phrases.reduce(into: "") { result, phrase in
-            guard !result.isEmpty else {
-                result = phrase.text
-                return
-            }
-            result += Self.separator(between: result, and: phrase.text)
+        var result = ""
+        var previous = ""
+        for phrase in phrases {
+            result += Self.separator(between: previous, and: phrase.text)
             result += phrase.text
+            previous = phrase.text
         }
+        return result
     }
 
     private static func separator(between left: String, and right: String) -> String {
-        guard let first = firstNonWhitespaceScalar(in: right) else { return "" }
-        // Never put a synthetic space before punctuation, even when Speech
-        // reports it as the start of a new phrase.
-        if punctuation.contains(first) { return "" }
-
-        guard let leftEdge = meaningfulEdgeScalar(in: left, fromStart: false),
-              let rightEdge = meaningfulEdgeScalar(in: right, fromStart: true) else {
-            return " "
-        }
-        return isCJK(leftEdge) && isCJK(rightEdge) ? "" : " "
+        guard let last = left.last, let first = right.first,
+              !last.isWhitespace, !first.isWhitespace else { return "" }
+        // Ignore punctuation and combining marks at the boundary, including
+        // ideographic variation selectors. Preserve all original text; only
+        // decide whether to insert a separator. Korean still uses word spaces.
+        let leftEdge = left.unicodeScalars.reversed().first { !isBoundaryDecoration($0) }
+        let rightEdge = right.unicodeScalars.first { !isBoundaryDecoration($0) }
+        guard let leftEdge, let rightEdge else { return " " }
+        return usesUnspacedWords(leftEdge) && usesUnspacedWords(rightEdge) ? "" : " "
     }
 
-    private static func firstNonWhitespaceScalar(in text: String) -> Unicode.Scalar? {
-        text.unicodeScalars.first { !whitespace.contains($0) }
+    private static func isBoundaryDecoration(_ scalar: Unicode.Scalar) -> Bool {
+        punctuation.contains(scalar) || CharacterSet.nonBaseCharacters.contains(scalar)
     }
 
-    private static func meaningfulEdgeScalar(in text: String, fromStart: Bool) -> Unicode.Scalar? {
-        let scalars = fromStart ? Array(text.unicodeScalars) : Array(text.unicodeScalars.reversed())
-        return scalars.first { !whitespace.contains($0) && !punctuation.contains($0) }
-    }
-
-    private static func isCJK(_ scalar: Unicode.Scalar) -> Bool {
+    private static func usesUnspacedWords(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
-        case 0x3040...0x30FF, // Hiragana and Katakana
-             0x31A0...0x31FF, // Bopomofo and Katakana extensions
-             0x3400...0x4DBF, // CJK Unified Ideographs Extension A
-             0x4E00...0x9FFF, // CJK Unified Ideographs
-             0xF900...0xFAFF, // CJK Compatibility Ideographs
-             0x20000...0x2FA1F: // CJK Extensions B through I
+        case 0x3005...0x3007, 0x3031...0x3035, 0x303B, // Ideographic and iteration marks
+             0x3040...0x30FF, // Hiragana and Katakana
+             0x3100...0x312F, 0x31A0...0x31BF, // Bopomofo
+             0x31F0...0x31FF, 0xFF66...0xFF9F, // Katakana extensions and halfwidth forms
+             0x1AFF0...0x1AFFF, 0x1B000...0x1B16F, // Supplementary kana
+             0x3400...0x4DBF, 0x4E00...0x9FFF, // Han
+             0xF900...0xFAFF, 0x2F800...0x2FA1F, // Compatibility ideographs
+             0x20000...0x2EE5F, 0x30000...0x323AF: // Supplementary Han
             return true
         default:
             return false
@@ -181,7 +176,8 @@ public struct ComposerDictationTextMerger: Sendable {
     ///   have typed "hello " and the dictation continues the sentence).
     /// - When the base ends in a non-whitespace character and the transcript is
     ///   non-empty, a single separating space is inserted so words do not run
-    ///   together ("hello" + "world" -> "hello world").
+    ///   together ("hello" + "world" -> "hello world"). Chinese and Japanese
+    ///   boundaries join without adding a space, including after punctuation.
     /// - An empty transcript yields the base unchanged (a partial may briefly be
     ///   empty); leading whitespace in the transcript is trimmed so the join is
     ///   not doubled.

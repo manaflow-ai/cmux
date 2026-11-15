@@ -53,7 +53,8 @@ import Testing
 
     @Test func cjkPhraseResetPreservesNaturalChineseBoundary() {
         var merger = ComposerDictationTextMerger()
-        _ = merger.merged(base: "", transcript: "今天天气很好。", startTime: 0, endTime: 2)
+        _ = merger.merged(base: "", transcript: "今天天气很好。", startTime: 0, endTime: 2,
+                          isUtteranceFinal: true)
         #expect(
             merger.merged(base: "", transcript: "我们去公园吧", startTime: 3, endTime: 5)
                 == "今天天气很好。我们去公园吧"
@@ -62,7 +63,8 @@ import Testing
 
     @Test func cjkPhraseResetPreservesNaturalJapaneseBoundary() {
         var merger = ComposerDictationTextMerger()
-        _ = merger.merged(base: "", transcript: "今日は晴れです。", startTime: 0, endTime: 2)
+        _ = merger.merged(base: "", transcript: "今日は晴れです。", startTime: 0, endTime: 2,
+                          isUtteranceFinal: true)
         #expect(
             merger.merged(base: "", transcript: "公園に行きます", startTime: 3, endTime: 5)
                 == "今日は晴れです。公園に行きます"
@@ -76,6 +78,50 @@ import Testing
             merger.merged(base: "", transcript: "world", startTime: 2, endTime: 3)
                 == "hello world"
         )
+    }
+
+    @Test(arguments: [
+        ("今天", "天气很好", "今天天气很好"),
+        ("いっしょに", "いこう", "いっしょにいこう"),
+        ("時々", "公園に行く", "時々公園に行く"),
+        ("二〇", "年", "二〇年"),
+        ("今日は。", "「公園」に行く", "今日は。「公園」に行く"),
+        ("ｶﾀｶﾅ", "です", "ｶﾀｶﾅです"),
+        ("𠮷", "野家", "𠮷野家"),
+        ("辻\u{E0100}", "です", "辻\u{E0100}です"),
+        ("今天。 ", "我们出发", "今天。 我们出发"),
+        ("今天。\n", "我们出发", "今天。\n我们出发"),
+        ("hello", "world", "hello world"),
+        ("hello.", "Next sentence.", "hello. Next sentence."),
+        ("say", "\"hello\"", "say \"hello\""),
+        ("hello", "(world)", "hello (world)"),
+        ("hello", "世界", "hello 世界"),
+        ("你好", "world", "你好 world"),
+        ("안녕", "하세요", "안녕 하세요"),
+    ])
+    func scriptAwareBoundariesForDraftsAndRetainedPhrases(
+        first: String, second: String, expected: String
+    ) {
+        #expect(textMerger.merged(base: first, transcript: second) == expected)
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: first, startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: second, startTime: 2, endTime: 3) == expected)
+        #expect(merger.merged(base: "", transcript: "", startTime: nil, endTime: nil) == expected)
+    }
+
+    @Test func cjkUntimedPartialAndCorrectionsPreserveEarlierPhrase() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "笔记：", transcript: "今天。", startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "笔记：", transcript: "我们", startTime: nil, endTime: nil)
+            == "笔记：今天。我们")
+        #expect(merger.merged(base: "笔记：", transcript: "我们去公园", startTime: 2, endTime: 3)
+            == "笔记：今天。我们去公园")
+        #expect(merger.merged(base: "笔记：", transcript: "我们去公园吧", startTime: 2, endTime: 4)
+            == "笔记：今天。我们去公园吧")
+        #expect(merger.merged(base: "笔记：", transcript: "今天，我们去公园吧。", startTime: 0, endTime: 4,
+                              isUtteranceFinal: true) == "笔记：今天，我们去公园吧。")
     }
 
     @Test func transcriptResetAfterPauseKeepsEarlierSentences() {
