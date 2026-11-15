@@ -431,18 +431,29 @@ pub(super) fn read_exec(status: u16, body: &Value) -> Result<ExecReply, SourceEr
     }
 }
 
+/// Asks for the person's credential afresh, off the async runtime (it may block, as asking
+/// the signed-in app does); `Err` names why there is none (signed out, no app).
+pub(crate) type AskCredential = Arc<dyn Fn() -> Result<Zeroizing<String>, String> + Send + Sync>;
+
 /// The person's credential: re-read from the file on every fetch (it may be
-/// renewed), or one value from the environment.
+/// renewed), one value from the environment, or asked for on every request
+/// (the cmux link's tunnel asks the signed-in app, `tunnel_keeper.rs`).
 #[derive(Clone)]
 pub(super) enum Credential {
     File(PathBuf),
     Value(Zeroizing<String>),
+    Ask(AskCredential),
 }
 
 impl Credential {
     fn current(&self) -> Result<Zeroizing<String>, SourceError> {
         let text = match self {
             Self::Value(value) => value.clone(),
+            // Asked only for a request (`HttpSource::request_credential`), never by a
+            // synchronous caller, which would block on the app.
+            Self::Ask(_) => {
+                return Err(SourceError::fatal("the cmux credential is asked per request"));
+            }
             Self::File(path) => Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
                 SourceError::fatal(format!(
                     "the credential file could not be read ({:?})",
@@ -500,6 +511,26 @@ impl HttpSource {
         }
     }
 
+    /// The credential for one request: as [`Self::current`], except that an asked one
+    /// ([`Credential::Ask`]) is asked afresh, on a blocking thread.
+    async fn request_credential(&self) -> Result<Zeroizing<String>, SourceError> {
+        let replaced = self.replaced.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(token) = replaced {
+            return Ok(token);
+        }
+        let Credential::Ask(ask) = &self.credential else { return self.credential.current() };
+        let ask = Arc::clone(ask);
+        let asked = tokio::task::spawn_blocking(move || ask())
+            .await
+            .map_err(|_| SourceError::retry("the cmux credential could not be asked for"))?;
+        let token = asked.map_err(|why| SourceError::fatal(format!("no cmux sign-in: {why}")))?;
+        let trimmed = token.trim();
+        if trimmed.is_empty() {
+            return Err(SourceError::fatal("the cmux credential is empty"));
+        }
+        Ok(Zeroizing::new(trimmed.to_owned()))
+    }
+
     /// POSTs `body` to `path` on the platform with the person's credential
     /// (and the team header): the status and the JSON body (`Null` when the
     /// body is not JSON). No answer at all is a retry.
@@ -514,7 +545,7 @@ impl HttpSource {
         body: &Value,
         timeout: Duration,
     ) -> Result<(u16, Value), SourceError> {
-        let credential = self.current()?;
+        let credential = self.request_credential().await?;
         let mut request = self
             .client
             .post(format!("{}{path}", self.api))

@@ -73,7 +73,7 @@ impl HeadlessSource {
             Some(policy) if policy.active => policy.store.clone(),
             _ => return false,
         };
-        self.driver.tab_context(target).as_deref() != Some(store.as_str())
+        self.driver().tab_context(&self.real_id(target)).as_deref() != Some(store.as_str())
     }
 
     /// Refuses the session's call on a tab outside its policy store

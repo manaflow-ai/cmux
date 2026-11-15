@@ -31,6 +31,7 @@ pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
+pub use bg_tasks::{BgScope, bg_owner_words};
 mod bounded;
 mod btw;
 mod workflow_activity;
@@ -95,6 +96,8 @@ mod shutdown_scan_tests;
 mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
+#[cfg(test)]
+mod steer_on_start_tests;
 #[cfg(test)]
 mod time_breakdown_restore_tests;
 #[cfg(test)]
@@ -390,6 +393,7 @@ pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
 mod outbox_open_tests;
+pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
 pub(crate) mod stop_if_idle;
@@ -846,6 +850,9 @@ pub struct Hub {
     pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
     /// Every change watchers hear of, each a list position (`list_guard.rs`, `row_log.rs`).
     pub(super) events: list_guard::Events,
+    /// The v2 list stream on peer links: the v2 handle when `peers` is on, and the counters
+    /// (`link_v2.rs`).
+    pub(crate) link_v2: Arc<crate::link_v2::Shared>,
     /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
     /// This daemon's rows in list order, kept as they change (`list_order.rs`).
@@ -1378,6 +1385,7 @@ impl Hub {
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
+            link_v2: Arc::default(),
             list_guard: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
@@ -1957,6 +1965,7 @@ impl Hub {
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
+            releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
             restoring: AtomicBool::new(false),
@@ -2115,7 +2124,7 @@ impl Hub {
         self.events.row_changed(session);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
@@ -2164,6 +2173,14 @@ impl Hub {
             .collect();
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect()
+    }
+
+    /// How many sessions the map holds, and how many of them are not closed, each read under
+    /// its own lock (never both at once, as [`Hub::live_session_handles`]): not one snapshot.
+    pub(super) fn session_counts(&self) -> (usize, usize) {
+        let live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).len();
+        let all = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len();
+        (all, live)
     }
 
     // ------------------------------------------------------------ lookup

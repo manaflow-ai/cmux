@@ -1,7 +1,7 @@
 //! `codec-bench`: every codec in this build through every scene at each loss
 //! rate, one JSON line per row (`--json FILE`) and a Markdown table on stdout.
 //!
-//!   codec-bench [--codecs h264,vp9,av1] [--scenes scroll,drag,video,typing,noise]
+//!   codec-bench [--codecs h264,h264-vt,vp9,av1] [--scenes scroll,drag,video,typing,noise,page]
 //!               [--loss 0,2,2b] [--burst-len 8] [--match-h264 1,2]
 //!               [--rtt-ms 50] [--link-mbps 30] [--seconds 10]
 //!               [--size 1920x1080] [--fps 30] [--threads 4] [--on-time-ms 100]
@@ -14,6 +14,7 @@
 
 use std::io::Write;
 
+use cmux_codecs::H264Impl;
 use cmux_codecs::bench::scene::SceneKind;
 use cmux_codecs::bench::{RowCfg, run_row};
 use cmux_encode::Codec;
@@ -36,7 +37,7 @@ fn print_row(row: &Value, loss: &str) {
     let cap = row["max_kbps"].as_u64().map_or("-".into(), |k| k.to_string());
     println!(
         "| {} | {} | {loss}% | {cap} | {} | {} | {}/{} | {}/{} | {}/{} | {}/{} | {}/{} | {} | {} | {} |",
-        row["codec"].as_str().unwrap_or("?"),
+        row["label"].as_str().unwrap_or("?"),
         row["scene"].as_str().unwrap_or("?"),
         f(&row["on_time_fps"]),
         f(&row["shown_fps"]),
@@ -69,9 +70,16 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let num = |name: &str, default: f64| -> f64 {
         arg(&args, name).and_then(|v| v.parse().ok()).unwrap_or(default)
     };
-    let mut codecs: Vec<Codec> = list("--codecs", "h264,vp9,av1")
+    // `h264` is OpenH264, `h264-vt` the macOS hardware encoder, `h264-mf` and `h264-mf-sw`
+    // Media Foundation's hardware and software MFTs on Windows.
+    let mut codecs: Vec<(Codec, H264Impl)> = list("--codecs", "h264,vp9,av1")
         .iter()
-        .map(|c| Codec::parse(c).ok_or(format!("unknown codec {c}")))
+        .map(|c| match H264Impl::parse(c) {
+            Some(imp) => Ok((Codec::H264, imp)),
+            None => Codec::parse(c)
+                .map(|codec| (codec, H264Impl::OpenH264))
+                .ok_or(format!("unknown codec {c}")),
+        })
         .collect::<Result<_, _>>()?;
     let scenes: Vec<SceneKind> = list("--scenes", "scroll,drag,video,typing,noise")
         .iter()
@@ -86,8 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         list("--match-h264", "").iter().map(|x| x.parse()).collect::<Result<_, _>>()?;
     if !factors.is_empty() {
         // The H.264 row sets each scene's cap, so it runs first.
-        codecs.retain(|&c| c != Codec::H264);
-        codecs.insert(0, Codec::H264);
+        codecs.retain(|&c| c != (Codec::H264, H264Impl::OpenH264));
+        codecs.insert(0, (Codec::H264, H264Impl::OpenH264));
     }
     let (width, height) = arg(&args, "--size")
         .unwrap_or("1920x1080")
@@ -103,7 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     for &scene in &scenes {
         for (loss_name, loss, burst) in &losses {
             let mut h264_kbps: Option<f64> = None;
-            for &codec in &codecs {
+            for &(codec, h264) in &codecs {
                 let caps: Vec<Option<u32>> = match (codec, h264_kbps) {
                     (Codec::H264, _) => vec![None],
                     (_, Some(kbps)) if !factors.is_empty() => factors
@@ -138,6 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         on_time_ms: num("--on-time-ms", 100.0) as u64,
                         deadline_ms: num("--deadline-ms", 200.0) as u64,
                         seed: num("--seed", 1.0) as u64,
+                        h264,
                     };
                     let row = match run_row(&cfg) {
                         Ok(row) => row,
@@ -146,7 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             continue;
                         }
                     };
-                    if codec == Codec::H264 {
+                    if (codec, h264) == (Codec::H264, H264Impl::OpenH264) {
                         h264_kbps = row["media_mbps"].as_f64().map(|m| m * 1000.0);
                     }
                     if let Some(f) = json.as_mut() {
