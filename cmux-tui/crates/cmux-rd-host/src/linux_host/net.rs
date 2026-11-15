@@ -6,7 +6,7 @@
 use super::b64;
 use crate::Res;
 use std::io::{self, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -78,6 +78,23 @@ impl Url {
     }
 }
 
+/// The addresses `Conn::open` tries, in the resolver's order. Without TLS only loopback
+/// addresses are kept: the name alone (`localhost`) is no proof, a hosts file or resolver can
+/// send it anywhere, and a cleartext request carries the Stack token and device signatures.
+fn addresses(url: &Url, resolved: Vec<SocketAddr>) -> Res<Vec<SocketAddr>> {
+    let kept: Vec<SocketAddr> =
+        resolved.into_iter().filter(|a| url.tls || a.ip().is_loopback()).collect();
+    if kept.is_empty() {
+        return Err(if url.tls {
+            format!("{} has no address", url.host)
+        } else {
+            format!("{} has no loopback address; a hub without TLS must be local", url.host)
+        }
+        .into());
+    }
+    Ok(kept)
+}
+
 /// A connected byte stream (TLS or loopback TCP) with its socket for timeouts.
 pub struct Conn {
     io: Box<dyn ReadWrite>,
@@ -90,11 +107,22 @@ impl<T: Read + Write + Send> ReadWrite for T {}
 impl Conn {
     pub fn open(url: &Url) -> Res<Self> {
         let host = url.host.trim_start_matches('[').trim_end_matches(']');
-        let addr = (host, url.port)
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| format!("{} has no address", url.host))?;
-        let tcp = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)?;
+        let mut last = None;
+        let mut connected = None;
+        for addr in addresses(url, (host, url.port).to_socket_addrs()?.collect())? {
+            match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+                Ok(tcp) => {
+                    connected = Some(tcp);
+                    break;
+                }
+                Err(e) => last = Some(e),
+            }
+        }
+        let tcp = match (connected, last) {
+            (Some(tcp), _) => tcp,
+            (None, Some(e)) => return Err(e.into()),
+            (None, None) => return Err(format!("{} has no address", url.host).into()),
+        };
         tcp.set_read_timeout(Some(IO_TIMEOUT))?;
         tcp.set_write_timeout(Some(IO_TIMEOUT))?;
         tcp.set_nodelay(true)?;
