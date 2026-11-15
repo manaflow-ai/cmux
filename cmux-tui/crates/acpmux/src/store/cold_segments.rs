@@ -248,7 +248,7 @@ impl ColdFile {
         // The first chunk that starts at or past `before`: the offset is in the one before it.
         let next = chunks.partition_point(|c| c[4] < before);
         let Some(i) = next.checked_sub(1) else { return Ok(0) };
-        let start = chunks[i][0];
+        let Some(&[start, ..]) = chunks.get(i) else { return Ok(0) };
         let fallback = chunks.get(next).map_or(self.index.raw_len, |c| c[0]);
         let bytes = self.chunk(i)?;
         let mut off = 0usize;
@@ -270,7 +270,7 @@ impl ColdFile {
         let slot = match self.held.iter().position(|h| h.as_ref().is_some_and(|(c, _)| *c == i)) {
             Some(slot) => slot,
             None => {
-                let raw = decode_chunk(&mut self.file, &self.index.chunks[i]).map_err(|e| {
+                let damaged = |e: &dyn std::fmt::Display| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         format!(
@@ -278,14 +278,19 @@ impl ColdFile {
                             self.path.display()
                         ),
                     )
-                })?;
+                };
+                let chunk = *self.index.chunks.get(i).ok_or_else(|| damaged(&"no such chunk"))?;
+                let raw = decode_chunk(&mut self.file, &chunk).map_err(|e| damaged(&e))?;
                 let slot = self.next;
                 self.next = (self.next + 1) % 2;
-                self.held[slot] = Some((i, raw));
+                if let Some(held) = self.held.get_mut(slot) {
+                    *held = Some((i, raw));
+                }
                 slot
             }
         };
-        Ok(self.held[slot].as_ref().map(|(_, b)| b.as_slice()).unwrap_or_default())
+        let held = self.held.get(slot).and_then(Option::as_ref);
+        Ok(held.map(|(_, b)| b.as_slice()).unwrap_or_default())
     }
 }
 
@@ -312,11 +317,13 @@ impl Read for ColdFile {
         }
         let pos = self.pos;
         let i = self.index.chunks.partition_point(|c| c[0] <= pos).saturating_sub(1);
-        let start = self.index.chunks[i][0];
+        let Some(&[start, ..]) = self.index.chunks.get(i) else { return Ok(0) };
         let bytes = self.chunk(i)?;
-        let from = usize::try_from(pos - start).unwrap_or(usize::MAX);
-        let n = buf.len().min(bytes.len().saturating_sub(from));
-        buf[..n].copy_from_slice(&bytes[from..from + n]);
+        let from = usize::try_from(pos.saturating_sub(start)).unwrap_or(usize::MAX);
+        let rest = bytes.get(from..).unwrap_or_default();
+        let n = buf.len().min(rest.len());
+        let (Some(to), Some(rest)) = (buf.get_mut(..n), rest.get(..n)) else { return Ok(0) };
+        to.copy_from_slice(rest);
         self.pos += n as u64;
         Ok(n)
     }
@@ -364,7 +371,7 @@ fn file_hash(path: &Path) -> Result<(String, u64)> {
         if n == 0 {
             return Ok((hex(&hash.finalize()), len));
         }
-        hash.update(&buf[..n]);
+        hash.update(buf.get(..n).unwrap_or_default());
         len += n as u64;
     }
 }
@@ -782,13 +789,15 @@ impl LocalStore {
         let cold_dir = session.join(COLD_DIR);
         for at in 0..staged.segments.len() {
             let _sealed = self.unsealed(id)?;
-            let (index, dst) = {
-                let s = &staged.segments[at];
-                (s.index, zst_path(&session, s.index))
-            };
+            let Some(s) = staged.segments.get_mut(at) else { break };
+            let (index, src, len, file) = (s.index, s.src.clone(), s.len, s.file);
+            let (raw_len, comp_len, ms) = (s.doc.raw_len, s.doc.comp_len, s.doc.compress_ms);
+            let doc = serde_json::to_vec(&s.doc)?;
+            let tmp = s.tmp.take();
+            let dst = zst_path(&session, index);
             // 2: the archive in place, with no index yet: never read, and removed by a settle
             // while its segment is still there.
-            if let Some(tmp) = staged.segments[at].tmp.take() {
+            if let Some(tmp) = tmp {
                 if let Err(e) = crate::home_fs::rename(&tmp, &dst) {
                     let _ = crate::home_fs::remove_file(&tmp);
                     return Err(e.into());
@@ -803,7 +812,6 @@ impl LocalStore {
             // 3: the index, synced under its temporary name.
             let idx = idx_path(&session, index);
             let idx_tmp = tmp_of(&idx);
-            let doc = serde_json::to_vec(&staged.segments[at].doc)?;
             let written = (|| -> Result<()> {
                 let mut file = open_private_append(&idx_tmp)?;
                 file.write_all(&doc)?;
@@ -821,10 +829,6 @@ impl LocalStore {
                 return Err(Crash.into());
             }
             // 4: under the writers' lock, only for the segment as it was read.
-            let (src, len, file) = {
-                let s = &staged.segments[at];
-                (s.src.clone(), s.len, s.file)
-            };
             let committed = {
                 let _writers = self.writers.lock_or_recover();
                 let (now, cut_pending) = self.listed_files(id)?;
@@ -859,19 +863,20 @@ impl LocalStore {
                 return Err(Crash.into());
             }
             sync_directory(&events)?;
-            let s = &staged.segments[at];
             moved.segments += 1;
-            moved.raw += s.doc.raw_len;
-            moved.comp += s.doc.comp_len;
+            moved.raw += raw_len;
+            moved.comp += comp_len;
             tracing::info!(
                 session = %id,
                 index,
-                raw = s.doc.raw_len,
-                comp = s.doc.comp_len,
-                ms = s.doc.compress_ms,
+                raw = raw_len,
+                comp = comp_len,
+                ms,
                 "a sealed log segment went cold"
             );
-            keep_for_bench(&session, index, &s.doc);
+            if let Some(s) = staged.segments.get(at) {
+                keep_for_bench(&session, index, &s.doc);
+            }
         }
         Ok(moved)
     }
