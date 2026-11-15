@@ -256,6 +256,104 @@ import UniformTypeIdentifiers
         #expect(paths.first != paths.last)
     }
 
+    /// The overlay's frame clock, driven with a test clock: idle long enough to play ahead, then a
+    /// move (the reviewed bug: the first frame after waking had no time step, so the tail never
+    /// registered the glide, went straight back to an idle batch and the glide played unseen).
+    @Test func aMoveAfterAnIdleBatchIsFollowedFrameByFrame() {
+        let scale: CGFloat = 1.3
+        var driver = AgentCursorTailDriver(model: AgentCursorTail(session: "driver", animates: true))
+        let a = CGPoint(x: 100, y: 300), b = CGPoint(x: 1100, y: 300)
+        var t = 0.0
+        var batched = false
+        // Idle until the driver plays the idle life ahead.
+        for _ in 0..<Int(4 * Self.fps) {
+            t += 1 / Self.fps
+            if case .batch(let paths) = driver.frame(at: t, pointer: a, gliding: false, scale: scale) {
+                #expect(paths.count == AgentCursorTailDriver.batchFrames)
+                batched = true
+                break
+            }
+        }
+        #expect(batched, "a calm tail plays ahead")
+        #expect(driver.isBatching)
+        // Half a batch later the agent moves the pointer: the batch ends where it is on screen.
+        t += 1.0
+        let shown = driver.stir(at: t, scale: scale) { $0.stir() }
+        #expect(shown != nil, "ending a batch shows its current frame")
+        #expect(!driver.isBatching)
+        var still = driver.model
+        // Every frame of the glide (including the first, with no time step) is drawn, none
+        // played ahead, and the tail follows: it swings well away from an unmoved twin.
+        let glide = Self.glide(from: a, to: b)
+        var drawn = 0, swing = 0.0
+        for (i, p) in glide.enumerated() {
+            if i > 0 { t += 1 / Self.fps }
+            switch driver.frame(at: t, pointer: p, gliding: true, scale: scale) {
+            case .path: drawn += 1
+            case .batch: Issue.record("batched mid-glide at frame \(i)")
+            }
+            #expect(driver.model.isLively || i == 0, "lively while it follows (frame \(i))")
+            still.step(dt: 1 / Self.fps, pointer: a)
+            swing = max(swing, zip(driver.model.angles, still.angles).map { abs($0 - $1) }.max() ?? 0)
+        }
+        #expect(drawn == glide.count)
+        #expect(swing > 0.6, "the tail followed the glide (swing \(swing) rad)")
+        // After the stop it settles at full rate, then goes back to playing ahead.
+        var batchedAgain = false
+        for _ in 0..<Int(5 * Self.fps) {
+            t += 1 / Self.fps
+            if case .batch = driver.frame(at: t, pointer: b, gliding: false, scale: scale) {
+                batchedAgain = true
+                break
+            }
+        }
+        #expect(batchedAgain)
+    }
+
+    @Test func theDriverNeverPlaysAheadMidGlideOnAWakingFrameOrWithoutAnimation() {
+        var tuning = AgentCursorTail.Tuning()
+        tuning.flickGap = 1000...1000
+        var driver = AgentCursorTailDriver(model: AgentCursorTail(session: "rules", animates: true, tuning: tuning))
+        var t = 0.0
+        let at = CGPoint(x: 50, y: 50)
+        // Calm (2.5 s, no flicks) but the body's glide animation is running: draw every frame.
+        for _ in 0..<Int(2.5 * Self.fps) {
+            t += 1 / Self.fps
+            if case .batch = driver.frame(at: t, pointer: at, gliding: true, scale: 1.3) { Issue.record("batched while gliding") }
+        }
+        // The first frame after the clock (re)starts has no time step: never a batch.
+        driver.stop()
+        if case .batch = driver.frame(at: t, pointer: at, gliding: false, scale: 1.3) { Issue.record("batched on a waking frame") }
+        t += 1 / Self.fps
+        if case .path = driver.frame(at: t, pointer: at, gliding: false, scale: 1.3) { Issue.record("a calm tail on a real frame should batch") }
+        // Without animation it never plays ahead.
+        var off = AgentCursorTailDriver(model: AgentCursorTail(session: "rules", animates: false))
+        for i in 0..<Int(3 * Self.fps) {
+            if case .batch = off.frame(at: Double(i) / Self.fps, pointer: at, gliding: false, scale: 1.3) { Issue.record("batched without animation") }
+        }
+        // A batch ended later than its last frame shows its last frame, and batches chain.
+        _ = driver.stir(at: t + 10, scale: 1.3) { _ in }
+        #expect(!driver.isBatching)
+    }
+
+    /// The real overlay: the tail's frame clock runs while a cursor shows with motion allowed,
+    /// stops without it (Reduce Motion) and goes with the cursor on hide.
+    @Test func theOverlaysTailClockFollowsShowMotionAndHide() {
+        var reduce = false
+        let overlay = AgentCursorOverlay(reduceMotion: { reduce })
+        overlay.show(AgentCursorEvent(kind: .move, session: "a", label: "Claude", at: CGPoint(x: 200, y: 200)))
+        #expect(overlay.tailState(session: "a")?.running == true)
+        reduce = true
+        overlay.show(AgentCursorEvent(kind: .move, session: "a", label: "Claude", at: CGPoint(x: 220, y: 220)))
+        #expect(overlay.tailState(session: "a")?.running == false, "Reduce Motion stops the tail")
+        reduce = false
+        overlay.show(AgentCursorEvent(kind: .click, session: "a", label: "Claude", at: CGPoint(x: 240, y: 220)))
+        #expect(overlay.tailState(session: "a")?.running == true)
+        overlay.show(AgentCursorEvent(kind: .hide, session: "a", label: "Claude"))
+        #expect(overlay.tailState(session: "a") == nil, "hidden: no cursor, no clock")
+        overlay.hideAll()
+    }
+
     @Test func thePointersTipNeverMovesWhileTheTailLives() throws {
         // A cursor that clicks, types and presses keys in place: every frame draws the pointer's tip
         // on the same pixels, whatever the tail does.

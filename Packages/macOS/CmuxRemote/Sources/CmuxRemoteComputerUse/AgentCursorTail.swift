@@ -187,6 +187,13 @@ struct AgentCursorTail {
         sinceEvent = 0
     }
 
+    /// The pointer is about to move (a glide or a drag starts): the tail follows it frame by
+    /// frame from now, before its velocity has registered.
+    mutating func stir() {
+        sinceEvent = 0
+        sinceStir = 0
+    }
+
     /// True while something outside drives the tail (the pointer moving, a click, a key, typing,
     /// a droop changing, and 2 s after): the overlay steps it every display frame then. Otherwise
     /// its motion depends on nothing but time (the idle wave and its own seeded flicks), so the
@@ -522,4 +529,91 @@ struct SplitMix64 {
 
     /// A uniform value in [0, 1).
     mutating func unit() -> Double { Double(next() >> 11) / Double(UInt64(1) << 53) }
+}
+
+/// When the overlay steps the tail and when it plays it ahead (a pure state machine, so tests can
+/// drive it with their own clock).
+///
+/// The display link calls ``frame(at:pointer:gliding:scale:)`` once per display frame. While
+/// something drives the tail (``AgentCursorTail/isLively``), the pointer is gliding, or the frame
+/// is the first after the link woke (no time step yet, so no velocity), the tail is stepped and
+/// drawn this frame. Otherwise its motion depends only on time: the next `batchFrames` frames are
+/// stepped ahead and handed back to play as one keyframe animation while the link sleeps;
+/// ``batchEnded(at:scale:)`` hands back the next batch. ``stir(at:scale:_:)`` changes the tail
+/// from outside: a running batch first ends exactly where it is on screen (a copy of the batch's
+/// start, stepped to now: the same frames the animation showed).
+struct AgentCursorTailDriver {
+    /// Frames per played-ahead batch and their spacing: 2 s at 60 keyframes a second (the render
+    /// server interpolates between them at the display's refresh).
+    static let batchFrames = 120
+    static let batchStep = 1.0 / 60
+
+    enum Output {
+        /// Draw this path now; the link keeps running.
+        case path(CGPath)
+        /// Play these paths, `batchStep` apart, and pause the link until the batch ends.
+        case batch([CGPath])
+    }
+
+    var model: AgentCursorTail
+    /// ui.animationSpeed.
+    var speed = 1.0
+    private(set) var batch: (start: AgentCursorTail, began: Double, pointer: CGPoint)?
+    private var lastFrame: Double?
+
+    init(model: AgentCursorTail) { self.model = model }
+
+    var isBatching: Bool { batch != nil }
+
+    /// One display frame at `now` (seconds) with the pointer's tip at `pointer`.
+    mutating func frame(at now: Double, pointer: CGPoint, gliding: Bool, scale: CGFloat) -> Output {
+        let dt = lastFrame.map { now - $0 } ?? 0
+        lastFrame = now
+        model.step(dt: dt, pointer: pointer, speed: speed, pointScale: Double(scale))
+        // Only a calm tail on a real time step, with the pointer still, may be played ahead.
+        if model.animates, dt > 0, !gliding, !model.isLively {
+            return .batch(startBatch(at: now, pointer: pointer, scale: scale))
+        }
+        return .path(model.path(scale: scale))
+    }
+
+    /// The running batch has played out: the next one carries on from its last frame.
+    mutating func batchEnded(at now: Double, scale: CGFloat) -> [CGPath]? {
+        guard let batch else { return nil }
+        return startBatch(at: now, pointer: batch.pointer, scale: scale)
+    }
+
+    /// Changes the tail from outside. Returns the path to show now when a batch was running (its
+    /// animation should go; the link should wake).
+    @discardableResult
+    mutating func stir(at now: Double, scale: CGFloat, _ change: (inout AgentCursorTail) -> Void) -> CGPath? {
+        var shown: CGPath?
+        if let batch {
+            self.batch = nil
+            let frames = min(Int(max(now - batch.began, 0) / Self.batchStep), Self.batchFrames)
+            var copy = batch.start
+            for _ in 0..<frames {
+                copy.step(dt: Self.batchStep, pointer: batch.pointer, speed: speed, pointScale: Double(scale))
+            }
+            model = copy
+            shown = model.path(scale: scale)
+        }
+        lastFrame = nil
+        change(&model)
+        return shown
+    }
+
+    /// The link stopped (hidden, no animation): no batch, and the next frame starts a new clock.
+    mutating func stop() {
+        batch = nil
+        lastFrame = nil
+    }
+
+    private mutating func startBatch(at now: Double, pointer: CGPoint, scale: CGFloat) -> [CGPath] {
+        let start = model
+        let paths = model.advance(frames: Self.batchFrames, dt: Self.batchStep, pointer: pointer, speed: speed, scale: scale)
+        batch = (start, now, pointer)
+        lastFrame = nil
+        return paths
+    }
 }

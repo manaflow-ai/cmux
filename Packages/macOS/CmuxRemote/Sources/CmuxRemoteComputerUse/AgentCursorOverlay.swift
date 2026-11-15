@@ -69,7 +69,7 @@ final class AgentCursorOverlay {
             return
         }
         guard enabled else { return }
-        let cursor = cursors[event.session] ?? SessionCursor(session: event.session)
+        let cursor = cursors[event.session] ?? makeCursor(session: event.session)
         cursors[event.session] = cursor
         cursor.label = event.label
         let geometry = AgentCursorGeometry(primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
@@ -98,7 +98,7 @@ final class AgentCursorOverlay {
         if let shown = cursors[session] {
             cursor = shown
         } else if let last = lastSeen[session] {
-            cursor = SessionCursor(session: session)
+            cursor = makeCursor(session: session)
             cursor.label = last.label
             cursor.glide(to: last.tip, animated: false, speed: motion.speed)
             cursors[session] = cursor
@@ -109,6 +109,18 @@ final class AgentCursorOverlay {
         cursor.runTail(animated: animates, speed: motion.speed)
         armIdleHide(cursor, session: session)
         return true
+    }
+
+    private func makeCursor(session: String) -> SessionCursor {
+        let cursor = SessionCursor(session: session)
+        cursor.motionAllowed = { [weak self] in self?.animates ?? false }
+        return cursor
+    }
+
+    /// The session's living tail: whether its frame clock runs and whether it is playing its idle
+    /// life ahead (nil without a shown cursor). For tests.
+    func tailState(session: String) -> (running: Bool, batching: Bool)? {
+        cursors[session].map { ($0.tailIsRunning, $0.tailIsBatching) }
     }
 
     func hideAll() {
@@ -358,21 +370,21 @@ private final class SessionCursor {
     private var tip: CGPoint?
     private var hideTimer: Timer?
     private var scale: CGFloat = 2
-    /// The living tail's motion (``AgentCursorTail``), stepped once per display frame by
-    /// `tailLink` while the cursor shows and motion is allowed.
-    private var tailMotion: AgentCursorTail
+    /// The living tail (``AgentCursorTail``) and when it is stepped or played ahead
+    /// (``AgentCursorTailDriver``), driven by `tailLink` while the cursor shows and motion is
+    /// allowed.
+    private var tailDriver: AgentCursorTailDriver
+    private var tailMotion: AgentCursorTail {
+        get { tailDriver.model }
+        set { tailDriver.model = newValue }
+    }
     private var tailLink: CADisplayLink?
     private var tailTicker: FrameTicker?
-    private var lastTailFrame: CFTimeInterval?
-    private var tailSpeed = 1.0
-    /// The idle life played ahead (``AgentCursorTail/isLively`` false): the model as it was when
-    /// the batch began, when it began, and the timer that plays the next batch.
-    private var idleBatch: (start: AgentCursorTail, began: CFTimeInterval, pointer: CGPoint)?
-    private var idleTimer: Timer?
-    /// Frames per idle batch and their spacing: 2 s at 60 keyframes a second (the render server
-    /// interpolates between them at the display's refresh).
-    static let idleBatchFrames = 120
-    static let idleBatchStep = 1.0 / 60
+    /// The timer that plays the next idle batch when this one ends.
+    private var batchTimer: Timer?
+    /// Whether motion is still allowed (the overlay's switches and Reduce Motion), asked when an
+    /// idle batch ends, so a change with no step after it still stops the tail.
+    var motionAllowed: @MainActor () -> Bool = { true }
     /// Drawn into an image instead of a panel (``AgentCursorOverlay/render``): this frame stands
     /// for the screen.
     private let offscreen: CGRect?
@@ -398,7 +410,7 @@ private final class SessionCursor {
     init(offscreen: CGRect? = nil, scale: CGFloat = 2, session: String = "") {
         self.offscreen = offscreen
         self.scale = scale
-        tailMotion = AgentCursorTail(session: session, animates: false)
+        tailDriver = AgentCursorTailDriver(model: AgentCursorTail(session: session, animates: false))
         let path = Self.pointerPath()
         root.masksToBounds = false
         body.anchorPoint = .zero
@@ -432,6 +444,8 @@ private final class SessionCursor {
         tailEdge.shadowOpacity = 0.22
         tailEdge.shadowRadius = 2
         tailEdge.shadowOffset = CGSize(width: 0, height: -1)
+        tailEdge.shadowPath = Self.edgeOutline(rest)
+        tailEdge.actions = ["path": NSNull(), "shadowPath": NSNull()]
         shadow.fillColor = NSColor.black.withAlphaComponent(0.001).cgColor
         shadow.shadowColor = NSColor.black.cgColor
         shadow.shadowOpacity = 0.32
@@ -521,6 +535,9 @@ private final class SessionCursor {
 
     /// The tail as a curve from the stem's end.
     static func tailPath(_ pose: TailPose) -> CGPath {
+        // At rest, the same curve the living tail draws (a spline through the chain's rest
+        // points, within 0.2 pt of the drawn S), so it starts and stops without a snap.
+        if pose == .rest { return AgentCursorTail.spline(through: AgentCursorTail.rest.points, scale: k) }
         let a = tailRoot
         let (c1, c2, end): (CGPoint, CGPoint, CGPoint)
         switch pose {
@@ -636,6 +653,8 @@ private final class SessionCursor {
             case .click: tail.click()
             case .typing: tail.typing()
             case .keys: tail.key()
+            // A move or a drag moves the pointer: follow it from the first frame.
+            case .move, .drag: tail.stir()
             default: tail.activity()
             }
         }
@@ -643,7 +662,7 @@ private final class SessionCursor {
 
     /// The offscreen frames' version of ``runTail``: no display link, the renderer steps it.
     func prepareTail(animated: Bool, speed: Double) {
-        tailSpeed = speed
+        tailDriver.speed = speed
         tailMotion.animates = animated
         setTailPath(animated ? tailMotion.path(scale: Self.k) : Self.tailPath(.rest))
     }
@@ -700,7 +719,8 @@ private final class SessionCursor {
             let move = plan.positionAnimation(from: from)
             move.duration /= max(speed, 0.25)
             body.add(move, forKey: "glide")
-            // The tail needs nothing here: it follows the glide frame by frame (runTail).
+            // The tail follows the glide frame by frame from its first frame (runTail).
+            stirTail { $0.stir() }
             comet(along: [from] + plan.samples.map { CGPoint(x: $0.x, y: $0.y) },
                   duration: move.duration, speed: speed)
         }
@@ -782,8 +802,7 @@ private final class SessionCursor {
             trail.strokeStart = max(1 - trailLength * strand.share / total, 0)
             trail.strokeEnd = 1
         }
-        tail.path = Self.tailPath(.trailing((b.x - a.x) / total, (b.y - a.y) / total))
-        tailEdge.path = tail.path
+        setTailPath(Self.tailPath(.trailing((b.x - a.x) / total, (b.y - a.y) / total)))
     }
 
     // MARK: The living tail
@@ -794,7 +813,7 @@ private final class SessionCursor {
     /// Without animation (the app's cursor switches or Reduce Motion) the link stops and the tail
     /// lies still in its rest pose. `speed` is ui.animationSpeed.
     func runTail(animated: Bool, speed: Double) {
-        tailSpeed = speed
+        tailDriver.speed = speed
         tailMotion.animates = animated
         guard animated, offscreen == nil, let view = panel?.contentView else {
             stopTail()
@@ -808,93 +827,91 @@ private final class SessionCursor {
         link.add(to: .main, forMode: .common)
         tailTicker = ticker
         tailLink = link
-        lastTailFrame = nil
     }
 
+    /// Whether the frame clock runs (tests: it stops on hide and without animation).
+    var tailIsRunning: Bool { tailLink != nil }
+    /// Whether the idle life is being played ahead with the frame clock asleep.
+    var tailIsBatching: Bool { tailDriver.isBatching && tailLink?.isPaused == true }
+
     private func stopTail() {
-        endIdleBatch()
+        endBatchAnimation()
+        tailDriver.stop()
         tailLink?.invalidate()
         tailLink = nil
         tailTicker = nil
-        lastTailFrame = nil
     }
 
-    /// Changes the tail's model from outside (an event, a droop): first brings a played-ahead
-    /// idle batch back to now and wakes the frame clock, so the change starts from what is on
-    /// screen.
+    /// Changes the tail's model from outside (an event, a glide, a droop): a played-ahead batch
+    /// first ends where it is on screen, then the change applies and the frame clock wakes.
     private func stirTail(_ change: (inout AgentCursorTail) -> Void) {
-        endIdleBatch()
-        change(&tailMotion)
+        if let shown = tailDriver.stir(at: CACurrentMediaTime(), scale: Self.k, change) {
+            endBatchAnimation()
+            setTailPath(shown)
+        }
         tailLink?.isPaused = false
     }
 
-    /// Plays the next `idleBatchFrames` of the idle life as one keyframe animation on the tail's
-    /// path and pauses the frame clock until the batch ends (or something stirs the tail).
-    private func playIdleBatch(pointer: CGPoint) {
-        guard let link = tailLink else { return }
-        idleTimer?.invalidate()
-        let start = tailMotion
-        let paths = tailMotion.advance(frames: Self.idleBatchFrames, dt: Self.idleBatchStep, pointer: pointer,
-                                       speed: tailSpeed, scale: Self.k)
-        guard let last = paths.last else { return }
-        let duration = Double(Self.idleBatchFrames) * Self.idleBatchStep
-        // motion: allow the idle life played ahead: made only while the tail animates (`runTail`: the app's cursor switches and Reduce Motion), its frames stepped at ui.animationSpeed, removed when anything stirs the tail or the cursor hides.
+    /// One display frame: where the pointer is on screen now (mid-glide too), then the driver
+    /// steps the tail and draws it, or hands back a batch of its idle life to play ahead.
+    private func tailFrame(_ link: CADisplayLink) {
+        let pointer = (body.presentation() ?? body).position
+        let gliding = body.animation(forKey: "glide") != nil
+        switch tailDriver.frame(at: link.timestamp, pointer: pointer, gliding: gliding, scale: Self.k) {
+        case .path(let path): setTailPath(path)
+        case .batch(let paths): playBatch(paths)
+        }
+    }
+
+    /// Plays a batch of the idle life as one keyframe animation on the tail's path (and its
+    /// shadow) and pauses the frame clock until it ends or something stirs the tail.
+    private func playBatch(_ paths: [CGPath]) {
+        guard let link = tailLink, let last = paths.last else { return }
+        let duration = Double(paths.count) * AgentCursorTailDriver.batchStep
+        // motion: allow the idle life played ahead: made only while the tail animates (`runTail`: the app's cursor switches and Reduce Motion, re-checked when each batch ends), its frames stepped at ui.animationSpeed, removed when anything stirs the tail or the cursor hides.
         let play = CAKeyframeAnimation(keyPath: "path")
         play.values = paths
         play.duration = duration
         play.calculationMode = .linear
+        // motion: allow the same gated batch: the edge's shadow follows its path.
+        let shade = CAKeyframeAnimation(keyPath: "shadowPath")
+        shade.values = paths.map(Self.edgeOutline)
+        shade.duration = duration
+        shade.calculationMode = .linear
         setTailPath(last)
         tail.add(play, forKey: "idle")
         tailEdge.add(play, forKey: "idle")
-        idleBatch = (start, CACurrentMediaTime(), pointer)
+        tailEdge.add(shade, forKey: "idleShadow")
         link.isPaused = true
-        lastTailFrame = nil
-        // The batch's end: the next batch carries on from its last frame (a one-shot, replaced
-        // by every batch, invalidated when the cursor hides or something stirs the tail).
-        idleTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.idleBatch != nil else { return }
-                self.playIdleBatch(pointer: pointer)
-            }
+        batchTimer?.invalidate()
+        // The batch's end: the next batch carries on from its last frame (a one-shot, replaced by
+        // every batch, invalidated when something stirs the tail or the cursor hides).
+        batchTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.batchDidEnd() }
         }
     }
 
-    /// Ends a played-ahead batch where it is now: the model is stepped from the batch's start to
-    /// now (the same frames the animation showed), the animation goes, the path stays.
-    private func endIdleBatch() {
-        idleTimer?.invalidate()
-        idleTimer = nil
-        guard let batch = idleBatch else { return }
-        idleBatch = nil
-        let elapsed = max(CACurrentMediaTime() - batch.began, 0)
-        let frames = min(Int(elapsed / Self.idleBatchStep), Self.idleBatchFrames)
-        var model = batch.start
-        for _ in 0..<frames {
-            model.step(dt: Self.idleBatchStep, pointer: batch.pointer, speed: tailSpeed, pointScale: Double(Self.k))
+    private func batchDidEnd() {
+        guard tailDriver.isBatching else { return }
+        guard motionAllowed() else {
+            runTail(animated: false, speed: tailDriver.speed)
+            return
         }
-        tailMotion = model
+        guard let paths = tailDriver.batchEnded(at: CACurrentMediaTime(), scale: Self.k) else { return }
+        playBatch(paths)
+    }
+
+    private func endBatchAnimation() {
+        batchTimer?.invalidate()
+        batchTimer = nil
         tail.removeAnimation(forKey: "idle")
         tailEdge.removeAnimation(forKey: "idle")
-        setTailPath(tailMotion.path(scale: Self.k))
+        tailEdge.removeAnimation(forKey: "idleShadow")
     }
 
-    /// One display frame: where the pointer is on screen now (mid-glide too), one step of the
-    /// tail, one new path.
-    private func tailFrame(_ link: CADisplayLink) {
-        let now = link.timestamp
-        let dt = lastTailFrame.map { now - $0 } ?? 0
-        lastTailFrame = now
-        let pointer = (body.presentation() ?? body).position
-        stepTail(dt: dt, pointer: pointer)
-        // Every frame while something drives the tail; its calm idle life, which depends on
-        // nothing but time, plays ahead in batches so a waiting cursor costs (almost) nothing.
-        if !tailMotion.isLively { playIdleBatch(pointer: pointer) }
-    }
-
-    /// Steps the tail model and draws its path (the overlay's frames and the offscreen frames).
+    /// Steps the tail model and draws its path (the offscreen frames).
     fileprivate func stepTail(dt: Double, pointer: CGPoint) {
-        tailMotion.step(dt: dt, pointer: pointer, speed: tailSpeed, pointScale: Double(Self.k))
-        // Still, the tail is exactly the cursor's drawn S, not the spline through its points.
+        tailMotion.step(dt: dt, pointer: pointer, speed: tailDriver.speed, pointScale: Double(Self.k))
         setTailPath(tailMotion.animates ? tailMotion.path(scale: Self.k) : Self.tailPath(.rest))
     }
 
@@ -903,6 +920,14 @@ private final class SessionCursor {
         // transaction of its own: the frame's change commits with the run loop's.
         tail.path = path
         tailEdge.path = path
+        // The edge's shadow from its outline, not from the layer's pixels: no offscreen shadow
+        // pass per frame.
+        tailEdge.shadowPath = Self.edgeOutline(path)
+    }
+
+    /// The white edge's outline (its stroke as a filled shape), for its shadow.
+    private static func edgeOutline(_ path: CGPath) -> CGPath {
+        path.copy(strokingWithWidth: 5.6, lineCap: .round, lineJoin: .round, miterLimit: 10)
     }
 
     /// A drag: a trail from `start` to `end` and the pointer gliding along it.
@@ -942,6 +967,7 @@ private final class SessionCursor {
             along.duration = draw.duration
             along.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             body.add(along, forKey: "glide")
+            stirTail { $0.stir() }
             Self.fadeOut([trail, ends], after: lifetime * 0.6, duration: lifetime * 0.4)
         }
         CATransaction.begin()
