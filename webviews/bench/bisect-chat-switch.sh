@@ -78,6 +78,8 @@ run_point() { # SHA[:MODE[:VARIANT[.N]]] INDEX (VARIANT.N repeats a variant unde
     local env=(ROUNDS_IGNORED=1)
     [[ "$fx" == god ]] && env=(FIXTURE=god)
     [[ "${variant%%.*}" == profile ]] && env+=(PROFILE=1)
+    # SNAP_ROOT: the bench records a video and screenshots of its measured round (chat-switch.bench.ts SNAP).
+    [[ -n "${SNAP_ROOT:-}" ]] && { mkdir -p "$SNAP_ROOT/$id-$fx"; env+=(SNAP="$SNAP_ROOT/$id-$fx"); }
     local start=$SECONDS
     (cd "$dir/webviews" && env "${env[@]}" CHURN="${CHURN:-24}" MAX_WARM="${MAX_WARM:-6}" TMPDIR="$dir" \
       timeout "${BENCH_TIMEOUT:-900}" bun "bench/${BENCH:-chat-switch.bench.ts}" ${BENCH_ARGS:-"${ROUNDS:-3}" "${TURNS:-300}"}) >"$log.$fx.log" 2>&1
