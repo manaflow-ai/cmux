@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4373064164001",
+  "notes": "notes/4373064164001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43658,
+      "title": "acpmux: the cmux profile starts on a Cloud machine through its gateway (hq#11225)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43698,
+      "title": "acpmux v2: a gate whose test fails reads red in the home",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43808,
+      "title": "hot-apply plan: a commit that moves the app FFI pin takes the ffi part",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43736,
+      "title": "fix(tui): refresh terminal sizing after workspace moves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43723,
+      "title": "acpmux: idle chats start no agent until opened or sent to (CLI reads, update relaunch)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43645,
+      "title": "acpmux: more agents than Claude and Codex go through the team's inference gateway on an owner Cloud machine (restacked)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43796,
+      "title": "privacy guard: list hosts the code builds from parts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43770,
+      "title": "acpmux: a host refuses a push of an older build than its own",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
