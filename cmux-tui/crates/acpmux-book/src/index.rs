@@ -1365,7 +1365,7 @@ mod tests {
         let mut last = None;
         for turn in 0..20 {
             let page = index
-                .read_page(anchor.as_ref(), ReadSide::After, false, 50, snapshot::PAGE_BYTES, None)
+                .read_page(anchor.as_ref(), ReadSide::After, false, 50, PAGE_BYTES, None)
                 .unwrap();
             assert!(page.rows.iter().all(|row| row.origin == "other"));
             seen.extend(page.rows.iter().map(|row| row.chat_id.clone()));
@@ -1386,14 +1386,7 @@ mod tests {
         let mut backwards = Vec::new();
         for turn in 0..20 {
             let page = index
-                .read_page(
-                    anchor.as_ref(),
-                    ReadSide::Before,
-                    turn == 0,
-                    50,
-                    snapshot::PAGE_BYTES,
-                    None,
-                )
+                .read_page(anchor.as_ref(), ReadSide::Before, turn == 0, 50, PAGE_BYTES, None)
                 .unwrap();
             assert!(page.rows.iter().all(|row| row.origin == "other"));
             backwards.extend(page.rows.iter().map(|row| row.chat_id.clone()));
@@ -1412,7 +1405,7 @@ mod tests {
     fn live_pages_drop_removed_origin_rows_before_the_origin_returns() {
         fn live_keys(index: &SummaryIndex) -> Vec<RowKey> {
             index
-                .read_live_page(None, ReadSide::After, false, 100, snapshot::PAGE_BYTES, None)
+                .read_live_page(None, ReadSide::After, false, 100, PAGE_BYTES, None)
                 .unwrap()
                 .rows
                 .iter()
