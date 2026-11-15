@@ -122,6 +122,8 @@ export function busyDelay(attempt: number, random: () => number = Math.random): 
   return Math.round(cap / 2 + (random() * cap) / 2);
 }
 
+type Waiting = { id: number | string; send: () => void };
+
 type Timers = {
   set(run: () => void, ms: number): ReturnType<typeof setTimeout>;
   clear(timer: ReturnType<typeof setTimeout>): void;
@@ -137,9 +139,13 @@ const realTimers: Timers = {
 export class RequestBudget {
   /// Ids on the wire that the daemon counts: answered or not by the caller, until their reply.
   private readonly unanswered = new Set<number | string>();
-  /// Reads waiting for a slot, oldest first, by id: an answer removes its own in O(1) and the next
-  /// one out is the first (a scan per answer made draining a long queue cost its square).
-  private readonly waiting = new Map<number | string, () => void>();
+  /// Reads waiting for a slot, by id: an answer or a reset removes its own in O(1).
+  private readonly waiting = new Map<number | string, Waiting>();
+  /// The same reads oldest first from `head`; an entry no longer in `waiting` is skipped when
+  /// reached. A scan per answer, or a Map iterated from its start past the slots it deleted, made
+  /// draining a long queue cost its square.
+  private order: Waiting[] = [];
+  private head = 0;
   /// Busy retries waiting for their time; cleared by `reset` (a closed connection).
   private readonly retries = new Map<number | string, ReturnType<typeof setTimeout>>();
   /// The most this connection had unanswered at once (perf harness, wire log).
@@ -169,7 +175,7 @@ export class RequestBudget {
     if (!countsAgainstBudget(method)) return send();
     if (!waitsForSlot(method, params)) return this.start(id, send);
     if (this.unanswered.size < this.limit && !this.waiting.size) return this.start(id, send);
-    this.waiting.set(id, send);
+    this.enqueue(id, send);
   }
 
   /// The daemon answered `id` (or the request never went): its slot frees.
@@ -189,7 +195,7 @@ export class RequestBudget {
     this.settled(id);
     const timer = this.timers.set(() => {
       this.retries.delete(id);
-      this.waiting.set(id, send);
+      this.enqueue(id, send);
       this.pump();
     }, delayMs);
     this.retries.set(id, timer);
@@ -201,6 +207,8 @@ export class RequestBudget {
     const never = [...this.waiting.keys(), ...this.retries.keys()];
     this.retries.clear();
     this.waiting.clear();
+    this.order = [];
+    this.head = 0;
     this.unanswered.clear();
     return never;
   }
@@ -211,11 +219,26 @@ export class RequestBudget {
     send();
   }
 
+  private enqueue(id: number | string, send: () => void): void {
+    const entry = { id, send };
+    this.waiting.set(id, entry);
+    this.order.push(entry);
+  }
+
   private pump(): void {
-    for (const [id, send] of this.waiting) {
-      if (this.unanswered.size >= this.limit) break;
-      this.waiting.delete(id);
-      this.start(id, send);
+    while (this.head < this.order.length && this.unanswered.size < this.limit) {
+      const entry = this.order[this.head++]!;
+      if (this.waiting.get(entry.id) !== entry) continue;
+      this.waiting.delete(entry.id);
+      this.start(entry.id, entry.send);
+    }
+    // Drop the sent part once it is most of the array, so the queue's memory follows its length.
+    if (this.head === this.order.length) {
+      this.order = [];
+      this.head = 0;
+    } else if (this.head > 1024 && this.head * 2 > this.order.length) {
+      this.order = this.order.slice(this.head);
+      this.head = 0;
     }
   }
 }
