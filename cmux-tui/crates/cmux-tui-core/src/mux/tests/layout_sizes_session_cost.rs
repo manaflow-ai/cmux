@@ -18,6 +18,12 @@
 //! publishes is the value that a read of the whole store gives. The stored
 //! row holds the new sizes. No other screen's stored row changes. The echo of
 //! a ratio command names its transaction. One undo restores the last change.
+//!
+//! A size command leaves the splits, the panes and the columns of its screen
+//! as they are, so it has no dock rule to check and no index to build again.
+//! The last test holds the other branch: on a screen with a stale column
+//! projection the width command takes a column away, and then the whole check
+//! and the index rebuild run.
 
 use serde_json::Value;
 
@@ -490,4 +496,65 @@ fn a_layout_size_command_does_no_session_sized_work_on_60_workspaces() {
 fn a_layout_size_command_does_no_session_sized_work_on_600_workspaces() {
     let failures = layout_commands(600);
     assert!(failures.is_empty(), "600 workspaces: {failures:#?}");
+}
+
+/// A size command that changes the columns of its screen takes the whole
+/// check and builds the indexes again.
+///
+/// No command leaves such a screen. The test puts a lone column with no rows
+/// on a one-pane screen: a stale column projection. The width command then
+/// takes that column away (`project_layout_columns`).
+#[test]
+fn a_layout_size_command_that_changes_the_columns_builds_the_indexes_again() {
+    let session = session(3);
+    let mux = Arc::clone(&session.mux);
+    let lone = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let lone = pane_of(&mux, lone.id);
+    let column = mux.next_id();
+    let workspaces = {
+        let mut state = mux.state.lock().unwrap();
+        let (workspace, screen) = state.screen_of(lone).unwrap();
+        let screen = state
+            .workspaces
+            .get_mut(workspace)
+            .and_then(|workspace| workspace.screens.get_mut(screen))
+            .unwrap();
+        screen.layout_columns = vec![LayoutColumn::single(column, 1.0, lone)];
+        state.workspaces.len() as u64
+    };
+
+    let before = Work::now();
+    let outcome = mux.set_viewport_pane_width_in_transaction_checked(lone, 0.5, 7, 21);
+    let after = Work::now();
+    let (columns, consistent) = mux.with_state(|state| {
+        let (workspace, screen) = state.screen_of(lone).unwrap();
+        let screen = state
+            .workspaces
+            .get(workspace)
+            .and_then(|workspace| workspace.screens.get(screen))
+            .unwrap();
+        (screen.layout_columns.len(), screen.layout_column_projection_is_consistent())
+    });
+    let Session { mux: owner, root, .. } = session;
+    mux.shutdown();
+    drop(mux);
+    drop(owner);
+    let _ = std::fs::remove_dir_all(&root);
+
+    assert!(outcome.is_ok(), "the width command on the stale screen: {outcome:?}");
+    assert_eq!(
+        (columns, consistent),
+        (0, true),
+        "the command takes the lone column away and leaves a consistent screen"
+    );
+    assert_eq!(
+        after.index_rebuild - before.index_rebuild,
+        2 * workspaces,
+        "the split index and the public indexes each visit the {workspaces} workspaces one time"
+    );
+    assert_eq!(
+        after.state_clones - before.state_clones,
+        1,
+        "with a permanent column in the session, the dock rules check a clone of the state"
+    );
 }

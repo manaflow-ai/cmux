@@ -143,12 +143,14 @@ impl ResourceMutationPlan {
         STAGED_STATE_CLONES.with(std::cell::Cell::get)
     }
 
-    /// Declare that the state step changes only focus: the active
+    /// Declare that the state step adds, removes or reorders no column, dock
+    /// flag, column pane or pane tab. It changes only focus (the active
     /// workspace, screen, pane and tab, a stack's expanded pane and focus
-    /// stamps. It adds, removes or reorders no column, dock flag, column pane
-    /// or pane tab, so no dock rule can refuse it and [`Self::stage_checked`]
-    /// skips scanning every workspace's columns and cloning the state (a
-    /// cost that grew with the session, ask-bdd706af47).
+    /// stamps), or only the sizes, the divider flags or the zoom of one
+    /// screen. No dock rule can refuse such a step, so
+    /// [`Self::stage_checked`] skips scanning every workspace's columns and
+    /// cloning the state (a cost that grew with the session,
+    /// ask-bdd706af47).
     pub(crate) fn keeping_dock_columns(mut self) -> Self {
         self.keeps_dock_columns = true;
         self
