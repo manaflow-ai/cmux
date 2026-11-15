@@ -1492,6 +1492,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-app-manifest",
  "cmux-config",
+ "cmux-file-lock",
  "cmux-theme-tokens",
  "fs4",
  "serde",
@@ -2297,6 +2298,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
+ "tar",
  "tempfile",
  "terminput",
  "terminput-crossterm",

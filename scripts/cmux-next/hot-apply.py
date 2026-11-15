@@ -3,10 +3,11 @@
 
     hot-apply.py plan SHA [--app APP] [--repo DIR]
     hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
-                       [--restart-acpmux] [--dry-run] [--base COMMIT]
+                       [--restart-acpmux] [--restart-sessions] [--dry-run] [--base COMMIT]
     hot-apply.py prefetch SHA [--app APP | --base COMMIT] [--repo DIR]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
+    hot-apply.py live-from SHA [--repo DIR] [--max N]
 
 Leo, 2026-11-06: "how much of this needs a nightly versus, like, us being able to do the hot swap
 thing?" This puts the parts of a merged commit that need no app build into the app that runs now,
@@ -25,7 +26,11 @@ with live_apply.py's rules:
          app's Contents/Resources/bin/cmux, with the companions bundled beside it (cmux-app-host,
          cmux-cloud, cmux-browser-host, cmux-tui-host, cmux-holder, the screen detector) from the
          same build, or removed where that build has none; then the app's daemon is handed to it the way the app
-         hands off its own (rust-live.py's Swapper: same app pid, terminals kept). bin/cmux is
+         hands off its own (rust-live.py's Swapper: same app pid, terminals kept). Another
+         session's daemon running from the same bin (a Chief's) keeps its build and is named in the
+         receipt (`left_on_old_build`), unless --restart-sessions hands each one over too with
+         `server restart` on its socket (terminals kept; its session, launch flags and environment
+         carried; not from ssh on macOS), checked like the app's, and `rollback` hands them back. bin/cmux is
          also cmux-tui and acpmux (one multi-call binary), so `cmux link`, the CLI in the app's
          terminals and every acpmux daemon started after it run SHA's build. A running acpmux
          daemon keeps its build until it restarts: --acpmux-home H restarts the one of H, and
@@ -360,6 +365,42 @@ def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None
         return _plan(repo, app, sha, branch, base)
 
 
+LIVE_FROM_MAX = 400  # a NIGHTLY is at most a day of merges behind feat-cmux-next
+
+
+def pins_daemon(repo: Path, commit: str) -> list[str]:
+    """The paths of COMMIT's own change (against its first parent) that tie the daemon to the app: Rust
+    the app links through FFI. `plan` holds the Rust part back for exactly these; Swift, resources and
+    web left for a nightly do not stop it. A root commit pins it."""
+    parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
+    if not SHA.fullmatch(parent or ""):
+        return [f"{commit} has no parent here"]
+    files = live_apply.classify_range(str(repo), parent, commit)["files"]
+    # The same files `plan` checks: its daemon part, with cmux-tui's own native sources moved onto it.
+    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
+    return linked_rust(repo, sorted(set(rust)))
+
+
+def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
+    """Every commit whose app can take SHA's daemon build live, newest first: SHA, then its first parents
+    back to the newest commit whose own change pins the daemon to the app (pins_daemon; included: an app
+    built there links that change).
+    At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
+    signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
+        out["live_from"].append(commit)
+        if paths := pins_daemon(repo, commit):
+            out["floor"], out["floor_paths"] = commit, paths[:20]
+            break
+    return out
+
+
+def command_live_from(args) -> int:
+    print(json.dumps(live_from(Path(args.repo), args.sha, args.max)))
+    return 0
+
+
 def abi_at(repo: Path, commit: str) -> int | None:
     """The web ABI of COMMIT's tree (--base: no app to read it from)."""
     try:
@@ -638,21 +679,54 @@ def find_sockets(app: Path, cli: Path) -> list[str]:
     hung, found = [], []
     for pid in app_pids(app, DAEMON_NAMES):
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
-        for name in sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}):
-            try:
-                status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
-                                        capture_output=True, text=True, timeout=10)
-            except subprocess.TimeoutExpired:
-                hung.append(name)
-                continue
-            if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
-                found.append(name)
-                break
+        names = sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")})
+        name, unanswered = first_status(cli, names, pid)
+        if name:
+            found.append(name)
+        else:
+            hung.extend(unanswered)
     # The app's own session must answer: a hung one is not passed over for another session's.
     if hung and (not found or any(Path(name).name.startswith("cmux-app") for name in hung)):
         raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
                            f"from {app} is not known; nothing changed (--socket names it)")
     return sorted(found, key=lambda name: not Path(name).name.startswith("cmux-app"))
+
+
+def first_status(cli: Path, names: list[str], pid: str, timeout: float = 10) -> tuple[str | None, list[str]]:
+    """The first of NAMES whose `server status` names PID, every name asked at once; and, when none does, the
+    names that never answered in `timeout` seconds. A daemon holds unix sockets that are not its server too
+    (a Chief's holds one that never answers): asked one at a time, each cost the full timeout before the
+    daemon's own socket was reached (find took 10.4 s at cmux 7a6e6fb with a Chief running, 0.1 s without).
+    Each ask is its own `subprocess.run` with the timeout, which ends its child; one still running when an
+    answer wins is left to that timeout on its daemon thread."""
+    import queue
+    import threading
+    answers: queue.Queue = queue.Queue()
+
+    def ask(name: str) -> None:
+        try:
+            out = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"], capture_output=True,
+                                 text=True, timeout=timeout).stdout
+            answers.put((name, bool(re.search(rf'"pid"\s*:\s*{pid}\b', out or ""))))
+        except subprocess.TimeoutExpired:
+            answers.put((name, None))
+        except OSError:
+            answers.put((name, False))
+
+    for name in names:
+        threading.Thread(target=ask, args=(name,), daemon=True).start()
+    pending, hung, deadline = set(names), [], time.monotonic() + timeout + 1
+    while pending:
+        try:
+            name, hit = answers.get(timeout=max(0.0, deadline - time.monotonic()))
+        except queue.Empty:
+            break
+        pending.discard(name)
+        if hit:
+            return name, []
+        if hit is None:
+            hung.append(name)
+    return None, sorted(hung + list(pending))
 
 
 def find_socket(app: Path, cli: Path) -> str | None:
@@ -661,8 +735,41 @@ def find_socket(app: Path, cli: Path) -> str | None:
     return found[0] if found else None
 
 
-def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) -> dict:
-    """bin/cmux becomes `new` (sha256 `want`) and the app's daemon is handed to it; checked."""
+def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict]:
+    """Each other session's daemon running from the app's bin (a Chief's) restarted onto `target`, the build
+    now in place: `server restart` by its socket stops the owner the way an update hands it off (its
+    terminal hosts live on) and starts one from `target` with the stopped owner's session, launch flags and
+    environment, which adopts them. Checked: a new owner answers on the socket, running `target`. The first
+    that fails raises, and the caller puts every part back."""
+    swapper_cls = load("rust_live", "rust-live.py").Swapper
+    done = []
+    for name in sockets:
+        swapper = swapper_cls(None, name, state=state / "handoff")
+        t0 = time.monotonic()
+        with PHASES("find"):
+            before = swapper.owner(target, timeout=10)
+        with PHASES("reload"):
+            # The cmux-tui surface keeps `server` for the daemon's lifecycle in every build (the nightly's too, for
+            # the rollback); on `cmux`, `server` is the machine server and refuses --socket (cmux 7a6e6fb, a Chief's).
+            surface = target.with_name("cmux-tui") if target.with_name("cmux-tui").exists() else target
+            ran = subprocess.run([str(surface), "--socket", name, "--json", "server", "restart"],
+                                 capture_output=True, text=True, timeout=180)
+            now = swapper.owner(target, timeout=30)
+        step = {"socket": name, "old_pid": before[0] if before else None, "new_pid": now[0] if now else None,
+                "seconds": round(time.monotonic() - t0, 3)}
+        done.append(step)
+        if ran.returncode != 0 or not now or (before and now[0] == before[0]):
+            raise RuntimeError(f"`server restart` on {name} left no new owner (exit {ran.returncode}): "
+                               f"{(ran.stderr or ran.stdout).strip()[-300:]}")
+        if swapper.app_file(now[1]) != target:
+            raise RuntimeError(f"the new owner on {name} runs {now[1]}, not {target}")
+    return done
+
+
+def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, sessions: bool = False) -> dict:
+    """bin/cmux becomes `new` (sha256 `want`) and the app's daemon is handed to it; checked. With
+    `sessions`, every other session's daemon from the same bin is restarted onto it too (restart_sessions);
+    without, or from ssh on macOS, they keep the build they mapped and the receipt names them."""
     target = (app / BIN / "cmux").resolve()
     swapper_cls = load("rust_live", "rust-live.py").Swapper
     try:
@@ -674,10 +781,16 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
         running = [socket]  # --socket names the daemon; the others are not known
     socket = socket or (running[0] if running else None)
     step: dict = {"file": str(target), "to": want, "socket": socket}
-    # Only the app's own daemon is handed off. Another session's (the chief's) keeps the build it
-    # mapped until its owner restarts; the receipt names it.
-    if others := [name for name in running if name != socket]:
+    # The app's own daemon is handed off here. Another session's (the chief's) keeps the build it mapped
+    # unless `sessions` restarts it below; the receipt names each one left, and why.
+    others = [name for name in running if name != socket]
+    ssh = outside_login_session()
+    if others and (not sessions or ssh):
         step["left_on_old_build"] = others
+        step["left_on_old_build_why"] = (
+            "not asked (--restart-sessions)" if not sessions else
+            "this run is an ssh session: the restarted daemon's new terminals would start outside the login "
+            "session; run hot-apply in the Mac's own terminal")
     t0 = time.monotonic()
     if socket is None:
         # No daemon runs from this app: the file alone, which the app's next ensure runs.
@@ -707,6 +820,8 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
     step["running_sha256"] = have
     if have != want:
         raise RuntimeError(f"{target} hashes to {have}, not {want}")
+    if others and sessions and not ssh:
+        step["sessions"] = restart_sessions(target, others, state)
     return step
 
 
@@ -1052,7 +1167,7 @@ def command_apply(args) -> int:
             else:
                 new, want = fetch_cmux(planned["tree_key"], state)
                 companions = fetch_companions(planned["tree_key"], state)
-            if not (args.restart_acpmux or args.acpmux_home) and rust_unchanged(app, want, companions):
+            if not (args.restart_acpmux or args.acpmux_home or args.restart_sessions) and rust_unchanged(app, want, companions):
                 # A hot apply of SHA (or a later commit with the same build) already put it in: nothing to hand off.
                 receipt["unchanged"].append("rust")
                 receipt["steps"]["rust"] = {"to": want, "unchanged": True}
@@ -1063,7 +1178,9 @@ def command_apply(args) -> int:
             # Before the handoff, so the new daemon starts the companions of its own build.
             undo["rust"]["companions"] = place_companions(app, companions, state)
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
-            receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state)
+            # Before the swap: a session restart that fails part way is put back by the rollback.
+            undo["rust"]["sessions"] = bool(args.restart_sessions)
+            receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state, args.restart_sessions)
             receipt["steps"]["rust"]["from"] = prior_sha
             receipt["applied"].append("rust")
             daemons = running_acpmux(app) if args.restart_acpmux or not args.acpmux_home else []
@@ -1149,7 +1266,8 @@ def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> di
             if sha256_file(target) == undo["rust"]["sha256"]:
                 out["rust"] = {"ok": True, "running_sha256": undo["rust"]["sha256"], "daemon": "unchanged"}
             else:
-                out["rust"] = {"ok": True, **swap_cmux(app, Path(undo["rust"]["copy"]), undo["rust"]["sha256"], socket, state)}
+                out["rust"] = {"ok": True, **swap_cmux(app, Path(undo["rust"]["copy"]), undo["rust"]["sha256"], socket, state,
+                                                     bool(undo["rust"].get("sessions")))}
             # The acpmux daemons the apply restarted run the applied build: restart them on the prior one.
             if undo["rust"].get("acpmux_homes"):
                 # The ones restarted with their own environment go back with it, or not at all (#40219 review P2).
@@ -1196,7 +1314,7 @@ def command_rollback(args) -> int:
 def command_prefetch(args) -> int:
     """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
     args.dry_run, args.parts, args.binary = True, "web,rust", None
-    args.socket, args.acpmux_home, args.restart_acpmux = None, [], False
+    args.socket, args.acpmux_home, args.restart_acpmux, args.restart_sessions = None, [], False, False
     return command_apply(args)
 
 
@@ -1226,8 +1344,15 @@ def main(argv=None) -> int:
             p.add_argument("--acpmux-home", action="append", default=[])
             p.add_argument("--restart-acpmux", action="store_true",
                            help="also restart every acpmux daemon running from the app's bin folder (sessions resume)")
+            p.add_argument("--restart-sessions", action="store_true",
+                           help="also hand every other session's terminal daemon from the app's bin (a Chief's) "
+                                "to the new build with `server restart` (terminals kept)")
             p.add_argument("--dry-run", action="store_true",
                            help="plan, fetch and verify every part; change nothing in the app (receipt: history.jsonl)")
+    p = sub.add_parser("live-from", help="the app commits that can take SHA's daemon build live (JSON)")
+    p.add_argument("sha")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--max", type=int, default=LIVE_FROM_MAX)
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
@@ -1240,7 +1365,7 @@ def main(argv=None) -> int:
             return 2
     try:
         return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "rollback": command_rollback,
-                "status": command_status}[args.command](args)
+                "status": command_status, "live-from": command_live_from}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)
         return 3
