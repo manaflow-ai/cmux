@@ -28,6 +28,10 @@ public final class PageInputReadiness {
     public private(set) var isPointerOverSidewaysScroller = false
     /// Runs when ``isReady`` turns true.
     public var onReady: (() -> Void)?
+    /// The command target (`data-cmux-command-focus`) of the element with focus now; nil for any other element.
+    public private(set) var commandFocus: String?
+    /// The longest ``awaitFocus(on:)`` keeps the page's keys when the focus it waits for does not come.
+    public var focusWaitLimit: Duration = .milliseconds(500)
     private weak var webView: WKWebView?
     /// Types into a page another engine shows (a Chromium page, ``PageWebView``); nil types into the
     /// attached web view.
@@ -62,6 +66,11 @@ public final class PageInputReadiness {
     public func attach(_ webView: WKWebView) {
         self.webView = webView
     }
+
+    /// A command the page got (Cmd-F's find) focuses the element marked `data-cmux-command-focus="<target>"` in the
+    /// page's own turn. Until it has focus, or ``focusWaitLimit``, the page is not ready for typing, so keys typed
+    /// meanwhile wait for that element (the key router's type-ahead).
+    public func awaitFocus(on target: String) {}
 
     /// A stable token for the editable element that owns a queued edit sequence. The page stores
     /// it on that element; later Deletes refuse a different focused element, so an async insert
