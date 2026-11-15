@@ -106,6 +106,8 @@ extension NewChatPlacement {
 }
 
 extension PaneController {
+    /// A person's new chat from this pane's + rows is a tab here, not docked left (user 2026-11-12), except in Home's pinned dock.
+    var plusChatIsTab: Bool { workspace?.layoutModel.screen(containing: layoutPaneID)?.column(containing: layoutPaneID)?.dock?.isPinned != true }
     /// The tab ids `pendingDock` hides: a provisional id also hides the tab
     /// the store replaced it with, from the store's first snapshot on.
     var dockBound: Set<String> {

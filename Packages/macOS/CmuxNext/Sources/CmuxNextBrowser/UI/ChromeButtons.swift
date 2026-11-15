@@ -49,7 +49,7 @@ final class ChromeIconButton: ClickableButton {
         ])
         density.update { [weak self] in
             guard let self else { return }
-            layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
+            layer?.cornerRadius = Metrics.buttonCornerRadius
             applyIcon()
         }
         density.start()
@@ -280,7 +280,7 @@ class ChromeTextButton: ClickableButton {
         titleText = title
         density.update { [weak self] in
             guard let self else { return }
-            layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+            layer?.cornerRadius = Metrics.buttonCornerRadius
             applyTitle()
             invalidateIntrinsicContentSize()
         }

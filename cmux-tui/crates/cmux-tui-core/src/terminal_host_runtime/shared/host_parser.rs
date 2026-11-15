@@ -231,16 +231,17 @@ pub(crate) fn run_host_parser(
                 }
                 flush_pending_responses();
             }
-            ParserCommand::Resize {
-                cols,
-                rows,
-                cell_pixels,
-                source_cursor,
-                acknowledge_with_replay,
-                targeted_ack,
-                pty_previous,
-                response,
-            } => {
+            ParserCommand::Resize(resize) => {
+                let ParserResize {
+                    cols,
+                    rows,
+                    cell_pixels,
+                    source_cursor,
+                    acknowledge_with_replay,
+                    targeted_ack,
+                    pty_previous,
+                    response,
+                } = *resize;
                 let result = parser_host.apply_parser_resize_after_pty(
                     cols,
                     rows,
@@ -259,7 +260,8 @@ pub(crate) fn run_host_parser(
                 flush_pending_responses();
                 let _ = response.send(());
             }
-            ParserCommand::ClearHistory { fallback_key, response } => {
+            ParserCommand::ClearHistory(clear) => {
+                let ParserClearHistory { fallback_key, response } = *clear;
                 let result = parser_host
                     .apply_parser_clear_history(fallback_key.as_ref())
                     .map_err(|error| error.to_string());

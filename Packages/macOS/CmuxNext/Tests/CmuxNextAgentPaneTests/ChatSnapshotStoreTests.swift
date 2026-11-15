@@ -81,11 +81,12 @@ struct ChatSnapshotStoreTests {
             #expect(script.contains("<main>chat</main>"))
             // With the theme the page gets now: a copy drawn under another one is not drawn.
             // Then the page's boot, as the script loads async and may come after it (chatSnapshot/boot.ts).
-            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotBoot?.();"))
+            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxRestoredChat=\"s-2\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();"))
             session = nil
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"no-chat\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotBoot?.();")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"no-chat\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxRestoredChat=null;self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
+            // A missing HTML copy still names its own chat for the independently retained event tail.
             session = "other"
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotBoot?.();")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxRestoredChat=\"other\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
         }
     }
 
@@ -105,7 +106,7 @@ struct ChatSnapshotStoreTests {
             #expect(ready.mimeType == "text/javascript")
             let script = try #require(String(data: ready.data, encoding: .utf8))
             #expect(script.contains("<main>ready</main>"))
-            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotBoot?.();"))
+            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxRestoredChat=\"s-7\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();"))
             // Taken once: a reload asks the usual way and reads the copy as it is then.
             #expect(resources.readyResource(for: request) == nil)
             // A page in an incognito window gets its null at once, with no copy.
@@ -207,7 +208,7 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             #expect(try await Self.get("s-3", allowed: false) == .null)
             let resources = AgentPageResources(session: { "s-3" }, allowed: { false })
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotBoot?.();")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxRestoredChat=null;self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
         }
     }
 
@@ -233,7 +234,7 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             #expect(try await Self.get("s-6") == .null)
             let resources = AgentPageResources(session: { "s-6" }, allowed: { true })
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none: too large\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotBoot?.();")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none: too large\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxRestoredChat=\"s-6\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
         }
     }
 

@@ -26,8 +26,9 @@ extension TabsKitTheme {
     }
 }
 
-/// A workspace: its tabs in the Safari-style TabsKit chrome, opened on the
-/// last tab used on this device. Pushed full screen from the Workspaces
+/// A workspace: its tabs in the Safari-style TabsKit chrome, opened where
+/// `AppStore.openingTab` says (the tab left on screen when it was open before in this
+/// launch, else its layout's top-left pane's). Pushed full screen from the Workspaces
 /// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
 /// screen surfaces own the bottom edge). Ways back to the list: the
 /// toolbar's back chevron (a tab without page history), the system edge
@@ -43,6 +44,7 @@ public struct WorkspaceScreen: View {
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
     #endif
@@ -102,6 +104,9 @@ public struct WorkspaceScreen: View {
                 if CommandLine.arguments.contains("-cmux-mobile-toast-demo") { source.showDemoToast() }
                 #endif
             }
+            // The grid's view stays "visible" in the background: its refresh stops here.
+            // Inactive (Control Center, the app switcher's first moment) still shows it.
+            .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
@@ -360,7 +365,7 @@ struct WorkspaceGridHeader: View {
                         .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Workspaces")
                 Spacer()

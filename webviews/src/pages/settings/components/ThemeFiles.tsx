@@ -4,7 +4,8 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
-import type { WireError } from "../ops";
+import { SETTINGS_SENTENCES, type WireError } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { useStore } from "../context";
 import { t } from "../strings";
 import type { Reply } from "../store";
@@ -56,7 +57,7 @@ export function ThemeFiles({
       setError(null);
       return;
     }
-    setError(refusals[code] ? t(refusals[code]) : reply.error.message);
+    setError(refusals[code] ? t(refusals[code]) : userMessage(reply.error, SETTINGS_SENTENCES));
   };
   const run = async (work: () => Promise<void>) => {
     setBusy(true);

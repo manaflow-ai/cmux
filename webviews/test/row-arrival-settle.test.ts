@@ -65,7 +65,9 @@ await requireBrowserLane("row-arrival-settle.test.ts", async () => {
 
   async function samples(scenario: Scenario, turns: number, look = "", options: object = {}): Promise<Sample[]> {
     const { port } = vite!.httpServer!.address() as { port: number };
-    const query = `clock=frames&rows=1&history=${turns}${look ? `&tailGlide=${look}` : ""}`;
+    // The arrival step this file holds is the spring chase's (`blocks` arm); the product's `send` arm
+    // lands an arrival in its frame (followMotion.experiment.ts, turn-transition-jumps.test.ts).
+    const query = `clock=frames&rows=1&history=${turns}&arm=blocks${look ? `&tailGlide=${look}` : ""}`;
     const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?${query}`, { clock: "frames" });
     try {
       await frames.page.waitForFunction(() => "__sendStream" in window);

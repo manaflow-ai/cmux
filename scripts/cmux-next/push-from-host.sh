@@ -32,12 +32,19 @@
 # Linux host: the hook runs SwiftFormat and SwiftLint. On 2026-11-12 at 00:40Z cmux-lawrence-2, then the only
 # default, stopped answering SSH (office power) and every sparse-worktree web push (web_lint_prepush.py sends them
 # here) failed with "no host answers".
+# A host the fleet reserves for someone is skipped, whether it came from DEFAULT_HOSTS, CMUX_PUSH_HOST or --host:
+# before SSH, each host goes to leo-workspace's tools/fleet_reservations.py (the registry's dated reservations, the
+# build controller's pool holds, HQ's owner-only hosts), and when every host is reserved nothing is sent. A reader
+# that answers neither free nor reserved skips the host too (fail closed). A Mac without the reader (no
+# leo-workspace checkout) is warned once and not checked. On 2026-11-12 a helper pushed through a perf lead's mini
+# from this list; a hardcoded list can't know who holds a host today.
 # --which-host prints the host and repo it would use (`HOST REPO`) and exits 0, before anything is sent.
 #
-# Exit: 0 pushed (or already there), 1 refused by the hook or by GitHub (output above), 2 usage or setup.
-# Without --rebase a non-fast-forward is refused by GitHub as always. It never forces.
+# Exit: 0 pushed (or already there), 1 refused by the hook or by GitHub (output above), 2 usage or setup (also: every
+# host reserved or unreachable). Without --rebase a non-fast-forward is refused by GitHub as always. It never forces.
 #
 # Environment: CMUX_PUSH_HOST [DEFAULT_HOSTS], CMUX_PUSH_HOST_REPO [fun/cmux, relative to HOST's home],
+# CMUX_FLEET_RESERVATIONS [~/Projects/leo-workspace/tools/fleet_reservations.py, the reader reach uses],
 # and the hook's own CMUX_WEB_LINT_SKIP_REASON / CMUX_NEXT_CHECKS_SKIP_REASON, passed through.
 set -euo pipefail
 
@@ -77,8 +84,14 @@ if [[ ! "$HOST_REPO" =~ ^[A-Za-z0-9._/-]+$ ]]; then
     echo "push-from-host: the repo path has characters this script does not pass to a shell" >&2
     exit 2
 fi
+RESERVATIONS="${CMUX_FLEET_RESERVATIONS:-$HOME/Projects/leo-workspace/tools/fleet_reservations.py}"
+if [[ ! -f "$RESERVATIONS" ]]; then
+    echo "push-from-host: no fleet reservation reader at $RESERVATIONS; hosts are not checked for reservations." >&2
+    RESERVATIONS=""
+fi
 HOST=""
 TRIED=()
+RESERVED=()
 for spec in "${HOSTS[@]}"; do
     candidate="${spec%%:*}"
     repo="$HOST_REPO"
@@ -86,6 +99,21 @@ for spec in "${HOSTS[@]}"; do
     if [[ ! "$candidate" =~ ^[A-Za-z0-9._@-]+$ || ! "$repo" =~ ^[A-Za-z0-9._/-]+$ ]]; then
         echo "push-from-host: host '$spec' has characters this script does not pass to a shell" >&2
         exit 2
+    fi
+    if [[ -n "$RESERVATIONS" ]]; then
+        # The reader exits 0 for a free host and 1 for a reserved one, printing who holds it. ssh's user@ is not
+        # part of the machine's name.
+        STATUS=0
+        HELD="$(python3 -I "$RESERVATIONS" "${candidate#*@}" 2>&1)" || STATUS=$?
+        if (( STATUS == 1 )); then
+            echo "push-from-host: skipping $candidate: $HELD" >&2
+            RESERVED+=("$candidate")
+            continue
+        elif (( STATUS != 0 )); then
+            echo "push-from-host: skipping $candidate: its reservation can't be read (exit $STATUS): $HELD" >&2
+            RESERVED+=("$candidate")
+            continue
+        fi
     fi
     TRIED+=("$candidate")
     # Answering SSH is not enough: a host without the clone would fail later, after the bundle. ssh's own failure
@@ -103,7 +131,14 @@ for spec in "${HOSTS[@]}"; do
     fi
 done
 if [[ -z "$HOST" ]]; then
-    echo "push-from-host: no host answers SSH (${TRIED[*]}); name another with --host HOST[:REPO]." >&2
+    if (( ${#TRIED[@]} == 0 )); then
+        echo "push-from-host: every host is reserved or its reservation can't be read (${RESERVED[*]}); nothing was sent. Name a free one with --host HOST[:REPO]." >&2
+    else
+        # Not ${RESERVED[*]} on an empty array: macOS's bash 3.2 calls that unbound under set -u.
+        SKIPPED=""
+        (( ${#RESERVED[@]} == 0 )) || SKIPPED="; skipped as reserved: ${RESERVED[*]}"
+        echo "push-from-host: no host answers SSH (${TRIED[*]})$SKIPPED; name another with --host HOST[:REPO]." >&2
+    fi
     exit 2
 fi
 if (( WHICH_HOST )); then

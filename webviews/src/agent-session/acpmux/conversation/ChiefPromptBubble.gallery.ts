@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 // A prompt the Chief sent a subagent (ChiefPromptBubble.tsx): the Chief's avatar and "Sent from <Chief>" above it, and a long
-// task on its first lines with Show all (Lawrence 2026-10-19).
+// task on its first lines with Show more (Lawrence 2026-10-19).
 import { agentPaneEntry } from "../../../gallery/format";
 import { UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -36,7 +36,7 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   variants: {
     long: {
-      note: "A subagent's long task opens on its first lines; Show all opens the rest.",
+      note: "A subagent's long task opens on its first lines; Show more opens the rest.",
       snapshot: chat([
         user(longTask, 9, { seq: 1, from: "chief" }),
         assistant("Found it: the open page starts mid-turn, so the prompt never drew.", 8),

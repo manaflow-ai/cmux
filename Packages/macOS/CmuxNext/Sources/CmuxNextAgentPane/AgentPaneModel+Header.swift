@@ -71,7 +71,8 @@ public struct AgentPaneHeaderHooks {
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
     /// This chat's tab follows its shown subagent. An identity update without a loaded title keeps
     /// the name bound at open; returning to the chat clears both name and tone.
-    public var showsSubagent: @MainActor (_ title: String?, _ tone: Int?, _ keepingTitle: Bool) -> Void
+    /// `mark`: the harness whose mark the subagent's row draws, nil for the subagent mark.
+    public var showsSubagent: @MainActor (_ title: String?, _ tone: Int?, _ keepingTitle: Bool, _ mark: String?) -> Void
     /// The subagent this pane shows is in state `facts` (nil: it shows its chat again), for its tab's
     /// hover card and spinner (``SubagentTabTitles/showFacts(_:inTab:)``).
     public var showsSubagentFacts: @MainActor (_ facts: SubagentTabFacts?) -> Void
@@ -131,7 +132,7 @@ public struct AgentPaneHeaderHooks {
                 openRight: @escaping @MainActor (String) -> Bool = { _ in false },
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
-                showsSubagent: @escaping @MainActor (String?, Int?, Bool) -> Void = { _, _, _ in },
+                showsSubagent: @escaping @MainActor (String?, Int?, Bool, String?) -> Void = { _, _, _, _ in },
                 showsSubagentFacts: @escaping @MainActor (SubagentTabFacts?) -> Void = { _ in },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
@@ -269,8 +270,18 @@ extension AgentPaneModel {
         case .sessionInfoOverlays(let rects):
             sessionInfo.updateOverlays(rects)
             return AgentPaneReply.success()
+        case .sessionInfoPinch(let pinch):
+            sessionInfo.updatePinch(pinch)
+            return AgentPaneReply.success()
         case .toastAvoidance(let rect):
             setToastAvoidance(rect)
+            return AgentPaneReply.success()
+        case .toast(let message, let isError, let group):
+            guard let onToast else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.toast")
+            }
+            let kind = "agentPane.\(group ?? "feedback")"
+            onToast(CmuxToast(id: kind, message: message, tone: isError ? .error : .neutral))
             return AgentPaneReply.success()
         case .hostGlass(let surfaces):
             // Drawn before the reply, which only confirms: the page shows a surface's content first and
@@ -309,21 +320,21 @@ extension AgentPaneModel {
             return AgentPaneReply.success(state)
         case .sideChat(let fork, let splitRight):
             return await AgentPaneSideChat.open(fork, splitRight: splitRight, in: self)
-        case .subagentPane(let agent, let focus, let title, let tone):
+        case .subagentPane(let agent, let focus, let title, let tone, let mark):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
             guard let sessionId, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
             // Its tab is named after the subagent, not the chat (SubagentTabTitles).
-            SubagentTabTitles.shared.name(agent, of: sessionId, title: title, tone: tone)
+            SubagentTabTitles.shared.name(agent, of: sessionId, title: title, tone: tone, mark: mark)
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
-        case .subagentShown(let agent, let title, let tone, let facts):
+        case .subagentShown(let agent, let title, let tone, let facts, let mark):
             // A subagent pane's own page: its tab's name follows what it shows. Not from a New Tab page.
             guard newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentShown")
             }
-            header.showsSubagent(agent == nil ? nil : title, agent == nil ? nil : tone, agent != nil && title == nil)
+            header.showsSubagent(agent == nil ? nil : title, agent == nil ? nil : tone, agent != nil && title == nil, agent == nil ? nil : mark)
             // Its hover card and spinner say the subagent's own state, not its chat's.
             header.showsSubagentFacts(agent == nil ? nil : facts)
             return AgentPaneReply.success()

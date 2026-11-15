@@ -9,8 +9,14 @@ extension ProfileBarView {
     /// The mark's opacity: the current space full, others clearly dimmer.
     static func markAlpha(active: Bool, hovered: Bool) -> CGFloat { active ? 1 : (hovered ? 0.9 : 0.7) }
 
+    /// A dot's opacity: a colored space's dot is its swatch at full strength wherever it is (the current one has its
+    /// chip), so a yellow space reads as the yellow its menu shows; an uncolored dot and an icon dim as `markAlpha` says.
+    static func dotAlpha(_ profile: SidebarProfile, active: Bool, hovered: Bool) -> CGFloat {
+        profile.color != nil && profile.icon == nil && profile.image == nil ? 1 : markAlpha(active: active, hovered: hovered)
+    }
+
     func draw(profile: SidebarProfile, in rect: NSRect, active: Bool, hovered: Bool, compact: Bool) {
-        let color = profileColor(profile, active: active).withAlphaComponent(Self.markAlpha(active: active, hovered: hovered))
+        let color = profileColor(profile, active: active).withAlphaComponent(Self.dotAlpha(profile, active: active, hovered: hovered))
         if compact {
             // Too many spaces for full marks: a small dot in the space's color.
             color.setFill()
@@ -59,41 +65,19 @@ extension ProfileBarView {
                                     width: diameter, height: diameter)).fill()
     }
 
-    /// The space's color, softened toward the strip a little so it sits in
-    /// the sidebar chrome (less for the current space, so its color reads).
+    /// The space's color as the Color menu's swatch draws it (Leo 2026-11-11: "this colour selection for spaces is wack"):
+    /// the chosen color itself, never mixed toward the strip, so a yellow space's dot is the yellow swatch; the other
+    /// spaces' colored dots are full strength too (`dotAlpha`). A space with no color draws in the label ink.
     // theme-scoped: called only from drawMarks(), inside performWithTheme
-    func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor {
-        let base = profile.color?.markColor ?? Palette.textPrimary
-        return Self.markColor(base: base, step: Palette.stripStep, active: active)
-    }
-
-    /// A mark's color: the strip step (`Palette.stripStep`, design-tokens.json theme.stripStep) painted
-    /// over `base`, at full strength for the other spaces and a quarter for the current one. The result
-    /// is opaque and composited in sRGB, as the token is defined: `NSColor.blended` mixes in its own color
-    /// space and also blends alpha, which left the mark see-through.
-    static func markColor(base: NSColor, step: NSColor, active: Bool) -> NSColor {
-        guard let step = step.usingColorSpace(.sRGB), let base = base.usingColorSpace(.sRGB) else { return base }
-        let strength = step.alphaComponent * (active ? 0.25 : 1)
-        func over(_ under: CGFloat, _ top: CGFloat) -> CGFloat { under * (1 - strength) + top * strength }
-        return NSColor(
-            srgbRed: over(base.redComponent, step.redComponent),
-            green: over(base.greenComponent, step.greenComponent),
-            blue: over(base.blueComponent, step.blueComponent),
-            alpha: 1
-        )
-    }
+    func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor { profile.color?.markColor ?? Palette.textPrimary }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
+    /// The New Space +: the window's standard + (``PlusButtonLook``), its glyph, weight and ink, secondary at rest
+    /// and primary under the pointer, as the tab bar's New Tab + (Lawrence 2026-11-15: one + everywhere).
     func drawPlus(in rect: NSRect) {
-        let image = NSImage.icon(.actionAdd, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space3))
-        image.accessibilityDescription = Strings.newProfile
-        // Tint opaque, then draw at the dot's alpha: a translucent tint over
-        // the black template would stay nearly black.
-        let color = Palette.textPrimary.withAlphaComponent(hovered == Self.plusIndex ? 0.6 : 0.35)
-        let tinted = image.tinted(color.withAlphaComponent(1))
-        let size = tinted.size
-        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
-                    from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        PlusButtonLook.drawGlyph(in: context, center: CGPoint(x: rect.midX, y: rect.midY),
+                                 ink: PlusButtonLook.glyphInk(hovering: hovered == Self.plusIndex, pressed: false))
     }
 }
 

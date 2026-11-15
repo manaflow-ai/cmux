@@ -21,9 +21,10 @@ read fails. It also checks workflow_jobs.UNRESOLVED_MATRICES: an entry whose job
 resolves, fails.
 
 runs-on has a stricter lint (RawRunsOnReads), because the job heuristic above misses a job reached through a name
-it does not know (`build = JOBS.get("build-nightly-deltas")`; #40846 review F1): no Python file under tests/ reads
-the key `runs-on` from anything (`X["runs-on"]`, `X.get("runs-on")`, `.pop` / `.setdefault`, `"runs-on" in X`)
-outside RUNS_ON_READERS, which is workflow_jobs.py and may only shrink. Read runs_on_cells, runs_on_values or
+it does not know (`build = JOBS.get("build-nightly-deltas")`; #40846 review F1): no Python file under tests/ or
+scripts/ci/ reads the key `runs-on` from anything (`X["runs-on"]`, `X.get("runs-on")`, `.pop` / `.setdefault`,
+`"runs-on" in X`) outside RUNS_ON_READERS, which is tests/workflow_jobs.py and may only shrink. scripts/ci/ is in
+scope because it is CI-run code: a hand parse there misroutes jobs the same way. Read runs_on_cells, runs_on_values or
 single_runs_on instead; a fixture keeps the route it writes in a local. Writes and dict-literal keys are not reads.
 """
 
@@ -233,9 +234,10 @@ def failures(reads: list[tuple[str, int, str]]) -> list[str]:
     return out
 
 
-# The files allowed to read runs-on raw. It may only shrink: RUNS_ON_READERS_CEILING is the set it started as.
-RUNS_ON_READERS = frozenset({"workflow_jobs.py"})
-RUNS_ON_READERS_CEILING = frozenset({"workflow_jobs.py"})
+# The files (relative to the repository root) allowed to read runs-on raw. It may only shrink: RUNS_ON_READERS_CEILING
+# is the set it started as.
+RUNS_ON_READERS = frozenset({"tests/workflow_jobs.py"})
+RUNS_ON_READERS_CEILING = frozenset({"tests/workflow_jobs.py"})
 RUNS_ON = "runs-on"
 _KEY_METHODS = frozenset({"get", "pop", "setdefault"})
 
@@ -256,17 +258,23 @@ def raw_runs_on_reads(source: str) -> list[tuple[int, str]]:
     return sorted(set(found))
 
 
+def runs_on_files() -> list[Path]:
+    """Every Python file the runs-on lint reads: tests/ and scripts/ci/, the CI-run code that routes jobs."""
+    ci = ROOT / "scripts" / "ci"
+    return [*python_files(), *sorted(path for path in ci.rglob("*.py") if "__pycache__" not in path.parts)]
+
+
 def runs_on_failures(files: Iterable[Path]) -> list[str]:
     out = []
     reading = set()
     for path in files:
-        name = path.relative_to(TESTS).as_posix()
+        name = path.relative_to(ROOT).as_posix()
         reads = raw_runs_on_reads(path.read_text(encoding="utf-8"))
         if reads:
             reading.add(name)
         if name in RUNS_ON_READERS:
             continue
-        out += [f"tests/{name}:{line}: reads runs-on raw: {read} (read workflow_jobs.runs_on_cells, runs_on_values "
+        out += [f"{name}:{line}: reads runs-on raw: {read} (read workflow_jobs.runs_on_cells, runs_on_values "
                 f"or single_runs_on, which expand the matrix and refuse what they cannot resolve)"
                 for line, read in reads]
     out += [f"RUNS_ON_READERS entry reads no runs-on any more; drop it: {name}"
@@ -311,7 +319,7 @@ class GuardsReadThroughWorkflowJobs(unittest.TestCase):
         self.assertEqual([line for line, _ in raw_reads(source)], [2, 4, 6, 7, 8, 9, 10])
 
     def test_no_file_but_workflow_jobs_reads_runs_on_raw(self) -> None:
-        found = runs_on_failures(python_files())
+        found = runs_on_failures(runs_on_files())
         self.assertEqual(found, [], "\n" + "\n".join(found))
 
     def test_a_raw_runs_on_read_from_any_name_is_named(self) -> None:
@@ -333,7 +341,12 @@ class GuardsReadThroughWorkflowJobs(unittest.TestCase):
 
     def test_the_runs_on_reader_list_only_shrinks(self) -> None:
         self.assertLessEqual(RUNS_ON_READERS, RUNS_ON_READERS_CEILING)
-        self.assertEqual(RUNS_ON_READERS_CEILING, frozenset({"workflow_jobs.py"}))
+        self.assertEqual(RUNS_ON_READERS_CEILING, frozenset({"tests/workflow_jobs.py"}))
+
+    def test_the_runs_on_lint_reads_scripts_ci(self) -> None:
+        names = {path.relative_to(ROOT).as_posix() for path in runs_on_files()}
+        self.assertIn("tests/workflow_jobs.py", names)
+        self.assertIn("scripts/ci/runner_routing_table.py", names)
 
     def test_single_runs_on_refuses_what_it_cannot_read_as_one_route(self) -> None:
         self.assertEqual(workflow_jobs.single_runs_on({"runs-on": "ubuntu-24.04"}), "ubuntu-24.04")
@@ -343,6 +356,28 @@ class GuardsReadThroughWorkflowJobs(unittest.TestCase):
             with self.subTest(job=job):
                 with self.assertRaises(workflow_jobs.UnresolvedRunsOn):
                     workflow_jobs.single_runs_on(job)
+
+    def test_deciding_mac_jobs_reads_a_matrix_route_per_cell(self) -> None:
+        # scripts/ci/deciding_mac_jobs.py has no suite of its own; its runs-on reads moved with this lint. Read as one
+        # string, `${{ matrix.os }}` is one unknown label, so a matrix with a Mac cell was "other" and its checks were
+        # not counted as Mac checks (coderouter-release.yml's build, relay-publish-npm.yml's smoke).
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import deciding_mac_jobs  # noqa: PLC0415
+
+        def matrix(*values: str) -> dict:
+            return {"runs-on": "${{ matrix.os }}", "strategy": {"matrix": {"os": list(values)}}}
+        self.assertEqual(deciding_mac_jobs.job_runner_class(matrix("ubuntu-24.04", "macos-15")), "mac")
+        self.assertEqual(deciding_mac_jobs.job_runner_class(matrix("blacksmith-4vcpu-ubuntu-2404")), "linux")
+        self.assertEqual(deciding_mac_jobs.job_runner_class(
+            {"runs-on": "${{ matrix.os }}", "strategy": {"matrix": "${{ fromJSON(needs.a.outputs.m) }}"}}), "other")
+        self.assertEqual(deciding_mac_jobs.job_runner_class({"uses": "./.github/workflows/x.yml"}), "other")
+        self.assertEqual(deciding_mac_jobs.job_runner_class({"runs-on": "macos-15"}), "mac")
+
+    def test_runs_on_label_cells_keep_a_list_route_a_list(self) -> None:
+        job = {"runs-on": ["self-hosted", "${{ matrix.arch }}"], "strategy": {"matrix": {"arch": ["x64", "arm64"]}}}
+        self.assertEqual(workflow_jobs.runs_on_label_cells(job), [("self-hosted", "x64"), ("self-hosted", "arm64")])
+        self.assertEqual(workflow_jobs.runs_on_cells(job), ["self-hosted, x64", "self-hosted, arm64"])
+        self.assertEqual(workflow_jobs.runs_on_items({"runs-on": {"group": "g", "labels": "l"}}), ["l", "g"])
 
     def test_writes_steps_and_resolved_reads_are_not_named(self) -> None:
         source = (

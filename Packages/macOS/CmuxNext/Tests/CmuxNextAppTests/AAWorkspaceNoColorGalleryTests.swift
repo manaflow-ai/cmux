@@ -33,7 +33,7 @@ import Testing
     }
 
     /// A themed offscreen window holding `content` (sized by the caller), drawn to an image.
-    private static func draw(width: CGFloat, height: CGFloat, dark: Bool, _ content: (NSView, ThemeScope) throws -> Void) throws -> CGImage {
+    static func draw(width: CGFloat, height: CGFloat, dark: Bool, _ content: (NSView, ThemeScope) throws -> Void) throws -> CGImage {
         _ = NSApplication.shared
         let theme = dark ? "Soft Blue" : "Soft Blue Light"
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],

@@ -162,6 +162,9 @@ public final class PageInputReadiness {
           let list = false;
           let editing = false;
           let epoch = 0;
+          // The element the epoch counts focus for: the same element focused again (its window got
+          // focus) is not a focus move, so text queued for it still lands (1 in 150 New Tab tries lost it).
+          let focused = null;
           post(false);
           const isList = (el) => !!el && el !== document.body && (!!el.closest('[role=listbox],[role=menu],[role=menubar],[role=tree],[role=grid]')
             || el.getAttribute('role') === 'combobox' || el.hasAttribute('aria-activedescendant') || el.hasAttribute('aria-autocomplete'));
@@ -172,10 +175,13 @@ public final class PageInputReadiness {
             const typing = editable(document.activeElement);
             if (typing !== editing) { editing = typing; post({ editing: typing }); }
           };
-          document.addEventListener('focusin', () => {
-            epoch += 1;
-            window.__cmuxInputFocusEpoch = epoch;
-            try { window.webkit.messageHandlers.\(handlerName).postMessage({ epoch }); } catch (_) {}
+          document.addEventListener('focusin', (event) => {
+            if (event.target !== focused) {
+              focused = event.target;
+              epoch += 1;
+              window.__cmuxInputFocusEpoch = epoch;
+              try { window.webkit.messageHandlers.\(handlerName).postMessage({ epoch }); } catch (_) {}
+            }
             report();
           }, true);
           document.addEventListener('focusout', () => setTimeout(report, 0), true);

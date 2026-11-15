@@ -185,6 +185,9 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           deviceScaleFactor: 4,
         });
         const page = await context.newPage();
+        // Claude's look, the layout these sizes keep both chips on one line in: Codex's (the default
+        // since #42247) widens the prompt's insets and WebKit wraps the second chip.
+        await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
         try {
           // Two screenshots at the end of the text, side by side: the caret after the last one, then
           // between the two.

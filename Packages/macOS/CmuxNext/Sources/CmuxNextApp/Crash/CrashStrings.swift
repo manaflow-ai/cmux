@@ -19,10 +19,6 @@ enum CrashStrings {
         String(format: String(localized: "app.restart.cause", defaultValue: "Cause: %@", bundle: .module), cause)
     }
 
-    static var dismiss: String {
-        String(localized: "app.restart.dismiss", defaultValue: "Dismiss", bundle: .module)
-    }
-
     /// On the one restored page a restart loop holds (`LaunchRecovery.crashedPages`).
     static var crashedPageNotice: String {
         String(localized: "app.restart.crashedPage", defaultValue: "cmux quit unexpectedly twice while this page was loading, so it was not loaded again. Reload to open it.", bundle: .module)

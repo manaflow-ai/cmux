@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1391,
-    "shortcuts": 190
+    "entries": 1408,
+    "shortcuts": 192
   },
   "sections": [
     {
@@ -3658,6 +3658,12 @@
           "command": null
         },
         {
+          "id": "macScreen.stopViewing",
+          "title": "Stop Viewing Shared Screen",
+          "shortcut": null,
+          "command": "cmux tab stop-mac-screen-viewing"
+        },
+        {
           "id": "tabGroup.color.blue",
           "title": "Tab Group Color: Blue",
           "shortcut": null,
@@ -4684,6 +4690,12 @@
           "command": "cmux bookmark move"
         },
         {
+          "id": "browserProfile.move",
+          "title": "Move Browser Profile to Position…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.extension.move",
           "title": "Move Pinned Extension",
           "shortcut": null,
@@ -5014,6 +5026,12 @@
           "command": "cmux browser-profile clear-icon"
         },
         {
+          "id": "browserProfile.clearProxy",
+          "title": "Remove Browser Profile Proxy",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.extension.remove",
           "title": "Remove Extension",
           "shortcut": null,
@@ -5192,6 +5210,12 @@
           "title": "Set Browser Profile Icon…",
           "shortcut": null,
           "command": "cmux browser-profile set-icon"
+        },
+        {
+          "id": "browserProfile.setProxy",
+          "title": "Set Browser Profile Proxy…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "phone.appearance",
@@ -5508,6 +5532,12 @@
         {
           "id": "vaultCopyResumeCommand",
           "title": "Copy Resume Command",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.customize",
+          "title": "Customize Sidebar…",
           "shortcut": null,
           "command": null
         },
@@ -5962,6 +5992,12 @@
       "title": "Notifications",
       "entries": [
         {
+          "id": "notifications.allowDesktop",
+          "title": "Allow cmux Notifications",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "clearAllNotifications",
           "title": "Clear All Notifications",
           "shortcut": null,
@@ -6124,6 +6160,12 @@
           "command": "cmux notification preview-sound"
         },
         {
+          "id": "toasts.showHidden",
+          "title": "Show Hidden Toasts Again",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "showNotifications",
           "title": "Show Notifications",
           "shortcut": null,
@@ -6205,6 +6247,12 @@
           "id": "chief.importMemories",
           "title": "Bring Your History",
           "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "palette.captureScreenshotToChat",
+          "title": "Capture Screenshot to Chat",
+          "shortcut": "⌃⌥⌘S",
           "command": null
         },
         {
@@ -6730,6 +6778,12 @@
           "command": "cmux chief share-screen"
         },
         {
+          "id": "agentBoard.show",
+          "title": "Show Agent Board",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "stats.show",
           "title": "Show Agent Stats",
           "shortcut": null,
@@ -6860,6 +6914,12 @@
           "title": "Toggle Tabs Beside Chat",
           "shortcut": null,
           "command": "cmux agent toggle-side-tabs"
+        },
+        {
+          "id": "palette.toggleTerminalChat",
+          "title": "Toggle Terminal and Chat",
+          "shortcut": "⌥⌘`",
+          "command": null
         },
         {
           "id": "agentPane.toggleDisplaySettings",
@@ -7318,6 +7378,12 @@
           "command": "cmux cloud start-session"
         },
         {
+          "id": "cloudSetupDesktop",
+          "title": "Start Desktop…",
+          "shortcut": null,
+          "command": "cmux cloud setup-desktop"
+        },
+        {
           "id": "openTeamPicker",
           "title": "Switch Active Team…",
           "shortcut": "⌥⇧⌘T",
@@ -7362,6 +7428,12 @@
         {
           "id": "remote.allowScreenRecording",
           "title": "cmux Remote: Allow Screen Recording",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "remote.stopScreenSession",
+          "title": "cmux Remote: End Screen Sharing Session",
           "shortcut": null,
           "command": null
         },
@@ -7642,6 +7714,12 @@
           "command": null
         },
         {
+          "id": "debug.densityOverlayPlayground",
+          "title": "Density Overlay Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.density.comfortable",
           "title": "Density: Comfortable",
           "shortcut": null,
@@ -7854,6 +7932,12 @@
         {
           "id": "server.makeThisMacAServer",
           "title": "Make This Mac a Server",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "billing.openPortal",
+          "title": "Manage Billing",
           "shortcut": null,
           "command": null
         },
@@ -8146,6 +8230,12 @@
           "command": "cmux settings toggle-sidebar-animations"
         },
         {
+          "id": "debug.sidebarRowTuner",
+          "title": "Sidebar Row Tuner",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "debug.sidebarStatesPlayground",
           "title": "Sidebar States Playground",
           "shortcut": null,
@@ -8240,6 +8330,18 @@
           "title": "Thick Pane Borders",
           "shortcut": null,
           "command": "cmux settings toggle-thick-pane-borders"
+        },
+        {
+          "id": "debug.toastPlayground",
+          "title": "Toast Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.toastTuning",
+          "title": "Toast Tuning",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "debug.actionLatencyHUD",

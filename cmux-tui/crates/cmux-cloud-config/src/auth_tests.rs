@@ -316,7 +316,10 @@ fn team_rows_show_only_the_accounts_own_default_team_as_personal() {
     let own = Some("leo@cmux.com");
     let teams = [facts("t1", "cmux", Some("team")), facts("t2", "leo@cmux.com's Team", None)];
     let rows = team_rows(&teams, Some("t2"), own);
-    assert_eq!((rows[1].title.as_str(), rows[1].kind, rows[1].id.as_str()), ("Personal", TeamKind::Personal, "t2"));
+    assert_eq!(
+        (rows[1].title.as_str(), rows[1].kind, rows[1].id.as_str()),
+        ("Personal", TeamKind::Personal, "t2")
+    );
     assert!(rows[1].active);
     assert_eq!(rows[0].kind, TeamKind::Team);
     // A curly apostrophe and any case are the same default team.
@@ -329,8 +332,15 @@ fn team_rows_show_only_the_accounts_own_default_team_as_personal() {
     }
     // Without the account's email nothing is relabeled.
     let unknown = team_rows(&teams, None, None);
-    assert_eq!((unknown[1].title.as_str(), unknown[1].kind), ("leo@cmux.com's Team", TeamKind::Team));
+    assert_eq!(
+        (unknown[1].title.as_str(), unknown[1].kind),
+        ("leo@cmux.com's Team", TeamKind::Team)
+    );
     // An account that already has a Personal team keeps both names.
-    let both = team_rows(&[facts("t5", "Personal", None), facts("t2", "leo@cmux.com's Team", None)], None, own);
+    let both = team_rows(
+        &[facts("t5", "Personal", None), facts("t2", "leo@cmux.com's Team", None)],
+        None,
+        own,
+    );
     assert_eq!((both[1].title.as_str(), both[1].kind), ("leo@cmux.com's Team", TeamKind::Team));
 }

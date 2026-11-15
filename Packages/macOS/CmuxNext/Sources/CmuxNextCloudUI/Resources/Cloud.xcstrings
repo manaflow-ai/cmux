@@ -4353,138 +4353,6 @@
         }
       }
     },
-    "cloud.bringBack.failed": {
-      "comment": "Bring Back stopped; %@ is why (last, after “Reason:”). `cmux cloud diagnostics` is a command; keep it as is.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't bring the chat back. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّرت إعادة المحادثة. حاول مرة أخرى؛ وإذا استمر الفشل، فشغّل `cmux cloud diagnostics`. السبب: %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chat se nije mogao vratiti. Pokušajte ponovo; ako i dalje ne uspijeva, pokrenite `cmux cloud diagnostics`. Razlog: %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chatten kunne ikke hentes tilbage. Prøv igen. Hvis det bliver ved med at mislykkes, så kør `cmux cloud diagnostics`. Årsag: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Chat konnte nicht zurückgeholt werden. Versuche es erneut; schlägt es weiter fehl, führe `cmux cloud diagnostics` aus. Grund: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo traer el chat de vuelta. Inténtalo de nuevo; si sigue fallando, ejecuta `cmux cloud diagnostics`. Motivo: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de rapatrier la discussion. Réessayez ; si l’échec se répète, exécutez `cmux cloud diagnostics`. Raison : %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile riportare la chat. Riprova; se continua a non riuscire, esegui `cmux cloud diagnostics`. Motivo: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットを戻せませんでした。もう一度試してください。失敗が続く場合は `cmux cloud diagnostics` を実行してください。理由: %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចនាំការជជែកត្រឡប់មកវិញបានទេ។ សាកម្តងទៀត។ ប្រសិនបើនៅតែបរាជ័យ សូមដំណើរការ `cmux cloud diagnostics`។ មូលហេតុ៖ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "채팅을 다시 가져오지 못했습니다. 다시 시도하세요. 계속 실패하면 `cmux cloud diagnostics`를 실행하세요. 이유: %@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke hente chatten tilbake. Prøv igjen. Hvis det fortsatt mislykkes, kjør `cmux cloud diagnostics`. Årsak: %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się przywrócić czatu. Spróbuj ponownie; jeśli nadal się nie udaje, uruchom `cmux cloud diagnostics`. Powód: %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível trazer o chat de volta. Tente de novo; se continuar falhando, execute `cmux cloud diagnostics`. Motivo: %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось вернуть чат. Повторите попытку; если сбой повторяется, выполните `cmux cloud diagnostics`. Причина: %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "นำแชทกลับมาไม่ได้ ลองอีกครั้ง หากยังไม่สำเร็จ ให้เรียกใช้ `cmux cloud diagnostics` สาเหตุ: %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sohbet geri getirilemedi. Yeniden deneyin; başarısız olmaya devam ederse `cmux cloud diagnostics` komutunu çalıştırın. Neden: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося повернути чат. Спробуйте ще раз; якщо збій повторюється, виконайте `cmux cloud diagnostics`. Причина: %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể đưa cuộc trò chuyện về. Hãy thử lại; nếu vẫn thất bại, hãy chạy `cmux cloud diagnostics`. Lý do: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法带回对话。请重试；如果仍然失败，请运行 `cmux cloud diagnostics`。原因：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法帶回對話。請再試一次；如果仍然失敗，請執行 `cmux cloud diagnostics`。原因：%@"
-          }
-        }
-      }
-    },
     "cloud.bringBack.askFirst": {
       "extractionState": "manual",
       "localizations": {
@@ -5009,134 +4877,266 @@
         }
       }
     },
-    "cloud.move.failed": {
-      "comment": "Move to Cloud stopped; %@ is why (last, after “Reason:”). `cmux cloud diagnostics` is a command; keep it as is.",
+    "cloud.move.failedPlain": {
+      "comment": "%@ is why it failed, in plain words.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't move the chat. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@"
+            "value": "Couldn't move the chat. %@"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر نقل المحادثة. حاول مرة أخرى؛ وإذا استمر الفشل، فشغّل `cmux cloud diagnostics`. السبب: %@"
+            "state": "needs_review",
+            "value": "تعذّر نقل الدردشة. %@"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chat se nije mogao premjestiti. Pokušajte ponovo; ako i dalje ne uspijeva, pokrenite `cmux cloud diagnostics`. Razlog: %@"
+            "state": "needs_review",
+            "value": "Nije moguće premjestiti chat. %@"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chatten kunne ikke flyttes. Prøv igen. Hvis det bliver ved med at mislykkes, så kør `cmux cloud diagnostics`. Årsag: %@"
+            "state": "needs_review",
+            "value": "Kunne ikke flytte chatten. %@"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Der Chat konnte nicht verschoben werden. Versuche es erneut; schlägt es weiter fehl, führe `cmux cloud diagnostics` aus. Grund: %@"
+            "state": "needs_review",
+            "value": "Der Chat konnte nicht verschoben werden. %@"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo mover el chat. Inténtalo de nuevo; si sigue fallando, ejecuta `cmux cloud diagnostics`. Motivo: %@"
+            "state": "needs_review",
+            "value": "No se pudo mover el chat. %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de déplacer la discussion. Réessayez ; si l’échec se répète, exécutez `cmux cloud diagnostics`. Raison : %@"
+            "state": "needs_review",
+            "value": "Impossible de déplacer la discussion. %@"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile spostare la chat. Riprova; se continua a non riuscire, esegui `cmux cloud diagnostics`. Motivo: %@"
+            "state": "needs_review",
+            "value": "Impossibile spostare la chat. %@"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "チャットを移動できませんでした。もう一度試してください。失敗が続く場合は `cmux cloud diagnostics` を実行してください。理由: %@"
+            "state": "needs_review",
+            "value": "チャットを移動できませんでした。%@"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចផ្លាស់ទីការជជែកបានទេ។ សាកម្តងទៀត។ ប្រសិនបើនៅតែបរាជ័យ សូមដំណើរការ `cmux cloud diagnostics`។ មូលហេតុ៖ %@"
+            "state": "needs_review",
+            "value": "មិនអាចផ្លាស់ទីការជជែកបានទេ។ %@"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "채팅을 옮기지 못했습니다. 다시 시도하세요. 계속 실패하면 `cmux cloud diagnostics`를 실행하세요. 이유: %@"
+            "state": "needs_review",
+            "value": "채팅을 옮기지 못했습니다. %@"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke flytte chatten. Prøv igjen. Hvis det fortsatt mislykkes, kjør `cmux cloud diagnostics`. Årsak: %@"
+            "state": "needs_review",
+            "value": "Kunne ikke flytte chatten. %@"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się przenieść czatu. Spróbuj ponownie; jeśli nadal się nie udaje, uruchom `cmux cloud diagnostics`. Powód: %@"
+            "state": "needs_review",
+            "value": "Nie można przenieść czatu. %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível mover o chat. Tente de novo; se continuar falhando, execute `cmux cloud diagnostics`. Motivo: %@"
+            "state": "needs_review",
+            "value": "Não foi possível mover o chat. %@"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось перенести чат. Повторите попытку; если сбой повторяется, выполните `cmux cloud diagnostics`. Причина: %@"
+            "state": "needs_review",
+            "value": "Не удалось перенести чат. %@"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ย้ายแชทไม่ได้ ลองอีกครั้ง หากยังไม่สำเร็จ ให้เรียกใช้ `cmux cloud diagnostics` สาเหตุ: %@"
+            "state": "needs_review",
+            "value": "ย้ายแชทไม่ได้ %@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sohbet taşınamadı. Yeniden deneyin; başarısız olmaya devam ederse `cmux cloud diagnostics` komutunu çalıştırın. Neden: %@"
+            "state": "needs_review",
+            "value": "Sohbet taşınamadı. %@"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося перенести чат. Спробуйте ще раз; якщо збій повторюється, виконайте `cmux cloud diagnostics`. Причина: %@"
+            "state": "needs_review",
+            "value": "Не вдалося перемістити чат. %@"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Không thể chuyển cuộc trò chuyện. Hãy thử lại; nếu vẫn thất bại, hãy chạy `cmux cloud diagnostics`. Lý do: %@"
+            "state": "needs_review",
+            "value": "Không thể di chuyển cuộc trò chuyện. %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法移动对话。请重试；如果仍然失败，请运行 `cmux cloud diagnostics`。原因：%@"
+            "state": "needs_review",
+            "value": "无法移动聊天。%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "無法移動聊天。%@"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.failedPlain": {
+      "comment": "%@ is why it failed, in plain words.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "無法移動對話。請再試一次；如果仍然失敗，請執行 `cmux cloud diagnostics`。原因：%@"
+            "value": "Couldn't bring the chat back. %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر إعادة الدردشة. %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće vratiti chat. %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke hente chatten tilbage. %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chat konnte nicht zurückgeholt werden. %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo traer el chat de vuelta. %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de rapatrier la discussion. %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile riportare indietro la chat. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットを戻せませんでした。%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចនាំការជជែកត្រឡប់មកវិញបានទេ។ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅을 다시 가져오지 못했습니다. %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke hente chatten tilbake. %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można przywrócić czatu. %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível trazer o chat de volta. %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось вернуть чат. %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำแชทกลับมาไม่ได้ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet geri getirilemedi. %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося повернути чат. %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đưa cuộc trò chuyện trở lại. %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将聊天移回。%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將聊天移回。%@"
           }
         }
       }

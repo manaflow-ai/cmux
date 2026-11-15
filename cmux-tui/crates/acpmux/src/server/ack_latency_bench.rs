@@ -71,7 +71,7 @@ pub(super) async fn hub_with(plan_bytes: usize) -> Arc<crate::hub::Hub> {
             })
             .collect();
         let mut settled = peer.settled();
-        for notice in [PeerNotice::Sessions(rows), PeerNotice::Connected] {
+        for notice in [PeerNotice::sessions_from_values(rows), PeerNotice::Connected] {
             hub.peer_notices.send((name.to_owned(), peer.generation, notice)).await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(30), settled.wait_for(|n| *n >= 1))
@@ -169,7 +169,7 @@ fn ms(d: Duration) -> f64 {
 async fn ack_latency_bench() {
     let hub = hub().await;
     let client = Client::on(&hub, Origin::LocalApp).await;
-    // The first list builds the shared snapshot; its cost is not what this measures.
+    // The first list warms the closed rows' cached bytes; its cost is not what this measures.
     let _ = client.call(method::MUX_SESSIONS, json!({"limit": 1})).await;
     let reading = Arc::new(std::sync::atomic::AtomicBool::new(true));
     // Small requests every 2 ms while the lists are read: each one's latency.

@@ -5,8 +5,9 @@
 // Only one of the two shows at a time (Leo, 2026-11-12: the two stacked are "maybe a bit extra?"):
 // the variants park the reader mid-chat, scrolled up, where Jump to latest shows over real prose; the
 // `-up` variants leave them at the latest message under an unread "New" line far above, where Jump up
-// shows; `frosted-image` over a wallpaper. `pair` and `up` pin no arm, so View Compare arms draws them
-// once per look side by side; the other variants pin one look each. Light and dark:
+// shows; `single` pins the look that draws no Jump up at all; `frosted-image` over a wallpaper. `pair`
+// and `up` pin no arm, so View Compare arms draws them once per look side by side; the other variants
+// pin one look each. Light and dark:
 // ?colorScheme=light / dark.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
@@ -14,6 +15,7 @@ import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?
 import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpmux";
 import { SINCE_DIVIDER } from "./model";
 import { jumpPairLook, type JumpPairLook } from "./jumpPair.experiment";
+import { jumpUpButton } from "./jumpUp.experiment";
 
 const MARK = "gallery-jump-pair:41";
 
@@ -65,9 +67,14 @@ const park: Play = async (ctx) => {
   await ctx.waitFor(() => shown(ctx, LATEST) && !shown(ctx, UP));
 };
 
-/// At the latest message, the unread line far above: Jump up shows, alone.
+/// At the latest message, the unread line far above: Jump up shows, alone. The single look draws no
+/// Jump up, so there neither button shows.
 const atLatest: Play = async (ctx) => {
   await ctx.waitFor(() => (scroller(ctx)?.scrollHeight ?? 0) > 2_000);
+  if (ctx.document.querySelector(`${LATEST}[data-look="single"]`)) {
+    await ctx.waitFor(() => !shown(ctx, LATEST));
+    return;
+  }
   await ctx.waitFor(() => shown(ctx, UP) && !shown(ctx, LATEST));
 };
 
@@ -78,7 +85,9 @@ const overImage: Play = async (ctx) => {
   await park(ctx);
 };
 
-const look = (arm: JumpPairLook) => ({ experiments: { [jumpPairLook.id]: arm } });
+const look = (arm: JumpPairLook, up = false) => ({
+  experiments: { [jumpPairLook.id]: arm, ...(up ? { [jumpUpButton.id]: "on" } : {}) },
+});
 
 export default agentPaneEntry({
   id: "agent-pane.jump-pair-look",
@@ -107,12 +116,13 @@ export default agentPaneEntry({
       note: "Jump up alone at the latest message, the New line far above, in the app's look; View Compare arms puts every look side by side.",
       snapshot,
       play: atLatest,
+      experiments: { [jumpUpButton.id]: "on" },
     },
     "labeled-up": {
       note: "Labeled Jump up: its own words, alone at the latest message.",
       snapshot,
       play: atLatest,
-      ...look("labeled"),
+      ...look("labeled", true),
     },
     frosted: {
       note: "Selected (ships): a 32 px frosted disc at the composer's glass level; the words under it frost, nothing bends.",
@@ -131,6 +141,12 @@ export default agentPaneEntry({
       snapshot,
       play: park,
       ...look("stacked"),
+    },
+    single: {
+      note: 'Single: the frosted disc alone, no Jump up over it (Leo, 2026-11-12: "maybe a bit extra?").',
+      snapshot,
+      play: park,
+      ...look("single"),
     },
     lens: {
       note: "Before: the fisheye lens disc; the words under it magnify and bend behind the arrow.",

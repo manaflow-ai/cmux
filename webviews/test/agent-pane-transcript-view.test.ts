@@ -3,7 +3,7 @@
 // talking JSON-RPC over a WebSocket to a stand-in acpmux daemon that serves one finished recorded
 // chat (replay/replayFixture.ts: a thought, a read, test runs and an edit).
 //
-// - Normal folds every interim reply and call under "Worked for", leaving only the final answer.
+// - Normal folds short narration and calls under "Worked for", leaving substantive replies visible.
 // - Thinking, picked from the menu, opens that fold: the thought shows, each call's output stays folded.
 // - Verbose also opens each call to its output.
 // - Closing the turn's fold by hand in Verbose keeps it closed there; Normal keeps its own folds.
@@ -148,11 +148,9 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await page.close();
     });
 
-    // The ··· menu is already full height: Transcript view takes Text & Width's row (its submenu ends
-    // with Text & Width…), so Archive stays on screen. This chat's menu is 647 px tall (21 rows) and
-    // opens 32 px down: a 690 px pane holds it with less than one row to spare, so a row more (the
-    // review of #28782 at 7f8dfad8) pushes Archive out of view and fails here.
-    test("the chat menu still shows Archive; Transcript view and Text & Width are in one submenu", async () => {
+    // A short pane scrolls the extra message actions. Archive remains enabled and keyboard-reachable;
+    // Transcript view still contains Text & Width rather than adding another top-level row.
+    test("a constrained chat menu scrolls Archive into keyboard reach and keeps display controls together", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 690 } });
       await page.goto(pageUrl());
       await page.getByText(ANSWER).waitFor();
@@ -161,6 +159,8 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await menu.waitFor();
       const archive = menu.getByRole("menuitem", { name: /^Archive/ });
       await archive.waitFor({ state: "attached" });
+      expect(await archive.isEnabled()).toBe(true);
+      await page.keyboard.type("arch", { delay: 40 });
       const fit = await page.evaluate(() => {
         const popup = document.querySelector<HTMLElement>(".acpmux-chat-menu-popover")!;
         const row = [...popup.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((each) =>
@@ -168,8 +168,17 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         )!;
         const shown = popup.getBoundingClientRect();
         const box = row.getBoundingClientRect();
+        const scroller = row.closest<HTMLElement>(".ui-popup-scroll")!;
+        const visible = scroller.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
         return {
-          inView: popup.scrollTop === 0 && box.bottom <= shown.bottom + 0.5 && box.bottom <= window.innerHeight,
+          inView:
+            shown.top >= 0 &&
+            shown.bottom <= window.innerHeight &&
+            box.top >= visible.top - 0.5 &&
+            box.bottom <= visible.bottom + 0.5 &&
+            document.activeElement === row &&
+            (hit === row || row.contains(hit)),
           detail: `row ${Math.round(box.top)}-${Math.round(box.bottom)}, menu ${Math.round(shown.top)}-${Math.round(shown.bottom)} (scrolls ${popup.scrollHeight}/${popup.clientHeight}), window ${window.innerHeight}`,
         };
       });
@@ -350,13 +359,13 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         interim: await interim.isVisible(),
       };
 
-      // Closing the turn hides every interim reply and call; only the final answer stays outside.
+      // Closing the turn hides short narration and calls; substantive replies stay outside.
       expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
-        normal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: false },
+        normal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: true },
         thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
         closedByHand: { worked: "false", fewer: true },
-        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: false },
+        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: true },
       });
       await page.close();
     });

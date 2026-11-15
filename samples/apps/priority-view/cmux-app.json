@@ -4,7 +4,7 @@
   "id": "cmux/priority-view",
   "name": { "en": "Priority View", "ja": "優先ビュー" },
   "version": "0.1.0",
-  "description": "Your agents ranked by what needs you: waiting on you, finished, working, then idle. Click one to jump to its terminal.",
+  "description": "Your agent chats ranked by what needs you: waiting on you, finished, failed, CI failing, working, then idle; pinned first in each. Click one to open it.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "GPL-3.0-or-later",
@@ -13,13 +13,13 @@
   "engines": { "cmux": "^1.0" },
   "main": "dist/main.js",
   "scopes": {
-    "agent:read": "List the agents running in your terminals.",
-    "terminal:read": "Find the tab of an agent's terminal.",
-    "workspace:write": "Show an agent's tab when you click it."
+    "chat:read": "List your agent chats on every machine.",
+    "chat:write": "Mark a chat read or pin it when you click.",
+    "workspace:write": "Show a chat's workspace when you click it."
   },
   "contributes": {
     "sidebarSections": [{ "id": "priority", "title": { "en": "Priority", "ja": "優先" }, "symbol": "bell", "defaultRegion": "top", "render": "renderPriority", "maxRows": 12 }],
-    "settings": { "type": "object", "properties": { "showIdle": { "type": "boolean", "default": false, "title": "Show idle agents" } } }
+    "settings": { "type": "object", "properties": { "showIdle": { "type": "boolean", "default": false, "title": "Show idle chats" } } }
   },
   "activation": ["onSidebarSection:priority"],
   "files": ["dist/", "assets/"]

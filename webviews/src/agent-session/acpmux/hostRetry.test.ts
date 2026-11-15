@@ -8,7 +8,10 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
+  hostSelfRetrying,
   nextRetryDelay,
+  QUICK_RETRY_WINDOW_MS,
+  quickRetry,
   offersAcpmuxRestart,
 } from "./hostRetry";
 
@@ -159,7 +162,7 @@ test("a hard refusal is said at once", () => {
   expect(hostErrorShows({ code: "agent_session.untrusted" }, 0)).toBe(true);
 });
 
-test("a recovering pane asks again within 2 s; a refusal keeps retrying without a terminal cap", () => {
+test("a recovering pane asks again within 2 s; a refusal keeps retrying, at least every 30 s", () => {
   const waits = (recovering: boolean) => {
     let delay = 250;
     const out: number[] = [];
@@ -170,7 +173,53 @@ test("a recovering pane asks again within 2 s; a refusal keeps retrying without 
     return out;
   };
   expect(waits(true)).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000, 2000]);
-  expect(Math.max(...waits(false))).toBeGreaterThan(30_000);
+  expect(waits(false)).toEqual([250, 500, 1000, 2000, 4000, 8000, 16_000, 30_000]);
+});
+
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up and load
+// faster/percievably load faster / whatever it takes". A chat on screen whose acpmux restarts asks
+// again within half a second for the first 10 s (a restart's usual length), so it is back within
+// 500 ms of acpmux answering instead of up to 2 s later. A hidden chat, or a recovery past 10 s,
+// keeps the 2 s step; a refusal keeps its 30 s one.
+test("a shown chat asks again within 500 ms during the first 10 s of a recovery", () => {
+  const waits = (quick: boolean, recovering = true) => {
+    let delay = 250;
+    const out: number[] = [];
+    for (let attempt = 0; attempt < 8; attempt++) {
+      out.push(delay);
+      delay = nextRetryDelay(delay, recovering, quick);
+    }
+    return out;
+  };
+  expect(waits(true)).toEqual([250, 500, 500, 500, 500, 500, 500, 500]);
+  expect(waits(false)).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000, 2000]);
+  expect(waits(true, false)).toEqual([250, 500, 1000, 2000, 4000, 8000, 16_000, 30_000]);
+  expect(QUICK_RETRY_WINDOW_MS).toBe(10_000);
+  expect(quickRetry({ shown: true, failingForMs: 9_999 })).toBe(true);
+  expect(quickRetry({ shown: true, failingForMs: 10_000 })).toBe(false);
+  expect(quickRetry({ shown: false, failingForMs: 0 })).toBe(false);
+});
+
+// The first-load bench's 10 s drop got slower with quick asks (791 -> 2618 ms): over a page's own
+// WebSocket, Chromium holds back each open by 1-5 s once ~15 have failed, so ~25 refused opens in
+// 10 s delayed the one that would succeed. Only the app's host connect (`acpmux-bridge`) asks quickly.
+test("a page that opens its own WebSocket keeps the 2 s step", () => {
+  expect(quickRetry({ shown: true, failingForMs: 0, browserSocket: false })).toBe(true);
+  expect(quickRetry({ shown: true, failingForMs: 0, browserSocket: true })).toBe(false);
+});
+
+// Leo, 2026-11-12, after the machine hosting a chat's agent rebooted: "it should just automatically
+// do stuff". A failure the pane clears by asking again is the quiet line; one that waits on the
+// person, or that asking cannot change, keeps its words and action.
+test("only a failure the pane clears by asking again is self-retrying", () => {
+  expect(hostSelfRetrying(new Error("Couldn't connect to the agent."), false)).toBe(true);
+  expect(hostSelfRetrying({ code: "native.not_connected" }, false)).toBe(true);
+  expect(hostSelfRetrying({ code: "native.timed_out" }, false)).toBe(true);
+  expect(hostSelfRetrying({ code: "host_unavailable", details: { reconnecting: true } }, false)).toBe(true);
+  expect(hostSelfRetrying({ code: "host_unavailable" }, false)).toBe(false);
+  expect(hostSelfRetrying({ code: "agent_session.untrusted" }, false)).toBe(false);
+  expect(hostSelfRetrying({ code: -32000, reason: "message.too_large" }, false)).toBe(false);
+  expect(hostSelfRetrying(new Error("Couldn't connect to the agent."), true)).toBe(false);
 });
 
 /// A chat whose open reply passes one message is refused the same way at every ask (Leo,

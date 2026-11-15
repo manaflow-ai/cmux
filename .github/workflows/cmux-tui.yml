@@ -460,21 +460,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-      # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
-      # cmux-tui lint/test steps never build it. Its tests pin the C header
+      # cmux-rd-ffi is in the app FFI workspace (cmux-app-ffi, outside
+      # cmux-tui's --workspace), so the cmux-tui lint/test steps never build it. Its tests pin the C header
       # against the exports and layouts (plans/cmux-next/remote-desktop.md 3).
-      - name: cmux-rd-ffi (own workspace)
+      - name: cmux-rd-ffi (app FFI workspace)
         working-directory: cmux-tui/crates/cmux-rd-ffi
         run: |
           cargo fmt --check || { echo "::warning title=cmux-rd-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
 
-      # cmux-layout-reducer-ffi is its own workspace too (no committed
-      # Cargo.lock): its C ABI tests cover the sidebar reducer and the Tasks
-      # preview. cmux-app-ffi links it, and build-app-ffi.sh builds --locked,
-      # so a stale cmux-app-ffi/Cargo.lock fails here with the needed diff.
-      - name: cmux-layout-reducer-ffi (own workspace)
+      # cmux-layout-reducer-ffi is in the app FFI workspace too: its C ABI
+      # tests cover the sidebar reducer and the Tasks preview. The workspace's
+      # one lock is cmux-app-ffi/Cargo.lock, and build-app-ffi.sh builds
+      # --locked, so a stale lock fails here with the needed diff.
+      - name: cmux-layout-reducer-ffi (app FFI workspace)
         working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
         run: |
           cargo fmt --check || { echo "::warning title=cmux-layout-reducer-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }

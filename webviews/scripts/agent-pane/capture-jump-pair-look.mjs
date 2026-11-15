@@ -14,6 +14,7 @@ const variants = process.argv[3]?.split(",").filter(Boolean) ?? [
   "frosted",
   "labeled",
   "stacked",
+  "single",
   "lens",
   "frosted-image",
 ];
@@ -52,11 +53,15 @@ try {
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
             timeout: 90_000,
           });
-          await page.waitForSelector(".acpmux-jump-up[data-shown]", { timeout: 30_000 });
+          // Only one of the pair shows at a time (jumpUp.ts): these variants park the reader mid-chat,
+          // where Jump to latest shows and Jump up waits.
+          await page.waitForSelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]", { timeout: 30_000 });
           await page.waitForTimeout(600);
           await page.screenshot({ path: path.join(out, `${variant}-${scheme}.png`) });
           const latest = await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").boundingBox();
-          const up = await page.locator(".acpmux-jump-up").boundingBox();
+          const up = (await page.locator(".acpmux-jump-up").count())
+            ? await page.locator(".acpmux-jump-up").boundingBox()
+            : latest;
           if (latest && up) {
             const cx = latest.x + latest.width / 2;
             const top = Math.min(latest.y, up.y) - 40;

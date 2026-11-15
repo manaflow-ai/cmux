@@ -31,6 +31,8 @@ beforeAll(() => {
     Event: dom.window.Event,
     CustomEvent: dom.window.CustomEvent,
     MutationObserver: dom.window.MutationObserver,
+    // Base UI's live Empty walks its text nodes (useInitialLiveRegionTextMutation).
+    NodeFilter: dom.window.NodeFilter,
     ResizeObserver: class {
       observe() {}
       unobserve() {}
@@ -134,6 +136,29 @@ test("the palette keeps the last answer until the next and drops an older query'
   expect(shown()).toEqual(["Release train"]);
   await act(async () => ranker.asked[3]!.answer(reply()));
   expect(shown()).toEqual([]);
+});
+
+test("no matches is announced: a polite live status, mounted before its text arrives", async () => {
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      createElement(Palette, { items, rank: async (request: Request) => fixtureRank(request), strings, onClose() {} }),
+    ),
+  );
+  const status = () => host.ownerDocument.querySelector<HTMLElement>(".lg-palette [role='status']");
+  // The live region is there, silent, while rows show: a region that appears with its text is not read.
+  expect(status()).not.toBeNull();
+  expect(status()!.getAttribute("aria-live")).toBe("polite");
+  expect(status()!.textContent).toBe("");
+  const region = status();
+  await type("zzzz");
+  expect(shown()).toEqual([]);
+  expect(status()).toBe(region);
+  expect(status()!.textContent).toBe(strings.t("switcher.none"));
+  expect(status()!.classList.contains("lg-palette-none")).toBe(true);
+  await type("ran");
+  expect(shown()).toEqual(["random"]);
+  expect(status()!.textContent).toBe("");
 });
 
 test("a failed rank falls back to the substring filter, not to no rows", async () => {

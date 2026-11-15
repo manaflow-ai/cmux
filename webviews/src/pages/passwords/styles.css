@@ -77,7 +77,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 3px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
 }
 
@@ -249,7 +249,7 @@
   width: 24px;
   height: 22px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--page-text-2);
   cursor: default;

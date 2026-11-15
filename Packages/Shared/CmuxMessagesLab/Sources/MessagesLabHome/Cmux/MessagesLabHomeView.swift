@@ -590,6 +590,21 @@ public final class MessagesLabHomeView: NSView {
         return true
     }
 
+    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
+    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
+    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text),
+              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
+              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized titles of a failed send's Try Again and Delete rows.
+    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
+    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
+
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }
 

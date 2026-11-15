@@ -16,9 +16,12 @@ path = "src/main.rs"
 
 [dependencies]
 cmux-cloud-environment.workspace = true
+# The gate's and the updater's flocks (unlock before close).
+cmux-file-lock.workspace = true
 cmux-json.workspace = true
 base64.workspace = true
 cmux-link.workspace = true
+cmux-unix-socket.workspace = true
 url.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true

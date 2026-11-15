@@ -277,27 +277,6 @@ import Testing
         #expect(machineGroups(Self.work).isEmpty, "\(machineGroups(Self.work))")
     }
 
-    /// Delete Space with `moveTo`: everything the deleted space owned moves to the target in one change: a group by
-    /// its `profile`, a Pinned link, tab or app by its `room`. A built-in, another space's item and one with no
-    /// space stored stay.
-    @Test func deletingASpaceIntoAnotherMovesItsPinsAndGroups() {
-        let records = SidebarDocRecords(sections: [
-            Self.pinned: SidebarDocSection(id: Self.pinned, kind: .pinned, region: .top),
-            Self.custom: SidebarDocSection(id: Self.custom, kind: .custom, title: "Work"),
-        ], items: [
-            "itm_a": SidebarDocItem(id: "itm_a", section: Self.pinned, body: .url("https://a.example", title: nil), room: Self.work),
-            "itm_t": SidebarDocItem(id: "itm_t", section: Self.pinned, body: .tab("tab-1"), room: Self.work),
-            "itm_g": Self.group("itm_g", Self.custom, room: Self.work),
-            "itm_b": SidebarDocItem(id: "itm_b", section: Self.pinned, body: .builtin("settings")),
-            "itm_o": SidebarDocItem(id: "itm_o", section: Self.pinned, body: .url("https://o.example", title: nil), room: "prof_other"),
-            "itm_n": SidebarDocItem(id: "itm_n", section: Self.pinned, body: .url("https://n.example", title: nil)),
-        ])
-        let ops = SidebarDocStore.spaceOps(from: Self.work, into: Self.home, records: records)
-        let summary = ops.map { op in "\(op["op"] as? String ?? "") \(op["id"] as? String ?? "") \((op["patch"] as? [String: String]) ?? [:])" }
-        #expect(summary == ["item.update itm_a [\"room\": \"default\"]", "group.update itm_g [\"profile\": \"default\"]",
-                            "item.update itm_t [\"room\": \"default\"]"], "\(summary)")
-    }
-
     /// A document with one group `itm_g` made in Work.
     static let groupDocument = Data("""
     {"revision": "3",
@@ -310,8 +289,8 @@ import Testing
      ]}
     """.utf8)
 
-    /// Move Group to Space stores the target on the document group, so it stays there once no workspace of it lists;
-    /// Delete Space's `moveTo` sends its moves through the same store. A group already in the target sends nothing.
+    /// Move Group to Space stores the target on the document group, so it stays there once no workspace of it lists.
+    /// A group already in the target sends nothing.
     @Test func movingAGroupToASpaceStoresItsSpace() async throws {
         let remote = RecordingRemote(document: Self.groupDocument)
         let store = try await Self.loadedStore(remote)

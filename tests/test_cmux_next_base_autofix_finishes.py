@@ -49,8 +49,6 @@ SURFACES = "plans/cmux-next/action-surfaces.json"
 WEBVIEWS = "webviews/src/generated.ts"
 APP = "first-party-apps/app/fragment.json"
 ACTION_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionTests.swift"
-DISPLAY_LIST = "scripts/ci/display-suites.txt"
-DISPLAY_TEST = "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SplitAtOnceTests.swift"
 
 
 def git(cwd, *args):
@@ -128,7 +126,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
         files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SETTINGS_REF: "old", CLI_REF: "old", DOCS_GENERATOR: "g1", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
-                 DISPLAY_LIST: "old", DISPLAY_TEST: "t1", "README.md": "r", "unlisted/output.txt": "old",
+                 "README.md": "r", "unlisted/output.txt": "old",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
             (seed / path).parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +159,10 @@ class BaseAutofixFinishes(unittest.TestCase):
             hook = work / "remote.git" / "hooks" / "pre-receive"
             hook.write_text("#!/bin/sh\nexit 1\n")
             hook.chmod(0o755)
-        done = subprocess.run(["bash", str(PUSH_SCRIPT), f"file://{work}/remote.git", "feat-cmux-next", head],
+        done = subprocess.run(["bash", "-c", 'tmp=$1; source "$2"; shift 2; exec bash "$@"',
+                               "publication-fixture", str(work),
+                               str(ROOT / "scripts/cmux-next/tests/lib/action-parity-stub.sh"),
+                               str(PUSH_SCRIPT), f"file://{work}/remote.git", "feat-cmux-next", head],
                               cwd=runner, capture_output=True, text=True)
         tip = git(work / "remote.git", "rev-parse", "refs/heads/feat-cmux-next")
         landed = {path: git(work / "remote.git", "show", f"{tip}:{path}") for path in repair}
@@ -275,19 +276,6 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(done.returncode, 1, out)
         self.assertEqual((landed[SETTINGS_REF], landed[CLI_REF]), ("old", "old"))
 
-    def test_the_display_suite_list_lands_past_an_unrelated_change(self):
-        # base-autofix.sh regenerates scripts/ci/display-suites.txt on every run (8d01c87e13c, a direct push,
-        # left tooling-tests red on base); unclaimed, it would be "unknown" and never land on a moved tip.
-        done, landed, out = self.push({"README.md": "r2"}, repair={DISPLAY_LIST: "new"})
-        self.assertEqual(done.returncode, 0, out)
-        self.assertEqual(landed[DISPLAY_LIST], "new")
-
-    def test_the_display_suite_list_waits_when_a_test_source_moved(self):
-        # A newer test file may add or drop a display trait: the next run regenerates the list on that tip.
-        done, landed, out = self.push({DISPLAY_TEST: "t2"}, repair={DISPLAY_LIST: "new"})
-        self.assertEqual(done.returncode, 1, out)
-        self.assertEqual(landed[DISPLAY_LIST], "old")
-
     def test_an_output_no_area_claims_is_never_reapplied(self):
         done, landed, out = self.push({"README.md": "r2"}, repair={"unlisted/output.txt": "new"})
         self.assertEqual(done.returncode, 1, out)
@@ -313,6 +301,17 @@ class BaseAutofixFinishes(unittest.TestCase):
         push = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
         self.assertIn("scripts/cmux-next/base-autofix-land.sh", push)
         self.assertIn("base-autofix-push.sh", (ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text())
+
+    def test_each_publishing_job_installs_pinned_rust_before_publication(self):
+        for name in ("autofix", "target-graph"):
+            with self.subTest(job=name):
+                steps = DOC["jobs"][name]["steps"]
+                setup = next(i for i, step in enumerate(steps)
+                             if step.get("uses") == "./.github/actions/setup-cmux-tui-rust")
+                publish = next(i for i, step in enumerate(steps)
+                               if "base-autofix-land.sh" in step.get("run", ""))
+                self.assertLess(setup, publish)
+                self.assertNotIn("if", steps[setup])
 
     def test_the_mac_job_regenerates_the_settings_exports_on_the_newest_tip(self):
         # 2026-10-21: a run takes ~28 minutes and feat-cmux-next takes a push a minute, so some push

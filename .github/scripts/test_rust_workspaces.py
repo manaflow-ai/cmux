@@ -21,7 +21,10 @@ import unittest
 SCRIPT = Path(__file__).with_name("rust-workspaces.py")
 FAKE_CARGO = """#!/usr/bin/env bash
 printf '%s|%s\\n' "$PWD" "$*" >> "$CARGO_LOG"
-[[ "$1" == "${FAIL_SUBCOMMAND:-none}" ]] && exit 101
+if [[ "$1" == "${FAIL_SUBCOMMAND:-none}" ]]; then
+  [[ -n "${STALE_LOCK:-}" ]] && echo "error: cannot update the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2
+  exit 101
+fi
 exit 0
 """
 LIST = """
@@ -322,6 +325,37 @@ class RustWorkspacesTests(unittest.TestCase):
                                                                      else "// changed\n"))
                 self.assertEqual(self.planned(), planned)
 
+    def test_a_member_beside_the_root_plans_the_root(self) -> None:
+        # As cmux-app-ffi's workspace takes in ../cmux-rd-ffi: a member named with "../" and no path dependency on it.
+        self.write("sib/root/Cargo.toml", '[package]\nname = "root"\n\n[workspace]\nmembers = ["../mem"]\n')
+        self.write("sib/mem/Cargo.toml", '[package]\nname = "mem"\nworkspace = "../root"\n')
+        self.write("sib/mem/src/lib.rs", "pub fn mem() {}\n")
+        self.write(".github/rust-workspaces.toml", (self.repo / ".github/rust-workspaces.toml").read_text()
+                   + '\n[[workspace]]\nroot = "sib/root"\nrun = true\n')
+        self.git("add", ".")
+        self.git("commit", "-qm", "sibling member")
+        self.base = self.head()
+        self.change("sib/mem/src/lib.rs")
+        self.assertEqual(self.planned(), ["sib/root"])
+        self.assertEqual(self.script("check").returncode, 0)
+
+    def test_a_member_beside_the_root_inherits_its_path_dependencies(self) -> None:
+        # cmux#42082 review F1: mem sits under ws's tree, but names sib/root as its workspace; its
+        # `{ workspace = true }` dependency resolves from sib/root's [workspace.dependencies], not ws's.
+        self.write("sib/root/Cargo.toml", '[package]\nname = "root"\n\n[workspace]\nmembers = ["../../ws/crates/mem"]\n\n'
+                   '[workspace.dependencies]\nlib = { path = "../lib" }\n')
+        self.write("sib/lib/Cargo.toml", '[package]\nname = "lib"\n\n[workspace]\n')
+        self.write("sib/lib/src/lib.rs", "pub fn lib() {}\n")
+        self.write("ws/crates/mem/Cargo.toml", '[package]\nname = "mem"\nworkspace = "../../../sib/root"\n\n'
+                   '[dependencies]\nlib = { workspace = true }\n')
+        self.write(".github/rust-workspaces.toml", (self.repo / ".github/rust-workspaces.toml").read_text()
+                   + '\n[[workspace]]\nroot = "sib/root"\nrun = true\n\n[[workspace]]\nroot = "sib/lib"\nskip = "test"\n')
+        self.git("add", ".")
+        self.git("commit", "-qm", "inherited path")
+        self.base = self.head()
+        self.change("sib/lib/src/lib.rs")
+        self.assertIn("sib/root", self.planned())
+
     def test_a_nested_workspaces_reads_are_not_the_outer_ones(self) -> None:
         # solo/tool's source reads tokens/t.json; solo does not.
         self.change("tokens/t.json", "{\"v\": 3}\n")
@@ -360,6 +394,21 @@ class RustWorkspacesTests(unittest.TestCase):
         self.assertEqual([args.split()[0] for _, args in self.calls()], ["clippy", "test"])
         self.assertIn("::error title=solo clippy::", result.stdout)
         self.assertIn("solo: red (clippy)", result.stdout)
+
+    def test_a_stale_lock_is_named_as_the_cause_and_an_ordinary_red_is_not(self) -> None:
+        stale = self.script("run", "ws/crates/own", env={**self.env, "FAIL_SUBCOMMAND": "clippy", "STALE_LOCK": "1"})
+        self.assertEqual(stale.returncode, 1)
+        self.assertIn("--locked was passed", stale.stderr)  # cargo's own line still reaches the log
+        said = stale.stdout + stale.stderr
+        self.assertIn("stale Cargo.lock: ws/crates/own/Cargo.lock does not match its manifests on this ref", said)
+        self.assertIn("scripts/cmux-next/cargo-locks.py fix", said)
+        self.assertIn("::error title=ws/crates/own clippy::a stale Cargo.lock in ws/crates/own", stale.stdout)
+        self.assertNotIn("` failed in ws/crates/own", stale.stdout)
+        self.assertEqual([args.split()[0] for _, args in self.calls()], ["clippy", "test"])
+        red = self.script("run", "ws/crates/own", env={**self.env, "FAIL_SUBCOMMAND": "clippy"})
+        self.assertEqual(red.returncode, 1)
+        self.assertIn("` failed in ws/crates/own", red.stdout)
+        self.assertNotIn("stale Cargo.lock", red.stdout + red.stderr)
 
     def test_run_refuses_a_root_that_is_not_a_run_entry(self) -> None:
         result = self.script("run", "ws")

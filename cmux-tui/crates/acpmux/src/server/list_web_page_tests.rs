@@ -22,9 +22,9 @@ use super::Origin;
 const MOST_LIST_REPLY_BYTES: usize = 4 << 20;
 
 /// This daemon's own chats: a few pages of every list (about 2.6 MB of census rows, about
-/// 3 MB of ACP rows), past one page of each, and no more. Each page past the first can wait
-/// for a list build and its pace: 3,000 chats with 10 KB titles (66 ACP pages) took this file's
-/// detector 1,605 s in a debug build on hosted Linux (run 43145234111).
+/// 3 MB of ACP rows), past one page of each, and no more. When each page past the first could
+/// wait for a list build and its pace, 3,000 chats with 10 KB titles (66 ACP pages) took this
+/// file's detector 1,605 s in a debug build on hosted Linux (run 43145234111).
 const OWN: usize = 1_200;
 /// Past the census row's title cut (`hub/views.rs` `TITLE_CHARS`), so the cut is on the path.
 const TITLE_BYTES: usize = 300;
@@ -33,6 +33,34 @@ const MIRRORED: &str = "box-chat";
 
 /// The most a reply line adds to its result: the frame's id and envelope.
 const FRAME: usize = 256;
+
+/// A heavy list test's own deadline: it fails by name in `LIST_TEST_DEADLINE` rather than leave
+/// CI's job to its 40-minute cut, which names nothing. On 2026-11-12 a list test that rebuilt the
+/// list for every page ran past the job's limit and the job was cancelled, not failed (cmux run
+/// 43164890485). Generous: a busy runner makes these minutes slower, and must not fail them.
+pub(crate) const LIST_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+pub(crate) async fn list_test_within<T>(
+    test: &str,
+    body: impl std::future::Future<Output = T>,
+) -> T {
+    let started = std::time::Instant::now();
+    match tokio::time::timeout(LIST_TEST_DEADLINE, body).await {
+        Ok(done) => done,
+        Err(_) => panic!(
+            "{test}: not done in {:?} (deadline {LIST_TEST_DEADLINE:?}): a paged list read that never \
+             ends, or every row built per page",
+            started.elapsed()
+        ),
+    }
+}
+
+/// Session rows built so far (`Hub::summaries_built`): this daemon's chats here are live, so each
+/// row a list sends is built, none read from the closed rows' cache.
+fn rows_built(hub: &crate::hub::Hub) -> usize {
+    let built = hub.summaries_built.load(std::sync::atomic::Ordering::SeqCst);
+    usize::try_from(built).unwrap_or(usize::MAX)
+}
 
 async fn hub() -> Arc<crate::hub::Hub> {
     hub_of(OWN, TITLE_BYTES, "idle").await
@@ -59,7 +87,7 @@ async fn hub_of(chats: usize, title: usize, status: &str) -> Arc<crate::hub::Hub
     hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
     let row = json!({"sessionId": MIRRORED, "name": "lane", "status": "idle", "updatedAt": 5});
     let mut settled = peer.settled();
-    for notice in [PeerNotice::Sessions(vec![row]), PeerNotice::Connected] {
+    for notice in [PeerNotice::sessions_from_values(vec![row]), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
     }
     tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
@@ -145,6 +173,14 @@ fn every_id() -> Vec<String> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
+    list_test_within(
+        "a_web_connection_reads_a_large_whole_list_in_bounded_pages",
+        a_web_connection_reads_a_large_whole_list_in_bounded_pages_body(),
+    )
+    .await
+}
+
+async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages_body() {
     let hub = hub().await;
     let mut web = Client::on(&hub, Origin::Web).await;
     let (ids, sizes) = web.whole_watch().await;
@@ -156,6 +192,14 @@ async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
+    list_test_within(
+        "a_peer_link_reads_its_own_rows_in_bounded_pages",
+        a_peer_link_reads_its_own_rows_in_bounded_pages_body(),
+    )
+    .await
+}
+
+async fn a_peer_link_reads_its_own_rows_in_bounded_pages_body() {
     let hub = hub().await;
     let mut link = Client::on(&hub, Origin::Peer).await;
     let (ids, sizes) = link.whole_watch().await;
@@ -168,6 +212,14 @@ async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
+    list_test_within(
+        "a_peer_link_reads_a_whole_sessions_list_in_bounded_pages",
+        a_peer_link_reads_a_whole_sessions_list_in_bounded_pages_body(),
+    )
+    .await
+}
+
+async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages_body() {
     let hub = hub().await;
     let mut link = Client::on(&hub, Origin::Peer).await;
     let (ids, sizes) = link.whole(method::MUX_SESSIONS, json!({})).await;
@@ -182,7 +234,17 @@ async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
 /// Unix socket's feeds, the agent pane's) included: they were the ones sent 31 MB replies.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
+    list_test_within(
+        "no_list_reply_passes_a_few_megabytes_on_any_connection",
+        no_list_reply_passes_a_few_megabytes_on_any_connection_body(),
+    )
+    .await
+}
+
+async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
+    let began = Instant::now();
     let hub = hub().await;
+    println!("LIST-BUILDS hub made: ms={}", began.elapsed().as_millis());
     for origin in [Origin::Local, Origin::LocalApp, Origin::Web, Origin::Peer] {
         let mut client = Client::on(&hub, origin).await;
         let reads = [
@@ -191,13 +253,31 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
             (method::MUX_SESSIONS, json!({})),
         ];
         for (m, params) in reads {
+            let (built, began) = (rows_built(&hub), Instant::now());
             let (ids, sizes) = client.whole(m, params.clone()).await;
+            let built = rows_built(&hub) - built;
+            println!(
+                "LIST-BUILDS {origin:?} {m} {params}: pages={} rows built={built} ms={}",
+                sizes.len(),
+                began.elapsed().as_millis()
+            );
+            // A paged read builds the rows of each page as it goes, never the list per page:
+            // built again for every page, the 30 pages with tools here ran past CI's 40 minutes
+            // (run 43164890485). Each row about once, its page's first try and a masked page cut
+            // again smaller (`within_limit`) a few times more.
+            assert!(
+                built <= 4 * ids.len() + sizes.len(),
+                "{origin:?} {m} {params}: {built} rows built for {} rows in {} pages",
+                ids.len(),
+                sizes.len()
+            );
             assert!(sizes.len() > 1, "{origin:?} {m} {params}: a list past one page goes in pages");
             let most = sizes.iter().max().copied().unwrap_or_default();
             assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} {m} {params}: {most} bytes");
             assert_eq!(sorted(ids), every_id(), "{origin:?} {m} {params}");
         }
         // ACP's `session/list`, its cursor followed by `session/list` itself.
+        let (built, began) = (rows_built(&hub), Instant::now());
         let (mut page, size, _) = client.call(method::SESSION_LIST, json!({})).await;
         let (mut sizes, mut ids) = (vec![size], Vec::new());
         loop {
@@ -210,6 +290,20 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
                 client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
             (page, sizes) = (next, [sizes, vec![size]].concat());
         }
+        let built = rows_built(&hub) - built;
+        println!(
+            "LIST-BUILDS {origin:?} session/list: pages={} rows built={built} ms={}",
+            sizes.len(),
+            began.elapsed().as_millis()
+        );
+        assert!(
+            built <= 4 * ids.len() + sizes.len(),
+            "{origin:?} session/list: {built} rows built for {} rows in {} pages",
+            ids.len(),
+            sizes.len()
+        );
+        assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page");
+        assert_eq!(sorted(ids.clone()), every_id(), "{origin:?} session/list");
         assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page goes in pages");
         // Every own chat once, and no id this daemon does not list.
         let unique: HashSet<&String> = ids.iter().collect();

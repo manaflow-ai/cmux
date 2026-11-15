@@ -101,7 +101,7 @@ bash "$APPLY" "$tmp/repair.patch" "$repo" --changed "$tmp/changed" > "$tmp/out" 
 #   - pr-autofix-apply.sh accepts it, or refuses it, as the table says (a refused path refuses the whole
 #     pull request repair, so a file the PR autofix writes must be accepted);
 #   - generated_outputs.py has a row for it, or none, as the table says. A new row is a new committed export,
-#     which generated_files_guard.py refuses: the display suite list, the docs reference pages and the app
+#     which generated_files_guard.py refuses: the docs reference pages and the app
 #     platform copies have none, so pr-autofix-apply.sh --changed drops them and the base autofix lands them.
 # Each numbered step of base-autofix.sh has a row here: a new generator fails this test until it has one.
 # Fails once at the end, naming every gap. No network.
@@ -112,6 +112,7 @@ gap() { echo "FAIL: $*" >&2; failed=1; }
 # step|sample output|remade on a moved tip (1/0)|pr-autofix-apply.sh (1 accepts, 0 refuses, - not judged here)|generated_outputs.py row (out/none)
 rows=(
   "1|plans/cmux-next/action-surfaces.json|0|1|out"                # the Mac action export
+  "1|plans/cmux-next/action-catalog.json|0|1|out"                 # the full catalog travels with its surface report
   "1|schemas/settings/settings-schema.json|0|1|out"               # the Mac settings export
   "1b|Packages/macOS/CmuxNext/ci-target-graph.json|1|1|out"
   "1c|-"                                                          # a no-op: page strings are build output
@@ -124,7 +125,7 @@ rows=(
   "1e2|cmux-tui/crates/cmux-app-host/generated/scopes.json|1|1|out"
   "1e2|Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/scopes.json|1|1|none"
   "1e3|schemas/defaults/cmux-next.json|1|-|out"                   # bot-only: apply drops it
-  "1e4|scripts/ci/display-suites.txt|1|1|none"
+  "1e4|-"                                                          # a no-op: the display suite list is derived where read
   "1f|scripts/lint-namespace-types-ratchet.txt|1|1|out"
   "1f'|Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift|1|-|none"  # a source rewrite, not an output
   "1g|clients/ts/cloud/src/generated.ts|1|1|out"

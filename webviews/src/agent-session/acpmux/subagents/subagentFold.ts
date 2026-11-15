@@ -10,6 +10,7 @@ import { ChildRowView, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
 import { toolForName } from "../toolNames";
 import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
+import { applyResume } from "./resumeState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
   type AgentRun,
@@ -119,6 +120,12 @@ export type Subagent = {
   retry?: RetryState;
   retryable?: boolean;
   retriedOut?: RetryState;
+  /// acpmux can start this stopped (or lost) subagent again from its transcript and brief, the
+  /// run a Resume started that continues it (its old id), and the run that continues this one
+  /// (resumeState.ts).
+  resumable?: boolean;
+  resumes?: string;
+  resumedBy?: string;
   /// Why it failed, as acpmux recorded it (`error`): its end line says it.
   error?: string;
   /// When it last did anything (a line of its own, a call, new tokens) while none of its calls is
@@ -1181,6 +1188,7 @@ export class SubagentFold {
     if (!spawn) agent.progressVersion = event.seq;
     if (change.reason === "paused") agent.paused = true;
     applyRetry(agent, change);
+    applyResume(agent, change);
     const state = text(change.state);
     // An end the harness reported holds against a progress report that trails it; a spawn or a
     // state update saying it runs again still does.

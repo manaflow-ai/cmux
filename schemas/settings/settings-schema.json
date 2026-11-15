@@ -58,9 +58,7 @@
               "workspaces.freeing.enabled",
               "workspaces.freeing.idleMinutes",
               "workspaces.freeing.agents",
-              "workspaces.freeing.runningCommands",
-              "agents.hiddenChats.discard",
-              "agents.hiddenChats.discardAfterMinutes"
+              "workspaces.freeing.runningCommands"
             ],
             "title" : {
               "key" : "settings.group.workspaceHibernation",
@@ -678,6 +676,8 @@
             "key" : "settings.group.panes",
             "rows" : [
               "appearance.chromeStyle",
+              "appearance.titleAreaTone",
+              "appearance.titleAreaContrast",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -732,6 +732,7 @@
             "key" : "newTab.0",
             "rows" : [
               "tabs.newTabTemplate",
+              "tabs.newTabApp",
               "tabs.nativeNewTabPage",
               "sidebar.showChats",
               "tabs.newTabNowPlaying"
@@ -1338,6 +1339,7 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.display.finishSound",
               "agentPane.newChatsIn",
               "agents.defaultPermissionMode",
               "agents.promptCache",
@@ -1365,7 +1367,7 @@
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
-              "remote.ultraMode"
+              "remote.ultra"
             ],
             "title" : {
               "key" : "settings.group.cmuxRemote",
@@ -1873,8 +1875,6 @@
           {
             "key" : "settings.group.phone",
             "rows" : [
-              "phone.allowConnections",
-              "phone.startSessions",
               "phone.keepAwake",
               "phone.cloudReplica",
               "phone.cloudDesktop"
@@ -4307,6 +4307,147 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.none",
+        "text" : "None"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabApp.help",
+        "text" : "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabApp",
+      "keywords" : [
+        "new tab",
+        "extension",
+        "app",
+        "launcher",
+        "start page",
+        "custom page",
+        "cmux.newtab"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabApp"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.tabs.newTabApp.summary",
+        "text" : "An extension's New Tab page"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:tabs.newTabApp"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.newTabApp",
+        "text" : "New Tab App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "afterCurrent",
         "end",
         "start"
@@ -4669,7 +4810,7 @@
       },
       "help" : {
         "key" : "settings.tabs.plusButton.help",
-        "text" : "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+        "text" : "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.plusButton",
@@ -5323,7 +5464,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+        "text" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5411,7 +5552,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)",
           "row" : null
         },
         "socket" : {
@@ -12389,273 +12530,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.phone",
-        "text" : "Phone Access"
-      },
-      "help" : {
-        "key" : "settings.phone.allowConnections.help",
-        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "phone.allowConnections",
-      "keywords" : [
-        "iphone",
-        "ios",
-        "mobile",
-        "remote",
-        "phone",
-        "pair",
-        "privacy"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "phone",
-        "allowConnections"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:phone.allowConnections"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.phone.allowConnections",
-        "text" : "Let Your Phone Use This Mac"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.phone",
-        "text" : "Phone Access"
-      },
-      "help" : {
-        "key" : "settings.phone.startSessions.help",
-        "text" : "Off, your phone can still follow, type into and answer what's already running."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "phone.startSessions",
-      "keywords" : [
-        "iphone",
-        "mobile",
-        "remote",
-        "workspace",
-        "terminal",
-        "start"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "phone",
-        "startSessions"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:phone.startSessions"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.phone.startSessions",
-        "text" : "Let Your Phone Start New Workspaces"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "off",
         "pluggedIn",
         "always"
@@ -19411,7 +19285,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "afterCurrent",
+      "default" : "top",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -24372,292 +24246,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.workspaceHibernation",
-        "text" : "Hibernation"
-      },
-      "help" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscard.help",
-        "text" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.hiddenChats.discard",
-      "keywords" : [
-        "agent",
-        "chat",
-        "chats",
-        "release",
-        "discard",
-        "hidden",
-        "memory",
-        "ram",
-        "idle",
-        "saver"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "hiddenChats",
-        "discard"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:agents.hiddenChats.discard"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscard",
-        "text" : "Release Hidden Agent Chats"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        1,
-        1440,
-        720.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 15,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.workspaceHibernation",
-        "text" : "Hibernation"
-      },
-      "help" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes.help",
-        "text" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.hiddenChats.discardAfterMinutes",
-      "keywords" : [
-        "agent",
-        "chat",
-        "release",
-        "discard",
-        "hidden",
-        "minutes",
-        "timeout",
-        "memory"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "hiddenChats",
-        "discardAfterMinutes"
-      ],
-      "placeholder" : null,
-      "range" : {
-        "max" : 1440,
-        "min" : 1,
-        "placeholder" : 1,
-        "step" : 1,
-        "unit" : "minutes"
-      },
-      "refuses" : [
-        -1438,
-        2879,
-        "1"
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:agents.hiddenChats.discardAfterMinutes"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes",
-        "text" : "Release Hidden Chats After"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "list",
         "board",
         "inbox"
@@ -24833,7 +24421,7 @@
         },
         {
           "title" : {
-            "key" : null,
+            "key" : "settings.choice.neko",
             "text" : "Neko"
           },
           "value" : "neko"
@@ -31246,9 +30834,9 @@
     },
     {
       "accepts" : [
-        0.85,
-        1.5,
-        1.175
+        0.25,
+        5,
+        2.625
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -31285,15 +30873,15 @@
       ],
       "placeholder" : null,
       "range" : {
-        "max" : 1.5,
-        "min" : 0.85,
+        "max" : 5,
+        "min" : 0.25,
         "placeholder" : 1,
         "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.15000000000000002,
-        2.5,
+        -4.5,
+        9.75,
         "1"
       ],
       "section" : "appearance",
@@ -33412,6 +33000,319 @@
       "title" : {
         "key" : "settings.appearance.chromeStyle",
         "text" : "Window Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "oneColor",
+        "subtleTone"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.titleAreaTone.oneColor",
+            "text" : "One Color"
+          },
+          "value" : "oneColor"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.titleAreaTone.subtleTone",
+            "text" : "Subtle Tone"
+          },
+          "value" : "subtleTone"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "oneColor",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.titleAreaTone.help",
+        "text" : "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.titleAreaTone",
+      "keywords" : [
+        "tone",
+        "subtle tone",
+        "two tone",
+        "one color",
+        "single color",
+        "monochrome",
+        "title",
+        "titlebar",
+        "tab bar",
+        "tabs",
+        "chrome",
+        "divider",
+        "contrast",
+        "background"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "titleAreaTone"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.titleAreaTone.summary",
+        "text" : "One color or a subtle tone for the title area"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.titleAreaTone"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.titleAreaTone",
+        "text" : "Title Area"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        2,
+        1
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.titleAreaContrast.help",
+        "text" : "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.titleAreaContrast",
+      "keywords" : [
+        "contrast",
+        "title",
+        "titlebar",
+        "tab bar",
+        "tabs",
+        "chrome",
+        "shade",
+        "intensity",
+        "darker",
+        "softer",
+        "frame"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "titleAreaContrast"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 2,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -2,
+        4,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.titleAreaContrast.summary",
+        "text" : "How much the title and tab bar stand apart"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.titleAreaContrast"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.titleAreaContrast",
+        "text" : "Title Area Contrast"
       },
       "validation" : "portable"
     },
@@ -46584,6 +46485,148 @@
         "text" : "Agent Chat"
       },
       "help" : {
+        "key" : "settings.agentPane.display.finishSound.help",
+        "text" : "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.finishSound",
+      "keywords" : [
+        "agent",
+        "chat",
+        "sound",
+        "sounds",
+        "audio",
+        "finish",
+        "finished",
+        "done",
+        "merged",
+        "checks",
+        "turn",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "finishSound"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.finishSound"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.finishSound",
+        "text" : "Play Sound When Work Finishes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
         "key" : "settings.agentPane.display.trayTucked.help",
         "text" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
       },
@@ -46920,7 +46963,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "expanded",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -60333,7 +60376,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.controlsOnHover.help",
-        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."
+        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.controlsOnHover",
@@ -60613,7 +60656,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.minimal.help",
-        "text" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+        "text" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.minimal",
@@ -60641,7 +60684,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.minimal.summary",
-        "text" : "Rows show only icon, name and unread mark"
+        "text" : "Buttons show on hover; rows show icon, name and unread mark"
       },
       "surfaces" : {
         "cli" : {
@@ -64706,7 +64749,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 400,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -66127,7 +66170,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1500,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -99190,7 +99233,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 5,
+      "default" : 3,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -101736,7 +101779,7 @@
       },
       "help" : {
         "key" : "settings.diagnostics.usagePatterns.help",
-        "text" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page."
+        "text" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name."
       },
       "kept_on_reset_all" : false,
       "key" : "diagnostics.usagePatterns",
@@ -102540,28 +102583,53 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "off",
+        "auto",
+        "always"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.cmuxRemote",
         "text" : "cmux Remote"
       },
       "help" : {
-        "key" : "settings.remote.ultraMode.help",
-        "text" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+        "key" : "settings.remote.ultra.help",
+        "text" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
       },
       "kept_on_reset_all" : false,
-      "key" : "remote.ultraMode",
+      "key" : "remote.ultra",
       "keywords" : [
         "ultra",
+        "auto",
         "lossy",
         "packet loss",
         "bandwidth",
@@ -102571,21 +102639,21 @@
         "latency",
         "fec"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "remote",
-        "ultraMode"
+        "ultra"
       ],
       "placeholder" : null,
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "general",
       "summary" : {
-        "key" : "settings.remote.ultraMode.summary",
+        "key" : "settings.remote.ultra.summary",
         "text" : "Uses more data to stay fast on lossy networks"
       },
       "surfaces" : {
@@ -102639,13 +102707,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
+          "editor" : "options",
           "offered" : true,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
           "reason" : null,
-          "row" : "setting:remote.ultraMode"
+          "row" : "setting:remote.ultra"
         },
         "socket" : {
           "aliases" : [
@@ -102672,7 +102740,7 @@
         }
       },
       "title" : {
-        "key" : "settings.remote.ultraMode",
+        "key" : "settings.remote.ultra",
         "text" : "Ultra Connection Mode"
       },
       "validation" : "portable"

@@ -5,10 +5,14 @@ The checker: a function declared in cmux-tui/crates/*/include/*.h counts as call
 under Packages/, outside comments (a string literal counts: dlsym). Typedefs, function-pointer fields, macros and
 the extern "C" wrapper are not exports. A new uncalled export fails by name, and so does one that loses its last
 caller; a baseline line whose function gained a caller fails until --update drops it; --update never adds a line;
---rev reads the commit, not the working tree. On this checkout the baseline matches the measured count.
+--rev reads the commit, not the working tree. On this checkout the baseline matches the measured count. An export
+the app's pinned library (app-ffi-pin.json's cmux-app-ffi-<sha> source) lacks is a note, not a finding, until the
+pin has it; a pin that cannot be read (no file, no tag, a sha git cannot read, no git repo) judges as before.
 
 The layer (prepush-gate.py port_drift): refuses a push that adds an uncalled export, does not blame a push for the
-base's own debt, and skips a push whose Swift lines name no cmux_/acpmux_ function.
+base's own debt, and skips a push whose Swift lines name no cmux_/acpmux_ function. A push adding an export the pin
+lacks is not refused; one whose pinned source has it is. A push that only re-pins is not judged; one that re-pins
+and adds a caller for one of two awaited exports is refused for the other.
 
 Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the ratchet:
   python3 -I scripts/cmux-next/tests/test_ffi_caller_ratchet.py
@@ -16,7 +20,9 @@ Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a cha
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +31,14 @@ import textwrap
 import unittest
 from pathlib import Path
 
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts/cmux-next/ffi_caller_ratchet.py"
 GATE = ROOT / "scripts/cmux-next/prepush-gate.py"
@@ -32,6 +46,7 @@ HEADER = "cmux-tui/crates/cmux-demo/include/cmux_demo.h"
 SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextDemo/Demo.swift"
 TEST_SWIFT = "Packages/macOS/CmuxNext/Tests/CmuxNextDemoTests/DemoTests.swift"
 BASELINE = "scripts/cmux-next/ffi-caller-baseline.txt"
+PIN = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 
 HEADER_TEXT = textwrap.dedent("""\
     /* cmux_in_a_comment(void) is not an export. */
@@ -58,6 +73,9 @@ HEADER_TEXT = textwrap.dedent("""\
     #endif
     """)
 
+NEW_EXPORT_HEADER = HEADER_TEXT.replace("void cmux_demo_uncalled",
+                                       "int32_t cmux_demo_new(void);\nvoid cmux_demo_uncalled")
+
 SWIFT_TEXT = textwrap.dedent("""\
     import Foundation
     // cmux_demo_comment_only() would be called here.
@@ -82,11 +100,10 @@ def load(name: str, path: Path):
 class Fixture:
     def __init__(self) -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="ffi-caller-ratchet-test-"))
-        self.git("init", "-q", "-b", "main")
+        self.env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+        git_fixture_env.init_repo(self.dir, "-b", "main", env=self.env)
         self.git("config", "user.name", "t")
         self.git("config", "user.email", "t@example.com")
-        self.git("config", "maintenance.auto", "false")
-        self.git("config", "gc.auto", "0")
         self.write("scripts/cmux-next/ffi_caller_ratchet.py", SCRIPT.read_text())
         self.write(HEADER, HEADER_TEXT)
         self.write(SWIFT, SWIFT_TEXT)
@@ -94,9 +111,8 @@ class Fixture:
         self.write(BASELINE, BASELINE_TEXT)
 
     def git(self, *args: str) -> str:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         return subprocess.run(["git", "-C", str(self.dir), *args], check=True, capture_output=True, text=True,
-                              env=env).stdout.strip()
+                              env=self.env).stdout.strip()
 
     def write(self, path: str, text: str) -> None:
         file = self.dir / path
@@ -107,6 +123,12 @@ class Fixture:
         self.git("add", "-A")
         self.git("commit", "-q", "--allow-empty", "-m", message)
         return self.git("rev-parse", "HEAD")
+
+    def pin(self, sha: str, *, url: str | None = None) -> None:
+        """Pin the app to the cmux-app-ffi release built from sha (or write this url as is)."""
+        url = url or (f"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/"
+                      "CCmuxAppFFI.xcframework.zip")
+        self.write(PIN, json.dumps({"url": url, "checksum": "0" * 64}))
 
     def check(self, *args: str) -> tuple[int, str]:
         result = subprocess.run([sys.executable, "-I", str(SCRIPT), "--repo", str(self.dir), *args],
@@ -181,11 +203,112 @@ class CheckerTests(unittest.TestCase):
         code, out = self.fx.check("--rev", good)
         self.assertEqual(code, 0, out)
 
+    def test_an_export_the_pinned_library_lacks_is_a_note_not_drift(self) -> None:
+        self.fx.pin(self.fx.commit("pinned source"))
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        code, out = self.fx.check()
+        self.assertEqual(code, 0, out)
+        notes = [line for line in out.splitlines() if line.startswith("ffi-caller-ratchet-note: ")]
+        self.assertEqual(len(notes), 1, out)
+        self.assertIn(f"cmux_demo_new ({HEADER}) is not exported by the pinned app library (cmux-app-ffi-", notes[0])
+        self.assertIn("needs its Swift caller (step B)", notes[0])
+        self.assertIn("ffi-caller-ratchet: ok: 6 exported functions, 4 with no Swift caller: 3 in the baseline, 1"
+                      " awaiting the pin", out)
+        self.assertNotIn("is exported in", out)
+        code, out = self.fx.check("--report")
+        self.assertEqual(code, 0, out)
+        self.assertIn("4 have none; 1 of those are not in the pinned app library yet", out)
+
+    def test_once_the_pin_has_the_export_it_is_drift(self) -> None:
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        self.fx.pin(self.fx.commit("source with the export"))
+        code, out = self.fx.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"ffi-caller-ratchet: cmux_demo_new is exported in {HEADER} and no Swift outside a test target"
+                      " calls it (port drift)", out)
+        self.assertNotIn("ffi-caller-ratchet-note: ", out)
+
+    def test_a_pin_that_cannot_be_read_judges_as_before(self) -> None:
+        cases = {
+            "missing": (None, f"{PIN} is missing"),
+            "no tag": ("https://example.com/CCmuxAppFFI.xcframework.zip", f"the url in {PIN} names no cmux-app-ffi-"),
+            "unreadable sha": ("https://example.com/cmux-app-ffi-" + "ab" * 20 + "/x.zip",
+                               "git cannot read the pinned source of cmux-app-ffi-" + "ab" * 20),
+        }
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        for case, (url, why) in cases.items():
+            with self.subTest(case):
+                (self.fx.dir / PIN).unlink(missing_ok=True)
+                if url is not None:
+                    self.fx.pin("", url=url)
+                code, out = self.fx.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("ffi-caller-ratchet: cmux_demo_new is exported in", out)
+                self.assertIn(f"ffi-caller-ratchet-note: {why}", out)
+                self.assertIn("judged without the pin", out)
+
+    def test_a_repo_that_is_no_git_repo_judges_as_before(self) -> None:
+        self.fx.pin(self.fx.commit("pinned source"))
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        shutil.rmtree(self.fx.dir / ".git")
+        code, out = self.fx.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ffi-caller-ratchet: cmux_demo_new is exported in", out)
+        self.assertIn("ffi-caller-ratchet-note: git cannot read the pinned source", out)
+
+    def test_no_note_when_nothing_new_is_judged(self) -> None:
+        code, out = self.fx.check()  # no pin file, but every uncalled export is listed
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("ffi-caller-ratchet-note: ", out)
+
+    def test_baseline_and_update_keep_their_rules_with_a_pin(self) -> None:
+        self.fx.pin(self.fx.commit("pinned source"))
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        before = (self.fx.dir / BASELINE).read_text()
+        code, out = self.fx.check("--update")
+        self.assertEqual(code, 0, out)
+        self.assertIn("baseline 3 -> 3 entries", out)
+        self.assertNotIn("cmux_demo_new", (self.fx.dir / BASELINE).read_text())
+        # A listed function that gains a caller still has to leave, and --update still never adds a line.
+        self.fx.write(SWIFT, SWIFT_TEXT.replace("cmux_demo_called()", "cmux_demo_uncalled(nil)"))
+        code, out = self.fx.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("cmux_demo_uncalled", out)
+        self.assertIn("now has a Swift caller", out)
+        self.assertIn("cmux_demo_called is exported", out)  # in the pinned source, so drift
+        code, out = self.fx.check("--update")
+        self.assertEqual(code, 1, out)
+        self.assertIn("--update never adds it", out)
+        baseline = (self.fx.dir / BASELINE).read_text()
+        self.assertNotIn("cmux_demo_uncalled", baseline)
+        self.assertNotIn("cmux_demo_called", baseline)
+        self.assertNotIn("cmux_demo_new", baseline)
+        self.assertNotEqual(before, baseline)
+
+    def assert_report_matches_baseline(self, code: int, out: str, listed: int) -> None:
+        """--report's uncalled count is the baseline plus the exports the pin lacks (a step A header on base). A
+        checkout that cannot read the pinned source (a shallow one) cannot judge, so the test skips; a pinned,
+        uncalled, unlisted export (after the re-pin, before step B) is true drift and fails by name."""
+        note = next((line for line in out.splitlines() if "judged without the pin" in line), None)
+        if note:
+            self.skipTest(note)
+        self.assertEqual(code, 0, out)
+        match = re.search(r"; (\d+) have none; (\d+) of those are not in the pinned app library yet", out)
+        self.assertIsNotNone(match, out)
+        self.assertEqual(int(match.group(1)), listed + int(match.group(2)), out)
+
     def test_this_checkout_matches_its_baseline(self) -> None:
         result = subprocess.run([sys.executable, "-I", str(SCRIPT), "--report"], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         listed = [line for line in (ROOT / BASELINE).read_text().splitlines() if line and not line.startswith("#")]
-        self.assertIn(f"; {len(listed)} have none", result.stdout)
+        self.assert_report_matches_baseline(result.returncode, result.stdout + result.stderr, len(listed))
+
+    def test_the_baseline_match_holds_with_a_step_a_header_and_skips_without_the_pin(self) -> None:
+        self.fx.pin(self.fx.commit("pinned source"))
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        self.assert_report_matches_baseline(*self.fx.check("--report"), 3)  # 4 have none = 3 listed + 1 awaiting
+        (self.fx.dir / PIN).unlink()
+        with self.assertRaises(unittest.SkipTest):
+            self.assert_report_matches_baseline(*self.fx.check("--report"), 3)
 
 
 class GateLayerTests(unittest.TestCase):
@@ -234,6 +357,42 @@ class GateLayerTests(unittest.TestCase):
         # Without the tip ref the same push is refused for it.
         self.fx.git("update-ref", "-d", "refs/remotes/origin/feat-cmux-next")
         self.assertEqual(len(self.drift(head)), 1)
+
+    def test_a_push_adding_an_export_the_pin_lacks_is_not_refused(self) -> None:
+        self.fx.pin(self.base)
+        self.base = self.fx.commit("pin the app to the base")
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        self.assertEqual(self.drift(self.fx.commit("step A: a new export")), [])
+
+    def test_a_push_whose_pinned_source_has_the_export_is_refused(self) -> None:
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        source = self.fx.commit("the export, published")
+        self.fx.write(HEADER, HEADER_TEXT)
+        self.fx.pin(source)
+        self.base = self.fx.commit("base pinned to it")
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        found = self.drift(self.fx.commit("the export, no caller"))
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("cmux_demo_new is exported", found[0])
+
+    def test_a_repin_alone_is_not_refused(self) -> None:
+        # The export was step A's and its caller is step B's: a re-pin (the bot's, or by hand) cannot add it.
+        self.fx.pin(self.base)
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        self.base = self.fx.commit("step A merged, pin still old")
+        self.fx.pin(self.base)
+        self.assertEqual(self.drift(self.fx.commit("re-pin only")), [])
+
+    def test_a_repin_with_a_caller_for_one_of_two_awaited_exports_is_refused_for_the_other(self) -> None:
+        self.fx.pin(self.base)
+        self.fx.write(HEADER, NEW_EXPORT_HEADER.replace("int32_t cmux_demo_new(void);",
+                                                        "int32_t cmux_demo_new(void);\nint32_t cmux_demo_other(void);"))
+        self.base = self.fx.commit("step A merged with two exports, pin still old")
+        self.fx.pin(self.base)
+        self.fx.write(SWIFT, SWIFT_TEXT + "let n = cmux_demo_new()\n")
+        found = self.drift(self.fx.commit("re-pin and step B for one of them"))
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("cmux_demo_other is exported", found[0])
 
     def test_a_swift_push_naming_no_ffi_function_skips_the_check(self) -> None:
         self.fx.write(SWIFT, SWIFT_TEXT + "let plain = 1\n")

@@ -101,7 +101,14 @@ export class SessionDO extends DurableObject<Env> {
     if (ticket.dev !== h.id || expected.id !== h.id) throw new ApiError(403, "ticket_invalid", "ticket is for another device");
     await checkDeviceSignature(expected.key, request.method, url, new Uint8Array(), h);
     if (this.sql.exec("SELECT 1 FROM jti WHERE jti = ?", ticket.jti).toArray().length > 0) throw new ApiError(401, "replay", "ticket was already used");
-    if (this.ctx.getWebSockets(ticket.role).length > 0) throw new ApiError(409, "role_taken", `the ${ticket.role} is already connected`);
+    const existing = this.ctx.getWebSockets(ticket.role).filter((ws) => ws.readyState === WebSocket.OPEN);
+    for (const ws of existing) {
+      const tags = this.ctx.getTags(ws);
+      if (!ticket.reattach || tags[1] !== h.id) throw new ApiError(409, "role_taken", `the ${ticket.role} is already connected`);
+      // A reattach ticket for the same device replaces a signaling socket that
+      // is still draining after the media path failed.
+      try { ws.close(4000, "replaced"); } catch { /* already closing */ }
+    }
     this.sql.exec("INSERT INTO jti(jti, exp) VALUES (?, ?)", ticket.jti, ticket.exp);
 
     const pair = new WebSocketPair();

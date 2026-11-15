@@ -3,8 +3,9 @@
 //! `cmux-chat-index` holds the adapters, root discovery and the merged
 //! index as pure code. This module wires them to the daemon: the login
 //! environment, the guarded-folder refusal, the recorded roots file, one
-//! file-system watcher over the root real paths (FSEvents on macOS, no
-//! polling), and the change feed that `_acpmux/chats_watch` forwards.
+//! file-system watcher over the root real paths (`watch.rs`: FSEvents with a
+//! coalescing latency on macOS, no polling), and the change feed that
+//! `_acpmux/chats_watch` forwards.
 //!
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
@@ -14,6 +15,8 @@ use cmux_json::JsonSet as _;
 mod activity;
 pub(crate) mod brand;
 mod follow;
+#[cfg(target_os = "macos")]
+mod fsevents;
 mod open;
 mod query;
 mod resolve;

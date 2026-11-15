@@ -304,20 +304,30 @@ fn is_own_default_team(name: &str, own_email: Option<&str>) -> bool {
     };
     let lower = name.to_lowercase();
     let email = email.to_lowercase();
-    ["'s team", "\u{2019}s team"].iter().any(|suffix| lower.strip_suffix(suffix) == Some(email.as_str()))
+    ["'s team", "\u{2019}s team"]
+        .iter()
+        .any(|suffix| lower.strip_suffix(suffix) == Some(email.as_str()))
 }
 
 /// The account's teams as rows, in the order given, with `active` checked: at most one row is,
 /// and none when `active` names no listed team. The sign-in service's default team for this
 /// account (`own_email`'s) shows as Personal, unless the account already has a team named
 /// Personal: then each keeps its name.
-pub fn team_rows(teams: &[TeamFacts], active: Option<&str>, own_email: Option<&str>) -> Vec<TeamRow> {
+pub fn team_rows(
+    teams: &[TeamFacts],
+    active: Option<&str>,
+    own_email: Option<&str>,
+) -> Vec<TeamRow> {
     let has_personal = teams.iter().any(|team| team.name.trim() == PERSONAL_TEAM_NAME);
     teams
         .iter()
         .map(|team| {
             let name = team.name.trim();
-            let name = if !has_personal && is_own_default_team(name, own_email) { PERSONAL_TEAM_NAME } else { name };
+            let name = if !has_personal && is_own_default_team(name, own_email) {
+                PERSONAL_TEAM_NAME
+            } else {
+                name
+            };
             let plan = team
                 .plan
                 .as_deref()

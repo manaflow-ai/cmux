@@ -30,7 +30,7 @@ area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
 # through the pinned CCmuxAppFFI, so a re-pin is an input too: the pseudo path
 # Package.swift#CCmuxAppFFI, which base-autofix-ffi-pin.sh adds when the pin
 # moved (the rest of Package.swift is not an input).
-area actions 'Packages/macOS/CmuxNext/Package\.swift#CCmuxAppFFI|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
+area actions 'Packages/macOS/CmuxNext/Package\.swift#CCmuxAppFFI|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|action-catalog\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
 # The settings exports (regenerated on a Mac: regenerate-settings-exports.sh) read
 # CmuxNextSettings and the two export tests. Their source stamp is derived
 # (defaults_guard.py source-stamp), never committed.
@@ -43,10 +43,6 @@ area apphost 'cmux-tui/spec/resource-operations-v2\.json|backend/catalog/cloud-o
 # The namespace lint reads the package and iOS app sources.
 area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt|scripts/lint-namespace-types-baseline\.txt|scripts/lint-ios-package-conventions-baseline\.txt'
 area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/'
-# The display suite list (base-autofix.sh's display_suites.py --fix) reads every package's test sources, and
-# each package's Package.swift decides whether its tests are listed at all: adding or removing a manifest
-# changes the list.
-area displays 'Packages/.*/Tests/|Packages/(.*/)?Package\.swift$|scripts/ci/display_suites\.py$|scripts/ci/display-suites\.txt$'
 area webviews 'webviews/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'

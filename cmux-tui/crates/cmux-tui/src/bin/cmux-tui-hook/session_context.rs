@@ -14,7 +14,8 @@
 
 use super::*;
 
-/// The whole read (six local requests) stays far below the hook timeouts.
+/// The whole read (eight local requests on one connection) stays far below
+/// the hook timeouts.
 const DEADLINE: Duration = Duration::from_millis(1500);
 
 /// The caller's place; a field the session did not report stays `None`.
@@ -30,8 +31,10 @@ pub(crate) struct Place {
     pub terminal: String,
     /// `CMUX_TUI_CLI`: the absolute path of the session's own `cmux`.
     pub cli: Option<String>,
-    /// The other agents of the session, as [`peers_from`] finds them.
-    pub peers: Vec<Peer>,
+    /// The other agents of the session, as [`peers_from`] finds them;
+    /// `None` when the session did not answer the list of its agents. That
+    /// is not a session with no other agent.
+    pub peers: Option<Vec<Peer>>,
 }
 
 /// Another agent of the caller's session.
@@ -111,12 +114,16 @@ pub(super) fn applies(
         && getenv(HOOK_ROUTE_ENV).is_some_and(|value| value == "launch")
 }
 
-/// Reads the place of `terminal` from the session at `socket`. Only the
-/// terminal is required; the rest is filled as far as the session answers.
+/// Reads the place of `terminal` from the session at `socket`, on one
+/// connection. Only the terminal is required; the rest is filled as far as
+/// the session answers.
 pub(crate) fn read(socket: &Path, terminal: &str) -> Place {
     let deadline = Instant::now() + DEADLINE;
-    let get = |operation: &str, key: &str, id: &str| {
-        inbox::request(socket, operation, json!({ key: id }), false, deadline).ok()
+    // One connection for the whole read. When the session does not take it,
+    // or a request on it gets no answer, each later record is not known.
+    let mut connection = inbox::Connection::open(socket, deadline).ok();
+    let mut request = |operation: &str, params: Value| {
+        connection.as_mut()?.request(operation, params, false).ok()
     };
     let text = |record: &Option<Value>, key: &str| {
         record
@@ -125,29 +132,27 @@ pub(crate) fn read(socket: &Path, terminal: &str) -> Place {
             .and_then(Value::as_str)
             .map(str::to_owned)
     };
+    let list = |records: Option<Value>| records.and_then(|records| records.as_array().cloned());
     let mut place = Place { terminal: terminal.to_owned(), ..Place::default() };
-    let list = |operation: &str| {
-        inbox::request(socket, operation, json!({}), false, deadline)
-            .ok()
-            .and_then(|records| records.as_array().cloned())
-            .unwrap_or_default()
-    };
-    place.peers = peers_from(&list("agent.list"), &list("tab.list"), terminal);
-    let session = inbox::request(socket, "session.get", json!({}), false, deadline).ok();
+    let agents = list(request("agent.list", json!({})));
+    // Without the tabs the peers still have an address: their terminal id.
+    let tabs = list(request("tab.list", json!({}))).unwrap_or_default();
+    place.peers = agents.map(|agents| peers_from(&agents, &tabs, terminal));
+    let session = request("session.get", json!({}));
     place.session_name = text(&session, "name");
     place.session_id = text(&session, "id");
-    let terminal_record = get("terminal.get", "terminal", terminal);
+    let terminal_record = request("terminal.get", json!({"terminal": terminal}));
     let Some(tab) = text(&terminal_record, "tab_id") else { return place };
-    let tab_record = get("tab.get", "tab", &tab);
+    let tab_record = request("tab.get", json!({"tab": tab}));
     place.tab = Some(tab);
     let Some(pane) = text(&tab_record, "pane_id") else { return place };
-    let pane_record = get("pane.get", "pane", &pane);
+    let pane_record = request("pane.get", json!({"pane": pane}));
     place.pane = Some(pane);
     let Some(screen) = text(&pane_record, "screen_id") else { return place };
-    let screen_record = get("screen.get", "screen", &screen);
+    let screen_record = request("screen.get", json!({"screen": screen}));
     place.screen = Some(screen);
     let Some(workspace) = text(&screen_record, "workspace_id") else { return place };
-    let workspace_record = get("workspace.get", "workspace", &workspace);
+    let workspace_record = request("workspace.get", json!({"workspace": workspace}));
     place.workspace_name = text(&workspace_record, "name");
     place.workspace = Some(workspace);
     place
@@ -178,12 +183,17 @@ pub(crate) fn text(place: &Place) -> String {
         ),
         None => ("cmux", "Run cmux as `cmux`.".to_owned()),
     };
-    let peers = if place.peers.is_empty() {
-        "No other agent runs in this session now.".to_owned()
-    } else {
-        let names: Vec<String> =
-            place.peers.iter().map(|peer| format!("{} ({})", peer.name, peer.harness)).collect();
-        format!("Other agents in this session: {}.", names.join(", "))
+    let peers = match place.peers.as_deref() {
+        // No list from the session: it can have other agents.
+        None => "Which other agents run in this session is not known now: the session gave no \
+                 list of them."
+            .to_owned(),
+        Some([]) => "No other agent runs in this session now.".to_owned(),
+        Some(peers) => {
+            let names: Vec<String> =
+                peers.iter().map(|peer| format!("{} ({})", peer.name, peer.harness)).collect();
+            format!("Other agents in this session: {}.", names.join(", "))
+        }
     };
     format!(
         "cmux: you run in a cmux terminal (a cmux-tui pane). Session {session}; workspace \
@@ -284,10 +294,10 @@ mod tests {
         let place = Place {
             terminal: "term_1".into(),
             cli: Some("/opt/cmux/bin/cmux".into()),
-            peers: vec![
+            peers: Some(vec![
                 Peer { name: "alpha".into(), harness: "claude".into() },
                 Peer { name: "term_2".into(), harness: "codex".into() },
-            ],
+            ]),
             ..Place::default()
         };
         let text = text(&place);
@@ -304,6 +314,22 @@ mod tests {
         assert!(!text.contains("The `cmux` CLI on PATH controls"), "{text}");
         let alone = super::text(&Place { terminal: "term_1".into(), ..Place::default() });
         assert!(alone.contains("SendMessage"), "{alone}");
+    }
+
+    /// A session that did not answer the list of its agents (it refused the
+    /// connection at its limit, or the read ended at its deadline) can have
+    /// other agents: the context says that they are not known. Only a list
+    /// that the session answered with no other agent gives "No other agent".
+    #[test]
+    fn agent_start_context_peers_with_no_list_are_not_known_and_never_no_other_agent() {
+        let none = "No other agent runs in this session now.";
+        let unanswered = text(&Place { terminal: "term_1".into(), ..Place::default() });
+        assert!(unanswered.contains("not known"), "{unanswered}");
+        assert!(!unanswered.contains(none), "{unanswered}");
+        let alone =
+            text(&Place { terminal: "term_1".into(), peers: Some(Vec::new()), ..Place::default() });
+        assert!(alone.contains(none), "{alone}");
+        assert!(!alone.contains("not known"), "{alone}");
     }
 
     /// The peers are the session's other terminal agents that still run,
@@ -369,6 +395,206 @@ mod tests {
                 Peer { name: "gamma".into(), harness: "agent".into() },
             ]
         );
+    }
+
+    /// The operations of one whole read, in the order of [`read`].
+    #[cfg(unix)]
+    const OPERATIONS: [&str; 8] = [
+        "agent.list",
+        "tab.list",
+        "session.get",
+        "terminal.get",
+        "tab.get",
+        "pane.get",
+        "screen.get",
+        "workspace.get",
+    ];
+
+    /// What a fake session saw: the operations of each connection, in order.
+    #[cfg(unix)]
+    type Seen = std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>;
+
+    /// How a fake session answers.
+    #[cfg(unix)]
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Fake {
+        /// Each request gets the reply of `answer` (`None`: an error reply).
+        Answers,
+        /// Each connection gets the busy line of a daemon at its connection
+        /// limit; the session then only records what the client still sends.
+        Busy,
+        /// Each request gets the reply of `answer` with the id of another
+        /// request.
+        OtherId,
+    }
+
+    /// A session on `socket` that serves one connection after the other, as
+    /// `fake` says. It keeps each connection open to its end, so that each
+    /// request that the client still sends is seen. The receiver gets a
+    /// message at the end of each connection.
+    #[cfg(unix)]
+    fn fake_session(
+        socket: &Path,
+        fake: Fake,
+        answer: fn(&str, &Value) -> Option<Value>,
+    ) -> (Seen, std::sync::mpsc::Receiver<()>) {
+        let busy = fake == Fake::Busy;
+        let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
+        let seen = Seen::default();
+        let record = seen.clone();
+        let (ended, at_end) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let connection = {
+                    let mut seen = record.lock().unwrap();
+                    seen.push(Vec::new());
+                    seen.len() - 1
+                };
+                if busy {
+                    let refused = json!({
+                        "protocol": "cmux.protocol/2",
+                        "type": "refused",
+                        "code": "server.busy",
+                        "message": "the session is at its connection limit; retry",
+                    });
+                    writeln!(stream, "{refused}").unwrap();
+                }
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    line.clear();
+                    let operation = request["operation"].as_str().unwrap().to_owned();
+                    record.lock().unwrap()[connection].push(operation.clone());
+                    if busy {
+                        continue;
+                    }
+                    let id =
+                        if fake == Fake::OtherId { json!("other") } else { request["id"].clone() };
+                    let mut reply = json!({
+                        "protocol": "cmux.protocol/2",
+                        "type": "response",
+                        "id": id,
+                    });
+                    match answer(&operation, &request["params"]) {
+                        Some(result) => {
+                            reply["ok"] = json!(true);
+                            reply["result"] = result;
+                        }
+                        None => {
+                            reply["ok"] = json!(false);
+                            reply["error"] = json!({"message": "unknown operation"});
+                        }
+                    }
+                    writeln!(stream, "{reply}").unwrap();
+                }
+                let _ = ended.send(());
+            }
+        });
+        (seen, at_end)
+    }
+
+    /// A session with the caller in `term_1` and one other agent.
+    #[cfg(unix)]
+    fn answer(operation: &str, params: &Value) -> Option<Value> {
+        Some(match operation {
+            "agent.list" => json!([
+                {"terminal_id": "term_1", "state": "working", "extra": {"agent": "claude"}},
+                {"terminal_id": "term_2", "state": "idle", "extra": {"agent": "codex"}},
+            ]),
+            "tab.list" => json!([{"id": "tab_2", "name": "alpha", "content_id": "term_2"}]),
+            "session.get" => json!({"id": "session_1", "name": "bench"}),
+            "terminal.get" => json!({"id": params["terminal"], "tab_id": "tab_1"}),
+            "tab.get" => json!({"id": params["tab"], "pane_id": "pane_1"}),
+            "pane.get" => json!({"id": params["pane"], "screen_id": "screen_1"}),
+            "screen.get" => json!({"id": params["screen"], "workspace_id": "ws_1"}),
+            "workspace.get" => json!({"id": params["workspace"], "name": "api"}),
+            _ => return None,
+        })
+    }
+
+    /// The same session from a daemon that does not know `agent.list`.
+    #[cfg(unix)]
+    fn answer_with_no_agent_list(operation: &str, params: &Value) -> Option<Value> {
+        if operation == "agent.list" { None } else { answer(operation, params) }
+    }
+
+    /// The place of `term_1` in the session of [`answer`], without the peers.
+    #[cfg(unix)]
+    fn whole_place() -> Place {
+        Place {
+            session_name: Some("bench".into()),
+            session_id: Some("session_1".into()),
+            workspace: Some("ws_1".into()),
+            workspace_name: Some("api".into()),
+            screen: Some("screen_1".into()),
+            pane: Some("pane_1".into()),
+            tab: Some("tab_1".into()),
+            terminal: "term_1".into(),
+            cli: None,
+            peers: None,
+        }
+    }
+
+    /// The daemon has a limit of connections, and it serves many requests on
+    /// one: the whole read is one connection. A connection for each of the
+    /// eight requests was refused when many agents started at one time.
+    #[cfg(unix)]
+    #[test]
+    fn agent_start_context_read_sends_its_eight_requests_on_one_connection() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("s.sock");
+        let (seen, _at_end) = fake_session(&socket, Fake::Answers, answer);
+        let place = read(&socket, "term_1");
+        let peers = Some(vec![Peer { name: "alpha".into(), harness: "codex".into() }]);
+        assert_eq!(place, Place { peers, ..whole_place() });
+        assert_eq!(*seen.lock().unwrap(), [OPERATIONS]);
+    }
+
+    /// An error reply to one request does not end the connection: the next
+    /// requests use it. With no list of the agents the peers are not known.
+    #[cfg(unix)]
+    #[test]
+    fn agent_start_context_read_goes_on_after_an_error_reply() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("s.sock");
+        let (seen, _at_end) = fake_session(&socket, Fake::Answers, answer_with_no_agent_list);
+        let place = read(&socket, "term_1");
+        assert_eq!(place, whole_place());
+        assert!(text(&place).contains("not known"), "{}", text(&place));
+        assert_eq!(*seen.lock().unwrap(), [OPERATIONS]);
+    }
+
+    /// A daemon at its connection limit answers the connection with the busy
+    /// line (the real daemon then closes; the fake session does not). The
+    /// read then sends no other request, on this connection or on a new one,
+    /// and knows only the terminal.
+    #[cfg(unix)]
+    #[test]
+    fn agent_start_context_read_sends_nothing_after_the_busy_line() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("s.sock");
+        let (seen, at_end) = fake_session(&socket, Fake::Busy, answer);
+        let place = read(&socket, "term_1");
+        assert_eq!(place, Place { terminal: "term_1".into(), ..Place::default() });
+        at_end.recv_timeout(Duration::from_secs(10)).expect("the read left its connection open");
+        assert_eq!(*seen.lock().unwrap(), [["agent.list"]]);
+    }
+
+    /// A reply with the id of another request is not the answer: a stale
+    /// line must never be read as the answer to a later request, so the
+    /// connection carries no other request and no new connection is opened.
+    #[cfg(unix)]
+    #[test]
+    fn agent_start_context_read_sends_nothing_after_a_reply_with_another_id() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("s.sock");
+        let (seen, at_end) = fake_session(&socket, Fake::OtherId, answer);
+        let place = read(&socket, "term_1");
+        assert_eq!(place, Place { terminal: "term_1".into(), ..Place::default() });
+        at_end.recv_timeout(Duration::from_secs(10)).expect("the read left its connection open");
+        assert_eq!(*seen.lock().unwrap(), [["agent.list"]]);
     }
 
     #[test]

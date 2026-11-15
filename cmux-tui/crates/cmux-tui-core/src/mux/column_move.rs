@@ -165,8 +165,9 @@ impl Mux {
                         .get(&pane)
                         .cloned()
                         .context("moved column pane has no public identity")?;
-                    let projection = self.resource_effect_projection_locked(
+                    let projection = self.changed_state_projection_locked(
                         registry,
+                        state,
                         &mut projected,
                         serde_json::json!({"pane": pane_id}),
                     )?;
@@ -177,7 +178,8 @@ impl Mux {
                         projection.changes,
                         move |state| *state = projected,
                     )
-                    .projected(projection.restates_all))
+                    .projected(projection.restates_all)
+                    .restating(projection.restated))
                 },
             )
             .map_err(|error| {

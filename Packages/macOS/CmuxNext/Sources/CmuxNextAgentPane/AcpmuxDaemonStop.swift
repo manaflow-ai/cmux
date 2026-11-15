@@ -60,7 +60,7 @@ nonisolated final class AcpmuxDaemonStop: Sendable {
         return terminate(daemon)
     }
 
-    /// Finishes a stop the update's handoff already asked for (``AcpmuxVersionHandoff/handOffShutdown(_:pid:deadline:shutdown:finish:)``):
+    /// Finishes a stop a version handoff already asked for (``AcpmuxVersionHandoff/handOffShutdown(_:pid:reason:deadline:shutdown:finish:)``):
     /// `_acpmux/shutdown` missed its deadline, so `environment`'s daemon gets SIGTERM, which acpmux
     /// takes as a restart handoff (hosted agents keep running, the next daemon continues the turns it
     /// cut). Not rule R5's restart of a slow daemon: the stop was decided and asked for, only the ask

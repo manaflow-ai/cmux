@@ -320,7 +320,9 @@ cmd_all() {
   for t in "${TARGETS[@]}"; do
     use_target "$t" "${MIN_OS[$t]}"
     local start; start=$(date +%s)
-    local build="cargo build --release --locked --target $t"
+    # --timings: cargo-groups.sh prints each long group's slowest and last units (compile vs
+    # the fat-LTO link of the "bin" unit). It changes no output.
+    local build="cargo build --release --locked --timings --target $t"
     "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
       "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
       "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \
@@ -458,7 +460,7 @@ cmd_ffi() {
   local out=${1:-$XC_ROOT/ffi} ct="$XC_ROOT/cctools/bin/aarch64-apple-darwin" crates="$repo_root/cmux-tui/crates" libs=()
   mkdir -p "$out/slices" "$out/macos" "$out/work"
   # Same settings as scripts/cmux-next/build-app-ffi.sh.
-  export CARGO_TARGET_DIR="$out/cargo" CARGO_PROFILE_RELEASE_LTO=off RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
+  export CARGO_TARGET_DIR="$out/cargo" CARGO_PROFILE_RELEASE_LTO=fat
   export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:+$LIBSQLITE3_FLAGS }-DSQLITE_WITHOUT_ZONEMALLOC"
   for h in "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h" "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h" "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h"; do
     grep -oE '\bcmux_[a-z0-9_]+\(' "$h" | tr -d '(' | sort -u | sed 's/^/_/'

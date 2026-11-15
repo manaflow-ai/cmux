@@ -91,6 +91,7 @@ extension PaneHandlers {
             // after it has no view and got a second close the daemon refused (`unknown pane`).
             let shown = others.compactMap { ctx.services.paneController(for: $0) }
             let unshown = others.filter { ctx.services.paneController(for: $0) == nil }
+            ctx.services.keyRouter.creationInputCoordinator.drop(closing: unshown)
             // One gesture: one question, one toast decision and one closed group over every closing tab (cx-lb4al).
             CloseUndoToasts.close(shown.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
             for other in unshown {

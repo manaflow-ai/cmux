@@ -32,6 +32,9 @@ import workflow_jobs  # noqa: E402
 
 
 def load(name: str, file: str):
+    # One module object per file (tests/test_script_module_loads.py): reuse what another test registered.
+    if name in sys.modules:
+        return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, CI / file)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -569,8 +572,10 @@ class OwnedRefusal(unittest.TestCase):
         runs_on = cells[0]
         self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
         self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
-                      "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "
-                      "vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}", runs_on)
+                      "needs.pick-train-runner.outputs.owned || vars.CI_BLACKSMITH_MACOS == 'on' && "
+                      "needs.pick-train-runner.outputs.blacksmith || (vars.CI_BLACKSMITH_MACOS != 'on' && "
+                      "vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}",
+                      runs_on)
 
 
 class Wiring(unittest.TestCase):

@@ -126,6 +126,8 @@ extension AgentPaneView {
                 }
                 // The page host's events carry no completion: the next push may follow next turn.
                 if !pageEvents.publish(.transport(event)) {
+                    // Said in the log: this close reaches the page as a clean one with no reason.
+                    AgentPaneTransport.logger.notice("agent pane transport closed: the page host fell a full buffer behind connection=\(event.connection, privacy: .public)")
                     self.model.transport.close(connection: event.connection)
                 }
                 // task-owner: one completion for the pacer, on the main actor

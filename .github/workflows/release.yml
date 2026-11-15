@@ -988,13 +988,13 @@ jobs:
           names=()
           if [ -n "$UPLOADED_ASSETS" ]; then
             read -ra names <<<"$UPLOADED_ASSETS"
-            for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+            for name in ${names[@]+"${names[@]}"}; do expect+=(--expect-asset "$name"); done
             expect+=(--expect-count "$UPLOADED_COUNT")
           else
             # Resumed: everything on the release plus the MDM files the upload
             # step publishes, which the immutable-asset guard does not list.
             read -ra names <<<"$RESUME_ASSETS"
-            for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+            for name in ${names[@]+"${names[@]}"}; do expect+=(--expect-asset "$name"); done
             expect+=(--expect-count "$RESUME_COUNT")
             for file in docs/mdm/com.manaflow.cmux.* docs/mdm/cmux-example.mobileconfig \
               docs/mdm/ddm-legacy-profile-declaration.json docs/mdm/managed-preferences.md; do
@@ -1003,7 +1003,7 @@ jobs:
           fi
           python3 scripts/ci/finalize-release.py publish \
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --release-id "$RELEASE_ID" \
-            --generate-notes --prerelease false --make-latest "$MAKE_LATEST" "${expect[@]}"
+            --generate-notes --prerelease false --make-latest "$MAKE_LATEST" ${expect[@]+"${expect[@]}"}
 
       - name: Upload release appcast to R2
         if: (steps.guard_release_assets.outputs.skip_upload != 'true' || steps.guard_release_assets.outputs.resume_release_id != '') && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')

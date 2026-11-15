@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -119,16 +120,18 @@ class Check(unittest.TestCase):
     def test_the_workflow_only_warns_and_runs_the_base_script(self):
         wf = (ROOT / ".github" / "workflows" / "pr-body-checks.yml").read_text()
         step = next(s for s in yaml.safe_load(wf)["jobs"]["body"]["steps"]
-                    if s.get("name") == "Check the description cites each changed surface's spec")
+                    if s.get("name") == "Run the advisory steps")
         self.assertIs(step.get("continue-on-error"), True)
+        table = tomllib.loads((ROOT / "ci" / "steps.toml").read_text())["step"]["design-spec"]
+        self.assertIs(table["blocks"], False)
         self.assertIn("ref: ${{ github.event.pull_request.base.ref }}", wf)
-        self.assertIn("|| echo \"::warning title=Design spec::the design spec check could not run", wf)
-        self.assertIn("--map .github/design-surfaces.json --pr-map", wf)
+        self.assertIn("|| echo \"::warning title=Design spec::the design spec check could not run", table["run"])
+        self.assertIn("--map .github/design-surfaces.json --pr-map", table["run"])
         sparse = yaml.safe_load(wf)["jobs"]["body"]["steps"][0]["with"]["sparse-checkout"]
         self.assertIn(".github/design-surfaces.json", sparse, "the base's own map is checked out")
+        self.assertIn("ci/steps.toml", sparse, "the base's step table is checked out")
         self.assertIn("permissions: {}", wf)
         self.assertNotIn("pull_request_target", wf)
-
 
 if __name__ == "__main__":
     unittest.main()

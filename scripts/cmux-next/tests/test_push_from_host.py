@@ -35,6 +35,18 @@ FAKE_DF = """#!/bin/bash
 echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
 echo "/dev/fake 999999999 1 $(cat "$FAKE_FREE_KB_FILE") 1% /"
 """
+# leo-workspace's tools/fleet_reservations.py stand-in: exit 1 and say who holds it for a host in FAKE_RESERVED,
+# 2 for one in FAKE_UNREADABLE, else 0 (free).
+FAKE_RESERVATIONS = """import os, sys
+host = sys.argv[1]
+if host in os.environ.get("FAKE_RESERVED", "").split():
+    print(f"{host} is reserved for perf-lead until 2026-11-13 (fixture)")
+    sys.exit(1)
+if host in os.environ.get("FAKE_UNREADABLE", "").split():
+    print("fleet-reservations: fixture registry is malformed", file=sys.stderr)
+    sys.exit(2)
+print(f"{host}: free")
+"""
 HOOK = """#!/bin/bash
 cat > /dev/null
 echo ran >> "$FAKE_HOST_HOME/hook.log"
@@ -64,8 +76,11 @@ class PushFromHostTests(unittest.TestCase):
         # then the helper's GIT_CONFIG_COUNT opt-out back on top.
         self.env = git_fixture_env.fixture_env(
             {key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
+        reservations = self.root / "fleet_reservations.py"
+        reservations.write_text(FAKE_RESERVATIONS)
         self.env.update(PATH=f"{bin_dir}:{self.env.get('PATH', '')}", GIT_CONFIG_GLOBAL=str(config),
-                        GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home))
+                        GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home),
+                        CMUX_FLEET_RESERVATIONS=str(reservations))
         git_fixture_env.init_repo(self.origin, "--bare", env=self.env)
         self.run_ok("git", "clone", "--quiet", str(self.origin), str(self.work))
         self.commit(self.work, "base.txt", "base\n", "base")
@@ -96,8 +111,9 @@ class PushFromHostTests(unittest.TestCase):
                               env=self.env, text=True, capture_output=True)
         return done.stdout.strip()
 
-    def push(self, *args):
-        done = subprocess.run(["bash", str(SCRIPT), "--host", "fake-host", *args], cwd=self.work, env=self.env,
+    def push(self, *args, hosts=("fake-host",)):
+        flags = [part for host in hosts for part in ("--host", host)]
+        done = subprocess.run(["bash", str(SCRIPT), *flags, *args], cwd=self.work, env=self.env,
                               text=True, capture_output=True)
         self.assertNotIn(TOKEN, done.stdout + done.stderr, "the token must never be printed")
         return done
@@ -225,6 +241,49 @@ class PushFromHostTests(unittest.TestCase):
 
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertNotIn("disk free", done.stderr)
+
+    # 2026-11-12: a helper pushed through a perf lead's reserved mini, the second of DEFAULT_HOSTS.
+    def test_a_reserved_host_is_skipped_for_the_next_free_one(self):
+        self.env["FAKE_RESERVED"] = "perf-mini"
+        sha = self.commit(self.work, "a.txt", "a\n", "a change")
+
+        done = self.push("topic", hosts=("perf-mini:fun/cmux", "fake-host"))
+
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.remote_head("topic"), sha)
+        self.assertIn("skipping perf-mini: perf-mini is reserved for perf-lead", done.stderr)
+        self.assertIn(f"{sha} -> topic through fake-host", done.stderr)
+
+    def test_every_host_reserved_sends_nothing_and_says_so(self):
+        self.env["FAKE_RESERVED"] = "perf-mini other-mini"
+        sha = self.commit(self.work, "a.txt", "a\n", "a change")
+
+        done = self.push("topic", hosts=("perf-mini", "user@other-mini"))
+
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("every host is reserved", done.stderr)
+        self.assertIn("perf-mini user@other-mini", done.stderr)
+        self.assertEqual(self.remote_head("topic"), "")
+        self.assertFalse((self.host_home / "hook.log").exists())
+        self.assertEqual(self.leftovers(sha), [])
+
+    def test_a_host_whose_reservation_cant_be_read_is_skipped(self):
+        self.env["FAKE_UNREADABLE"] = "fake-host"
+
+        done = self.push("--which-host", "topic")
+
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("skipping fake-host: its reservation can't be read (exit 2)", done.stderr)
+        self.assertIn("every host is reserved", done.stderr)
+
+    def test_a_mac_without_the_reader_warns_and_pushes(self):
+        self.env["CMUX_FLEET_RESERVATIONS"] = str(self.root / "missing" / "fleet_reservations.py")
+
+        done = self.push("--which-host", "topic")
+
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "fake-host fun/cmux")
+        self.assertIn("no fleet reservation reader", done.stderr)
 
 
 if __name__ == "__main__":

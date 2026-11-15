@@ -33,7 +33,7 @@ pub(super) fn read_checkpoint(home: &Path) -> Result<Lsn> {
 /// Whether the freeze marker (`<home>/journal-frozen`) is there: a previous run's freeze whose
 /// `frozen` record may not have reached the journal.
 pub(super) fn frozen_marker(home: &Path) -> bool {
-    std::fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
+    crate::home_fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
 }
 
 /// Removes the temporary files of checkpoints and freeze markers a crash interrupted

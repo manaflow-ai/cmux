@@ -37,9 +37,39 @@ while IFS= read -r remote; do
                         scripts/git-hooks/refresh_checks.py
                         scripts/web_lint_prepush.py
                         scripts/lint_swift_namespaces.py
+                        # Legacy --namespace-fix installs copy this beside the hook even before the manifest existed.
                         scripts/swift_source_mask.py
+                        scripts/git-hooks/checks-copy-inputs
                     )
                     if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
+                        echo "warning: cmux merge-driver installer inputs differ from trusted $trusted_branch; rerun from a clean checkout." >&2
+                        exit 0
+                    fi
+                    # ...and everything the cmux-next checks copy is made from: the one list the installer copies
+                    # and refresh_checks.py stamps from. refresh_checks.py (now known to be the trusted one, as is the
+                    # list) reads it through the helper the install and a refresh copy through (--sources), which
+                    # refuses an entry that leaves the repository (Codex on #40894, F1) by name.
+                    copy_sources=()
+                    if [[ -f "$REPO_ROOT/scripts/git-hooks/checks-copy-inputs" ]]; then
+                        python3_bin="$(command -v python3 || true)"
+                        [[ "$python3_bin" == /* ]] && python3_bin="$(/bin/realpath "$python3_bin")"
+                        case "$python3_bin" in
+                            /*) ;;
+                            *) echo "warning: python3 is not an absolute executable; not reinstalling the cmux hooks." >&2; exit 0 ;;
+                        esac
+                        case "$python3_bin" in
+                            "$REPO_ROOT"/*) echo "warning: python3 resolves inside the checkout; not reinstalling the cmux hooks." >&2; exit 0 ;;
+                        esac
+                        if ! sources="$("$python3_bin" -I "$REPO_ROOT/scripts/git-hooks/refresh_checks.py" \
+                                --repo "$REPO_ROOT" --sources </dev/null)"; then
+                            echo "warning: scripts/git-hooks/checks-copy-inputs has an entry the checks copy refuses; not reinstalling the cmux hooks." >&2
+                            exit 0
+                        fi
+                        while IFS= read -r source; do
+                            [[ -n "$source" ]] && copy_sources+=("$source")
+                        done <<<"$sources"
+                    fi
+                    if (( ${#copy_sources[@]} )) && ! git diff --quiet "$trusted_sha" -- "${copy_sources[@]}"; then
                         echo "warning: cmux merge-driver installer inputs differ from trusted $trusted_branch; rerun from a clean checkout." >&2
                         exit 0
                     fi

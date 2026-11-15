@@ -141,7 +141,6 @@ SIGNER = "glaeda-trusted-next-signing"
 SIGNER_POOL = ("launch-smoke-nightly", "signer-build", "signer-app", "signer-dmg-image", "signer-dmg",
                "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
                "verify-nightly-identity-legacy-pool")
-RECOVERY = ("recover-nightly-next-notarization", "verify-recovered-nightly-next")
 # A label or variable that is not one of our minis: hosted, Blacksmith or fleet Linux.
 NOT_OURS = re.compile(r"ubuntu-|macos-\d|windows-|blacksmith|cmux-fleet-linux", re.IGNORECASE)
 OWNED_PICK = ("needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && "
@@ -386,12 +385,19 @@ class RecoveryTakesAnOwnedPick(unittest.TestCase):
         self.assertEqual(picker_ref_failures("find-nightly-next-recovery", job), [])
 
     def test_recovery_jobs_read_the_pick(self) -> None:
-        for name in RECOVERY:
-            with self.subTest(job=name):
-                route = re.sub(r"\s+", " ", manaflow_route(name))
-                self.assertIn(OWNED_PICK, route)
-                self.assertNotIn("CI_SIDE_LANE_RUNNER", route)
-                self.assertNotIn("'glaeda-std-xcode-26.6'", route)
+        route = re.sub(r"\s+", " ", manaflow_route("recover-nightly-next-notarization"))
+        self.assertIn(OWNED_PICK, route)
+        self.assertNotIn("CI_SIDE_LANE_RUNNER", route)
+        self.assertNotIn("'glaeda-std-xcode-26.6'", route)
+
+    def test_recovered_verify_never_takes_the_signer_pin(self) -> None:
+        # glaeda admits only signing jobs on a signing mini: on the recovery signer's pin this secret-free job was
+        # refused ("untrusted: NEXT nightly needs its exact nightly.yml signing job", run 43224144950), so a build
+        # whose notarization outlasted 20 minutes never published (ask-2f54cdc7fc).
+        route = re.sub(r"\s+", " ", manaflow_route("verify-recovered-nightly-next"))
+        self.assertNotIn("sign_owned", route)
+        self.assertNotIn(SIGNER, route)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", route)
 
 
 def stub(directory: Path, name: str, body: str) -> None:

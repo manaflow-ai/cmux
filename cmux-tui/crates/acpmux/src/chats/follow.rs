@@ -22,7 +22,11 @@ use std::path::Path;
 use cmux_chat_index::AdapterKind;
 use cmux_chat_index::transcript::Turn;
 
-use crate::adopt_replay::{Fold, MAX_BYTES, MAX_TURNS};
+use crate::adopt_replay::{Fold, ItemLine, MAX_BYTES, MAX_TURNS};
+
+/// The bytes at the start of a transcript and before the last read's end that a read checks are
+/// unchanged: a rewrite that keeps the line ends where they were is read whole again.
+const GUARD_BYTES: u64 = 4096;
 
 /// The adopt reader's family of a harness whose transcript is followed: Claude Code's and
 /// Codex's (`super::transcript_turns` reads every other harness whole).
@@ -57,8 +61,13 @@ pub struct Follow {
     items: Window,
     /// The doc is made of Codex's items (no event-message turn is in the window).
     reads_items: bool,
-    /// Where the Codex line that made items the turns ([`Fold::current`]) starts.
-    current_at: Option<u64>,
+    /// The Codex lines that decide how a read starting at the cut folds items, oldest first: runs
+    /// of annotated lines and of plain prompts ([`ItemLine`]), each kept as where its last line
+    /// starts (the one that stays inside the newest [`MAX_BYTES`] longest). A plain prompt with
+    /// no annotated line between the cut and it would fold as an item in a whole read.
+    marks: VecDeque<(u64, ItemLine)>,
+    /// A hash of the file's first and last [`GUARD_BYTES`] before `offset` ([`guard`]).
+    guard: u64,
     /// Bytes read since this transcript was first followed (tests count them).
     pub bytes_read: u64,
 }
@@ -145,7 +154,8 @@ impl Follow {
             turns: Window::default(),
             items: Window::default(),
             reads_items: false,
-            current_at: None,
+            marks: VecDeque::new(),
+            guard: 0,
             bytes_read: 0,
         };
         // A bigger transcript is read from its newest MAX_BYTES; the line the cut falls in is
@@ -158,11 +168,13 @@ impl Follow {
         let turns = follow.window_turns(follow.window().first);
         let first = u32::try_from(follow.window().first).unwrap_or(u32::MAX);
         follow.fold.settle(1);
+        follow.guard = guard(file, follow.offset).ok()?;
         Some((follow, Read::Whole { first, turns }))
     }
 
-    /// Whether the last read still describes this file: the same one, not shorter, and a line
-    /// still ends where the last read stopped.
+    /// Whether the last read still describes this file: the same one, not shorter, a line still
+    /// ends where the last read stopped, and its first and last bytes before there are unchanged
+    /// (a rewrite in place keeps the inode and can keep every line end).
     fn fits(&self, family: &str, id: (u64, u64), len: u64, mut file: &File) -> bool {
         let mut last = [0_u8; 1];
         self.family == family
@@ -172,12 +184,13 @@ impl Follow {
                 || file.seek(SeekFrom::Start(self.offset - 1)).is_ok()
                     && file.read_exact(&mut last).is_ok()
                     && last[0] == b'\n')
+            && guard(file, self.offset).is_ok_and(|hash| hash == self.guard)
     }
 
     /// Folds what was appended since the last read. None: the transcript is read whole, as the
-    /// turns moved between Codex's event messages and its items, or the Codex line that made
-    /// items the turns left the newest [`MAX_BYTES`] with an item after it folded by it (a whole
-    /// read, starting past that line, folds such an item as an item).
+    /// turns moved between Codex's event messages and its items, or a plain Codex prompt folded as
+    /// a turn now has no annotated line between the cut and it (a whole read, starting at the cut,
+    /// folds it as an item).
     fn tail(&mut self, file: &mut File, len: u64) -> Option<Read> {
         let open = self.fold_seen().saturating_sub(1);
         self.fold_lines(file, len, false).ok()?;
@@ -186,10 +199,13 @@ impl Follow {
         if self.turns.starts.is_empty() != self.reads_items {
             return None;
         }
-        let cut = len.checked_sub(MAX_BYTES);
-        if self.fold.plain_after_current()
-            && self.current_at.zip(cut).is_some_and(|(at, cut)| at <= cut)
-        {
+        if len > MAX_BYTES {
+            let cut = len - MAX_BYTES;
+            while self.marks.front().is_some_and(|&(start, _)| start <= cut) {
+                self.marks.pop_front();
+            }
+        }
+        if self.marks.front().is_some_and(|&(_, kind)| kind == ItemLine::PlainPrompt) {
             return None;
         }
         // The open turn comes again whole: it is held unless more than the window came since
@@ -201,6 +217,7 @@ impl Follow {
             turns: self.window_turns(from),
         };
         self.fold.settle(1);
+        self.guard = guard(file, self.offset).ok()?;
         Some(read)
     }
 
@@ -224,10 +241,11 @@ impl Follow {
                 continue;
             }
             let (turns, items) = (self.fold.turns_seen(), self.fold.items_seen());
-            let current = self.fold.current();
             self.fold.line(&line);
-            if !current && self.fold.current() {
-                self.current_at = Some(start);
+            match (self.fold.last_line(), self.marks.back_mut()) {
+                (ItemLine::Other, _) => {}
+                (kind, Some((at, back))) if *back == kind => *at = start,
+                (kind, _) => self.marks.push_back((start, kind)),
             }
             for _ in turns..self.fold.turns_seen() {
                 self.turns.push(start);
@@ -255,4 +273,18 @@ impl Follow {
         let (first, held) = self.fold.held(self.reads_items);
         held.iter().skip(from.saturating_sub(first)).cloned().map(super::turn_of).collect()
     }
+}
+
+/// A hash of the first and the last [`GUARD_BYTES`] of `file` before `end`.
+fn guard(mut file: &File, end: u64) -> std::io::Result<u64> {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let tail = end.saturating_sub(GUARD_BYTES);
+    for (from, to) in [(0, end.min(GUARD_BYTES)), (tail.max(GUARD_BYTES.min(end)), end)] {
+        let mut bytes = vec![0; usize::try_from(to.saturating_sub(from)).unwrap_or(0)];
+        file.seek(SeekFrom::Start(from))?;
+        file.read_exact(&mut bytes)?;
+        bytes.hash(&mut hasher);
+    }
+    Ok(hasher.finish())
 }

@@ -275,6 +275,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "resume-here",
+        &[
+            (
+                "Run a Claude Code or Codex chat in this terminal once its turn ends",
+                "acpmux resume-here review-27310",
+            ),
+            ("Print the resume command instead of running it", "acpmux resume-here coord --print"),
+        ],
+    ),
+    (
         "stdio",
         &[
             ("Serve an editor ACP sessions on Claude", "acpmux stdio -m claude"),
