@@ -80,6 +80,15 @@ public final class PageInputReadiness {
         guard commandFocus != target, Self.focusWaitMode != "off" else { return }
         awaitedTarget = target
         awaitedBound?.cancel()
+        awaitedBound = nil
+        // Before the document loaded (a fresh launch), the page runs the command once it loads: the wait is for that
+        // document, and its bound counts from the document's first focus (``report(_:)``).
+        if documentReady { startFocusWaitBound() }
+        trace("wait \(target) document=\(documentReady) focus=\(commandFocus ?? "-")")
+        update()
+    }
+
+    private func startFocusWaitBound() {
         let limit = focusWaitLimit
         // task-owner: one-shot bound on this wait; the focus it waits for, a new document or the next wait cancels it
         awaitedBound = Task { [weak self] in
@@ -87,8 +96,6 @@ public final class PageInputReadiness {
             do { try await Task.sleep(for: limit) } catch { return }
             self?.endFocusWait("limit")
         }
-        trace("wait \(target) document=\(documentReady) focus=\(commandFocus ?? "-")")
-        update()
     }
 
     /// The focus ``awaitFocus(on:)`` waited for came (or its bound passed): the keys kept for it go on.
@@ -162,10 +169,15 @@ public final class PageInputReadiness {
 
     func report(_ ready: Bool) {
         documentReady = ready
+        if ready, awaitedTarget != nil, awaitedBound == nil { startFocusWaitBound() }
         if !ready {
-            // A new document: a wait for the last one's field ends with it.
-            awaitedTarget = nil
-            awaitedBound?.cancel()
+            // A new document: a wait for the last one's field ends with it. A wait made before any document (no bound
+            // yet) is for this one.
+            if awaitedBound != nil {
+                awaitedTarget = nil
+                awaitedBound?.cancel()
+                awaitedBound = nil
+            }
             commandFocus = nil
             isListFocused = false
             isEditableFocused = false
