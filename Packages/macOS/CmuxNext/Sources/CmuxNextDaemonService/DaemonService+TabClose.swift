@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextActions
 
 extension DaemonService {
     public typealias TabCloseCommand = (label: String, run: DaemonCommandBody)
@@ -42,11 +43,16 @@ extension DaemonService {
     }
 
     static func closeCommand(for tab: TabModel, reaps: Bool) -> TabCloseCommand {
+        // Capture before the optimistic close removes the record, and before an
+        // async command outlives the action scope that explains its entrypoint.
+        let scope = ActionRunScope.current
+        let entrypoint = scope.map { $0.menuPick ? "menu" : "action" } ?? "direct"
+        let context = "tab_kind=\(tab.kind.rawValue) entrypoint=\(entrypoint) origin=\((scope?.origin ?? .user).rawValue)"
         if tab.kind == .pty, !reaps, let terminal = tab.terminalID {
             let incarnation = tab.terminalIncarnation
-            return ("close-terminal", { try await $0.closeTerminal(terminal, incarnation: incarnation) })
+            return ("close-terminal \(context)", { try await $0.closeTerminal(terminal, incarnation: incarnation) })
         }
         let surface = tab.surface
-        return ("close-surface", { try await $0.closeTab(surface) })
+        return ("close-surface \(context)", { try await $0.closeTab(surface) })
     }
 }

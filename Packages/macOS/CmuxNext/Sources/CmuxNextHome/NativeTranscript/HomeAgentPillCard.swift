@@ -61,7 +61,7 @@ final class HomeAgentPillCard {
         content.widthAnchor.constraint(equalToConstant: Self.width).isActive = true
         name.widthAnchor.constraint(lessThanOrEqualToConstant: Self.width - 2 * Metrics.space3).isActive = true
         content.setAccessibilityIdentifier("cmux.home.agentPillCard")
-        card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         let action = HomeAgentPillAction { [weak self] in self?.startNow() }
         startNowButton?.target = action

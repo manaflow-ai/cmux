@@ -146,6 +146,7 @@ export const STEP_MS = MOTION_MS.standard;
 /// responsive"). The rail is a deliberate target at the pane's edge, and the card is the point of
 /// hovering it; it was Codex's 250 ms `delayOpen`. The app's other hover cards keep their dwell
 /// (ui/hoverIntent.ts).
+// hover-timing: the minimap is a scrubber, its card the point of hovering it (Leo 2026-10-29)
 export const CARD_DELAY = 0;
 /// When older turns load above the rail's rows and move them, the rail glides back over this long.
 export const SHIFT_MS = MOTION_MS.standard;
@@ -462,11 +463,6 @@ export function railFadeReach(count: number, height: number, top: number, pitch 
 export const TRANSCRIPT_FADE_RAMP = 96;
 export const transcriptFadeReach = (distance: number) =>
   Math.max(0, Math.min(1, Math.round((distance / TRANSCRIPT_FADE_RAMP) * 100) / 100));
-
-/// The compact rail's bottom shadow follows the transcript's distance from its latest-message
-/// starting point. Keep this as a named model value so the rail and its gallery/tests share the same
-/// 96 px ramp as the transcript edge, including the latest-position deadband applied by the caller.
-export const railBottomShadowReach = (distanceFromLatest: number) => transcriptFadeReach(distanceFromLatest);
 
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's

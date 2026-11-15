@@ -30,6 +30,31 @@
       "pollFloorSeconds": 5,
       "staleAfterSeconds": 60
     },
+    "chat.list": {
+      "docs": "Every ACP chat acpmux knows, on this machine and its peers, with its state, unread mark, pin and pull requests (chat.list). The daemon pushes chat.changed when a listed field changes, so the runtime never polls it.",
+      "scopes": [
+        "chat:read"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "value": {
+        "type": "array",
+        "items": {
+          "$ref": "cmux:types/ChatSummary"
+        }
+      },
+      "read": {
+        "op": "chat.list"
+      },
+      "push": [
+        "chat.changed"
+      ],
+      "pollFloorSeconds": 5,
+      "staleAfterSeconds": 60
+    },
     "github.pulls": {
       "docs": "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it.",
       "scopes": [

@@ -28,7 +28,7 @@ Review path (no Mac needed):
 ## REVIEW DEMO STEPS: END
 
 Other screens:
-- Home: swipe a conversation left for "Read" and "Pin"; touch and hold it for "Mark as Read" and "Delete Conversation from List". "New Message to Chief" (top right) opens Chief with the keyboard up.
+- Home: swipe a conversation left for "Read" and "Pin"; touch and hold it for "Mark as Read" and "Delete Conversation from List". "New Message" (top right) opens a new message: pick a Chief or a teammate under "To:", type, and send.
 - The Workspaces and Feed tabs show the workspaces and alerts of a Mac signed in to the same account. With no Mac they offer "Connect your Mac".
 - Account deletion: Settings, tap the account row at the top to open "Account", then "Delete Account". After the confirmation "Delete your cmux account?" the account and its data are deleted permanently and the app signs out. Please try it last, since it deletes the demo account.
 
@@ -40,6 +40,8 @@ Permissions, each optional and asked only when first used:
 - Photos: attaching photos to messages, and saving images to Photos.
 - Face ID: only when "Require Face ID" is on in Settings.
 - Local Network: a direct link to the user's own Mac on the same network.
+
+Background audio (UIBackgroundModes audio): an audio message to Chief keeps recording, and a call with Chief keeps its audio, while the iPhone is locked or another app is open. To see it, start an audio message in a conversation with Chief, lock the iPhone for a few seconds, unlock it and send: the message includes what was said while the iPhone was locked.
 
 Payments: the app sells no digital goods and has no purchase, checkout or billing links.
 

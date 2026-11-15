@@ -111,12 +111,12 @@ enum RemoteStrings {
             return session.lastError ?? (session.staticInstallStaged ? staticInstallStaged : nil)
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
-        case .authFailed(let message):
-            return String(format: String(localized: "remote.status.authFailed", defaultValue: "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine.", table: "Remote", bundle: .module), message)
-        case .hostKeyUntrusted(let message):
-            return String(format: String(localized: "remote.status.hostKey", defaultValue: "The host key is not trusted: %1$@ Run ssh %2$@ in a terminal to check it. cmux never skips host key checks.", table: "Remote", bundle: .module), message, session.host.destination.sshArgument)
-        case .unreachable(let message):
-            return String(format: String(localized: "remote.status.unreachable", defaultValue: "Cannot reach the machine: %@ cmux tries again when the network changes.", table: "Remote", bundle: .module), message)
+        case .authFailed:
+            return String(format: String(localized: "remote.status.authFailed.plain", defaultValue: "SSH sign-in to %@ failed. Check your key or agent, then choose Reconnect Machine. Choose Copy Error for the details.", table: "Remote", bundle: .module), session.host.label)
+        case .hostKeyUntrusted:
+            return String(format: String(localized: "remote.status.hostKey.plain", defaultValue: "The host key of %1$@ is not trusted. Run ssh %2$@ in a terminal to check it. cmux never skips host key checks. Choose Copy Error for the details.", table: "Remote", bundle: .module), session.host.label, session.host.destination.sshArgument)
+        case .unreachable:
+            return String(format: String(localized: "remote.status.unreachable.plain", defaultValue: "cmux cannot reach %@. It tries again when the network changes. Choose Copy Error for the details.", table: "Remote", bundle: .module), session.host.label)
         case .needsInstall(let need):
             return needText(need, session)
         case .installing:

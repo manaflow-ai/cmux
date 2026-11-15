@@ -44,8 +44,9 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         let flight = SendFlight(text: text, attachments: photos.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
         // A bubble effect replaces the flight: the bubble makes its entrance in
         // place. A reply joins the open thread instead (`refreshReplyThread`).
+        // Reduce Motion: no flight; the row lands in its slot at once.
         let replying = replyTarget != nil
-        let flies = effect?.kind != .bubble && !replying
+        let flies = effect?.kind != .bubble && !replying && !UIView.reducesMotion
         pendingFlight = flies ? flight : nil
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
@@ -200,9 +201,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         // Frame fit of Messages' 2-photo send: residual offset follows
         // (1 + wt)e^-wt with w ~ 23/s (0.27 s response, no overshoot); opacity
         // reaches ~0.4 by 67 ms and ~0.9 by 200 ms.
-        UIView.animate(springDuration: 0.27, bounce: 0, options: [.allowUserInteraction]) {
+        UIView.animateUnlessReduceMotion(springDuration: 0.27, bounce: 0, options: [.allowUserInteraction]) {
             for image in imageFlights { image.transform = .identity }
         }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
             for image in imageFlights { image.alpha = 1 }
         }
@@ -327,7 +329,22 @@ struct SendFlightMotion {
         CGAffineTransform(translationX: mover.bounds.width * (1 - scale) / 2, y: 0).scaledBy(x: scale, y: scale)
     }
 
+    /// Reduce Motion: the flight lands in its end state at once (no rise,
+    /// collapse or dip); the caller's transaction completion still lands it.
     func animate() {
+        guard !UIView.reducesMotion else {
+            UIView.performWithoutAnimation {
+                mover.center.y = endCenterY
+                for view in body {
+                    view.frame = bodyTo
+                    view.layoutIfNeeded()
+                }
+                label?.frame = labelTo
+                fill?.alpha = 1
+                mover.alpha = 1
+            }
+            return
+        }
         let rise = UIViewPropertyAnimator(duration: 0, timingParameters: UISpringTimingParameters(mass: 1, stiffness: 141.759, damping: 17.35, initialVelocity: .zero))
         rise.addAnimations { mover.center.y = endCenterY }
         rise.isUserInteractionEnabled = true

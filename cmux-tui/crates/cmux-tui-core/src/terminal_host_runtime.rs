@@ -533,7 +533,7 @@ mod unix {
     pub(crate) use adopt_launch::launch_terminal_host_adopting_with_program_status;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
     pub use host_session::enter_terminal_host_process;
-    pub(crate) use host_session::{OWNER_FLAG, host_owner_args, host_session_env};
+    pub(crate) use host_session::{OWNER_FLAG, host_malloc_env, host_owner_args, host_session_env};
     pub(crate) use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
@@ -636,7 +636,7 @@ mod unix {
     }
 
     #[cfg(test)]
-    pub(crate) use tests::input_ack_surface_fixture;
+    pub(crate) use tests::{input_ack_surface_fixture, record_fixture};
 
     #[cfg(test)]
     mod tests;
@@ -700,12 +700,12 @@ pub(crate) use sys::{HostStream, StandbyTerminalHost, acquire_terminal_host_rese
 pub(crate) use sys::{
     acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
 };
-#[cfg(all(unix, test))]
-pub(crate) use unix::input_ack_surface_fixture;
 #[cfg(unix)]
 pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
+#[cfg(all(unix, test))]
+pub(crate) use unix::{input_ack_surface_fixture, record_fixture};
 // The holder launch marks the holder with the same owner (holder_runtime).
 #[cfg(unix)]
 pub(crate) use unix::host_owner_args;

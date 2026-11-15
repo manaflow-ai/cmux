@@ -17,7 +17,7 @@ struct McpConnectCompactRow: View {
                 McpConnectBadge(card: card, colors: colors)
                 Spacer(minLength: 8)
                 if flow.phase == .ask {
-                    Button(McpConnectStrings.details) { open.toggle() }.buttonStyle(.borderless)
+                    Button(McpConnectStrings.details) { open.toggle() }.buttonStyle(.cmuxPressFill)
                     CmuxDialogActionButton(McpConnectStrings.connect, hint: .return, action: actions.connect)
                 }
             }

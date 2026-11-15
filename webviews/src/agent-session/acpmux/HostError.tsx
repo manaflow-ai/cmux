@@ -50,11 +50,12 @@ export function HostError({
 /// holds this app's socket (`onRestart`, in flight while `restarting`), else Retry, which asks again
 /// now (`retrying` while it waits on the attempt in flight).
 ///
-/// Under it, one muted line answers what the person wonders first (Leo, 2026-11-06: "has my app
-/// completely crashed? Should I be restarting it?"): cmux is running and the chats are kept, and,
-/// while the pane asks again by itself (`selfRetrying`, every failure but one asking again cannot
-/// change), that it keeps retrying. The waiting line has the same two rows at the same heights, so
-/// one turning into the other moves nothing.
+/// While the pane asks again by itself (`selfRetrying`: every failure but one asking again cannot
+/// change, such as a machine that is rebooting or an agent service that is starting), the line is
+/// only "Reconnecting…": no Retry, no Details, no reassurance under it, since nothing waits on the
+/// person and the chat comes back by itself (Leo, 2026-11-12: "the recovery needs to be a lot better
+/// and it shouldn't talk so much bullshit"; "try what? no, it should just automatically do stuff").
+/// Only a failure asking again cannot clear keeps its message and its one action.
 export function HostUnavailableLine({
   message,
   detail,
@@ -75,6 +76,7 @@ export function HostUnavailableLine({
   const t = useT();
   const [open, setOpen] = useState(false);
   const detailId = useId();
+  if (selfRetrying && !onRestart) return <ReconnectingLine />;
   return (
     <div className="acpmux-host-line-group" role="alert">
       <div className="acpmux-host-line">
@@ -109,7 +111,6 @@ export function HostUnavailableLine({
           </button>
         )}
       </div>
-      <HostReassurance selfRetrying={selfRetrying} />
       {detail && open && (
         <p id={detailId} className="acpmux-host-line-detail selectable">
           {detail}
@@ -119,22 +120,21 @@ export function HostUnavailableLine({
   );
 }
 
-/// The host line's second row: cmux is running and the chats are kept, and whether the pane keeps
-/// asking by itself. It holds no button in either line, so its height is its text's in both, and
-/// the waiting line turning into the failure line moves nothing.
-function HostReassurance({ selfRetrying }: { selfRetrying: boolean }) {
+/// The one quiet line while the pane gets its agent back by itself: "Reconnecting…", the same line
+/// HostRecoveringLine shows for a short reconnect, so a long one changes nothing on screen.
+function ReconnectingLine() {
   const t = useT();
   return (
-    <div className="acpmux-host-line acpmux-host-line-reassure">
-      <p className="acpmux-host-line-note">{t(selfRetrying ? "host.keptRetrying" : "host.kept")}</p>
-    </div>
+    <output className="acpmux-host-line" data-host-recovering="reconnecting">
+      <p className="acpmux-host-line-message">{t("host.reconnecting")}</p>
+    </output>
   );
 }
 
 /// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
-/// restart reloads every chat), so the person sees how long the pane has waited, that cmux is
-/// running, the chats are kept and the pane keeps asking, and may decide: Restart agent service, a
+/// restart reloads every chat), so the person sees how long the pane has waited, and may decide:
+/// Restart agent service, a
 /// quiet text button after the time (optional, never a filled button), stops that daemon (its
 /// chats are kept) and the pane asks again, which starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
 /// one rule for saying a recovery: "STOP SHOWING BULLSHIT ON LOAD"); that only decides what is
@@ -170,7 +170,6 @@ export function HostWaitingLine({
           </button>
         )}
       </div>
-      <HostReassurance selfRetrying />
     </output>
   );
 }

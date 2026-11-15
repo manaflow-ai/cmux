@@ -235,7 +235,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a send from the latest row lifts the thread on one glide (blocks arm): the prompt rises into place", async () => {
+  test("a send from the latest row is in place immediately (blocks arm)", async () => {
     const page = await open("blocks");
     const rows = history();
     await show(page, rows);
@@ -245,12 +245,10 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     const tops = await sampleFrames(page, 24, "prompt");
     const drawn = tops.filter((top) => Number.isFinite(top));
     const rest = drawn.at(-1)!;
-    // The prompt starts below where it rests (behind the composer it left) and only ever moves up.
-    expect(drawn[0]! - rest).toBeGreaterThan(8);
-    for (let index = 1; index < drawn.length; index += 1)
-      expect(drawn[index]!).toBeLessThanOrEqual(drawn[index - 1]! + 0.5);
-    // In between: some frame shows it part of the way, never one cut from start to rest.
-    expect(drawn.some((top) => top < drawn[0]! - 1 && top > rest + 1)).toBe(true);
+    // The product send token is zero for every follow-motion arm: the prompt is final in the
+    // first painted frame and never takes the old 180 ms glide.
+    expect(drawn[0]).toBeCloseTo(rest, 0);
+    for (const top of drawn) expect(Math.abs(top - rest)).toBeLessThanOrEqual(1);
     await frames(page, 4);
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     const state = await page.evaluate(() =>
@@ -260,7 +258,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a send that makes a short chat overflow lifts the thread on one glide (blocks arm)", async () => {
+  test("a send that makes a short chat overflow lands immediately (blocks arm)", async () => {
     // The longest tail that still fits the view, found on a page of its own: once a tail overflows,
     // the chat has opened, and the send below must come into one that has not.
     let rows = history().slice(0, 2);
@@ -291,11 +289,8 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     const tops = await sampleFrames(page, 24, "prompt");
     const drawn = tops.filter((top) => Number.isFinite(top));
     const rest = drawn.at(-1)!;
-    // The prompt starts below where it rests and only moves up, with frames in between.
-    expect(drawn[0]! - rest).toBeGreaterThan(8);
-    for (let index = 1; index < drawn.length; index += 1)
-      expect(drawn[index]!).toBeLessThanOrEqual(drawn[index - 1]! + 0.5);
-    expect(drawn.some((top) => top < drawn[0]! - 1 && top > rest + 1)).toBe(true);
+    expect(drawn[0]).toBeCloseTo(rest, 0);
+    for (const top of drawn) expect(Math.abs(top - rest)).toBeLessThanOrEqual(1);
     await frames(page, 4);
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     await page.close();
@@ -335,7 +330,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a send while scrolled up glides down to the latest message instead of cutting there (blocks arm)", async () => {
+  test("a send while scrolled up cuts to the latest message immediately (blocks arm)", async () => {
     const page = await open("blocks");
     const rows = history();
     await show(page, rows);
@@ -346,10 +341,12 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     const offsets = await sampleFrames(page, 40, "offset");
     const end = offsets.at(-1)!;
     expect(end).toBeGreaterThan(start);
-    // Never back up, and several frames between where the reader was and the latest message.
+    // Never back up, and no intermediate glide frames remain after the instant landing.
     for (let index = 1; index < offsets.length; index += 1)
       expect(offsets[index]!).toBeGreaterThanOrEqual(offsets[index - 1]! - 0.5);
-    expect(offsets.filter((top) => top > start + 1 && top < end - 1).length).toBeGreaterThanOrEqual(3);
+    const landed = offsets.findIndex((top) => top >= end - 1);
+    expect(landed).toBeGreaterThanOrEqual(0);
+    for (const top of offsets.slice(landed)) expect(Math.abs(top - end)).toBeLessThanOrEqual(1);
     await page.waitForFunction(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;

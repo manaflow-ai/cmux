@@ -141,6 +141,8 @@ final class ShellModel {
         self.lastOpen = lastOpen
         self.store = store
         self.auth = auth
+        // New Message names this account and its team by the Cloud's own ids, derived from the project.
+        ChiefSources.shared.stackProjectID = auth.stackProjectID
         self.settings = settings
         self.sidebar = sidebar
         terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
@@ -154,8 +156,60 @@ final class ShellModel {
         let delay = UserDefaults.standard.double(forKey: "cmux-mobile-mock-create-delay")
         let mock = delay > 0 ? MockWorkspaceCreationBackend(latency: .seconds(delay)) : MockWorkspaceCreationBackend()
         mockCreation = mock
+        // Mock mode, as the live coordinator does: a chat of a workspace still being created is
+        // starting; once made, it is rebuilt as a new session, which then gets the task.
+        if mockMode {
+            let base = AgentSessionDirectory.shared.makeSource
+            AgentSessionDirectory.shared.makeSource = { [weak store] summary in
+                if let store, store.pendingWorkspaceIDs.contains(where: { store.workspace(id: $0)?.tabs.contains { $0.id == summary.id } == true }) {
+                    return StartingAgentSource(summary: summary)
+                }
+                return base(summary)
+            }
+            mock.onCreated = { workspace in
+                for tab in workspace.tabs where tab.isAgent {
+                    AgentSessionDirectory.shared.invalidate(id: tab.id, macID: workspace.macID)
+                }
+            }
+        }
+        // Mock mode: a New Task's task goes to its workspace's mock chat, as the Mac's agent gets it.
+        if mockMode { mock.onTaskSent = { [weak store] task, workspace in
+            guard let store, let ws = store.workspace(id: workspace.id) ?? Optional(workspace),
+                  let tab = ws.tabs.first(where: \.isAgent) else { return }
+            let mac = store.teams.flatMap(\.macs).first { $0.id == ws.macID }?.name ?? "Mac"
+            let chat = AgentSessionDirectory.shared.store(workspace: ws, tab: tab, macName: mac)
+            let attachments = task.images.map { AgentAttachment(kind: .image, name: "Photo.jpg", data: $0.data) }
+                + task.files.map { AgentAttachment(kind: .file, name: $0.name, data: $0.data) }
+            chat.send(prompt: task.prompt, attachments: attachments)
+        } }
         // `-cmux-mobile-refuse-next-tab`: the next tab request is refused like the live report's
         // (the Mac's cwd policy), for the new-tab captures.
+        // `-cmux-mobile-task-catalog empty|failed|slow`: New Task's agent list states, for its captures.
+        if let mode = UserDefaults.standard.string(forKey: "cmux-mobile-task-catalog").flatMap(MockWorkspaceCreationBackend.CatalogMode.init) {
+            mock.catalogMode = mode
+        }
+        // `-cmux-mobile-no-agents`: the Mac starts no agents from the phone (New Task is not offered).
+        if CommandLine.arguments.contains("-cmux-mobile-no-agents") { mock.offersAgents = false }
+        // `-cmux-mobile-task-delivery not-sent|uncertain|refused`: the next task doesn't reach its agent.
+        switch UserDefaults.standard.string(forKey: "cmux-mobile-task-delivery") {
+        case "not-sent": mock.taskFailure = .notSent("Not connected to the Mac")
+        case "uncertain": mock.taskFailure = .uncertain("The connection dropped")
+        case "refused": mock.taskFailure = .refused("The prompt is too large for this agent")
+        default: break
+        }
+        // `-cmux-mobile-mock-second-mac`: the team's other Mac is online too (New Task's Mac picker).
+        if CommandLine.arguments.contains("-cmux-mobile-mock-second-mac") {
+            store.teams = store.teams.map { team in
+                var team = team
+                team.macs = team.macs.map { mac in var mac = mac; if mac.id == "mbp" { mac.isOnline = true }; return mac }
+                return team
+            }
+        }
+        // `-cmux-mobile-refuse-next-create`: the next workspace the Mac makes is refused (New Task's draft comes back).
+        if CommandLine.arguments.contains("-cmux-mobile-refuse-next-create") {
+            mock.failNext = "web is a new folder on this Mac. Open cmux on the Mac and trust web, then start the task again."
+            mock.failNextForPerson = true
+        }
         if CommandLine.arguments.contains("-cmux-mobile-refuse-next-tab") {
             mock.failNext = "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
         }
@@ -163,7 +217,9 @@ final class ShellModel {
         #else
         offlineCreation = UnavailableWorkspaceCreationBackend()
         #endif
-        creator = WorkspaceCreator(store: store, backend: offlineCreation)
+        // New Task's drafts: on disk for a signed-in account, in memory on sample data.
+        creator = WorkspaceCreator(store: store, backend: offlineCreation,
+                                   taskDrafts: TaskDraftStore(directory: mockMode ? nil : Self.taskDraftsFolder(account: auth.user?.id)))
         terminalTabs.mockDataEnabled = mockMode
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
@@ -177,8 +233,39 @@ final class ShellModel {
                 currentTab: { store?.workspace(id: workspaceID)?.tabs.first { $0.id == tabID } },
                 currentModel: { terminalTabs?.model(forTabID: tabID) })
         }
+        #if DEBUG
+        // `CMUX_MOBILE_TASK_DRAFT_IMAGES=N`: New Task opens with N photos attached (its captures;
+        // the system photo picker runs out of the app's process).
+        if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFT_IMAGES"].flatMap(Int.init), count > 0 {
+            creator.taskDraft.images = (0..<min(count, TaskDraft.imageLimit)).map { Self.demoTaskImage($0) }
+        }
+        // `CMUX_MOBILE_TASK_DRAFT_FILES=N`: New Task opens with N files attached (the system file
+        // picker runs outside the app's process).
+        if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFT_FILES"].flatMap(Int.init), count > 0 {
+            let names = ["design-spec.pdf", "crash-log.txt", "schema.sql", "notes.md", "trace.json", "build.log"]
+            creator.taskDraft.files = names.prefix(min(count, TaskDraft.fileLimit)).map { TaskFile(name: $0, data: Data("sample \($0)".utf8)) }
+        }
+        // `CMUX_MOBILE_TASK_DRAFTS=N`: N saved New Task drafts (Drafts' captures).
+        if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFTS"].flatMap(Int.init), count > 0 {
+            let samples: [(String, [TaskAgentPick], String, Int)] = [
+                ("Add a dark mode toggle to settings", [TaskAgentPick(harness: "claude", name: "Claude Code")], "~/Development/cmux", 0),
+                ("Match this design", [TaskAgentPick(harness: "claude", name: "Claude Code"),
+                                       TaskAgentPick(harness: "codex", name: "Codex")], "~/Development/web", 2),
+                ("Profile the list scroll and fix any hitch over 8 ms", [], "~/Development/cmux/cmux-next-ios", 0),
+                ("", [], "~/fleet", 1),
+            ]
+            for (index, sample) in samples.prefix(count).enumerated() {
+                let draft = TaskDraft(prompt: sample.0, images: (0..<sample.3).map { Self.demoTaskImage(index + $0) }, picks: sample.1,
+                                      macID: "mac-studio", directory: sample.2, name: sample.0.isEmpty ? "fleet cleanup" : "")
+                creator.taskDrafts.save(draft, now: Date().addingTimeInterval(Double(-600 * (index + 1))))
+            }
+        }
+        #endif
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
+        }
+        creator.onTaskNotDelivered = { [weak self] workspace, task, failure in
+            self?.taskNotDelivered(workspace, task: task, failure: failure)
         }
         creator.onManageFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
@@ -191,6 +278,39 @@ final class ShellModel {
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
         }
     }
+
+    /// Where New Task keeps an account's saved drafts (Application Support, one folder per
+    /// account, so another account signed in on this phone never sees them). Nil with no account.
+    static func taskDraftsFolder(account: String?) -> URL? {
+        guard let account, !account.isEmpty, account.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else {
+            return nil
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cmux-mobile/task-drafts/\(account)", isDirectory: true)
+    }
+
+    #if DEBUG
+    /// A screenshot-like picture for New Task's captures: a colored gradient with bars.
+    static func demoTaskImage(_ index: Int) -> TaskImage {
+        let colors: [(UIColor, UIColor)] = [(.systemBlue, .systemTeal), (.systemOrange, .systemPink), (.systemGreen, .systemMint),
+                                            (.systemPurple, .systemIndigo), (.systemRed, .systemYellow), (.systemGray, .systemBrown)]
+        let (top, bottom) = colors[index % colors.count]
+        // width-allow: a bitmap's pixel size (a fake screenshot attachment), never a layout frame
+        let size = CGSize(width: 390, height: 844)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let data = UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.8) { context in
+            let cg = context.cgContext
+            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [top.cgColor, bottom.cgColor] as CFArray, locations: [0, 1])
+            if let gradient { cg.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: size.height), options: []) }
+            UIColor.white.withAlphaComponent(0.85).setFill()
+            for row in 0..<8 {
+                cg.fill(CGRect(x: 32, y: 120 + CGFloat(row) * 64, width: CGFloat(200 + (row * 37 + index * 23) % 130), height: 22))
+            }
+        }
+        return TaskImage(id: "demo-\(index)", data: data)
+    }
+    #endif
 
     /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
     /// The destination keeps its screen state at the same place in the path, so the path is
@@ -295,6 +415,8 @@ final class ShellModel {
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
+            // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
+            live.onTerminalOutput = { [weak terminalTabs] tab, macID in terminalTabs?.macOutput(tabID: tab, macID: macID) }
             // Each change goes to its workspace's Mac over that Mac's own link.
             let backend = MultiMacWorkspaceBackend(coordinator: live)
             creator.backend = backend
@@ -411,9 +533,43 @@ final class ShellModel {
             workspacesPath.removeSubrange(index...)
         }
         let mac = store.teams.flatMap(\.macs).first { $0.id == placeholder.macID }?.name ?? "the Mac"
-        toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create a workspace on \(mac)")
+        let text = switch creator.refusedTaskPlace(placeholder.id) {
+        case .composer: "Couldn't start the task on \(mac). It's back in New Task."
+        case .drafts: "Couldn't start the task on \(mac). It's saved in Drafts."
+        case .mayHaveStarted: "The task may have started on \(mac). Check its workspaces before starting it again."
+        case nil: "Couldn't create a workspace on \(mac)"
+        }
+        toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: text)
         theme.haptics.error()
         shellLog.error("new workspace on \(mac, privacy: .public) refused: \(message, privacy: .public)")
+    }
+
+    /// New Task's workspace stands but its task didn't get to the agent. Never sent: the task,
+    /// photos included, waits in that chat's composer. Maybe sent or refused: the toast says
+    /// so, and nothing is put back that could run it twice.
+    private func taskNotDelivered(_ workspace: Workspace, task: AgentTask, failure: TaskDeliveryFailure) {
+        let agent = workspace.tabs.first(where: \.isAgent)?.agentName ?? "The agent"
+        let text: String
+        switch failure {
+        case .notSent:
+            // Into that chat's composer, photos too, as a prompt that couldn't be sent comes back.
+            if let tab = workspace.tabs.first(where: \.isAgent) {
+                let mac = store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
+                let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
+                let attachments = task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo.jpg", data: $0.data) }
+                    + task.files.map { AgentAttachment(id: $0.id, kind: .file, name: $0.name, data: $0.data) }
+                chat.returnedDraft = AgentChatStore.ReturnedDraft(text: task.prompt, attachments: attachments, promptID: nil)
+            }
+            text = "Your task didn't reach \(agent). It's in the chat, ready to send."
+        case .uncertain:
+            text = "The connection dropped while sending your task. Open \(workspace.title) to check that \(agent) got it."
+        case .refused(let reason):
+            // The agent's answer to the task (its turn may have run): said as its words, not a refusal.
+            text = "\(agent) reported a problem with your task: \(reason)"
+        }
+        toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: text)
+        theme.haptics.error()
+        shellLog.error("task not delivered to \(workspace.id, privacy: .public): \(failure.reason, privacy: .public)")
     }
 
     // MARK: Last location (design/terminal P10)

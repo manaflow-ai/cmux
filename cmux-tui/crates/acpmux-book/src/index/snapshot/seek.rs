@@ -1,14 +1,15 @@
+use super::read::Frame;
 use super::{
     CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, HEADER_BYTES, Position, SEEK_BYTES, TRAILER_BYTES,
     read_at,
 };
-use crate::index::{SortKey, codec};
+use crate::index::SortKey;
 use std::io;
 
 impl DiskSnapshot {
     fn checkpoint(&self, index: usize, bytes_read: &mut usize) -> io::Result<Checkpoint> {
         if index >= self.head.directory_bytes / CHECKPOINT_BYTES {
-            return Err(codec::invalid("snapshot checkpoint index"));
+            return Err(super::fatal("snapshot checkpoint index"));
         }
         let mut bytes = [0; CHECKPOINT_BYTES];
         read_at(
@@ -17,7 +18,7 @@ impl DiskSnapshot {
             self.directory_offset() + (index * CHECKPOINT_BYTES) as u64,
         )?;
         *bytes_read += bytes.len();
-        let checkpoint = Checkpoint::decode(&bytes)?;
+        let checkpoint = Checkpoint::decode(&bytes).map_err(super::classify_read_error)?;
         if checkpoint.offset < HEADER_BYTES as u64
             || checkpoint.offset >= self.head.data_end
             || checkpoint.ordinal >= self.head.count
@@ -26,7 +27,7 @@ impl DiskSnapshot {
             || checkpoint.offset + checkpoint.first_len as u64 > self.head.data_end
             || (index == 0 && (checkpoint.offset != HEADER_BYTES as u64 || checkpoint.ordinal != 0))
         {
-            return Err(codec::invalid("snapshot checkpoint extent"));
+            return Err(super::fatal("snapshot checkpoint extent"));
         }
         Ok(checkpoint)
     }
@@ -83,7 +84,7 @@ impl DiskSnapshot {
             || end_ordinal - entry.ordinal > 256
             || next.as_ref().is_some_and(|next| entry.key >= next.key)
         {
-            return Err(codec::invalid("snapshot checkpoint order"));
+            return Err(super::fatal("snapshot checkpoint order"));
         }
         let bytes = self.read_range(entry.offset, (end - entry.offset) as usize)?;
         *bytes_read += bytes.len();
@@ -106,13 +107,22 @@ impl DiskSnapshot {
         let mut input = bytes.as_slice();
         let mut offset = entry.offset;
         let mut ordinal = entry.ordinal;
-        while let Some((summary, len)) = self.read_record(&mut input)? {
-            let candidate = SortKey::of(&summary);
-            if candidate > *key || (inclusive && candidate == *key) {
-                return Ok(Position { offset, ordinal, record_len: Some(len), bytes_read });
+        loop {
+            match self.read_frame(&mut input)? {
+                Frame::Row(summary, len) => {
+                    let candidate = SortKey::of(&summary);
+                    if candidate > *key || (inclusive && candidate == *key) {
+                        return Ok(Position { offset, ordinal, record_len: Some(len), bytes_read });
+                    }
+                    ordinal += 1;
+                    offset += len as u64;
+                }
+                Frame::Skipped(len) => {
+                    ordinal += 1;
+                    offset += len as u64;
+                }
+                Frame::End => break,
             }
-            ordinal += 1;
-            offset += len as u64;
         }
         Ok(Position {
             offset,
@@ -134,30 +144,46 @@ impl DiskSnapshot {
             return Ok((self.head.data_end, ordinal));
         }
         if ordinal <= self.head.first_lengths.len() as u64 {
-            let bytes = self
+            let length = self
                 .head
                 .first_lengths
                 .iter()
                 .take(ordinal as usize)
                 .map(|len| u64::from(*len))
                 .sum::<u64>();
-            return Ok((HEADER_BYTES as u64 + bytes, ordinal));
+            let bytes = self.read_range(HEADER_BYTES as u64, length as usize)?;
+            let mut input = bytes.as_slice();
+            let mut offset = HEADER_BYTES as u64;
+            let mut current = 0;
+            while current < ordinal {
+                match self.read_frame(&mut input)? {
+                    Frame::Row(_, len) | Frame::Skipped(len) => {
+                        offset += len as u64;
+                        current += 1;
+                    }
+                    Frame::End => return Err(super::fatal("snapshot ordinal")),
+                }
+            }
+            return Ok((offset, ordinal));
         }
         let mut bytes_read = 0;
         let Some((index, entry)) =
             self.checkpoint_for(|entry| entry.ordinal <= ordinal, &mut bytes_read)?
         else {
-            return Err(codec::invalid("snapshot ordinal"));
+            return Err(super::fatal("snapshot ordinal"));
         };
         let (bytes, _) = self.block(index, &entry, &mut bytes_read)?;
         let mut input = bytes.as_slice();
         let mut offset = entry.offset;
         let mut current = entry.ordinal;
         while current < ordinal {
-            let (_, len) =
-                self.read_record(&mut input)?.ok_or_else(|| codec::invalid("snapshot ordinal"))?;
-            offset += len as u64;
-            current += 1;
+            match self.read_frame(&mut input)? {
+                Frame::Row(_, len) | Frame::Skipped(len) => {
+                    offset += len as u64;
+                    current += 1;
+                }
+                Frame::End => return Err(super::fatal("snapshot ordinal")),
+            }
         }
         Ok((offset, ordinal))
     }

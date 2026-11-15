@@ -8,13 +8,13 @@ extension CloudStrings {
     /// One Cloud error as a person reads it, never a Swift dump: a server
     /// refusal is its message, its next step and "(trace …)"; the other
     /// ``CloudAPIError`` cases say what to do; a link error reads as ``CloudAppLinks/endedMessage(_:)``;
-    /// any other in plain words (``PlainErrorText/personal(_:)``). Logs keep `String(describing:)`.
+    /// a stalled Keychain call names its item; any other in plain words (``PlainErrorText/personal(_:)``). Logs keep `String(describing:)`.
     static func errorText(_ error: any Error) -> String {
         switch error {
         case let error as CloudAPIError: apiErrorText(error)
         case let error as CloudLinkError: CloudAppLinks.endedMessage(error)
         case let error as ActionFailure: error.message
-        default: PlainErrorText.personal(error)
+        default: CloudStrings.keychainTimedOut(error) ?? PlainErrorText.personal(error)
         }
     }
 

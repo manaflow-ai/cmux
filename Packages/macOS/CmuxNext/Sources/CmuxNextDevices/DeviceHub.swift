@@ -106,7 +106,7 @@ public final class DeviceHub {
     /// Signed in: registers this device, then keeps the socket open (each
     /// connect refetches everything, so nothing missed while away is lost).
     public func start() async {
-        stopSocket()
+        _ = stopSocket()
         generation += 1
         let run = generation
         status = .starting
@@ -140,8 +140,34 @@ public final class DeviceHub {
 
     /// Signed out: closes the socket and forgets the account and every record.
     public func stop() {
+        let (client, socket) = resetForStop()
+        Task(priority: .utility) {
+            await socket?.value
+            await client.signOut()
+        } // task-owner: a one-shot reset of the client's cached session
+    }
+
+    /// Stops this hub and joins the client's cached account reset. Protected
+    /// capture cleanup uses this instead of `stop()` so no actor hop can write
+    /// after the keychain namespace has been verified absent.
+    public func stopAndWait() async {
+        let (client, socket) = resetForStop()
+        await socket?.value
+        await vault.awaitIdle()
+        await client.signOut()
+    }
+
+    /// Closes the relay vault for a protected capture. This is intentionally
+    /// separate from ordinary stop/restart so normal hubs remain reusable.
+    public func freezeForCapture() async {
+        await vault.freezeForCapture()
+    }
+
+    @discardableResult
+    private func resetForStop() -> (client: DeviceHubClient, socket: Task<Void, Never>?) {
+        let client = self.client
         generation += 1
-        stopSocket()
+        let socket = stopSocket()
         status = .idle
         connection = .disconnected
         me = nil
@@ -154,13 +180,15 @@ public final class DeviceHub {
         audit = []
         lastError = nil
         pushCount = 0
-        let client = self.client
-        Task { await client.signOut() } // task-owner: a one-shot reset of the client's cached session
+        return (client, socket)
     }
 
-    private func stopSocket() {
-        socketTask?.cancel()
+    @discardableResult
+    private func stopSocket() -> Task<Void, Never>? {
+        let task = socketTask
+        task?.cancel()
         socketTask = nil
+        return task
     }
 
     // MARK: Pushes
@@ -359,9 +387,11 @@ public final class DeviceHub {
     @discardableResult
     public func saveRelay(id: String? = nil, name: String, urls: [String], secret: RelaySecret, enabled: Bool = true,
                           priority: Int = 0) async throws -> HubRelay {
+        let run = generation
         let id = id ?? UUID().uuidString.lowercased()
         savedNotListed.insert(id)
         let current = try await perform { try await $0.devices() }
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         devices = current
         let sealed: [String: String]
         do { sealed = try RelaySealing.seal(secret, relayID: id, for: current) } catch {
@@ -369,18 +399,23 @@ public final class DeviceHub {
         }
         let update = RelayUpdate(id: id, name: name, urls: urls, authMode: secret.authMode, sealed: sealed, enabled: enabled, priority: priority)
         let relay = try await perform { try await $0.putRelay(update) }
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         openedSecrets[id] = secret
         await vault.save(secret, relayID: id)
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         await refreshRelays()
         return relay
     }
 
     public func deleteRelay(_ id: String) async throws {
+        let run = generation
         try await perform { try await $0.deleteRelay(id) }
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         savedNotListed.remove(id)
         openedSecrets[id] = nil
         relays.removeAll { $0.id == id }
         await vault.remove(relayID: id)
+        guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
     }
 
     /// The opened secret of a relay, when this device has it. From memory: views

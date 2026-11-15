@@ -32,6 +32,26 @@ export default defineConfig({
           STACK_TEST_JWKS: JSON.stringify({ keys: [stackPublic] }),
           STACK_TEST_PRIVATE_JWK: JSON.stringify(stackPrivate),
           TEST_DEPLOYED_APNS_TOPICS: JSON.stringify(deployedApnsTopics),
+          // test/connectivity-alerts.test.ts: the Slack app and its two channels (the Slack call is faked).
+          SLACK_BOT_TOKEN: "xoxb-test",
+          CONNECTIVITY_ALERT_CHANNEL: "CTEAM",
+          CONNECTIVITY_ALERT_TEST_CHANNEL: "CTEST",
+          CONNECTIVITY_ALERT_EXCLUDED_EMAILS: "ops-bot@cmux.com",
+          // userId -> the primary email Stack reports (test/connectivity-alerts.test.ts).
+          STACK_TEST_EMAILS: JSON.stringify({
+            tina: { email: "tina@manaflow.ai", verified: true },
+            ted: { email: "ted@cmux.com", verified: true },
+            tom: { email: "tom@manaflow.com", verified: true },
+            sub: { email: "sam@eng.manaflow.ai", verified: true },
+            una: { email: "una@manaflow.ai", verified: false },
+            look: { email: "x@notmanaflow.ai", verified: true },
+            pre: { email: "x@manaflow.ai.example.com", verified: true },
+            out: { email: "olive@example.com", verified: true },
+            agent: { email: "cmux-agent-development@manaflow.ai", verified: true },
+            agent2: { email: "cmux-agent-staging@cmux.com", verified: true },
+            ops: { email: "ops-bot@cmux.com", verified: true },
+            "9790718f-14cd-4f7e-824d-eaf527a82b82:tina": { email: "tina@manaflow.ai", verified: true }
+          }),
           // userId -> teams (dev project); alice and bob share team-a, mallory is only in team-m.
           // "<prod project>:<userId>" -> teams (prod project): prod alice and pat share team-p.
           STACK_TEST_TEAMS: JSON.stringify({

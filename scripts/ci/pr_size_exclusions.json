@@ -3,6 +3,7 @@
   "limit": 800,
   "exclude": [
     {"glob": "plans/cmux-next/action-surfaces.json", "why": "action export, regenerate-action-exports.sh"},
+    {"glob": "plans/cmux-next/action-catalog.json", "why": "action export, regenerate-action-exports.sh"},
     {"glob": "plans/cmux-next/actions.md", "why": "action export, regenerate-action-exports.sh"},
     {"glob": "plans/cmux-next/links.json", "why": "action export, regenerate-action-exports.sh"},
     {"glob": "plans/cmux-next/daemon-capabilities.json", "why": "check-daemon-capabilities-fresh.py --write"},

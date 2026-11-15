@@ -18,6 +18,13 @@ nonisolated extension AcpmuxEnvironment {
     public static func adoptBuildHomes() async {
         await BuildHomeAdoption.run.value
     }
+
+    /// Starts this launch's adoption now, from `main`, so the first acpmux start, the Chief owner and the brain
+    /// host find it done instead of starting it (it ran from the first of them, about 0.9 s after process start,
+    /// on the Chief's way to Home's first page). Returns at once; idempotent.
+    public static func startBuildHomeAdoption() {
+        _ = BuildHomeAdoption.run
+    }
 }
 
 nonisolated enum BuildHomeAdoption {

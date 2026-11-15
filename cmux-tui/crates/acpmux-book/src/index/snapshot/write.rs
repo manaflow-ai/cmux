@@ -1,8 +1,8 @@
 use super::{
-    CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, FIRST_ROWS, HEADER_BYTES, Head, MAGIC, PAGE_BYTES,
-    SEEK_BYTES, TRAILER_BYTES,
+    CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, FIRST_ROWS, HEADER_BYTES, Head, MAGIC,
+    MAX_ORIGINS_BYTES, PAGE_BYTES, SEEK_BYTES, SnapshotMeta, TRAILER_BYTES,
 };
-use crate::index::{IndexRecord, OriginRecord, SortKey, Summary, SummaryIndex, codec};
+use crate::index::{IndexRecord, SortKey, Summary, SummaryIndex, codec, is_corrupt_snapshot_row};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -37,7 +37,10 @@ impl SortedSnapshot {
             log_offset,
             log_name,
             0,
-            index.origins().cloned().collect(),
+            SnapshotMeta {
+                origins: index.origins().cloned().collect(),
+                marks: index.mirror_marks().collect(),
+            },
             index.merged_rows(),
         )
     }
@@ -60,10 +63,14 @@ impl SortedSnapshot {
         log_offset: u64,
         log_name: Option<&str>,
         covered_generation: u64,
-        origins: Vec<OriginRecord>,
+        meta: impl Into<SnapshotMeta>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
     ) -> io::Result<()> {
         let path = path.as_ref();
+        let SnapshotMeta { origins, marks } = meta.into();
+        if marks.len() > 256 {
+            return Err(codec::invalid("snapshot mark limit"));
+        }
         if origins.len() > 256 {
             return Err(codec::invalid("snapshot origin limit"));
         }
@@ -80,6 +87,20 @@ impl SortedSnapshot {
                 return Err(codec::invalid("snapshot origins too large"));
             }
             origin_bytes.extend_from_slice(&encoded);
+        }
+        let mut marked = std::collections::HashSet::new();
+        for mark in &marks {
+            if mark.mark.is_none()
+                || mark.origin == "local"
+                || mark.seq > seq
+                || !marked.insert(mark.origin.as_str())
+            {
+                return Err(codec::invalid("snapshot mark record"));
+            }
+            origin_bytes.extend(codec::encode_mark(mark)?);
+        }
+        if origin_bytes.len() as u64 > MAX_ORIGINS_BYTES {
+            return Err(codec::invalid("snapshot origins too large"));
         }
         let mut temp_name = path.as_os_str().to_os_string();
         temp_name.push(".new");
@@ -98,7 +119,11 @@ impl SortedSnapshot {
         let mut previous = None;
         let mut first_lengths = Vec::new();
         for row in rows {
-            let row = row?;
+            let row = match row {
+                Ok(row) => row,
+                Err(error) if is_corrupt_snapshot_row(&error) => continue,
+                Err(error) => return Err(error),
+            };
             let key = SortKey::of(&row);
             if previous.as_ref().is_some_and(|previous| previous >= &key) {
                 return Err(codec::invalid("unsorted snapshot input"));
@@ -206,10 +231,10 @@ impl SortedSnapshot {
         let mut ordinal = 0;
         while offset < snapshot.head.data_end {
             let piece = snapshot.piece(offset, ordinal, PAGE_BYTES)?;
-            if piece.rows.is_empty() {
+            if piece.physical_count == 0 || piece.next_offset <= offset {
                 return Err(codec::invalid("snapshot made no progress"));
             }
-            ordinal += piece.rows.len() as u64;
+            ordinal += piece.physical_count as u64;
             for row in piece.rows {
                 index = index.apply(snapshot.seq(), row.as_ref().clone());
             }
