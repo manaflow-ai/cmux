@@ -188,6 +188,13 @@ impl Peer {
                         return BackoffWait::Done;
                     }
                 }
+                // The network changed (`peer_network.rs`), often the one this peer failed on coming
+                // back: one attempt now. The backoff is not started over, so a network that keeps
+                // changing while the peer is down costs one attempt per change, not quick retries.
+                () = self.network_changed() => {
+                    tracing::info!(peer = %self.name, "this computer's network changed; reconnecting now");
+                    return BackoffWait::Done;
+                }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
@@ -272,6 +279,35 @@ mod tests {
         let wait =
             tokio::spawn(async move { waiting.wait_backoff(Duration::from_secs(3_600)).await });
         tokio::time::sleep(Duration::from_millis(100)).await;
+        peer.stop();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Stopped);
+    }
+
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+    /// faster". A peer that failed while the network was down waited out its backoff (up to
+    /// `Backoff::CAP`) after the network came back; a change of this computer's network now ends
+    /// the wait at once, one change one attempt.
+    #[tokio::test(start_paused = true)]
+    async fn a_network_change_ends_a_backoff_wait_at_once() {
+        use crate::no_panic::LockExt as _;
+        let peer = peer();
+        let (changes, seen) = tokio::sync::watch::channel(0);
+        *peer.network.lock_or_recover() = seen;
+        for _ in 0..2 {
+            let waiting = peer.clone();
+            let wait = tokio::spawn(async move { waiting.wait_backoff(Backoff::CAP).await });
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert!(!wait.is_finished());
+            let changed = Instant::now();
+            changes.send_modify(|n| *n += 1);
+            assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+            assert!(changed.elapsed() < Duration::from_millis(10), "{:?}", changed.elapsed());
+        }
+        // A change already acted on does not end the next wait.
+        let waiting = peer.clone();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(Duration::from_secs(20)).await });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(!wait.is_finished(), "one change, one attempt");
         peer.stop();
         assert_eq!(wait.await.unwrap(), BackoffWait::Stopped);
     }
