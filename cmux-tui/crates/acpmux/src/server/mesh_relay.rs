@@ -367,6 +367,7 @@ async fn heartbeats(
                     }
                     halt.all();
                     if let Some(hub) = hub.upgrade() {
+                        #[cfg(feature = "hub-carrier")]
                         hub.set_mesh_book_machines(Default::default());
                         hub.set_mesh_book(Default::default(), Vec::new());
                     }
@@ -422,6 +423,7 @@ async fn heartbeats(
         }
     }
     if let Some(hub) = hub.upgrade() {
+        #[cfg(feature = "hub-carrier")]
         hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
