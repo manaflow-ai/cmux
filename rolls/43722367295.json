@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43722367295",
+  "recorded_at": "2026-11-15T14:20:45Z",
+  "reason": "cmux-tui 73fc4b35c7de changes the image's cmux-tui (pinned 68f5e7b9cb5d)",
+  "dry_run": false,
+  "cmux_tui": "73fc4b35c7de7b47289858ca93b6a02378b2e82b",
+  "fixes": [
+    {
+      "sha": "73fc4b35c7de7b47289858ca93b6a02378b2e82b",
+      "mergedAt": "2026-11-15T05:49:46-08:00",
+      "subject": "cloud copy: make a folder the push made with one request, not five (#43682)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T14:20:45Z",
+    "snapshot_id": "sh-c11de42fbcb34322b6931f96c77ff5c2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43722367295): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "400a2ced42b16ef5ac66083283252a4d70ba42f2",
+    "image": "cloud-native-auto-73fc4b35-43722367295-1",
+    "revision": "ci-43722367295-1",
+    "at": "2026-11-15T14:20:45Z"
+  },
+  "rolled_back": false
+}
