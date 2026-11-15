@@ -223,6 +223,13 @@ fn choose(
     Plan::None { why }
 }
 
+/// Sets one field of a JSON object; `value["key"] = ..` would panic on a non-object.
+fn set(value: &mut Value, key: &str, field: Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(key.to_owned(), field);
+    }
+}
+
 fn short(commit: &str) -> &str {
     commit.get(..12).unwrap_or(commit)
 }
@@ -236,7 +243,7 @@ fn plan_json(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) ->
     });
     match plan {
         Plan::Live { files } => {
-            value["files"] = files
+            let files = files
                 .iter()
                 .map(|wanted| match &wanted.binary {
                     Some(binary) => {
@@ -245,13 +252,14 @@ fn plan_json(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) ->
                     None => json!({ "file": wanted.file, "remove": true }),
                 })
                 .collect();
+            set(&mut value, "files", files);
         }
         Plan::Full { build, from } => {
-            value["build"] = build.clone();
-            value["from_build"] = json!(from);
+            set(&mut value, "build", build.clone());
+            set(&mut value, "from_build", json!(from));
         }
         Plan::None { why } => {
-            value["why"] = json!(why);
+            set(&mut value, "why", json!(why));
         }
     }
     value
@@ -437,10 +445,10 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
     match plan {
         Plan::None { .. } => 1,
         Plan::Full { build, from } => {
-            receipt["build"] = build.get("build").cloned().unwrap_or(Value::Null);
-            receipt["from_build"] = json!(from);
-            receipt["ok"] = json!(true);
-            receipt["phases"] = phases.json();
+            set(&mut receipt, "build", build.get("build").cloned().unwrap_or(Value::Null));
+            set(&mut receipt, "from_build", json!(from));
+            set(&mut receipt, "ok", json!(true));
+            set(&mut receipt, "phases", phases.json());
             if let Err(error) = store.record(&receipt) {
                 return failure("try.state", &error, global.output);
             }
@@ -499,14 +507,18 @@ fn finish(
     app: &Path,
 ) -> i32 {
     let messages = messages();
-    let undo = receipt["action"] == "undo";
-    receipt["phases"] = phases.json();
-    receipt["seconds"] = json!((started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0);
+    let undo = receipt.get("action").and_then(Value::as_str) == Some("undo");
+    set(&mut receipt, "phases", phases.json());
+    set(
+        &mut receipt,
+        "seconds",
+        json!((started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0),
+    );
     let applied = match result {
         Ok(applied) => applied,
         Err(error) => {
-            receipt["ok"] = json!(false);
-            receipt["error"] = json!(error);
+            set(&mut receipt, "ok", json!(false));
+            set(&mut receipt, "error", json!(error));
             // A failed run changed nothing: the last good receipt (and its undo) stays last.
             let _ = store.append_history(&receipt);
             let text =
@@ -514,10 +526,10 @@ fn finish(
             return failure("try.failed", &text, global.output);
         }
     };
-    receipt["ok"] = json!(true);
-    receipt["changed"] = json!(applied.changed);
-    receipt["steps"] = applied.steps;
-    receipt["undo"] = json!({ "files": applied.prior });
+    set(&mut receipt, "ok", json!(true));
+    set(&mut receipt, "changed", json!(applied.changed));
+    set(&mut receipt, "steps", applied.steps);
+    set(&mut receipt, "undo", json!({ "files": applied.prior }));
     if applied.changed
         && let Err(error) = store.record(&receipt)
     {

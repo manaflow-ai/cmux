@@ -14,6 +14,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
+use super::set;
+
 /// The payload's `purpose`: no web pointer and no Cloud machine channel file carries it.
 pub(super) const PURPOSE: &str = "cmux-mac-live-update";
 pub(super) const SCHEMA: u64 = 1;
@@ -376,6 +378,7 @@ impl Daemon for AppDaemon {
             .stderr(cmux_process::Stdio::null())
             .spawn()
             .ok()?;
+        // timeout: a local status read; past 10 s the owner is unknown, and the hand-off waits again.
         let Ok(Some(_)) = child.wait_timeout(Duration::from_secs(10)) else {
             let _ = child.kill();
             let _ = child.wait();
@@ -572,7 +575,7 @@ pub(super) fn apply(
     let mut steps = json!({ "files": todo.iter().map(|c| (c.file.clone(), json!(c.to.as_ref().map(|(_, sha)| sha)))).collect::<Map<_, _>>() });
     match owner {
         None => {
-            steps["daemon"] = json!("none running; the next start runs it");
+            set(&mut steps, "daemon", json!("none running; the next start runs it"));
         }
         Some((old, _)) => {
             daemon.terminate(old);
@@ -600,9 +603,9 @@ pub(super) fn apply(
                 return Err(rolled_back(error, &left));
             }
             let new_pid = new.map(|(pid, _)| pid);
-            steps["daemon"] = json!("app handoff");
-            steps["old_pid"] = json!(old);
-            steps["new_pid"] = json!(new_pid);
+            set(&mut steps, "daemon", json!("app handoff"));
+            set(&mut steps, "old_pid", json!(old));
+            set(&mut steps, "new_pid", json!(new_pid));
         }
     }
     phases.add("reload", started);
