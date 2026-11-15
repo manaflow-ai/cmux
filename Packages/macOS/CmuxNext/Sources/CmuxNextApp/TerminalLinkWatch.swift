@@ -23,6 +23,7 @@ final class TerminalLinkWatch {
     private weak var model: TerminalSurfaceModel?
     private weak var session: TerminalSession?
     private let surface: SurfaceID
+    let ends: @MainActor (TabModel?) -> TerminalTabEnd? // the end the view names for a tab (`ParkedTabWakes.shownEnd(of:)`)
     private var epoch: Int
     private var dead: Bool
     private var stall: TerminalShellStall?
@@ -35,9 +36,11 @@ final class TerminalLinkWatch {
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).
     nonisolated deinit {}
 
-    init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO, session: TerminalSession) {
+    init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO, session: TerminalSession,
+         ends: @escaping @MainActor (TabModel?) -> TerminalTabEnd? = { $0?.end }) {
         self.store = store
         self.surface = surface
+        self.ends = ends
         self.io = io
         self.session = session
         model = session.model
@@ -57,11 +60,8 @@ final class TerminalLinkWatch {
         guard !stopped, let store else { return }
         let surface = surface
         withObservationTracking {
-            _ = store.connectionState
-            _ = store.tab(surface: surface)?.dead
-            _ = store.tab(surface: surface)?.end
-            _ = store.tab(surface: surface)?.terminalState
-            _ = model?.workingDirectory
+            let tab = store.tab(surface: surface)
+            _ = (store.connectionState, tab?.dead, ends(tab), tab?.terminalState, model?.workingDirectory)
         } onChange: { [weak self] in
             // task-owner: one hop per observed change, re-arms itself; ends with the watch
             Task { @MainActor [weak self] in self?.changed() }
@@ -111,7 +111,7 @@ final class TerminalLinkWatch {
     /// `host_lost` end; a revived or normally ended terminal clears it.
     private func forwardHostLoss() {
         let tab = store?.tab(surface: surface)
-        let loss = (tab?.dead ?? false) ? Self.hostLoss(tab?.end) : nil
+        let loss = (tab?.dead ?? false) ? Self.hostLoss(ends(tab)) : nil
         session?.hostLossCause = loss == nil ? nil : tab?.end?.cause.map(Self.hostLossCause)
         session?.hostLoss = loss
     }
@@ -129,7 +129,7 @@ final class TerminalLinkWatch {
         case .sessionShutdown: return .sessionShutdown
         case .missingRecord, .incarnationMismatch: return .hostMissing
         case .restartExhausted: return .restartExhausted
-        case .restartFailed: return .restartFailed
+        case .restartFailed: return end.launchFailure == .ptyCapacityExhausted ? .restartFailedNoFreeTerminal : .restartFailed
         case .deadBeforeAdoption, .diedDuringAdoption, .diedWithoutExitStatus, .missingExitReceipt,
              .unadoptableHostEnded, .other, nil:
             return .hostEnded
