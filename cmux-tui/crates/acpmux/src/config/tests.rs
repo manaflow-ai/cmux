@@ -503,3 +503,79 @@ fn an_unsynced_atomic_write_keeps_the_old_copy_until_rename() {
     assert_eq!(std::fs::read(&path).unwrap(), b"new");
     assert_eq!(syncs.get(), 0);
 }
+
+/// `acpmux config --set transport.wireguard=true` with no `wireguardStatic` block (cmux#43305's
+/// carrier step, 2026-11-15): the daemon then refused to start. What the CLI does (load, set,
+/// save) either refuses and leaves config.json as it was, or writes a config the daemon's own
+/// startup accepts: `Config::load` and the WireGuard transport's start.
+#[tokio::test]
+async fn config_set_never_writes_a_config_the_daemon_refuses() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("config.json");
+    std::fs::write(&path, "{}\n").unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut cfg = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+    match cfg.set("transport.wireguard", "true") {
+        Err(refused) => {
+            let refused = format!("{refused:#}");
+            for field in ["wireguardStatic.listen", "wireguardStatic.address"] {
+                assert!(refused.contains(field), "the refusal names {field}: {refused}");
+            }
+            assert!(!cfg.transport.wireguard, "a refused set left the value in place");
+            assert_eq!(std::fs::read(&path).unwrap(), before, "a refused set wrote config.json");
+        }
+        Ok(()) => {
+            cfg.save().unwrap();
+            let loaded = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+            let started = crate::wireguard::Transport::start_with_link(
+                &loaded,
+                home.path(),
+                None,
+                "127.0.0.1:1".parse().unwrap(),
+            )
+            .await;
+            if let Err(refused) = started {
+                panic!("the daemon refuses what config --set wrote: {refused:#}");
+            }
+        }
+    }
+}
+
+/// Every start-time check of config.json goes through `Config::start_refusal`, so `config --set`
+/// refuses what any of them refuses, not only the WireGuard settings: here a saved network
+/// `websocket.listen` without its opt-in, which the start refuses (`server::check_listen_address`).
+#[test]
+fn config_set_refuses_what_any_start_check_refuses() {
+    use base64::Engine as _;
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("config.json");
+    std::fs::write(&path, r#"{"websocket": {"listen": "0.0.0.0:47999"}}"#).unwrap();
+    let mut cfg = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+    let refused = format!("{:#}", cfg.set("session.memory_mb", "6144").unwrap_err());
+    assert!(refused.contains("refusing websocket.listen 0.0.0.0:47999"), "{refused}");
+    assert_eq!(cfg.session.memory_mb, None, "a refused set left the value in place");
+    // With the opt-in the start takes it, and so does config --set.
+    cfg.websocket.as_mut().unwrap().allow_insecure_network = true;
+    cfg.set("session.memory_mb", "6144").unwrap();
+    assert_eq!(cfg.session.memory_mb, Some(6144));
+    // WireGuard with its static settings and a well-formed peer passes; a malformed peer key,
+    // which the transport's start refuses, is refused here first, naming the peer.
+    cfg.transport.wireguard_static = Some(crate::wireguard::StaticConfig {
+        listen: "127.0.0.1:0".parse().unwrap(),
+        address: "10.77.0.1:4100".parse().unwrap(),
+    });
+    cfg.set("transport.wireguard", "true").unwrap();
+    let mut peer: PeerConfig = serde_json::from_value(serde_json::json!({
+        "url": "ssh://workstation",
+        "wireguard": {"publicKey": "not-a-key", "endpoint": "127.0.0.1:51820",
+                      "address": "10.77.0.2:4100"}
+    }))
+    .unwrap();
+    cfg.peers.insert("workstation".into(), peer.clone());
+    let refused = format!("{:#}", cfg.set("session.memory_mb", "8192").unwrap_err());
+    assert!(refused.contains("peers.workstation.wireguard"), "{refused}");
+    peer.wireguard.as_mut().unwrap().public_key =
+        base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+    cfg.peers.insert("workstation".into(), peer);
+    cfg.set("session.memory_mb", "8192").unwrap();
+}
