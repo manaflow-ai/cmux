@@ -230,6 +230,9 @@ impl HostedReader {
             let generation = {
                 let mut term = pty.term.lock().unwrap();
                 **term = replacement_term;
+                if let Some(terminal_id) = pty.terminal_public_id.as_deref() {
+                    reconnect_mux.output_store.stream_gap(terminal_id, &pty.journal_generation);
+                }
                 self.shell_marks = crate::prompt_mode_reset::ShellMarks::joined_midway();
                 {
                     let mut metadata = pty.terminal_metadata.lock().unwrap();
@@ -321,9 +324,6 @@ impl HostedReader {
             pty.journal_host_reconnect_gap(&reconnect_mux);
             // The output store's tail must not continue across that gap
             // either: the next snapshot takes the replaced screen.
-            if let Some(terminal_id) = pty.terminal_public_id.as_deref() {
-                reconnect_mux.output_store.stream_gap(terminal_id);
-            }
             reconnect_mux
                 .reconcile_deferred_cell_pixel_ack(surface.id, replacement_snapshot.cell_pixels);
             surface.queue_pending_publications();
