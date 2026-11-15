@@ -92,7 +92,7 @@ fn vt_write_step_breakdown_bench() {
             report("raw_parse_small_history", started.elapsed().as_secs_f64());
         }
         if wanted("normalize") {
-            let mut normalizer = vt_boundary::C1Normalizer::default();
+            let mut normalizer = C1Normalizer::default();
             let started = Instant::now();
             for frame in &frames {
                 std::hint::black_box(normalizer.normalize(frame));
@@ -100,10 +100,10 @@ fn vt_write_step_breakdown_bench() {
             report("normalize", started.elapsed().as_secs_f64());
         }
         if wanted("kitty_filter") {
-            let mut filter = vt_boundary::EmptyKittyProbeFilter;
+            let mut filter = EmptyKittyProbeFilter;
             let started = Instant::now();
             for frame in &frames {
-                std::hint::black_box(filter.write(std::borrow::Cow::Borrowed(frame)));
+                std::hint::black_box(filter.write(Cow::Borrowed(frame)));
             }
             report("kitty_filter", started.elapsed().as_secs_f64());
         }
