@@ -2547,7 +2547,12 @@ fn app_failure(error: Value) -> Outcome {
     // An agent chat's start asks nobody (`cloud.agentsStartWithoutAsking`, on by default), so a
     // refusal here is the app's own; when the person turned asking back on, the app's refusal (Not
     // now, or no answer) already names the command to run again.
-    let details = json!({"app": error});
+    // A refusal that names when it passes (`agent.limit_reached`'s `until_at`, cmux-cloud-start-core
+    // `agent_check`) says it at the top of `details`, beside its code, so a caller reads no words.
+    let mut details = json!({"app": error});
+    if let Some(until) = error.pointer("/data/until_at").filter(|until| until.is_string()) {
+        details.set("until_at", until.clone());
+    }
     let code = at(&error, "code").as_str().unwrap_or("cloud.start_failed").to_owned();
     failed(&code, message, details, 1)
 }
