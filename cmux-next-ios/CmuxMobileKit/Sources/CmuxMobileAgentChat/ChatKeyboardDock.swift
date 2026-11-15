@@ -1122,9 +1122,8 @@ final class PassthroughView: UIView {
     }
 }
 
-/// Breaks the display link's retain of the controller.
-@MainActor
 /// The send glide's display link target (weak, so the link never keeps the controller).
+@MainActor
 private final class SettleLinkTarget: NSObject {
     weak var owner: ChatTranscriptController?
     init(_ owner: ChatTranscriptController) { self.owner = owner }
@@ -1134,6 +1133,8 @@ private final class SettleLinkTarget: NSObject {
     }
 }
 
+/// Breaks the display link's retain of the controller.
+@MainActor
 private final class DragLinkTarget: NSObject {
     weak var owner: ChatTranscriptController?
     init(_ owner: ChatTranscriptController) { self.owner = owner }
