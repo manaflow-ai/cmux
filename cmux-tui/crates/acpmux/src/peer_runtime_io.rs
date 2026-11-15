@@ -215,12 +215,13 @@ impl Peer {
             tracing::warn!(peer = %self.name, "peer link already running");
             return;
         };
+        // The wait goes out as `nextRetryAt` (`park_at_start`), never as a countdown in the
+        // error text, which is read long after it was written (a frozen "retry in 2519s").
         if !self.retry_immediately.load(Ordering::SeqCst)
-            && let Some(wait) = self.link().parked_retry_wait(crate::store::now_ms())
+            && let Some(wait) = self.with_link(|l| l.park_at_start(crate::store::now_ms()))
         {
-            let reason = format!("peer unavailable; next automatic retry in {}s", wait.as_secs());
+            let reason = "peer unreachable for over a day; retried hourly".to_owned();
             *self.last_error.lock_or_recover() = Some(reason.clone());
-            self.with_link(|_| ());
             // Settle startup watchers now; no SSH is spawned just because this daemon updated.
             let _ = self
                 .notices
@@ -831,6 +832,8 @@ impl Peer {
             );
             me.listed_links.lock_or_recover().push_back(link);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
+            // The peer's list stream feeds the index from here, when it lists one.
+            me.start_mirror(link);
             // The path it is ready on is the one to dial first next time, also after a restart.
             me.note_ready_path();
             // What the last link bound to its connection and never answered, on this one.
@@ -906,6 +909,8 @@ impl Peer {
         );
         wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut wake_probe: Option<tokio::time::Instant> = None;
+        // Why `wake_probe` is set when a network change set it, not a wake.
+        let mut probe_cause: Option<String> = None;
         // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
         // the regular ping's tick may be served first, and its write must be held to the probe's
         // deadline, never the whole send budget.
@@ -916,7 +921,7 @@ impl Peer {
                     // One deadline for the ping to go out and its answer to come back.
                     let deadline = tokio::time::Instant::now() + WAKE_PROBE;
                     match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
-                        Ok(Ok(())) => wake_probe = Some(deadline),
+                        Ok(Ok(())) => (wake_probe, probe_cause) = (Some(deadline), None),
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(WAKE_PROBE)),
                     }
@@ -1040,7 +1045,30 @@ impl Peer {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
-                    break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                    break Err(match probe_cause {
+                        Some(why) => why,
+                        None => format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()),
+                    });
+                }
+                // This computer's network changed (`peer_network.rs`): the link may ride a route that
+                // is gone. A ping goes out at once and the link is dropped and redialed when nothing
+                // answers within `NETWORK_PROBE`, not after the whole silence budget.
+                () = self.network_changed() => {
+                    let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
+                    if wake_probe.is_none_or(|probe| probe > deadline) {
+                        tracing::info!(peer = %self.name, "this computer's network changed; checking the link");
+                        match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                            Ok(Ok(())) => {
+                                wake_probe = Some(deadline);
+                                probe_cause = Some(format!(
+                                    "no answer {}s after this computer's network changed",
+                                    network::NETWORK_PROBE.as_secs()
+                                ));
+                            }
+                            Ok(Err(e)) => break Err(e.to_string()),
+                            Err(_) => break Err(stopped_reading(network::NETWORK_PROBE)),
+                        }
+                    }
                 }
                 // Once only. A watch the handshake dropped is never published, and the changes
                 // held after it wait for the list asked for instead (`paged`).
@@ -1161,6 +1189,11 @@ impl Peer {
                         }
                         _ => continue,
                     };
+                    // A v2 frame of the peer's list stream goes to this link's mirror.
+                    if crate::link_v2::is_frame_line(&text) {
+                        self.mirror_frame(link, text);
+                        continue;
+                    }
                     let msg = match Message::parse(&text) {
                         Ok(msg) => msg,
                         // Only large messages are compressed, and a reply among them would be
