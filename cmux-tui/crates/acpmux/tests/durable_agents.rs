@@ -67,6 +67,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_REATTACH_SCAN_DELAY_MS",
     "ACPMUX_REATTACH_BUDGET_MS",
     "ACPMUX_REATTACH_OPEN_BUDGET_MS",
+    "ACPMUX_IDLE_SUBS",
+    "ACPMUX_IDLE_SUBS_WINDOW_S",
+    "ACPMUX_IDLE_SUBS_OUT",
 ]);
 
 use serde_json::{Value, json};

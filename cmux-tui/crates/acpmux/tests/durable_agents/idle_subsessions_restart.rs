@@ -64,7 +64,13 @@ async fn until(what: &str, mut done: impl AsyncFnMut() -> bool) {
 async fn restored_idle_subsessions_start_no_agent_until_opened_or_sent_to() {
     let n: usize =
         std::env::var("ACPMUX_IDLE_SUBS").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
-    let mut daemon = Daemon::with_env("idlesub", "approve-all", &[("ACPMUX_IDLE_CHILD_SECS", "1")]);
+    // No spare agent (`hub/pool/spare.rs`): the one warm agent per harness a daemon start keeps
+    // ready is no chat's, and every start here must be a sub-session's.
+    let mut daemon = Daemon::with_env(
+        "idlesub",
+        "approve-all",
+        &[("ACPMUX_IDLE_CHILD_SECS", "1"), ("ACPMUX_SPARE_HARNESS", "0")],
+    );
     daemon.sigterm();
     let spawn_log = daemon.home.join("spawns");
     std::fs::write(
@@ -244,9 +250,14 @@ async fn bench_idle_subsessions_two_minutes_after_a_restart() {
     }
     let starts = spawns(&spawn_log) - seeded;
     let cpu_total: f64 = cpu.values().sum();
-    println!(
+    let line = format!(
         "acpmux-idle-subs: {}",
         json!({"subsessions": n, "windowS": window.as_secs(), "agentStarts": starts,
                "peakLiveAgents": peak, "agentCpuS": (cpu_total * 100.0).round() / 100.0})
     );
+    println!("{line}");
+    // Also to a file a bench script reads (the runner may hold the test's stdout).
+    if let Some(out) = std::env::var_os("ACPMUX_IDLE_SUBS_OUT") {
+        std::fs::write(out, format!("{line}\n")).unwrap();
+    }
 }
