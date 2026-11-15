@@ -136,9 +136,20 @@ public nonisolated struct HomeBrainHost: Sendable {
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
-        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
+        for key in ["USER", "TMPDIR", "MUX_HARNESS", "DO_NOT_TRACK"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
+        variables.merge(Self.analyticsEnvironment(bundle: .main)) { $1 }
+        return variables
+    }
+
+    /// What the Chief's product analytics read from the app (docs/posthog/chief-product-analytics.md):
+    /// the bundle id, whose preferences hold the person's `sendAnonymousTelemetry` choice (the host
+    /// re-reads it every few minutes) and name the channel, and the app's version.
+    static func analyticsEnvironment(bundle: Bundle) -> [String: String] {
+        var variables: [String: String] = [:]
+        variables["CMUX_CHIEF_APP_BUNDLE_ID"] = bundle.bundleIdentifier
+        variables["CMUX_CHIEF_APP_VERSION"] = bundle.infoDictionary?["CFBundleShortVersionString"] as? String
         return variables
     }
 
