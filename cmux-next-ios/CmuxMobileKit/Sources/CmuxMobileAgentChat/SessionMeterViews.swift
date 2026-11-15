@@ -27,7 +27,7 @@ struct ContextUsageRing: View {
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel("Context used")
         .accessibilityValue(Text("\(usage.percent) percent, \(usage.tokensLabel)"))
         .popover(isPresented: $showsDetails) {
@@ -131,7 +131,7 @@ struct PlanProgressBar: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             if expanded {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in

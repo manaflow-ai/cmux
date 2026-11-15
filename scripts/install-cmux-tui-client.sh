@@ -24,6 +24,9 @@
 # installed only while bundle-map.json maps that path; a build that publishes
 # none installs none.
 #
+# When the installed cmux runs the app host and the browser host by argv[0]
+# (link-folded-hosts.sh --probe), bin/cmux-app-host and bin/cmux-browser-host are
+# relative links to cmux instead, and their artifacts are not fetched.
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
 # darwin slices are downloaded, sha256-verified against the manifest, and lipo'd into
@@ -66,7 +69,7 @@
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
 
-usage() { sed -n '2,36p' "$0"; }
+usage() { sed -n '2,39p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
@@ -269,12 +272,31 @@ else
   echo "note: bin/cmux-agent-screen-detection is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
 fi
 
+# The browser host and the app host run from bin/cmux by argv[0] when the
+# installed client carries them (link-folded-hosts.sh, CMUX-570): they become
+# links to cmux, like cmux-tui and acpmux, and no copy is fetched. folded_hosts
+# names them after fold_hosts; a client from before the fold folds none.
+folded_hosts=()
+fold_hosts() {
+  local name
+  folded_hosts=()
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-folded-hosts.sh" --probe "$DEST" || return 0
+  for name in "${COMPANIONS[@]}"; do
+    [[ "$name" == cmux-app-host || "$name" == cmux-browser-host ]] && folded_hosts+=("$name")
+  done
+  (( ${#folded_hosts[@]} )) || return 0
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-folded-hosts.sh" "$DEST_DIR" "${folded_hosts[@]}"
+}
+is_folded() { [[ " ${folded_hosts[*]:-} " == *" $1 "* ]]; }
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install_binary "$CMUX_TUI_CLIENT_LOCAL"
   # A local client brings its app host and app servers when they sit beside it.
   rm -f "$DEST_DIR/cmux-browser-host" "$DEST_DIR/cmux-agent-screen-detection"
+  fold_hosts
   for companion in "${COMPANIONS[@]}"; do
+    is_folded "$companion" && continue
     rm -f "$DEST_DIR/$companion"
     if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" ]]; then
       install -m 755 "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" "$DEST_DIR/$companion"
@@ -420,6 +442,7 @@ case "$ARCH" in
     ;;
 esac
 install_binary "$CLIENT"
+fold_hosts
 # The app host (apps-v1) and the first-party app servers ship from the same build when
 # the manifest has them. Older builds have none; then none is bundled (the app reports
 # that it needs a newer cmux-tui, and the supervisor answers apps.server_missing).
@@ -475,12 +498,12 @@ install_companion() {
   fi
   for arch in "${VERIFY_ARCHS[@]}"; do lipo "$dest" -verify_arch "$arch"; done
 }
-install_companion cmux-tui-app-host cmux-app-host
+is_folded cmux-app-host || install_companion cmux-tui-app-host cmux-app-host
 install_companion cmux-tui-cloud-server cmux-cloud
 install_companion cmux-tui-host cmux-tui-host
 install_companion cmux-tui-holder cmux-holder
 if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
-  install_companion cmux-tui-browser-host cmux-browser-host
+  is_folded cmux-browser-host || install_companion cmux-tui-browser-host cmux-browser-host
 else
   rm -f "$DEST_DIR/cmux-browser-host"
 fi
