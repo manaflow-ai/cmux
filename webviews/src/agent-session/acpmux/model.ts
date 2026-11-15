@@ -2497,6 +2497,28 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
 const PREPARED_CACHE_MIN = 64;
 const PREPARED_CACHE_PER_BLOCK = 4;
 
+/// The rows whose prepared text (PreparedRow) the transcript keeps, the most recently measured: the
+/// rows around the view and the live ones, which every pass measures, and a short tail of the rest.
+/// A chat at any length holds this many (cmuxterm-hq goals/chats-flat-at-any-length.md); one entry per
+/// row ever measured was most of a long chat's live heap, and V8's memory reducer kept collecting it
+/// while the chat sat idle. A row that left is measured again from its text when it comes back near
+/// the view; until then a new width keeps its last height (layoutConversation `near`).
+export const PREPARED_ROWS = 256;
+
+/// `id`'s prepared text, made the most recent, or a new empty entry (the oldest one goes past
+/// PREPARED_ROWS). A Map keeps insertion order, so its first key is the least recently measured.
+function preparedRow(cache: Map<string, PreparedRow>, id: string): PreparedRow {
+  let entry = cache.get(id);
+  if (entry) cache.delete(id);
+  else entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
+  cache.set(id, entry);
+  if (cache.size > PREPARED_ROWS) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  return entry;
+}
+
 function trimPreparedCache(
   prepared: Map<string, PreparedText | null>,
   blockCount: number,
@@ -2827,11 +2849,7 @@ function measuredRowHeight(
   // (UserBubble.tsx `inlineAttachmentOnly`), so its text is never measured as a bubble's.
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) && attachmentOnlyPrompt(row))
     return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-  let entry = cache.get(row.id);
-  if (!entry) {
-    entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
-    cache.set(row.id, entry);
-  }
+  const entry = preparedRow(cache, row.id);
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
   // its height is those lines and Show more, never a lex or measure of megabytes of text.
@@ -3178,7 +3196,8 @@ function pickedPromptHeight(
 /// new object), so a long chat's layout measures only the rows that changed since the last one.
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
-export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string }>;
+/// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
+export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string; scale?: number }>;
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3204,6 +3223,13 @@ export function layoutConversation(
   /// frame then costs the rows in view, not the whole chat (Leo, 2026-11-11: "the dragging
   /// responsiveness is slow for agent chat but fast for browser hmmm").
   resizing?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout; from: number; to: number },
+  /// The rows around the view `[from, to)`. Every other row whose prepared text the cache no longer
+  /// holds (PREPARED_ROWS) and that was measured at another width, at this scale and edge, keeps that
+  /// height (`known`) instead of being lexed and prepared again: a new width costs the rows near the
+  /// view and the cached ones, not the whole chat. This is Chromium's `content-visibility: auto` with
+  /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
+  /// again when it nears the viewport; here the drawn row's own measure corrects it as it mounts.
+  near?: { from: number; to: number },
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
   const marks = new Uint8Array(rows.length);
@@ -3268,23 +3294,38 @@ export function layoutConversation(
     else {
       const customHeight = measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
-      height = custom
-        ? customHeight
-        : edge === LIVE_STEP_EDGE
-          ? toolRowHeight()
-          : measuredRowHeight(
-              row,
-              width,
-              cache,
-              edge?.startsWith("footer") === true,
-              edge?.startsWith("last-turn") === true,
-              sessionId,
-              edge?.startsWith("continuation") === true,
-              edge?.endsWith(ACTIONS_EDGE) === true,
-            );
-      // A row that draws nothing stays at 0; a custom renderer's height is its own.
-      if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-      known?.set(row, { width, height, edge });
+      if (
+        !custom &&
+        near &&
+        kept &&
+        kept.edge === edge &&
+        (kept.scale ?? 1) === scale &&
+        (index < near.from || index >= near.to) &&
+        row.text &&
+        !cache.has(row.id)
+      )
+        // Away from the view, with its prepared text gone (PREPARED_ROWS): its last height, never
+        // recorded as this width's, until it comes near the view or draws.
+        height = kept.height;
+      else {
+        height = custom
+          ? customHeight
+          : edge === LIVE_STEP_EDGE
+            ? toolRowHeight()
+            : measuredRowHeight(
+                row,
+                width,
+                cache,
+                edge?.startsWith("footer") === true,
+                edge?.startsWith("last-turn") === true,
+                sessionId,
+                edge?.startsWith("continuation") === true,
+                edge?.endsWith(ACTIONS_EDGE) === true,
+              );
+        // A row that draws nothing stays at 0; a custom renderer's height is its own.
+        if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
+        known?.set(row, { width, height, edge, scale });
+      }
     }
     if (height > 0) {
       if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!) * scale;

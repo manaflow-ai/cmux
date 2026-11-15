@@ -3,7 +3,7 @@
 // holds the same number of entries (cmuxterm-hq goals/chats-flat-at-any-length.md). Before the
 // bound it held one per row ever measured, most of a long chat's live JS heap.
 import { expect, test } from "bun:test";
-import { layoutConversation, type AcpmuxRow, type PreparedRow, type RowHeights } from "./model";
+import { layoutConversation, PREPARED_ROWS, type AcpmuxRow, type PreparedRow, type RowHeights } from "./model";
 
 /// Far above the bound, far below the chat's rows: a cache that grows with the chat fails it.
 const CACHE_CEILING = 1_024;
@@ -38,4 +38,33 @@ test("laying out 20,000 rows keeps the prepared text cache under a constant", ()
   // A new width measures the whole chat again.
   layoutConversation(chat, 500, cache, undefined, known);
   expect(cache.size).toBeLessThanOrEqual(CACHE_CEILING);
+});
+
+// A new width with the view given (`near`), as the transcript lays out: the rows near the view and the
+// ones still cached are measured at it; the rest keep their last height, as Chromium keeps an off-screen
+// `content-visibility: auto` box's remembered size, and are measured once they come near again.
+test("a new width measures the rows near the view and keeps the rest's last height", () => {
+  const chat = rows(4_000);
+  const cache = new Map<string, PreparedRow>();
+  const known: RowHeights = new WeakMap();
+  const wide = layoutConversation(chat, 900, cache, undefined, known);
+  expect(cache.size).toBeLessThanOrEqual(PREPARED_ROWS);
+  const exact = layoutConversation(chat, 500);
+  const near = { from: 1_000, to: 1_100 };
+  const narrow = layoutConversation(chat, 500, cache, undefined, known, undefined, undefined, undefined, near);
+  // Near the view: this width's heights, the same as a whole layout's.
+  expect(narrow.heights.slice(near.from, near.to)).toEqual(exact.heights.slice(near.from, near.to));
+  expect(exact.heights.slice(near.from, near.to)).not.toEqual(wide.heights.slice(near.from, near.to));
+  // Still cached (the newest rows): this width's heights.
+  expect(narrow.heights.slice(-100)).toEqual(exact.heights.slice(-100));
+  // Elsewhere, its prepared text gone: the last width's heights.
+  expect(narrow.heights.slice(0, 900)).toEqual(wide.heights.slice(0, 900));
+  expect(cache.size).toBeLessThanOrEqual(PREPARED_ROWS);
+  // Once the view moves to them they are measured at this width.
+  const moved = layoutConversation(chat, 500, cache, undefined, known, undefined, undefined, undefined, {
+    from: 0,
+    to: 900,
+  });
+  expect(moved.heights.slice(0, 900)).toEqual(exact.heights.slice(0, 900));
+  expect(cache.size).toBeLessThanOrEqual(PREPARED_ROWS);
 });

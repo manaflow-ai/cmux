@@ -233,8 +233,6 @@ const LIVE_RESIZE_MS = 120;
 /// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
 /// stream changes them every frame, and the save reads every row.
 const PROMPT_TOPS_QUIET_MS = 1000;
-/// Entries the prepared-text cache may hold past twice the rows before it drops those of rows that left.
-const MEASURED_SLACK = 512;
 /// The rows past each end of the mounted ones a live resize's frame still measures at the new width.
 const LIVE_RESIZE_ROWS = 40;
 /// The live width steps before the rows flow (`FLOW_CLASS`).
@@ -1595,6 +1593,25 @@ function estimateFrom(
   const to = placed.last + LIVE_RESIZE_ROWS;
   if ((to - from) * 2 >= rowCount) return { kept: undefined, resizing: undefined, partial: false };
   return { kept: undefined, resizing: { rows: last.rows, layout: last.layout, from, to }, partial: true };
+}
+
+/// The rows around the ones the last placement mounted, in `rows` (layoutConversation `near`): the same
+/// rows by id, where `rows` kept their indices or took an older page before them. Undefined for another
+/// chat or rows it cannot find there, so every row is measured.
+function nearView(
+  placed: { rows: readonly AcpmuxRow[]; sessionId?: string; first: number; last: number } | undefined,
+  rows: readonly AcpmuxRow[],
+  sessionId: string | undefined,
+): { from: number; to: number } | undefined {
+  if (!placed || placed.sessionId !== sessionId) return undefined;
+  const id = placed.rows[placed.first]?.id;
+  if (id === undefined) return undefined;
+  const shift = rows[placed.first]?.id === id ? 0 : rows.length - placed.rows.length;
+  if (rows[placed.first + shift]?.id !== id) return undefined;
+  return {
+    from: Math.max(0, placed.first + shift - LIVE_RESIZE_ROWS),
+    to: placed.last + shift + LIVE_RESIZE_ROWS,
+  };
 }
 
 function TranscriptView({
@@ -3795,15 +3812,11 @@ function TranscriptView({
       kept,
       sessionId,
       resizing,
+      nearView(lastPlaced.current, rows, sessionId),
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
-    // Prepared text is kept by row id for every row measured. Rows that left (a chat that let go of its
-    // oldest records, direct.ts `shedOlderHeld`) take theirs with them, so the cache holds what the
-    // transcript holds: one pass over the rows, only once it holds a good many more entries than rows.
-    if (cache.size > rows.length * 2 + MEASURED_SLACK) {
-      const held = new Set(rows.map((row) => row.id));
-      for (const id of cache.keys()) if (!held.has(id)) cache.delete(id);
-    }
+    // Prepared text is kept for the PREPARED_ROWS most recently measured rows (model.ts), whatever the
+    // chat's length.
     return { layout, partial, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
   // A row that draws moves only the rows below it: place them again, measuring none.
