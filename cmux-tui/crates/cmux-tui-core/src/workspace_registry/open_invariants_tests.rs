@@ -256,23 +256,26 @@ fn open_invariants_first_open_checks_foreign_keys_once() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// The words with which SQLite refuses a pane whose identity and screen do
+/// not exist.
+fn insert_pane_of_no_screen(registry: &WorkspaceRegistry) -> String {
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO resource_panes(
+               public_id, screen_id, creation_ordinal, created_revision, updated_revision
+             ) VALUES(?1, ?2, 1, 1, 1)",
+            params![pane_id(900).as_str(), screen_id(900).as_str()],
+        )
+        .expect_err("SQLite took a pane whose identity and screen do not exist")
+        .to_string()
+}
+
 /// After an open, first or not, SQLite itself refuses a row whose key names
 /// no parent: the open leaves foreign keys on.
 #[test]
 fn open_invariants_leave_foreign_keys_on() {
-    fn insert_pane_of_no_screen(registry: &WorkspaceRegistry) -> String {
-        registry
-            .connection
-            .get()
-            .execute(
-                "INSERT INTO resource_panes(
-                   public_id, screen_id, creation_ordinal, created_revision, updated_revision
-                 ) VALUES(?1, ?2, 1, 1, 1)",
-                params![pane_id(900).as_str(), screen_id(900).as_str()],
-            )
-            .expect_err("SQLite took a pane whose identity and screen do not exist")
-            .to_string()
-    }
     let root = temp_root("keys-on");
     for open in ["first open", "reopen"] {
         let registry = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -280,6 +283,35 @@ fn open_invariants_leave_foreign_keys_on() {
         assert!(error.contains("FOREIGN KEY constraint failed"), "{open}: {error}");
         drop(registry);
     }
+    let _ = fs::remove_dir_all(root);
+}
+
+/// The same after an open that migrates: the open turns foreign keys off for
+/// the migrations of a file with an older schema number, checks the keys once
+/// and leaves them on. The file here has the tables of this build and the
+/// number 13, as the other migration tests of this crate make it. It is not a
+/// file that an older build wrote.
+#[test]
+fn open_invariants_leave_foreign_keys_on_after_a_migration() {
+    let root = temp_root("keys-on-migrated");
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        change_one_row(
+            &registry,
+            "UPDATE meta SET value = '13' WHERE key = 'schema_version' AND value = ?1",
+            &[SCHEMA_VERSION.to_string().as_str()],
+        );
+    }
+    let before = foreign_key_checks();
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(foreign_key_checks() - before, 1, "foreign key checks in a migrating open");
+    assert_eq!(
+        required_meta(&registry.connection.get(), "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    let error = insert_pane_of_no_screen(&registry);
+    assert!(error.contains("FOREIGN KEY constraint failed"), "{error}");
+    drop(registry);
     let _ = fs::remove_dir_all(root);
 }
 
@@ -444,6 +476,38 @@ fn open_invariants_refuse_a_tab_of_a_closed_terminal() {
     );
 }
 
+/// A tab that shows a browser whose row and identity are closed. The other
+/// fixtures show terminals only.
+#[test]
+fn open_invariants_refuse_a_tab_of_a_closed_browser() {
+    let registry = registry_with_workspaces(2);
+    let browser = format!("browser_{:032x}", 1);
+    change_one_row(
+        &registry,
+        "INSERT INTO resource_identities(
+           public_id, kind, created_revision, updated_revision, deleted_revision
+         ) VALUES(?1, 'browser', 1, 1, 1)",
+        &[browser.as_str()],
+    );
+    change_one_row(
+        &registry,
+        "INSERT INTO resource_browsers(
+           public_id, url, metadata_json, lifecycle,
+           created_revision, updated_revision, deleted_revision
+         ) VALUES(?1, 'about:blank', '{}', 'tombstoned', 1, 1, 1)",
+        &[browser.as_str()],
+    );
+    change_one_row(
+        &registry,
+        "UPDATE resource_tabs SET content_kind = 'browser', content_id = ?1 WHERE public_id = ?2",
+        &[browser.as_str(), tab_id(1).as_str()],
+    );
+    assert_eq!(
+        refusal(&registry),
+        format!("tab {} references closed browser {browser}", tab_id(1))
+    );
+}
+
 #[test]
 fn open_invariants_refuse_a_live_terminal_that_is_not_active() {
     let registry = registry_with_workspaces(2);
@@ -493,8 +557,10 @@ fn open_invariants_name_the_rule_of_the_first_loop() {
     assert_eq!(refusal(&registry), format!("pane {} has tabs but no active tab", pane_id(1)));
 }
 
-/// Two bad rows of one rule: the checks name the row that comes first in
-/// its table, not the one that was written last.
+/// Two bad rows of one rule: the checks name the bad row that the query of
+/// the rule gives first (here workspace 1, whose row was written before that
+/// of workspace 2), not the one that was changed last. The query has no
+/// ORDER BY: the test holds the order that SQLite gives for it today.
 #[test]
 fn open_invariants_name_the_first_bad_row_of_a_rule() {
     let registry = registry_with_workspaces(3);
