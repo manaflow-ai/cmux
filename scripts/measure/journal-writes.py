@@ -380,10 +380,10 @@ def case_typing(args, Daemon):
         probe = Probe(d)
         a = probe.snap()
         deadline = time.monotonic() + args.typing
-        text, keys = "", 0
+        text, keys, source = "", 0, " ".join(WORDS)
         while time.monotonic() < deadline:
             keys += 1
-            text = (text + WORDS[keys % len(WORDS)][keys % 3])[-400:]
+            text = (text + source[keys % len(source)])[-400:]
             c.call("_acpmux/draft_set", {"sessionId": sid, "text": text})
             time.sleep(args.key_ms / 1000.0)  # bench: a person's typing pace
         b = probe.snap()
