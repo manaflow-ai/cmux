@@ -2143,10 +2143,10 @@ impl IncomingCircuitTasks {
     }
 }
 
-/// A daemon control socket the relay answered `Registered` on.
 /// A second control socket's authentication, in flight while the first serves.
 type Renewal<'a> = Pin<Box<dyn Future<Output = Result<DaemonControl, ProviderError>> + Send + 'a>>;
 
+/// A daemon control socket the relay answered `Registered` on.
 struct DaemonControl {
     socket: RelaySocket,
     lease_seconds: u32,
