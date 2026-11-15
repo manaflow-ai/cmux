@@ -850,10 +850,12 @@ jobs:
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" "$browser_host_binary"
           fi
           # The slim terminal host rides the same way as cmux-tui-host-<target>
-          # and installs as cmux-tui-host beside cmux-tui, where a macOS daemon
-          # runs every terminal host from (host_exe.rs). macOS only for now.
+          # and installs as cmux-tui-host beside cmux-tui, where a macOS or
+          # Linux daemon runs every terminal host from (host_exe.rs,
+          # host_exe/linux.rs). Required on macOS and Linux musl: a missing one
+          # fails this step (cp); the gnu-named Linux assets copy the musl one.
           terminal_host_binary=""
-          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
+          if [[ "$STAGE_TARGET" == *-apple-darwin || "$STAGE_TARGET" == *-unknown-linux-musl ]]; then
             terminal_host_binary="dist/cmux-tui-host-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-host" "$terminal_host_binary"
           fi

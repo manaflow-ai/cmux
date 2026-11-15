@@ -134,6 +134,8 @@ getrandom.workspace = true
 toml_edit.workspace = true
 glob.workspace = true
 libc.workspace = true
+# glibc arena cap at process start (malloc_arenas.rs).
+cmux-tui-platform.workspace = true
 fs4.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
