@@ -257,12 +257,20 @@ fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) 
 }
 
 /// The names of the agent tool servers `tools` gives a session whose spawn env is `env`
-/// ([`PoolKey::tool_servers`]).
+/// ([`PoolKey::tool_servers`]), as `agent_tools::acp_servers_for` gives them: for a Codex
+/// session in `codex_cwd`, none named `cmux` beside the person's own HTTP `cmux` entry, so a spare
+/// started before that entry appeared is never served.
 fn tool_servers(
     tools: crate::agent_tools::AgentTools,
     env: &std::collections::BTreeMap<String, String>,
+    codex_cwd: Option<&std::path::Path>,
 ) -> String {
-    tools.scoped(env).servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(",")
+    let tools = tools.scoped(env);
+    let tools = match codex_cwd {
+        Some(cwd) => tools.without_cmux_beside_an_http_entry(cwd, env),
+        None => tools,
+    };
+    tools.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(",")
 }
 
 #[cfg(test)]
@@ -374,7 +382,11 @@ impl Hub {
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
             ),
-            tool_servers: tool_servers(crate::agent_tools::current(), &spawn.env),
+            tool_servers: tool_servers(
+                crate::agent_tools::current(),
+                &spawn.env,
+                super::spawn::is_codex(draft.family.as_deref()).then_some(draft.cwd.as_path()),
+            ),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }

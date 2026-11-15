@@ -185,8 +185,9 @@ for _ in $(seq 1 40); do [ -n "$(session_id gui-codex-http)" ] && break; perl -e
 names=$(servers_of gui-codex-http)
 started=$(acp --json session info gui-codex-http 2>/dev/null | python3 -c 'import json,sys; print(bool(json.loads(sys.stdin.read() or "{}").get("agentSessionId")))')
 case " ${names%% | *} " in *" cmux "*) ok=1 ;; *) ok=0 ;; esac
-[ "$started" = True ] && [ "$(codex_servers gui-codex-http)" = "0 -" ] && case "$names" in *acpmux*) true ;; *) false ;; esac || ok=1
-check "agent chat [codex] over an HTTP cmux entry: no cmux, the chat starts (thread: $started), its other servers stay (tool rows | harness: $names)" $ok
+running=$(codex_servers gui-codex-http)
+[ "$started" = True ] && [ "$running" = "0 -" ] && case "$names" in *acpmux*) true ;; *) false ;; esac || ok=1
+check "agent chat [codex] over an HTTP cmux entry: no cmux (running: $running), the chat starts (thread: $started), its other servers stay (tool rows | harness: $names)" $ok
 cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
 
 # 2. Off and unanswered

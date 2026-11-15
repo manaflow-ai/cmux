@@ -73,9 +73,52 @@ fn a_change_to_cmux_tools_leaves_a_pooled_key_unmatched() {
         })
     };
     let env = std::collections::BTreeMap::new();
-    let on = tool_servers(tools(r#"{"agents": {"cmuxMcp": "on"}}"#), &env);
-    let off = tool_servers(tools(r#"{"agents": {"cmuxMcp": "off"}}"#), &env);
+    let on = tool_servers(tools(r#"{"agents": {"cmuxMcp": "on"}}"#), &env, None);
+    let off = tool_servers(tools(r#"{"agents": {"cmuxMcp": "off"}}"#), &env, None);
     assert_eq!(on, "cmux");
     assert_eq!(off, "");
     assert_ne!(key(None), PoolKey { tool_servers: on, ..key(None) });
+}
+
+/// A Codex spare started before the person added their own HTTP server named `cmux` to Codex's
+/// config would still run cmux's server under that name: its key no longer matches.
+#[test]
+fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = tempfile::tempdir().unwrap();
+    let cmux = root.path().join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (codex_home, work) = (root.path().join("codex-home"), root.path().join("work"));
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    let tools = || {
+        crate::agent_tools::resolve(&crate::agent_tools::Inputs {
+            enabled: true,
+            bin_dir: Some(root.path().to_owned()),
+            cmux_json: Some(r#"{"agents": {"cmuxMcp": "on"}}"#.to_owned()),
+            state_dir: root.path().join("state"),
+            acpmux: None,
+            secrets: false,
+            offers: false,
+            subsessions: false,
+            displays: None,
+            hosted: false,
+        })
+    };
+    let env = std::collections::BTreeMap::from([(
+        "CODEX_HOME".to_owned(),
+        codex_home.to_string_lossy().into_owned(),
+    )]);
+    let before = tool_servers(tools(), &env, Some(&work));
+    std::fs::write(
+        codex_home.join("config.toml"),
+        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
+    )
+    .unwrap();
+    let after = tool_servers(tools(), &env, Some(&work));
+    assert_eq!(before, "cmux");
+    assert_eq!(after, "");
+    // Not Codex: the person's Codex config does not matter.
+    assert_eq!(tool_servers(tools(), &env, None), "cmux");
 }
