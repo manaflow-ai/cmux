@@ -73,9 +73,11 @@ async function render(host: Host) {
 }
 
 test("the handshake names the picked app only when it is an app id", () => {
-  expect(newTabHost({ newTab: { app: "local/launcher" } })?.app).toBe("local/launcher");
+  // The manifest id pattern (cmux-app.schema.json `properties.id.pattern`).
+  for (const good of ["local/launcher", "local/web-pane", "manaflow-ai/launcher"])
+    expect(newTabHost({ newTab: { app: good } })?.app).toBe(good);
   expect(newTabHost({ newTab: {} })?.app).toBeUndefined();
-  for (const bad of ["launcher", "a/b/c", "a b/c", 7])
+  for (const bad of ["launcher", "a/b/c", "a b/c", "Foo/Bar", "local/Web", "-a/b", 7])
     expect(newTabHost({ newTab: { app: bad } })?.app).toBeUndefined();
 });
 
