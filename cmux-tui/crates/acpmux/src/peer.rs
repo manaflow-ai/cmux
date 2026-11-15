@@ -33,6 +33,8 @@ pub(crate) use carriers::paired_install;
 #[path = "peer_carrier.rs"]
 mod carrier;
 pub use dual::DualStats;
+#[path = "peer_dialer.rs"]
+mod dialer;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
@@ -43,6 +45,8 @@ pub(crate) mod overlay;
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
+#[path = "peer_network.rs"]
+pub(crate) mod network;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -164,7 +168,7 @@ pub enum PeerNotice {
     },
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl PeerNotice {
     /// A list of `rows`, each sent as its text, as a link sends it.
     pub(crate) fn sessions_from_values(rows: Vec<Value>) -> Self {
@@ -358,6 +362,8 @@ pub struct Peer {
     session_auth: AtomicBool,
     /// The features the peer listed at its last handshake (`lists`).
     features: StdMutex<Vec<String>>,
+    /// The mirror of the peer's list stream into the index (`peer_dialer.rs`).
+    mirror: dialer::MirrorLink,
     /// One more than the link epoch whose handshake listed `sessionResume`
     /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
     session_resume_link: AtomicU64,
@@ -377,6 +383,10 @@ pub struct Peer {
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
     /// is slow, and its attempts get the long connect deadline (`ssh_connect_secs`).
     slow_banner: AtomicBool,
+    /// The last connect attempt failed because the remote refused this computer's ssh login
+    /// (a key or password it does not take, a host key that does not match): the next attempts
+    /// wait minutes (`Backoff::login_refused`), and no ask or open chat cuts the wait.
+    login_refused: AtomicBool,
     /// From the WebSocket opening until `stale_token` cleared it: callers'
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
@@ -415,6 +425,10 @@ pub struct Peer {
     stop_signal: Notify,
     /// Broadcasts explicit stop/replacement to callers waiting for a reconnect.
     stop_changed: tokio::sync::watch::Sender<bool>,
+    /// This computer's network changes (`peer_network.rs`), read only by `run`'s task: a live link
+    /// is probed at once, a backoff wait ends at once. One receiver for the peer's life, so a change
+    /// made while a link was being dialed still reaches it.
+    network: StdMutex<tokio::sync::watch::Receiver<u64>>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
@@ -1526,9 +1540,23 @@ pub(crate) mod test_dial {
     pub(crate) type Attempt = (tokio::time::Instant, u64);
 
     thread_local!(static ATTEMPTS: RefCell<Option<Vec<Attempt>>> = const { RefCell::new(None) });
+    thread_local!(static AUTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
 
     pub(crate) fn refuse_all() {
         ATTEMPTS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+        AUTH.with(|a| a.set(false));
+    }
+
+    /// Every dial fails as ssh does when the remote refuses this computer's key or password
+    /// (`Permission denied`), and is recorded.
+    pub(crate) fn refuse_login_all() {
+        refuse_all();
+        AUTH.with(|a| a.set(true));
+    }
+
+    /// Whether the dials fail as a refused login.
+    pub(super) fn login_refused() -> bool {
+        AUTH.with(|a| a.get())
     }
 
     /// The dials so far; dials keep failing.
@@ -1539,6 +1567,7 @@ pub(crate) mod test_dial {
     /// Dials go out for real again.
     pub(crate) fn clear() {
         ATTEMPTS.with(|a| *a.borrow_mut() = None);
+        AUTH.with(|a| a.set(false));
     }
 
     pub(super) fn refused() -> bool {

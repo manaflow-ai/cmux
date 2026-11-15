@@ -173,8 +173,15 @@ public struct TerminalSizingEngine: Sendable {
             return (latest.viewport, [latest.entry.participant.id], .priorityFallback)
         case .smallest, .largest:
             let pick: ([Int]) -> Int? = policy.mode == .smallest ? { $0.min() } : { $0.max() }
-            guard let cols = pick(sized.map(\.viewport.cols)), let rows = pick(sized.map(\.viewport.rows)) else {
+            guard var cols = pick(sized.map(\.viewport.cols)), let rows = pick(sized.map(\.viewport.rows)) else {
                 return (held, [], .held)
+            }
+            // The phone floor, as in the Rust twin: a counting phone or tablet
+            // never gets a grid narrower than itself; a narrower desktop view
+            // clips instead. Columns only.
+            if policy.mode == .smallest,
+               let floor = sized.filter({ $0.entry.participant.deviceKind.isHandheld }).map(\.viewport.cols).min() {
+                cols = max(cols, floor)
             }
             let owners = sized
                 .filter { $0.viewport.cols == cols || $0.viewport.rows == rows }

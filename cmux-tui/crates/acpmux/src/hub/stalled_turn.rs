@@ -345,6 +345,7 @@ mod loop_episode_tests {
             notice: false,
             persons: false,
             accepted: true,
+            device: None,
         });
         hub.watch_stalled_turn(&session, None);
         let before = session.state_seq.load(Ordering::SeqCst);

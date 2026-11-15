@@ -8,7 +8,8 @@ import Foundation
 /// - `CMUX_MOBILE_LIST_SCREEN`: the list to measure: `workspaces`, `tabs`, `chat`, `diff`,
 ///   `artifacts` (the chat's Files and Artifacts grid; each replayed turn names an image, a page and a PDF), `home`, or `feed`
 ///   (seeded by `CMUX_MOBILE_FEED_STRESS`, as a reference for the rebuilt Feed), or `terminals`
-///   (`LIST_COUNT` terminal tabs opened, then hidden but warm behind the workspaces list).
+///   (`LIST_COUNT` terminal tabs opened, then hidden but warm behind the workspaces list; with
+///   `CMUX_MOBILE_LIST_TERMINAL_VISIBLE=1` the first one stays on screen instead).
 /// - `CMUX_MOBILE_LIST_COUNT=N`: rows to seed (workspaces, tabs) or replayed turns (chat, diff).
 /// - `CMUX_MOBILE_LIST_LIVE_HZ=HZ`: live changes per second while scrolling (workspace activity).
 /// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits (`terminals`:
@@ -46,6 +47,8 @@ public struct ListStressSettings: Equatable, Sendable {
     public var holdsTurn: Bool
     /// `CMUX_MOBILE_LIST_LEAVE_NEWEST=0`: the chat stays at its newest turn after the send.
     public var leavesNewest: Bool
+    /// `CMUX_MOBILE_LIST_TERMINAL_VISIBLE=1` (terminals): the first terminal stays on screen.
+    public var terminalVisible: Bool
     /// `CMUX_MOBILE_LIST_OPEN_DELAY=S`: seconds before a transcript opens (default 1), so `SAMPLE` catches the open.
     public var openDelay: Double
     public var passes: Int
@@ -80,6 +83,7 @@ public struct ListStressSettings: Equatable, Sendable {
         sends = environment["CMUX_MOBILE_LIST_SEND"] == "1"
         holdsTurn = environment["CMUX_MOBILE_LIST_HOLD_TURN"] == "1"
         leavesNewest = environment["CMUX_MOBILE_LIST_LEAVE_NEWEST"] != "0"
+        terminalVisible = environment["CMUX_MOBILE_LIST_TERMINAL_VISIBLE"] == "1"
         openDelay = environment["CMUX_MOBILE_LIST_OPEN_DELAY"].flatMap(Double.init) ?? 1
         passes = environment["CMUX_MOBILE_LIST_PASSES"].flatMap(Int.init) ?? 2
         speed = environment["CMUX_MOBILE_LIST_SPEED"].flatMap(Double.init) ?? 2400

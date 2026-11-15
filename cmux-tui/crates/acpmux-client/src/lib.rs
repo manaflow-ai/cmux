@@ -2299,6 +2299,8 @@ mod tests {
         let mut bytes = first.clone();
         bytes.extend_from_slice(&second);
         assert_eq!(client.received(&bytes), first.len());
+        assert_eq!(client.changes.len(), 1);
+        assert_eq!(client.changes.front().map(|queued| queued.bytes), Some(first.len() as u64));
         assert!(matches!(client.next_change(), Some(Change::Window(_))));
         assert_eq!(client.received(&bytes[first.len()..]), second.len());
         assert!(matches!(client.next_change(), Some(Change::Window(_))));
@@ -3824,87 +3826,6 @@ tail"#;
             mirror.parent_children[&(String::from("local"), String::from("parent"))]
                 .contains(&(String::from("local"), String::from("child")))
         );
-    }
-
-    #[test]
-    #[ignore = "release gate: run once through cmux-ci with --profile gate"]
-    fn v2_pr04b_mirror_v1_rows_gate() {
-        fn sample(closed_rows: usize) -> (u64, u64) {
-            use acpmux_book::index::{ReadSide, SummaryIndex};
-
-            let mut timings = Vec::new();
-            let mut received = 0_u64;
-            for _ in 0..8 {
-                let mut client = Client::<Value>::connected_v2();
-                let hello = Frame::json(
-                    FrameKind::Hello,
-                    &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
-                )
-                .unwrap()
-                .encode();
-                client.received(&hello);
-                while client.take_send().is_some() {}
-                let mut sub = Sub::new("m", "list");
-                sub.rows = Some("v1".into());
-                sub.view = Some(ListView::Live);
-                client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
-                let _ = client.take_send();
-                let mut index = SummaryIndex::new();
-                for row_id in 0..closed_rows {
-                    let mut row = Summary::new(format!("closed-{row_id}"));
-                    row.state = "closed".into();
-                    row.last_activity = row_id as u64;
-                    index = index.apply(row_id as u64 + 1, row);
-                }
-                for row_id in 0..20 {
-                    let mut row = Summary::new(format!("live-{row_id}"));
-                    row.state = "idle".into();
-                    row.last_activity = 11_000 + row_id as u64;
-                    index = index.apply((closed_rows + row_id) as u64 + 1, row);
-                }
-                let page = index
-                    .read_live_page(None, ReadSide::After, false, 100, wire::MAX_PAGE_BYTES, None)
-                    .unwrap();
-                assert_eq!(page.rows.len(), 20);
-                let rows: Vec<Value> = page
-                    .rows
-                    .iter()
-                    .map(|row| serde_json::to_value(row.as_ref()).unwrap())
-                    .collect();
-                drop(page);
-                drop(index);
-                let frame = Frame::json(
-                    FrameKind::Window,
-                    &serde_json::json!({"sid":"m","cursor":1,"rows":rows,"hasBefore":false,"hasAfter":false,"edition":1}),
-                )
-                .unwrap()
-                .encode();
-                received = received.saturating_add(frame.len() as u64);
-                let started = std::time::Instant::now();
-                assert_eq!(client.received(&frame), frame.len());
-                assert!(matches!(client.next_change(), Some(Change::Window(_))));
-                timings.push(started.elapsed().as_nanos() as u64);
-            }
-            timings.sort_unstable();
-            (timings[timings.len() / 2], received)
-        }
-        let (small, small_bytes) = sample(0);
-        let (god, god_bytes) = sample(11_000);
-        let line = serde_json::json!({
-            "name":"v2.pr04b.mirror_v1_rows",
-            "small_p95":small,
-            "god_p95":god,
-            "unit":"ns",
-            "small_bytes":small_bytes,
-            "god_bytes":god_bytes
-        });
-        println!("{line}");
-        if let Ok(path) = std::env::var("V2_GATE_OUT") {
-            use std::io::Write as _;
-            let mut output =
-                std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
-            writeln!(output, "{line}").unwrap();
-        }
     }
 
     #[cfg(feature = "tokio")]

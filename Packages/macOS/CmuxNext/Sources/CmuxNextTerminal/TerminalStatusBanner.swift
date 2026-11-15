@@ -232,8 +232,12 @@ final class TerminalStatusBanner: NSView {
     /// of connect retries and 2 s of handshake, after up to 2 s waiting for
     /// the owner to say ready), and a dropped view re-attaches at once. Those
     /// clear within it and never show; one that lasts still shows, and the
-    /// stopped states show at once.
-    static let reconnectingRevealDelay: CFTimeInterval = 5
+    /// stopped states show at once. 10 s, the bound the app waits out for
+    /// the same daemon everywhere else (its startup deadline, its drop
+    /// grace, the sidebar's "Connecting…" hold): a restart or a short drop
+    /// the person can do nothing about marks no pane (Leo, 2026-11-14: "i
+    /// also want all our connectivity stuff to shut the f*** up"). It was 5 s.
+    static let reconnectingRevealDelay: CFTimeInterval = 10
     /// "Disconnected: …" shows only after `disconnectedRevealDelay`: a daemon restart drops every
     /// pane's link, and a click, a key or the link back re-attaches within it, so a drop that heals
     /// at once never flashes the label on every pane.

@@ -98,6 +98,12 @@ His reference is the account menu of a desktop chat app: one translucent surface
   editors, the palette's actions menu and the Extensions menu. `GlassMenu` draws an `NSMenu` (its
   actions, validation, shortcuts, checks, subtitles and submenus) as rows on that surface on the
   AppKit menu grid (`MenuMetrics`, 28 pt rows).
+- **The key state never changes a floating surface's look.** A menu, submenu or popover keeps the
+  themed glass whichever window is key: its glass takes the app window's active look up the
+  parent chain (`NSWindow.inheritedActiveLook`, `ActiveLookGlassEffectView`), so a submenu has its
+  parent's material and tint, and the parent keeps them while the submenu has the keys (Leo,
+  2026-11-14: the account menu went from themed to grey when its submenu opened). The fallback
+  blur is `.active` already. `MenuActiveLookTests` checks it.
 - **The sidebar's account menu is a `GlassMenu`** (Leo, 2026-11-11: "Well, that's the whole point,
   right? Like that's what we wanted to do anyways. have better design (systems too)"). Gallery
   `ui.native-menu-material`: system (before), clear, veil (ships), veil-light, veil-submenu,

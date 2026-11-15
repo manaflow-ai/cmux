@@ -52,6 +52,10 @@ pub mod first_ready;
 pub mod gate;
 pub mod look;
 #[cfg(target_os = "linux")]
+mod resolve;
+#[cfg(all(test, target_os = "linux"))]
+mod resolve_tests;
+#[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;
 #[cfg(all(test, unix))]
@@ -103,6 +107,9 @@ pub struct State {
     /// ([`look`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look: Option<look::Look>,
+    /// The pre-ready check survives the exec into the channel build. Absent on older images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_ready: Option<look::FirstReady>,
 }
 
 /// An update whose new build has not proved itself yet.

@@ -70,3 +70,17 @@ fn a_matching_subscriber_never_overflows_on_events_it_does_not_take() {
     bus.emit(MuxEvent::TreeChanged);
     assert_eq!(kinds(&drain(&trees)), ["tree"]);
 }
+
+#[test]
+fn screen_device_identity_does_not_reach_surface_only_clients() {
+    let bus = MuxEventBroadcaster::default();
+    let all = bus.subscribe();
+    let surface = bus.subscribe_surface_session(1, 2, 3, 4);
+    bus.emit(MuxEvent::ScreenDeviceChanged(Some("host-device".into())));
+    bus.emit(MuxEvent::ScreenDeviceChanged(None));
+    assert!(drain(&surface).is_empty());
+    let events = drain(&all);
+    assert!(
+        matches!(&events[..], [MuxEvent::ScreenDeviceChanged(Some(id)), MuxEvent::ScreenDeviceChanged(None)] if id == "host-device")
+    );
+}

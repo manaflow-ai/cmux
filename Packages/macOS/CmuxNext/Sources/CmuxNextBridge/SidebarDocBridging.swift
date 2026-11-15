@@ -58,9 +58,17 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
             switch error {
             // No connection yet (between asks, a reconnect): an earlier ask may still have reached the daemon.
             case .timedOut, .connectionClosed, .daemonShutdown, .notConnected, .connectFailed: throw SidebarDocUnsettled()
-            default: throw error
+            default: throw refusal(error) ?? error
             }
         }
+    }
+
+    /// The reducer's refusal a daemon error carries (`validation.invalid`, `details.reason`: `nesting`,
+    /// `cross_machine`, ...), so the person reads its own reason, not a failure; nil for any other error.
+    nonisolated static func refusal(_ error: DaemonError) -> SidebarMirror.Refusal? {
+        guard case let .command(_, message, code, details, _) = error, code == "validation.invalid" else { return nil }
+        let reason = details?["reason"]?.stringValue ?? message
+        return reason.isEmpty ? nil : SidebarMirror.Refusal(code: reason)
     }
 
     private static func reply(_ mutation: SidebarDocMutation) throws -> SidebarDocReply {

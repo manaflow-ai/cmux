@@ -312,10 +312,20 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
           let still = 0;
           const atEnd = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
           const running = () =>
-            [...scroller.getAnimations({ subtree: true })].some(
-              (animation) =>
-                animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
-            );
+            [...document.getAnimations()].some((animation) => {
+              const target = (animation.effect as KeyframeEffect | null)?.target;
+              // Document-wide enumeration also includes pseudo-element targets; map those back to
+              // their owning element so the footer's entrance cannot be missed by an engine's
+              // subtree implementation.
+              const element =
+                target instanceof Node ? target : (target as { parentElement?: Element | null } | null)?.parentElement;
+              return (
+                element instanceof Node &&
+                scroller.contains(element) &&
+                animation.playState === "running" &&
+                animation.effect?.getComputedTiming().endTime !== Infinity
+              );
+            });
           const finish = () => {
             if (!ended || !atEnd() || running()) {
               still = 0;

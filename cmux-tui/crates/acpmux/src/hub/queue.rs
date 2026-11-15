@@ -64,6 +64,11 @@ pub struct QueuedPrompt {
     pub(super) resume: bool,
     /// Send now into the running turn (`queue_edit.rs`): its waiting task steers it.
     pub(super) steer: bool,
+    /// The person's steer that came while no turn showed yet: another prompt held the turn
+    /// (`Session::turn_claimed`, its agent starting, its uploads read) and it queued behind it.
+    /// It steers into that turn once it shows, as it would have had it come a moment later
+    /// (Leo, 2026-11-14: "but all my things should be steer by default in the app?").
+    pub(super) steer_on_start: bool,
     /// Waited behind a turn that failed (`pause_queue`): it waits until the queue is resumed.
     pub(super) held: bool,
     /// A person's prompt that waits for the owner (`author.rs` `approval`, `queue_approve.rs`):
@@ -187,6 +192,9 @@ pub(super) struct Slot<'a> {
     /// queues, so a prompt about to start its turn (`Session::turn_claimed`) does not make it
     /// queue; it waits for the lock, and `check_cut` decides after.
     pub(super) after_turn: bool,
+    /// [`QueuedPrompt::steer_on_start`]: the person's steer to an agent that steers, sent before
+    /// the turn it is for showed.
+    pub(super) steer_on_start: bool,
 }
 
 /// What a queued prompt's task waits on (`enqueue`): its withdrawal, the turn it joined
@@ -573,6 +581,13 @@ impl Hub {
                     return Err(answer);
                 }
                 Wait::Steer => {
+                    // The person's steer that came before its turn showed, not a Send now.
+                    let on_start = session
+                        .queue
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .iter()
+                        .any(|q| q.turn_id == turn_id && q.steer_on_start && !q.steer);
                     let run = match self.take_queued(session, p.prompt_id, &turn_id) {
                         Ok(Some(run)) => run,
                         Ok(None) => continue,
@@ -586,7 +601,8 @@ impl Hub {
                             return Err(answer);
                         }
                     };
-                    let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
+                    let answer =
+                        self.steer_queued(session, run, p.client, p.prompt_id, on_start).await;
                     // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
                     if let Err(e) = &answer {
                         let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
@@ -601,12 +617,16 @@ impl Hub {
 
     /// Runs a queued prompt sent now (`queue_edit.rs` `send_now`) as a steer under its own prompt
     /// id, so its `session/prompt` answers how it ran. A turn that ended meanwhile leaves it next.
+    /// `on_start`: the person's steer that queued only because no turn showed yet
+    /// ([`QueuedPrompt::steer_on_start`]): it was never asked to stop a turn, so one that ended
+    /// meanwhile leaves it queued again, stopping nothing.
     pub(super) async fn steer_queued(
         self: &Arc<Self>,
         session: &Arc<Session>,
         run: Arc<PromptRun>,
         client: &str,
         prompt_id: &str,
+        on_start: bool,
     ) -> Answer {
         let (control, trust_gate) = (run.control, run.trust_gate);
         let digest = super::digest::inbox_digest::is_digest(run.provenance.as_ref());
@@ -626,7 +646,7 @@ impl Hub {
             trust_gate,
             // An inbox digest whose turn ended first waits behind the person's prompts
             // (`enqueue`), and stops no turn.
-            interrupt: !digest,
+            interrupt: !digest && !on_start,
             provenance,
             message_sender: run.message_sender.clone(),
             agent: run.agent.clone(),
@@ -816,6 +836,7 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer: false,
+                steer_on_start: p.steer_on_start,
                 held: stop_held,
                 awaiting_owner,
                 revision: 0,
@@ -887,12 +908,27 @@ impl Hub {
             let done = session.restore_done.notified();
             tokio::pin!(done);
             done.as_mut().enable();
-            let steer = session
-                .queue
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .iter()
-                .any(|q| q.turn_id == turn_id && q.steer && !q.awaiting_owner);
+            // The person's steer that came before its turn showed goes in once that turn's own
+            // prompt is written (`steer_end.rs` wakes the queue then): written before it, the steer
+            // would reach the agent ahead of the prompt it steers. Never into a verified trigger's
+            // turn, which takes no steer (`turns.rs`).
+            let turn_runs = session.turn().is_some_and(|t| {
+                !t.trigger
+                    && session
+                        .unwritten_prompt
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .as_ref()
+                        .is_none_or(|(unwritten, _)| *unwritten != t.turn_id)
+            });
+            let steer =
+                session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().any(
+                    |q| {
+                        q.turn_id == turn_id
+                            && (q.steer || (q.steer_on_start && turn_runs && !q.held))
+                            && !q.awaiting_owner
+                    },
+                );
             // A chat being moved sends nothing into its turn; an abort lets it steer again.
             if steer && session.moving().is_none() {
                 return Wait::Steer;
@@ -1724,6 +1760,7 @@ impl Hub {
                 restored: true,
                 resume: true,
                 steer: false,
+                steer_on_start: false,
                 retries: if waits_for_resume { PERSON_RETRIES } else { 0 },
                 held: held.contains(&prompt_id),
                 awaiting_owner,

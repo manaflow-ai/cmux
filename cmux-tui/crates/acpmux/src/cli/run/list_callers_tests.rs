@@ -8,24 +8,13 @@ use super::ls::LsArgs;
 use crate::cli::list_read::Via;
 use crate::client::Client;
 use crate::hub::Hub;
-use acpmux_book::index::SummaryIndex;
+use crate::test_support::list_daemon::{self, Counted, ListDaemon, Serves, emit};
 use acpmux_core::life::V2;
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
-
-/// What the v2 side of a daemon serves.
-#[derive(Clone, Copy, PartialEq)]
-enum Serves {
-    /// No v2 handle: the upgrade is not a method.
-    NoV2,
-    /// v2 with no surface: the upgrade names `list`, and is refused.
-    ListOff,
-    /// v2 with `list`.
-    List,
-}
+use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 /// A daemon in this process on a unix socket, and a v1 client connected to it.
 struct Daemon {
@@ -34,76 +23,21 @@ struct Daemon {
     path: PathBuf,
     client: Arc<Client>,
     _dir: tempfile::TempDir,
+    /// The daemon's server, tee and writer: they stop when it drops.
+    _tasks: cmux_scope::Scope,
 }
 
-fn memory_hub() -> Arc<Hub> {
-    let mut config = crate::config::Config::default();
-    config.store.mode = crate::config::StoreMode::Memory;
-    let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
-    Hub::new(config, store)
-}
-
-/// A session's record: `status`, updated at `at`, with `tags` (`{key: value}`).
+/// A session's record (`list_daemon::meta`).
 fn meta(id: &str, name: &str, status: &str, at: u64, tags: Value) -> crate::store::SessionMeta {
-    let tags: serde_json::Map<String, Value> = tags
-        .as_object()
-        .into_iter()
-        .flatten()
-        .map(|(key, value)| (key.clone(), json!({"value": value})))
-        .collect();
-    serde_json::from_value(json!({
-        "schema": crate::store::META_SCHEMA, "id": id, "name": name, "title": format!("{name}'s title"),
-        "harness": "claude", "cwd": "/work", "status": status, "createdAt": at - 1_000,
-        "updatedAt": at, "turnCount": 3, "nameGiven": true, "tags": tags,
-    }))
-    .unwrap()
+    list_daemon::meta(id, name, status, at, tags).unwrap()
 }
 
-/// Serves a new hub on a new socket, `seed` giving it its rows (and their count). With the v2
-/// list, the tee is started first and fills its index from the hub, and this waits until it
-/// holds that many rows.
+/// Serves a new hub on a new socket (`list_daemon::serve`), and connects a v1 client to it.
 async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> Daemon {
-    let hub = memory_hub();
-    let v2 = match serves {
-        Serves::NoV2 => None,
-        Serves::ListOff | Serves::List => {
-            let (index, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
-            let surfaces = if serves == Serves::List {
-                ["list".to_owned()].into_iter().collect()
-            } else {
-                Default::default()
-            };
-            let v2 = Arc::new(V2::with_surfaces(index, writer, surfaces));
-            let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
-            hub.install_v2_tee(tee);
-            v2.hub.set_page_provider(Arc::new(crate::hub::list_tee::V1PageProvider::new(
-                hub.clone(),
-            )));
-            tokio::spawn(task);
-            tokio::spawn(v2.take_writer().unwrap().run());
-            Some(v2)
-        }
-    };
-    let rows = seed(&hub);
-    if let Some(v2) = &v2 {
-        let deadline = Instant::now() + Duration::from_secs(60);
-        while v2.hub.snapshot().len() < rows {
-            let held: Vec<String> =
-                v2.hub.snapshot().iter().map(|row| row.key().chat_id.to_string()).collect();
-            assert!(
-                Instant::now() < deadline,
-                "the tee holds {} of {rows} rows: {held:?}",
-                held.len()
-            );
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("acpmux.sock");
-    let listener = crate::server::bind_unix(&path).await.unwrap();
-    tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone()));
-    let client = Client::connect(&path).await.unwrap();
-    Daemon { _hub: hub, v2, path, client, _dir: dir }
+    let daemon = list_daemon::serve(serves, seed).await.unwrap();
+    let client = Client::connect(&daemon.path).await.unwrap();
+    let ListDaemon { hub, v2, path, dir, tasks } = daemon;
+    Daemon { _hub: hub, v2, path, client, _dir: dir, _tasks: tasks }
 }
 
 /// The differential fixture: live and closed chats, a child whose parent is closed, a child whose
@@ -412,74 +346,18 @@ async fn a_limit_then_its_cursor_read_every_row_once() {
 }
 
 /// A counting proxy for `daemon`'s socket: what the daemon sends to every client through it.
-struct Counted {
-    path: PathBuf,
-    bytes: Arc<AtomicU64>,
-    _dir: tempfile::TempDir,
-}
-
 async fn counted(target: PathBuf) -> Counted {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("counted.sock");
-    let listener = tokio::net::UnixListener::bind(&path).unwrap();
-    let bytes = Arc::new(AtomicU64::new(0));
-    let total = bytes.clone();
-    tokio::spawn(async move {
-        while let Ok((client, _)) = listener.accept().await {
-            let Ok(server) = tokio::net::UnixStream::connect(&target).await else { return };
-            let total = total.clone();
-            tokio::spawn(async move {
-                use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                let (mut client_read, mut client_write) = client.into_split();
-                let (mut server_read, mut server_write) = server.into_split();
-                let up = tokio::spawn(async move {
-                    let _ = tokio::io::copy(&mut client_read, &mut server_write).await;
-                });
-                let mut buf = vec![0_u8; 64 * 1024];
-                while let Ok(n) = server_read.read(&mut buf).await {
-                    if n == 0 || client_write.write_all(&buf[..n]).await.is_err() {
-                        break;
-                    }
-                    total.fetch_add(n as u64, Ordering::Relaxed);
-                }
-                up.abort();
-            });
-        }
-    });
-    Counted { path, bytes, _dir: dir }
+    list_daemon::counted(target).await.unwrap()
 }
 
 /// A hub with 20 live chats and `closed` closed ones beside them, served with the v2 list.
 async fn gate_daemon(closed: usize) -> Daemon {
-    serve(Serves::List, |hub| gate_rows(hub, closed)).await
-}
-
-fn gate_rows(hub: &Hub, closed: usize) -> usize {
-    let now = crate::store::now_ms();
-    for n in 0..20_u64 {
-        let tags = json!({"area": "acpmux"});
-        hub.insert_test_session(meta(
-            &format!("live-{n:02}"),
-            &format!("live-{n}"),
-            "idle",
-            now - n * 1_000,
-            tags,
-        ));
-    }
-    for n in 0..closed as u64 {
-        hub.insert_test_session(meta(
-            &format!("closed-{n:05}"),
-            &format!("closed-{n}"),
-            "closed",
-            now - 60_000 - n,
-            json!({}),
-        ));
-    }
-    20 + closed
+    serve(Serves::List, |hub| list_daemon::twenty_live_beside(hub, closed).unwrap()).await
 }
 
 /// One caller's run through the v2 list on a new client of `proxy`: its wall time and the bytes
-/// the daemon sent.
+/// the daemon sent. Past the clock, the run's connections end (`Counted::settled`) before the
+/// bytes are read, so they are all the daemon sent.
 async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     let client = Client::connect(&proxy.path).await.unwrap();
     let via = || Via::List(proxy.path.clone());
@@ -504,28 +382,9 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     }
     let wall = started.elapsed().as_nanos();
     drop(client);
+    proxy.settled().await.unwrap();
     // The client's initialize reply is counted too, alike on both sides.
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
-}
-
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
-}
-
-fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
-    let best = |rounds: &[Vec<u128>]| rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap_or(0);
-    let (small_p95, god_p95) = (best(small), best(god));
-    let line =
-        json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}).to_string();
-    eprintln!("{line}");
-    if let Some(path) = std::env::var_os("V2_GATE_OUT") {
-        use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "{line}");
-        }
-    }
-    (small_p95, god_p95)
 }
 
 /// Each caller through the v2 list: 20 live chats with 11,000 closed beside them against 20 live
@@ -538,6 +397,7 @@ async fn v2_pr07b_callers() {
     let god = gate_daemon(11_000).await;
     let (small_proxy, god_proxy) =
         (counted(small.path.clone()).await, counted(god.path.clone()).await);
+    let fds = list_daemon::open_fds();
     for caller in ["ls", "pending", "send_tag_dry_run", "mcp_ls"] {
         let (mut small_wall, mut small_bytes, mut god_wall, mut god_bytes) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -555,7 +415,11 @@ async fn v2_pr07b_callers() {
             small_bytes.push(sb);
             god_wall.push(gw);
             god_bytes.push(gb);
+            list_daemon::assert_fds_given_back(&format!("v2.pr07b.{caller}"), fds);
         }
+        // Round one's samples, where a cost a fixture builds up would land first.
+        let (small_one, god_one) = (&small_wall[0], &god_wall[0]);
+        eprintln!("v2.pr07b.{caller}_wall round 1: small {small_one:?} god {god_one:?}");
         for (measure, small, god, unit) in
             [("bytes", &small_bytes, &god_bytes, "bytes"), ("wall", &small_wall, &god_wall, "ns")]
         {

@@ -176,7 +176,7 @@ public struct TeamAppearanceEditor: View {
                         .frame(width: 44, height: 44)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel(Text(color.name))
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
@@ -209,7 +209,7 @@ public struct TeamAppearanceEditor: View {
             .frame(width: 44, height: 44)
             .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!available)
         .opacity(available ? 1 : 0.35)
         .accessibilityLabel(Text("Transparent"))
@@ -269,7 +269,7 @@ public struct TeamAppearanceEditor: View {
                         .frame(minHeight: theme.metrics.settingsRowHeight)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(mode == option ? .isSelected : [])
                     if option != GlyphMode.allCases.last { Divider().padding(.leading, 16) }
                 }

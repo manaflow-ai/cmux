@@ -361,6 +361,10 @@ PUBLISH_PATH = (
     # GitHub's side, so waiting and trying it again never starts a second run.
     "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
 )
+# A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
+# tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
+# missed ask costs at most the tick's 5-minute cron, and wake-nightly-next-tick asks again at the job's end.
+DISPATCH_NEVER_WAITS = {"nightly-next-one": "Ask main's nightly-next tick at notarization"}
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
 # these guards hold the limit with the mode off, the smaller one.
@@ -492,7 +496,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_every_dispatch_is_on_the_publish_path(self) -> None:
         for name, job in self.jobs.items():
-            if any("gh workflow run" in str(s.get("run", "")) for s in job.get("steps", [])):
+            dispatches = [s for s in job.get("steps", []) if "gh workflow run" in str(s.get("run", ""))]
+            if name in DISPATCH_NEVER_WAITS:
+                for step in dispatches:
+                    self.assertEqual(step.get("name"), DISPATCH_NEVER_WAITS[name], name)
+                    self.assertEqual(str((step.get("env") or {}).get("GH_BUDGET_WAIT_MAX_SECONDS")), "0", name)
+                    self.assertIs(step.get("continue-on-error"), True, name)
+                continue
+            if dispatches:
                 self.assertIn(name, PUBLISH_PATH, name)
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
