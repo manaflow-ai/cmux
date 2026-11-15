@@ -1332,7 +1332,7 @@ fn web_value_ready(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<r
             "this web field cannot be focused for keys in the background, and the text has Enter, Tab or other keys, which are never typed into its value; send the plain text, then press the keys with delivery foreground",
         );
     }
-    let field = web_field(el, &t.window.frame);
+    let field = web_field_in_view(t, el);
     if let Err(why) = roles::web_value_gate(field.as_ref(), roles::SecureField::Refuse) {
         return refuse(why);
     }
@@ -1464,6 +1464,29 @@ enum WebWrite {
 
 /// The note when a web field does not hold its page's focus at the write.
 const WEB_NOT_FOCUSED: &str = "the web field did not hold its page's focus, and the page would put a value write into the field that does, so nothing was written";
+
+/// How long a web field gets to come into view after AXScrollToVisible.
+const SCROLL_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// [`web_field`], with a plain field the page is scrolled past first
+/// scrolled into view ([`roles::scroll_into_view_first`]): it scrolls the
+/// page of the target's app, which is not the person's (the callers refuse
+/// that app first). `None` when a read failed.
+fn web_field_in_view(t: &Target, el: &Ax) -> Option<roles::WebField> {
+    let field = web_field(el, &t.window.frame)?;
+    if !roles::scroll_into_view_first(&field) {
+        return Some(field);
+    }
+    if !matches!(ax_unprimed(t.window.pid, || el.perform("AXScrollToVisible").is_ok()), Ok(true)) {
+        return Some(field);
+    }
+    let mut now = None;
+    super::menus::wait_for(SCROLL_WAIT, || {
+        now = web_field(el, &t.window.frame);
+        now.as_ref().is_some_and(|f| f.on_screen)
+    });
+    now
+}
 
 /// The facts the web value gate reads ([`roles::web_value_gate`]), read
 /// strictly; `None` when a read failed.
@@ -2504,7 +2527,7 @@ pub(super) fn set_value(
                 "this web field is in the app the person is using; writing its value would change it under their caret. Use type_text with delivery foreground".into(),
             ));
         }
-        let field = web_field(&el, &t.window.frame);
+        let field = web_field_in_view(&t, &el);
         roles::web_value_gate(field.as_ref(), roles::SecureField::Allow)
             .map_err(|why| DesktopError::Unsupported(why.into()))?;
     }

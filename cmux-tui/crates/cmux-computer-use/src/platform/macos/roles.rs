@@ -402,6 +402,18 @@ pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &
     Ok(())
 }
 
+/// Whether a web field the gate refuses only for being out of its window
+/// is first scrolled into view (a field the page is scrolled past); an
+/// input helper placed off the page cannot be scrolled into view, and a
+/// tiny, hidden or rich one is refused as it is.
+pub fn scroll_into_view_first(f: &WebField) -> bool {
+    !f.on_screen
+        && !f.hidden
+        && f.kind == WebKind::Plain
+        && f.width >= WEB_FIELD_MIN
+        && f.height >= WEB_FIELD_MIN
+}
+
 /// Whether a web field may take a value write: only while it holds its
 /// page's focus (read strictly, `None` unread). Live in Safari (macOS
 /// 27.0.1): an AXValue write on an `<input>` lands in whichever field holds

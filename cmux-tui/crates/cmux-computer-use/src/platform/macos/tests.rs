@@ -2884,6 +2884,31 @@ fn only_a_childless_web_text_field_is_plain() {
     assert_eq!(roles::web_kind("AXGroup", 0), roles::WebKind::Other);
 }
 
+/// A plain field the page is scrolled past is scrolled into view before the
+/// gate; a tiny, hidden or rich one, or one on screen, is not.
+#[test]
+#[allow(clippy::redundant_clone)]
+fn only_a_plain_field_scrolled_past_is_scrolled_into_view() {
+    let past = roles::WebField {
+        kind: roles::WebKind::Plain,
+        secure: false,
+        width: 200.0,
+        height: 22.0,
+        on_screen: false,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    assert!(roles::scroll_into_view_first(&past));
+    assert!(!roles::scroll_into_view_first(&roles::WebField { on_screen: true, ..past.clone() }));
+    assert!(!roles::scroll_into_view_first(&roles::WebField { hidden: true, ..past.clone() }));
+    assert!(!roles::scroll_into_view_first(&roles::WebField { width: 1.0, ..past.clone() }));
+    assert!(!roles::scroll_into_view_first(&roles::WebField {
+        kind: roles::WebKind::Area,
+        ..past.clone()
+    }));
+}
+
 /// Safari puts a text field's AXValue write into the field holding the
 /// page's focus: a web value write is made only while the target holds it.
 #[test]
