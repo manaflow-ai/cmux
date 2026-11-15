@@ -1,55 +1,63 @@
 #!/usr/bin/env bash
-# The app FFI release workflow builds on a push that changes an FFI input:
-# every input that scripts/cmux-next/check-app-ffi-pin.sh derives from the
-# Cargo path dependencies of cmux-app-ffi must be one of its push paths. The
-# hand list lacked cmux-remote-browser, so the rb-client push cf25b525a03b
-# started no build (2026-10-07). A crate's tests/, benches/ and examples/
-# (--list-excluded) are not inputs: a push changing only them builds nothing,
-# and a push changing a tests/ directory a library file names still builds.
+# The app FFI release workflow builds on a push that changes an FFI input, and
+# only then: its push paths are exactly the inputs that
+# scripts/cmux-next/check-app-ffi-pin.sh lists (--list-inputs: each crate
+# cmux-app-ffi reaches as a whole directory except its tests/, benches/ and
+# examples/, every path a scanned source names, the cargo configs, toolchain
+# files, build-app-ffi.sh and this workflow itself, which the list holds). The hand list lacked cmux-remote-browser, so the
+# rb-client push cf25b525a03b started no build (2026-10-07); a whole-crate glob
+# built a release, and the repin bot opened a repin, for a change only a test
+# reads (#39027, 2026-11-09). Its --list-excluded (the walk's excluded paths,
+# which #41555's readers take) is exactly the excluded entries of --list-inputs,
+# so each is a negative pattern here too.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 workflow="$root/.github/workflows/app-ffi-release.yml"
 check="$root/scripts/cmux-next/check-app-ffi-pin.sh"
 inputs="$(bash "$check" --list-inputs)"
-excluded="$(bash "$check" --list-excluded)"
-# GitHub's push path filter: the last matching pattern decides, a leading ! excludes, * stays in one folder, ** does not.
-python3 -I - "$workflow" "$root" "$inputs" "$excluded" <<'PY'
-import re, sys
-from pathlib import Path
-
-workflow, root, inputs, excluded = sys.argv[1], Path(sys.argv[2]), sys.argv[3].split(), sys.argv[4].split()
-text = Path(workflow).read_text(encoding="utf-8")
-block = re.search(r"^  push:\n(?:    .*\n)*?    paths:\n((?:      (?:- .*|#.*)\n)+)", text, re.M).group(1)
-patterns = [m.group(1) for m in re.finditer(r'^      - "([^"]+)"$', block, re.M)]
-
-
-def regex(glob):
-    out = ""
-    for part in re.split(r"(\*\*|\*)", glob):
-        out += ".*" if part == "**" else "[^/]*" if part == "*" else re.escape(part)
-    return re.compile(out + r"\Z")
-
-
-def builds(path):
-    hit = False
-    for pattern in patterns:
-        negate = pattern.startswith("!")
-        if regex(pattern.lstrip("!")).match(path):
-            hit = not negate
-    return hit
-
-
-crates = [i for i in inputs if (root / i / "Cargo.toml").is_file()]
-kept = [f"{c}/{n}" for c in crates for n in ("tests", "benches", "examples") if f"{c}/{n}" not in excluded]
-fail = [f"input {i}" for i in inputs if not builds(f"{i}/src/lib.rs" if i in crates else i)]
-fail += [f"crate manifest {c}/Cargo.toml" for c in crates if not builds(f"{c}/Cargo.toml")]
-fail += [f"named test directory {k}" for k in kept if not builds(f"{k}/x.rs")]
-fail += [f"excluded {d} builds" for d in excluded if builds(f"{d}/x.rs")]
-if fail:
-    print("FAIL: .github/workflows/app-ffi-release.yml push paths disagree with check-app-ffi-pin.sh:", file=sys.stderr)
-    for line in fail:
-        print(f"  {line}", file=sys.stderr)
-    sys.exit(1)
-PY
+listed_excluded="$(bash "$check" --list-excluded)"
+excluded_inputs="$(sed -n 's/^:(exclude,literal)//p' <<<"$inputs")"
+if [[ "$listed_excluded" != "$excluded_inputs" ]]; then
+  echo "FAIL: check-app-ffi-pin.sh --list-excluded is not the excluded entries of --list-inputs:" >&2
+  diff <(echo "$excluded_inputs") <(echo "$listed_excluded") >&2 || true
+  exit 1
+fi
+want="$(
+  while IFS= read -r input; do
+    # Each input is a `:(literal)` pathspec (no glob or magic in a found path); an excluded one, `:(exclude,literal)`, is a
+    # negative pattern (the workflow lists them after every positive one).
+    negate=""
+    case "$input" in
+      ":(exclude,literal)"*) negate="!"; input="${input#":(exclude,literal)"}" ;;
+      ":(literal)"*) input="${input#":(literal)"}" ;;
+      ":"*) echo "FAIL: --list-inputs printed a pathspec with other magic: $input" >&2; exit 1 ;;
+    esac
+    # A directory input is a prefix (a crate, .cargo), whether or not it exists yet. An excluded path is a directory (a
+    # crate's tests/, benches/ or examples/, which the walk excludes before the crate has one) unless it is a file (a
+    # TEST_ONLY file).
+    case "$negate:${input##*/}" in
+      *:.cargo) echo "\"$negate$input/**\"" ;;
+      !:*) [[ -f "$root/$input" ]] && echo "\"$negate$input\"" || echo "\"$negate$input/**\"" ;;
+      *) [[ -d "$root/$input" ]] && echo "\"$negate$input/**\"" || echo "\"$negate$input\"" ;;
+    esac
+  done <<<"$inputs"
+)"
+# The push paths: the list under `on: push: paths:`, up to the next key.
+have="$(awk '/^on:/ {on=1} on && /^    paths:/ {in_paths=1; next} in_paths && /^      - / {sub(/^      - /, ""); print; next}
+  in_paths {exit}' "$workflow")"
+# GitHub applies the patterns in order: a negative one before a positive one would not exclude.
+last_positive="$(grep -n '^"[^!]' <<<"$have" | tail -1 | cut -d: -f1)"
+first_negative="$(grep -n '^"!' <<<"$have" | head -1 | cut -d: -f1)"
+if [[ -n "$first_negative" && "$first_negative" -lt "$last_positive" ]]; then
+  echo "FAIL: .github/workflows/app-ffi-release.yml push paths: a negative pattern comes before a positive one" >&2
+  exit 1
+fi
+missing="$(comm -23 <(sort -u <<<"$want") <(sort -u <<<"$have"))"
+extra="$(comm -13 <(sort -u <<<"$want") <(sort -u <<<"$have"))"
+if [[ -n "$missing" || -n "$extra" ]]; then
+  [[ -n "$missing" ]] && echo "FAIL: .github/workflows/app-ffi-release.yml push paths lack FFI inputs:"$'\n'"$missing" >&2
+  [[ -n "$extra" ]] && echo "FAIL: .github/workflows/app-ffi-release.yml push paths name non-inputs:"$'\n'"$extra" >&2
+  exit 1
+fi
 echo "app-ffi-release-paths.test.sh: ok"
