@@ -77,6 +77,7 @@ import {
   type WorkspaceBackground,
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
+  type JoinConsentSurface,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -599,8 +600,8 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
-  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists. */
+  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<void> {
     await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
   }
