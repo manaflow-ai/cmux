@@ -136,7 +136,9 @@ fn pr08b_serve_page() {
                 // Each side's snapshot bytes for the request, beside the clock's numbers.
                 eprintln!("SERVE_PAGE_BYTES side={name} part={part} pieces={pieces} bytes={bytes}");
                 // The records each piece's seek decodes from its checkpoint to its key.
-                let snapshot = DiskSnapshot::open(&side.path).expect("the snapshot opens");
+                let snapshot = DiskSnapshot::open(&side.path)
+                    .expect("the snapshot opens")
+                    .expect("a snapshot on disk");
                 for (n, (anchor, piece_bytes)) in
                     PEER_ANCHORS.with(|read| read.borrow().clone()).into_iter().enumerate()
                 {
