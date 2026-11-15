@@ -924,9 +924,12 @@ fn show(global: &GlobalArgs) -> i32 {
         let shown = if value.is_null() { "(unset)".to_string() } else { value.to_string() };
         println!("  {key} = {shown}");
     }
-    let line = match (now["running"].as_bool(), now["picture"].as_str()) {
+    let line = match (
+        now.get("running").and_then(Value::as_bool),
+        now.get("picture").and_then(Value::as_str),
+    ) {
         (Some(false), _) => "now: cmux is not running".to_string(),
-        (_, Some(picture)) => match now["next_change"].as_str() {
+        (_, Some(picture)) => match now.get("next_change").and_then(Value::as_str) {
             Some(next) => format!("now: {picture} (next change {next})"),
             None => format!("now: {picture}"),
         },
