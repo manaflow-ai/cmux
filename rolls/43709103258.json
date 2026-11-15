@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43709103258",
+  "recorded_at": "2026-11-15T11:41:44Z",
+  "reason": "cmux-tui e238ea548682 changes the image's cmux-tui (pinned d532eb73d1ea)",
+  "dry_run": false,
+  "cmux_tui": "e238ea5486824ff4fc766954d4bc91d37b90af0c",
+  "fixes": [
+    {
+      "sha": "e238ea5486824ff4fc766954d4bc91d37b90af0c",
+      "mergedAt": "2026-11-15T03:12:12-08:00",
+      "subject": "Device kinds: every machine says what it is, with the glyph that kind draws (#43391)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T11:41:44Z",
+    "snapshot_id": "sh-7e0ca5d67eeb4957b92e932a78875ef6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43709103258): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3942896af5772fa0ea6c885f0cd8f324451298f1",
+    "image": "cloud-native-auto-e238ea54-43709103258-1",
+    "revision": "ci-43709103258-1",
+    "at": "2026-11-15T11:41:44Z"
+  },
+  "rolled_back": false
+}
