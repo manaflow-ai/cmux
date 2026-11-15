@@ -180,7 +180,8 @@ test("production turnView wrappers keep metadata without re-reading earlier tool
   for (let token = 0; token < 20; token += 1) {
     raw = [...raw.slice(0, -1), { ...raw.at(-1)!, text: `${raw.at(-1)!.text} more`, version: token + 2 }];
     const next = turnView(raw, new Set(), options);
-    expect(next.find((item) => item.kind === "activity")).not.toBe(shaped.find((item) => item.kind === "activity"));
+    // A token in the reply leaves the tool row as it was drawn (turns.ts `steadyLiveRows`).
+    expect(next.find((item) => item.kind === "activity")).toBe(shaped.find((item) => item.kind === "activity"));
     const before = reads;
     committed = minimapTurns(next, "production", committed);
     expect(reads).toBe(before);

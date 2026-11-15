@@ -1132,6 +1132,17 @@ class ListTerminalsResult:
 
 
 @dataclass(frozen=True)
+class ListWorkspacesKnown:
+    __cmux_schema_path__: ClassVar[str] = 'types/ListWorkspacesKnown'
+    generation: Union[str, None, MissingType] = field(default=MISSING)
+    pane_revision: Union[int, None, MissingType] = field(default=MISSING)
+    registry_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_revision: Union[int, None, MissingType] = field(default=MISSING)
+    tree_revision: Union[str, None, MissingType] = field(default=MISSING)
+    workspace_revision: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class LivePane:
     __cmux_schema_path__: ClassVar[str] = 'types/LivePane'
     active_tab: int
@@ -2407,6 +2418,9 @@ class Tree:
     pane_revision: Union[int, MissingType] = field(default=MISSING)
     registry_id: Union[str, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
+    total: Union[int, MissingType] = field(default=MISSING)
+    tree_revision: Union[str, MissingType] = field(default=MISSING)
+    unchanged: Union[bool, MissingType] = field(default=MISSING)
     workspace_revision: Union[int, MissingType] = field(default=MISSING)
 
 
@@ -2527,6 +2541,7 @@ class AttachSurfaceRequest:
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
+    replay_history_start: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
@@ -4006,7 +4021,8 @@ class ListWorkspaceGroupsRequest:
 @dataclass(frozen=True)
 class ListWorkspacesRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-workspaces/request'
-    pass
+    known: Union[ListWorkspacesKnown, None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6088,6 +6104,7 @@ class ResizedEvent(EventBase):
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
     data: Union[Base64, MissingType] = field(default=MISSING)
+    history_rows_omitted: Union[int, MissingType] = field(default=MISSING)
     kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
     kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     replay: Union[Base64, MissingType] = field(default=MISSING)
@@ -6374,6 +6391,7 @@ class VtStateEvent(EventBase):
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
     history_rows_omitted: Union[int, MissingType] = field(default=MISSING)
+    history_rows_skipped: Union[int, MissingType] = field(default=MISSING)
     kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
     kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -6614,6 +6632,7 @@ __all__ = [
     'LayoutUndoUndone',
     'ListAgentsResult',
     'ListTerminalsResult',
+    'ListWorkspacesKnown',
     'LivePane',
     'MachineListeningTcpResult',
     'MachinePlatform',

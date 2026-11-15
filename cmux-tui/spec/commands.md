@@ -1445,7 +1445,44 @@ reply. A client that applies events to a snapshot must apply every event past
 that line; an event on an earlier line is in the tree. Without the field, the
 barrier is every event read before the reply.
 
-Params: none.
+With `list-workspaces-known-v1`, a client that holds a tree sends `known`: the
+`registry_id`, `generation`, `workspace_revision`, `pane_revision`,
+`terminal_revision` and `tree_revision` of the reply it holds (`{}` when it
+holds none). When every one equals the daemon's, the result is
+`{unchanged: true, workspaces: [], registry_id, generation,
+workspace_revision, pane_revision, terminal_revision, tree_revision}`,
+answered without reading the tree (`workspaces` is empty so a typed SDK
+still decodes a `Tree`); the client keeps its tree and applies the events past
+`lines_written_before_read` as usual. Otherwise the result is the whole tree
+with its `tree_revision` added. `tree_revision` is an opaque string that
+changes with anything the tree shows (a title, an unread marker, the
+selection, a git branch a refresh reads) and never repeats across daemon
+runs; terminal output and scrolling leave it alone. A request without `known`
+(or with `known: null`) gets the result above, unchanged.
+
+With `list-workspaces-limit-v1`, `limit: N` returns only the first N
+workspaces in sidebar order (the sidebar document's order, else the personal
+order, then the workspaces neither places: the order of `workspace.list
+{order: "personal"}`), in that order, and `total`, the number of workspaces;
+only those rows are built. A client draws its first screen from it and reads
+the rest with a whole list after. A limited reply that holds fewer than
+`total` workspaces never carries `tree_revision`, so it is never a tree to
+send back as `known`; with `known`, a reply that holds them all does. `known`
+and `limit` together answer `unchanged` when the client's whole tree is
+current.
+
+A remote device's connection (`set-client-info {remote: true}`) never sees an
+incognito workspace (#31210). Its `limit` page and `total` are taken from the
+workspaces it may see, and once a workspace of the daemon was incognito, its
+`tree_revision` is a digest of the rows it is answered, so a change to an
+incognito workspace never moves it.
+
+Params:
+
+| Name | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
+| `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
 
 Result:
 
@@ -9056,9 +9093,29 @@ active area whole and at most that many of the newest history rows above it
 `history_rows_omitted` (uint64): the history rows older than its first row
 that it left out, 0 when the history fit. A viewer that wants older rows
 attaches again without the field (whole history, as before), typically only
-when its reader scrolls up to them. `resized` replays and attaches without
-the field are unchanged; a client must not send the field to a server that
-does not advertise the capability.
+when its reader scrolls up to them. Attaches without the field are
+unchanged; a client must not send the field to a server that does not
+advertise the capability.
+
+Servers advertising `attach-replay-history-window-v1` also accept
+`replay_history_start` (uint64, only with `replay_history_rows`): the Mac
+keeps the scrollback and the viewer holds a window of it. The first
+`vt-state` rebuilds the history rows `[replay_history_start,
+replay_history_start + replay_history_rows)` (row 0 is the oldest row kept;
+at most 10,000 rows), then the active area, and carries
+`history_rows_omitted` (the rows above the window) and `history_rows_skipped`
+(the rows between the window and the active area, left out). A window that
+comes within its own size of the active area, or a terminal with Kitty images,
+an alternate screen or a prompt clear waiting for the shell, gets the rows
+from `replay_history_start` down to the active area instead, with no
+`history_rows_skipped`. A viewer that scrolls attaches again with the window
+moved, so its memory and each replay stay bounded and it still reaches the
+oldest row. A viewer that also declares the capability in `set-client-info`
+and attached with `replay_history_rows` gets its window in every `resized`
+replay (the newest `replay_history_rows` rows; a window's rows are numbered
+again after a reflow), with `history_rows_omitted`, instead of the whole
+history; a viewer that does not declare it gets the whole history there, as
+before.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
@@ -9075,6 +9132,7 @@ Params:
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
+| `replay_history_start` | `uint64` | default null (the newest rows) | `attach-replay-history-window-v1`; only with `replay_history_rows` |
 
 Result:
 

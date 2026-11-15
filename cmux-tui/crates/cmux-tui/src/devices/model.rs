@@ -163,13 +163,70 @@ pub(crate) struct Invite {
     pub expires_at: String,
 }
 
+/// Short-lived machines of one autoscaled pool (`ci-linux-pool-1114-162023-3fa17bde`):
+/// one line, never one row each, since each lives minutes and none is a computer to add.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct Pool {
+    /// The name before the generated part (`ci-linux-pool`).
+    pub stem: String,
+    pub count: usize,
+}
+
 /// `cmux device list --json`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Listing {
     pub network: NetworkStatus,
     pub devices: Vec<Device>,
     pub available: Vec<Available>,
+    /// Network computers left out of `available` as members of a short-lived pool.
+    pub pools: Vec<Pool>,
     pub invites: Vec<Invite>,
+}
+
+/// The pool stem of a machine name that ends in a generated id: a last part of 6 or more hex
+/// characters with both a digit and a letter (`3fa17bde`), with any all-digit parts before it
+/// (a timestamp) dropped too. `swarm-01` and `release-20261114` have no generated id.
+fn pool_stem(name: &str) -> Option<&str> {
+    let (rest, last) = name.rsplit_once('-')?;
+    let generated = last.len() >= 6
+        && last.chars().all(|c| c.is_ascii_hexdigit())
+        && last.chars().any(|c| c.is_ascii_digit())
+        && last.chars().any(|c| c.is_ascii_alphabetic());
+    if !generated {
+        return None;
+    }
+    let mut stem = rest;
+    while let Some((head, part)) = stem.rsplit_once('-') {
+        if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
+            break;
+        }
+        stem = head;
+    }
+    (!stem.is_empty()).then_some(stem)
+}
+
+/// Splits `available` network computers into the ones to list and pools: a stem two or more
+/// machines share is a pool.
+fn fold_pools(available: Vec<(bool, Available)>) -> (Vec<(bool, Available)>, Vec<Pool>) {
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for (_, a) in &available {
+        if let Some(stem) = pool_stem(&a.name) {
+            *counts.entry(stem.to_owned()).or_default() += 1;
+        }
+    }
+    counts.retain(|_, n| *n >= 2);
+    let kept = available
+        .into_iter()
+        .filter(|(_, a)| !pool_stem(&a.name).is_some_and(|s| counts.contains_key(s)))
+        .collect();
+    (kept, counts.into_iter().map(|(stem, count)| Pool { stem, count }).collect())
+}
+
+/// What a peer down for over a day says: it is not failing now, it is gone.
+fn parked_detail(name: &str) -> String {
+    format!(
+        "Not reachable for over a day; tried again hourly. If it is gone for good: cmux device remove {name}"
+    )
 }
 
 /// Merges the stores and the network's nodes into one row per device.
@@ -193,8 +250,13 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         let node = url_host(&url).and_then(|host| nodes.iter().find(|n| n.answers_to(&host)));
         let error = text(peer, "error").filter(|e| !e.is_empty());
         let connected = peer["connected"].as_bool().unwrap_or(false);
+        // acpmux's `parked`: down a day or more. Gone quiet, not a failure a person can act
+        // on now, so it never sits at the top as "not working".
+        let parked = !connected && peer["parked"].as_bool() == Some(true);
         let state = if connected {
             State::Connected
+        } else if parked {
+            State::Offline
         } else if error.is_some() {
             State::Error
         } else {
@@ -215,7 +277,13 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             }),
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
-            detail: if state == State::Error { error } else { None },
+            detail: if parked {
+                Some(parked_detail(&name))
+            } else if state == State::Error {
+                error
+            } else {
+                None
+            },
             full_access: None,
         });
     }
@@ -328,7 +396,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
     let taken = |n: &NetworkNode| {
         devices.iter().any(|d| d.reach.as_ref().is_some_and(|r| r.address == n.address()))
     };
-    let mut available: Vec<(bool, Available)> = nodes
+    let available: Vec<(bool, Available)> = nodes
         .iter()
         .filter(|n| n.online && kind_of(Some(&n.os)) == Kind::Computer && !taken(n))
         .map(|n| {
@@ -344,6 +412,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             )
         })
         .collect();
+    let (mut available, pools) = fold_pools(available);
     available.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
     let known = |host: &str| {
         let host = host.trim_end_matches('.').to_ascii_lowercase();
@@ -394,6 +463,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         network,
         devices,
         available: available.into_iter().map(|(_, a)| a).chain(ssh).collect(),
+        pools,
         invites,
     }
 }

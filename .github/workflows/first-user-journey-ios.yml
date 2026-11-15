@@ -16,7 +16,7 @@ run-name: >-
 # A schedule fires only from the default branch's copy of a workflow. That
 # copy (main) has no cmux-next-ios, so its scheduled run only dispatches this
 # workflow on feat-cmux-next, where the journey runs. It runs on no pull
-# request (the pull-request job budget in ci/steps.toml only goes down): try
+# request: try
 # a change with `gh workflow run first-user-journey-ios.yml --ref BRANCH`.
 on:
   schedule:

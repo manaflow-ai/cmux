@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+pub const ir_sha256 = "6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1398,6 +1398,15 @@ pub const ListTerminalsResult = struct {
     registry_id: []const u8,
     terminal_revision: u64,
     terminals: []const TerminalRecord,
+};
+
+pub const ListWorkspacesKnown = struct {
+    generation: wire.Field([]const u8) = .absent,
+    pane_revision: wire.Field(u64) = .absent,
+    registry_id: wire.Field([]const u8) = .absent,
+    terminal_revision: wire.Field(u64) = .absent,
+    tree_revision: wire.Field([]const u8) = .absent,
+    workspace_revision: wire.Field(u64) = .absent,
 };
 
 pub const LivePane = struct {
@@ -3481,6 +3490,9 @@ pub const Tree = struct {
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
     terminal_revision: ?u64 = null,
+    total: ?u64 = null,
+    tree_revision: ?[]const u8 = null,
+    unchanged: ?bool = null,
     workspace_revision: ?u64 = null,
     workspaces: []const Workspace,
 
@@ -3489,6 +3501,9 @@ pub const Tree = struct {
         "pane_revision",
         "registry_id",
         "terminal_revision",
+        "total",
+        "tree_revision",
+        "unchanged",
         "workspace_revision",
     };
 };
@@ -3725,6 +3740,7 @@ pub const AttachSurfaceRequest = struct {
     expected_terminal_id: wire.Field([]const u8) = .absent,
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
     replay_history_rows: wire.Field(u32) = .absent,
+    replay_history_start: wire.Field(u64) = .absent,
     rows: wire.Field(u16) = .absent,
     snapshot: wire.Field([]const u8) = .absent,
     snapshot_images: ?bool = null,
@@ -3754,6 +3770,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "expected_terminal_id", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "mode", .since = 7, .capability = null },
                 .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
+                .{ .name = "replay_history_start", .since = null, .capability = "attach-replay-history-window-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
                 .{ .name = "snapshot_images", .since = null, .capability = "terminal-snapshot-images-v1" },
@@ -7055,7 +7072,10 @@ pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest)
     );
 }
 
-pub const ListWorkspacesRequest = struct {};
+pub const ListWorkspacesRequest = struct {
+    known: wire.Field(ListWorkspacesKnown) = .absent,
+    limit: wire.Field(u64) = .absent,
+};
 
 pub const ListWorkspacesResult = Tree;
 
@@ -7067,6 +7087,10 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
+                .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
+            },
         },
         request,
     );
@@ -11457,6 +11481,7 @@ pub const ResizedEvent = struct {
     /// Protocol 6 compatibility field.
     data: ?Base64 = null,
     event: []const u8,
+    history_rows_omitted: ?u64 = null,
     kitty_graphics_state: ?KittyGraphicsState = null,
     kitty_image_aliases: ?[]const KittyImageAlias = null,
     replay: ?Base64 = null,
@@ -11466,6 +11491,7 @@ pub const ResizedEvent = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
         "data",
+        "history_rows_omitted",
         "kitty_graphics_state",
         "kitty_image_aliases",
         "replay",
@@ -11712,6 +11738,7 @@ pub const VtStateEvent = struct {
     data: Base64,
     event: []const u8,
     history_rows_omitted: ?u64 = null,
+    history_rows_skipped: ?u64 = null,
     kitty_graphics_state: ?KittyGraphicsState = null,
     kitty_image_aliases: ?[]const KittyImageAlias = null,
     rows: u16,
@@ -11720,6 +11747,7 @@ pub const VtStateEvent = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
         "history_rows_omitted",
+        "history_rows_skipped",
         "kitty_graphics_state",
         "kitty_image_aliases",
     };

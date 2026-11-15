@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde.
+// cmux-tui mux protocol 12, IR 6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -78,6 +78,8 @@ pub struct AttachSurfaceRequest {
     pub mode: Optional<AttachSurfaceRequestMode>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub replay_history_rows: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replay_history_start: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2129,6 +2131,10 @@ pub type ListWorkspaceGroupsResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ListWorkspacesRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub known: Optional<T::ListWorkspacesKnown>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
 }
 
 #[rustfmt::skip]
@@ -4358,6 +4364,9 @@ impl CmuxClient {
         if !request.replay_history_rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-replay-history-rows-v1")?;
         }
+        if !request.replay_history_start.is_missing() {
+            self.require_capability_field("attach-surface", "attach-replay-history-window-v1")?;
+        }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
         }
@@ -5032,6 +5041,14 @@ impl CmuxClient {
     }
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
+        if !request.known.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-known-v1")?;
+        }
+        if !request.limit.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
+        }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
 

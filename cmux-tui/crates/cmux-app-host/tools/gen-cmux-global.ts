@@ -12,6 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
 import { SchemaValidator } from "./json-schema.ts"
+import { createCmux } from "../js/src/cmux.ts"
 
 const here = new URL(".", import.meta.url).pathname
 const repo = join(here, "../../../..")
@@ -237,8 +238,8 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
 }
 
 /**
- * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers
- * `<family>.changed` only to an app that may call `<family>.list` or `<family>.get`, so that op's
+ * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers a
+ * stream only to an app that may call its `reads` op (apps/subscriptions.rs declared_reads), so that op's
  * scope is the stream's scope.
  */
 export function loadEvents(scopes: Record<string, { scope: string; class: string }>): Record<string, { docs: string; reads: string; scope: string }> {
@@ -249,7 +250,6 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
     const { docs, reads } = file.events[name]!
     const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
     if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
-    if (reads !== `${family}.list` && reads !== `${family}.get`) throw new Error(`events.json: ${name} reads ${reads}; the daemon checks ${family}.list or ${family}.get`)
     const known = scopes[reads]
     if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
     if (known.class !== "read") throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
@@ -314,6 +314,13 @@ export function generate(): Record<string, string> {
     const result = op.source === "app" ? (op.output ? schemaType(op.output) : "unknown") : tsType(op.result)
     node.ops.push([parts.at(-1)!, `${doc}\n${ident(parts.at(-1)!)}: CmuxOp<${paramsType(op)}, ${result}>`])
   }
+  // `cmux.<name>` answers the runtime's own member first (js/src/cmux.ts createCmux), so a catalog
+  // family with a member's name (`theme.scheme.*`, `integrations.*`) is unreachable as
+  // `cmux.theme.scheme`; declaring it too made TypeScript type `cmux.theme` as the family. Leave
+  // it out here; those ops stay callable as `cmux.call("theme.scheme.convert", ...)`.
+  const runtimeMembers = new Set(Reflect.ownKeys(createCmux(() => undefined)).filter((k): k is string => typeof k === "string"))
+  for (const name of runtimeMembers) root.children.delete(name)
+  root.ops = root.ops.filter(([k]) => !runtimeMembers.has(k))
   const render = (t: Tree, indent: string): string => {
     const lines: string[] = []
     const keys = new Set([...t.ops.map(([k]) => k), ...t.children.keys()])
@@ -361,6 +368,8 @@ ${render(root, "  ")}
   net: { fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<CmuxFetchResponse> }
   integrations: Record<string, { request(params: { method: string; path: string; body?: unknown }): Promise<unknown> }>
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
+  /** Time zones. The sandbox has no Intl and \`toLocaleString\` ignores \`timeZone\`: \`zone(name, at?)\` gives an IANA zone's offset (minutes east of UTC) and short name at \`at\` (epoch ms, default now). An unknown name throws CmuxError \`zone.unknown\`. Local time is \`new Date(utcMs + offsetMinutes * 60000)\` read with the getUTC* methods. */
+  time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
   app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null

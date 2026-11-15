@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use cmux_cloud_start_core::list_wait::{LIST_LOAD_POLL, LIST_LOAD_WAIT};
 use serde_json::{Value, json};
 
 use super::*;
@@ -2185,6 +2186,33 @@ fn a_start_the_spending_cap_refuses_says_so_and_names_only_running_machines() {
     // A paused machine cannot start at the cap: never offered.
     assert!(!message.contains("web (paused)"), "{message}");
     assert_eq!(error["details"]["cap"], "spend");
+}
+
+#[test]
+fn a_start_refused_for_a_used_up_claude_limit_answers_its_code_and_when_it_resets() {
+    // cmuxterm-hq run 43633859557 (2026-11-14 19:51Z): the app refused every start before its lease, and the
+    // JSON said only `unavailable` and the words. The code and the reset now reach the caller as they are.
+    let words =
+        "Claude's weekly limit is used up until Nov 18, 3am UTC. Pick Codex, or start after then.";
+    let mut fake = Fake::new(vec![
+        listed_machines(json!([])),
+        Ran {
+            code: 1,
+            stderr: json!({"code": "agent.limit_reached", "message": words,
+                           "data": {"action": "cloudStartSession", "reason": words,
+                                    "until_at": "2026-11-18T03:00:00Z"}})
+            .to_string(),
+            ..Ran::default()
+        },
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "agent.limit_reached", "{error}");
+    assert_eq!(error["message"], words);
+    assert_eq!(error["details"]["until_at"], "2026-11-18T03:00:00Z", "{error}");
+    // Nothing else is started after a refusal before the lease.
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
 }
 
 #[test]

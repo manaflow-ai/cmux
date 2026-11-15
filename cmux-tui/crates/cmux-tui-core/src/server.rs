@@ -123,6 +123,9 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[path = "server/list_workspaces_page.rs"]
+mod list_workspaces_page;
+use list_workspaces_page::*;
 #[cfg(unix)]
 mod agent_cli_intents;
 #[cfg(unix)]
@@ -423,6 +426,13 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
+/// `replay_history_start` with `replay_history_rows` on a bytes
+/// `attach-surface`: the `vt-state` replay holds that many history rows from
+/// that row (0: the oldest kept), then the screen, and says how many rows it
+/// left out above (`history_rows_omitted`) and between them
+/// (`history_rows_skipped`). The viewer keeps a bounded window anywhere in a
+/// long history. Its `resized` replays carry `history_rows_omitted` too.
+pub const ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY: &str = "attach-replay-history-window-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 /// A client that declares this in `set-client-info` gets the public ids
 /// (`terminal_resource_id`, `tab_id`, `pane_id`, `screen_id`,
@@ -1084,7 +1094,11 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    ListWorkspaces,
+    /// `known` and `limit`: server/list_workspaces_page.rs.
+    ListWorkspaces {
+        known: Option<cmd_workspaces::KnownTree>,
+        limit: Option<usize>,
+    },
     GetFrontendProjection {
         frontend: String,
         scope: String,
@@ -2447,6 +2461,11 @@ enum Command {
         /// the whole history.
         #[serde(default)]
         replay_history_rows: Option<u32>,
+        /// Bytes mode, with `replay_history_rows`: the replay holds that many
+        /// history rows from this row (0: the oldest kept), then the screen
+        /// (`attach-replay-history-window-v1`); omitted, the newest rows.
+        #[serde(default)]
+        replay_history_start: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -3100,33 +3119,6 @@ fn handle_command(
 
 mod command_dispatch;
 use command_dispatch::handle_command_with_cancellation;
-
-/// The `list-workspaces` reply: the tree plus the registry identity it
-/// belongs to. The launch snapshot stores the same value.
-fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
-    // Concurrent readers share one build that starts after each arrived.
-    mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
-}
-
-/// [`list_workspaces_reply`] as the tree's text, which the concurrent
-/// readers of its build share (tree_reply_text.rs).
-fn list_workspaces_reply_text(
-    mux: &Mux,
-    render: &RenderService,
-) -> anyhow::Result<Arc<tree_reply_text::TreeText>> {
-    mux.tree_reply_flight
-        .read_text(|| list_workspaces_tree(mux), |tree| render.serialize_tree(tree))
-}
-
-fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
-    let notifications = mux.tree_decorations();
-    let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
-    let (registry_id, generation) = mux.registry_identity();
-    workspaces.set("registry_id", json!(registry_id));
-    workspaces.set("generation", json!(generation));
-    workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
-    Ok(workspaces)
-}
 
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {

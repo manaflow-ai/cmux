@@ -25,7 +25,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
-use super::computer_use_gate::{self, Gate};
+use super::computer_use_gate::{self, AppCaller, Gate};
+use super::cua_recovery;
 use cmux_json::JsonSet as _;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
@@ -41,6 +42,11 @@ const START_BACKOFF: Duration = Duration::from_secs(60);
 /// One call, unless the spec says (`callTimeoutSecs`: acpmux gives the
 /// secret card, which waits for the person, an hour).
 const CALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// A server's process ends after this long with no call; its tools stay listed and the next
+/// call starts it again. A harness keeps an idle chat's `cmux mcp serve` running for days (one
+/// Codex app-server held 15 on Leo's Mac, 2026-11-14), and each kept its computer use proxy and
+/// acpmux's servers running under it: 90 processes, about 300 MB, for chats no one used.
+pub(super) const IDLE_STOP: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,6 +173,15 @@ pub(super) struct Upstream {
     failed: Option<(String, Instant)>,
     /// Where lists from earlier starts are kept (`upstream_listing.rs`).
     listings: Option<PathBuf>,
+    /// The legacy computer use proxy's current endpoint, read when a call finds the
+    /// helper unreachable (`cua_recovery.rs`); `None` for every other server.
+    endpoint: Option<cua_recovery::EndpointSource>,
+    /// What kept the proxy off the current endpoint at the last read
+    /// (`cua_recovery::endpoint_note`), said when recovery gives up.
+    endpoint_note: Option<String>,
+    /// When it last started or answered a call: its process ends [`IDLE_STOP`] after
+    /// ([`stop_idle`]).
+    used: Instant,
 }
 
 /// Why a request has no result.
@@ -343,7 +358,34 @@ impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
         let listings = super::upstream_listing::default_dir();
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None, listings }
+        let endpoint = cua_recovery::applies(&spec).then(cua_recovery::acpmux_endpoint);
+        Self {
+            spec,
+            prefix,
+            conn: None,
+            tools: None,
+            instructions: None,
+            failed: None,
+            listings,
+            endpoint,
+            endpoint_note: None,
+            used: Instant::now(),
+        }
+    }
+
+    /// Ends its process when it has had no call for `idle`, keeping its tools listed (the next
+    /// call starts it again). While a process runs, how long until it would be idle; `None`
+    /// when none runs.
+    pub(super) fn stop_if_idle(&mut self, idle: Duration) -> Option<Duration> {
+        self.conn.as_ref()?;
+        let left = idle.saturating_sub(self.used.elapsed());
+        if left.is_zero() {
+            // The child ends with its connection (`Conn::drop`); a shared one once no other
+            // server holds it.
+            self.conn = None;
+            return None;
+        }
+        Some(left)
     }
 
     /// The same server with its stored lists kept in `dir` (none: never stored).
@@ -351,6 +393,58 @@ impl Upstream {
     pub(super) fn with_listings(mut self, dir: Option<PathBuf>) -> Self {
         self.listings = dir;
         self
+    }
+
+    /// The same server, recovered as the computer use proxy with endpoints from `source`.
+    #[cfg(test)]
+    pub(super) fn with_endpoint(mut self, source: cua_recovery::EndpointSource) -> Self {
+        self.endpoint = Some(source);
+        self
+    }
+
+    /// The pid of its running process (tests kill it).
+    #[cfg(test)]
+    pub(super) fn pid(&self) -> Option<u32> {
+        let conn = self.conn.as_ref()?;
+        Some(conn.child.lock().unwrap_or_else(PoisonError::into_inner).id())
+    }
+
+    /// Whether its process runs and its output is open (tests).
+    #[cfg(test)]
+    pub(super) fn alive(&self) -> bool {
+        self.conn.as_ref().is_some_and(|conn| conn.alive())
+    }
+
+    /// Whether a call that found the helper unreachable recovers (`cua_recovery.rs`).
+    fn recovers(&self) -> bool {
+        self.endpoint.is_some()
+    }
+
+    /// Before a retry: the current endpoint goes in the spec, and the proxy starts again
+    /// (it gives up on a helper for good after one failed connection).
+    fn reconnect_for_retry(&mut self) {
+        if let Some(source) = self.endpoint.as_ref() {
+            let read = source();
+            if let Ok(Some(socket)) = &read
+                && cua_recovery::apply(&mut self.spec, socket)
+            {
+                eprintln!("cmux mcp: the {} server moves to the current endpoint", self.spec.name);
+            }
+            let note = cua_recovery::endpoint_note(&read);
+            if let Some(why) = &note
+                && self.endpoint_note.as_ref() != Some(why)
+            {
+                eprintln!("cmux mcp: the {} server keeps its endpoint: {why}", self.spec.name);
+            }
+            self.endpoint_note = note;
+        }
+        self.conn = None;
+        self.failed = None;
+    }
+
+    /// What kept the proxy off the current endpoint at the last read, if anything.
+    fn endpoint_note(&self) -> Option<&str> {
+        self.endpoint_note.as_deref()
     }
 
     /// Whether the server's process runs.
@@ -442,12 +536,15 @@ impl Upstream {
         if !self.conn.as_ref().is_some_and(|conn| conn.alive()) {
             self.start().map_err(|error| (error, "not_run"))?;
         }
+        self.used = Instant::now();
         let mut params = json!({"name": tool, "arguments": arguments});
         if let (Some(meta), Some(fields)) = (meta, params.as_object_mut()) {
             fields.insert("_meta".to_owned(), meta.clone());
         }
         let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
-        match self.request("tools/call", params, timeout) {
+        let answered = self.request("tools/call", params, timeout);
+        self.used = Instant::now();
+        match answered {
             Ok(result) => Ok(result),
             Err(Failure::Refused(error)) => Err((error, "not_run")),
             Err(Failure::Lost(error)) => {
@@ -517,6 +614,7 @@ impl Upstream {
         }
         self.tools = Some(tools);
         self.failed = None;
+        self.used = Instant::now();
         Ok(())
     }
 
@@ -576,6 +674,32 @@ impl Proxied {
     }
 }
 
+/// Ends each server's process once it has had no call for `idle` ([`IDLE_STOP`]), on a thread
+/// that sleeps until the next one could be idle and ends once every server is dropped. A server
+/// a call holds is skipped: the call marks it used when it ends.
+pub(super) fn stop_idle(
+    servers: Vec<Weak<Mutex<Upstream>>>,
+    idle: Duration,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new().name("cmux-mcp-upstream-idle".into()).spawn(move || {
+        loop {
+            let mut next = idle;
+            let mut any = false;
+            for server in &servers {
+                let Some(server) = server.upgrade() else { continue };
+                any = true;
+                if let Ok(mut upstream) = server.try_lock() {
+                    next = next.min(upstream.stop_if_idle(idle).unwrap_or(idle));
+                }
+            }
+            if !any {
+                return;
+            }
+            std::thread::sleep(next.max(Duration::from_millis(10)));
+        }
+    })
+}
+
 /// Claude Code's name of the tool call a `tools/call` runs for (`_meta`), which its PreToolUse
 /// hook got too, with the subagent that made the call (acpmux's `bg_hook.rs` records it there).
 pub(super) const TOOL_USE_ID: &str = "claudecode/toolUseId";
@@ -597,11 +721,24 @@ pub(super) struct ProxiedCall {
     pub meta: Option<Value>,
     /// A computer use call's setup check (`computer_use_gate`).
     pub gate: Gate,
+    /// The app, for a helper restart when the computer use helper stays unreachable
+    /// (`cua_recovery.rs`). `None`: recovery only reconnects.
+    pub app: Option<AppCaller>,
+}
+
+/// One try of a proxied call.
+enum Tried {
+    /// The server's result or a final error, as the call answers.
+    Done(Value),
+    /// The computer use helper was not reached and the call did not run: why.
+    Unreachable(String, Value),
 }
 
 impl ProxiedCall {
     /// The server's result, or a tool error with the call's state. A
-    /// computer use call first waits for setup when it is not done.
+    /// computer use call first waits for setup when it is not done, and one that finds
+    /// the helper unreachable reconnects, restarts the helper and retries
+    /// (`cua_recovery.rs`).
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
         if let Gate::Check(check) = self.gate
             && let Some(result) = check.run()
@@ -609,28 +746,85 @@ impl ProxiedCall {
             return result;
         }
         let mut upstream = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Err(message) = upstream.connect() {
-            let error = json!({"code": "upstream.failed",
-                "message": format!("{}: {message}", upstream.name()),
-                "details": {}, "retryable": true});
-            return super::tool_error(super::envelope(error, "not_run", None));
+        let recovers = upstream.recovers();
+        let started = Instant::now();
+        let mut restarted = false;
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let left = cap.map(|cap| cap.saturating_sub(started.elapsed()));
+            let (why, failure) = match Self::once(
+                &mut upstream,
+                &self.name,
+                &self.arguments,
+                self.meta.as_ref(),
+                left,
+            ) {
+                Tried::Done(result) => return result,
+                Tried::Unreachable(why, failure) => (why, failure),
+            };
+            let wait = cua_recovery::backoff(tries);
+            let out_of_time = left.is_some_and(|left| left <= wait + Duration::from_secs(1));
+            if !recovers || tries >= cua_recovery::TRIES || out_of_time {
+                if !recovers {
+                    return failure;
+                }
+                let error = cua_recovery::gave_up(
+                    &why,
+                    tries,
+                    restarted,
+                    started.elapsed(),
+                    upstream.endpoint_note(),
+                );
+                return super::tool_error(super::envelope(error, "not_run", None));
+            }
+            // From the second retry on the helper itself may be down: the app restarts it.
+            if tries >= 2
+                && let Some(app) = &self.app
+            {
+                restarted |= cua_recovery::restart_helper(app);
+            }
+            std::thread::sleep(wait);
+            upstream.reconnect_for_retry();
         }
-        let Some(tool) = upstream.owns(&self.name) else {
-            let error = json!({"code": "upstream.failed", "message": format!(
-                "{}: the server no longer lists {}", upstream.name(), self.name),
-                "details": {}, "retryable": true});
-            return super::tool_error(super::envelope(error, "not_run", None));
+    }
+
+    /// One try: connect, then call.
+    fn once(
+        upstream: &mut Upstream,
+        name: &str,
+        arguments: &Value,
+        meta: Option<&Value>,
+        cap: Option<Duration>,
+    ) -> Tried {
+        let server = upstream.name().to_owned();
+        let failed = |message: String, state: &'static str| {
+            let error = json!({"code": "upstream.failed",
+                "message": format!("{server}: {message}"),
+                "details": {}, "retryable": state == "not_run"});
+            super::tool_error(super::envelope(error, state, None))
         };
-        match upstream.call(&tool, self.arguments, self.meta.as_ref(), cap) {
-            Ok(result) => result,
+        if let Err(message) = upstream.connect() {
+            // The proxy did not start, so the call cannot have run: always safe to retry.
+            let result = failed(message.clone(), "not_run");
+            return Tried::Unreachable(message, result);
+        }
+        let Some(tool) = upstream.owns(name) else {
+            return Tried::Done(failed(format!("the server no longer lists {name}"), "not_run"));
+        };
+        match upstream.call(&tool, arguments.clone(), meta, cap) {
+            // The proxy answers an unreached helper as an error result: the call did not run.
+            Ok(result) => match cua_recovery::error_text(&result) {
+                Some(text) if cua_recovery::unreachable(&text) => Tried::Unreachable(text, result),
+                _ => Tried::Done(result),
+            },
             Err((message, state)) => {
-                let error = json!({
-                    "code": "upstream.failed",
-                    "message": format!("{}: {message}", upstream.name()),
-                    "details": {},
-                    "retryable": state == "not_run",
-                });
-                super::tool_error(super::envelope(error, state, None))
+                let result = failed(message.clone(), state);
+                if state == "not_run" && cua_recovery::unreachable(&message) {
+                    Tried::Unreachable(message, result)
+                } else {
+                    Tried::Done(result)
+                }
             }
         }
     }
@@ -710,6 +904,7 @@ impl<B: super::Backend> super::Server<B> {
             None
         };
         let arguments = Value::Object(arguments.clone());
+        let app = computer_use.as_ref().and_then(|_| self.backend.app_caller());
         let gate = match computer_use {
             Some(tool) => computer_use_gate::gate(
                 &tool,
@@ -722,6 +917,6 @@ impl<B: super::Backend> super::Server<B> {
             None => Gate::Run,
         };
         let meta = self.call_meta.clone();
-        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate })
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate, app })
     }
 }

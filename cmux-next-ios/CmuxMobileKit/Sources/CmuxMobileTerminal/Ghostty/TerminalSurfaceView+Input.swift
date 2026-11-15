@@ -60,7 +60,8 @@ extension TerminalSurfaceView {
     func scrollWheel(at point: CGPoint, deltaY: CGFloat, momentum: TerminalTUIScroll.Momentum) {
         guard let surface else { return }
         let scale = window?.screen.scale ?? contentScaleFactor
-        // The person's own scroll: its reports are input, not a reply.
+        // The person's own scroll, but no key: its reports go as replies
+        // (dropped in an outage, never "keys not sent").
         let wasPerformingInput = isPerformingInput
         isPerformingInput = true
         defer { isPerformingInput = wasPerformingInput }
@@ -82,7 +83,8 @@ extension TerminalSurfaceView {
     @discardableResult
     func click(at point: CGPoint) -> Bool {
         guard let surface, ghostty_surface_mouse_captured(surface) else { return false }
-        // The person's own tap: its click reports are input, not a reply.
+        // The person's own tap, but no key: its click reports go as replies
+        // (dropped in an outage, never "keys not sent").
         let wasPerformingInput = isPerformingInput
         isPerformingInput = true
         defer { isPerformingInput = wasPerformingInput }
