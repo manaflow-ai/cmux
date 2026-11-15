@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43696002848",
+  "recorded_at": "2026-11-15T08:53:12Z",
+  "reason": "cmux-tui e15979b98c7a changes the image's cmux-tui (pinned 1554e1fe307f)",
+  "dry_run": false,
+  "cmux_tui": "e15979b98c7a367bfe6d28a33cbf24fad6393986",
+  "fixes": [
+    {
+      "sha": "6747f83d7b6bcfdab87ba089595bd77bca83a24f",
+      "mergedAt": "2026-11-15T00:30:29-08:00",
+      "subject": "cmux-host: a flip reports stopping, and the restarted host stays degraded until its daemon identifies (#43551)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T08:53:12Z",
+    "snapshot_id": "sh-fdf6e3264ab745a581f619c2e6233ad4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43696002848): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "341ac512dd0cbf750df0b1126df82d8c6c998a7e",
+    "image": "cloud-native-auto-e15979b9-43696002848-1",
+    "revision": "ci-43696002848-1",
+    "at": "2026-11-15T08:53:12Z"
+  },
+  "rolled_back": false
+}
