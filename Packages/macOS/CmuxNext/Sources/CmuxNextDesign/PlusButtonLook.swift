@@ -8,7 +8,7 @@ public import QuartzCore
 /// It draws a hover fill and the + (``CGPath/addGlyph(center:scale:)``, ``Metrics/addGlyphExtent`` at
 /// ``Metrics/addGlyphLineWidth``) into its host view's layer; the host keeps its own events, accessibility and
 /// menus. The + is the same size, weight and ink in every host and every state: secondary at rest, primary on hover,
-/// the lit ink while pressed or while its menu is open. A fill shows only on hover and press, in the shared
+/// the lit ink while its menu is open (a held + keeps its hover ink). A fill shows only on hover and press, in the shared
 /// ``hoverStyle``. Hosts: the tab bar's New Tab + (`NewTabButtonView`) and the sidebar's + buttons
 /// (`SidebarIconButton.plus`: New Workspace, a group's, a machine's and an empty group's). The Spaces strip, which
 /// draws its marks in one `draw(_:)`, strokes the same + through ``drawGlyph(in:center:ink:)``.
@@ -131,7 +131,9 @@ public final class PlusButtonLook {
         if (token.map(motion.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
         let paint = { [self] in
             fillLayer.backgroundColor = Self.fill(state, hoverStyle: hoverStyle, segment: segment)?.cgColor
-            glyphLayer.strokeColor = (inkOverride ?? Self.glyphInk(hovering: state.lit, pressed: state.down)).cgColor
+            // A held + keeps its hover ink; only the fill changes (design/pressed-state.md, Lawrence 2026-11-15). An open
+            // menu is an "on" state and lights the ink.
+            glyphLayer.strokeColor = (inkOverride ?? Self.ink(state)).cgColor
             glyphLayer.lineWidth = Metrics.addGlyphLineWidth
         }
         motion.transaction(token) {
@@ -182,6 +184,11 @@ public final class PlusButtonLook {
     /// while its menu is open. Call inside a theme scope.
     public static func glyphInk(hovering: Bool, pressed: Bool) -> NSColor {
         pressed ? Palette.litGlyph : (hovering ? Palette.textPrimary : Palette.textSecondary)
+    }
+
+    /// The ink for `state`: secondary at rest, primary while hovered or held, the lit ink while its menu is open.
+    public static func ink(_ state: State) -> NSColor {
+        glyphInk(hovering: state.hovering || state.pressed, pressed: state.menuOpen)
     }
 
     /// Strokes the + centered on `center` in the current graphics context, in `ink`: the Spaces strip's +, which

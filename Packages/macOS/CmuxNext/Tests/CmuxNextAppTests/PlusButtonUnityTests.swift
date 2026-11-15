@@ -74,11 +74,15 @@ import Testing
         #expect(look.glyphLayer.strokeColor == tab.look.glyphLayer.strokeColor, "the same hover ink")
     }
 
-    @Test func pressedAndMenuOpenLightTheInkEverywhere() {
+    @Test func aHeldPlusChangesOnlyItsFillAndAnOpenMenuLightsIt() {
         let lit = PlusButtonLook.glyphInk(hovering: true, pressed: true)
         #expect(lit == Palette.litGlyph)
         #expect(PlusButtonLook.glyphInk(hovering: false, pressed: false) == Palette.textSecondary)
         #expect(PlusButtonLook.glyphInk(hovering: true, pressed: false) == Palette.textPrimary)
+        // design/pressed-state.md: a held + changes only its fill, its ink stays the hover ink.
+        #expect(PlusButtonLook.ink(.init(hovering: true, pressed: true)) == PlusButtonLook.ink(.init(hovering: true)))
+        #expect(PlusButtonLook.fill(.init(hovering: true, pressed: true), hoverStyle: .plate, segment: .alone) == Palette.pressedFill)
+        #expect(PlusButtonLook.ink(.init(menuOpen: true)) == Palette.litGlyph, "an open menu lights the +")
         #expect(PlusButtonLook.fill(.init(menuOpen: true), hoverStyle: .plate, segment: .alone) == Palette.pressedFill)
         #expect(PlusButtonLook.fill(.init(hovering: true), hoverStyle: .glyph, segment: .alone) == nil, "the glyph look never fills")
     }
