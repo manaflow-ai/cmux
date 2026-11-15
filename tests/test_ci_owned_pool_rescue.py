@@ -641,6 +641,26 @@ class Refusal(unittest.TestCase):
         self.assertIn("waiting for the rest of the run to finish", summary)
         self.assertIn("re-ran the failed jobs", summary)
 
+    def test_a_refusal_is_re_run_at_once_when_no_sibling_is_running(self):
+        # Run 43716323834 (#43733), 2026-11-15: 'cmux-next generated files' was refused at 14:32Z while the fast
+        # tier only waited for a runner (queued until 15:33Z). The rescue re-ran it at 15:47Z, after the run ended.
+        # A waiting sibling has no work a cancel would kill: cancel and re-run the failed jobs at the refusal.
+        def jobs(seconds):
+            sibling = job("macos / app-host unit tests (1/7)", labels=[MINI], created=40,
+                          status="completed" if seconds >= 3600 else "queued")
+            if seconds >= 3600:
+                sibling.update(conclusion="success", completed_at=stamp(3600), runner_name="mini-2")
+            return [changes()(seconds), refused_job("macos / app-host unit tests (2/7)"), sibling]
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda seconds: seconds >= 3600)
+        _, summary = run_main(api, clock)
+        self.assertIn("cancel", api.calls)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertLess(api.rerun_at, 600)
+        self.assertNotIn("waiting for the rest of the run to finish", summary)
+        self.assertIn("no other job of the run is running", summary)
+
     def test_a_finished_run_with_a_refusal_needs_no_cancel(self):
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60)
