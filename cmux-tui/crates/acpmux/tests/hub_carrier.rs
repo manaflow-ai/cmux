@@ -1251,7 +1251,17 @@ async fn bulk_down(
             }
         };
         if frame.payload != bulk_frame(i, FRAME) {
-            return Err(format!("frame {i} of {frames} is not the one sent"));
+            return Err(format!(
+                "frame {i} of {frames} is not the one sent: lane {:?} stream {} sequence {} \
+                 generation {} len {} first byte {:?} (expected {})",
+                frame.lane,
+                frame.stream,
+                frame.sequence,
+                frame.generation,
+                frame.payload.len(),
+                frame.payload.first(),
+                i % 251,
+            ));
         }
     }
     let elapsed = started.elapsed();
