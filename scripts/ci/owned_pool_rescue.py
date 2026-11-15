@@ -727,6 +727,22 @@ OPEN_HEAD_FAILOVER = "open-head failover"
 # took glaeda-side-std-xcode-26.6, which was not dark (11 runners busy) but held 55 jobs, the oldest for 21 hours;
 # attempt 2 was the last placement, so nothing placed them again once Blacksmith moved.
 OWNED_REPLACE_SECONDS = 20 * 60
+# The light move (light_wait()): a cmux-next pull request run's Mac job that has waited this long on the std side
+# label, while the fleet gates show a light side runner listening and nothing queued there, has its run placed
+# again, when the head shows the job fits a light mini (it reads the placement's light_jobs on the attempt the
+# placement ran, PlacementRerun.light_readers). Leo, 2026-11-15: "you can decide on best routing for stuff". At
+# 01:10Z that day 32 jobs queued on glaeda-side-std-xcode-26.6 (generated files, the fast tier, the app scheme
+# compile) while no std side runner was idle; the light spill placed attempt 1 only, so they stayed there after
+# light side runners freed. The stall-aware failover's floor: a job a free runner would start is not left queued.
+LIGHT_MOVE_SECONDS = UNSTARTED_STALL_SECONDS
+# The fleet gates' reading (the janitor snapshot's `gates`, queue_janitor.fleet_gates()) is current for this long
+# (queue_janitor.FLEET_GATES_STALE_S): an older one shows no light runner listening.
+LIGHT_GATES_FRESH_SECONDS = 300
+STD_SIDE_LABEL = re.compile(r"glaeda-side-std-(xcode-[0-9]+(?:\.[0-9]+)*)")
+# A cmux-next.yml runs-on clause that reads the placement's light_jobs on the attempt the placement ran.
+LIGHT_RERUN_CLAUSE = re.compile(r"needs\.macos-placement\.outputs\.placed_attempt == format\('\{0\}', "
+                                r"github\.run_attempt\) && contains\(needs\.macos-placement\.outputs\.light_jobs, "
+                                r"' ([A-Za-z0-9_-]+) '\)")
 # The last attempt cmux-next.yml's macos-placement runs on for a rescue bot (next_macos_cascade.LAST_PLACED_ATTEMPT).
 CMUX_NEXT_LAST_PLACED_ATTEMPT = 3
 # What the head's macos-placement `if` says when it runs on the bot's attempt 3: without it a re-run of attempt 2
@@ -3903,6 +3919,9 @@ class PlacementRerun:
     placement_key: str = CMUX_NEXT_PLACEMENT_KEY
     placement_job: str = CMUX_NEXT_PLACEMENT_JOB
     route_proof: str = ""
+    # The workflow jobs whose runs-on reads the placement's light_jobs on the attempt the placement ran
+    # (LIGHT_RERUN_CLAUSE): the jobs a placement re-run can move to an idle light side runner (light_wait()).
+    light_readers: frozenset[str] = frozenset()
 
     def keys(self, job: Mapping[str, Any]) -> set[str]:
         name = str(job.get("name") or "")
@@ -3995,7 +4014,10 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
         return PlacementRerun(int(found[0]["id"]), frozenset(below), patterns,
                               placement_key, placement_job, route_proof), \
             f"{placement_job} and the {len(below)} jobs that need it ({route_proof})"
-    return PlacementRerun(int(found[0]["id"]), frozenset(below), patterns, placement_key, placement_job), \
+    light = frozenset(key for key in below if any(
+        name == key for name in LIGHT_RERUN_CLAUSE.findall(str(spec[key].get("runs-on") or ""))))
+    return PlacementRerun(int(found[0]["id"]), frozenset(below), patterns, placement_key, placement_job,
+                          light_readers=light), \
         f"{placement_job} and the {len(below)} jobs that need it"
 
 
@@ -4076,6 +4098,45 @@ def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: d
     return (target.path == CMUX_NEXT_WORKFLOW_PATH and bool(target.pr_number)
             and target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT and label.startswith("glaeda-")
             and queued_seconds(job, now, first_seen) >= OWNED_REPLACE_SECONDS)
+
+
+def light_room(snapshot: Mapping[str, Any], label: str, now: dt.datetime) -> int:
+    """The light side runners listening for `label` beyond the jobs queued on it, by the janitor snapshot's copy of
+    the fleet gates (`gates`), or 0: a reading older than LIGHT_GATES_FRESH_SECONDS, a label it does not list, or a
+    nightly or release job queued on any pool of the light family (`reserved_queued`: nightly first) shows none."""
+    family = label.removeprefix("glaeda-side-").removeprefix("light-")
+    pools = snapshot.get("pools")
+    gates = snapshot.get("gates")
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    entry = labels.get(label) if isinstance(labels, Mapping) else None
+    as_of = parse_time(entry.get("as_of")) if isinstance(entry, Mapping) else None
+    if not isinstance(pools, Mapping) or as_of is None \
+            or not 0 <= (now - as_of).total_seconds() <= LIGHT_GATES_FRESH_SECONDS:
+        return 0
+    try:
+        if any(isinstance(row, Mapping) and str(name).endswith(f"light-{family}")
+               and int(row.get("reserved_queued") or 0) > 0 for name, row in pools.items()):
+            return 0
+        return max(0, int(entry.get("listening") or 0) - int(entry.get("queued") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def light_wait(target: "Target", job: Mapping[str, Any], label: str, snapshot: Mapping[str, Any],
+               now: dt.datetime, first_seen: dt.datetime | None = None) -> str:
+    """The light side label a cmux-next pull request run's Mac job may move to, or "": it has waited
+    LIGHT_MOVE_SECONDS on a std side label (glaeda-side-std-xcode-<v>), on an attempt the bot's placement may place
+    again (before CMUX_NEXT_LAST_PLACED_ATTEMPT), while the same version's light side label has a runner listening
+    beyond its queue (light_room()). Only a placement re-run moves it, and only a job the head shows reads the
+    re-run's light placement (PlacementRerun.light_readers, checked by open_head_failover()): the measured
+    light-fit jobs (feat-cmux-next .github/runners.json `light_fit`). Never a push, nightly, DEV or promote run."""
+    match = STD_SIDE_LABEL.fullmatch(label)
+    if not (match and target.path == CMUX_NEXT_WORKFLOW_PATH and target.pr_number and not target.nightly
+            and target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT
+            and queued_seconds(job, now, first_seen) >= LIGHT_MOVE_SECONDS):
+        return ""
+    light = f"glaeda-side-light-{match.group(1)}"
+    return light if light_room(snapshot, light, now) > 0 else ""
 
 
 def started_nothing(pools: Mapping[str, Any], label: str) -> bool:
@@ -4192,7 +4253,10 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
       fresh snapshot shows nothing running there (started_nothing()), or nothing started there since the job began
       waiting (label_quiet()). Or, for a cmux-next pull request run whose placement re-run is shown (failover_plan(),
       never the settled re-run), a Mac job has waited OWNED_REPLACE_SECONDS on an owned label, busy or not
-      (long_owned_wait()), on attempt 1 or 2: the placement then runs again on the bot's next attempt. A job's wait starts at the later of its created_at and when a watch first saw it
+      (long_owned_wait()), on attempt 1 or 2: the placement then runs again on the bot's next attempt. Or, the same
+      way and sooner (the light move), a Mac job that has waited LIGHT_MOVE_SECONDS on the std side label while a
+      light side runner listens (light_wait()), when the head shows the job reads the re-run's light placement
+      (PlacementRerun.light_readers): the re-run gives it the idle light runner. A job's wait starts at the later of its created_at and when a watch first saw it
       queued (`first_seen`, the watcher's; else this look's). A job that has waited less is looked at again once it
       has waited that long (one bounded sleep), not given up on.
 
@@ -4221,6 +4285,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     plan: PlacementRerun | None = None
     planned = False
     seen: dict[Any, dt.datetime] = dict(first_seen or {})
+    light_to: dict[Any, str] = {}
     for look in (1, 2):
         try:
             snapshot = reader(now())
@@ -4249,7 +4314,12 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         # but only by a placement re-run (checked below, once the plan is read).
         long_wait = [] if dead else [(job, label) for job, label in waiting
                                      if long_owned_wait(target, job, label, at, seen.get(job_key(job)))]
-        if not dead and not long_wait:
+        # A light-fit job waiting on the std side label while a light side runner listens: placed again sooner, by a
+        # placement re-run whose light placement the job reads (checked below, once the plan is read).
+        light_moves = [] if dead or long_wait else [
+            (job, label, light) for job, label in waiting
+            for light in (light_wait(target, job, label, snapshot, at, seen.get(job_key(job))),) if light]
+        if not dead and not long_wait and not light_moves:
             return NO_FAILOVER
         if push and not planned:
             # A push run has no pull request to be open at: its open head is the branch tip (push_tip_failover()).
@@ -4263,6 +4333,16 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         if not dead:
             if plan is None:
                 return NO_FAILOVER
+            if not long_wait:
+                moving = [(job, label) for job, label, _ in light_moves
+                          if plan.keys(job) and plan.keys(job) <= plan.light_readers]
+                if not moving:
+                    log(f"no light move for run {target.run_id}: the head shows none of "
+                        f"{', '.join(sorted(str(job.get('name')) for job, _, _ in light_moves))} reads a re-run's "
+                        "light placement")
+                    return NO_FAILOVER
+                light_to = {job_key(job): light for job, _, light in light_moves}
+                long_wait = moving
             dead = long_wait
         if target.path in PORTABLE_LIGHT_WORKFLOW_PATHS and plan is None:
             # A legacy fixed-label workflow has no route to refresh.  Neither
@@ -4293,6 +4373,8 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         if waited >= UNSTARTED_STALL_SECONDS:
             idle = ("runs nothing" if started_nothing(pools, label)
                     else "has started nothing since it queued" if dead is not long_wait
+                    else (f"has not started it in {int(waited // 60)} min while `{light_to[job_key(job)]}` has "
+                          "a runner listening (light move)") if job_key(job) in light_to
                     else f"has not started it in {OWNED_REPLACE_SECONDS // 60} min")
             stuck = f"{job.get('name') or job.get('id')} has waited {int(waited // 60)} min on `{label}`, which {idle}"
             if settled:
