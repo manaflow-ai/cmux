@@ -37,9 +37,12 @@ env:
   GATE_MODE: report
   LOADS: idle,cpu,agents
   ROUNDS: "3"
-  # The one file the fleet step returns (cmux-ci run --artifact takes one): report.json, or a tar holding it
-  # beside the contact sheet.
-  REPORT_PATH: .build/tab-switch/report.json
+  # The one file the fleet step returns (cmux-ci run --artifact takes one): the harness packs
+  # .build/tab-switch/report.json and the contact sheets (.build/tab-switch/sheets/*.png) into it.
+  REPORT_PATH: .build/tab-switch/report.tgz
+  # tab-switch.sh exits 1 on a budget miss and 3 when it cannot measure (no Screen Recording grant, say): 3 is no
+  # report, never a pass, whatever file it left.
+  CANNOT_MEASURE_EXIT: "3"
 
 jobs:
   scope:
@@ -50,6 +53,7 @@ jobs:
       contents: read
     outputs:
       in_scope: ${{ steps.scope.outputs.in_scope }}
+      base_sha: ${{ steps.scope.outputs.base_sha }}
     steps:
       # A pull request checks out its merge commit; HEAD^1 is the base it merges into.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -64,6 +68,9 @@ jobs:
         run: |
           set -euo pipefail
           git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          # The feat-cmux-next commit this merges into: the fleet step runs the controller-listed tab-switch.sh at a
+          # protected-branch commit and builds the pull request head from it (build=<head>).
+          echo "base_sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
           python3 scripts/cmux-next/tab_switch_gate.py scope --files-from "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
 
   frames:
@@ -80,10 +87,12 @@ jobs:
     timeout-minutes: 130
     permissions: {}
     steps:
-      # No checkout: the gateway runner takes only thin cmux-ci clients. The display worker checks out the head.
+      # No checkout: the gateway runner takes only thin cmux-ci clients. The display worker checks out the base
+      # commit (the harness) and builds the head.
       - name: Measure tab switches on a display Mac
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ needs.scope.outputs.base_sha }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
@@ -96,7 +105,7 @@ jobs:
           log="$RUNNER_TEMP/tab-switch/step.log"
           status=0
           "$client" run --class exclusive --measurement --display \
-            --script scripts/measure/tab-switch.sh --ref "$HEAD_SHA" --repo manaflow-ai/cmux \
+            --script scripts/measure/tab-switch.sh --ref "$BASE_SHA" --repo manaflow-ai/cmux \
             --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
             --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
             --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout 3600 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
@@ -106,6 +115,7 @@ jobs:
             "$client" artifact "$step" "$out" || "$client" artifact --failed "$step" "$out" || true
           fi
           echo "fleet step ${step:-none} exited $status; report: $([[ -s "$out" ]] && echo returned || echo none)"
+          echo "$status" > "$RUNNER_TEMP/tab-switch/step-exit"
           # The verdict job judges the report, whatever the step's own exit said.
           exit 0
       - name: Upload the report
@@ -170,6 +180,12 @@ jobs:
             exit 0
           fi
           report="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
+          step_exit="$(cat "$RUNNER_TEMP/tab-switch/step-exit" 2>/dev/null || echo none)"
+          if [[ "$step_exit" == "$CANNOT_MEASURE_EXIT" ]]; then
+            printf '### %s: no verdict\n\nThe harness could not measure on its worker (exit %s, for example no Screen Recording grant): see the frames job. No verdict is never a pass.\n' \
+              "$title" "$step_exit" >> "$GITHUB_STEP_SUMMARY"
+            miss "the harness could not measure (exit $step_exit)"
+          fi
           if [[ "$FRAMES_RESULT" != success || ! -s "$report" ]]; then
             printf '### %s: no verdict\n\nThe display run %s and returned no report (a fork, no gateway runner, or the fleet step failed: see the frames job). No verdict is never a pass.\n' \
               "$title" "$FRAMES_RESULT" >> "$GITHUB_STEP_SUMMARY"

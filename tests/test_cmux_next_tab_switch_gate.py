@@ -136,14 +136,15 @@ class CliTests(unittest.TestCase):
                 handle.write(b"\x89PNG")
             with open(report, "w") as handle:
                 json.dump(with_switch(blank_frames=3), handle)
-            bundle = os.path.join(directory, "out.tar")
-            with tarfile.open(bundle, "w") as tar:
-                tar.add(report, arcname="tab-switch/report.json")
-                tar.add(sheet, arcname="tab-switch/contact-sheet.png")
+            # The harness's report.tgz: .build/tab-switch/report.json beside .build/tab-switch/sheets/*.png.
+            bundle = os.path.join(directory, "report.tgz")
+            with tarfile.open(bundle, "w:gz") as tar:
+                tar.add(report, arcname=".build/tab-switch/report.json")
+                tar.add(sheet, arcname=".build/tab-switch/sheets/return-cpu.png")
             code, text = self.run_cli(bundle)
             self.assertEqual(code, 1)
             self.assertIn("3 blank frames", text)
-            self.assertIn("Contact sheet: tab-switch/contact-sheet.png", text)
+            self.assertIn("Contact sheet: .build/tab-switch/sheets/return-cpu.png", text)
 
     def test_missing_or_bad_report_is_no_verdict(self):
         with tempfile.TemporaryDirectory() as directory:
