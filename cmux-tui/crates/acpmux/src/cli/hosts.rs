@@ -1914,3 +1914,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "hosts_first_contact_tests.rs"]
+mod first_contact_tests;

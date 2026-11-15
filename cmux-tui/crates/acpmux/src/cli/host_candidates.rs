@@ -340,4 +340,32 @@ mod tests {
         assert!(many[..MAX_PROBES].iter().all(|c| c.ssh_ok == Some(true)));
         assert!(many[MAX_PROBES..].iter().all(|c| c.ssh_ok.is_none()));
     }
+    #[test]
+    fn first_contact_unknown_candidates_remain_unverified_and_pickable() {
+        for (stderr, expected) in [
+            (
+                "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.",
+                None,
+            ),
+            (
+                "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed.",
+                Some(false),
+            ),
+            ("WARNING: REVOKED HOST KEY DETECTED!\nHost key verification failed.", Some(false)),
+            ("Permission denied (publickey).", Some(false)),
+            ("Connection refused", Some(false)),
+        ] {
+            let mut list = candidates(&status(), &[]);
+            probe_all(&mut list, &|_| Ran { ok: false, stderr: stderr.into(), ..Ran::default() });
+            assert_eq!(list[0].ssh_ok, expected, "{stderr}");
+            assert_eq!(list[1].ssh_ok, expected, "{stderr}");
+            let json = serde_json::to_value(&list[0]).unwrap();
+            if expected.is_none() {
+                assert!(
+                    json.get("ssh_ok").is_none(),
+                    "unknown key must not be advertised as SSH off or verified"
+                );
+            }
+        }
+    }
 }

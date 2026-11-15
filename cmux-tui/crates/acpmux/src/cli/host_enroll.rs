@@ -323,7 +323,7 @@ fn fail(step: Step, detail: impl Into<String>, fix: impl Into<String>) -> StepRe
 
 /// Why `ssh -o BatchMode=yes HOST true` failed, from its stderr.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SshFailure {
+pub(super) enum SshFailure {
     NoRoute,
     SshOff,
     KeyRejected,
@@ -333,7 +333,7 @@ enum SshFailure {
 }
 
 impl SshFailure {
-    fn of(stderr: &str) -> Self {
+    pub(super) fn of(stderr: &str) -> Self {
         let s = stderr.to_ascii_lowercase();
         let any = |needles: &[&str]| needles.iter().any(|n| s.contains(n));
         // ssh prints the host key warning before anything else it reports.
@@ -361,7 +361,7 @@ impl SshFailure {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::NoRoute => "no route to the host",
             Self::SshOff => "ssh is off (connection refused)",

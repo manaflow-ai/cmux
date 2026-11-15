@@ -1375,3 +1375,19 @@ fn a_host_without_bwrap_warns_at_the_daemon_step_and_fix_installs_it() {
     assert_eq!(result.state, StepState::Warn, "{result:?}");
     assert!(result.detail.contains("cannot make a sandbox"), "{result:?}");
 }
+
+#[test]
+fn first_contact_revoked_key_recovery_never_suggests_acceptance_or_removal() {
+    let stderr = "WARNING: REVOKED HOST KEY DETECTED!\nHost key verification failed.";
+    let fake = Fake::new(|script, _| {
+        assert_eq!(script, "true");
+        RemoteOut { ok: false, stderr: stderr.into(), ..RemoteOut::default() }
+    });
+    let result = reach(&fake, true);
+    assert_eq!(result.state, StepState::Fail);
+    assert!(result.detail.contains("revoked"), "{}", result.detail);
+    let fix = result.fix.as_deref().unwrap();
+    assert!(fix.contains("revoked"), "{fix}");
+    assert!(!fix.contains("accept-new-host-key"), "{fix}");
+    assert!(!fix.contains("ssh-keygen -R"), "{fix}");
+}
