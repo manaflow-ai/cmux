@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43703221375",
+  "recorded_at": "2026-11-15T10:29:29Z",
+  "reason": "cmux-tui 2823eec1f1e3 changes the image's cmux-tui (pinned 46e42bfd8686)",
+  "dry_run": false,
+  "cmux_tui": "2823eec1f1e30fe3025b2cdf97efa094ff02053a",
+  "fixes": [
+    {
+      "sha": "2823eec1f1e30fe3025b2cdf97efa094ff02053a",
+      "mergedAt": "2026-11-15T01:59:34-08:00",
+      "subject": "Action exports: palette.captureScreenshotToChat after the 8d052432 re-pin (#43573)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T10:29:29Z",
+    "snapshot_id": "sh-ff015792ae174558920186572db6f339",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43703221375): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f444c82c6b6b71e7f60059ed407f32760add0bfc",
+    "image": "cloud-native-auto-2823eec1-43703221375-1",
+    "revision": "ci-43703221375-1",
+    "at": "2026-11-15T10:29:29Z"
+  },
+  "rolled_back": false
+}
