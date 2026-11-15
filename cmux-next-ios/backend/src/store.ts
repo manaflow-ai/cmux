@@ -49,8 +49,13 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
     async upsertDevice(d) {
       // Read the previous team for the move; the conditional update (setWhere) still refuses a racing other owner or space.
       const [prev] = await db.select({ teamId: devices.teamId, owner: devices.ownerUserId, space: devices.space }).from(devices).where(eq(devices.deviceId, d.deviceId)).limit(1)
-      if (prev && prev.space !== d.space) return "other_space"
-      if (prev && prev.owner !== d.ownerUserId) return "not_owner"
+      if (prev && prev.owner !== d.ownerUserId) return prev.space !== d.space ? "other_space" : "not_owner"
+      // The same owner's id in another space moves here, push token first (a retry after a failure moves the rest).
+      const movedFrom = prev && prev.space !== d.space ? prev.space : null
+      if (movedFrom !== null) {
+        await db.update(pushTokens).set({ space: d.space }).where(and(eq(pushTokens.deviceId, d.deviceId), eq(pushTokens.space, movedFrom)))
+        await db.update(devices).set({ space: d.space }).where(and(eq(devices.deviceId, d.deviceId), eq(devices.ownerUserId, d.ownerUserId), inSpace(movedFrom)))
+      }
       const machine = d.machineId === undefined ? {} : { machineId: d.machineId }
       const [r] = await db
         .insert(devices)
@@ -62,7 +67,7 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
         })
         .returning()
       if (!r) return "not_owner"
-      return { device: row(r), previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
+      return { device: row(r), previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null, movedFrom }
     },
     async claimSiblings(space, ownerUserId, machineId, deviceIds) {
       if (!deviceIds.length) return []
@@ -173,8 +178,11 @@ export const memoryStore = (): Store => ({
   },
   async upsertDevice(d) {
     const prev = mem.devices.get(d.deviceId)
-    if (prev && prev.space !== d.space) return "other_space"
-    if (prev && prev.ownerUserId !== d.ownerUserId) return "not_owner"
+    if (prev && prev.ownerUserId !== d.ownerUserId) return prev.space !== d.space ? "other_space" : "not_owner"
+    // The same owner's id in another space moves here, with its push token (Store).
+    const movedFrom = prev && prev.space !== d.space ? prev.space : null
+    const token = mem.push.get(d.deviceId)
+    if (movedFrom !== null && token?.space === movedFrom) mem.push.set(d.deviceId, { ...token, space: d.space })
     const now = new Date().toISOString()
     const device: Device = {
       ...d,
@@ -184,7 +192,7 @@ export const memoryStore = (): Store => ({
       lastSeenAt: prev?.lastSeenAt ?? null
     }
     mem.devices.set(d.deviceId, device)
-    return { device: { ...device }, previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
+    return { device: { ...device }, previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null, movedFrom }
   },
   async claimSiblings(space, owner, machineId, ids) {
     const claimed: Array<string> = []
@@ -290,10 +298,12 @@ export const vitessStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
   return mysqlStore(conn)
 }
 
-export const openStore = (env: Env): Promise<Store> => {
+export const openStore = async (env: Env): Promise<Store> => {
   // cmux-next-vitess (vitess-migration-DESIGN.md 2.3). pgStore stays only for a read of the old Postgres.
   if (env.PS_MYSQL) return vitessStore(env.PS_MYSQL)
+  // Tests of the MySQL store's Worker behavior (test/schema-probe.test.ts) hand in a fake connection.
+  if (env.ENVIRONMENT === "test" && env.TEST_MYSQL_CONN) return (await import("./store-mysql.ts")).mysqlStore(env.TEST_MYSQL_CONN)
   // Tests, and `wrangler dev` of the local (top-level) config: rows live in the isolate's memory.
-  if (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "local") return Promise.resolve(memoryStore())
+  if (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "local") return memoryStore()
   throw new Error("no database binding")
 }

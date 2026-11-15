@@ -184,7 +184,7 @@ run("cmux-mobile-api store on MySQL", () => {
     const again = await store.upsertDevice({ space: DEV2, deviceId: mac1, ownerUserId: A, teamId: "t1", kind: "mac", name: "m", wgPublicKey: null })
     if (typeof again === "string") throw new Error("expected a device")
     expect(again.movedFrom).toBeNull()
-    expect((await store.upsertDevice({ space: DEV, deviceId: phone, ownerUserId: A, teamId: "t1", kind: "phone", name: "dev p", wgPublicKey: null }) as { movedFrom: string | null }).movedFrom).toBeNull()
+    expect(await store.upsertDevice({ space: DEV, deviceId: phone, ownerUserId: A, teamId: "t1", kind: "phone", name: "dev p", wgPublicKey: null })).toMatchObject({ movedFrom: null })
     const back = await store.upsertDevice({ space: DEV2, deviceId: phone, ownerUserId: A, teamId: "t1", kind: "phone", name: "p", wgPublicKey: null })
     if (typeof back === "string") throw new Error("expected a device")
     expect(back.movedFrom).toBe(DEV)

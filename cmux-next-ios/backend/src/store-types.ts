@@ -76,16 +76,19 @@ export interface PushRegistration {
 
 /**
  * Every read and write names the caller's build space (PROTOCOL.md "Build spaces"): a row of another space is
- * never found, listed, changed or deleted. Device ids stay unique across spaces (each build keeps its own id),
- * so a registration that names an id another space holds is refused ("other_space") instead of moving it.
+ * never found, listed, changed or deleted. Device ids stay unique across spaces. The one exception is
+ * `upsertDevice` of an id its owner holds in another space: a device id is one install of one build, so the row
+ * (and its push token) moves to the registering space. That is how a dev build registered before build spaces
+ * (its row in stable) or one whose dev tag changed keeps working. Another owner's id is refused ("other_space").
  */
 export interface Store {
   getDevice(space: string, deviceId: string): Promise<Device | undefined>
   /**
-   * Insert or update; "not_owner" when the id already belongs to another user, "other_space" when it is
-   * registered in another build space (nothing changes).
+   * Insert or update. An id the same owner holds in another space moves here with its push token; `movedFrom`
+   * names that space (null otherwise) so its hub can let the device go. Another owner's id is "not_owner" in this
+   * space and "other_space" in another (nothing changes).
    */
-  upsertDevice(d: DeviceInput): Promise<{ device: Device; previousTeamId: string | null } | "not_owner" | "other_space">
+  upsertDevice(d: DeviceInput): Promise<{ device: Device; previousTeamId: string | null; movedFrom: string | null } | "not_owner" | "other_space">
   /**
    * Gives `machineId` to those of `deviceIds` that are Macs of `ownerUserId` in `space` with no machine id yet
    * (other builds on the registering Mac, PROTOCOL.md "Devices"). A Mac's own report always wins. Returns every
