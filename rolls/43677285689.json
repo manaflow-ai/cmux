@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43677285689",
+  "recorded_at": "2026-11-15T04:41:27Z",
+  "reason": "cmux-tui 8465bdc5bd38 changes the image's cmux-tui (pinned 6262a6ea5645)",
+  "dry_run": false,
+  "cmux_tui": "8465bdc5bd38eef786995e32fc3e126ce15ebb2b",
+  "fixes": [
+    {
+      "sha": "8465bdc5bd38eef786995e32fc3e126ce15ebb2b",
+      "mergedAt": "2026-11-14T20:16:57-08:00",
+      "subject": "acpmux: a recorded chat stream for the pane's host and the page's store (v2 row 6b, 1 of 2) (#43194)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T04:41:27Z",
+    "snapshot_id": "sh-eda0b7805e2a4171a2d7939d402c2dbf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43677285689): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "86badee61d521c0f91bcf869fd16d069404e6f9d",
+    "image": "cloud-native-auto-8465bdc5-43677285689-1",
+    "revision": "ci-43677285689-1",
+    "at": "2026-11-15T04:41:27Z"
+  },
+  "rolled_back": false
+}
