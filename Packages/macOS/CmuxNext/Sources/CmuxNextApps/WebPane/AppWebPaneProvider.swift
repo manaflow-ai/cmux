@@ -23,6 +23,8 @@ public final class AppWebPaneProvider: PageProvider {
     public let prefix: String
     private let call: @MainActor (_ message: String) async throws(AppsTransportError) -> AppJSON
     private var nextID: UInt64 = 0
+    /// The largest bridge message a page may send: the daemon's `page_bridge::MAX_MESSAGE_BYTES`.
+    nonisolated static let maxMessageBytes = 256 * 1024
 
     /// `call` sends one raw message for this page (``AppsClient/pageCall(app:page:message:)``).
     public init(appID: String, pageKey: String, prefix: String,
@@ -37,9 +39,18 @@ public final class AppWebPaneProvider: PageProvider {
         guard op.hasPrefix(prefix), op.count > prefix.count else { throw PageError.unknownOp(op) }
         nextID += 1
         let message: PageJSON = ["id": .string(String(nextID)), "op": .string(String(op.dropFirst(prefix.count))), "params": params]
+        let text = message.compactText
+        // The page's message rides one control line on the app's shared daemon connection: one past
+        // the socket's line limit closes that connection before the daemon's own bridge check can
+        // answer (next-review's BLOCK on #43033). So the bridge limit is enforced here first, with
+        // the daemon's own refusal.
+        guard text.utf8.count <= Self.maxMessageBytes else {
+            throw PageError(code: "bridge.message_too_large",
+                            message: "a bridge message is at most \(Self.maxMessageBytes) bytes; this one is \(text.utf8.count): pass large data by handle")
+        }
         let answer: AppJSON
         do throws(AppsTransportError) {
-            answer = try await call(message.compactText)
+            answer = try await call(text)
         } catch {
             throw PageError(code: error.code ?? "operation.failed", message: error.message, retryable: error.connectionLost)
         }
