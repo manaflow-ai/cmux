@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43758224346",
+  "recorded_at": "2026-11-15T20:36:13Z",
+  "reason": "cmux-tui a3e0ab35e401 changes the image's cmux-tui (pinned 9db3e4d888b3)",
+  "dry_run": false,
+  "cmux_tui": "a3e0ab35e401beda7aed9aaa782b417fbada94fb",
+  "fixes": [
+    {
+      "sha": "a41cbb03a5abf513b22d088e29e9a6c0606ee3be",
+      "mergedAt": "2026-11-15T12:11:45-08:00",
+      "subject": "fix(next): complete first-contact SSH recovery follow-ups (#35701) (#43879)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T20:36:13Z",
+    "snapshot_id": "sh-e0624dd45d2e4d23af0542b7d1c09110",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43758224346): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ac9625fdf036f966be52b1cc2195f99199dd818f",
+    "image": "cloud-native-auto-a3e0ab35-43758224346-1",
+    "revision": "ci-43758224346-1",
+    "at": "2026-11-15T20:36:13Z"
+  },
+  "rolled_back": false
+}
