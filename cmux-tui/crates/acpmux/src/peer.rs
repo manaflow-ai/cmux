@@ -33,6 +33,8 @@ pub(crate) use carriers::paired_install;
 #[path = "peer_carrier.rs"]
 mod carrier;
 pub use dual::DualStats;
+#[path = "peer_dialer.rs"]
+mod dialer;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
@@ -43,6 +45,8 @@ pub(crate) mod overlay;
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
+#[path = "peer_network.rs"]
+pub(crate) mod network;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -358,6 +362,8 @@ pub struct Peer {
     session_auth: AtomicBool,
     /// The features the peer listed at its last handshake (`lists`).
     features: StdMutex<Vec<String>>,
+    /// The mirror of the peer's list stream into the index (`peer_dialer.rs`).
+    mirror: dialer::MirrorLink,
     /// One more than the link epoch whose handshake listed `sessionResume`
     /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
     session_resume_link: AtomicU64,
@@ -415,6 +421,10 @@ pub struct Peer {
     stop_signal: Notify,
     /// Broadcasts explicit stop/replacement to callers waiting for a reconnect.
     stop_changed: tokio::sync::watch::Sender<bool>,
+    /// This computer's network changes (`peer_network.rs`), read only by `run`'s task: a live link
+    /// is probed at once, a backoff wait ends at once. One receiver for the peer's life, so a change
+    /// made while a link was being dialed still reaches it.
+    network: StdMutex<tokio::sync::watch::Receiver<u64>>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the

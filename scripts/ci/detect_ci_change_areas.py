@@ -207,6 +207,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/design-surfaces.json",
     ".github/gateway-e2e/request",
     ".github/github-token-budget.json",
+    ".github/ios-review-gate-devices.json",
     ".github/labels.json",
     ".github/language-boundaries.toml",
     ".github/nightly-known-bad.json",
