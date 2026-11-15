@@ -1013,6 +1013,30 @@ mod tests {
         }
     }
 
+    /// A prompt typed mid-turn with the same text as a chat send the app has not queued yet is the
+    /// person's: it shows as typed when it runs, and the send stays pending for its own line (review
+    /// P1-F1 of 94dffc97: the typed `enqueue` was taken as the send's, and the prompt shown as the
+    /// send's, under its id).
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_typed_prompt_with_a_pending_sends_text_shows_as_typed() {
+        let (hub, session) = queue_hub("same-text-typed").await;
+        super::super::bridge::test_delivery(&session.id, "p-same", "u-same", "test");
+        let lines = vec![
+            json!({"type": "queue-operation", "operation": "enqueue", "content": "test"})
+                .to_string(),
+            json!({"type": "attachment", "attachment": {"type": "queued_command", "prompt": "test",
+                "source_uuid": "typed-cmd", "commandMode": "prompt", "origin": {"kind": "human"}}})
+            .to_string(),
+        ];
+        assert!(hub.show_watched(&session, &lines, 128).await);
+        assert_eq!(prompts_of(&hub, &session), [("test".to_owned(), "watch".to_owned())]);
+        assert!(
+            super::super::bridge::delivered(&session.id, "u-same").is_some(),
+            "the send still waits"
+        );
+        hub.shutdown_all().await;
+    }
+
     /// A queued prompt taken back in the terminal settles the turn shown for it, and a chat send
     /// taken back ends with why instead of waiting half an hour (review P1-F2, P2-F2 of 94dffc97).
     #[tokio::test(flavor = "current_thread")]
