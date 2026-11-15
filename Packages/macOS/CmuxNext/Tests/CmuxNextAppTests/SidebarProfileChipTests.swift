@@ -134,7 +134,7 @@ import Testing
         let avatar = try #require(h.sidebar.footerBand.bandFirstRow?.frame)
         // The mark as the footer sees it: hidden while no PR's pages are on (CustomizeExperimentsTests covers
         // the real view's hiding), a chip-sized view once one is.
-        let mark = NSTextField(labelWithString: "Experiment on · #43543   Turn Off")
+        let mark = NSTextField(labelWithString: "Experiment on · #43543   Off")
         mark.isHidden = true
         h.sidebar.experimentsMark = mark
         h.settle()

@@ -10770,13 +10770,13 @@
       }
     },
     "customizeExperiments.turnOff": {
-      "comment": "Button on the sidebar's experiments mark: turns off every pull request entry that is on (cmux customize library off pr-N), which puts back the app's own pages.",
+      "comment": "Button on the sidebar's experiments mark, kept to one short word so the PR number beside it fits: turns off every pull request entry that is on (cmux customize library off pr-N), which puts back the app's own pages.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn Off"
+            "value": "Off"
           }
         },
         "ar": {

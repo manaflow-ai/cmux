@@ -16,7 +16,7 @@
 // Each variant draws the sidebar's bottom twice, with nothing on and with the mark, so a move shows at a
 // glance. The placements:
 // - `chip`, shipped: its own chip above the footer row at the avatar's edge, stacked above app health's line
-//   when that shows. It says in words that pages come from a PR and which one, its Turn Off is the way back
+//   when that shows. It says in words that pages come from a PR and which one, its Off is the way back
 //   without opening any page (a PR can break Settings itself), and the row never moves.
 // - `in-row`: a badge in the footer row after the avatar, where Swift live mode's mark sits. Quiet, but
 //   turning a PR on or off pushes the spaces strip and the update button along the row.
@@ -34,7 +34,7 @@ type Placement = "chip" | "in-row" | "avatar" | "titlebar";
 type Props = { placement: Placement; on: LibraryCode[]; health: boolean };
 
 const PLACEMENTS: Record<Placement, string> = {
-  chip: "Shipped: its own chip above the footer row, with Turn Off; the row never moves.",
+  chip: "Shipped: its own chip above the footer row, with Off; the row never moves.",
   "in-row": "A badge after the avatar, where Swift live mode's mark sits; the strip and update button move.",
   avatar: "A flask on the avatar's corner, its line the tooltip; nothing moves.",
   titlebar: "A pill at the window's top row, its line the tooltip.",
@@ -98,7 +98,7 @@ async function load() {
           <span className="ahf-overlay xm-chip" data-stacked={health ? "" : undefined}>
             <Icon name="flask" />
             <span className="ahf-text">{text}</span>
-            <span className="xm-turn-off">Turn Off</span>
+            <span className="xm-turn-off">Off</span>
           </span>
         )}
         <Row badge={placement === "in-row" ? text : null} />

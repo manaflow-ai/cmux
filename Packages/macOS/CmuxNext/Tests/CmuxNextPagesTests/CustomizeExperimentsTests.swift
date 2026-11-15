@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 /// The sidebar's experiments mark reads the Customization Library through the bundled CLI: it counts
-/// only the `pr-N` entries that are on (nothing at all, so no mark, when none is), and its Turn Off runs
+/// only the `pr-N` entries that are on (nothing at all, so no mark, when none is), and its Off runs
 /// `customize library off pr-N` for each, the verb the card's switch runs.
 @MainActor @Suite struct CustomizeExperimentsTests {
     static func listing(_ entries: [JSONValue]) -> Data {

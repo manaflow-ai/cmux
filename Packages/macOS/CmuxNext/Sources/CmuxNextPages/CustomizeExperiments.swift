@@ -7,7 +7,7 @@ public import Foundation
 /// the Customization Library that are on, as `cmux --json customize library list` lists them (an
 /// entry's `code`, cmux-customize `library/code.rs`). The sidebar's "Experiment on · #N" mark shows
 /// them and nothing while there are none (webviews `customizeLibrary.ts` `experimentsOn` counts the
-/// same entries); its Turn Off runs `customize library off pr-N` for each, the CLI verb the
+/// same entries); its Off runs `customize library off pr-N` for each, the CLI verb the
 /// Customization Library card's switch runs, so the card and the mark never differ.
 ///
 /// It reads the library again only when something can have changed it: at its first mark, when
@@ -63,7 +63,7 @@ public final class CustomizeExperiments {
     }
 
     /// A sidebar's mark: it follows ``on``, a click on it calls `open` (the App opens the Library card at
-    /// ``libraryRoute``), and its Turn Off runs ``turnOffAll()``, showing a refusal's words in a toast.
+    /// ``libraryRoute``), and its Off runs ``turnOffAll()``, showing a refusal's words in a toast.
     public func makeMark(open: @escaping @MainActor () -> Void) -> CustomizeExperimentsMarkView {
         start()
         let mark = CustomizeExperimentsMarkView()
@@ -155,7 +155,7 @@ public final class CustomizeExperiments {
         return ([lead] + prs).joined(separator: "\n")
     }
 
-    public static var turnOffTitle: String { text("customizeExperiments.turnOff", "Turn Off") }
+    public static var turnOffTitle: String { text("customizeExperiments.turnOff", "Off") }
 
     public static func turnOffFailed(_ name: String) -> String {
         String(format: text("customizeExperiments.turnOffFailed", "Couldn't turn off %@"), name)
