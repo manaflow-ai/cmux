@@ -96,6 +96,7 @@ final class SidebarIconButton: ClickableButton {
         // The look paints its own hover and press fill; the shared chrome keeps only the focus ring.
         hover.paintsFill = false
         look.inkOverride = tintOverride
+        look.motion = Motion.feedback
         renderedSize = 0
     }
 

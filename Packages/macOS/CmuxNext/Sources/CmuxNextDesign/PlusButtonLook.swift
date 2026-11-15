@@ -73,6 +73,9 @@ public final class PlusButtonLook {
         didSet { if oldValue != inkOverride { refresh(animated: false) } }
     }
     public private(set) var state = State()
+    /// The motion gate the hover fill fades through: the tab bar's (`Motion.tabs`) by default; a sidebar + takes the
+    /// sidebar buttons' feedback gate, so it fades as its neighbours do.
+    public var motion: MotionGate = Motion.tabs
 
     /// Adds the fill and the glyph to `host`'s layer (the host must be layer-backed), under its other sublayers.
     public init(host: NSView) {
@@ -125,13 +128,13 @@ public final class PlusButtonLook {
     public func refresh(animated: Bool = false) {
         let token = animated ? ChromeHover.fade(showing: state.lit || state.down, pressed: state.down) : nil
         // An instant change also ends a fill still easing in.
-        if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
+        if (token.map(motion.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
         let paint = { [self] in
             fillLayer.backgroundColor = Self.fill(state, hoverStyle: hoverStyle, segment: segment)?.cgColor
             glyphLayer.strokeColor = (inkOverride ?? Self.glyphInk(hovering: state.lit, pressed: state.down)).cgColor
             glyphLayer.lineWidth = Metrics.addGlyphLineWidth
         }
-        Motion.tabs.transaction(token) {
+        motion.transaction(token) {
             if let host { host.performWithTheme(paint) } else { paint() }
         }
     }

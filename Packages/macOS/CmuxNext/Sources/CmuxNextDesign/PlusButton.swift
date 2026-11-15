@@ -47,6 +47,14 @@ public final class PlusButton: ClickableButton {
         look.refresh()
     }
 
+    /// A button hidden under a still pointer gets no exit event: the pointer hover clears it.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        isHeld = false
+        pointer.refresh()
+        applyState(animated: false)
+    }
+
     /// NSButton tracks the click inside `super.mouseDown` and returns on release.
     public override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return super.mouseDown(with: event) }
