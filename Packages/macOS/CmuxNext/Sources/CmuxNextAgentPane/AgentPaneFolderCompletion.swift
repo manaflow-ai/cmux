@@ -63,7 +63,7 @@ nonisolated struct AgentPaneFolderCompletion: Sendable {
         // The home folder itself ("/Users/me" in "/Users/") is refused as a chat root, yet it is
         // how an absolute path reaches the projects under it: it is offered.
         let home = validator.home
-        guard let names = list(path, { name in
+        guard let names = list(base.isEmpty ? "/" : base, { name in
             guard !name.hasPrefix(".") else { return false }
             let child = "\(base)/\(name)"
             return child == home || batch.refusal(child) == nil
