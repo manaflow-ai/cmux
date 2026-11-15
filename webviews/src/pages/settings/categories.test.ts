@@ -41,6 +41,8 @@ test("the categories are the approved ones, in order", () => {
     "terminal",
     "editor",
     "browser",
+    // Settings > Extensions: each installed extension's own declared settings.
+    "extensions",
     "chat",
     "agents",
     "chief",

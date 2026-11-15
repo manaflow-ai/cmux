@@ -69069,127 +69069,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Settings your installed extensions offer. A change reaches the extension right away."
+            "value": "Settings your installed extensions offer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إعدادات توفرها الإضافات المثبتة. يصل أي تغيير إلى الإضافة فورًا."
+            "value": "إعدادات توفرها الإضافات المثبتة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Postavke koje nude instalirana proširenja. Promjena odmah stiže do proširenja."
+            "value": "Postavke koje nude instalirana proširenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Indstillinger, som dine installerede udvidelser tilbyder. En ændring når udvidelsen med det samme."
+            "value": "Indstillinger, som dine installerede udvidelser tilbyder."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Einstellungen deiner installierten Erweiterungen. Eine Änderung erreicht die Erweiterung sofort."
+            "value": "Einstellungen deiner installierten Erweiterungen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajustes que ofrecen tus extensiones instaladas. Un cambio llega a la extensión al instante."
+            "value": "Ajustes que ofrecen tus extensiones instaladas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Réglages proposés par vos extensions installées. Une modification parvient aussitôt à l’extension."
+            "value": "Réglages proposés par vos extensions installées."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impostazioni offerte dalle estensioni installate. Una modifica raggiunge subito l’estensione."
+            "value": "Impostazioni offerte dalle estensioni installate."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "インストール済みの拡張機能が提供する設定です。変更はすぐに拡張機能に届きます。"
+            "value": "インストール済みの拡張機能が提供する設定です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការកំណត់ដែលផ្នែកបន្ថែមដែលបានដំឡើងផ្ដល់ឱ្យ។ ការផ្លាស់ប្ដូរទៅដល់ផ្នែកបន្ថែមភ្លាមៗ។"
+            "value": "ការកំណត់ដែលផ្នែកបន្ថែមដែលបានដំឡើងផ្ដល់ឱ្យ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "설치된 확장 프로그램이 제공하는 설정입니다. 변경 사항은 바로 확장 프로그램에 반영됩니다."
+            "value": "설치된 확장 프로그램이 제공하는 설정입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Innstillinger som de installerte utvidelsene dine tilbyr. En endring når utvidelsen med en gang."
+            "value": "Innstillinger som de installerte utvidelsene dine tilbyr."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ustawienia oferowane przez zainstalowane rozszerzenia. Zmiana od razu trafia do rozszerzenia."
+            "value": "Ustawienia oferowane przez zainstalowane rozszerzenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajustes que suas extensões instaladas oferecem. Uma alteração chega à extensão na hora."
+            "value": "Ajustes que suas extensões instaladas oferecem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Настройки, которые предлагают установленные расширения. Изменение сразу доходит до расширения."
+            "value": "Настройки, которые предлагают установленные расширения."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การตั้งค่าที่ส่วนขยายที่ติดตั้งไว้มีให้ การเปลี่ยนแปลงจะถึงส่วนขยายทันที"
+            "value": "การตั้งค่าที่ส่วนขยายที่ติดตั้งไว้มีให้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yüklü uzantılarınızın sunduğu ayarlar. Bir değişiklik uzantıya hemen ulaşır."
+            "value": "Yüklü uzantılarınızın sunduğu ayarlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Налаштування, які пропонують встановлені розширення. Зміна одразу доходить до розширення."
+            "value": "Налаштування, які пропонують встановлені розширення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các cài đặt mà tiện ích mở rộng đã cài cung cấp. Thay đổi đến tiện ích ngay lập tức."
+            "value": "Các cài đặt mà tiện ích mở rộng đã cài cung cấp."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已安装扩展提供的设置。更改会立即传给扩展。"
+            "value": "已安装扩展提供的设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已安裝延伸功能提供的設定。變更會立即傳給延伸功能。"
+            "value": "已安裝延伸功能提供的設定。"
           }
         }
       }
