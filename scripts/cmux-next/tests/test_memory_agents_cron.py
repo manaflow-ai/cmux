@@ -103,7 +103,7 @@ class BreakdownTests(unittest.TestCase):
         self.assertFalse(any("js_heap" in r["name"] for r in rows))
 
     def test_kind_names_are_row_safe(self):
-        self.assertEqual(cron.row_key("com.apple.WebKit Helper (GPU)"), "com.apple.webkit_helper_gpu")
+        self.assertEqual(cron.row_key("com.apple.WebKit Helper (GPU)"), "com_apple_webkit_helper_gpu", "a dot would split the row name")
         self.assertEqual(cron.row_key(""), "unknown")
 
     def test_breakdown_rows_are_report_only_and_the_goal_rows_are_judged(self):
