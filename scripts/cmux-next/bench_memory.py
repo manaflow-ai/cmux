@@ -1189,7 +1189,8 @@ def app_vm_stacks(pid: int, pattern: str, limit: int = 40) -> dict:
     MallocStackLogging=lite for this). Says which code keeps the copies a class count shows (CMUX-571: 36 copies of the
     palette's item list in the idle app)."""
     try:
-        proc = subprocess.run(["heap", str(pid), "-addresses", pattern], capture_output=True, text=True, timeout=300)
+        # heap matches the whole type name; a step argument carries no regex characters, so a substring is wrapped here.
+        proc = subprocess.run(["heap", str(pid), "-addresses", f".*{pattern}.*"], capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as e:
         return {"error": str(e)[:300]}
     blocks = []
