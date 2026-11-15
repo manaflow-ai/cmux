@@ -255,6 +255,7 @@ import Testing
                                        ["daemonId": "k3", "host": "twin"], ["daemonId": "k4", "host": "twin"]]
         let byPeer = JoinedMachine(id: "m", name: "x", state: .online, meshPeerId: "k2")
         #expect(byPeer.route(in: routes)?["daemonId"] as? String == "k2")
+        #expect(JoinedMachine(id: "m", name: "studio-mini", state: .online, meshPeerId: "gone").route(in: routes) == nil)
         let byName = JoinedMachine(id: "m", name: "Studio-Mini", state: .online)
         #expect(byName.route(in: routes)?["daemonId"] as? String == "k1")
         #expect(JoinedMachine(id: "m", name: "twin", state: .online).route(in: routes) == nil)

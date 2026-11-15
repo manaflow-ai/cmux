@@ -124,10 +124,10 @@ extension JoinedMachine {
     public var isMac: Bool { ["macos", "darwin"].contains(platform?.lowercased() ?? "") }
 
     /// Its route among acpmux's (`_acpmux/machine_routes`' `machines`): the one whose hub `daemonId` is
-    /// its `meshPeerId`, else the only one whose host is its host name or name. Nil: none, or two that
-    /// name the same host.
+    /// its `meshPeerId`; with no `meshPeerId`, the only one whose host is its host name or name. Nil: none,
+    /// a `meshPeerId` acpmux doesn't list (never another Mac of the same name), or two that name the same host.
     public func route(in routes: [[String: Any]]) -> [String: Any]? {
-        if let peer = meshPeerId, let route = routes.first(where: { $0["daemonId"] as? String == peer }) { return route }
+        if let peer = meshPeerId { return routes.first { $0["daemonId"] as? String == peer } }
         let names = Set([hostname, name].compactMap { $0?.lowercased() })
         let named = routes.filter { ($0["host"] as? String).map { names.contains($0.lowercased()) } ?? false }
         return named.count == 1 ? named.first : nil
