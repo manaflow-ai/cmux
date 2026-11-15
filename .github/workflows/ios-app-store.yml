@@ -82,7 +82,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     needs: runners
     # Holds no secret: the capability map's machine, or the macOS pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(needs.runners.outputs.map).macos_26_ios || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(needs.runners.outputs.map).macos_26_ios || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
