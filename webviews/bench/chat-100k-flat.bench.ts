@@ -21,6 +21,13 @@
 // of noise.
 // HIDDEN=0 keeps every chat shown. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
 // windows.
+// GROW_OPEN=1 grows the grown chats as one turn that never ends (a coordinator's: steers, replies and tool calls into a
+// running turn, ten records a grown row pair, no turn_result), which a chat that sheds only at a turn's end never
+// sheds (direct.ts `shedOlderHeld`, `midTurnCut`). For the case cmux#43436 left out.
+// Resize (x1 launches, after the readings above; RESIZE=0 skips it): the shown chat's page takes RESIZE_WIDTHS one at
+// a time, a second apart, as a window snapped or a divider let go does. Each width is new to the page, so the
+// transcript lays out the whole chat at it. `resize ms` is the page's time from the width to the second frame after
+// it; `resize cpu ms` is the renderer main thread's time over that second (the layout and the drawn rows' measures).
 // The fixture's turns are plain prose (no code blocks), so the pane's highlighter, which runs on the main thread on an
 // http: page and in a worker on cmux-page:, does no work here.
 //   bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]
@@ -47,12 +54,21 @@ const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
 const CASES = process.env.CASES ?? "all";
+const RESIZE = process.env.RESIZE !== "0";
+const RESIZE_WIDTHS = [700, 620, 540, 460];
+// CPU settle: once a launch's chats are loaded or grown, its renderers are sampled every second until two samples in
+// a row are at most SETTLE_PCT of a core (a 1 s sample counts 10 ms ticks, so a 1 % threshold would be one tick of
+// noise) or SETTLE_MAX_S pass. That time is the row cpu_settle_s, kept out of ratio_max, and the idle windows start
+// after it: a burst's drain is read as a time, not folded into the idle CPU.
+const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
+const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
 if (!["all", "main", "grown-many"].includes(CASES)) {
   console.error("chat-100k-flat: CASES is all, main or grown-many");
   process.exit(2);
 }
+const GROW_OPEN = process.env.GROW_OPEN === "1";
 if (!Number.isInteger(ROWS) || ROWS < 2 || !Number.isInteger(CHATS) || CHATS < 2) {
   console.error("usage: bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]");
   process.exit(2);
@@ -125,7 +141,7 @@ const median = (values: number[]) => {
 const pssMB = (pid: number) =>
   Number(/^Pss:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"))?.[1] ?? 0) / 1024;
 
-type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number };
+type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number; settleS: number };
 
 const releases: (() => unknown)[] = [];
 const release = async () => {
@@ -358,7 +374,40 @@ try {
         // Grown: each chat takes `grow` finished turns live, GROW_BATCH records at a time, a frame apart.
         const began = performance.now();
         for (let turn = 1, batch = 0; turn <= grow; turn++) {
-          for (let index = 0; index < count; index++) {
+          for (let index = 0; index < count && GROW_OPEN; index++) {
+            const id = sessionId(index);
+            const said = (sessionUpdate: string, fields: Record<string, unknown>) =>
+              emit(id, "in", sessionUpdate, {
+                method: "session/update",
+                params: { sessionId: "agent-1", update: { sessionUpdate, ...fields } },
+              });
+            if (turn === 1) {
+              emit(id, "mux", "user_message", { text: "Grown question: coordinate the lanes" });
+              emit(id, "mux", "turn_started", {});
+            }
+            emit(id, "mux", "user_message", { text: `Grown steer ${turn}`, steer: true });
+            for (let chunk = 0; chunk < 7; chunk++)
+              said("agent_message_chunk", {
+                messageId: `grown-${turn}`,
+                content: {
+                  type: "text",
+                  text: chunk === 0 ? `Grown answer ${turn}: ` : `the checks are green ${chunk}. `,
+                },
+              });
+            said("tool_call", {
+              toolCallId: `grown-call-${turn}`,
+              kind: "execute",
+              title: `check ${turn}`,
+              status: "in_progress",
+            });
+            said("tool_call_update", {
+              toolCallId: `grown-call-${turn}`,
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: `ok ${turn}` } }],
+            });
+            batch += 10;
+          }
+          for (let index = 0; index < count && !GROW_OPEN; index++) {
             const id = sessionId(index);
             emit(id, "mux", "user_message", { text: `Grown question ${turn}` });
             emit(id, "mux", "turn_started", {});
@@ -391,8 +440,34 @@ try {
           `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s`,
         );
       }
-      // The pages' own settling (read-ahead, fonts, the first paints) is not idle.
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const window = async (seconds: number, during?: () => Promise<void>) => {
+        const pids = renderers(root);
+        const from = cpuTicks(pids);
+        const began = performance.now();
+        if (during) await during();
+        else await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+        const elapsed = (performance.now() - began) / 1000;
+        return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
+      };
+      // The pages' own settling (read-ahead, fonts, the first paints, and after a burst its drain) is not idle: it is
+      // timed from the last record in to the first of two quiet seconds.
+      const settleFrom = performance.now();
+      const settleSamples: number[] = [];
+      let settleS = SETTLE_MAX_S;
+      for (let quietSince = -1; (performance.now() - settleFrom) / 1000 < SETTLE_MAX_S;) {
+        const sampleFrom = performance.now();
+        const pct = await window(1);
+        settleSamples.push(pct);
+        if (pct > SETTLE_PCT) quietSince = -1;
+        else if (quietSince < 0) quietSince = sampleFrom;
+        else {
+          settleS = (quietSince - settleFrom) / 1000;
+          break;
+        }
+      }
+      console.log(
+        `  ${name}: CPU settled in ${settleS.toFixed(1)} s${settleS >= SETTLE_MAX_S ? " (cap)" : ""}; samples ${settleSamples.map((v) => v.toFixed(1)).join(", ")}`,
+      );
       for (const { page } of pages) await settledAt(page).catch(() => undefined);
       if (HIDDEN) {
         // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app.
@@ -404,15 +479,6 @@ try {
           });
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
-      const window = async (seconds: number, during?: () => Promise<void>) => {
-        const pids = renderers(root);
-        const from = cpuTicks(pids);
-        const began = performance.now();
-        if (during) await during();
-        else await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-        const elapsed = (performance.now() - began) / 1000;
-        return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
-      };
       const shownProfiler = pages.at(-1)!.cdp;
       // Each reading is the median of REPEAT windows, so one noisy window on a shared runner cannot set the run's max
       // (single windows swung the worst ratio 3.1x to 15.8x between runs of the same commit). Only the first window of
@@ -490,7 +556,39 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const pids = renderers(root);
       const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
-      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length };
+      if (count === 1 && RESIZE) {
+        const { page, cdp } = pages[0]!;
+        await cdp.send("Performance.enable", { timeDomain: "threadTicks" });
+        const threadMs = async () => {
+          const { metrics } = (await cdp.send("Performance.getMetrics")) as {
+            metrics: { name: string; value: number }[];
+          };
+          return (metrics.find((metric) => metric.name === "ThreadTime")?.value ?? 0) * 1000;
+        };
+        const resizeMs: number[] = [];
+        const resizeCpuMs: number[] = [];
+        for (const width of RESIZE_WIDTHS) {
+          const cpu = await threadMs();
+          const from = await page.evaluate(() => performance.now());
+          await page.setViewportSize({ width, height: 800 });
+          const drawn = await page.evaluate(
+            () =>
+              new Promise<number>((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now()))),
+              ),
+          );
+          resizeMs.push(drawn - from);
+          // fixed-wait: the window the CPU reading spans, so the drawn rows' measures after the width count too.
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          resizeCpuMs.push((await threadMs()) - cpu);
+        }
+        console.log(
+          `  ${name}: resize ms ${resizeMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeMs).toFixed(0)}); ` +
+            `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
+        );
+      }
+      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS };
+      perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settleS, p95: settleS, unit: "s" });
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
       perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
       perfRow({
@@ -543,6 +641,19 @@ try {
   console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);
   const maxRow = `${ROW}.ratio_max`;
   perfRow({ name: maxRow, p50: max, p95: max, unit: "x", target: 1.2, floor: 0.05 });
+  // The longest CPU settle of a long, grown or running launch, beside the empty launches' own: a number of its own,
+  // read against its own target in the goal record, never in ratio_max.
+  const [slowest, settleMax] = pairs
+    .map(([label, big]) => [label, big.settleS] as [string, number])
+    .reduce((a, b) => (b[1] > a[1] ? b : a));
+  const emptySettle = Math.max(...pairs.map(([, , base]) => base.settleS));
+  console.log(
+    `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s`,
+  );
+  perfRow({ name: `${ROW}.cpu_settle_s_max`, p50: settleMax, p95: settleMax, unit: "s" });
+  // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
+  const excess = Math.max(0, settleMax - emptySettle);
+  perfRow({ name: `${ROW}.cpu_settle_excess_s`, p50: excess, p95: excess, unit: "s", target: 2 });
 } finally {
   await release();
 }

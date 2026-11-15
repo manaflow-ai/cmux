@@ -125,7 +125,7 @@
       "shot": false
     },
     {
-      "title": "Run 1 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 1 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -144,7 +144,7 @@
       "shot": false
     },
     {
-      "title": "Run 1 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 1 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -163,7 +163,7 @@
       "shot": false
     },
     {
-      "title": "Run 2 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 2 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -182,7 +182,7 @@
       "shot": false
     },
     {
-      "title": "Run 2 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 2 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -201,7 +201,7 @@
       "shot": false
     },
     {
-      "title": "Run 3 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 3 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -220,7 +220,7 @@
       "shot": false
     },
     {
-      "title": "Run 3 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 3 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -239,7 +239,7 @@
       "shot": false
     },
     {
-      "title": "Run 4 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 4 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -258,7 +258,7 @@
       "shot": false
     },
     {
-      "title": "Run 4 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 4 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -277,7 +277,7 @@
       "shot": false
     },
     {
-      "title": "Run 5 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 5 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -296,7 +296,7 @@
       "shot": false
     },
     {
-      "title": "Run 5 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 5 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -315,7 +315,7 @@
       "shot": false
     },
     {
-      "title": "Run 6 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 6 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -334,7 +334,7 @@
       "shot": false
     },
     {
-      "title": "Run 6 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 6 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -353,7 +353,7 @@
       "shot": false
     },
     {
-      "title": "Run 7 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 7 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -372,7 +372,7 @@
       "shot": false
     },
     {
-      "title": "Run 7 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 7 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -391,7 +391,7 @@
       "shot": false
     },
     {
-      "title": "Run 8 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 8 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -410,7 +410,7 @@
       "shot": false
     },
     {
-      "title": "Run 8 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 8 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -429,7 +429,7 @@
       "shot": false
     },
     {
-      "title": "Run 9 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 9 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -448,7 +448,7 @@
       "shot": false
     },
     {
-      "title": "Run 9 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 9 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -467,7 +467,7 @@
       "shot": false
     },
     {
-      "title": "Run 10 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 10 (a) idle: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -486,7 +486,7 @@
       "shot": false
     },
     {
-      "title": "Run 10 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 10 (b) idle: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
