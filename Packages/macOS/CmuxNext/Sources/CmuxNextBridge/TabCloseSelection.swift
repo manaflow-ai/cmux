@@ -197,6 +197,11 @@ public final class TabCloseSelection {
         forgetWhenEmpty()
     }
 
+    /// Each tab of `pane` that has an opener, with that opener, by the ids shown now (diagnostics and tests).
+    public func relations(in pane: String) -> [(tab: String, opener: String)] {
+        home.filter { $0.value == pane }.keys.sorted().compactMap { item in openers.opener(of: item).map { (shownAs[item] ?? item, shownAs[$0] ?? $0) } }
+    }
+
     /// Drops panes that no longer exist.
     func prune(livePanes: Set<String>) {
         if !expected.isEmpty { expected = expected.filter { livePanes.contains($0.key) } }

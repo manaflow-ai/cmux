@@ -52,7 +52,8 @@ public final class NewTabInsertion {
     public init?(after anchor: TabModel, in pane: PaneModel, shown: [String], daemon: DaemonService, line: WorkLine<ActionWorkFailure?>) {
         guard ActionRunScope.viewChangeAllowed(), daemon.supports(DaemonCapability.tabInsertAfter.rawValue) else { return nil }
         self.anchor = anchor
-        earlier = shown.firstIndex(of: anchor.id).map { shown[..<$0].reversed().compactMap { id in pane.tabs.first { $0.id == id } } } ?? []
+        earlier = shown.firstIndex { $0 == anchor.id || daemon.store.creations.replacement(ofStandIn: $0, in: pane) === anchor }.map { // the strip may still show the anchor's stand-in
+             shown[..<$0].reversed().compactMap { id in pane.tabs.first { $0.id == id } } } ?? []
         self.pane = pane
         store = daemon.store
         turn = line.next(limit: Self.answerLimit, owner: "NewTabInsertion.answer", passing: nil)
