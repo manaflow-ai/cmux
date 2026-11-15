@@ -199,9 +199,7 @@ on:
       - scripts/cmux-next/pointer-cursor-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
-      - scripts/cmux-next/check-connection-notices.py
-      - scripts/cmux-next/connection-notices-allowlist.tsv
-      - scripts/cmux-next/tests/test_check_connection_notices.py
+      - scripts/cmux-next/**/*connection*notices*
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/check-ui-font.py
       - tests/test_ui_font.py
@@ -545,9 +543,7 @@ on:
       - scripts/cmux-next/pointer-cursor-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
-      - scripts/cmux-next/check-connection-notices.py
-      - scripts/cmux-next/connection-notices-allowlist.tsv
-      - scripts/cmux-next/tests/test_check_connection_notices.py
+      - scripts/cmux-next/**/*connection*notices*
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/check-ui-font.py
       - tests/test_ui_font.py
@@ -1722,9 +1718,8 @@ jobs:
             python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
             [overlay-glass]
             python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
-            [connection-notices]
-            python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE" --base HEAD^1
-            python3 -I scripts/cmux-next/tests/test_check_connection_notices.py
+            [conn-notices]
+            scripts/cmux-next/check-connection-notices.sh "$GITHUB_WORKSPACE"
             [checks-structure]
             python3 tests/test_cmux_next_checks_workflow.py
             [package-dependency-lists]
@@ -2129,11 +2124,10 @@ jobs:
         continue-on-error: true
         run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" overlay-glass
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-366
-      - name: Connection states wait or offer an action
-        id: connection-notices
+      - name: Connection notices
+        id: conn-notices
         continue-on-error: true
-        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" connection-notices
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" conn-notices
 
       # The one type scale (schemas/type-scale/type-scale.json): its CSS and Swift copies, and no new raw
       # font sizes or off-scale weights in the app's Swift (fails the checks; the webviews ratchet runs in react-apps-check).
@@ -2558,7 +2552,7 @@ jobs:
             ${{ steps.pressed-state.outcome }}|Buttons change only their fill when pressed
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
-            ${{ steps.connection-notices.outcome }}|Connection states wait or offer an action
+            ${{ steps.conn-notices.outcome }}|Connection notices
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.layout-grid.outcome }}|Layout grid
             ${{ steps.ui-font.outcome }}|UI font (the system font)

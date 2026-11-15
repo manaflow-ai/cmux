@@ -3275,7 +3275,7 @@ base tier runs are unchanged (tests/test_cmux_next_dispatch_heavy_compiles.py).
 
 ## note-366
 
-Above `checks: Connection states wait or offer an action` in `.github/workflows/cmux-next.yml`.
+Above `checks: Connection notices` in `.github/workflows/cmux-next.yml` (its link lives in `scripts/cmux-next/check-connection-notices.sh`: the workflow file is near GitHub's size limit).
 
 A connection state the person can do nothing about (reconnecting, retrying, restoring, handshaking, "Getting
 access", offline, disconnected) shows nothing until it has lasted the shared bound, unless it carries one action
