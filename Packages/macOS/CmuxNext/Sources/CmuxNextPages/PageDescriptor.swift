@@ -60,12 +60,18 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// The page belongs to the Chief chat (Bring your history): Agent Chat Zoom scales it too
     /// (``PageWebView/followsChatZoom``). Off by default: a page keeps `app.uiScale` alone.
     public let followsChatZoom: Bool
+    /// The router serves this page its own host ops and streams with no descriptor entry: the title
+    /// bar double-click, the swipe's two, the heartbeat, popups, the context menu and the built-in
+    /// streams (``PageRouter``). False for an app page (``appPage(id:resource:namespaces:entry:)``):
+    /// every message it sends passes ``admits(_:)`` before anything runs, and its namespaces are its
+    /// own (`<host>.`), so it reaches none of them (next-review's BLOCK on #43033).
+    public let servesHostOps: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
-                passiveFrames: Bool = false, followsChatZoom: Bool = false) {
+                passiveFrames: Bool = false, followsChatZoom: Bool = false, servesHostOps: Bool = true) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -89,12 +95,19 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.acceptsFirstMouse = acceptsFirstMouse
         self.passiveFrames = passiveFrames
         self.followsChatZoom = followsChatZoom
+        self.servesHostOps = servesHostOps
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
     public func admits(_ op: String) -> Bool {
         guard !denied.contains(op) else { return false }
         return nativeOps.contains(op) || namespaces.contains { op.hasPrefix($0) && op.count > $0.count }
+    }
+
+    /// Whether the router may run its own host op or stream `op` for this page: always for a page
+    /// it serves them (``servesHostOps``), else only one the descriptor admits.
+    public func admitsHostOp(_ op: String) -> Bool {
+        servesHostOps || admits(op)
     }
 
     /// Whether `entry` names a file inside the page's root (``entry``).

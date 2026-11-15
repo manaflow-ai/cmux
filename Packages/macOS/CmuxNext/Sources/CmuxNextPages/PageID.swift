@@ -71,6 +71,9 @@ public extension PageDescriptor {
             throw .reservedNamespace(reserved)
         }
         // An app's own content decides what sits under a click that only brings the window forward.
-        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, entry: entry, acceptsFirstMouse: false)
+        // The router's own host ops (window, history, popups, menus) are not the app's: it reaches
+        // only its namespaces.
+        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, entry: entry, acceptsFirstMouse: false,
+                              servesHostOps: false)
     }
 }
