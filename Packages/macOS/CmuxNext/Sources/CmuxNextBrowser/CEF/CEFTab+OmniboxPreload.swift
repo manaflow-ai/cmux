@@ -24,8 +24,11 @@ extension CEFTab: BrowserOmniboxPreloading {
         return OmniboxPreloadAction(rawValue: raw) ?? .unavailable
     }
 
+    /// Not gated on `preloads`: a tab an agent took over or a guard set mid-edit still ends its
+    /// prerender (the fork drops the edit's matches; it learns nothing it was not given).
     public func omniboxPreloadEnded(opened: URL?, learn: Bool) {
-        guard let browserID, let shim = runtime.shim, preloads else { return }
+        guard let browserID, let shim = runtime.shim,
+              runtime.forkAPIVersion >= CEFTab.omniboxPreloadForkAPI else { return }
         _ = shim.omniboxPreloadOpened(browserID, opened?.absoluteString, learn ? 1 : 0)
     }
 
