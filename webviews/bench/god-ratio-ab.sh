@@ -9,22 +9,23 @@
 # Each extra SHA is one more side, in a worktree of its own like BASE's: `god-ratio-ab.sh B 8 B` is an A/A run (the
 # same code twice), `god-ratio-ab.sh B 8 S1 S2` measures each commit of a stack beside the checkout. BASE `-` measures
 # this checkout only.
-# What makes one run decide a 0.1x change (a single round's ratio swung 1.1x to 1.7x on the same code):
-# - every round runs each side's small and god replay back to back and divides them there, so a ratio never pairs a
-#   slow minute of the runner with a quiet one; the verdict is the median over rounds of those per-round ratios, with
-#   the 95% interval of that median (a seeded bootstrap) and the spread (min to max);
-# - the order of the sides, and of small and god inside each, turns every round, so a runner warming or tiring over
-#   the run lands on every side alike;
-# - CLOCK=cpu (the default here, CLOCK=wall for the cron's own) counts the renderer main thread's CPU time, not its
-#   tasks' wall time, which also counts the time a task waits on a busy shared runner.
-# It prints both per-round ratios: of the p95 rows (the worst checkpoint, what the cron reads) and of the p50 rows
-# (the median checkpoint). Each run's log goes to OUT (default $FAST_CHECKS_OUT). The checkout itself is never touched.
+# What makes one run decide a 0.1x change. Run one after the other, a round's god / small ratio swung 0.5x to 1.9x
+# on the same code (8-round A/A, run 43714459962, CPU clock or wall): the shared runner runs at one speed for one
+# replay and up to twice as slow for the next, minutes apart. So:
+# - each round plays god and small at once (transcript-replay's PAIRED=1): two pages, each burst of the god chat
+#   measured right after the same burst of the small one (which goes first turns each burst), seconds apart;
+# - the verdict is the median over rounds of each round's ratio, with the 95% interval of that median (a seeded
+#   bootstrap) and the spread (min to max); `pairs` is the median over every round's checkpoints of god / small for
+#   the same checkpoint, the finest pairing there is;
+# - the order of the sides turns every round, so a runner warming or tiring over the run lands on every side alike.
+# It prints the per-round ratios of the p95 rows (the worst checkpoint, what the cron reads) and of the p50 rows (the
+# median checkpoint). CLOCK=cpu passes on to the bench (CPU time, not wall). Each run's log goes to OUT (default
+# $FAST_CHECKS_OUT). The checkout itself is never touched.
 set -euo pipefail
 base="${1:?usage: god-ratio-ab.sh BASE [rounds] [SHA...]}"
 rounds="${2:-8}"
 shift 2 2>/dev/null || shift $#
 extra=("$@")
-export CLOCK="${CLOCK:-cpu}"
 cd "$(dirname "$0")/.."
 out="${OUT:-${FAST_CHECKS_OUT:-$(mktemp -d)}}"
 mkdir -p "$out"
@@ -57,26 +58,20 @@ if [ "$base" != - ]; then
   side before "$base"
   for at in "${!extra[@]}"; do side "s$((at + 1))-${extra[$at]:0:10}" "${extra[$at]}"; done
 fi
-# `run SIDE SCALE ROUND`: the cron's run of SCALE at SIDE's pane; its output to OUT/SIDE-SCALE-ROUND.log.
+# `run SIDE ROUND`: the cron's god and small (`--turns 600`) replays at SIDE's pane, played at once; its output to
+# OUT/SIDE-ROUND.log.
 run() {
-  local side="$1" scale="$2" round="$3" log="$out/$1-$2-$3.log"
-  echo "=== $side $scale round $round"
-  if [ "$scale" = god ]; then
-    (cd "${dirs[$side]}" && FIXTURE=god timeout 600 bun bench/transcript-replay.bench.ts) >"$log" 2>&1 || echo "=== $side $scale FAILED"
-  else
-    (cd "${dirs[$side]}" && timeout 600 bun bench/transcript-replay.bench.ts --turns 600 --only long) >"$log" 2>&1 ||
-      echo "=== $side $scale FAILED"
-  fi
-  grep -E '^  (token|thought) at |heap \+|BUDGET MISS' "$log" || true
+  local side="$1" round="$2" log="$out/$1-$2.log"
+  echo "=== $side round $round"
+  (cd "${dirs[$side]}" && PAIRED=1 timeout 900 bun bench/transcript-replay.bench.ts --turns 600 --only long) >"$log" 2>&1 ||
+    echo "=== $side FAILED"
+  grep -E '^  (god|long) (token|thought) at |heap \+|BUDGET MISS' "$log" || true
 }
 n=${#sides[@]}
 for round in $(seq 1 "$rounds"); do
-  for k in $(seq 0 $((n - 1))); do
-    s="${sides[$(((k + round - 1) % n))]}"
-    if [ $((round % 2)) = 1 ]; then run "$s" small "$round"; run "$s" god "$round"; else run "$s" god "$round"; run "$s" small "$round"; fi
-  done
+  for k in $(seq 0 $((n - 1))); do run "${sides[$(((k + round - 1) % n))]}" "$round"; done
 done
-python3 - "$out" "$rounds" "$CLOCK" "${sides[@]}" <<'PY'
+python3 - "$out" "$rounds" "${CLOCK:-wall}" "${sides[@]}" <<'PY'
 import json, random, statistics, sys
 out, rounds, clock, sides = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4:]
 def rows(path):
@@ -94,10 +89,21 @@ def ci(values, draws=4000):
     rng = random.Random(1)
     meds = sorted(statistics.median(rng.choices(values, k=len(values))) for _ in range(draws))
     return meds[int(draws * 0.025)], meds[int(draws * 0.975)]
-logs = {(s, scale, r): rows(f"{out}/{s}-{scale}-{r}.log") for s in sides for scale in ("small", "god") for r in range(1, rounds + 1)}
+logs = {(s, r): rows(f"{out}/{s}-{r}.log") for s in sides for r in range(1, rounds + 1)}
 def value(s, scale, r, kind, stat):
     name = f"transcript_replay.{'god.' if scale == 'god' else ''}long.{kind}"
-    return logs[(s, scale, r)].get(name, {}).get(stat)
+    return logs[(s, r)].get(name, {}).get(stat)
+def bursts(s, r, kind):
+    """Each checkpoint's (small, god) ms per record for KIND in round R, in order."""
+    found = {"god": [], "long": []}
+    try:
+        for line in open(f"{out}/{s}-{r}.log"):
+            parts = line.split()
+            if len(parts) > 5 and line.startswith("  ") and parts[0] in found and parts[1] == kind and parts[2] == "at":
+                found[parts[0]].append(float(parts[5]))
+    except OSError:
+        pass
+    return list(zip(found["long"], found["god"]))
 print(f"god-ratio-ab: {rounds} rounds, CLOCK={clock}; per side the median over rounds of each round's god / small "
       "ratio, its 95% interval and min..max; then the medians of small and god themselves")
 for kind, stats in (("token_ms", ("p95", "p50")), ("thought_ms", ("p95", "p50")), ("tool_call_ms", ("p95",)),
@@ -116,5 +122,12 @@ for kind, stats in (("token_ms", ("p95", "p50")), ("thought_ms", ("p95", "p50"))
             print(f"  {s:<22} ratio {med:.3f} [{lo:.3f}, {hi:.3f}] (min {min(ratios):.3f} max {max(ratios):.3f}, "
                   f"n {len(ratios)})  small {statistics.median(a for a, _ in pairs):.3f} god "
                   f"{statistics.median(b for _, b in pairs):.3f}  rounds {[round(x, 3) for x in ratios]}")
+    if kind in ("token_ms", "thought_ms"):
+        print(f"{kind} pairs (each checkpoint's god / small, every round):")
+        for s in sides:
+            each = [g / a for r in range(1, rounds + 1) for a, g in bursts(s, r, kind[:-3]) if a]
+            if each:
+                lo, hi = ci(each)
+                print(f"  {s:<22} ratio {statistics.median(each):.3f} [{lo:.3f}, {hi:.3f}] (n {len(each)})")
 PY
 echo "god-ratio-ab: wrote $out"
