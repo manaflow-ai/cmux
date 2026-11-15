@@ -215,7 +215,9 @@ public actor CmuxConfigFile {
             if let value = edit.value { try managedGuard.checkSet(value, at: edit.path) } else { try managedGuard.checkRemove(edit.path) }
         }
         _ = try document()
-        _ = try await send(edits.map { edit in edit.value.map { .set(edit.path, $0) } ?? .reset(edit.path) })
+        _ = try await send(edits.map { edit -> SettingsFileEdit in
+            if let value = edit.value { .set(edit.path, value) } else { .reset(edit.path) }
+        })
     }
 
     /// Sends `edits` as they are, in one publish; each one passes the managed guard first. Returns

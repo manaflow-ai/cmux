@@ -266,7 +266,7 @@ unreachable, Settings shows "Settings are read only until cmux reconnects" and r
 | f | Schema authored in `config/settings/schema.json`; Swift descriptors, `web/data/cmux.schema.json` and TS types generated; `cmux-tui.json` overlapping keys fold into cmux.json | generator `--check` in CI |
 
 State of slice b (2026-11-15): the Swift writer is gone. `CmuxConfigFile` sends every write as one
-`settings.edit` to the home daemon (`SettingsFileWriter`, the app's `DaemonSettingsFileWriter`), in
+`settings.edit` to the home daemon (`SettingsFileWriter`, the app fills it with `DaemonService.settingsFile`), in
 call order, after checking that the owner's `settings.snapshot` `path` is the app's file; with no
 live daemon serving `settings-edit-v1`, or another file, a write throws `SettingsWriterDisconnected`
 and nothing queues. The app lock (`SettingsFileLock`, #40464) went with the writer: the owner's own

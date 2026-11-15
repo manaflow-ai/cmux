@@ -8,7 +8,6 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
-import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextKeepAwake
@@ -335,9 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         if LaunchIdentity.ignoresCustomizations(keysHeld: NSEvent.modifierFlags.isSuperset(of: [.option, .shift])) { WebDevOverride.ignoreThisRun() }
         let registry = services.registry
-        // The home daemon writes cmux-next.json; the app only reads it (settings-react.md section 1).
-        let settingsWriter = DaemonSettingsFileWriter { [weak services] in services?.daemon }
-        let settings = SettingsController(writer: settingsWriter, registry: registry, fileURL: launch.fileURL, launch: launch)
+        let settings = SettingsController(writer: SettingsEditSender(services.daemon.settingsFile.edit(json:file:)), registry: registry, fileURL: launch.fileURL, launch: launch) // the home daemon writes the file
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
@@ -421,14 +418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            // Legacy keys, classic imports, stored defaults: they write through the home daemon (the
-            // file's one writer), so they run once it is live; the control socket does not wait for it.
-            let daemon = services.daemon
-            // task-owner: the launch's settings migrations, once; ends after them
-            Task {
-                for await live in ObservationStream({ daemon.isLive }) where live { break }
-                await settings.runLaunchMigrations(marker: .standard)
-            }
+            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy keys, classic imports, stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)

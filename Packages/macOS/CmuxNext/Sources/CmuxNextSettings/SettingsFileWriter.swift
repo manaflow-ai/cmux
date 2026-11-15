@@ -49,3 +49,21 @@ public nonisolated struct SettingsWriterDisconnected: Error, Sendable, CustomStr
         "settings cannot change while cmux is not connected to its daemon; nothing was written"
     }
 }
+
+/// A writer that hands the edits on as `settings.edit` JSON (`[{op, path, value?}]`): the seam the
+/// app fills with the home daemon's `edit(json:file:)`. `send` answers the indexes of the edits that
+/// applied, or nil when no daemon can take the write (``SettingsWriterDisconnected``).
+public nonisolated struct SettingsEditSender: SettingsFileWriter {
+    let send: @Sendable (_ json: String, _ file: URL) async throws -> [Int]?
+
+    public init(_ send: @escaping @Sendable (_ json: String, _ file: URL) async throws -> [Int]?) {
+        self.send = send
+    }
+
+    public func edit(_ edits: [SettingsFileEdit], file: URL) async throws -> [Int] {
+        guard let applied = try await send(JSONValue.array(edits.map(\.wire)).compactText, file) else {
+            throw SettingsWriterDisconnected()
+        }
+        return applied
+    }
+}

@@ -10,7 +10,7 @@ public import Observation
 ///
 /// App entry point:
 /// ```swift
-/// let settings = SettingsController(writer: DaemonSettingsFileWriter(...), registry: registry)
+/// let settings = SettingsController(writer: SettingsEditSender(daemon.settingsFile.edit(json:file:)), registry: registry)
 /// settings.start()   // loads once, then watches
 /// ```
 @MainActor
