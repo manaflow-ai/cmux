@@ -1564,8 +1564,14 @@ export function NewTabScreen(props: Props) {
     touch();
     if (created.current) return;
     created.current = true;
-    const asked = askChat(agent, "", folder, agent === harness ? chipModel : undefined);
-    if (asked === false) created.current = false;
+    // An empty chat in that folder, as New chat starts one: never through askChat, whose staged
+    // files and picked place (a local machine's folder) are the prompt's, not this start's. The
+    // files stay in the field.
+    if (authBlocksSend(targetAuth)) {
+      created.current = false;
+      return;
+    }
+    requestChat(agent, "", folder, agent === harness ? chipModel : undefined);
   };
   continueAfterSetup.current = (agent, model) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
@@ -1763,7 +1769,8 @@ export function NewTabScreen(props: Props) {
     }
     // A launch row's folder completes as a shell completes one (Tab, as → and End do): the field
     // takes the folder and a slash, and its subfolders list next (launchRows.ts `fill`).
-    const fillRow = rows[current >= 0 ? current : defaultSelection(rows)];
+    // Only the row typing lit fills: on a row Tab or the arrows stepped to, Tab steps on.
+    const fillRow = kept < 0 ? rows[current >= 0 ? current : defaultSelection(rows)] : undefined;
     const fill = fillRow?.type === "launch" ? fillRow.fill : undefined;
     if (
       event.key === "Tab" &&
