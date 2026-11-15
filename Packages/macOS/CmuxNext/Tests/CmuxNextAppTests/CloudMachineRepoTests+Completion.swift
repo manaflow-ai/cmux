@@ -230,6 +230,34 @@ extension CloudMachineRepoTests {
         creation.tearDown()
     }
 
+    @MainActor @Test func nothingGoesToTheMachineBeforeItRuns() async {
+        // A create answers while the machine still binds, and the machine's file and exec routes refuse it until it
+        // runs ("the machine is not running; start it first": production start matrix 2026-11-15 06:32Z).
+        let creation = repoCreation(CloudCreations()), runs = Fired(), early = Fired(), sent = Fired()
+        let machine = CloudMachineBootstrap.Machine(write: { _, _, _ in
+            if !runs.on { early.fire() }
+            sent.fire()
+        }, exec: { _ in
+            if !runs.on { early.fire() }
+            sent.fire()
+            return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
+        })
+        await CloudCreationFlow.startBootstrap(creation, on: machine, running: { runs.fire() })
+        #expect(sent.on && !early.on, "the start waited for the machine to run")
+        #expect(creation.bootstrap?.status == "started")
+        creation.tearDown()
+    }
+
+    @MainActor @Test func aCreationTornDownWhileTheMachineBindsStartsNothing() async {
+        let creation = repoCreation(CloudCreations()), sent = Fired()
+        let machine = CloudMachineBootstrap.Machine(write: { _, _, _ in sent.fire() }, exec: { _ in
+            sent.fire()
+            return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
+        })
+        await CloudCreationFlow.startBootstrap(creation, on: machine, running: { creation.tearDown() })
+        #expect(!sent.on && creation.bootstrap == nil)
+    }
+
     @MainActor @Test func aStartThatReturnsAfterTheTearDownStartsNoWait() {
         // The flow was cancelled while `start` was out on the machine; its outcome comes back afterwards.
         let creation = CloudMachineCreation(windowID: nil)
