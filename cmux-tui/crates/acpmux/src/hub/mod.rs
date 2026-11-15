@@ -180,6 +180,7 @@ mod repo_sync;
 mod retention;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
+mod sealed_compaction;
 pub(crate) use log_load::AdoptionReady;
 mod model_options;
 mod new_request;
@@ -1005,6 +1006,10 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// Chats whose log sealed a segment since the worker last looked, and its wake
+    /// (`sealed_compaction.rs`).
+    pub(super) sealed_logs: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) sealed_wake: Arc<Notify>,
     /// Chats whose log the store brought back from its cold archive, whose preview is not dropped
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
@@ -1455,6 +1460,8 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            sealed_logs: Default::default(),
+            sealed_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,

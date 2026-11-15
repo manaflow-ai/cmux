@@ -18,6 +18,8 @@ use std::sync::Mutex;
 
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
+mod sealed_compact;
+pub use sealed_compact::{SealHook, StagedSealed};
 mod deferred;
 pub use deferred::{Deferral, Keep};
 mod cold;
@@ -1413,6 +1415,29 @@ pub trait Store: Send + Sync {
     fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
         Ok(false)
     }
+    /// Writes compacted copies of at most `max` of the log's sealed segments not compacted yet
+    /// beside them (`store/sealed_compact.rs`), the chat open or not. `barriers`: seqs no update
+    /// past them may make one at or before them moot (a fork's `through_seq`). None: nothing to do.
+    fn stage_sealed(
+        &self,
+        _id: &str,
+        _barriers: &[u64],
+        _max: usize,
+    ) -> Result<Option<StagedSealed>> {
+        Ok(None)
+    }
+    /// Readies the store for a sealed segments' commit, with no lock of the chat held: the
+    /// journal store's checkpoint. False: not now.
+    fn prepare_sealed(&self, _id: &str) -> Result<bool> {
+        Ok(true)
+    }
+    /// Puts staged sealed segments in place unless one changed since (false).
+    fn commit_sealed(&self, _id: &str, _staged: StagedSealed) -> Result<bool> {
+        Ok(false)
+    }
+    /// Called with a chat's id when its log seals a segment (rolls over to the next), under the
+    /// store's writers' lock: it may only note the id and wake a worker.
+    fn on_segment_sealed(&self, _hook: SealHook) {}
     /// Leaves out every record of chat `id` past `after`, in place (`CompactMode::Truncate`):
     /// false when the log changed meanwhile, or the store cannot. Its caller holds the chat's
     /// append lock. A journal restore's only (`hub/journal_restore.rs`).
