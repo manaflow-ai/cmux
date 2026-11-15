@@ -103,10 +103,17 @@ final class TaskLaunchPrototypeCaptureUITests: UIStateCaptureCase {
         XCTAssertNil(Self.pickIn(app, "proto.agent", "Codex"))
         XCTAssertNil(Self.pickIn(app, "proto.effort", "High"))
         XCTAssertNil(Self.pickIn(app, "proto.mode", "Read only"))
-        XCTAssertNil(Self.tap(app.segmentedControls.buttons["Chat"].firstMatch, "Chat segment"))
         // Picked on screen first, then time for the defaults write to land before the kill.
         XCTAssertEqual(Self.any(app, "proto.agent").value as? String, "Codex")
         XCTAssertEqual(Self.any(app, "proto.mode").value as? String, "Read only")
+        Self.pause(1)
+        app.terminate()
+
+        // Chat picked by its own Start (Two Starts): it is the launch kept too.
+        app = launch(variant: 2, reset: false)
+        XCTAssertNil(Self.opened(app))
+        XCTAssertNil(Self.tap(Self.any(app, "proto.start.chat"), "Chat start"))
+        XCTAssertNil(Self.tap(Self.any(app, "proto.started.ok"), "OK"))
         Self.pause(3)
         app.terminate()
 
