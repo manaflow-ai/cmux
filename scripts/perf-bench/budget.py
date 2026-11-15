@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import time
 
@@ -121,6 +122,7 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         home_mem = browser.instance.memory(per_pid=True)
         home_pids = home_mem.pop("pids", [])
         _log_home_processes(browser, home_pids)
+        _log_app_wakers(browser, "home")
         run.record(name, round_no, "budget-idle-disk-writes-home", got["disk_kb_per_s"], files=writers)
         for path, grew in writers[:15]:
             log(f"  home idle wrote: {grew:>10,} B  {path}")
@@ -216,6 +218,7 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
                     f"{row['rss_mb'] or 0:>8.1f} MB rss {row['cpu_pct'] or 0:>6.2f}% "
                     f"{row['wakeups_per_s'] or 0:>7.1f} wk/s {row.get('threads') or 0:>4} thr "
                     f"{row.get('disk_kb_per_s') or 0:>7.1f} KB/s {row.get('mach_msgs_per_s') or 0:>7.1f} msg/s")
+        _log_app_wakers(browser, "tabs-hidden")
         # Who wakes the idle tree: call trees of the app's main thread and of the process with the
         # most wakeups, taken after the measured window so `sample` does not perturb it.
         busiest = max((row for row in table if row["pid"] != browser.instance.pid),
@@ -283,6 +286,30 @@ def _log_home_processes(browser, pids: list[dict]) -> None:
         mb = (renderer.get("memory_bytes") or 0) / (1 << 20)
         log(f"  home renderer: {mb:>7.1f} MB  {renderer.get('kind')}  pid {renderer.get('pid')}  "
             f"{len(pages)} page(s): {urls}")
+
+
+def _log_app_wakers(browser, phase: str) -> None:
+    """Who wakes the app process: the wakeup ledger's owners by rate, the main run loop's repeating timers
+    and the spare Chromium window's state (`debug.wakeups`, `debug.cef`; the bench build has the debug
+    hooks). Wakeups outside the ledger (Chromium's own threads, AppKit) show in the sampled call trees."""
+    wakes = browser.app.call("debug.wakeups", {"run_loop": True}, timeout=15)
+    if wakes.get("error"):
+        log(f"  {phase} wakers: not read ({wakes['error']})")
+    else:
+        ledger = sorted(wakes.get("ledger") or [], key=lambda entry: -(entry.get("per_second") or 0))
+        log(f"  {phase} wakers: ledger {wakes.get('total_per_second') or 0:.2f}/s, "
+            f"frame clients {wakes.get('active_frame_clients') or []}")
+        for entry in ledger[:12]:
+            if (entry.get("per_second") or 0) > 0:
+                log(f"  {phase} waker: {entry['per_second']:>7.2f}/s  {entry.get('owner')}  {entry.get('reason')}")
+        timers = re.findall(r"CFRunLoopTimer [^}]*?interval = ([0-9.]+)[^}]*?callout = ([^ ,}]+)",
+                            wakes.get("main_run_loop") or "")
+        for interval, callout in sorted({(float(i), c) for i, c in timers if float(i) > 0})[:12]:
+            log(f"  {phase} main timer: every {interval:.3f} s  {callout}")
+    cef = browser.app.call("debug.cef", {}, timeout=15)
+    if not cef.get("error"):
+        log(f"  {phase} cef: spare window {cef.get('spare_window')}, spare page {cef.get('spare_page')}, "
+            f"likely {cef.get('likely')}")
 
 
 def _file_states(root: str) -> dict[str, tuple[float, int]]:
