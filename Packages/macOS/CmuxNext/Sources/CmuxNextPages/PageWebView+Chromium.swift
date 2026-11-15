@@ -184,10 +184,16 @@ extension PageWebView {
         page.resources = { [weak self] url, range in await self?.chromiumResource(url, range: range) ?? .notFound }
         page.readyResources = { [weak self] url in self?.readyChromiumResource(url) }
         do {
-            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
-                                                                       documentScripts: scripts.sources) {
-                _ = try await page.devTools(method, params: params)
+            // Sent back to back in their order, then awaited: the setup costs one DevTools round trip, not one per
+            // call, before the page's navigation (CMUX-571). Every answer is awaited, a failure's too, so none is
+            // left waiting for a caller.
+            let replies = ChromiumPageHostBridge.setupCalls(handlers: handlers, documentScripts: scripts.sources)
+                .map { page.startDevTools($0.0, params: $0.1) }
+            var failure: (any Error)?
+            for reply in replies {
+                do { _ = try await reply() } catch { failure = failure ?? error }
             }
+            if let failure { throw failure }
             if descriptor.isAgentPage {
                 let descriptor = descriptor
                 let questionKeys = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
