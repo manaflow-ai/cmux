@@ -180,13 +180,28 @@ async fn tee_change_gate() {
     assert_bounds("v2.pr05c.tee_change", measured, Some(200));
 }
 
+/// Untimed chunks to another chat before a stream chunk side's first round. The hub's event
+/// ring (`Events::new(8192)` in `Hub::build`) keeps the last 8,192 events, and each event it
+/// keeps on the way to full is fresh memory: about 550 minor faults per 2,000 chunks until it
+/// holds 8,192, none after (`stream_chunk_first_round_probe`, run 43772431667). Timed, that
+/// fill read about 1,480 ns p95 in round 1 on both sides of every run against 700-900 ns in
+/// rounds 2-5 (cmux#43653's three runs and run 43772431667's three); 20,000 chunks to chat 1
+/// first brought round 1 to 730 ns. It is a fresh hub's first 8,192 events at any session
+/// count, so it is warmed on each side, not timed.
+const STREAM_WARM_CHUNKS: usize = 20_000;
+
 async fn stream_samples(count: usize, tee: bool) -> Vec<Vec<u128>> {
     let v1 = fixture(count);
     let session = session_by_id(&v1, &crate::god_fixture::chat_id(0)).unwrap();
     session.meta.lock().unwrap().status = crate::store::SessionStatus::Running;
+    let warm = session_by_id(&v1, &crate::god_fixture::chat_id(1)).unwrap();
+    warm.meta.lock().unwrap().status = crate::store::SessionStatus::Running;
     let marks = Arc::new(TeeState::default());
     if tee {
         v1.install_v2_tee(Arc::new(TeeHandle { state: marks.clone() }));
+    }
+    for _ in 0..STREAM_WARM_CHUNKS {
+        v1.append(&warm, "in", "agent_message_chunk", json!({"delta":"x"}));
     }
     let mut rounds = Vec::with_capacity(5);
     for _ in 0..5 {
@@ -256,9 +271,9 @@ fn stream_round_profile(label: &str, warm_chat: usize, warm: usize, rounds: usiz
     }
 }
 
-/// Where `v2.pr05c.stream_chunk`'s slow first round goes: a fresh fixture's first 20,000
-/// chunks to one chat; the same after 20,000 untimed chunks to another chat (process warm-up);
-/// and after 20,000 untimed chunks to the timed chat itself. Judges nothing.
+/// Where `v2.pr05c.stream_chunk`'s slow first round went ([`STREAM_WARM_CHUNKS`]): a fresh
+/// fixture's first 20,000 chunks to one chat; the same after 20,000 untimed chunks to another
+/// chat; and after 20,000 untimed chunks to the timed chat itself. Judges nothing.
 #[ignore = "Linux release probe of the stream chunk gate's first round"]
 #[tokio::test]
 async fn stream_chunk_first_round_probe() {
