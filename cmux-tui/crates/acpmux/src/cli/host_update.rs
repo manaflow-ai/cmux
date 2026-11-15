@@ -328,7 +328,10 @@ impl Probe {
             parts[0].lines().find_map(|l| l.strip_prefix(APP_MANAGED)).map(str::to_owned);
         let uname = parts[0].lines().find_map(|l| l.strip_prefix(UNAME)).unwrap_or_default();
         let uname = uname.trim().to_owned();
-        let window = parts[0].lines().find_map(|l| l.strip_prefix(WINDOW)).map(str::to_owned);
+        let window = parts
+            .first()
+            .and_then(|p| p.lines().find_map(|l| l.strip_prefix(WINDOW)))
+            .map(str::to_owned);
         Some(Probe { uname, cloud_vm, app_managed, build, busy, refused, window })
     }
 }
