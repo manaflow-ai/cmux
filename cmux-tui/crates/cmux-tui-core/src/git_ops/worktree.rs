@@ -220,7 +220,7 @@ fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     let resolved =
         worktree_recipe::resolve(mux, main.as_deref(), main.as_deref().unwrap_or(common_dir));
     let root = worktree_setup::resolved(&attempt.root);
-    let place = worktree_setup::Place { root, main_root: main, git_dir };
+    let place = worktree_setup::Place::new(root, main, &git_dir);
     worktree_setup::start(place, resolved.recipe)
 }
 
@@ -229,7 +229,7 @@ fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
 /// ([`worktree_setup::read_small`]): a regular file only, at most 1 MiB of
 /// it, with no wait, and a link in its place is not followed.
 pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
-    let link = String::from_utf8(worktree_setup::read_small(&root.join(".git"))?).ok()?;
+    let link = String::from_utf8(worktree_setup::read_small(root, ".git")?).ok()?;
     let admin = link.trim().strip_prefix("gitdir:")?.trim();
     let admin = root.join(admin);
     admin.is_dir().then_some(admin)

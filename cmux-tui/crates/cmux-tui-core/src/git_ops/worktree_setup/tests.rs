@@ -1,7 +1,80 @@
 //! Tests of a worktree's setup: its output, its environment, its stops, its ports file and the
 //! files that it writes in a git folder.
 
+#[cfg(unix)]
+use std::fs::OpenOptions;
+
 use super::*;
+
+#[cfg(unix)]
+impl Place {
+    /// The path of the work tree's own git folder, as the place got it.
+    fn git_dir(&self) -> &Path {
+        self.own.path()
+    }
+}
+
+// Each test below names a git folder, or a file in it, by a path. These calls open the folder
+// of that path for the one call, and give the call of the same name that a setup makes with
+// the folder that it keeps.
+
+#[cfg(unix)]
+fn read_status(git_dir: &Path) -> Option<Status> {
+    super::read_status(&OwnFolder::open(git_dir))
+}
+
+#[cfg(unix)]
+fn hold(git_dir: &Path) -> Option<File> {
+    super::hold(&OwnFolder::open(git_dir))
+}
+
+#[cfg(unix)]
+fn held(git_dir: &Path) -> bool {
+    super::held(&OwnFolder::open(git_dir))
+}
+
+#[cfg(unix)]
+fn open_log(git_dir: &Path) -> Option<File> {
+    super::open_log(&OwnFolder::open(git_dir))
+}
+
+/// `path`: the status file in a git folder.
+#[cfg(unix)]
+fn write_status(path: &Path, status: &Status) -> std::io::Result<()> {
+    super::write_status(&OwnFolder::open(path.parent().unwrap()), status)
+}
+
+/// `path`: a log file in a folder.
+fn tail(path: &Path, since: u64, limit: u64) -> (String, u64, u64) {
+    let name = path.file_name().unwrap().to_str().unwrap();
+    super::tail(&OwnFolder::open(path.parent().unwrap()), name, since, limit)
+}
+
+/// The calls of the ports with the path of a work tree's own git folder: each opens the
+/// repository's git folder for the one call.
+#[cfg(unix)]
+mod ports {
+    use std::path::Path;
+    use std::time::Duration;
+
+    use super::super::{TooLarge, ports};
+
+    pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {
+        ports::lookup(ports::folder(git_dir).as_ref(), root)
+    }
+
+    pub(super) fn allocate_within(
+        git_dir: &Path,
+        root: &Path,
+        wait: Duration,
+    ) -> Result<Option<u16>, TooLarge> {
+        ports::allocate_within(ports::folder(git_dir).as_ref(), root, wait)
+    }
+
+    pub(super) fn free(git_dir: &Path, root: &Path) {
+        ports::free(ports::folder(git_dir).as_ref(), root);
+    }
+}
 
 #[test]
 fn tail_reads_from_an_offset_within_the_limit() {
@@ -18,11 +91,8 @@ fn tail_reads_from_an_offset_within_the_limit() {
 
 #[test]
 fn the_environment_has_both_names() {
-    let place = Place {
-        root: PathBuf::from("/w/fix-login"),
-        main_root: Some(PathBuf::from("/repo")),
-        git_dir: PathBuf::from("/repo/.git/worktrees/fix-login"),
-    };
+    let git_dir = Path::new("/repo/.git/worktrees/fix-login");
+    let place = Place::new(PathBuf::from("/w/fix-login"), Some(PathBuf::from("/repo")), git_dir);
     let values = place.environment(Some(40_010));
     assert_eq!(values["CMUX_ROOT_PATH"], "/repo");
     assert_eq!(values["CONDUCTOR_ROOT_PATH"], "/repo");
@@ -40,7 +110,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_above_the_size_limit() {
     let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
     let root = std::env::temp_dir().join(format!("cmux-setup-ports-{hex}"));
     fs::create_dir_all(&root).unwrap();
-    let place = Place { root: root.clone(), main_root: None, git_dir: root.clone() };
+    let place = Place::new(root.clone(), None, &root);
     let ports_file = root.join("cmux-worktree-ports.json");
     let large = "x".repeat(1024 * 1024 + 1);
     let ports = json!({large: 1}).to_string();
@@ -67,7 +137,7 @@ fn a_setup_stops_itself_when_another_host_removes_the_worktree() {
     let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
     let root = std::env::temp_dir().join(format!("cmux-setup-stop-{hex}"));
     fs::create_dir_all(&root).unwrap();
-    let place = Place { root: root.clone(), main_root: None, git_dir: root.clone() };
+    let place = Place::new(root.clone(), None, &root);
     let log = File::create(root.join(LOG_FILE)).unwrap();
     let cancel = root.join(CANCEL_FILE);
     let other_host = std::thread::spawn(move || {
@@ -92,7 +162,7 @@ fn a_setup_stops_when_its_run_is_cancelled_without_a_signal() {
     let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
     let root = std::env::temp_dir().join(format!("cmux-setup-cancel-{hex}"));
     fs::create_dir_all(&root).unwrap();
-    let place = Place { root: root.clone(), main_root: None, git_dir: root.clone() };
+    let place = Place::new(root.clone(), None, &root);
     let log = File::create(root.join(LOG_FILE)).unwrap();
     let handle = Arc::new(Run::default());
     let canceller = {
@@ -138,7 +208,7 @@ fn made_elsewhere(top: &Path) -> bool {
 /// The place of a setup in a folder of [`folder_with_a_link_in_its_git_folder_at`].
 #[cfg(unix)]
 fn place_in(top: &Path) -> Place {
-    Place { root: top.join("root"), main_root: None, git_dir: top.join("git-folder") }
+    Place::new(top.join("root"), None, &top.join("git-folder"))
 }
 
 /// The ports file is written to a `.partial` file that then takes its name. A link at the name
@@ -300,6 +370,24 @@ fn own_tree_the_stop_marker_is_made_when_there_is_none() {
     fs::remove_dir_all(top).unwrap();
 }
 
+/// A setup looks for the stop marker by its name and follows no link: a link at the marker's
+/// name stops the setup, also a link that leads to no file. The setup's command does not start.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_stop_marker_that_is_a_link_stops_the_setup() {
+    let top = folder_with_a_link_in_its_git_folder_at(CANCEL_FILE);
+    let place = place_in(&top);
+    let log = File::create(top.join("git-folder").join(LOG_FILE)).unwrap();
+    let (handle, mut status) = (Run::default(), Status::default());
+
+    let outcome =
+        shell(&place, "touch ran", None, &log, SETUP_DEADLINE, Some((&handle, &mut status, None)));
+
+    let ran = top.join("root/ran").exists();
+    fs::remove_dir_all(top).unwrap();
+    assert!(matches!(outcome, Outcome::Exited(None)) && !ran, "the setup's command started");
+}
+
 /// A log that has a second name is made new: the setup's lines go into the new log, and the
 /// file at the other name keeps its text.
 #[cfg(unix)]
@@ -413,7 +501,7 @@ fn own_tree_a_port_read_takes_no_port_lock() {
     let top = folder_with_a_port_of_its_root();
     let place = place_in(&top);
 
-    let port = with_the_port_lock_held(&top, move || ports::lookup(&place.git_dir, &place.root));
+    let port = with_the_port_lock_held(&top, move || ports::lookup(place.git_dir(), &place.root));
 
     fs::remove_dir_all(top).unwrap();
     assert_eq!(port, Some(Some(40_010)), "the read waited for the port lock");
@@ -429,7 +517,7 @@ fn own_tree_a_port_allocation_waits_a_bounded_time_for_the_port_lock() {
     let place = place_in(&top);
 
     let port = with_the_port_lock_held(&top, move || {
-        ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten()
+        ports::allocate_within(place.git_dir(), &place.root, Duration::ZERO).ok().flatten()
     });
 
     fs::remove_dir_all(top).unwrap();
@@ -446,7 +534,7 @@ fn own_tree_a_setup_read_gives_no_text_of_a_log_with_a_second_name() {
     fs::write(top.join("git-folder").join(STATUS_FILE), status).unwrap();
     let place = place_in(&top);
 
-    let reply = read(&place.root, &place.git_dir, 0);
+    let reply = read(&place.root, place.git_dir(), 0);
 
     fs::remove_dir_all(top).unwrap();
     assert_eq!((&reply["output"], &reply["state"]), (&json!(""), &json!("succeeded")), "{reply}");
@@ -488,7 +576,7 @@ fn own_tree_the_port_lock_with_a_second_name_is_made_new() {
     fs::hard_link(&elsewhere, &lock_file).unwrap();
     let place = place_in(&top);
 
-    let port = ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten();
+    let port = ports::allocate_within(place.git_dir(), &place.root, Duration::ZERO).ok().flatten();
 
     let names = fs::metadata(&elsewhere).map_or(0, |file| file.nlink());
     let (text, made) = (text_elsewhere(&top), lock_file.is_file());
@@ -563,7 +651,7 @@ fn own_tree_a_port_read_makes_no_port_lock_file() {
     let top = folder_with_a_port_of_its_root();
     let place = place_in(&top);
 
-    let port = ports::lookup(&place.git_dir, &place.root);
+    let port = ports::lookup(place.git_dir(), &place.root);
 
     let made = top.join("git-folder/cmux-worktree-ports.lock").exists();
     fs::remove_dir_all(top).unwrap();
@@ -579,9 +667,9 @@ fn own_tree_a_port_allocation_makes_no_file_through_a_link_in_the_place_of_the_p
     let place = place_in(&top);
     let root = place.root.to_string_lossy().into_owned();
     let ports = json!({root: 40_010});
-    fs::write(place.git_dir.join("cmux-worktree-ports.json"), ports.to_string()).unwrap();
+    fs::write(place.git_dir().join("cmux-worktree-ports.json"), ports.to_string()).unwrap();
 
-    let port = ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten();
+    let port = ports::allocate_within(place.git_dir(), &place.root, Duration::ZERO).ok().flatten();
 
     let made = made_elsewhere(&top);
     fs::remove_dir_all(top).unwrap();
@@ -625,7 +713,7 @@ fn own_tree_a_port_allocation_gives_the_port_with_a_named_pipe_in_the_place_of_t
     let ends = OpenOptions::new().read(true).write(true).open(&lock_file).unwrap();
     let place = place_in(&top);
 
-    let port = ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten();
+    let port = ports::allocate_within(place.git_dir(), &place.root, Duration::ZERO).ok().flatten();
 
     drop(ends);
     let stays = is_a_named_pipe(&lock_file);
@@ -648,7 +736,7 @@ fn own_tree_a_port_allocation_waits_for_no_end_of_a_named_pipe_in_the_place_of_t
 
     let (sender, receiver) = std::sync::mpsc::channel();
     let thread = std::thread::spawn(move || {
-        let _ = sender.send(ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO));
+        let _ = sender.send(ports::allocate_within(place.git_dir(), &place.root, Duration::ZERO));
     });
     let port = receiver.recv_timeout(Duration::from_secs(10)).ok();
 
@@ -667,9 +755,9 @@ fn own_tree_a_port_free_takes_the_worktree_out_of_the_list() {
     let top = folder_with_a_port_of_its_root();
     let place = place_in(&top);
 
-    ports::free(&place.git_dir, &place.root);
+    ports::free(place.git_dir(), &place.root);
 
-    let port = ports::lookup(&place.git_dir, &place.root);
+    let port = ports::lookup(place.git_dir(), &place.root);
     let list = fs::read_to_string(top.join("git-folder/cmux-worktree-ports.json"));
     fs::remove_dir_all(top).unwrap();
     assert_eq!((port, list.unwrap_or_default().as_str()), (None, "{}"));
@@ -686,7 +774,7 @@ fn own_tree_a_port_free_writes_no_list_while_the_port_lock_is_held() {
     let list = top.join("git-folder/cmux-worktree-ports.json");
     let before = fs::read_to_string(&list).unwrap();
 
-    let ended = with_the_port_lock_held(&top, move || ports::free(&place.git_dir, &place.root));
+    let ended = with_the_port_lock_held(&top, move || ports::free(place.git_dir(), &place.root));
 
     let after = fs::read_to_string(&list).unwrap_or_default();
     fs::remove_dir_all(top).unwrap();
@@ -702,11 +790,11 @@ fn own_tree_a_port_free_writes_no_list_with_a_link_in_the_place_of_the_port_lock
     let place = place_in(&top);
     let root = place.root.to_string_lossy().into_owned();
     let ports = json!({root: 40_010});
-    let list = place.git_dir.join("cmux-worktree-ports.json");
+    let list = place.git_dir().join("cmux-worktree-ports.json");
     fs::write(&list, ports.to_string()).unwrap();
     let before = fs::read_to_string(&list).unwrap();
 
-    ports::free(&place.git_dir, &place.root);
+    ports::free(place.git_dir(), &place.root);
 
     let after = fs::read_to_string(&list).unwrap_or_default();
     let made = made_elsewhere(&top);
@@ -794,7 +882,7 @@ fn own_tree_a_setup_keeps_the_folder_that_it_opened() {
     let git_dir = top.join("repository/worktrees/name");
     let gate = top.join("root/gate");
     named_pipe(&gate);
-    let place = Place { root: top.join("root"), main_root: None, git_dir: git_dir.clone() };
+    let place = Place::new(top.join("root"), None, &git_dir);
     let command = r#"read line < "$CMUX_WORKSPACE_PATH/gate""#;
     let recipe = Recipe { setup: Some(command.into()), ..Recipe::default() };
     let handle = Arc::new(Run::default());
@@ -851,7 +939,7 @@ fn own_tree_a_setup_keeps_the_ports_file_of_the_folder_that_it_opened() {
     let own = root.to_str().unwrap();
     let ports = json!({own: 40_010}).to_string();
     fs::write(top.join("repository/cmux-worktree-ports.json"), ports).unwrap();
-    let place = Place { root, main_root: None, git_dir: top.join("repository/worktrees/name") };
+    let place = Place::new(root, None, &top.join("repository/worktrees/name"));
     fs::rename(top.join("repository"), top.join("kept")).unwrap();
     std::os::unix::fs::symlink(top.join("elsewhere"), top.join("repository")).unwrap();
 

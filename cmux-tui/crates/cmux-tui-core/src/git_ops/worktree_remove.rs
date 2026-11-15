@@ -113,11 +113,8 @@ pub(super) fn dispatch(
 /// Stops the worktree's setup and runs the project's teardown in it; what
 /// the reply says of the teardown. It runs once, before the first try.
 fn run_teardown(attempt: &Attempt, git_dir: &Path, script: Option<&str>) -> Option<Value> {
-    let place = worktree_setup::Place {
-        root: worktree_setup::resolved(&attempt.root),
-        main_root: Some(attempt.main_root.clone()),
-        git_dir: git_dir.to_path_buf(),
-    };
+    let root = worktree_setup::resolved(&attempt.root);
+    let place = worktree_setup::Place::new(root, Some(attempt.main_root.clone()), git_dir);
     worktree_setup::teardown(&place, script)
 }
 
