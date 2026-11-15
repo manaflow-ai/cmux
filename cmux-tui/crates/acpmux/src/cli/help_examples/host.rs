@@ -210,7 +210,28 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Pull this machine's vault now", "acpmux machine vault pull"),
             ("See which vault env vars this machine holds", "acpmux machine vault status"),
+            (
+                "Keep a key you made, sent only to its host",
+                "mint-token | acpmux machine vault keep R2_TOKEN --host '*.r2.cloudflarestorage.com'",
+            ),
         ],
+    ),
+    (
+        "machine vault keep",
+        &[
+            (
+                "Keep a key you made; new agents get cmux-secret://R2_TOKEN, filled only toward the host",
+                "mint-token | acpmux machine vault keep R2_TOKEN --host '*.r2.cloudflarestorage.com'",
+            ),
+            (
+                "Give new agents the value itself (weaker)",
+                "mint-token | acpmux machine vault keep BUILD_TOKEN --env",
+            ),
+        ],
+    ),
+    (
+        "machine vault drop",
+        &[("Remove a kept key from this machine", "acpmux machine vault drop R2_TOKEN")],
     ),
     (
         "machine vault pull",

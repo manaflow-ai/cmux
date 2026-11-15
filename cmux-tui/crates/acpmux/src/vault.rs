@@ -24,16 +24,22 @@
 //!   delivered `machine.env`; the vault; the daemon's own environment; the
 //!   login shell's. Remote-origin launches never get them.
 //!
+//! Keys an agent made itself are kept on the machine, with no sign-in or
+//! click, and given out the same way (`acpmux machine vault keep`, `kept.rs`).
+//!
 //! The vault never carries a Claude or ChatGPT/Codex subscription login:
 //! `machine vault status` only says whether each harness is signed in here,
 //! so the person runs that harness's own sign-in on this machine.
 
 pub mod egress;
+pub mod kept;
 pub mod plan;
 pub mod pull;
 pub mod store;
 pub mod wire;
 
+#[cfg(test)]
+mod kept_tests;
 #[cfg(test)]
 mod tests;
 
@@ -294,11 +300,21 @@ pub(crate) fn entries_now() -> Vec<Given> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
-    // Before the store check has run (a machine not joined never runs it,
-    // and a launch never waits on it), there is nothing to give.
-    let Some(store) = store::for_daemon_known() else { return Vec::new() };
     let home = crate::config::home();
-    let deliver = || deliver_at(&home, &*store, &pull::current_credential, Instant::now());
+    let deliver = || {
+        // Before the store check has run (a machine not joined never runs
+        // it, and a launch never waits on it), no pulled entry is given.
+        let mut given = match store::for_daemon_known() {
+            Some(store) => deliver_at(&home, &*store, &pull::current_credential, Instant::now()),
+            None => Vec::new(),
+        };
+        // Kept keys live only in the OS store (`kept.rs`); a pulled entry
+        // of the same name wins.
+        let taken: Vec<String> = given.iter().map(|g| g.name.clone()).collect();
+        let at = Instant::now();
+        given.extend(kept::given_at(&home, &store::OsStore, &taken, at, at + LOAD_BUDGET));
+        given
+    };
     // A reload runs store commands (bounded by `LOAD_BUDGET`): on a Tokio
     // worker, the runtime moves its other tasks off this thread first.
     match tokio::runtime::Handle::try_current() {
@@ -405,7 +421,18 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
         h.update([u8::from(*revoked)]);
     }
     let credential: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
-    let file = match file {
+    let file = stamp_text(file);
+    let kept = stamp_text(stamp_of(&kept::path(home)));
+    format!(
+        "{file};held={};cred={credential};kept={kept};egress={}",
+        pull::held(home),
+        egress::stamp()
+    )
+}
+
+/// A file's identity as text: its length, modified time and inode.
+fn stamp_text(file: Option<Stamp>) -> String {
+    match file {
         None => "none".to_owned(),
         Some(s) => {
             #[cfg(unix)]
@@ -418,8 +445,7 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
                 .map_or(0, |d| d.as_nanos());
             format!("{}:{at}:{ino}", s.len)
         }
-    };
-    format!("{file};held={};cred={credential};egress={}", pull::held(home), egress::stamp())
+    }
 }
 
 /// The longest the first agent spawn waits for the first pull of a joined
