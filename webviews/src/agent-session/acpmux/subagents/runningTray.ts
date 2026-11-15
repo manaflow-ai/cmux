@@ -21,7 +21,7 @@ import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 import { resumedRun } from "./resumeState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
-import { PrefixFlatCache } from "../conversation/prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFlatCache } from "../conversation/prefixFlatMap";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -465,25 +465,85 @@ export function withSubagentLines(
     }
   });
   const marks = [...new Set([...changed.keys(), ...before.keys()])].sort((a, b) => a - b);
-  const out: AcpmuxRow[] = [];
-  const flush = (at: number) => {
-    const lines = before.get(at);
-    if (lines) out.push(...lines.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)));
-  };
-  let next = 0;
+  // What each mark draws in place of its row (or after the last row): its done lines, then the row
+  // as drawn. Worked out for every mark (a few per group), so the lines' cache keeps all of them.
+  const emitted = new Map<number, AcpmuxRow[]>();
   for (const mark of marks) {
-    for (; next < mark && next < rows.length; next += 1) out.push(rows[next]!);
-    flush(mark);
-    if (mark >= rows.length) continue;
-    const draw = changed.get(mark);
-    if (draw) out.push(...draw(rows[mark]!));
-    else out.push(rows[mark]!);
-    next = mark + 1;
+    const drawn: AcpmuxRow[] = [];
+    const lines = before.get(mark);
+    if (lines) drawn.push(...lines.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)));
+    if (mark < rows.length) {
+      const draw = changed.get(mark);
+      if (draw) drawn.push(...draw(rows[mark]!));
+      else drawn.push(rows[mark]!);
+    }
+    emitted.set(mark, drawn);
   }
-  for (; next < rows.length; next += 1) out.push(rows[next]!);
   // Only this pass's lines stay cached, so another chat's do not pile up.
   for (const id of cache.keys()) if (!made.has(id)) cache.delete(id);
+  const last = lastLines.get(cache);
+  const kept = last ? keptLinesPrefix(last, rows, marks, emitted) : undefined;
+  let out: AcpmuxRow[] = [];
+  let next = 0;
+  let markAt = 0;
+  if (kept) {
+    // The rows before the first one this snapshot changed, and every mark before it, draw as last
+    // time: one copy of the last pass's rows for them, not a push per row of the chat on every
+    // streamed update (the god chat's subagent chains made each token copy its 35,000 rows).
+    out = last!.out.slice(0, kept.drawn);
+    next = kept.rows;
+    markAt = kept.marks;
+  }
+  for (const mark of marks.slice(markAt)) {
+    for (; next < mark && next < rows.length; next += 1) out.push(rows[next]!);
+    out.push(...emitted.get(mark)!);
+    if (mark < rows.length) next = mark + 1;
+  }
+  for (; next < rows.length; next += 1) out.push(rows[next]!);
+  // The passes after this one start past the kept rows with no walk.
+  if (kept && kept.drawn > 0) noteKeptPrefix(out, last!.out, kept.drawn);
+  lastLines.set(cache, { source: rows, out, marks, emitted });
   return out;
+}
+
+/// The last `withSubagentLines` pass of each chat, by its lines' cache (one per pane), for the next
+/// snapshot to keep the rows it drew for the rows that snapshot kept.
+type LinesPass = {
+  source: readonly AcpmuxRow[];
+  out: readonly AcpmuxRow[];
+  marks: readonly number[];
+  emitted: ReadonlyMap<number, readonly AcpmuxRow[]>;
+};
+const lastLines = new WeakMap<DoneLineCache, LinesPass>();
+
+/// How much of `last`'s drawn rows the pass over `rows` keeps (pure): the rows before the first that
+/// differs from `last.source` (by object) and before the first mark that draws other rows than it
+/// did, with the drawn rows, source rows and marks that covers. Undefined when it keeps nothing.
+function keptLinesPrefix(
+  last: LinesPass,
+  rows: readonly AcpmuxRow[],
+  marks: readonly number[],
+  emitted: ReadonlyMap<number, readonly AcpmuxRow[]>,
+): { drawn: number; rows: number; marks: number } | undefined {
+  let bound = keptPrefix(last.source, rows);
+  let at = 0;
+  let added = 0;
+  for (; at < marks.length && marks[at]! < bound; at += 1) {
+    const mark = marks[at]!;
+    const now = emitted.get(mark)!;
+    const before = last.emitted.get(mark);
+    if (!before || before.length !== now.length || before.some((row, index) => row !== now[index])) {
+      bound = mark;
+      break;
+    }
+    added += now.length - 1;
+  }
+  // A mark the last pass drew before the bound that this one does not draw ends the kept rows too.
+  let lastBelow = 0;
+  while (lastBelow < last.marks.length && last.marks[lastBelow]! < bound) lastBelow += 1;
+  if (lastBelow !== at || bound === 0) return undefined;
+  const drawn = bound + added;
+  return drawn <= last.out.length ? { drawn, rows: bound, marks: at } : undefined;
 }
 
 const NO_ROWS: readonly AcpmuxRow[] = [];
