@@ -52,6 +52,8 @@ with live_apply.py's rules:
          NIGHTLY), takes the ad hoc library as is; another Developer ID app loads only libraries of
          its team: --sign-identity signs with that team's identity, --reseal signs the app ad hoc
          too (hot_apply_ffi.py has the rules). The rust part rides with it; without it, both are left.
+         A commit that only moves the pin (app-ffi-repin) takes this part too: the app links the
+         release its commit pins, which lags its FFI sources, so SHA's pinned release replaces it.
   left   what needs a new app: Swift, resources and manifests, Rust the app links (statically), a web ABI
          change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
          keep the app's build while the daemon part still applies), and a Rust build not signed as
@@ -199,10 +201,6 @@ SHA = re.compile(r"[0-9a-f]{40}")
 # What a temporary checkout of SHA needs to compute its web source key (web-bundle-key.py reads
 # the files): everything but the large folders no web bundle imports.
 WEB_KEY_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghostty/"]
-# Native sources under cmux-tui/ (a companion's shim, the Zig binding): live_apply.py files them as "resource or
-# manifest", but the cmux-tui tree build compiles them, so they go with the Rust part, and linked_rust keeps an app
-# FFI crate's out of it (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
-NATIVE_IN_TUI = re.compile(r"^cmux-tui/.+\.(c|h|m|mm|zig)$")
 
 
 class Phases:
@@ -538,9 +536,9 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
         meta, path = entry.split("\t", 1)
         blobs[path] = meta.split()[2]
     files = live_apply.classify([("M", p) for p in blobs], {})["files"]
-    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    shell = [p for p in files.get("rebuild", []) if p not in native] + files.get("swift-live", [])
-    daemon = files.get("daemon", []) + native
+    # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
+    shell = files.get("rebuild", []) + files.get("swift-live", [])
+    daemon = files.get("daemon", [])
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
@@ -647,8 +645,11 @@ def keys_plan(app: Path, sha: str, base: str, given_base: bool, unsigned: bool =
 def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None = None, unsigned: bool = False) -> dict:
     with PHASES("plan"):
         if not branch:
-            planned = keys_plan(app, sha, base or app_commit(app, repo), bool(base), unsigned)
-            if planned:
+            app_base = base or app_commit(app, repo)
+            planned = keys_plan(app, sha, app_base, bool(base), unsigned)
+            # The keys compare FFI sources, but an app links the release its commit pins, which lags them: a
+            # commit that moves the pin is planned from the diff, where the ffi part reads both pins.
+            if planned and not ffi_part.pin_moved(repo, app_base, sha):
                 return planned
         return _plan(repo, app, sha, branch, base, unsigned)
 
@@ -664,9 +665,8 @@ def pins_daemon(repo: Path, commit: str) -> list[str]:
     if not SHA.fullmatch(parent or ""):
         return [f"{commit} has no parent here"]
     files = live_apply.classify_range(str(repo), parent, commit)["files"]
-    # The same files `plan` checks: its daemon part, with cmux-tui's own native sources moved onto it.
-    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    return linked_rust(repo, sorted(set(rust)))
+    # The same files `plan` checks: its daemon part, cmux-tui's own native sources included.
+    return linked_rust(repo, sorted(set(files.get("daemon", []))))
 
 
 def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
@@ -723,10 +723,6 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
-    if native:
-        files["rebuild"] = [p for p in files["rebuild"] if p not in native]
-        files["daemon"] = sorted(set(files.get("daemon", [])) | set(native))
     for kind in ("swift-live", "rebuild"):
         if files.get(kind):
             out["left"][kind] = files[kind]
@@ -769,6 +765,26 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
                 out["left"]["bundled helpers (cmux-mobile-host, ...)"] = helpers
+    if not branch and "ffi" not in out["parts"] and "Rust the app links (FFI)" not in out["left"]:
+        # No FFI source changed after the app's commit, but SHA may pin a newer release than the app runs (the
+        # pin lags the sources until app-ffi-repin lands): that release is what SHA's app would carry.
+        try:
+            moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
+            if moved:
+                out["ffi"] = {**moved, "files": [ffi_part.PIN_FILE]}
+                out["parts"].append("ffi")
+        except ffi_part.Left as why:
+            out["notes"].append(f"ffi: {why}")
+    if "ffi" in out["parts"]:
+        # Moving the pin is the ffi part's own change, not a Swift one.
+        packaging = ffi_part.pin_packaging(repo, since, sha)
+        for kind in ("swift-live", "rebuild"):
+            if kind in out["left"]:
+                rest = [p for p in out["left"][kind] if p not in packaging]
+                if rest:
+                    out["left"][kind] = rest
+                else:
+                    del out["left"][kind]
     return out
 
 
