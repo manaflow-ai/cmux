@@ -8,9 +8,7 @@ import CmuxNextDesign
 final class TitlebarView: NSView, TitlebarPressDeciding {
     private let label = ChromeLabel(labelWithString: "") // a layer color: a theme change blends it (I5)
 
-    var title: String = "" {
-        didSet { label.stringValue = title }
-    }
+    var title: String = "" { didSet { label.stringValue = title } }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -26,6 +24,7 @@ final class TitlebarView: NSView, TitlebarPressDeciding {
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Metrics.space5),
         ])
         setAccessibilityElement(false)
+        identifier = CustomizeElementHit.identifier("titlebar") // the Customize Inspector's title bar
     }
 
     @available(*, unavailable)

@@ -1,0 +1,118 @@
+{
+  "title": "Customize Inspector: hold Option over a part of the window to see what changes it",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace app",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Open app",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "focus"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Hold Option (the shortcut hints' hold, which starts the inspector)",
+      "rpc": {
+        "method": "debug.shortcut_hints",
+        "params": {
+          "modifier": "opt"
+        }
+      },
+      "wait": 0.6,
+      "shot": false,
+      "optional": "debug.shortcut_hints is DEBUG only"
+    },
+    {
+      "title": "Option over the pane: its outline and card",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "move",
+          "x": 640,
+          "y": 420,
+          "modifiers": [
+            "option"
+          ]
+        }
+      },
+      "wait": 1.2,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Option over the sidebar",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "move",
+          "x": 80,
+          "y": 260,
+          "modifiers": [
+            "option"
+          ]
+        }
+      },
+      "wait": 1.2,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Option over a tab",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "move",
+          "x": 330,
+          "y": 52,
+          "modifiers": [
+            "option"
+          ]
+        }
+      },
+      "wait": 1.2,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Option over the tab bar",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "move",
+          "x": 900,
+          "y": 52,
+          "modifiers": [
+            "option"
+          ]
+        }
+      },
+      "wait": 1.2,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Change This… from the card: a chat about the tab bar",
+      "cmux": [
+        "action",
+        "run",
+        "customize.open",
+        "--arg",
+        "element=tabBar"
+      ],
+      "wait": 2.5
+    }
+  ]
+}

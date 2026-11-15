@@ -26,6 +26,8 @@ nonisolated struct RustActionCatalog: Sendable {
     let paletteDuplicates: [ActionID: ActionID]
     let categories: [ActionCategory: (title: String, titleKey: String, titleTable: String)]
     let folders: [MenuFolder: (title: String, symbol: String, group: MenuGroup)]
+    /// The Customize… element map (cmux-action-catalog `customize_elements`).
+    let customizeElements: [CustomizeElement]
 
     /// In the language the app's own strings resolve to: the bundle negotiates the person's whole
     /// preference list against the localizations it ships (Swedish, Japanese, English gives
@@ -113,6 +115,7 @@ nonisolated struct RustActionCatalog: Sendable {
             folders[folder] = (row["title"] as? String ?? id, row["symbol"] as? String ?? "folder", group)
         }
         self.folders = folders
+        customizeElements = (root["customize_elements"] as? [[String: Any]] ?? []).compactMap(CustomizeElement.init(row:))
     }
 
     /// `actions` without what only a Debug build has (its handlers are compiled out of Release):

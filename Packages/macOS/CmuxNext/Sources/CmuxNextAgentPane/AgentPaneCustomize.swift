@@ -1,4 +1,6 @@
 public import CmuxNextActions
+import CmuxNextDesign
+import CmuxNextSettings
 
 // Customize… (`customize.open`, the palette and the app menu): customize cmux by asking with no
 // terminal (cmuxterm-hq `plans/cmux-next/customize-by-asking/DESIGN.md`). It runs New Agent
@@ -26,8 +28,39 @@ extension ActionInvocation {
     public var customizing: ActionInvocation {
         var invocation = self
         if invocation.arguments["draft"]?.stringValue?.isEmpty ?? true {
-            invocation.arguments["draft"] = .string(AgentPaneSeed.customizeDraft)
+            invocation.arguments["draft"] = .string(AgentPaneSeed.customizeDraft(for: invocation["element"]?.stringValue.flatMap(CustomizeElement.named)))
         }
         return invocation
+    }
+}
+
+extension AgentPaneSeed {
+    /// The composer's first text for Customize… about `element` (the right-click row, the Customize
+    /// Inspector's Change This…): the command and the part's name, so the wish follows it
+    /// (`/customize Tab Bar: `). Without one, ``customizeDraft``.
+    public static func customizeDraft(for element: CustomizeElement?) -> String {
+        element.map { customizeDraft + $0.title + ": " } ?? customizeDraft
+    }
+}
+
+extension ActionRegistry {
+    /// Reset Element to Defaults (`customize.reset`): every setting the element map names for the
+    /// `element` argument goes back to its default (the key is removed), the Customize Inspector's
+    /// Reset. Only those keys; a key the schema retired or never had is skipped.
+    func bindCustomizeReset(settings: @escaping @MainActor () -> SettingsController?) -> Bool {
+        bindEffect(ActionID(rawValue: CustomizeElement.resetActionID)) { invocation in
+            guard let element = invocation["element"]?.stringValue.flatMap(CustomizeElement.named) else { return .done }
+            guard let controller = settings() else { return .done }
+            let writer = SettingWriter(invocation.origin)
+            let paths = element.settings.map { $0.split(separator: ".").map(String.init) }
+            return .applied(result: {
+                for path in paths where SettingsSchema.descriptor(for: path) != nil {
+                    do { try await controller.setSetting(at: path, to: nil, by: writer) } catch {
+                        return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)))
+                    }
+                }
+                return .success([:])
+            })
+        }
     }
 }

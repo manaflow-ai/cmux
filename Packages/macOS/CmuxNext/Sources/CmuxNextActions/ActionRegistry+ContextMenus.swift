@@ -30,7 +30,7 @@ extension ActionRegistry {
         menu.autoenablesItems = true
         let shown = entries ?? contextMenuEntries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
         menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels,
-                  machineID: machineID).forEach(menu.addItem)
+                  machineID: machineID, element: CustomizeElement.element(for: context)?.id).forEach(menu.addItem)
         if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context) }
         return menu
     }
@@ -101,13 +101,17 @@ extension ActionRegistry {
     }
 
     private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext, implied: ActionContext,
-                           arguments: [String: ActionValue], labels: [ActionID: String] = [:], machineID: String? = nil) -> [NSMenuItem] {
+                           arguments: [String: ActionValue], labels: [ActionID: String] = [:], machineID: String? = nil,
+                           element: String? = nil) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         for entry in entries {
             switch entry {
             case .separator:
                 if let last = items.last, !last.isSeparatorItem { items.append(.separator()) }
             case .action(let id):
+                // Customize… names the element its menu belongs to (the Rust element map, `CustomizeElement`).
+                var arguments = arguments
+                if id.rawValue == CustomizeElement.openActionID, let element, arguments["element"] == nil { arguments["element"] = .string(element) }
                 var invocation = ActionInvocation(target: target, arguments: arguments)
                 invocation.targetMachineID = machineID
                 guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
@@ -123,7 +127,7 @@ extension ActionRegistry {
                 items.append(item)
             case .submenu(let id, let children):
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
-                                           machineID: machineID)
+                                           machineID: machineID, element: element)
                 guard !childItems.isEmpty, let title = labels[id] ?? title(for: id) else { continue }
                 let item = NSMenuItem(title: title.droppingEllipsis, action: nil, keyEquivalent: "")
                 item.image = descriptor(for: id).flatMap { rowIcon($0.symbol) }
@@ -133,7 +137,7 @@ extension ActionRegistry {
                 items.append(item)
             case .folder(let folder, let children):
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
-                                           machineID: machineID)
+                                           machineID: machineID, element: element)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
                 item.image = rowIcon(folder.symbol)
@@ -144,7 +148,7 @@ extension ActionRegistry {
             case .group(let group, let children):
                 // The person's own submenu (Settings > Menus): their title, no icon.
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
-                                           machineID: machineID)
+                                           machineID: machineID, element: element)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: group.title, action: nil, keyEquivalent: "")
                 let submenu = NSMenu(title: group.title)

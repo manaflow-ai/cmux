@@ -1,5 +1,6 @@
 public import CmuxNextActions
 import CmuxNextDesign
+public import CmuxNextSettings
 public import Foundation
 
 // The agent pane's actions. Descriptors live in CmuxNextActions
@@ -115,13 +116,14 @@ extension ActionRegistry {
     /// runs it too, with a `draft` argument.
     /// Returns false when a descriptor is missing from the catalog.
     @discardableResult
-    public func bindAgentPane(openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
+    public func bindAgentPane(settings: @escaping @MainActor () -> SettingsController? = { nil },
+                              openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
         // Customize… opens the same new chat with `/customize ` in its composer (AgentPaneCustomize.swift).
         let customize = bindEffect(.customizeOpen) { invocation in
             openNewChat(invocation.customizing)
             return .done
         }
-        return bind(.newAgentChat, invoke: openNewChat) && customize
+        return bind(.newAgentChat, invoke: openNewChat) && customize && bindCustomizeReset(settings: settings)
     }
 
     /// Binds Show ACP Inspector. `toggle` toggles the inspector of the agent

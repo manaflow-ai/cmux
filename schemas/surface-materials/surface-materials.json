@@ -116,6 +116,7 @@
     "CmuxNextFloating/ChiefPet/ChiefPetRail.swift": "native-overlay",
     "CmuxNextFloating/ChiefPet/ChiefPetReplyPanel.swift": "native-overlay",
     "CmuxNextFloating/QuickComposer/QuickComposerPanel.swift": "web-host",
+    "CmuxNextFocusUI/CustomizeInspectorViews.swift": "native-overlay",
     "CmuxNextFocusUI/WhichKey/WhichKeyOverlay.swift": "native-overlay",
     "CmuxNextHome/Conversations/HomeGroupInfoSheet.swift": "native-overlay",
     "CmuxNextHome/Conversations/HomeSheetController.swift": "native-overlay",

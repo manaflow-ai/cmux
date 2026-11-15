@@ -23,11 +23,13 @@ final class WindowShortcutHints {
     init(controller: WindowController) {
         self.controller = controller
         guard let window = controller.window else { return }
+        let inspector = CustomizeInspector(window: window, registry: controller.services.registry) // hold Option over the window: what customizes each part
         controller.root.addSubview(overlay, positioned: .above, relativeTo: nil)
         overlay.setAccessibilityElement(false)
         monitor = WindowScopedShortcutHintModifierMonitor(window: window, keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
             self?.held = flags
             self?.refresh()
+            inspector.holdChanged(flags)
         }
         // Chips are a snapshot of where rows, tabs and panes are. A scroll moves them without a window
         // layout, so a scroll in this window while chips show re-places them.
