@@ -7,11 +7,12 @@ public import Foundation
 /// hands ``edit(json:file:)`` to the settings module (`SettingsEditSender`), so every write of the
 /// Settings page, the palette, the control socket and the launch passes comes here.
 public nonisolated struct DaemonSettingsFile: Sendable {
-    let daemon: @MainActor @Sendable () -> DaemonService?
+    /// The daemon's connection while it can take a settings write (``DaemonService/settingsWriteConnection``).
+    let connection: @MainActor @Sendable () -> DaemonConnection?
     private let served = ServedFiles()
 
-    public init(daemon: @escaping @MainActor @Sendable () -> DaemonService?) {
-        self.daemon = daemon
+    public init(connection: @escaping @MainActor @Sendable () -> DaemonConnection?) {
+        self.connection = connection
     }
 
     /// Applies `json` (the `settings.edit` edits, `[{op, path, value?}]`) to the settings file at
@@ -19,11 +20,7 @@ public nonisolated struct DaemonSettingsFile: Sendable {
     /// cannot take the write: not live, without `settings-edit-v1`, or its owner serves another file
     /// than `file` (a daemon another build started). Nothing queues.
     public func edit(json: String, file: URL) async throws -> [Int]? {
-        let connection = await MainActor.run { () -> DaemonConnection? in
-            guard let daemon = daemon(), daemon.isLive, daemon.supports(DaemonCapability.settingsEdit.rawValue) else { return nil }
-            return daemon.connection
-        }
-        guard let connection else { return nil }
+        guard let connection = await self.connection() else { return nil }
         let client = SettingsFileClient(connection: connection)
         guard try await served.path(of: connection, client) == file.standardizedFileURL.path else { return nil }
         let edits = try JSONDecoder().decode([JSONValue].self, from: Data(json.utf8))
@@ -46,5 +43,10 @@ public nonisolated struct DaemonSettingsFile: Sendable {
 
 extension DaemonService {
     /// This daemon as the writer of cmux-next.json (the home daemon's, at launch).
-    public var settingsFile: DaemonSettingsFile { DaemonSettingsFile { [weak self] in self } }
+    public var settingsFile: DaemonSettingsFile { DaemonSettingsFile { [weak self] in self?.settingsWriteConnection } }
+
+    /// The connection while this daemon is live and serves `settings-edit-v1`, else nil.
+    var settingsWriteConnection: DaemonConnection? {
+        isLive && supports(DaemonCapability.settingsEdit.rawValue) ? connection : nil
+    }
 }
