@@ -360,7 +360,7 @@ impl WebSocket {
         while let Some((fin, opcode, payload, used)) = decode_frame(&self.buf)? {
             self.buf.drain(..used);
             match opcode {
-                0x0 | 0x1 | 0x2 => {
+                0x0..=0x2 => {
                     self.partial.extend_from_slice(&payload);
                     if self.partial.len() > MAX_MESSAGE {
                         return Err("WebSocket message too large".into());
@@ -417,8 +417,11 @@ pub fn encode_frame(opcode: u8, payload: &[u8]) -> Res<Vec<u8>> {
     Ok(frame)
 }
 
-/// One complete frame at the start of `buf`: (fin, opcode, unmasked payload, bytes used).
-pub fn decode_frame(buf: &[u8]) -> Res<Option<(bool, u8, Vec<u8>, usize)>> {
+/// One decoded frame: (fin, opcode, unmasked payload, bytes used).
+pub type Frame = (bool, u8, Vec<u8>, usize);
+
+/// One complete frame at the start of `buf`.
+pub fn decode_frame(buf: &[u8]) -> Res<Option<Frame>> {
     if buf.len() < 2 {
         return Ok(None);
     }

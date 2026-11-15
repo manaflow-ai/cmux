@@ -78,6 +78,7 @@ impl Hub {
         self.user_id.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    #[cfg(test)]
     pub fn signing_key(&self) -> String {
         self.signer.public_key()
     }

@@ -51,6 +51,7 @@ impl CaptureBackend {
     /// module (`portal.rs`, `pipewire_capture.rs`, feature `portal`); a build without it
     /// fails a portal session with [`PORTAL_NOT_BUILT_IN`] instead of streaming a black or
     /// wrong screen.
+    #[cfg(any(feature = "link", not(all(feature = "portal", target_os = "linux"))))]
     pub fn available(self) -> Result<(), String> {
         match self {
             CaptureBackend::X11 => Ok(()),
@@ -62,6 +63,7 @@ impl CaptureBackend {
 
 /// The reason a Wayland session cannot be shared by this build (shown to the viewer; the
 /// app localizes it by this exact text).
+#[cfg(any(feature = "link", not(all(feature = "portal", target_os = "linux"))))]
 pub const PORTAL_NOT_BUILT_IN: &str =
     "portal capture not built in: this cmux cannot share a Wayland screen yet (run an X11 session, or pass --capture x11 with an X display)";
 
@@ -123,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "portal", target_os = "linux"))]
+    #[cfg(all(feature = "portal", target_os = "linux", feature = "link"))]
     fn portal_is_available_when_built_in() {
         assert_eq!(CaptureBackend::X11.available(), Ok(()));
         assert_eq!(CaptureBackend::Portal.available(), Ok(()));
