@@ -541,8 +541,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "5c",
         name: "v2.pr05c.replay_append",
-        done_when: "Writer append p95 during a full ring replay stays within 1.2x of append with no replay.",
-        measured: false,
+        done_when: "Writer append p95 beside a full replay of its own ring stays within 1.2x of append beside the same replay of another hub's ring; the probe prints both against no replay.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,

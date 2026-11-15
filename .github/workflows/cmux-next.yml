@@ -6379,7 +6379,7 @@ jobs:
     name: same-tree status (daemon)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
-    timeout-minutes: 15
+    timeout-minutes: 64
     permissions:
       actions: read
       checks: read
@@ -6429,7 +6429,7 @@ jobs:
     name: same-tree status (scheme)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
-    timeout-minutes: 15
+    timeout-minutes: 64
     permissions:
       actions: read
       checks: read
@@ -7132,9 +7132,15 @@ jobs:
           # One deadline for the pending post and the wait (40 min); the terminal post comes after it
           # (at most POST_BUDGET 600 s plus one 40 s try), so the step (56 min) and the App token (60 min) outlast both.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
+          # post()'s rate-limit waits end here: the step's 56 min less a last try, inside the token's hour.
+          post_end=$((SECONDS + ${POST_END_SECONDS:-3240}))
           # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a refused status post)
           post() {  # state, description, target url[, seconds it may wait; POST_BUDGET (600) by default]
-            local body code said pause min tries=0 until=$((SECONDS + ${4:-${POST_BUDGET:-600}}))
+            local body code said pause min limited tries=0 until=$((SECONDS + ${4:-${POST_BUDGET:-600}})) cap
+            # A spent pool's x-ratelimit-reset (up to an hour away) is waited for until the step's own end (post_end),
+            # not POST_BUDGET: cmux#43659's passed compile stayed pending 2.5 h after one refused try. An explicit
+            # budget (the pending post's) still bounds every wait.
+            cap=$until; [[ -z "${4:-}" ]] && (( ${post_end:-0} > until )) && cap=$post_end
             local out="$RUNNER_TEMP/status-post.out" hdr="$RUNNER_TEMP/status-post.hdr"
             body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
               '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
@@ -7149,9 +7155,9 @@ jobs:
               # A GitHub rate limit (a 403 or 429 that says so) waits as asked, at least LIMIT_GAP and twice as long each
               # time: a retry inside a secondary limit extends it. A 5xx or no answer: again in POST_GAP. Anything else
               # (a bad token, a missing permission) is final at once.
-              pause=""
+              pause="" limited=""
               if [[ "$code" =~ ^(403|429)$ ]] && grep -qiE 'rate limit|^retry-after:|^x-ratelimit-remaining: *0' "$out" "$hdr"; then
-                said="$said (rate limited)"
+                said="$said (rate limited)" limited=1
                 pause="$(grep -iE '^retry-after: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
                 if grep -qiE '^x-ratelimit-remaining: *0\b' "$hdr"; then
                   min="$(grep -iE '^x-ratelimit-reset: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
@@ -7162,8 +7168,9 @@ jobs:
               elif [[ "$code" =~ ^(000|5[0-9][0-9])$ ]]; then
                 pause="${POST_GAP:-10}"
               fi
-              if [[ -z "$pause" ]] || (( tries >= 6 || SECONDS + pause > until )); then
+              if [[ -z "$pause" ]] || (( tries >= 6 || SECONDS + pause > (limited ? cap : until) )); then
                 echo "::warning title=Compile check::GitHub refused the $1 status for cmux-next/compile after $tries tries: $said"
+                post_said="$said"
                 return 1
               fi
               echo "::warning title=Compile check::GitHub refused the $1 status ($said); posting again in $pause s"
@@ -7229,6 +7236,7 @@ jobs:
             exit 1
           fi
           log_url="$(jq -r '.log_url // empty' "$reply" 2>/dev/null || true)"
+          post_said=""
           [[ "$log_url" =~ ^https://github\.com/ ]] || log_url="$RUN_URL"
           case "$state" in
             pass) post success "The app compiled and linked in SwiftPM Release (-Onone)" "$log_url" && exit 0 ;;
@@ -7237,6 +7245,8 @@ jobs:
             mismatch|unreadable) post failure "[no-verdict] The compile result does not match this head; re-run this job" "$RUN_URL" || true ;;
             *) post failure "[no-verdict] No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" || true ;;
           esac
+          # NO_VERDICT: a verdict GitHub never took leaves the status as last posted (pending); say so and how to fix.
+          [[ -z "$post_said" ]] || echo "::error title=Compile check::NO_VERDICT: GitHub refused the cmux-next/compile verdict (${state:-no result}) for $SHA ($post_said); its status stays as last posted: re-run this job, $RUN_URL"
           echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (${state:-no result})"
           exit 1
 
@@ -7248,7 +7258,7 @@ jobs:
     name: cmux-next fleet Release compile (handoff)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
-    timeout-minutes: 16
+    timeout-minutes: 58
     permissions: {}
     steps:
       - name: Mint the cmux-bot status token
@@ -7263,7 +7273,7 @@ jobs:
           permission-statuses: write
 
       - name: Publish the fallback's verdict as cmux-next/compile
-        timeout-minutes: 12
+        timeout-minutes: 56
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -7274,6 +7284,8 @@ jobs:
           MAC: ${{ needs.release-compile.result }}
         run: |
           set -uo pipefail
+          # post()'s rate-limit waits end here: the step's 56 min less a last try, inside the token's hour.
+          post_end=$((SECONDS + ${POST_END_SECONDS:-3240}))
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
           # The fast check's own verdict (a gateway's fleet compile) first, else the Mac Release compile.
           case "$FAST/$MAC" in
@@ -7283,7 +7295,11 @@ jobs:
           esac
           # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a refused status post)
           post() {  # state, description, target url[, seconds it may wait; POST_BUDGET (600) by default]
-            local body code said pause min tries=0 until=$((SECONDS + ${4:-${POST_BUDGET:-600}}))
+            local body code said pause min limited tries=0 until=$((SECONDS + ${4:-${POST_BUDGET:-600}})) cap
+            # A spent pool's x-ratelimit-reset (up to an hour away) is waited for until the step's own end (post_end),
+            # not POST_BUDGET: cmux#43659's passed compile stayed pending 2.5 h after one refused try. An explicit
+            # budget (the pending post's) still bounds every wait.
+            cap=$until; [[ -z "${4:-}" ]] && (( ${post_end:-0} > until )) && cap=$post_end
             local out="$RUNNER_TEMP/status-post.out" hdr="$RUNNER_TEMP/status-post.hdr"
             body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
               '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
@@ -7298,9 +7314,9 @@ jobs:
               # A GitHub rate limit (a 403 or 429 that says so) waits as asked, at least LIMIT_GAP and twice as long each
               # time: a retry inside a secondary limit extends it. A 5xx or no answer: again in POST_GAP. Anything else
               # (a bad token, a missing permission) is final at once.
-              pause=""
+              pause="" limited=""
               if [[ "$code" =~ ^(403|429)$ ]] && grep -qiE 'rate limit|^retry-after:|^x-ratelimit-remaining: *0' "$out" "$hdr"; then
-                said="$said (rate limited)"
+                said="$said (rate limited)" limited=1
                 pause="$(grep -iE '^retry-after: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
                 if grep -qiE '^x-ratelimit-remaining: *0\b' "$hdr"; then
                   min="$(grep -iE '^x-ratelimit-reset: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
@@ -7311,8 +7327,9 @@ jobs:
               elif [[ "$code" =~ ^(000|5[0-9][0-9])$ ]]; then
                 pause="${POST_GAP:-10}"
               fi
-              if [[ -z "$pause" ]] || (( tries >= 6 || SECONDS + pause > until )); then
+              if [[ -z "$pause" ]] || (( tries >= 6 || SECONDS + pause > (limited ? cap : until) )); then
                 echo "::warning title=Compile check::GitHub refused the $1 status for cmux-next/compile after $tries tries: $said"
+                post_said="$said"
                 return 1
               fi
               echo "::warning title=Compile check::GitHub refused the $1 status ($said); posting again in $pause s"
@@ -7320,7 +7337,7 @@ jobs:
             done
           }
           post "$state" "$d" "$RUN_URL" \
-            || { echo "::error title=Compile check::could not post the fallback's verdict"; exit 1; }
+            || { echo "::error title=Compile check::NO_VERDICT: could not post the fallback's verdict ($state) for $SHA (${post_said:-refused}); its status stays as last posted: re-run this job, $RUN_URL"; exit 1; }
           echo "cmux-next/compile: $state ($d)"
           # The needs_verdict rule's words: a fallback's red is a red, nothing ran is no verdict (exit 3).
           [[ "$state" != error ]] || { echo "::error::no verdict: cmux-next/compile for $SHA: the results service was down and no fallback compile ran ($FAST/$MAC); re-run all jobs"; exit 3; }
