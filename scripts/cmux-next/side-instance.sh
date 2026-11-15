@@ -16,7 +16,7 @@
 #   side-instance.sh path NAME      the copy's .app
 #   side-instance.sh socket NAME    the copy's control socket (CMUX_NEXT_SOCKET_PATH in its LSEnvironment), for
 #                                   `cmux --app-socket` and hot-verify.py: NAME/control.sock, or
-#                                   /tmp/cmux-side-<hash>.sock when that is too long for a Unix socket
+#                                   cmux-side-<hash>.sock in the per-user TMPDIR when that is too long for a Unix socket
 #   side-instance.sh list           the side instances and whether each runs
 #   side-instance.sh remove NAME    stop it, then delete the folder make wrote and the state the copy
 #                                   kept under its build key (App Support, ~/.acpmux, ~/.cmux/chief:
@@ -160,8 +160,15 @@ case "$cmd" in
     plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
     # A control socket at a path this script names (LaunchIdentity reads CMUX_NEXT_SOCKET_PATH), so a driver
     # (hot-verify.py, `cmux --app-socket`) finds the copy without reading its process's open files.
+    # A Unix socket path is at most 104 bytes on macOS (LC_ALL=C: ${#} counts bytes). Past that, the user's own
+    # temp folder (launchd's per-user TMPDIR, mode 0700), never shared /tmp where another user could plant it.
     sock="$dir/control.sock"
-    (( ${#sock} <= 100 )) || sock="/tmp/cmux-side-$(printf %s "$dir" | shasum | cut -c1-12).sock"
+    if (( $(LC_ALL=C; printf %s "$sock" | wc -c) > 100 )); then
+      private="${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)}"
+      [[ -n "$private" && -d "$private" ]] || die "no per-user temp folder (TMPDIR) for $name's control socket"
+      sock="${private%/}/cmux-side-$(printf %s "$dir" | shasum | cut -c1-12).sock"
+      (( $(printf %s "$sock" | wc -c) <= 103 )) || die "$name's control socket path is too long: $sock"
+    fi
     plist_set "$plist" LSEnvironment:CMUX_NEXT_SOCKET_PATH "$sock"
     # Chromium's mock keychain (CEFSwitches): the copy has no Keychain group, so the real one only asks for the
     # login keychain's password ("cmux NAME wants to use the ... keychain") on a host where it is locked, a fleet
