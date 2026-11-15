@@ -101,8 +101,17 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"lockLost","error":"h lost its update lock: its connection ended"}"#) == .unreachable)
         // Another update holds the host's lock: nothing changed, not now (review of #25388).
         #expect(outcome(#"{"outcome":"failed","reason":"updateRunning","error":"another update of h is running"}"#) == .busy)
-        // --keep-newer left a later or own build alone.
-        #expect(outcome(#"{"outcome":"current","reason":"newer","error":"h runs fedcba987 2026-10-25"}"#) == .current)
+        // --keep-newer left a later or own build alone, or the host's install step kept a newer
+        // commit (#43770): it kept its build, never "current".
+        #expect(outcome(#"{"outcome":"current","reason":"newer","error":"h runs fedcba987 2026-10-25"}"#) == .kept(.newerInstalled))
+        #expect(outcome(#"{"outcome":"current","reason":"newerInstalled","error":"refused: newerInstalled"}"#) == .kept(.newerInstalled))
+        #expect(outcome(#"{"outcome":"current","reason":"ownBuild","error":"h runs fedcba987+dirty.12345678"}"#) == .kept(.ownBuild))
+        // An update restarted it within the hour (#43709): the time it names, if it names one.
+        #expect(outcome(#"{"outcome":"busy","reason":"restartWindow","error":"restart window: last update restart 3 min ago; next after 09:41Z (--now restarts it now)"}"#)
+            == .kept(.restartWindow(nextAfter: "09:41")))
+        #expect(outcome(#"{"outcome":"busy","reason":"restartWindow","error":"restart window: last update restart 3 min ago; next after ? (--now restarts it now)"}"#)
+            == .kept(.restartWindow(nextAfter: nil)))
+        #expect(outcome(#"{"outcome":"busy","reason":"busy","error":"mid-turn"}"#) == .busy)
         // Held off updates (`acpmux host hold`): never reached.
         #expect(outcome(#"{"outcome":"held","ok":true,"reason":"held","error":"h is held"}"#) == .held)
         #expect(outcome(#"{"outcome":"somethingNew"}"#) == .failed)
