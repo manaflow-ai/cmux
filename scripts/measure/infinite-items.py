@@ -220,6 +220,27 @@ def file_groups(disks):
     return groups
 
 
+def smaps_kinds(pid):
+    """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
+    where a role's per-process memory sits."""
+    kinds, name = {}, None
+    try:
+        exe = os.path.realpath(f"/proc/{pid}/exe")
+        with open(f"/proc/{pid}/smaps") as f:
+            for line in f:
+                head = line.split()
+                if head and "-" in head[0] and not head[0].endswith(":"):
+                    path = head[5] if len(head) > 5 else ""
+                    name = ("binary" if path == exe else "heap" if path == "[heap]" else
+                            "stack" if path.startswith("[stack") else "anon" if not path else
+                            "vdso" if path.startswith("[") else "file:" + os.path.basename(path))
+                elif head and head[0] == "Pss:" and name:
+                    kinds[name] = kinds.get(name, 0) + int(head[1])
+    except (OSError, ValueError, IndexError):
+        return {}
+    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:6])
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
@@ -229,6 +250,8 @@ def idle_window(top, seconds, disks):
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
                                          "wakeups": 0, "cmds": {}})
+        if IS_LINUX and "smaps_kb" not in r:
+            r["smaps_kb"] = smaps_kinds(pid)  # one process of the role, where its memory sits
         r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
         r["count"] += 1
         r["threads"] += s.get("threads") or 0
@@ -527,6 +550,7 @@ class Run:
             except (OSError, RuntimeError, ValueError) as exc:
                 self.error("new-conversation-tab", exc)
         tui.close()
+        self.park_idle()
         live = [s for s in sessions if s]
         rnd = random.Random(self.count)
         rnd.shuffle(live)
@@ -562,6 +586,29 @@ class Run:
                 pass
         except OSError:
             pass
+
+    def park_idle(self):
+        """--park-idle: what the app's freeing tier does to a hibernated workspace (CmuxNextHibernation
+        WorkspaceFreeingPlanner, `workspaces.freeing.*`, off by default): `park-tabs` on every tab of the run's
+        workspaces. The shells end, the tabs stay (dead, `relaunch.on_show`); non-terminal tabs are left as they
+        are. Headless cmux-tui has no app, so without this no shell is ever freed here."""
+        if not self.args.park_idle or not self.workspaces:
+            return
+        tui = Tui(self.tui_sock, timeout=300)
+        try:
+            ours = set(self.workspaces)
+            surfaces = [tab["surface"] for w in tui.call("list-workspaces").get("workspaces", []) if w.get("id") in ours
+                        for screen in w.get("screens", []) for pane in screen.get("panes", [])
+                        for tab in pane.get("tabs", []) if not tab.get("dead") and tab.get("surface") is not None]
+            parked = []
+            for start in range(0, len(surfaces), 200):
+                parked += tui.call("park-tabs", surfaces=surfaces[start:start + 200]).get("parked", [])
+            self.parked = getattr(self, "parked", 0) + len(parked)
+            log(f"N={self.count} park-tabs: {len(parked)} of {len(surfaces)} tabs parked")
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.error("park-tabs", exc)
+        finally:
+            tui.close()
 
     def work(self, sid, index):
         """A working chat: turns back to back while the day runs."""
@@ -625,6 +672,7 @@ class Run:
         self.stop_working.set()
         for t in workers:
             t.join(timeout=60)
+        self.park_idle()
         if a.sleep > 0:
             # Sleep/wake: every process of both trees stopped, then continued (the clock moves on).
             pids = tree_pids([self.top["acpmux"], self.top["tui"]])
@@ -737,7 +785,7 @@ def report(results):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
                       f"cpu={v['cpu_pct']} "
-                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds}", flush=True)
+                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds} one_kb={v.get('smaps_kb', {})}", flush=True)
         grown = r["samples"][1:]
         if grown:
             # The slope over the days after creation (day 0 holds what the open made), per file group.
@@ -809,6 +857,9 @@ def main():
                    help="on (the product default): ACPMUX_AGENT_HOLDER=1, the daemon keeps a copy of each harness's stdio and "
                         "replaces a host that dies (acpmux agent_host/custody.rs)")
     p.add_argument("--browser-tabs", action="store_true", help="a browser tab in each workspace too (model only)")
+    p.add_argument("--park-idle", action="store_true",
+                   help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
+                        "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
     p.add_argument("--out")
     args = p.parse_args()
     global ARGS
@@ -818,7 +869,7 @@ def main():
             raise SystemExit(f"infinite-items: not executable: {path}")
     print(f"INFINITE-MACHINE host={platform.node()} platform={platform.platform()} cpus={os.cpu_count()} "
           f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
-          f"browser_tabs={int(args.browser_tabs)}", flush=True)
+          f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)}", flush=True)
     results = []
     for count in (int(c) for c in args.counts.split(",")):
         try:

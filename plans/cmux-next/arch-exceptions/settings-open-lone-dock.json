@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-15",
+  "row": "app_lines",
+  "allow": 32,
+  "why": "Settings opens late (2026-11-15): Cmd-, from Home's lone pinned dock made the page tab hidden in the dock, waited for the daemon's reply, then moved it to a new column (two round trips, the tab showed 60-100 ms after the key). InternalPageTabStore.openStoreTab now makes it in one commit as a split right of the dock (conversation-tab-split-v1), as chats and links already do (+~8 net lines in the existing open path; createStoreTab carries the split). The other ~24 lines are the DEBUG/CMUX_BENCH_HOOKS-only probe DebugNewTabBench.settings (debug.new_tab bench_settings: tab_ms and visible_ms per Cmd-,), which guards the paint time on a GUI fleet host through scripts/cmux-next/bench-settings-open.py. It reuses the bench's frame loop; it reads App-only state (pane view, paint hold, page host pool), so it cannot leave the App target.",
+  "author": "settings-late lane (claude opus subagent of Chief)",
+  "owner": "settings-late lane (Chief)",
+  "receipt": "Review (claude opus subagent 9277fd99): SHIP at f31dd4e5d58642a255e706160b0b7e2ec032acf3",
+  "expiry": "2026-11-29"
+}

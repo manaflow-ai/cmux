@@ -72,6 +72,11 @@ struct ForkApi {
   int (*install_prompt_reply)(int, int) = nullptr;
   char* (*omnibox_keywords)(int) = nullptr;
   int (*omnibox_input)(int, const char*, int, const char*, int) = nullptr;
+  // API version 33: omnibox preloading (Chrome's predictor, preconnect and
+  // direct-URL-input prerender for the omnibar).
+  int (*omnibox_preload_text_changed)(int, const char*, const char* const*, const int*, int, double*) = nullptr;
+  int (*omnibox_preload_opened)(int, const char*, int) = nullptr;
+  void (*set_omnibox_prerender)(int) = nullptr;
   void (*set_omnibox_suggestions_handler)(void (*)(void*, int, const char*, const char*), void*) = nullptr;
   int (*add_native_messaging_dir)(const char*, int) = nullptr;
   // API version 11: popup windows extensions create.

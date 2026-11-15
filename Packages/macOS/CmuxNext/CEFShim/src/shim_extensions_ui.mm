@@ -159,4 +159,20 @@ int cmux_shim_omnibox_input(int browser_id, const char* extension_id, int event,
   return fork_api().omnibox_input(browser_id, extension_id, event, text ? text : "", value);
 }
 
+int cmux_shim_omnibox_preload_text_changed(int browser_id, const char* text, const char* const* urls,
+                                           const int* types, int count, double* confidence) {
+  if (confidence) *confidence = 0;
+  if (!fork_api().omnibox_preload_text_changed || fork_api().version < 33) return -1;
+  return fork_api().omnibox_preload_text_changed(browser_id, text ? text : "", urls, types, count, confidence);
+}
+
+int cmux_shim_omnibox_preload_opened(int browser_id, const char* opened_url, int learn) {
+  if (!fork_api().omnibox_preload_opened || fork_api().version < 33) return -1;
+  return fork_api().omnibox_preload_opened(browser_id, opened_url, learn);
+}
+
+void cmux_shim_set_omnibox_prerender(int enabled) {
+  if (fork_api().set_omnibox_prerender && fork_api().version >= 33) fork_api().set_omnibox_prerender(enabled);
+}
+
 }  // extern "C"
