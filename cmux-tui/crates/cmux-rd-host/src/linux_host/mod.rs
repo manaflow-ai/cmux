@@ -765,6 +765,89 @@ mod tests {
         }
     }
 
+    /// A `Current` serving session `s1` with `scope`, and its stop flag.
+    fn serving(scope: &str) -> (Current, Arc<AtomicBool>) {
+        let stop = Arc::new(AtomicBool::new(false));
+        let served = Served { id: "s1".into(), scope: scope.into(), stop: stop.clone() };
+        (Arc::new(Mutex::new(Some(served))), stop)
+    }
+
+    fn is_empty(current: &Current) -> bool {
+        current.lock().unwrap().is_none()
+    }
+
+    #[test]
+    fn a_dropped_hub_link_stops_the_session_it_served() {
+        // Revocations sent while the link is down are never replayed: fail closed.
+        let (current, stop) = serving("full");
+        let held = stop.clone();
+        let (result, stopped) = hold_link(&current, || {
+            assert!(!held.load(Ordering::SeqCst), "stopped while the link was up");
+            Err("socket closed (1006 connection closed)".into())
+        });
+        assert!(result.is_err());
+        assert_eq!(stopped.as_deref(), Some("s1"));
+        assert!(stop.load(Ordering::SeqCst));
+        assert!(is_empty(&current));
+        // A link the hub closed cleanly too.
+        let (current, stop) = serving("view");
+        let (result, stopped) = hold_link(&current, || Ok(()));
+        assert!(result.is_ok());
+        assert_eq!(stopped.as_deref(), Some("s1"));
+        assert!(stop.load(Ordering::SeqCst));
+        // Nothing served, nothing stopped.
+        let current: Current = Arc::new(Mutex::new(None));
+        assert_eq!(hold_link(&current, || Ok(())).1, None);
+    }
+
+    fn consent_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-screen-host-consent-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn consent_is_read_again_for_each_ticket() {
+        let dir = consent_dir("admit");
+        LocalConsent { view: true, full: true }.save(&dir).unwrap();
+        assert_eq!(admit(&dir, "full"), Some(false));
+        // `enable` without --allow-control, the host still running.
+        LocalConsent { view: true, full: false }.save(&dir).unwrap();
+        assert_eq!(admit(&dir, "full"), None);
+        assert_eq!(admit(&dir, "view"), Some(true));
+        // A consent file it cannot trust admits nothing.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.join("consent.json"), std::fs::Permissions::from_mode(0o644))
+            .unwrap();
+        assert_eq!(admit(&dir, "view"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn withdrawn_consent_stops_the_session_it_no_longer_allows() {
+        let both = LocalConsent { view: true, full: true };
+        let view_only = LocalConsent { view: true, full: false };
+        let (current, stop) = serving("full");
+        assert_eq!(withdraw_unconsented(&current, Ok(both)), None);
+        assert!(!stop.load(Ordering::SeqCst));
+        assert_eq!(withdraw_unconsented(&current, Ok(view_only)).as_deref(), Some("s1"));
+        assert!(stop.load(Ordering::SeqCst));
+        assert!(is_empty(&current));
+        // A view session goes on under view-only consent.
+        let (current, stop) = serving("view");
+        assert_eq!(withdraw_unconsented(&current, Ok(view_only)), None);
+        assert!(!stop.load(Ordering::SeqCst));
+        // An unreadable consent file stops it.
+        assert_eq!(
+            withdraw_unconsented(&current, Err("consent.json: bad mode".into())).as_deref(),
+            Some("s1")
+        );
+        assert!(stop.load(Ordering::SeqCst));
+        let current: Current = Arc::new(Mutex::new(None));
+        assert_eq!(withdraw_unconsented(&current, Ok(view_only)), None);
+    }
+
     #[test]
     fn fingerprints_are_cut_on_a_character_boundary() {
         // 15 ASCII bytes then a 3-byte character across the 16-byte mark.

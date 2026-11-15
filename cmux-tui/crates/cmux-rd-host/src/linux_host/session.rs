@@ -382,6 +382,19 @@ mod tests {
     }
 
     #[test]
+    fn the_hubs_own_closes_end_the_session() {
+        // The Session DO closes 4002 on revocation or sharing off, 1000 on /end or bye, 4000
+        // when another socket took this role. Any code it may choose ends the media too.
+        for code in [1000, 1008, 4000, 4002, 4004, 4999] {
+            assert!(close_ends_session(code), "{code} must end the session");
+        }
+        // Lost transport, not the hub's word: a connected session outlives it.
+        for code in [1001, 1005, 1006, 1011, 1012, 1013, 1014] {
+            assert!(!close_ends_session(code), "{code} is signaling loss");
+        }
+    }
+
+    #[test]
     fn setup_line_is_the_macs_and_view_only_wins() {
         let ticket = Ticket::from_push(&push("host", "s1", "KEY")).unwrap();
         let offer = RdDocument {
