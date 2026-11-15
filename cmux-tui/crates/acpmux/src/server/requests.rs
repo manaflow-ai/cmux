@@ -1330,6 +1330,7 @@ async fn dispatch_request_with_identity(
                     reply.pointer_mut("/_meta/acpmux/features").and_then(Value::as_array_mut)
             {
                 features.push(json!(crate::link_v2::FEATURE));
+                features.push(json!(acpmux_core::hub::PEER_PAGES_FEATURE));
             }
             // The daemon's v2 list holds the hub machines' rows (`hub/list_tee.rs`): a fact of
             // its index, named on every connection.

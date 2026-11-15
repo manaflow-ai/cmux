@@ -761,6 +761,11 @@ const BACKGROUND_TURN_KIND = "background_turn";
 /// or the agent stopped waiting.
 /// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
 const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
+/// The feature a new chat's wire names when its machine signs its agent in before the chat has a
+/// session (RemoteAcpmuxWire `agent_login_machine`, cmux-tui `agent-session-login-machine-v1`):
+/// a login step that names no chat runs there. Only a remote wire names it; a local acpmux never
+/// does, so a step with no chat never signs this Mac's agent in from a Cloud chat's card.
+const AGENT_LOGIN_MACHINE_FEATURE = "agent_login_machine";
 /// The capability id an acpmux that serves the memory inbox names (`memory_offer` records and
 /// `_acpmux/memory_resolve`): without it no memory card draws.
 const MEMORY_INBOX_CAPABILITY = "memory-inbox-v1";
@@ -2765,6 +2770,12 @@ type ShownRows = {
   peer: string | undefined;
   generation: number | undefined;
 };
+
+/// Rows a page of a chat's process list asks for: acpmux's most (hub/processes.rs).
+const PROCESS_LIST_PAGE = 1_000;
+/// Pages one read of a chat's process list takes at most (100,000 processes): past it the daemon
+/// is naming new cursors without end.
+const PROCESS_LIST_MAX_PAGES = 100;
 
 /// The chat a client held when its connection was lost, handed to the client the page connects
 /// next (`carriedChat`, `connect`). Leo, 2026-11-11: "it keeps showing and then hiding, and then
@@ -6160,9 +6171,57 @@ export class AcpmuxDirectClient {
     return () => void this.raceListeners.delete(listener);
   }
 
-  /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md).
-  listProcesses(sessionId: string): Promise<unknown> {
-    return this.request("_acpmux/process/list", { sessionId });
+  /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md), every one: read
+  /// page by page with `limit` and each page's `nextCursor`, as `acpmux process list` reads them
+  /// (cli/process.rs). One unpaged reply holds only the newest that fit it (`omitted` counts the
+  /// rest), so older processes went missing from Session Info. An acpmux that pages nothing
+  /// answers the whole list with no cursor: one read, as before. A daemon that keeps no list (its
+  /// reply has no `processes`) is answered with no list too, so Session Info still shows the
+  /// transcript's running commands (processes.ts `backgroundCommands`, `listed`).
+  ///
+  /// A process listed on two pages (it changed between the reads) is kept once, at its first
+  /// place, with the newer page's row. An older acpmux that ignores `limit` sends one reply cut to
+  /// what fits and counts the rest in `omitted`; that count is passed on, never dropped. A failed
+  /// page fails the whole read: no partial list is answered as if it were whole.
+  async listProcesses(sessionId: string): Promise<{ processes?: unknown[]; omitted?: number }> {
+    const processes: unknown[] = [];
+    const at = new Map<string, number>();
+    let listed = false;
+    const read = new Set<string>();
+    let cursor: string | undefined;
+    for (let pages = 1; ; pages += 1) {
+      const page = (await this.request("_acpmux/process/list", {
+        sessionId,
+        limit: PROCESS_LIST_PAGE,
+        ...(cursor === undefined ? {} : { cursor }),
+      })) as { processes?: unknown; nextCursor?: unknown; omitted?: unknown } | undefined;
+      if (Array.isArray(page?.processes)) {
+        listed = true;
+        for (const row of page.processes) {
+          const id = (row as { id?: unknown } | null)?.id;
+          const seen = typeof id === "string" ? at.get(id) : undefined;
+          if (seen !== undefined) processes[seen] = row;
+          else {
+            if (typeof id === "string") at.set(id, processes.length);
+            processes.push(row);
+          }
+        }
+      }
+      const next = page?.nextCursor;
+      if (typeof next !== "string" || next === "") {
+        if (!listed) return {};
+        const omitted = page?.omitted;
+        return typeof omitted === "number" && omitted > 0 ? { processes, omitted } : { processes };
+      }
+      // A cursor given twice would read the same pages forever.
+      // l10n-allow: a daemon's bug for the list's readers, which drop a failed read; never shown.
+      if (read.has(next)) throw new Error(`process list: the daemon gave cursor ${next} twice`);
+      // New cursors without end (an empty page that still names a next one) would too.
+      // l10n-allow: a daemon's bug for the list's readers, which drop a failed read; never shown.
+      if (pages >= PROCESS_LIST_MAX_PAGES) throw new Error(`process list: more than ${pages} pages`);
+      read.add(next);
+      cursor = next;
+    }
   }
 
   /// What running `command` on another machine would send, and where it can go
@@ -12591,6 +12650,11 @@ export class AcpmuxDirectClient {
   get supportsAgentLogin(): boolean {
     return AGENT_LOGIN_CAPABILITIES.some((id) => this.capabilities?.has(id) || this.features.has(id));
   }
+  /// Whether a new chat with no session yet signs its agent in on its machine (`agent_login_machine`
+  /// in `initialize`'s features): the failed start's sign-in card (hq#11225).
+  get supportsMachineLogin(): boolean {
+    return this.features.has(AGENT_LOGIN_MACHINE_FEATURE);
+  }
   /// Whether this acpmux serves the prompt coach (`prompt-coach-v1` in its capabilities).
   get supportsPromptCoach(): boolean {
     return this.capabilities?.has(PROMPT_COACH_CAPABILITY) === true || this.features.has(PROMPT_COACH_CAPABILITY);
@@ -12601,24 +12665,29 @@ export class AcpmuxDirectClient {
   }
   /// Starts `agent`'s own login on chat `sessionId`'s machine (`_acpmux/agent_login/start`; acpmux
   /// forwards a call that names a chat to the machine it lives on): the page to open, Codex's
-  /// device code, and whether the page gives a code to paste back (Claude).
-  agentLoginStart(agent: string, sessionId: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/start", { agent, sessionId });
+  /// device code, and whether the page gives a code to paste back (Claude). With no `sessionId` (a
+  /// new chat's, ``supportsMachineLogin``) the step runs on the chat's machine itself.
+  agentLoginStart(agent: string, sessionId: string | undefined): Promise<unknown> {
+    return this.request("_acpmux/agent_login/start", { agent, ...(sessionId ? { sessionId } : {}) });
   }
   /// Finishes login `loginId` (`_acpmux/agent_login/finish`) with Claude's pasted `code`, or waits
   /// for Codex's approval; acpmux restarts chat `sessionId`'s agent signed in. The wire log keeps
   /// no code (wire.ts).
-  agentLoginFinish(loginId: string, sessionId: string, code?: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/finish", { loginId, sessionId, ...(code ? { code } : {}) });
+  agentLoginFinish(loginId: string, sessionId: string | undefined, code?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/finish", {
+      loginId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(code ? { code } : {}),
+    });
   }
   /// Saves an API key for `agent` on the machine (`_acpmux/agent_login/api_key`) and restarts chat
   /// `sessionId`'s agent on it. The wire log keeps no key (wire.ts).
-  agentLoginApiKey(agent: string, sessionId: string, key: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/api_key", { agent, key, sessionId });
+  agentLoginApiKey(agent: string, sessionId: string | undefined, key: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/api_key", { agent, key, ...(sessionId ? { sessionId } : {}) });
   }
   /// Stops login `loginId` on chat `sessionId`'s machine (`_acpmux/agent_login/cancel`).
-  agentLoginCancel(loginId: string, sessionId: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/cancel", { loginId, sessionId });
+  agentLoginCancel(loginId: string, sessionId: string | undefined): Promise<unknown> {
+    return this.request("_acpmux/agent_login/cancel", { loginId, ...(sessionId ? { sessionId } : {}) });
   }
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
