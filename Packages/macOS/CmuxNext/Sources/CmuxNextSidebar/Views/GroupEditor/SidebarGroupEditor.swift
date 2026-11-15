@@ -16,6 +16,8 @@ public protocol SidebarGroupEditorSurface: AnyObject {
     func refresh(_ group: SidebarGroup)
     /// Closes the bubble; its last typed name commits, then `events.close` runs.
     func dismiss()
+    /// Makes what draws the bubble ahead of the first open (a hover over a group header), so that open is warm.
+    func prepare()
 }
 
 /// What the person did in the editor, in the order it happened.
@@ -87,6 +89,13 @@ public final class SidebarGroupEditor {
     }
 
     public var isVisible: Bool { shownGroup != nil }
+
+    /// Makes the surface's bubble ahead of an open, on each hover over a group header: the bubble is a web page, made
+    /// on this sign of intent and not at launch, and freed again after it goes unused (`GroupEditorService.idleLimit`).
+    /// On a surface that already has its bubble the call costs a check.
+    func prepareSurface() {
+        surface?.prepare()
+    }
     /// False in tests: the bubble is laid out but never put on screen.
     var ordersFront = true
 
@@ -163,6 +172,10 @@ public final class SidebarGroupEditor {
         }
         hide()
     }
+
+    /// A scripted open (`debug.overlay_open_bench`) is a new click: the last close was no click of it, though AppKit's
+    /// current event (no new input between scripted calls) still says so.
+    func forgetLastClose() { lastClosed = nil }
 
     /// Whether the editor of `group` closed during the click that is
     /// happening now (the click made the sidebar's window key, which closes

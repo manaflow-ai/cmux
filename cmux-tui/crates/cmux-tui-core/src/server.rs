@@ -270,6 +270,7 @@ mod tab_column;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
 pub(crate) use cmd_subscribe::TREE_SELECTION_DELTAS_CAPABILITY;
 #[cfg(test)]
@@ -300,11 +301,13 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod attach_output_coalesce;
 mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
+pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
@@ -426,6 +429,13 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
+/// `replay_history_start` with `replay_history_rows` on a bytes
+/// `attach-surface`: the `vt-state` replay holds that many history rows from
+/// that row (0: the oldest kept), then the screen, and says how many rows it
+/// left out above (`history_rows_omitted`) and between them
+/// (`history_rows_skipped`). The viewer keeps a bounded window anywhere in a
+/// long history. Its `resized` replays carry `history_rows_omitted` too.
+pub const ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY: &str = "attach-replay-history-window-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 /// A client that declares this in `set-client-info` gets the public ids
 /// (`terminal_resource_id`, `tab_id`, `pane_id`, `screen_id`,
@@ -2454,6 +2464,17 @@ enum Command {
         /// the whole history.
         #[serde(default)]
         replay_history_rows: Option<u32>,
+        /// Bytes mode: `output` events at most once per this many ms
+        /// (`attach-output-coalesce-v1`, declared in `set-client-info`);
+        /// omitted, one display frame; 0, one event per read. Ignored for a
+        /// connection that did not declare the capability.
+        #[serde(default)]
+        output_coalesce_ms: Option<u32>,
+        /// Bytes mode, with `replay_history_rows`: the replay holds that many
+        /// history rows from this row (0: the oldest kept), then the screen
+        /// (`attach-replay-history-window-v1`); omitted, the newest rows.
+        #[serde(default)]
+        replay_history_start: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -3090,7 +3111,8 @@ use attach_lifecycle::{
     AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
     detach_committed_attach, mark_client_attached, mark_resource_client_attached,
     rollback_failed_attach, spawn_attach_notification_stream,
-    spawn_attach_notification_stream_gated, wait_for_initial_browser_resize,
+    spawn_attach_notification_stream_coalesced, spawn_attach_notification_stream_gated,
+    wait_for_initial_browser_resize,
 };
 #[cfg(test)]
 use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
@@ -3150,6 +3172,10 @@ mod starter_exit_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/attach_output_coalesce_tests.rs"]
+mod attach_output_coalesce_tests;
 
 #[cfg(test)]
 #[path = "server/group_icon_raw_tests.rs"]

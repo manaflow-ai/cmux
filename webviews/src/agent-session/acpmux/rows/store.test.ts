@@ -2,7 +2,7 @@
 // client core gives (acpmux-client chat.rs `ChatChange`, its shape tests in chat/tests.rs) through
 // the host client, as the host's event carries them.
 import { describe, expect, test } from "bun:test";
-import { ChatRowsHost, CHAT_ROWS_OFF, chatRowsNamer } from "./host";
+import { ChatRowsHost, CHAT_ROWS_LOST, CHAT_ROWS_OFF, chatRowsNamer } from "./host";
 import { STORE_MAX_BYTES, STORE_MAX_ROWS, type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 import type { ChatRow } from "./wire";
 
@@ -352,6 +352,55 @@ describe("chatPage", () => {
     expect(kept.unconfirmed).toBe(true);
   });
 
+  test("a page lets go of an unconfirmed row it neither gives nor refuses; a confirmed one stays", async () => {
+    const { send, store, host } = await opened();
+    send(window(range(6)));
+    // A window in place of a resume that does not reach the rows held: they are unconfirmed.
+    send(window(range(3, 10), { hasBefore: true }, false));
+    // An op since confirms row 4.
+    send(op({ op: "row", row: row(4, { rev: 2 }) }));
+    expect(host.page("c", "before")).toBe(true);
+    send({
+      kind: "chatPage",
+      page: { sid: "c", edition: 1, rows: [row(3), row(5), row(7), row(8), row(9)], hasBefore: true, hasAfter: true },
+    });
+    const rows = store.snapshot("c")!.rows;
+    // 6 is gone; 1 and 2 are outside the page and stay unconfirmed; the page reached 3 and 5.
+    expect(rows.map((entry) => entry.id)).toEqual([1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12]);
+    expect(rows.filter((entry) => entry.unconfirmed).map((entry) => entry.id)).toEqual([1, 2]);
+    expect(rows.some((entry) => entry.gapBefore)).toBe(false);
+  });
+
+  test("a window that does not reach the rows held leaves a gap; pages from its row fill it", async () => {
+    const { send, store, host, calls } = await opened();
+    send(window(range(3)));
+    send(window(range(3, 20), { hasBefore: true }, false));
+    let rows = store.snapshot("c")!.rows;
+    expect(rows.filter((entry) => entry.gapBefore).map((entry) => entry.id)).toEqual([20]);
+    // The stretch that holds the anchor (the end) pages from its own first row.
+    expect(store.edge("c", "before")).toBe(20);
+    expect(host.page("c", "before")).toBe(true);
+    expect(calls.at(-1)!.params).toEqual({ sid: "c", before: 20 });
+    send({ kind: "chatPage", page: { sid: "c", edition: 1, rows: range(5, 15), hasBefore: true, hasAfter: true } });
+    rows = store.snapshot("c")!.rows;
+    expect(rows.filter((entry) => entry.gapBefore).map((entry) => entry.id)).toEqual([15]);
+    expect(store.snapshot("c")!.hasBefore).toBe(false);
+    expect(host.page("c", "before")).toBe(true);
+    expect(calls.at(-1)!.params).toEqual({ sid: "c", before: 15 });
+    // This page reaches the rows the store held: the gap is closed.
+    send({ kind: "chatPage", page: { sid: "c", edition: 1, rows: range(14), hasBefore: false, hasAfter: true } });
+    rows = store.snapshot("c")!.rows;
+    expect(rows.map((entry) => entry.id)).toEqual(range(22).map((r) => r.id));
+    expect(rows.some((entry) => entry.gapBefore || entry.unconfirmed)).toBe(false);
+  });
+
+  test("a page asks from the row it is given", async () => {
+    const { send, host, calls } = await opened();
+    send(window(range(10), { hasAfter: true }));
+    expect(host.page("c", "after", { from: 4, maxBytes: 4096 })).toBe(true);
+    expect(calls.at(-1)!.params).toEqual({ sid: "c", after: 4, maxBytes: 4096 });
+  });
+
   test("a page error drops that ask and nothing else", async () => {
     const { send, store, host } = await opened();
     send(window(range(3), { hasBefore: true }));
@@ -449,6 +498,16 @@ describe("the fall to v1", () => {
       }),
       CHAT_ROWS_OFF,
     ],
+    ["the old bridge's unsupported", Object.assign(new Error("no"), { code: "unsupported" }), CHAT_ROWS_OFF],
+    ["a lost link, with no code", new Error("lost"), CHAT_ROWS_LOST],
+    [
+      "invalid params",
+      Object.assign(new Error("bad"), {
+        code: "native.invalid_request",
+        details: { protocol: "cmux.protocol.invalid_params" },
+      }),
+      "native.invalid_request",
+    ],
   ] as const)
     test(`an open refused (${name}) falls with its code and holds no sid`, async () => {
       const { host, store } = harness((call) => (call.method === "chat.rows.open" ? error : {}));
@@ -512,6 +571,65 @@ describe("the cap", () => {
     // The tail was let go of, so a page after brings it back.
     expect(snapshot.hasAfter).toBe(true);
     expect(store.edge("c", "after")).toBe(STORE_MAX_ROWS);
+  });
+
+  test("open rows are never let go of: past the stretch they are held apart until a page reaches them", async () => {
+    const { send, store, host } = await opened();
+    const tail = 20_001;
+    send(
+      window(range(400, tail - 400), {
+        hasBefore: true,
+        open: [{ row: row(tail, { open: true, body: { text: "a" } }) }],
+      }),
+    );
+    for (let pages = 0; pages < 5; pages += 1) {
+      const edge = store.edge("c", "before")!;
+      expect(host.page("c", "before")).toBe(true);
+      send({
+        kind: "chatPage",
+        page: { sid: "c", edition: 1, rows: range(400, edge - 400), hasBefore: true, hasAfter: true },
+      });
+    }
+    let snapshot = store.snapshot("c")!;
+    expect(snapshot.rows.length).toBe(STORE_MAX_ROWS);
+    expect(snapshot.rows.some((entry) => entry.row?.open)).toBe(false);
+    expect(snapshot.apart.map((entry) => entry.id)).toEqual([tail]);
+    expect(snapshot.hasAfter).toBe(true);
+    expect(store.held("c")!.rows).toBe(STORE_MAX_ROWS + 1);
+    // Ops on a row held apart apply; a row that opens past the stretch is taken; one that
+    // settles there is let go of (a page after brings it).
+    send(op({ op: "text", rowId: tail, text: "b" }));
+    send(op({ op: "row", row: row(tail + 1, { open: true, body: { text: "" } }) }));
+    send(op({ op: "row", row: row(tail, { rev: 2, body: { text: "ab" } }) }));
+    snapshot = store.snapshot("c")!;
+    expect(snapshot.apart.map((entry) => entry.id)).toEqual([tail + 1]);
+    // Pages after, until one says nothing follows: the open rows join the rows, and appends follow.
+    while (store.snapshot("c")!.hasAfter) {
+      const last = store.edge("c", "after")!;
+      const count = Math.min(400, tail - last);
+      expect(host.page("c", "after")).toBe(true);
+      send({
+        kind: "chatPage",
+        page: { sid: "c", edition: 1, rows: range(count, last + 1), hasBefore: true, hasAfter: last + count < tail },
+      });
+      if (last + count < tail) expect(store.snapshot("c")!.apart.map((entry) => entry.id)).toEqual([tail + 1]);
+    }
+    snapshot = store.snapshot("c")!;
+    expect(snapshot.apart).toEqual([]);
+    expect(snapshot.hasAfter).toBe(false);
+    expect(snapshot.rows.at(-1)!.id).toBe(tail + 1);
+    expect(snapshot.rows.at(-2)!.id).toBe(tail);
+    send(op({ op: "row", row: row(tail + 2) }));
+    expect(store.snapshot("c")!.rows.at(-1)!.id).toBe(tail + 2);
+  });
+
+  test("a text op adds its piece's bytes: the count matches a row measured whole", async () => {
+    const { send, store } = await opened();
+    send(window([row(1)], { open: [{ row: row(2, { open: true, body: { text: "He" } }) }] }));
+    for (const piece of ["llo", ' "q"\n', "✓\u0001"]) send(op({ op: "text", rowId: 2, text: piece }));
+    const whole = await opened();
+    whole.send(window([row(1)], { open: [{ row: row(2, { open: true, body: { text: 'Hello "q"\n✓\u0001' } }) }] }));
+    expect(store.held("c")!.bytes).toBe(whole.store.held("c")!.bytes);
   });
 
   test("rows past the cap in bytes go too, from the far end", async () => {

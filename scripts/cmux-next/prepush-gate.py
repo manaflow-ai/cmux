@@ -104,6 +104,13 @@ direct push, and cmux-app-ffi's lock failed --locked on every pull request until
 own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
 feat-cmux-next (base-autofix.sh --locks).
 
+Also on every local run, the same way: "Settings exports keep their keys" (settings-export-key-drift.py): when the
+push changes a settings source (schemas/settings/) or a keyed settings export (settings-schema.json, the docs settings
+reference, docs/mdm/), no export may drop a key the base's export had and the head's sources still declare, or gain a
+key no head source declares. Git objects only, keys only, so it is never red on the base. #43022 and #43027
+(2026-11-15) carried exports regenerated at an older tree that dropped tabs.newTabApp; the Mac export comparison was
+red on the base all day, so its signal was ignored.
+
 Also on every local run, the same way: "Cargo.lock adds no new crate versions" (cargo-lock-new-versions.py): when the
 push changes a Cargo.lock, every downloaded (crate, version) in each changed lock must be in some Cargo.lock at the
 base, unless a pushed commit has a `Cargo-Lock-New-Versions: <why>` line (#42155 said it added no versions and added
@@ -256,6 +263,8 @@ SCANNERS = (
     ("Scrollbars thin, one style", ["/bin/bash", "{s}/check-scrollbars.sh", "{root}"], (PKG + "/", "webviews/")),
     # Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces".
     ("Buttons round as tabs", ["python3", "-I", "{s}/check-button-radius.py", "{root}"], (PKG + "/", "webviews/src/")),
+    # Lawrence 2026-11-15: "for all buttons ... we only want to have different bg color on mousedown".
+    ("Buttons change only their fill when pressed", ["python3", "-I", "{s}/check-pressed-state.py", "{root}"], (PKG + "/", "webviews/src/")),
     ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
@@ -352,6 +361,15 @@ NEW_VERSIONS_HINT = ("A changed Cargo.lock uses a crate version that no Cargo.lo
                      "to add it, say so: add a line `Cargo-Lock-New-Versions: <why>` to a pushed commit's message "
                      "(and the PR body). Otherwise pin it to a version a base lock already has "
                      "(`cargo update -p NAME --precise VERSION`).")
+# A settings export keeps every key the base's export had and the sources declare, and gains none they do not
+# (2026-11-15: #43022 and #43027 carried exports from an older tree without tabs.newTabApp).
+SETTINGS_KEYS_CHECK = "Settings exports keep their keys (scripts/cmux-next/settings-export-key-drift.py)"
+SETTINGS_KEYS_SCRIPT = SCRIPTS + "/settings-export-key-drift.py"
+SETTINGS_KEYS_PATHS = ("schemas/settings/", "web/data/next-docs/settings-reference.generated.json", "docs/mdm/")
+SETTINGS_KEYS_HINT = ("A settings export lost a key its source declares, or has one no source declares: it was "
+                      "regenerated at another tree. Regenerate the exports at this head on the fleet "
+                      "(scripts/cmux-next/regenerate-settings-exports.sh; its header has the command) and apply the "
+                      "patch; never hand-edit them. On a merge conflict in an export, take the base's side first.")
 CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
               "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
               "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
@@ -616,6 +634,17 @@ def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
 
 
 # ---------------------------------------------------------------- pinned tools
+
+def side_workers(environ=os.environ, cpus: int | None = None) -> int:
+    """How many scanners the gate runs at once: a core each, at most 16, and no more than the cores a CI mini's runner
+    hook granted the job (CMUX_CI_CPU_BUDGET). The checks job runs the gate's own suite beside its other checks, each
+    gate spawning one scanner per core of the whole mini on a grant of 5 (job 131984422217)."""
+    workers = min(16, cpus or os.cpu_count() or 4)
+    budget = environ.get("CMUX_CI_CPU_BUDGET", "")
+    if budget.isdigit() and int(budget) > 0:
+        workers = min(workers, int(budget))
+    return workers
+
 
 def platform_key() -> str:
     system = {"Darwin": "darwin", "Linux": "linux"}.get(platform.system(), platform.system().lower())
@@ -1136,6 +1165,31 @@ def _manifest_text(repo: Path, tree: Path, rel: str) -> str | None:
         except OSError:
             continue
     return None
+
+
+# The files the rustfmt layer reads from the checkout around the judged files: each crate's manifest (its edition, or
+# its own [workspace]), the config, and the toolchain pin rustup reads from the folder rustfmt runs in.
+RUST_WORKSPACE_FILES = ("Cargo.toml", "rustfmt.toml", ".rustfmt.toml", "rust-toolchain.toml", "rust-toolchain")
+
+
+def has_work_tree(repo: Path) -> bool:
+    """REPO is a checkout, not a clone with no work tree (a bare mirror or core.bare clone root, REPO its git dir)."""
+    done = subprocess.run(["git", "-C", str(absolute(repo)), "rev-parse", "--is-inside-work-tree"],
+                          capture_output=True, text=True)
+    return done.returncode == 0 and done.stdout.strip() == "true"
+
+
+def rust_workspace_root(repo: Path, head: str, work: Path) -> Path:
+    """The folder rustfmt() reads the cmux-tui workspace from: the checkout, or, for a clone with no work tree (the
+    bare mirror repo_publish pushes from), the head's RUST_WORKSPACE_FILES written under WORK from git objects. Without
+    them that push found no rustfmt.toml and the layer judged nothing."""
+    if has_work_tree(repo):
+        return repo
+    names = [p for p in ls_tree(repo, head, RUST_SCOPE) if p.rsplit("/", 1)[-1] in RUST_WORKSPACE_FILES]
+    root = work / "rust-workspace"
+    write_tree(repo, root, {p: head for p in [*names, "rust-toolchain.toml", "rust-toolchain"]}, index=False)
+    (root / RUST_SCOPE).mkdir(parents=True, exist_ok=True)  # rustfmt runs there
+    return root
 
 
 def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
@@ -1879,6 +1933,10 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
     if not any(CARGO_FILE.search(p) for p in names.split("\0") if p) or shutil.which("cargo") is None:
         return []
+    if not has_work_tree(repo):
+        # cargo resolves the checkout itself; a clone with no work tree (a bare mirror) has none to resolve.
+        log("prepush-gate: Cargo.lock check skipped: this clone has no work tree (CI's --locked cargo steps check it)")
+        return []
     try:
         checked_out = git(repo, "rev-parse", "HEAD").decode().strip() == git(repo, "rev-parse", head).decode().strip()
     except subprocess.CalledProcessError:
@@ -1938,6 +1996,29 @@ def new_crate_versions(repo: Path, base: str, head: str, trusted_scripts: Path |
                                                 else None)
     if stopped:
         return [NoVerdict(f"{NEW_VERSIONS_SCRIPT} {stopped} instead of judging the locks, so the push is refused: "
+                          f"{out_tail(out.splitlines())}")]
+    return found
+
+
+def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<export>: ...` per settings export the range leaves without a key the base's export had and the head's sources
+    declare, or with a key no head source declares (SETTINGS_KEYS_CHECK). Git objects only, and only when the range
+    changes a settings source or export."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(p.startswith(SETTINGS_KEYS_PATHS) for p in names.split("\0") if p):
+        return []
+    script = check_script(repo, head, SETTINGS_KEYS_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-settings-keys-") as tmp:
+        check = absolute(Path(tmp)) / "settings-export-key-drift.py"
+        check.write_bytes(script)
+        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", base, "--head", head],
+                        absolute(Path(tmp)), timeout=120)
+    found = [line.removeprefix("drift: ") for line in out.splitlines() if line.startswith("drift: ")]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no export" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{SETTINGS_KEYS_SCRIPT} {stopped} instead of judging the exports, so the push is refused: "
                           f"{out_tail(out.splitlines())}")]
     return found
 
@@ -2662,6 +2743,13 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         added = new_crate_versions(repo, base, head, trusted_scripts)
         if added:
             reserved.append((NEW_VERSIONS_CHECK, added))
+    # Local only (CLAUDE.md: no new CI gates): git objects only, keys only, and only when a settings file changes. Not
+    # in gate_own's runs over the ranges a merge does not own (RESTRICT): this is not a debt check, so those runs have
+    # nothing to take off. A merge push's own run already compares with the merged base's exports (#43022's shape).
+    if (highlights_layer if only is None else "settings-export-keys" in only) and restrict is None:
+        drift = settings_export_keys(repo, base, head, trusted_scripts)
+        if drift:
+            reserved.append((SETTINGS_KEYS_CHECK, drift))
     # Local only, like SwiftFormat (CLAUDE.md: no new CI gates).
     if highlights_layer if only is None else "redefinitions" in only:
         redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
@@ -2777,7 +2865,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate).
         rust = [p for p in changed if p.startswith(RUST_SCOPE) and p.endswith(".rs")]
         if rust and (swiftformat_layer if only is None else "rustfmt" in only):
-            jobs["rustfmt (cmux-tui)"] = ("fn", rustfmt, repo, repo / RUST_SCOPE / "rustfmt.toml", rust)
+            rust_root = rust_workspace_root(repo, head, absolute(Path(tmp)))
+            jobs["rustfmt (cmux-tui)"] = ("fn", rustfmt, rust_root, rust_root / RUST_SCOPE / "rustfmt.toml", rust)
         if swift and (only is None or "swiftlint" in only):
             jobs["SwiftLint (syntax rules)"] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
@@ -2795,7 +2884,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
 
         crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
         crash_layer = bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers()) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
                        for name, job in jobs.items()
                        for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
@@ -3453,7 +3542,8 @@ def _main(argv: list[str] | None = None) -> int:
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
-                                       "single-host-fallbacks,redefinitions,port-drift,new-crate-versions")
+                                       "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
+                                       "settings-export-keys")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
@@ -3622,6 +3712,8 @@ def _main(argv: list[str] | None = None) -> int:
         print(CARGO_HINT)
     if any(name == NEW_VERSIONS_CHECK for name, _ in found_any):
         print(NEW_VERSIONS_HINT)
+    if any(name == SETTINGS_KEYS_CHECK for name, _ in found_any):
+        print(SETTINGS_KEYS_HINT)
     if any(name == FALLBACKS_CHECK for name, _ in found_any):
         print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):

@@ -4,7 +4,7 @@
 use super::{CALL_TIMEOUT, list_threads, threads};
 use crate::server::agent_session_attach::agent_session_link::AcpmuxLink;
 use acpmux::test_support::list_daemon::{
-    self, ListDaemon, Serves, bound_away, emit, insert, seed_down_peer,
+    self, ListDaemon, Serves, bound_away, emit, emit_with_all, insert, seed_down_peer,
 };
 use serde_json::{Value, json};
 use std::path::Path;
@@ -166,8 +166,11 @@ fn v2_pr07c_update_plan() {
         let counts = v2_threads(&proxy.path).expect("the gate's daemon serves the list");
         let wall = started.elapsed().as_nanos();
         assert_eq!(counts, (0, 0), "the gate's chats are idle");
+        // The sample's connections end before its bytes are read (`Counted::settled`).
+        runtime.block_on(proxy.settled()).unwrap();
         (wall, u128::from(proxy.sent() - before))
     };
+    let fds = list_daemon::open_fds();
     let (mut small_wall, mut small_bytes, mut god_wall, mut god_bytes) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for _ in 0..5 {
@@ -184,12 +187,14 @@ fn v2_pr07c_update_plan() {
         small_bytes.push(sb);
         god_wall.push(gw);
         god_bytes.push(gb);
+        list_daemon::assert_fds_given_back("v2.pr07c.update_plan_wall", fds);
     }
-    for (measure, small, god, unit) in
-        [("bytes", &small_bytes, &god_bytes, "bytes"), ("wall", &small_wall, &god_wall, "ns")]
-    {
-        let name = format!("v2.pr07c.update_plan_{measure}");
-        let (small, god) = emit(&name, small, god, unit);
-        assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
-    }
+    let name = "v2.pr07c.update_plan_bytes";
+    let (small, god) = emit(name, &small_bytes, &god_bytes, "bytes");
+    assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
+    // Wall time: the best round within 1.2x, and every sample's p95 within 2x of it.
+    let name = "v2.pr07c.update_plan_wall";
+    let (small, god, god_all) = emit_with_all(name, &small_wall, &god_wall, "ns");
+    assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
+    assert!(god_all <= small.saturating_mul(2), "{name}: every sample {god_all} vs {small}");
 }

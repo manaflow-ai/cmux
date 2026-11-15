@@ -61,6 +61,17 @@ fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
     exported.is_null()
 }
 
+/// Actions whose default shortcut this crate dropped and the pinned app FFI still has (step A of
+/// an app FFI change, docs/ci/app-ffi-release.md): until the re-pin the exports still show the
+/// old shortcut. Leo, 2026-11-15, on Toggle Terminal and Chat: "idk if the terminal gui should
+/// even get a hotkey by default".
+const SHORTCUT_REMOVAL_AWAITING_REPIN: &[&str] = &[];
+
+/// Whether `id`'s exported shortcut may still be the pinned app's while the crate has none.
+fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
+    SHORTCUT_REMOVAL_AWAITING_REPIN.contains(&id) && crate_shortcut.is_null()
+}
+
 /// Fields of an existing action that this crate has changed and the pinned app FFI does not have
 /// yet (step A of an app FFI change, docs/ci/app-ffi-release.md), as JSON pointers into the
 /// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
@@ -314,7 +325,9 @@ fn action_list_export_matches() {
         if action.shortcut_family == Some("digits") && !shortcut.is_null() {
             shortcut["family"] = serde_json::json!("digits");
         }
-        if !shortcut_awaits_repin(id, &row["default_shortcut"]) {
+        if !shortcut_awaits_repin(id, &row["default_shortcut"])
+            && !shortcut_removal_awaits_repin(id, &shortcut)
+        {
             assert_eq!(row["default_shortcut"], shortcut, "{id}");
         }
         let chord = action.default_chord.map_or(Value::Null, |c| {
@@ -408,4 +421,13 @@ fn debug_build_only_entries_exist() {
         };
         assert!(cases.iter().any(|c| c.value == *value), "{id}.{name} has no {value}");
     }
+}
+
+/// Leo, 2026-11-15: "idk if the terminal gui should even get a hotkey by default". Toggle
+/// Terminal and Chat ships unbound (its old Opt-Cmd-` was macOS's "Move focus to the window
+/// drawer"); a person binds one in Settings > Keyboard Shortcuts.
+#[test]
+fn toggle_terminal_and_chat_has_no_default_key() {
+    let action = cmux_action_catalog::find("palette.toggleTerminalChat").expect("an action");
+    assert!(action.default_shortcut.is_none() && action.default_chord.is_none());
 }

@@ -2545,6 +2545,9 @@
           "\"resized\""
         ]
       },
+      "/history_rows_omitted": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -3481,6 +3484,20 @@
       "/workspace": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "event:screen-device-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"screen-device-changed\""
+        ]
+      },
+      "/screen_device_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
       }
     },
     "event:screen-renamed": {
@@ -5121,6 +5138,9 @@
         ]
       },
       "/history_rows_omitted": {
+        "ty": "uint64"
+      },
+      "/history_rows_skipped": {
         "ty": "uint64"
       },
       "/kitty_graphics_state": {
@@ -7350,8 +7370,16 @@
           "render"
         ]
       },
+      "/output_coalesce_ms": {
+        "ty": "uint32",
+        "nullable": true
+      },
       "/replay_history_rows": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/replay_history_start": {
+        "ty": "uint64",
         "nullable": true
       },
       "/rows": {
@@ -17540,6 +17568,9 @@
       "/data/machine_capabilities/*": {
         "ty": "string"
       },
+      "/data/machine_device": {
+        "ty": "string"
+      },
       "/data/machine_id": {
         "ty": "string"
       },
@@ -17557,6 +17588,9 @@
         "ty": "string",
         "required": true
       },
+      "/data/machine_symbol": {
+        "ty": "string"
+      },
       "/data/min_api_revision": {
         "ty": "uint32",
         "nullable": true
@@ -17572,6 +17606,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/screen_device_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",

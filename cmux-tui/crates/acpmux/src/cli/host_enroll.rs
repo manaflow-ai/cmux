@@ -941,7 +941,10 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
         )
         .with_reason(REASON_NOT_THIS_PROGRAM);
     }
-    let pushed = hosts::push_binary(r, bin).and_then(|_| {
+    // Enroll asks for exactly this build (it checks it after), so it may move
+    // a host back, and inside its restart window; `host update` and `host
+    // setup` refuse both.
+    let pushed = hosts::push_binary(r, bin, true, true).and_then(|_| {
         if bin == DAEMON_BIN {
             return Ok(String::new());
         }

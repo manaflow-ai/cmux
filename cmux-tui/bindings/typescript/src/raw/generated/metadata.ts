@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a. */
+/* cmux-tui mux protocol 12, IR dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a" as const;
+export const SDK_IR_SHA256 = "dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -97,9 +97,17 @@ export const COMMAND_METADATA = {
         "since": 7,
         "capability": null
       },
+      "output_coalesce_ms": {
+        "since": null,
+        "capability": "attach-output-coalesce-v1"
+      },
       "replay_history_rows": {
         "since": null,
         "capability": "attach-replay-history-rows-v1"
+      },
+      "replay_history_start": {
+        "since": null,
+        "capability": "attach-replay-history-window-v1"
       },
       "rows": {
         "since": null,
@@ -174,7 +182,10 @@ export const COMMAND_METADATA = {
       "terminal_event": "detached"
     },
     "constraints": [
-      "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted."
+      "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted.",
+      "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
+      "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted.",
+      "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once."
     ]
   },
   "bind-conversation-tab-session": {
@@ -4354,6 +4365,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "screen-device-changed": {
+    "since": 12,
+    "capability": "screen-device-identity-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "screen-renamed": {
     "since": 7,
     "capability": null,
@@ -7987,6 +8006,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "array"
         }
       },
+      "machine_device": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "machine_id": {
         "nullable": false,
         "presence": "optional",
@@ -8012,6 +8040,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "MachinePlatform"
+        }
+      },
+      "machine_symbol": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "min_api_revision": {
@@ -8045,6 +8082,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_device_id": {
+        "capability": "machine-identity-v1",
+        "constraints": [
+          "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -16236,6 +16286,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             ]
           }
         },
+        "output_coalesce_ms": {
+          "capability": "attach-output-coalesce-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
         "replay_history_rows": {
           "capability": "attach-replay-history-rows-v1",
           "default": null,
@@ -16244,6 +16304,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint32"
+          }
+        },
+        "replay_history_start": {
+          "capability": "attach-replay-history-window-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "rows": {
@@ -33431,6 +33501,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": "resized"
         }
       },
+      "history_rows_omitted": {
+        "capability": "attach-replay-history-window-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "kitty_graphics_state": {
         "nullable": false,
         "presence": "optional",
@@ -33614,6 +33693,33 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "screen-device-changed": {
+    "additional_properties": false,
+    "constraints": [
+      "Delivered only to authenticated owner app subscribers (local Unix or owner WebSocket); page relays, paired clients, and other remote clients do not receive it.",
+      "The subscription sends one current-value replay before live events. A null replay or event means the worker has no available screen identity."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "screen-device-changed"
+        }
+      },
+      "screen_device_id": {
+        "description": "The authenticated worker screen UUID, or null when the worker is unavailable.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -34607,6 +34713,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "history_rows_omitted": {
         "capability": "attach-replay-history-rows-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "history_rows_skipped": {
+        "capability": "attach-replay-history-window-v1",
         "nullable": false,
         "presence": "optional",
         "type": {

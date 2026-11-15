@@ -55,6 +55,34 @@ fn stopped_answer() -> Value {
     json!({"stopReason": "cancelled"})
 }
 
+/// The project's folder of PDFs saved for agents, `<cwd>/.cmux/attachments` (it holds one folder
+/// per chat and a `.gitignore`).
+fn pdf_attachments_root(cwd: &Path) -> PathBuf {
+    cwd.join(".cmux").join("attachments")
+}
+
+/// Session `id`'s folder of PDFs under `root` (`<cwd>/.cmux/attachments`); none for an id that is
+/// not one plain path component.
+fn pdf_attachments_dir(root: &Path, id: &str) -> Option<PathBuf> {
+    let plain =
+        !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    plain.then(|| root.join(id))
+}
+
+/// Deletes the PDFs session `id` saved in its project (`acp_prompt_blocks`): the chat was
+/// deleted. They were never removed, so every PDF sent to a deleted chat stayed in the project.
+/// Never follows a symlink (`remove_dir_all` removes the link). Blocking: run it off the runtime.
+pub(super) fn remove_pdf_attachments(cwd: &Path, id: &str) {
+    let Some(dir) = pdf_attachments_dir(&pdf_attachments_root(cwd), id) else {
+        return;
+    };
+    match crate::home_fs::remove_dir_all(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(session = id, "PDF attachments not deleted: {e}"),
+    }
+}
+
 /// ACP v1 does not define a `document` content block. Claude's translator can
 /// turn our internal document block into Anthropic's native document. Strict
 /// ACP adapters (including Codex) instead get a stable workspace file and a
@@ -78,12 +106,16 @@ pub(super) fn acp_prompt_blocks(
             )
             .collect();
         let safe_name = if safe_name.is_empty() { "document.pdf" } else { &safe_name };
-        let dir = session.meta().cwd.join(".cmux").join("attachments");
+        let root = pdf_attachments_root(&session.meta().cwd);
+        // The chat's own folder, so deleting the chat deletes its PDFs (`remove_pdf_attachments`).
+        let dir = pdf_attachments_dir(&root, &session.id).ok_or_else(|| {
+            RpcError::internal("cannot create PDF attachment directory: bad session id")
+        })?;
         crate::home_fs::create_dirs(&dir).map_err(|e| {
             RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
         })?;
         // The folder sits in the user's project; keep it out of their commits.
-        let ignore = dir.join(".gitignore");
+        let ignore = root.join(".gitignore");
         if !ignore.exists() {
             let _ = crate::home_fs::write(&ignore, "*\n");
         }
@@ -803,6 +835,8 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Its sender, set with the turn so no steer and no read sees the turn without it.
+        turn.device = run.full_access_device.clone().filter(|_| control == Control::Web);
         // A queued prompt was accepted when it was queued; any other is, once its checks pass.
         turn.accepted = waiting;
         // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
@@ -1756,11 +1790,22 @@ impl Hub {
             };
             signed_out = true;
         }
+        // A Codex with no sign-in and no team plane: say so, typed as a sign-in failure, never
+        // codex's bare missing env var (`codex_cloud_auth::explain_missing_key`). Only a Codex
+        // session's text names Codex; another harness's stays as it said it (still typed).
+        if let Err(e) = &mut result
+            && session.meta().harness.to_ascii_lowercase().contains("codex")
+            && let Some(text) = crate::codex_cloud_auth::explain_missing_key(&e.message)
+        {
+            tracing::warn!(session = %session.id, "Codex agent is not signed in");
+            e.message = text;
+            signed_out = true;
+        }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
-            match &mut e.data {
-                Some(Value::Object(data)) => data.extend(info.clone()),
-                None => e.data = Some(Value::Object(info.clone())),
-                Some(_) => {}
+            // An agent's string or list data moves under `agentData`, so the route still shows.
+            crate::recovery::object_data(e);
+            if let Some(Value::Object(data)) = &mut e.data {
+                data.extend(info.clone());
             }
         }
         // A failure acpmux knows the remedy for says it (`recovery.rs`): a full disk, an agent
@@ -2482,6 +2527,21 @@ impl Hub {
         {
             return Ok(());
         }
+        // A chat that goes starts no agent from here on (`Session::purging`): set before the stop
+        // is counted, so a start that reads the count after it sees this too. A delete that fails
+        // leaves the chat as it was, startable again.
+        struct Purging<'a>(Option<&'a AtomicBool>);
+        impl Drop for Purging<'_> {
+            fn drop(&mut self) {
+                if let Some(flag) = self.0 {
+                    flag.store(false, Ordering::SeqCst);
+                }
+            }
+        }
+        let mut purging = Purging(None);
+        if purge && !session.purging.swap(true, Ordering::SeqCst) {
+            purging.0 = Some(&session.purging);
+        }
         // A chat that goes: its forks take its history before anything of it is stopped or marked
         // purged, and no fork references it after. A fork still being made fails the delete here,
         // with the chat as it was (review of #37020: it failed after `purged`, and the chat's
@@ -2563,6 +2623,13 @@ impl Hub {
                 let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
                 session.purged.store(true, Ordering::SeqCst);
             }
+            // An append that read the chat as not purged yet holds its append lock until its line
+            // is written: it finishes before the folder goes, and every later one sees `purged`
+            // and writes nothing. One that came after the delete removed the folder wrote the
+            // chat's log again, its folder with it (`tests/session_delete_disk.rs`).
+            drop(session.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
+            // Purged now: it never starts an agent again.
+            purging.0 = None;
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
@@ -2615,9 +2682,13 @@ impl Hub {
             // itself comes back under this id.
             if !replaced {
                 let id = session.id.clone();
-                let _ =
-                    tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
-                        .await;
+                let cwd = session.meta().cwd.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    super::file_uploads::remove_session(&id);
+                    // And the PDFs it saved in its project (`acp_prompt_blocks`).
+                    remove_pdf_attachments(&cwd, &id);
+                })
+                .await;
             }
             // No awaits follow unregistering: a fixed-ID creator may now publish. Keep the
             // removal, index update and event publication under the same lock so a replacement
