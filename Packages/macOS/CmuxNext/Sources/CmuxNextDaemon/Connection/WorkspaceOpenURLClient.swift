@@ -6,7 +6,7 @@ import Foundation
 /// the caller only names the URL.
 public struct WorkspaceOpenURLClient: Sendable {
     /// What a daemon advertises when it serves `workspace.open_url`.
-    public static let capability = "workspace-open-url-v1"
+    public static let capability = DaemonCapability.workspaceOpenURL.rawValue
     public let connection: DaemonConnection
 
     public init(_ connection: DaemonConnection) {

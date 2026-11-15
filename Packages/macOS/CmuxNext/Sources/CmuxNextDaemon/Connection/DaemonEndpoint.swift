@@ -580,6 +580,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// files with no patch. The diff tab asks them every few seconds; a session host without the
     /// read gets no request for it (DiffPageProvider+Git.swift).
     case gitFingerprint = "git-fingerprint-v1"
+    /// `workspace.open_url` with a workspace selector: a hover card port row opens its port in that
+    /// workspace (WorkspaceOpenURLClient); a daemon without it gets the usual refusal.
+    case workspaceOpenURL = "workspace-open-url-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -630,7 +633,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .classicImport, .diffCommentsSend, .gitFingerprint:
+             .classicImport, .diffCommentsSend, .gitFingerprint, .workspaceOpenURL:
             return .optional
         }
     }
