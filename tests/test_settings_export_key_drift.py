@@ -143,6 +143,23 @@ class GitRange(unittest.TestCase):
         self.write_exports("tabs.newTabApp", "tabs.position", "tabs.fresh")
         self.assertEqual(self.run_check(self.commit("add and export a setting")).returncode, 0)
 
+    def test_a_changed_row_that_leaves_an_export_passes(self):
+        # A row whose source changes (consumers: browser only, hidden from the docs) may leave an export on purpose;
+        # only a key whose source row is the same at both ends must stay (review of #43507, F1).
+        self.write("schemas/settings/source/tabs.json", json.dumps({"lists": [{"name": "rows", "rows": [
+            {"key": "tabs.newTabApp", "consumers": ["cmux-browser"]}, {"key": "tabs.position"}]}]}))
+        for path in ("docs/mdm/com.manaflow.cmux.json", "docs/mdm/com.manaflow.cmux.plist",
+                     "docs/mdm/managed-preferences.md"):
+            self.write(path, exports("tabs.position")[path])
+        result = self.run_check(self.commit("browser-only row leaves the MDM exports"))
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
+
+    def test_a_source_with_an_unexpected_shape_is_an_error_not_a_crash(self):
+        self.write("schemas/settings/source/odd.json", json.dumps({"lists": ["not a list entry"]}))
+        result = self.run_check(self.commit("odd source"))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("cannot read the exports or sources", result.stderr)
+
     def test_a_removed_setting_not_yet_exported_passes(self):
         self.write("schemas/settings/source/tabs.json", source("tabs.position"))
         self.assertEqual(self.run_check(self.commit("remove a setting")).returncode, 0)
