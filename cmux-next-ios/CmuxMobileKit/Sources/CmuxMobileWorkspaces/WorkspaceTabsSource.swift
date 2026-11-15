@@ -2368,9 +2368,10 @@ struct WorkspaceTabPage: View {
         }
     }
 
-    /// A terminal tab's terminal face.
+    /// A terminal tab's terminal face; parked (not interactive) while its chat face shows.
     private func terminalPage(_ tab: WorkspaceTab, _ workspace: Workspace) -> some View {
-        source.terminal.page(for: tab, in: workspace, context: terminalContext)
+        source.terminal.page(for: tab, in: workspace, context: terminalContext(
+            interactive: source.terminalFaceIsInteractive(tab, in: workspace, page: context.isInteractive)))
             .overlay {
                 // The Mac's dead-tab overlay: the shell ended; its button restarts it.
                 if tab.hasEndedShell {
@@ -2394,10 +2395,11 @@ struct WorkspaceTabPage: View {
         return max(insets.bottom, pageHeight - top) + 12
     }
 
-    private var terminalContext: TerminalTabContext {
+    /// `interactive`: the terminal face is an interactive page (``WorkspaceTabsSource/terminalFaceIsInteractive(_:in:page:)``).
+    private func terminalContext(interactive: Bool) -> TerminalTabContext {
         let context = context
         let tabID = tabID
-        return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, isInteractive: context.isInteractive,
+        return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, isInteractive: interactive,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
                                   openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
