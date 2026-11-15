@@ -105,7 +105,7 @@ public nonisolated struct ConcentricContainer: Hashable, Sendable {
 }
 
 /// `value` with at most two decimals, for a violation's line.
-private func format(_ value: CGFloat) -> String {
+nonisolated private func format(_ value: CGFloat) -> String {
     let rounded = (value * 100).rounded() / 100
     return rounded == rounded.rounded() ? String(Int(rounded)) : String(Double(rounded))
 }
