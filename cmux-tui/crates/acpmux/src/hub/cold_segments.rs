@@ -40,7 +40,7 @@ pub const PER_PASS: usize = 2;
 
 /// The zstd level to move segments at, from the settings document; None when the setting is off.
 pub(crate) fn level_of(doc: &Value) -> Option<i32> {
-    if crate::user_settings::value(doc, SETTING_ON) == Some(Value::Bool(false)) {
+    if crate::user_settings::value(doc, SETTING_ON) != Some(Value::Bool(true)) {
         return None;
     }
     let level = crate::user_settings::value(doc, SETTING_LEVEL)
@@ -79,6 +79,9 @@ impl Hub {
             loop {
                 wake.notified().await;
                 let Some(hub) = hub.upgrade() else { return };
+                if hub.shutting_down() {
+                    return;
+                }
                 let ids = std::mem::take(&mut *set.lock().unwrap_or_else(|e| e.into_inner()));
                 let worker = hub.clone();
                 let done =

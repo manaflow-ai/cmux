@@ -390,9 +390,6 @@ impl LocalStore {
 /// (`store/cold_segments.rs`), which stays as it is, every byte. A cut (`after`) that would leave
 /// out a record of a cold segment is refused: a cold segment is never cut.
 fn hot_segments(segments: Vec<(u32, PathBuf)>, cut: Option<u64>) -> Result<Vec<(u32, PathBuf)>> {
-    if cut.is_some() || cut.is_none() {
-        return Ok(segments);
-    }
     let mut hot = Vec::with_capacity(segments.len());
     for (index, path) in segments {
         if !super::cold_segments::is_cold(&path) {

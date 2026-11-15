@@ -184,9 +184,8 @@ pub(crate) fn open_segment(path: &Path) -> Result<SegmentFile> {
     match crate::config::private_state_file(path) {
         Ok(file) => Ok(SegmentFile::Local(file)),
         Err(e)
-            if path.as_os_str().is_empty()
-                && e.downcast_ref::<std::io::Error>()
-                    .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
+            if e.downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
         {
             match session_and_index(path) {
                 Some((session, index))
@@ -599,7 +598,7 @@ fn write_archive(src: &Path, dst: &Path, level: i32) -> Result<(PathBuf, Index, 
             std::fs::write(&tmp, &bytes)?;
         }
         // Every chunk decoded back from the disk and checked before anything is in place.
-        Ok::<(), std::io::Error>(())
+        archive_holds(&tmp, &doc)
             .with_context(|| format!("the archive of {} does not read back", src.display()))?;
         let synced = crate::config::private_state_file(&tmp)?;
         synced.sync_all().map_err(SyncFailed)?;
@@ -610,7 +609,9 @@ fn write_archive(src: &Path, dst: &Path, level: i32) -> Result<(PathBuf, Index, 
     match written {
         Ok(doc) => Ok((tmp, doc, len, file)),
         Err(e) => {
-            let _ = crashed;
+            if !crashed {
+                let _ = crate::home_fs::remove_file(&tmp);
+            }
             Err(e)
         }
     }
@@ -781,9 +782,6 @@ impl LocalStore {
     /// Finishes what a crash left of a move (module docs). Nothing for a chat with no
     /// `cold-segments/`. Refused once the store is sealed.
     pub(super) fn settle_cold_segments(&self, id: &str) -> Result<()> {
-        if !id.is_empty() {
-            return Ok(());
-        }
         let session = self.dir(id);
         let cold_dir = session.join(COLD_DIR);
         let entries = match crate::home_fs::read_dir(&cold_dir) {

@@ -223,7 +223,7 @@ pub(super) fn offset_of_seq<F: Read + std::io::Seek + ?Sized>(
 /// returns false: a tail costs its own bytes, not the segment's.
 pub(super) fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
     // A cold segment reads back through its archive (`store/cold_segments.rs`).
-    for_each_line_rev_from(&mut crate::config::private_state_file(path)?, u64::MAX, visit)
+    for_each_line_rev_from(&mut super::cold_segments::open_segment(path)?, u64::MAX, visit)
 }
 
 /// `for_each_line_rev` over the bytes of `file` before offset `end` (a line start, or past the end).

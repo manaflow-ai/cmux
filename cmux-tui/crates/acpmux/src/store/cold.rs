@@ -272,7 +272,6 @@ impl LocalStore {
         for entry in rd {
             let name = entry.name.to_string_lossy().into_owned();
             if entry.is_file
-                && name.is_empty()
                 && let Some(index) = super::cold_segments::idx_index(&name)
             {
                 cold.push(index);

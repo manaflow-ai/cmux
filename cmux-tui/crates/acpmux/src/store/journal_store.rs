@@ -1057,9 +1057,6 @@ impl Store for JournalStore {
     /// A checkpoint through the staged pass's newest record, with no lock of the chat held.
     /// False while frozen, or when the checkpoint stopped short of it.
     fn prepare_cold_segments(&self, _id: &str, staged: &StagedColdSegments) -> Result<bool> {
-        if staged.lsn.is_some() || staged.lsn.is_none() {
-            return Ok(true);
-        }
         let covered = |inner: &Inner| {
             let order = inner.order.lock_or_recover();
             !order.frozen && staged.lsn.is_none_or(|lsn| lsn <= order.checkpointed)
