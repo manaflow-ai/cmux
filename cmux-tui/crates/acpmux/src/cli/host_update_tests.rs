@@ -910,6 +910,7 @@ fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
         keep_newer: false,
         allow_downgrade: true,
         caller: None,
+        restart_window: None,
     };
     let up = update_peer(&peer, &opts);
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
@@ -938,6 +939,56 @@ fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
     peer.exe(&format!("binaries/acpmux-{TARGET}"), &newer);
     assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
     assert_eq!(peer.read(".local/bin/acpmux"), newer);
+}
+
+/// The host's restart stamp says an update restarted its daemon `ago`
+/// seconds ago by its clock (negative: in the future, a clock that went back).
+#[cfg(unix)]
+fn restarted_ago(peer: &FakePeer, ago: i64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let at = i64::try_from(now).unwrap_or(i64::MAX).saturating_sub(ago);
+    peer.write(".acpmux/update.restarted", &format!("{at}\n"));
+}
+
+/// The host's own install step keeps the restart window, for a pusher that
+/// never checks it first (an acpmux from before the check, or one that
+/// skips it): inside the window nothing is installed or staged, and the
+/// daemon is left alone.
+#[test]
+#[cfg(unix)]
+fn the_hosts_install_step_refuses_a_push_inside_the_restart_window() {
+    let peer = FakePeer::new("window-host-side");
+    restarted_ago(&peer, 5 * 60);
+    peer.offer(NEW, Some(NEW));
+    let installed = peer.read(".local/bin/acpmux");
+    let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+    let e = push_update(&peer, &binary, None, false).expect_err("refused inside the window");
+    let why = e.to_string();
+    assert!(why.contains("restart window: last update restart 5 min ago"), "{why}");
+    assert!(why.contains("--now"), "{why}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert!(!peer.exists(".local/bin/.acpmux-new"));
+    assert_eq!(peer.daemon(), OLD);
+}
+
+/// `host setup` installs through the host's own install step too: inside
+/// the restart window it refuses, and the installed binary stays.
+#[test]
+#[cfg(unix)]
+fn a_host_setup_inside_the_restart_window_refuses_and_changes_nothing() {
+    let peer = FakePeer::new("window-setup");
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let e = push_binary(&peer, DAEMON_BIN, false).expect_err("refused inside the window");
+    let why = format!("{e:#}");
+    assert!(why.contains("restart window: last update restart 5 min ago"), "{why}");
+    assert!(why.contains("--now"), "{why}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.new"));
+    assert_eq!(peer.daemon(), OLD);
 }
 
 #[test]

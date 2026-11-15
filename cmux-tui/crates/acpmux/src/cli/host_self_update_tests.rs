@@ -553,6 +553,7 @@ fn host_update(peer: &FakePeer, build: &str, window: Option<u64>) -> PeerUpdate 
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
         keep_newer: false,
+        allow_downgrade: false,
         caller: None,
         restart_window: window,
     };
