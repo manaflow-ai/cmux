@@ -825,7 +825,7 @@ pub enum Op {
     /// Sidebar", `item.remove_ref`): kind and value as the old layout ref
     /// names them (`workspace` `<session>:<workspace id>`, `url` the url,
     /// `app`, `built_in`, `tab`, `room`, `saved_group`, or an unknown kind).
-    /// A group has no ref. `unknown_item` when no item shows it.
+    /// A group has no ref. A no-op when no item shows it (any more).
     #[serde(rename = "item.remove_ref")]
     ItemRemoveRef {
         #[serde(rename = "ref")]
@@ -944,5 +944,69 @@ impl Refusal {
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl Refusal {
+    /// Every refusal, in `as_str` order: the text table's tests walk it.
+    pub const ALL: [Refusal; 13] = [
+        Refusal::UnknownSection,
+        Refusal::UnknownItem,
+        Refusal::DuplicateId,
+        Refusal::DuplicateRef,
+        Refusal::CrossMachine,
+        Refusal::ProviderOwned,
+        Refusal::Nesting,
+        Refusal::InvalidTarget,
+        Refusal::MachineRequired,
+        Refusal::NoMachine,
+        Refusal::InvalidTitle,
+        Refusal::InvalidValue,
+        Refusal::TooMany,
+    ];
+
+    /// The refusal a wire reason names; None for one this build does not know.
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|refusal| refusal.as_str() == code)
+    }
+
+    /// Why the person's own change was refused, in plain words: the one copy of this
+    /// text. The app shows it only for a change the person made (a drag, a key, a menu);
+    /// a change nobody here asked for (auto-archive, an agent, a sync, a replay) is
+    /// logged with its code and shows nothing ([`change_failure_text`]).
+    pub fn text(self) -> &'static str {
+        match self {
+            Refusal::UnknownSection => "That section is no longer in the sidebar.",
+            Refusal::UnknownItem => "That item is no longer in the sidebar.",
+            Refusal::DuplicateId => "That item is already in the sidebar.",
+            Refusal::DuplicateRef => "That workspace is already in the sidebar.",
+            Refusal::CrossMachine => "Workspaces stay on their machine.",
+            Refusal::ProviderOwned => "An app fills this section.",
+            Refusal::Nesting => "A group can’t go inside itself or nest more than 16 deep.",
+            Refusal::InvalidTarget => "The place it was dropped is gone.",
+            Refusal::MachineRequired => "A machine’s section can’t be removed.",
+            Refusal::NoMachine => "Its machine is no longer in the sidebar.",
+            Refusal::InvalidTitle => "A name needs 1 to 80 characters.",
+            Refusal::InvalidValue => "The sidebar doesn’t take that setting.",
+            Refusal::TooMany => "The sidebar is full: 64 sections and 20,000 items at most.",
+        }
+    }
+}
+
+/// A sidebar change that failed without a reducer refusal: the daemon did not
+/// answer after the quiet retries (`no_answer`), the sidebar document is not
+/// served (`unavailable`), or it failed another way (`failed`).
+pub const CHANGE_FAILURES: [&str; 3] = ["no_answer", "unavailable", "failed"];
+
+/// The text for a failed sidebar change: a reducer refusal code's
+/// [`Refusal::text`], or one of [`CHANGE_FAILURES`]; any other code is `failed`.
+pub fn change_failure_text(code: &str) -> &'static str {
+    if let Some(refusal) = Refusal::from_code(code) {
+        return refusal.text();
+    }
+    match code {
+        "no_answer" => "cmux didn’t answer, so the sidebar shows what it last saved.",
+        "unavailable" => "The sidebar can’t move items until cmux finishes connecting.",
+        _ => "cmux couldn’t save this change, so the item went back.",
     }
 }
