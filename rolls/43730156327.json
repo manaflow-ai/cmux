@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43730156327",
+  "recorded_at": "2026-11-15T15:40:43Z",
+  "reason": "cmux-tui 086afb8f44e3 changes the image's cmux-tui (pinned ed10c9f084c0)",
+  "dry_run": false,
+  "cmux_tui": "086afb8f44e346038ef36178f1fff135bba3e8be",
+  "fixes": [
+    {
+      "sha": "086afb8f44e346038ef36178f1fff135bba3e8be",
+      "mergedAt": "2026-11-15T15:12:50Z",
+      "subject": "fix(tui): refresh terminal sizing after workspace moves (#43736)"
+    },
+    {
+      "sha": "2e7d6d5375b193836a9e3405b05126c35d26bd33",
+      "mergedAt": "2026-11-15T07:11:29-08:00",
+      "subject": "acpmux: idle chats start no agent until opened or sent to (CLI reads, update relaunch) (#43723)"
+    },
+    {
+      "sha": "2e11ec8e619d9a218aabc8a0e839f49cd429e4fd",
+      "mergedAt": "2026-11-15T07:10:21-08:00",
+      "subject": "acpmux: more agents than Claude and Codex go through the team's inference gateway on an owner Cloud machine (restacked) (#43645)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T15:40:43Z",
+    "snapshot_id": "sh-06c89e752dc44e969fa32b09d7c4558b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43730156327): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c185be0666ea51925d1db7735548b36f5956cd7b",
+    "image": "cloud-native-auto-086afb8f-43730156327-1",
+    "revision": "ci-43730156327-1",
+    "at": "2026-11-15T15:40:43Z"
+  },
+  "rolled_back": false
+}
