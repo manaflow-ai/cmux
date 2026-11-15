@@ -22402,7 +22402,7 @@
       },
       "help" : {
         "key" : "settings.chats.coldSegments.help",
-        "text" : "Older parts of a long chat are compressed on disk as it grows. Nothing is removed, and the chat scrolls back as before."
+        "text" : "Compresses the older parts of long chats. Run cmux chats warm to undo."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.chats.coldSegments",
@@ -22519,7 +22519,7 @@
       },
       "title" : {
         "key" : "settings.chats.coldSegments",
-        "text" : "Compress Chat History"
+        "text" : "Compress Long Chats"
       },
       "validation" : "portable"
     },
@@ -22664,7 +22664,7 @@
       },
       "title" : {
         "key" : "settings.chats.coldSegmentsLevel",
-        "text" : "Chat History Compression Level"
+        "text" : "Long Chat Compression Level"
       },
       "validation" : "portable"
     },
