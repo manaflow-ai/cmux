@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2";
+inline constexpr std::string_view kProtocolIrSha256 = "dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -677,6 +677,7 @@ struct ResizedEvent;
 struct ScreenAddedEvent;
 struct ScreenChangedEvent;
 struct ScreenClosedEvent;
+struct ScreenDeviceChangedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
 struct SelectionChangedEvent;
@@ -3414,13 +3415,16 @@ struct IdentifyResult {
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_device{};
     std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
     std::optional<MachinePlatform> machine_platform{};
+    std::optional<std::string> machine_symbol{};
     Field<std::uint32_t> min_api_revision{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
@@ -5011,6 +5015,11 @@ struct ScreenClosedEvent {
     Id screen{};
     Id workspace{};
     friend bool operator==(const ScreenClosedEvent&, const ScreenClosedEvent&) = default;
+};
+
+struct ScreenDeviceChangedEvent {
+    std::optional<std::string> screen_device_id{};
+    friend bool operator==(const ScreenDeviceChangedEvent&, const ScreenDeviceChangedEvent&) = default;
 };
 
 struct ScreenRenamedEvent {
@@ -10527,6 +10536,12 @@ template <>
 struct Codec<ScreenClosedEvent> {
     static Result<Json> encode(const ScreenClosedEvent& value);
     static Result<ScreenClosedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ScreenDeviceChangedEvent> {
+    static Result<Json> encode(const ScreenDeviceChangedEvent& value);
+    static Result<ScreenDeviceChangedEvent> decode(const Json& value);
 };
 
 template <>

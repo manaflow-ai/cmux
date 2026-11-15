@@ -1348,6 +1348,28 @@ pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) 
     Session::new(options.dir.clone(), options, daemon).reload(true)
 }
 
+/// The debounce after a file event: DEBOUNCE of quiet after the last one (a
+/// deadline only while file events come; log lines and other daemon events
+/// do not hold the reload back). Returns why the loop stops when a wake said
+/// so, else `None`: one reload is due.
+pub(super) fn settle(daemon: &mut Daemon) -> Option<(&'static str, i32)> {
+    let mut quiet_at = Instant::now() + DEBOUNCE;
+    loop {
+        let left = quiet_at.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        match daemon.next_wake_within(left) {
+            None => return None,
+            Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
+            Some(Wake::Interrupt) => return Some(("stopped", exit::OK)),
+            Some(Wake::DaemonGone) => return Some(("the cmux daemon went away", exit::NO_DAEMON)),
+            Some(Wake::Installed(installed)) => super::daemon::print_installed(installed),
+            Some(Wake::Daemon(_)) => {}
+        }
+    }
+}
+
 /// `ext dev` without `--once`: reload, then reload on every save.
 pub(super) fn run_watch(
     global: &GlobalArgs,
@@ -1403,32 +1425,7 @@ pub(super) fn run_watch(
             }
             Some(Wake::Daemon(_)) => None,
             Some(Wake::Files) => {
-                // Debounce: DEBOUNCE of quiet after the last file event (a
-                // deadline only while file events come; log lines and other
-                // daemon events do not hold the reload back), then one reload.
-                let mut stop = None;
-                let mut quiet_at = Instant::now() + DEBOUNCE;
-                loop {
-                    let left = quiet_at.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
-                        break;
-                    }
-                    match session.daemon.next_wake_within(left) {
-                        None => break,
-                        Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
-                        Some(Wake::Interrupt) => stop = Some(("stopped", exit::OK)),
-                        Some(Wake::DaemonGone) => {
-                            stop = Some(("the cmux daemon went away", exit::NO_DAEMON));
-                        }
-                        Some(Wake::Installed(installed)) => {
-                            super::daemon::print_installed(installed);
-                        }
-                        Some(Wake::Daemon(_)) => {}
-                    }
-                    if stop.is_some() {
-                        break;
-                    }
-                }
+                let mut stop = settle(&mut session.daemon);
                 if stop.is_none() && !dir.is_dir() {
                     stop = Some(("the extension folder is gone", exit::OK));
                 }
