@@ -457,6 +457,34 @@ impl Customize {
         })
     }
 
+    /// Puts `layer` into the code entry with its source, in place: the entry
+    /// keeps its place in the stack, its name, its words and whether it is on
+    /// (a refresh or a watch rebuild; `use` is what moves one to the top). One
+    /// with nothing a running cmux can take is turned off.
+    pub fn library_update_code(
+        &self,
+        layer: CodeLayer,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        let label = format!("library: update {} ({})", layer.name(), short(&layer.head));
+        self.library_change(&label, origin, now_ms, |library| {
+            let entry = library
+                .entries
+                .iter_mut()
+                .find(|entry| entry.code.as_ref().is_some_and(|c| c.same_source(&layer)))
+                .ok_or_else(|| {
+                    Error::Library(format!("no library entry is {}", layer.source_label()))
+                })?;
+            entry.profile.description = one_line(&layer.label());
+            entry.thumbnail.keys =
+                if layer.has_web() { vec![WEB_KEY.to_owned()] } else { Vec::new() };
+            entry.on = entry.on && layer.has_web();
+            entry.code = Some(layer);
+            Ok(())
+        })
+    }
+
     /// Changes what entry `name` knows about its code (a settle's
     /// note) and, with `on`, turns it on or off, making the stack live.
     pub fn library_settle_code(
@@ -473,7 +501,7 @@ impl Customize {
             let code = entry
                 .code
                 .as_mut()
-                .ok_or_else(|| Error::Library(format!("{name} is not a pull request entry")))?;
+                .ok_or_else(|| Error::Library(format!("{name} is not a code entry")))?;
             code.note = one_line(note);
             if let Some(on) = on {
                 entry.on = on && entry.code.as_ref().is_some_and(CodeLayer::has_web);
