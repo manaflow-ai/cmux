@@ -102,7 +102,7 @@ fn the_signed_bytes_are_the_contracts_test_vector() {
         message("mac-0011223344556677", "user_abc", "m_1", "AAAA", "on", "keep", 1000, 2000);
     assert_eq!(
         bytes,
-        b"acpmux-consent-grant-v1\0mac-0011223344556677\0user_abc\0m_1\0AAAA\0on\0keep\01000\02000"
+        b"acpmux-consent-grant-v1\x00mac-0011223344556677\x00user_abc\x00m_1\x00AAAA\x00on\x00keep\x001000\x002000"
             .to_vec()
     );
 }
