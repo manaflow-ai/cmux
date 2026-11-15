@@ -1,0 +1,760 @@
+{
+ "comment": "Shrink-only: today's user-facing string offenders (scripts/cmux-next/check-user-facing-strings.py). Fix one and delete its entry; never add one.",
+ "offenders": [
+  {
+   "rule": "filler",
+   "where": "catalog:transport.intentInvalid",
+   "text": "something went wrong"
+  },
+  {
+   "rule": "no-action",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "Notice dictation"
+  },
+  {
+   "rule": "no-action",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "Notice harness-block"
+  },
+  {
+   "rule": "no-action",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "Notice import-error"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/AddAccountDialog.tsx",
+   "text": "failure.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/AddProjectPanel.tsx",
+   "text": "failure.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/AddProjectPanel.tsx",
+   "text": "failure.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "String(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/App.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/Composer.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/OpenAppCard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/PeerCopyBanner.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/PermissionCard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/SavedEnvironmentPanel.tsx",
+   "text": "failure.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/TaskGoalStrip.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/context/ContextScreen.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/context/ContextScreen.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/conversation/DiagramBlock.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/handoff/ReviewMessage.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/harnesses/HarnessesScreen.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/needsYou/NeedsYou.tsx",
+   "text": "failure.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/newtab/useNewTabCommand.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/offer/SuggestedTasks.tsx",
+   "text": "errorMessage(failure)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/planBuild/PlanBuildCard.tsx",
+   "text": "failure.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/question/QuestionCard.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/repoTour/TourCard.tsx",
+   "text": "errorMessage(error)"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/RunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/RunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/RunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/RunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/RunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/compare/CompareRunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/compare/CompareRunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/compare/CompareRunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/compare/CompareRunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/compare/CompareRunBoard.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/timeline/TimelineRunBoard.tsx",
+   "text": "cause.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/timeline/TimelineRunBoard.tsx",
+   "text": "cause.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/timeline/TimelineRunBoard.tsx",
+   "text": "cause.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/run-board/variants/timeline/TimelineRunBoard.tsx",
+   "text": "cause.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/session-info/SourcesSection.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "raw-error",
+   "where": "webviews/src/agent-session/acpmux/session-info/SourcesSection.tsx",
+   "text": "error.message"
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:composer.cmuxImportFailed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:error.interrupted",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:error.timedOut",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:error.trustPending",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:error.trustUntrusted",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:error.versionMismatch",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.commit.failed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.commit.identityMissing",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.commit.indexLocked",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.commit.newFilesSkipped",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.commit.uncertain",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.push.failed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.push.networkFailed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.push.uncertain",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.statusFailed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.storeFailed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:git.timedOut",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:guest.join.failed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:guest.join.hostOffline",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:guest.live.loadFailed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:harnesses.enableUnavailable",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:host.keptRetrying",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:host.tooLarge",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:imessage.missing",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:imessage.unavailable",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:link.sessionMissing",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:message.renderFailed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:peerCopy.offline.savedAt",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:peerCopy.offline.title",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:permission.error.answerUncertain",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:permission.error.disconnected",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:permission.error.groupChanged",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:permission.error.noLongerAvailable",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:permission.error.refused",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:permission.error.selectionChanged",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:permission.error.wrongGroup",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:prompt.failure.hostAway",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:prompt.failure.tooLarge",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:prompt.failure.tooLargeFile",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:prompt.notSentAgain",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:prompt.notSentGesture",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:question.replyFailed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:retry.ask",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:retry.askTask",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:runBoard.error.attachExpired",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:sandbox.error.agent",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:sandbox.error.attachments",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:sandbox.error.labsOff",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:sandbox.error.notNow",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:sandbox.error.spent",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:sandbox.error.timeout",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:sandbox.error.uncertain",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:share.error.generic",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:share.error.restrictRaced",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:switch.share.unavailable",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:transport.intentInvalid",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:trust.failed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.authExpired",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.checkpoint.failed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.checkpoint.missing",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.cloudAuthExpired",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.cloudAuthMissing",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.cloudAuthRejected",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.cloudCredentialsExpired",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.cloudSignInExpired",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.cloudSsoExpired",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.cloudTeamMachineNoLogin",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.codexConfig",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.codexConfigAt",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.contextFull",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.diskFull",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.invalidKey",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.noCredit",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.noTeamAccount",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.proxyAuth",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.rateLimited",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.tailscale",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.failure.teamCap",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.signIn.error.badCode",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.signIn.error.busy",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.signIn.error.expired",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.signIn.error.failed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:turn.signIn.error.unknownSession",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:unavailable.gone.detail",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:unavailable.machineDeleted.detail",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:unavailable.notFound.detail",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:unavailable.notFound.detailOn",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:unavailable.offline.lastSeen",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:unavailable.paused.detail",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:unavailable.resumeFailed",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "catalog:waiting.commentNotCopied",
+   "text": ""
+  },
+  {
+   "rule": "sentences",
+   "where": "webviews/src/agent-session/acpmux/run-board/RunBoard.tsx",
+   "text": "The agent session could not be attached. Try again while the worker is retained."
+  }
+ ]
+}

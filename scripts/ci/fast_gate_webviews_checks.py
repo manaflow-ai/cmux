@@ -47,6 +47,7 @@ CHECKS = (
     "acpmux-protocol:check",
     "check:catalog-keys",
     "check:popup-hover-reveals",
+    "check:user-facing-strings",
 )
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
