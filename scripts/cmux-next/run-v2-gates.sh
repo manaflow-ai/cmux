@@ -69,7 +69,6 @@ run_group acpmux-book book_gates
 # acpmux-client (release)
 client_gates() {
   run_client v2_pr06_client_chat
-  run_client v2_pr04b_mirror_v1_rows_gate
 }
 run_group acpmux-client client_gates
 
@@ -90,6 +89,7 @@ core_gates() {
   run_core pr08_mirror_local_row
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
+  run_core v2_pr04b_mirror_v1_rows_gate
 }
 run_group acpmux-core core_gates
 
