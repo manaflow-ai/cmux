@@ -42,9 +42,23 @@ describe("nightly download pages", () => {
     expect(html).toContain(
       'href="https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos-arm64.dmg"',
     );
-    expect(html).toContain('src="/logo-next-nightly.png"');
+    expect(html).toContain('src="/next/icon-96.webp"');
     expect(html).toContain("cmux NEXT NIGHTLY");
     expect(html).not.toContain("cmux-nightly-macos.dmg");
+  });
+
+  test("/next shows the cmux NEXT feature list and real light/dark captures", () => {
+    const html = render(NextNightlyPage, "en");
+    for (const key of Object.keys(enMessages.next.landing.features)) {
+      const feature = enMessages.next.landing.features[key as keyof typeof enMessages.next.landing.features];
+      expect(html).toContain(feature.title.replace(/'/g, "&#x27;"));
+    }
+    expect(html).toContain('src="/next/hero-light.webp"');
+    expect(html).toContain('src="/next/hero-dark.webp"');
+    // Phones get the 720px file; only the default (dark) hero loads eagerly.
+    expect(html).toContain('media="(max-width: 640px)" srcSet="/next/hero-dark-720.webp"');
+    expect(html.match(/fetchPriority="high"/g)?.length).toBe(1);
+    expect(html.match(/loading="eager"/g)?.length).toBe(1);
   });
 
   test("/nightly keeps downloading the classic cmux NIGHTLY DMG", () => {

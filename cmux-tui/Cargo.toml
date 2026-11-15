@@ -31,6 +31,7 @@ members = [
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
+    "crates/cmux-test-exec",
     "crates/cmux-tui",
     "crates/cmux-wg",
 ]
@@ -49,6 +50,7 @@ default-members = [
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
+    "crates/cmux-test-exec",
     "crates/cmux-tui",
     "crates/cmux-wg",
 ]
@@ -76,6 +78,7 @@ ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
+cmux-test-exec = { path = "crates/cmux-test-exec" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }

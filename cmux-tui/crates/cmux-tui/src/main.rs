@@ -590,6 +590,9 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
+    /// `--terminal-reap-grace-seconds`: the owner ends a terminal that has had
+    /// no tab for this long. `None`: the owner reaps no terminal.
+    terminal_reap_grace: Option<std::time::Duration>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -692,6 +695,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
         owner_host_fg: None,
         owner_host_bg: None,
+        terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -827,6 +831,21 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                         .into(),
                 );
                 out.remote = true;
+            }
+            "--terminal-reap-grace-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--terminal-reap-grace-seconds needs a value".to_string())?;
+                let seconds = value
+                    .parse::<u64>()
+                    .map_err(|_| "--terminal-reap-grace-seconds must be an integer".to_string())?;
+                let grace = cmux_tui_core::validate_terminal_reap_grace(
+                    std::time::Duration::from_secs(seconds),
+                )
+                .map_err(|error| error.to_string())?;
+                if out.terminal_reap_grace.replace(grace).is_some() {
+                    return Err("--terminal-reap-grace-seconds may be supplied only once".into());
+                }
             }
             "--remote-resume-lease-seconds" => {
                 let value = args
@@ -1398,6 +1417,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-link-socket",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
+    "--terminal-reap-grace-seconds",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -2275,6 +2295,27 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    // The socket answers `identify` as soon as it is bound. The reaper
+    // thread starts before the bind, held: `identify` lists
+    // `terminal-reaper-active-v1` from the bind, the thread runs its first
+    // pass only once this owner holds the session (released below), and a
+    // failed bind or later startup step drops it, which ends the thread and
+    // the advertisement.
+    let held_terminal_reaper = match args.terminal_reap_grace {
+        Some(grace) => match mux.set_terminal_reap_grace(grace).and_then(|()| {
+            cmux_tui_core::prepare_terminal_reaper(&mux).map_err(anyhow::Error::from)
+        }) {
+            Ok(held) => Some(held),
+            Err(error) => {
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "cmux-tui: unplaced terminal reaper unavailable: {error}"
+                );
+                None
+            }
+        },
+        None => None,
+    };
     let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
     {
         Ok(server) => server,
@@ -2283,6 +2324,15 @@ fn run_server(
             return Err(error);
         }
     };
+    // Tests: hold the startup between the bind and the rest, so a test can
+    // identify while the owner starts (`restart_host_leak.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(delay) = std::env::var("CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(delay.min(10_000)));
+    }
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
@@ -2365,6 +2415,11 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Ends terminals that have had no tab placement for the reap grace
+    // period (`terminal-reaper-active-v1`). Only an owner started with
+    // `--terminal-reap-grace-seconds` reaps; without it a closed tab's
+    // terminal runs until `terminal close` or the end of the session.
+    let terminal_reaper = held_terminal_reaper.map(cmux_tui_core::HeldTerminalReaper::release);
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
     let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
@@ -2423,6 +2478,9 @@ fn run_server(
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     if let Some(reaper) = idle_terminal_reaper {
+        reaper.stop();
+    }
+    if let Some(reaper) = terminal_reaper {
         reaper.stop();
     }
     #[cfg(unix)]

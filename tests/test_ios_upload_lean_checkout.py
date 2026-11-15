@@ -52,8 +52,15 @@ def run_text(step):
     return step.get("run") or ""
 
 
+OFFICIAL_UPLOAD = ROOT / ".github/workflows/ios-appstore-upload.yml"
+# The decide step accepts only a 40-hex SHA as upload evidence.
+BASE_SHA = "b" * 40
+HEAD_SHA = "c" * 40
+PREVIOUS_SHA = "d" * 40
+
+
 class PublicUploadDecisionTests(unittest.TestCase):
-    def decision(self, files=None, event="schedule", baseline="base", broken=False, retry=False):
+    def decision(self, files=None, event="schedule", baseline=BASE_SHA, broken=False, retry=False):
         import json
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -61,7 +68,7 @@ class PublicUploadDecisionTests(unittest.TestCase):
             fake.write_text("#!/usr/bin/env python3\n" + r"""
 import json, os, sys
 args = ' '.join(sys.argv[1:])
-if 'compare/' in args and '/compare/' + os.environ['BASE'] + '...head' not in args:
+if 'compare/' in args and '/compare/' + os.environ['BASE'] + '...' + os.environ['HEAD_SHA'] not in args:
     raise SystemExit('wrong upload comparison baseline')
 if 'compare/' in args:
     if os.environ['BROKEN'] == '1': sys.exit(1)
@@ -73,9 +80,9 @@ elif '/runs/123/artifacts' in args:
 elif sys.argv[1:3] == ['run', 'download']:
     from pathlib import Path
     target = Path(sys.argv[sys.argv.index('--dir') + 1])
-    (target / 'upload.json').write_text(json.dumps({'sha': 'head', 'app_id': '6783338052', 'build_number': '12345'}))
+    (target / 'upload.json').write_text(json.dumps({'sha': os.environ['HEAD_SHA'], 'app_id': '6783338052', 'build_number': '12345'}))
 elif 'status=success' in args:
-    print('previous-skipped-run')
+    print(os.environ['PREVIOUS_SHA'])
 elif 'status=completed' in args:
     if os.environ['RETRY'] == '1': print('123')
 else:
@@ -85,10 +92,10 @@ else:
             output = root / "output"
             summary = root / "summary"
             result = subprocess.run(
-                ["bash", "-c", load("ios-appstore-upload.yml")["jobs"]["decide"]["steps"][0]["run"]],
+                ["bash", "-c", yaml.safe_load(OFFICIAL_UPLOAD.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"][0]["run"]],
                 env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                      "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
-                     "RUNNER_TEMP": str(root), "REPOSITORY": "test/repo", "HEAD_SHA": "head",
+                     "RUNNER_TEMP": str(root), "REPOSITORY": "test/repo", "HEAD_SHA": HEAD_SHA, "PREVIOUS_SHA": PREVIOUS_SHA,
                      "EVENT_NAME": event, "BASE": baseline, "BROKEN": str(int(broken)), "RETRY": str(int(retry)),
                      "FILES": json.dumps(files if files is not None else [])},
                 capture_output=True, text=True,
@@ -103,7 +110,7 @@ else:
 
     def test_public_retry_assignment_precedes_irrelevant_change_skip(self):
         output = self.decision([{"filename": "web/page.tsx"}], retry=True)
-        self.assertEqual(output, {"last_upload_sha": "base", "upload": "false", "retry_build_number": "12345"})
+        self.assertEqual(output, {"last_upload_sha": BASE_SHA, "upload": "false", "retry_build_number": "12345"})
 
     def test_public_preserves_build_inputs(self):
         for path in ["ios/cmuxPackage/Package.swift", "Packages/macOS/CmuxPhonePush/Package.swift",

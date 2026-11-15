@@ -44,7 +44,12 @@ pub(super) fn applies(
 
 /// One `cmux.protocol/2` read of the session at `socket`, `None` when it
 /// does not answer by `deadline`.
-fn request(socket: &Path, operation: &str, params: Value, deadline: Instant) -> Option<Value> {
+pub(super) fn request(
+    socket: &Path,
+    operation: &str,
+    params: Value,
+    deadline: Instant,
+) -> Option<Value> {
     let (request_id, _) = random_identifiers().ok()?;
     let mut params = params.as_object().cloned().unwrap_or_default();
     params.entry("machine").or_insert_with(|| json!("current"));

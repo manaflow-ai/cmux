@@ -102,7 +102,7 @@ fn claude_plugin_dirs(executable: &Path, helper: &Path) -> Option<String> {
     if crate::claude_plugin::sideloading_disabled(&policy) {
         return None;
     }
-    let dir = build_dir(executable)?.join("claude-plugin");
+    let dir = build_dir(executable)?.join(crate::claude_plugin::PLUGIN_FOLDER);
     crate::claude_plugin::install(&dir, executable, helper).ok()?;
     let inherited = std::env::var_os(crate::claude_plugin::PLUGIN_DIRS_ENV);
     crate::claude_plugin::pane_plugin_dirs(inherited.as_deref(), &dir)?.into_string().ok()

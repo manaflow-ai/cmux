@@ -14,10 +14,11 @@ name: nightly-next tick
 # nightly-next build finishes, on a 5-minute backstop cron, and by dispatch
 # (a person, or nightly-next-feed-watch.yml when the feed falls behind). Whether
 # it promotes is the rolling rule (scripts/ci/nightly_next_rolling.py): at once
-# when nothing is building nightly-next, else once the oldest landing the
-# running build does not carry has waited 10 minutes, so a burst of landings
-# becomes one build of the newest tip beside the running one. A dispatch for
-# one commit skips the rule.
+# when no nightly-next push run is building, else not until that build
+# finishes (its finish runs this tick), so a burst of landings becomes one
+# build of the newest tip. nightly-next pushes share one concurrency group, so
+# promoting beside a running build got the run waiting on it cancelled (13 of
+# 17 on 2026-11-12). A dispatch for one commit skips the rule.
 #
 # Until 2026-10-28 every cmux-next or cmux-tui artifacts run on feat-cmux-next
 # promoted with no such rule (workflow_run here, and request-nightly-next in
@@ -151,9 +152,10 @@ jobs:
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
             || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
 
-      # The rolling rule (scripts/ci/nightly_next_rolling.py): promote at once when nothing is
-      # building nightly-next, else once the oldest landing the running build does not carry
-      # has waited 10 minutes. A dispatch for one commit skips it. It reads nightly-next with
+      # The rolling rule (scripts/ci/nightly_next_rolling.py): promote at once when no
+      # nightly-next push run is building, else wait for that build's finish (a promotion
+      # beside it would get the run waiting on the push group cancelled). A dispatch for one
+      # commit skips it. It reads nightly-next with
       # git ls-remote (no API budget; ticks 41791114042 and 41791169626 lost their promotion to
       # an exhausted budget on the refs API) and the gap to the tip from this checkout (the compare
       # API only when nightly-next's head is not in it); a tip already on nightly-next reads nothing

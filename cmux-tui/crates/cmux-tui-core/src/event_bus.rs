@@ -23,6 +23,8 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     ConfigReload,
+    /// What can change the unplaced-terminal reaper's reapable set.
+    TerminalTopology,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -71,6 +73,11 @@ impl MuxEventBroadcaster {
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
+    }
+
+    /// The unplaced-terminal reaper's events (`mux/terminal_reap.rs`).
+    pub(crate) fn subscribe_terminal_topology(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalTopology)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -137,6 +144,14 @@ impl MuxEventFilter {
         match self {
             Self::All => true,
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+            Self::TerminalTopology => matches!(
+                event,
+                MuxEvent::TreeChanged
+                    | MuxEvent::TreeDelta(_)
+                    | MuxEvent::TerminalRegistryChanged { .. }
+                    | MuxEvent::SurfaceExited(..)
+                    | MuxEvent::Empty
+            ),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -359,8 +374,19 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    /// Whether `self` and `other` read the same mailbox.
+    pub(crate) fn same_mailbox(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.mailbox, &other.mailbox)
+    }
+
     pub fn close(&self) {
         self.mailbox.close();
+    }
+
+    /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
+    /// consumers use it for state changes that no broadcast event carries.
+    pub(crate) fn wake(&self) {
+        self.mailbox.push(MuxEvent::TreeChanged);
     }
 
     pub fn overflowed(&self) -> bool {

@@ -6548,8 +6548,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn packaged_ghostty_resolver_receives_matching_resources() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = std::env::temp_dir().join(format!(
             "cmux-tui-ghostty-resolver-{}-{}",
             std::process::id(),
@@ -6558,14 +6556,13 @@ mod tests {
         let resources = root.join("ghostty");
         let binary = root.join("ghostty-config-helper");
         std::fs::create_dir_all(&resources).unwrap();
-        std::fs::write(
+        cmux_test_exec::write_executable(
             &binary,
             "#!/bin/sh\n\
              printf 'resource-path = %s\\n' \"$GHOSTTY_RESOURCES_DIR\"\n\
              printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
         )
         .unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
         let output = ghostty_show_config_command(&platform::GhosttyInstallation {
             binary,
@@ -6585,8 +6582,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ghostty_resolver_drains_output_while_the_child_is_running() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = std::env::temp_dir().join(format!(
             "cmux-tui-ghostty-large-output-{}-{}",
             std::process::id(),
@@ -6594,7 +6589,7 @@ mod tests {
         ));
         let binary = root.join("ghostty-config-helper");
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
+        cmux_test_exec::write_executable(
             &binary,
             "#!/bin/sh\n\
              i=0\n\
@@ -6605,7 +6600,6 @@ mod tests {
              printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
         )
         .unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
         let mut command = Command::new(&binary);
         command.stdout(Stdio::piped()).stderr(Stdio::null());

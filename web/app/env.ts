@@ -218,6 +218,11 @@ export const env = createEnv({
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     CMUX_TEAM_INVITE_FROM_EMAIL: z.string().email().optional(),
+    // Sign in with ChatGPT (OpenAI's OIDC client registration). Unset hides the
+    // button and the /handler/chatgpt routes answer 404. The secret is set
+    // only when OpenAI registered a confidential client.
+    CMUX_CHATGPT_SIGNIN_CLIENT_ID: z.string().min(1).optional(),
+    CMUX_CHATGPT_SIGNIN_CLIENT_SECRET: z.string().min(1).optional(),
     // Rate-limit rule ids are all optional: an unset id means that route runs
     // without rate limiting (the operator removed the limits deliberately).
     CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: z.string().min(1).optional(),
@@ -495,6 +500,8 @@ export const env = createEnv({
   },
   runtimeEnv: {
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
+    CMUX_CHATGPT_SIGNIN_CLIENT_ID: trimEnv(process.env.CMUX_CHATGPT_SIGNIN_CLIENT_ID) || undefined,
+    CMUX_CHATGPT_SIGNIN_CLIENT_SECRET: trimEnv(process.env.CMUX_CHATGPT_SIGNIN_CLIENT_SECRET) || undefined,
     CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
     ),

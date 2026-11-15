@@ -37,6 +37,7 @@ mod public_projection_store;
 mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
+mod terminal_unplaced_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
@@ -690,6 +691,9 @@ pub struct WorkspaceRegistry {
     resource_effect_pepper: ResourceEffectPepper,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+    /// How many next topology snapshot reads fail (tests).
+    #[cfg(test)]
+    topology_snapshot_failures_remaining: Cell<u64>,
     #[cfg(test)]
     journal_before_commit: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     #[cfg(test)]
@@ -2736,6 +2740,8 @@ impl WorkspaceRegistry {
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
             #[cfg(test)]
+            topology_snapshot_failures_remaining: Cell::new(0),
+            #[cfg(test)]
             journal_before_commit: None,
             #[cfg(test)]
             journal_after_commit_admission: None,
@@ -4134,6 +4140,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            ON terminal_events(terminal_id, revision);",
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
+    terminal_unplaced_store::create_terminal_unplaced_schema(transaction)?;
     Ok(())
 }
 

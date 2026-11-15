@@ -64,6 +64,7 @@ import {
   type PurchaseMagicLinkDeliveryStore,
 } from "./emailVerificationDelivery";
 import { planItem } from "./subscriptionItems";
+import { withTeamMetadataMutation } from "../teams/mutationLease";
 
 export { canonicalizeEmailForMatching } from "./emailMatching";
 
@@ -1954,8 +1955,7 @@ export async function applySubscriptionUpdate(
       )
       : await db.transaction((tx) => applyTeamUpdate(tx, { kind: "legacy-team" }));
     if ("skipped" in lockedResult) return { skipped: true };
-    const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
-    await syncTeamPlanMetadata(team, isActive, subscriptionSeats(subscription));
+    await syncStackTeamPlanMetadata(db, teamScope.stackTeamId, dependencies.stackApp, isActive, subscriptionSeats(subscription));
     return lockedResult;
   }
 
@@ -2292,6 +2292,29 @@ async function loadOptionalStackUser(
   return app.getUser(stackUserId);
 }
 
+/**
+ * Mirrors the Team subscription into the team's metadata under the team lease
+ * that admin grants and VM deals also hold, reading the team inside it, so a
+ * concurrent admin write is never overwritten with a stale metadata copy.
+ */
+async function syncStackTeamPlanMetadata(
+  db: BillingDb,
+  stackTeamId: string,
+  stackApp: StackBillingApp | null | undefined,
+  isTeam: boolean,
+  seats: number | null,
+): Promise<void> {
+  // Decide under the lease: a read taken before it can be stale by the time
+  // the lease is held, and "nothing to write" from it would leave a
+  // concurrent writer's seats in place. syncTeamPlanMetadata skips the write
+  // itself when the leased read already matches Stripe.
+  await withTeamMetadataMutation(db, stackTeamId, async (lease) => {
+    const team = await loadStackTeam(stackTeamId, stackApp);
+    await lease.refresh();
+    await syncTeamPlanMetadata(team, isTeam, seats);
+  });
+}
+
 async function loadStackTeam(
   stackTeamId: string,
   stackApp: StackBillingApp | null | undefined,
@@ -2451,11 +2474,13 @@ async function recordTeamCheckoutCompletion(input: {
     });
   }
   if (lockedResult.postCommitTeamSync) {
-    const team = await loadStackTeam(
+    await syncStackTeamPlanMetadata(
+      db,
       lockedResult.postCommitTeamSync.stackTeamId,
       lockedResult.postCommitTeamSync.stackApp,
+      true,
+      subscriptionSeats(input.subscription),
     );
-    await syncTeamPlanMetadata(team, true, subscriptionSeats(input.subscription));
   }
 
   return lockedResult.result;

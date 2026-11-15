@@ -227,7 +227,7 @@ def repo_role(repo: str, login: str) -> str | None:
     return json.loads(out).get("role_name")
 
 
-FREEZES_QUERY = """query($o:String!,$n:String!,$l:String!,$c:String){repository(owner:$o,name:$n){
+FREEZES_QUERY = """query($owner:String!,$name:String!,$l:String!,$c:String){repository(owner:$owner,name:$name){
 issues(states:OPEN,labels:[$l],first:100,after:$c){pageInfo{hasNextPage endCursor}
 nodes{number title body createdAt author{login} labels(first:100){nodes{name}}}}}}"""
 
@@ -241,7 +241,7 @@ def open_freeze_issues(repo: str, max_pages: int = MAX_PAGES) -> list[dict]:
     issues: list[dict] = []
     cursor = None
     for _ in range(max_pages):
-        args = ["api", "graphql", "-f", f"query={FREEZES_QUERY}", "-f", f"o={owner}", "-f", f"n={name}",
+        args = ["api", "graphql", "-f", f"query={FREEZES_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
                 "-f", f"l={LABEL}"]
         if cursor:
             args += ["-f", f"c={cursor}"]
@@ -264,8 +264,8 @@ def open_freeze_issues(repo: str, max_pages: int = MAX_PAGES) -> list[dict]:
 
 def last_edited(repo: str, number: int) -> str | None:
     owner, name = repo.split("/", 1)
-    query = "query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i){lastEditedAt}}}"
-    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}")
+    query = "query($owner:String!,$name:String!,$i:Int!){repository(owner:$owner,name:$name){issue(number:$i){lastEditedAt}}}"
+    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"i={number}")
     return json.loads(out)["data"]["repository"]["issue"]["lastEditedAt"]
 
 

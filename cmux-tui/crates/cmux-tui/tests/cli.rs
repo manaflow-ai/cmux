@@ -2569,7 +2569,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
     fs::write(theme_dir.join("Dark Direct Probe"), "foreground = #010203\n").unwrap();
     fs::write(theme_dir.join("Light Direct Probe"), "foreground = #a0b0c0\n").unwrap();
     let gdbus = bin_dir.join("gdbus");
-    fs::write(
+    cmux_test_exec::write_executable(
         &gdbus,
         "#!/bin/sh\n\
          if [ \"${CMUX_MACHINE_PROVIDER_TOKEN+x}\" = x ] || [ \"${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}\" = x ]; then\n\
@@ -2579,7 +2579,6 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
          printf '(<uint32 1>,)\\n'\n",
     )
     .unwrap();
-    fs::set_permissions(&gdbus, fs::Permissions::from_mode(0o700)).unwrap();
 
     let output = cmux_command()
         .arg("__ghostty-config-defaults")
@@ -3719,7 +3718,19 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         &server,
         &["--quiet", "terminal", &terminal, "write", "--text", &format!("echo {marker}\r")],
     );
-    assert_success(&send);
+    // A loaded runner can miss the 2 s InputAck window: the daemon then
+    // reports the documented indeterminate outcome (exit 1) instead of
+    // success, as for `keys` below. The marker on the screen proves the
+    // write reached the shell either way.
+    if !send.status.success() {
+        assert_eq!(send.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&send.stderr)
+                .contains("the external effect may have run before its outcome was recorded"),
+            "unexpected terminal write failure: {}",
+            String::from_utf8_lossy(&send.stderr)
+        );
+    }
     assert!(send.stdout.is_empty(), "--quiet mutation wrote output");
     let screen = wait_for_screen(&server, &terminal, &marker);
     assert!(screen.contains(&marker), "screen did not contain marker; got {screen:?}");

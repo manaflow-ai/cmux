@@ -21,6 +21,11 @@ on:
         required: false
         default: false
         type: boolean
+      release_when_approved:
+        description: Release on the App Store as soon as App Review approves (AFTER_APPROVAL); unchecked keeps a manual release
+        required: false
+        default: false
+        type: boolean
       retarget_initial_draft:
         description: Change the app's sole PREPARE_FOR_SUBMISSION version to the configured initial version
         required: false
@@ -67,6 +72,9 @@ jobs:
       INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
       INPUT_REFRESH_STORE_LISTING: ${{ github.event.inputs.refresh_store_listing }}
       INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
+      # MANUAL holds an approved version until someone releases it in App Store
+      # Connect; AFTER_APPROVAL makes one dispatch (submit + release) the whole release.
+      IOS_APPSTORE_RELEASE_TYPE: ${{ github.event.inputs.release_when_approved == 'true' && 'AFTER_APPROVAL' || 'MANUAL' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -250,20 +258,20 @@ jobs:
                 --version-id "$INITIAL_DRAFT_ID" \
                 --version "$VERSION" \
                 --copyright "2026 Manaflow, Inc." \
-                --release-type MANUAL
+                --release-type "$IOS_APPSTORE_RELEASE_TYPE"
             else
               asc versions create \
                 --app "$ASC_APP_ID" \
                 --version "$VERSION" \
                 --platform IOS \
                 --copyright "2026 Manaflow, Inc." \
-                --release-type MANUAL
+                --release-type "$IOS_APPSTORE_RELEASE_TYPE"
             fi
           else
             asc versions update \
               --version-id "$VERSION_ID" \
               --copyright "2026 Manaflow, Inc." \
-              --release-type MANUAL
+              --release-type "$IOS_APPSTORE_RELEASE_TYPE"
             if [ "${INPUT_REFRESH_STORE_LISTING:-false}" != "true" ]; then
               echo "Keeping existing App Store metadata and screenshots for $VERSION"
               exit 0
@@ -411,6 +419,7 @@ jobs:
             echo "- signing: manual (CI-imported iOS distribution cert + App Store profile)"
             echo "- build number (CFBundleVersion): \`${FINAL_BUILD_NUMBER}\`"
             echo "- submit for review: \`${INPUT_SUBMIT_FOR_REVIEW}\`"
+            echo "- release type: \`${IOS_APPSTORE_RELEASE_TYPE}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup signing material

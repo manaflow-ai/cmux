@@ -351,6 +351,31 @@ check([c for c in calls if c[0] == "app"] == [["app", "getRef"]],
 check(run([], {}, app="broken", expect_failure=True) is True,
       "a non-rate-limit App error must fail the dispatcher, not fall back silently")
 
+# The newest finished source run's publish run was cancelled by a newer publish
+# run's supersede job (scripts/ci/cmux_next_dev_publish_supersede.py): that newer
+# run's source (cmux-next.yml hands it over from inside the run, before the run
+# finishes) is in flight or published. Publish and the tip feed never roll back,
+# so handing the older source over again would only queue a run that can never
+# publish, holding a Mac slot (2026-11-09: seven open publish runs).
+def publish_run(source, status, conclusion=None):
+    return {"name": "x", "display_title": f"cmux NEXT DEV daily · publish {source}",
+            "status": status, "conclusion": conclusion}
+
+
+for status, conclusion in (("in_progress", None), ("queued", None), ("completed", "success")):
+    calls = run([dev_run(12, "c" * 40, "success")], {12: app_job("success")},
+                [publish_run(12, "completed", "cancelled"), publish_run(13, status, conclusion)])
+    check(published(calls) == [],
+          f"a newer {status} {conclusion or ''} publish run must stop the older source's handoff, got {published(calls)}")
+# A newer publish run that failed or was cancelled supersedes nothing: the built app is handed over again.
+for conclusion in ("failure", "cancelled"):
+    calls = run([dev_run(12, "c" * 40, "success")], {12: app_job("success")},
+                [publish_run(12, "completed", "cancelled"), publish_run(13, "completed", conclusion)])
+    check(published(calls) == ["12"], f"a {conclusion} newer publish run must not stop the handoff, got {published(calls)}")
+# An older source's publish run in flight never stops a newer source's handoff.
+calls = run([dev_run(12, "c" * 40, "success")], {12: app_job("success")}, [publish_run(11, "in_progress")])
+check(published(calls) == ["12"], f"an older publish run must not stop a newer handoff, got {published(calls)}")
+
 # No finished run has an app: nothing is published.
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],
             {7: app_job("failure"), 6: app_job("skipped")})

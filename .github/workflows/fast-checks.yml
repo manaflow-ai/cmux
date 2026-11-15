@@ -3,7 +3,10 @@ name: Fast checks
 # (glaeda-gh wait run|pr --sha) can match it: a dispatched run's head_sha is the
 # dispatch ref's tip (main), never the commit it tests. Only a tested_sha the
 # "Confirm the tested commit" step proves is named; a wrong claim fails the run.
-run-name: Fast checks ${{ inputs.source_sha }}${{ inputs.tested_sha && format(' tests {0}@{1}', github.repository, inputs.tested_sha) || '' }}
+# ` job <id>` names the lane-gh broker's cmux-ci job (input ci_job): two jobs at one
+# head never share a run-name, so the broker binds each run to its own job by that
+# exact name. Readers take the snapshot sha as the third word and allow a suffix.
+run-name: Fast checks ${{ inputs.source_sha }}${{ inputs.tested_sha && format(' tests {0}@{1}', github.repository, inputs.tested_sha) || '' }}${{ inputs.ci_job && format(' job {0}', inputs.ci_job) || '' }}
 
 on:
   workflow_dispatch:
@@ -19,6 +22,9 @@ on:
         default: '.'
       tested_sha:
         description: The commit this run tests (the snapshot's parent, same tree), or empty
+        default: ''
+      ci_job:
+        description: The lane-gh broker's cmux-ci job id (32 hex digits) for the run-name; empty for other callers
         default: ''
       setup:
         type: choice
@@ -133,11 +139,13 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           TESTED_SHA: ${{ inputs.tested_sha }}
+          CI_JOB: ${{ inputs.ci_job }}
           COMMAND_TIMEOUT: ${{ inputs.timeout }}
         working-directory: ${{ github.workspace }}
         run: |
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ -z "$TESTED_SHA" || "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$CI_JOB" || "$CI_JOB" =~ ^[0-9a-f]{32}$ ]]
           [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
           (( 10#$COMMAND_TIMEOUT >= 1 && 10#$COMMAND_TIMEOUT <= 10800 ))
 
