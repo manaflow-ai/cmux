@@ -24,9 +24,11 @@
 //! A machine without `fs-symlink-v1` gets none, each named as skipped.
 //!
 //! Small files are written several at once, each on a connection of its
-//! own ([`CONNECTIONS`], `CMUX_SYNC_PUSH_CONNECTIONS`); a file over
-//! [`ALONE_BYTES`] is written after them, alone. The first failed write
-//! stops new ones; those under way finish and are recorded.
+//! own ([`CONNECTIONS`], `CMUX_SYNC_PUSH_CONNECTIONS`), each sending a few
+//! of them before reading their answers ([`small_writes`]), so a folder of
+//! many small files costs a round trip of the link per batch, not per file;
+//! a file over [`ALONE_BYTES`] is written after them, alone. The first
+//! failed write stops new ones; those under way finish and are recorded.
 //!
 //! The manifest is also saved as a push goes (every [`SAVE_EVERY_FILES`]
 //! files or [`SAVE_EVERY_BYTES`] written), so a push cut off partway is
@@ -63,6 +65,7 @@ mod relay;
 pub(super) use relay::relay;
 mod remote;
 mod seed_pull;
+mod small_writes;
 mod timings;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
@@ -320,12 +323,19 @@ fn write_parallel_heard(
                 let mut remote: Option<Remote> = None;
                 let mut seen = BTreeMap::new();
                 while !stop.load(Ordering::Relaxed) {
-                    let Some(job) = queue.lock().ok().and_then(|mut jobs| jobs.next()) else {
+                    let batch = queue
+                        .lock()
+                        .map(|mut jobs| small_writes::take(&mut jobs))
+                        .unwrap_or_default();
+                    if batch.is_empty() {
                         break;
-                    };
-                    let written = write_on(&mut remote, &mut seen, socket, remote_root, &job);
-                    if sent.send((job, written)).is_err() {
-                        break;
+                    }
+                    for landed in
+                        small_writes::write(&mut remote, &mut seen, socket, remote_root, batch)
+                    {
+                        if sent.send(landed).is_err() {
+                            return;
+                        }
                     }
                 }
             });
