@@ -174,25 +174,6 @@ fn still_open(mut error: Value) -> Value {
     error
 }
 
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::still_open;
-
-    #[test]
-    fn a_confirmation_past_its_wait_says_the_dialog_still_counts() {
-        let expected = crate::localization::catalog().app_control.remote_confirm_still_open;
-        let read = json!({"code": "app.transport", "message": "the cmux app did not answer", "details": {"timeout_seconds": 130}});
-        assert_eq!(still_open(read)["message"], expected);
-        let app =
-            json!({"code": "timeout", "message": "remote.confirm did not finish within 130000 ms"});
-        assert_eq!(still_open(app)["message"], expected);
-        let other = json!({"code": "app.unreachable", "message": "no app"});
-        assert_eq!(still_open(other.clone()), other);
-    }
-}
-
 /// Runs a cmux app action when the GUI is present. The Remote worker remains
 /// the standalone owner only when the app socket is absent; an app refusal or
 /// action error must reach the caller instead of being hidden by the worker.
@@ -222,4 +203,23 @@ fn app_action_or_daemon(
 
 fn app_transport_absent(error: &Value) -> bool {
     matches!(error.get("code").and_then(Value::as_str), Some("app.not_found" | "app.unreachable"))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::still_open;
+
+    #[test]
+    fn a_confirmation_past_its_wait_says_the_dialog_still_counts() {
+        let expected = crate::localization::catalog().app_control.remote_confirm_still_open;
+        let read = json!({"code": "app.transport", "message": "the cmux app did not answer", "details": {"timeout_seconds": 130}});
+        assert_eq!(still_open(read)["message"], expected);
+        let app =
+            json!({"code": "timeout", "message": "remote.confirm did not finish within 130000 ms"});
+        assert_eq!(still_open(app)["message"], expected);
+        let other = json!({"code": "app.unreachable", "message": "no app"});
+        assert_eq!(still_open(other.clone()), other);
+    }
 }
