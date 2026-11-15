@@ -835,6 +835,8 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Its sender, set with the turn so no steer and no read sees the turn without it.
+        turn.device = run.full_access_device.clone().filter(|_| control == Control::Web);
         // A queued prompt was accepted when it was queued; any other is, once its checks pass.
         turn.accepted = waiting;
         // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
@@ -1788,11 +1790,22 @@ impl Hub {
             };
             signed_out = true;
         }
+        // A Codex with no sign-in and no team plane: say so, typed as a sign-in failure, never
+        // codex's bare missing env var (`codex_cloud_auth::explain_missing_key`). Only a Codex
+        // session's text names Codex; another harness's stays as it said it (still typed).
+        if let Err(e) = &mut result
+            && session.meta().harness.to_ascii_lowercase().contains("codex")
+            && let Some(text) = crate::codex_cloud_auth::explain_missing_key(&e.message)
+        {
+            tracing::warn!(session = %session.id, "Codex agent is not signed in");
+            e.message = text;
+            signed_out = true;
+        }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
-            match &mut e.data {
-                Some(Value::Object(data)) => data.extend(info.clone()),
-                None => e.data = Some(Value::Object(info.clone())),
-                Some(_) => {}
+            // An agent's string or list data moves under `agentData`, so the route still shows.
+            crate::recovery::object_data(e);
+            if let Some(Value::Object(data)) = &mut e.data {
+                data.extend(info.clone());
             }
         }
         // A failure acpmux knows the remedy for says it (`recovery.rs`): a full disk, an agent

@@ -603,7 +603,8 @@ impl Mux {
                     &mut projected,
                     serde_json::json!({"tab": tab_id, "pane": ids.pane_public}),
                 )?;
-                if source_key.as_deref() != Some(target_key.as_str())
+                let moved_between_workspaces = source_key.as_deref() != Some(target_key.as_str());
+                if moved_between_workspaces
                     && let Some(terminal) = projected
                         .surfaces
                         .get(&surface)
@@ -611,7 +612,7 @@ impl Mux {
                 {
                     retarget_terminal_workspace(&mut projection.patch, terminal, &target_key);
                 }
-                committed = Some((outcome, target_key));
+                committed = Some((outcome, target_key, moved_between_workspaces));
                 let plan = resource_effects::replacing_projection_plan(projection, projected);
                 // The reducer models no pins, so it has no op for a pane's only tab
                 // becoming a lone pinned column (`pinned-dock-alone-v1`); the I1-I3
@@ -623,7 +624,11 @@ impl Mux {
                 })
             },
         )?;
-        let (outcome, target_key) = committed.context("tab drag committed no outcome")?;
+        let (outcome, target_key, moved_between_workspaces) =
+            committed.context("tab drag committed no outcome")?;
+        if moved_between_workspaces {
+            self.refresh_terminal_size_policy(surface);
+        }
         if commit.replayed {
             return Ok(outcome);
         }

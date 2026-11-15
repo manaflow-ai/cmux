@@ -133,6 +133,19 @@ describe("judgeLoss", () => {
     expect(v.text).toContain("the client is missing step 4");
   });
 
+  test("a gap names the journal's kind of each skipped seq", () => {
+    const j = turn(10).map((e) => e.seq === 47 ? { ...e, kind: "agent_message_chunk" } : e);
+    const client = j.filter((e) => e.seq !== 47);
+    const v = judgeLoss({ n: 10, journal: j, client });
+    expect(v.text).toContain("the client's stream jumps 46->48 [agent_message_chunk]");
+    const many = turn(10).filter((e) => e.seq < 45 || e.seq > 49);
+    expect(judgeLoss({ n: 10, journal: turn(10), client: many }).text).toContain("44->50 [?,?,?,...]");
+  });
+
+  test("journalEvent keeps the record's kind", () => {
+    expect(journalEvent("t", { seq: 7, kind: "agent_message_chunk", msg: {} })?.kind).toBe("agent_message_chunk");
+  });
+
   test("a delivery received twice is doubled output", () => {
     const j = turn(10);
     const client = [...j.slice(0, 12), j[11], ...j.slice(12)];
@@ -293,7 +306,7 @@ describe("journalEvent", () => {
     rawOutput: `chaos-t-${k}\n`, content: [{ type: "content", content: { type: "text", text: `chaos-t-${k}` } }], ...extra });
   test("a stored tool update counts its step once, keyed by its call", () => {
     const e = journalEvent("t", { seq: 7, at: 1, dir: "in", kind: "tool_call_update", msg: { jsonrpc: "2.0", method: "session/update", params: { sessionId: "s", update: update(12) } } });
-    expect(e).toEqual({ seq: 7, ks: [12], call: "toolu_12" });
+    expect(e).toEqual({ seq: 7, ks: [12], call: "toolu_12", kind: "tool_call_update" });
   });
   test("the call's command, a replayed load and a raw transcript event carry no step", () => {
     const call = { sessionUpdate: "tool_call", toolCallId: "toolu_3", rawInput: { command: "sleep 0.2; printf '%s-%s-%s\\n' chaos t 3" } };
@@ -321,7 +334,7 @@ describe("journalCommand", () => {
       const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 4)}`], { encoding: "utf8" });
       expect(r.stdout.trim().split("\n").pop()).toBe("@@exit 0");
       const events = r.stdout.split("\n").filter((l) => l.startsWith("{")).map((l) => journalEvent("t", JSON.parse(l)));
-      expect(events).toEqual([{ seq: 5, ks: [] }, { seq: 6, ks: [1], call: "a" }]);
+      expect(events).toEqual([{ seq: 5, ks: [], kind: "agent_message_chunk" }, { seq: 6, ks: [1], call: "a", kind: "tool_call_update" }]);
       expect(r.stdout).not.toContain("xxxxx");
       expect(spawnSync("cat", [join(bin, "args")], { encoding: "utf8" }).stdout.trim()).toBe("acp tail ses-1 --since 4");
     } finally {
@@ -568,6 +581,66 @@ describe("the chat's surface after a restart", () => {
     await chat.prompt("hi");
     expect(f.frames.find((x) => x.cmd === "agent-session-prompt")?.surface).toBe(31);
     chat.stop();
+  });
+});
+
+describe("why a stalled chat stalled", () => {
+  const ctx = { cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" };
+  const late = (ms: number) => Promise.reject(new Error(`no answer within ${ms / 1000} s`));
+  /** A chat holding seq 10 whose dial answers the diagnosis' `agent-session-events` and `identify` as given. */
+  const chatWith = async (events: () => Promise<any>, identify: () => Promise<any>) => {
+    let onDial: () => void = () => undefined;
+    const asked: any[] = [];
+    const dial = {
+      dials: 0,
+      start() { queueMicrotask(() => onDial()); },
+      async request(frame: any, ms?: number) {
+        if (frame.cmd === "agent-session-events") { asked.push({ ...frame, ms }); return events(); }
+        if (frame.cmd === "identify" && asked.length) { asked.push({ ...frame, ms }); return identify(); }
+        switch (frame.cmd) {
+          case "identify": return { ok: true, data: { registry_id: "r" } };
+          case "create-workspace": return { ok: true, data: { workspace: 1 } };
+          case "new-conversation-tab": return { ok: true, data: { surface: 7, tab_resource_id: "tab_s" } };
+          case "agent-session-start": return { ok: true, data: { session: "s" } };
+          case "agent-session-attach": return { ok: true, data: { lastSeq: 10, events: [], hasMore: false } };
+          default: return { ok: true, data: {} };
+        }
+      },
+      stop() {},
+    };
+    const chat = new chaos.ChatClient(ctx, (_line, d) => { onDial = d; return dial; });
+    await chat.open("claude");
+    return { chat, asked };
+  };
+
+  test("events past the seq held: the attachment is dead and the transport fine, and the client keeps none of them", async () => {
+    const { chat, asked } = await chatWith(async () => ({ ok: true, data: { events: [{ seq: 9 }, { seq: 11 }, { seq: 12 }] } }), async () => ({ ok: true, data: {} }));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events answered from seq 11 (2 records), identify answered: attachment dead, transport fine");
+    expect(chat.held).toBe(10);
+    expect(chat.received).toEqual([]);
+    expect(asked.map((a) => [a.cmd, a.after_seq, a.ms])).toEqual([["agent-session-events", 10, 10_000], ["identify", undefined, 5_000]]);
+    chat.stop();
+  });
+
+  test("events unanswered while identify answers: the bulk lane stalled", async () => {
+    const { chat } = await chatWith(() => late(10_000), async () => ({ ok: true, data: {} }));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events timed out (10 s), identify answered: bulk lane stalled");
+    chat.stop();
+  });
+
+  test("neither answered: the carrier is dead", async () => {
+    const { chat } = await chatWith(() => late(10_000), () => late(5_000));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events timed out (10 s), identify timed out (5 s): carrier dead");
+    chat.stop();
+  });
+
+  test("a refusal or nothing new names no cause", async () => {
+    const refused = await chatWith(async () => ({ ok: false, error: { code: "not_found", message: "no such surface" } }), async () => ({ ok: true, data: {} }));
+    expect(await refused.chat.stallDiagnosis()).toBe("after seq 10: events failed: not_found: no such surface, identify answered: no conclusion");
+    refused.chat.stop();
+    const empty = await chatWith(async () => ({ ok: true, data: { events: [] } }), async () => ({ ok: true, data: {} }));
+    expect(await empty.chat.stallDiagnosis()).toBe("after seq 10: events answered with nothing past it, identify answered: no conclusion");
+    empty.chat.stop();
   });
 });
 

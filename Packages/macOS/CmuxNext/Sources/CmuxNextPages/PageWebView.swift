@@ -268,6 +268,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    /// Whether the document an overlay served started (PageWebView+OverlayStart.swift), and the bound
+    /// on its first word.
+    var overlayStart = OverlayStartCheck()
+    let overlayStartTimer = DemandTimer(owner: "page.overlay.start")
     /// Chromium ended under a host that shows the crash notice: the page reopens in WebKit only on
     /// the notice's Reload (``reloadAfterCrashes()``).
     var webKitLoadsOnReload = false
@@ -668,6 +672,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // The message conversion stays here: `handle` must start in the order the page posted, and
         // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
         guard let body = JSONValue(foundation: message.body) else { return nil }
+        overlayStartSpoke()
         let started = ProcessInfo.processInfo.systemUptime
         let reply = await router.handle(body)
         let handled = ProcessInfo.processInfo.systemUptime
