@@ -60,9 +60,12 @@ import Testing
         let shared = SidebarSessionTree.shared
         let oldState = shared.state
         let oldCollapsed = shared.collapsed
-        shared.state = snapshot.tree
+        // Fold persistence prunes against the active tree; detach it while swapping fixtures.
+        shared.state = nil
         for id in oldCollapsed.symmetricDifference(snapshot.tree.collapsed) { shared.toggle(id) }
+        shared.state = snapshot.tree
         defer {
+            shared.state = nil
             for id in shared.collapsed.symmetricDifference(oldCollapsed) { shared.toggle(id) }
             shared.state = oldState
             window.close()
@@ -81,6 +84,7 @@ import Testing
             root.addSubview(list)
             window.orderFrontRegardless()
             list.reload(animated: false)
+            list.frame.origin.y = height - list.frame.height
         }
         root.layoutSubtreeIfNeeded()
         for view in Self.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
