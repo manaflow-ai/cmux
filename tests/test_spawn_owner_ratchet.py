@@ -193,6 +193,21 @@ class SpawnOwnerRatchet(unittest.TestCase):
         code, out = self.check("--base-ref", "HEAD")
         self.assertEqual(code, 0, out)
 
+    def test_a_known_moved_row_carries_its_base_allowance(self):
+        old = "cmux-tui/crates/cmux-remote/src/identity.rs"
+        moved = "cmux-tui/crates/cmux-remote/src/identity/auth_database.rs"
+        self.git("init", "-q")
+        self.baseline({old: 2})
+        self.write(old, "fn f() {\n    tokio::spawn(a());\n    tokio::spawn(b());\n}\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.baseline({moved: 2})
+        self.write(old, "fn f() {}\n")
+        self.write(moved, "fn f() {\n    tokio::spawn(a());\n    tokio::spawn(b());\n}\n")
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"carries {old} -> {moved}", out)
+
     def test_the_committed_baseline_holds_on_this_tree(self):
         result = subprocess.run([sys.executable, "-I", str(CHECK), str(SOURCE)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
