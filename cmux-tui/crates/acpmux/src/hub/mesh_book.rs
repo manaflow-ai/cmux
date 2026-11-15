@@ -24,6 +24,8 @@ pub(crate) struct MeshBook {
     reads: u64,
     /// Each machine listed, by its hub `daemonId` (its node key: what the hub carrier dials and
     /// what its Noise handshake proves), to its host. Kept whole by each read (`mine_by_key`).
+    /// Only the hub carrier reads it.
+    #[cfg(feature = "hub-carrier")]
     machines: BTreeMap<String, String>,
 }
 
@@ -44,6 +46,7 @@ fn is_mine(
 
 /// The machines of `book` [`mine`] lists, by hub `daemonId`, to their host. A machine with no
 /// `daemonId` is left out: nothing can dial it.
+#[cfg(feature = "hub-carrier")]
 pub(crate) fn mine_by_key(
     book: &AddressBook,
     own_user: &str,
@@ -157,14 +160,15 @@ impl Hub {
         let ssh: std::collections::HashSet<String> =
             self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         let skip = |host: &str| ssh.contains(host);
-        let machines = mine_by_key(&book, own_user, own_daemon, &skip);
+        #[cfg(feature = "hub-carrier")]
+        self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &skip));
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
-        self.set_mesh_book_machines(machines);
         self.set_mesh_book(hosts, sessions);
     }
 
     /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
     /// stops.
+    #[cfg(feature = "hub-carrier")]
     pub(crate) fn set_mesh_book_machines(&self, machines: BTreeMap<String, String>) {
         self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines = machines;
     }
