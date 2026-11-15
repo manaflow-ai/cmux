@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4369802363801",
+  "notes": "notes/4369802363801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43539,
+      "title": "New Tab icon column gallery: four arms you can tell apart at a glance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43381,
+      "title": "acpmux: a consent for the account's other machines, and the session circuit it gates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43610,
+      "title": "MCP open: live-reload a shown file in its tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43630,
+      "title": "hot-apply: --restart-sessions restarts through cmux-tui and finds sockets in parallel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43633,
+      "title": "acpmux: Cloud Codex with no sign-in gets the team key in its launch env",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38351,
+      "title": "ci: a failed setup-python download falls back instead of failing the job",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43606,
+      "title": "acpmux: cmux-rich-output skill with an HTML deck template (strip, present, PDF, pptx)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43603,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-2c58afdd5f8ac95146fed0cc3c472aee5af31562",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43611,
+      "title": "merge-main: find partial-clone remotes by URL; let the clone's hooks run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43598,
+      "title": "Toggle Terminal and Chat ships with no default key (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43591,
+      "title": "Agent chat: arm the draft-settle hold only while the draft is still out (idle wakeups after a switch 8 to 7)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43396,
+      "title": "acpmux: a page of turns in the recorded chat stream (v2 row 6d, 1 of 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43551,
+      "title": "cmux-host: a flip reports stopping, and the restarted host stays degraded until its daemon identifies",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
