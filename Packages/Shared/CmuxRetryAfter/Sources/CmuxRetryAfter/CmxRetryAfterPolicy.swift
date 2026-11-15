@@ -60,17 +60,22 @@ public struct CmxRetryAfterPolicy: Sendable {
     /// Floating point rounds Int.max up to 2^63. Saturate that conversion
     /// without shortening ordinary server directives or trapping on restore.
     public func roundedUpSeconds(_ seconds: TimeInterval) -> Int {
+        // NaN fails this guard; infinity saturates below.
         guard seconds > 0 else { return 0 }
-        return seconds.rounded(.up).saturatedInteger(Int.self) ?? 0
+        let roundedUp = seconds.rounded(.up)
+        return roundedUp >= TimeInterval(Int.max) ? Int.max : Int(roundedUp)
     }
 
     /// Sleep in representable chunks while preserving the entire requested
     /// wait. Converting an arbitrary server delay to UInt64 nanoseconds traps.
+    public func sleep(seconds: TimeInterval) async throws {
+        try await sleep(seconds: seconds, using: Self.taskSleep)
+    }
+
+    /// ``sleep(seconds:)`` with an injected sleeper (a virtual clock in tests).
     public func sleep(
         seconds: TimeInterval,
-        using sleeper: @Sendable (TimeInterval) async throws -> Void = {
-            try await Task<Never, Never>.sleep(for: .seconds($0))
-        }
+        using sleeper: @Sendable (TimeInterval) async throws -> Void
     ) async throws {
         var remaining = seconds
         while remaining > 0 {
@@ -79,6 +84,10 @@ public struct CmxRetryAfterPolicy: Sendable {
             try await sleeper(chunk)
             remaining -= chunk
         }
+    }
+
+    @Sendable private static func taskSleep(_ seconds: TimeInterval) async throws {
+        try await Task<Never, Never>.sleep(for: .seconds(seconds))
     }
 }
 

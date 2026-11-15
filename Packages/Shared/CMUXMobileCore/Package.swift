@@ -15,9 +15,15 @@ let package = Package(
             targets: ["CMUXMobileCore"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxRetryAfter"),
+    ],
     targets: [
         .target(
             name: "CMUXMobileCore",
+            dependencies: [
+                .product(name: "CmuxRetryAfter", package: "CmuxRetryAfter"),
+            ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

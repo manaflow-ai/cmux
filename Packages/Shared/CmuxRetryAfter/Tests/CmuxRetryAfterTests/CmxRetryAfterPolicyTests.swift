@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import CMUXMobileCore
+@testable import CmuxRetryAfter
 
 @Suite struct CmxRetryAfterPolicyTests {
     @Test func parsesDeltaSecondsAndHTTPDate() throws {
