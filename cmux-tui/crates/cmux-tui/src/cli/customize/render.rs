@@ -3,8 +3,10 @@
 //! remember the verbs.
 
 use cmux_customize::profile::{Listed, Saved};
+use cmux_customize::schema::{Schema, Section};
 use cmux_customize::{
-    Applied, Begun, Change, FileDiff, Generation, History, Restored, Roots, Status, count,
+    Applied, Begun, Change, FileDiff, Generation, History, Restored, Roots, Settled, Status,
+    TriedOn, TryOn, count,
 };
 use serde_json::{Value, json};
 
@@ -36,10 +38,22 @@ pub(in crate::cli) enum Answer {
     },
     Profiles(Vec<Listed>),
     Paths(Roots),
+    TriedOn(TriedOn),
+    /// How try-ons ended, and the verb that asked (`keep`, `revert`,
+    /// `settle`).
+    Settled(Vec<Settled>, &'static str),
+    Schema(Schema, Option<Section>, super::SchemaFormat),
     /// A `library` verb, rendered by `library.rs`.
     Library {
         json: Value,
         human: String,
+    },
+    /// `library off --code`, `off --all`, `reset`: exits 1 when something
+    /// could not be put back as the library had it (`notes` says what).
+    Recovery {
+        json: Value,
+        human: String,
+        complete: bool,
     },
 }
 
@@ -59,7 +73,10 @@ fn status_json(status: &Status) -> Value {
 
 impl Answer {
     pub(in crate::cli) fn exit(&self) -> i32 {
-        0
+        match self {
+            Answer::Recovery { complete: false, .. } => 1,
+            _ => 0,
+        }
     }
 
     pub(in crate::cli) fn json(&self) -> Value {
@@ -85,7 +102,20 @@ impl Answer {
                 json!({ "profile": name, "begun": begun, "status": status_json(status) })
             }
             Answer::Profiles(profiles) => json!({ "profiles": profiles }),
-            Answer::Library { json, .. } => json.clone(),
+            Answer::TriedOn(tried) => value(tried),
+            Answer::Settled(settled, _) => json!({ "settled": settled }),
+            Answer::Schema(schema, section, super::SchemaFormat::Schema) => {
+                schema.to_json(*section)
+            }
+            Answer::Schema(schema, _, super::SchemaFormat::TypeScript) => json!({
+                "language": "typescript",
+                "source": cmux_customize::schema::typescript(schema),
+            }),
+            Answer::Schema(schema, _, super::SchemaFormat::Rust) => json!({
+                "language": "rust",
+                "source": cmux_customize::schema::rust(schema),
+            }),
+            Answer::Library { json, .. } | Answer::Recovery { json, .. } => json.clone(),
             Answer::Paths(roots) => json!({
                 "settings": roots.settings_file,
                 "keybindings": cmux_config::keybindings_path(&roots.settings_file),
@@ -198,6 +228,45 @@ impl Answer {
                 out.push_str(&format!("previewing profile {name}; nothing is applied yet\n"));
                 status_lines(&mut out, status, now_ms);
             }
+            Answer::TriedOn(tried) => {
+                out.push_str(&format!(
+                    "trying on: {} (generation {}), {}\n",
+                    tried.try_on.label,
+                    tried.applied.generation.n,
+                    left(&tried.try_on, now_ms)
+                ));
+                change_lines(&mut out, &tried.applied.changes);
+                try_on_next(&mut out, &tried.try_on);
+            }
+            Answer::Settled(settled, verb) if settled.is_empty() => {
+                let what = match *verb {
+                    "settle" => "no try-on is due",
+                    _ => "nothing is being tried on",
+                };
+                out.push_str(what);
+                out.push('\n');
+            }
+            Answer::Settled(settled, _) => {
+                for one in settled {
+                    match one {
+                        Settled::Kept { try_on } => out.push_str(&format!(
+                            "kept: {} stays applied (generation {})\n",
+                            try_on.label, try_on.generation
+                        )),
+                        Settled::Ended { try_on } => out.push_str(&format!(
+                            "the try-on of {} ended: something else was applied since\n",
+                            try_on.label
+                        )),
+                        Settled::Reverted { try_on, restored } => {
+                            out.push_str(&format!(
+                                "reverted the try-on of {}: generation {} is live again",
+                                try_on.label, restored.generation.n
+                            ));
+                            kept_line(&mut out, restored);
+                        }
+                    }
+                }
+            }
             Answer::Profiles(profiles) if profiles.is_empty() => {
                 out.push_str(
                     "no profiles yet; `cmux customize save NAME` saves what is live as one\n",
@@ -214,7 +283,16 @@ impl Answer {
                     ));
                 }
             }
-            Answer::Library { human, .. } => out.push_str(human),
+            Answer::Schema(schema, _, super::SchemaFormat::TypeScript) => {
+                out.push_str(&cmux_customize::schema::typescript(schema));
+            }
+            Answer::Schema(schema, _, super::SchemaFormat::Rust) => {
+                out.push_str(&cmux_customize::schema::rust(schema));
+            }
+            Answer::Schema(schema, section, super::SchemaFormat::Schema) => {
+                schema_lines(&mut out, schema, *section);
+            }
+            Answer::Library { human, .. } | Answer::Recovery { human, .. } => out.push_str(human),
             Answer::Paths(_) => {
                 if let Some(paths) = self.json().as_object() {
                     for (name, path) in paths {
@@ -225,6 +303,22 @@ impl Answer {
         }
         out
     }
+}
+
+/// `9 minutes left`, `40 seconds left`.
+pub(super) fn left(try_on: &TryOn, now_ms: u64) -> String {
+    let seconds = try_on.expires_ms.saturating_sub(now_ms).div_ceil(1000);
+    match seconds {
+        0 => "reverting now".to_owned(),
+        1..=59 => format!("{} left", count(seconds as usize, "second")),
+        _ => format!("{} left", count(seconds.div_ceil(60) as usize, "minute")),
+    }
+}
+
+fn try_on_next(out: &mut String, try_on: &TryOn) {
+    let back = try_on.revert_to.map(|n| format!("generation {n}")).unwrap_or("it".to_owned());
+    out.push_str("  cmux customize keep            keep it\n");
+    out.push_str(&format!("  cmux customize revert          put {back} back now\n"));
 }
 
 fn kept_line(out: &mut String, restored: &Restored) {
@@ -258,6 +352,14 @@ fn status_lines(out: &mut String, status: &Status, now_ms: u64) {
             ago(now_ms, generation.at_ms)
         )),
         None => out.push_str("no generation yet\n"),
+    }
+    if let Some(try_on) = &status.try_on {
+        out.push_str(&format!(
+            "trying on: {}, {}; it reverts by itself unless you keep it\n",
+            try_on.label,
+            left(try_on, now_ms)
+        ));
+        try_on_next(out, try_on);
     }
     if !status.dirty() {
         out.push_str("nothing is previewing\n");
@@ -349,4 +451,95 @@ pub(super) fn ago(now_ms: u64, at_ms: u64) -> String {
         3600..=86_399 => format!("{}h ago", seconds / 3600),
         _ => format!("{}d ago", seconds / 86_400),
     }
+}
+
+/// At most this many choices on a line; the JSON has them all.
+const SHOWN_CHOICES: usize = 6;
+
+/// `cmux customize schema`: one line per key, grouped by part.
+fn schema_lines(out: &mut String, schema: &Schema, only: Option<Section>) {
+    let shows = |section: Section| only.is_none_or(|only| only == section);
+    if shows(Section::Settings) {
+        out.push_str(&format!(
+            "Settings ({}; `cmux settings set KEY VALUE`, or edit cmux-next.json):\n",
+            schema.settings.len()
+        ));
+        let width = schema.settings.iter().map(|s| s.key.len()).max().unwrap_or(0);
+        for setting in &schema.settings {
+            let mut what = setting.kind.to_owned();
+            if !setting.choices.is_empty() {
+                let mut shown: Vec<&str> =
+                    setting.choices.iter().take(SHOWN_CHOICES).map(String::as_str).collect();
+                let more = setting.choices.len().saturating_sub(SHOWN_CHOICES);
+                let more = format!("+{more}");
+                if setting.choices.len() > SHOWN_CHOICES {
+                    shown.push(&more);
+                }
+                what.push_str(&format!(" {}", shown.join("|")));
+            }
+            if let Some(range) = &setting.range {
+                what.push_str(&format!(" {}..{}", range.min, range.max));
+                if !range.unit.is_empty() {
+                    what.push_str(&format!(" {}", range.unit));
+                }
+            }
+            if let Some(default) = &setting.default {
+                let default = default.to_string();
+                if default.len() <= 40 {
+                    what.push_str(&format!("  default {default}"));
+                }
+            }
+            if !setting.agent_settable {
+                what.push_str("  (the person sets it)");
+            }
+            if setting.theme_file {
+                what.push_str("  [theme]");
+            }
+            out.push_str(&format!("  {:width$}  {what}\n", setting.key));
+        }
+        out.push('\n');
+    }
+    if shows(Section::Theme) {
+        let theme = &schema.theme;
+        out.push_str(&format!(
+            "Theme files ({}/NAME.json, picked by {}): the settings marked [theme], plus {}\n",
+            theme.folder,
+            theme.file_setting,
+            theme.file_keys.join(", ")
+        ));
+        out.push_str(&format!("  colors: {}\n", theme.colors.join(" ")));
+        out.push_str("Theme tokens (each theme derives them; change the colors they come from):\n");
+        let width = theme.tokens.iter().map(|t| t.name.len()).max().unwrap_or(0);
+        for token in &theme.tokens {
+            let formula = token.formula.split(';').next().unwrap_or_default().trim();
+            out.push_str(&format!("  {:width$}  {formula}\n", token.name));
+        }
+        out.push('\n');
+    }
+    if shows(Section::Views) {
+        out.push_str(
+            "View slots (where your view goes; `cmux apps place 'local/customize#cmux.section/1'`):\n",
+        );
+        let width = schema.views.iter().map(|v| v.interface.len()).max().unwrap_or(0);
+        for slot in &schema.views {
+            let places = match &slot.place_option {
+                Some(option) => format!("{option}: {}", slot.places.join("|")),
+                None => String::new(),
+            };
+            out.push_str(&format!("  {:width$}  {places}\n", slot.interface));
+        }
+        out.push('\n');
+    }
+    if shows(Section::ExtensionPoints) {
+        out.push_str("Extension points (`implements` in cmux-app.json):\n");
+        let width = schema.extension_points.iter().map(|p| p.interface.len()).max().unwrap_or(0);
+        for point in &schema.extension_points {
+            let docs = point.docs.split(". ").next().unwrap_or_default().trim_end_matches('.');
+            out.push_str(&format!("  {:width$}  {docs}\n", point.interface));
+        }
+        out.push('\n');
+    }
+    out.push_str(
+        "Next:\n  cmux customize schema settings --json   every key with its JSON Schema, range and default\n  cmux customize schema --typescript       the same as TypeScript types (cmux-extension-sdk/customize)\n  cmux customize 'make the sidebar compact'   ask an agent to change it\n",
+    );
 }

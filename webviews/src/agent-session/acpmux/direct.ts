@@ -392,6 +392,8 @@ const LIMIT_READS = 3;
 /// The waits before each new read of the events a lag dropped, after a failed one
 /// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
 const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
+/// Finished turns' stored records to read back (`repairTurns`): after `afterSeq` through `endSeq`.
+type TurnRepair = { sessionId: string; generation: number; afterSeq: number; endSeq: number; attempt: number };
 /// How long a lag read may be out before the stall check stops leaving the hole to it
 /// (`checkStall`): every retry's wait plus a margin. A read whose reply never comes (an acpmux
 /// replaced under the bridge drops it) no longer holds the chat's recovery off.
@@ -1415,6 +1417,9 @@ export const HELD_KEPT = OLDER_PAGE_RECORDS;
 /// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice what a cut
 /// keeps, so it sheds at most once per `HELD_KEPT` records, one refold of what it keeps each time.
 export const HELD_RECORDS = 2 * HELD_KEPT;
+/// How many more records a chat that could not shed past `HELD_RECORDS` takes before it tries again
+/// (`shedOlderHeld`): the try walks the newest `HELD_KEPT` records, so a refused one costs O(1) a record.
+const HELD_RETRY = HELD_KEPT / 4;
 
 /// The index of the first record in `events` (oldest first) at or after `seq`: a binary search, so
 /// a read of the newest records costs O(log held), not a walk over every one.
@@ -1446,6 +1451,32 @@ export function rebuildCut(
   while (at > 0 && events[at]!.at >= openSince) at -= 1;
   while (at > 0 && !(startsTurn(events[at]!) && endsTurnBefore(events, at))) at -= 1;
   return at;
+}
+
+/// Where a chat left open lets go of its oldest records inside a turn that has not ended (`shedOlderHeld`): a
+/// coordinator's turn takes prompts and messages for days and never reaches a `turn_result`, so a cut only at a
+/// turn start (`rebuildCut`) never came and the pane held every record it streamed (Leo's coordinator chat: 3.58 GB
+/// and 110% CPU). The newest `keep` records, moved back over a subagent still running (`openSince`) and to the
+/// oldest row a record past the cut changed (`spanningFrom`, so no row is drawn from only part of its records),
+/// until neither moves it. 0 when that reaches the oldest record held. The rows kept are drawn as a page that
+/// starts inside the turn is, under the turn's prompt (`turnOpener`).
+export function midTurnCut(
+  events: readonly EventRecord[],
+  keep: number,
+  openSince: number,
+  spanningFrom: (seq: number) => number,
+): number {
+  if (events.length <= keep) return 0;
+  let at = events.length - keep;
+  for (;;) {
+    const moved = at;
+    while (at > 0 && events[at]!.at >= openSince) at -= 1;
+    if (at <= 0) return 0;
+    const from = spanningFrom(events[at]!.seq);
+    if (from < events[at]!.seq) at = firstHeldFrom(events, from);
+    if (at <= 0) return 0;
+    if (at === moved) return at;
+  }
 }
 
 /// Whether the turn before `events[at]` ended before it: its `turn_result` comes after the agent's
@@ -3477,6 +3508,9 @@ export class AcpmuxDirectClient {
   /// A `fed` client (the guest page's) has no socket either, but draws what it is fed until `dispose`.
   private fedMode = false;
   private selectionGeneration = 0;
+  /// A finished turns' repair read is out, and the range turns ending meanwhile widen (`repairTurns`).
+  private turnRepairOut = false;
+  private turnRepairNext?: TurnRepair;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
   private shownToAcpmux?: { sessionId: string; visible: boolean };
@@ -3487,6 +3521,12 @@ export class AcpmuxDirectClient {
   /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
   /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
   private following = true;
+  /// How many records the chat holds when it next tries to shed inside a turn (`apply`, `HELD_RETRY`).
+  private shedRetryAt = 0;
+  /// The seq of the record that opened the running turn (its prompt, or its `turn_started` with none open): a turn
+  /// shorter than `HELD_KEPT` records sheds at its `turn_result`, not on the count (`apply`). Undefined when it
+  /// opened outside what is held (an attach to a running turn).
+  private turnOpenedSeq?: number;
   /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
   private nativeSeed?: { seq: number; before: number; mark?: string };
   /// Where the next older native page ends, once one was read, for the held transcript
@@ -5029,6 +5069,7 @@ export class AcpmuxDirectClient {
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
+    this.turnOpenedSeq = undefined;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -7613,6 +7654,17 @@ export class AcpmuxDirectClient {
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
+    } else if (
+      this.events.length > HELD_RECORDS &&
+      this.events.length >= this.shedRetryAt &&
+      this.turnRunning() &&
+      !(this.turnOpenedSeq !== undefined && event.seq - this.turnOpenedSeq <= HELD_KEPT)
+    ) {
+      // A turn that does not end (a coordinator's) sheds on the count alone once it alone is longer than
+      // `HELD_KEPT` records; a shorter one sheds at its `turn_result`, as every turn did. One that could not shed now
+      // (scrolled up, paging, a gap) tries again `HELD_RETRY` records later, so a refused shed costs O(1) a record.
+      this.shedOlderHeld();
+      if (this.events.length > HELD_RECORDS) this.shedRetryAt = this.events.length + HELD_RETRY;
     }
   }
 
@@ -7636,14 +7688,35 @@ export class AcpmuxDirectClient {
     if (this.indexedPlaceholders?.size || this.indexedGaps.length > 0) return;
     // Native history (seq < 1) pages in by its own cursor (`fetchNativeOlder`): a chat holding it keeps it.
     if ((this.events[0]?.seq ?? 1) < 1) return;
+    // A subagent still running keeps the turn it started in whole, unless it started before the newest
+    // `HELD_RECORDS` records: one that never said it ended (its last record lost, a harness that restarted) pinned
+    // the cut at its start forever. Past the cut it is drawn as a page that starts after its start draws it.
+    const oldestKept = this.events[this.events.length - HELD_RECORDS]?.at ?? -Infinity;
     let openSince = Infinity;
     for (const agent of this.subagents.all())
-      if (agent.state === "running") openSince = Math.min(openSince, agent.startedAt);
-    const cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
+      if (agent.state === "running" && agent.startedAt >= oldestKept) openSince = Math.min(openSince, agent.startedAt);
+    let cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
+    // No turn start to cut at within the budget (a turn that never ends): cut inside the newest turn, under its
+    // prompt, as a page that starts inside a turn is drawn (`turnOpener`).
+    // A turn start cut stays when no cut inside the turn is found (a row or a subagent spans the whole budget).
+    let opener: EventRecord | undefined;
+    if (this.events.length - cut > HELD_RECORDS) {
+      const inside = midTurnCut(this.events, HELD_KEPT, openSince, (seq) => this.rows.spanningFrom(seq));
+      if (inside > cut) {
+        cut = inside;
+        opener = this.turnOpener;
+        for (let index = cut - 1; index >= 0; index -= 1)
+          if (startsTurn(this.events[index]!)) {
+            opener = this.events[index];
+            break;
+          }
+      }
+    }
     if (cut <= 0) return;
+    this.shedRetryAt = 0;
     this.events = this.events.slice(cut);
     this.historyExhausted = false;
-    this.turnOpener = undefined;
+    this.turnOpener = opener;
     // An older page in flight, or read ahead, was read for the held history that just went.
     this.historyEpoch += 1;
     this.cancelOlderPaging();
@@ -7682,32 +7755,73 @@ export class AcpmuxDirectClient {
       afterSeq = oldest - 1;
     }
     if (afterSeq + 1 >= endSeq) return;
-    void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
-      (stored) => {
-        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-        // Only the turn's own held records are compared: O(turn), however much the pane holds.
-        const held = new Set<number>();
-        for (let at = firstHeldFrom(this.events, afterSeq + 1); at < this.events.length; at += 1) {
-          const seq = this.events[at]!.seq;
-          if (seq > endSeq) break;
-          held.add(seq);
-        }
-        const missing = stored.filter((event) => !held.has(event.seq));
-        if (missing.length === 0) return;
-        mergeIntoHeld(this.events, missing);
-        this.sawPrompts(missing);
-        this.rebuildKeepingLiveState(Math.min(...missing.map((event) => event.seq)) - 1);
-        this.emit("connected");
-      },
-      () => {
-        const delay = LAG_RETRY_MS[attempt];
-        if (delay === undefined) return;
-        setTimeout(() => {
-          if (!this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-            this.checkFinishedTurn(sessionId, endSeq, attempt + 1);
-        }, delay);
-      },
-    );
+    this.repairTurns({ sessionId, generation, afterSeq, endSeq, attempt });
+  }
+
+  /// One repair read of finished turns at a time per page: turns that end while it is out, and
+  /// retries, widen the one range read next (lowest start, highest end), so a burst of turn ends
+  /// costs two reads, not one per turn. A chat grown live to 100k rows (chat-100k-flat bench,
+  /// 2026-11-15) ended about 41,000 turns in seconds and queued 41,664 of these reads, drained
+  /// through its idle window at 16x an empty chat's CPU. The merged read is paged and
+  /// O(records since the last read), as the separate reads were together.
+  private repairTurns(range: TurnRepair): void {
+    if (this.turnRepairOut) {
+      const next = this.turnRepairNext;
+      this.turnRepairNext =
+        next && next.sessionId === range.sessionId && next.generation === range.generation
+          ? {
+              ...range,
+              afterSeq: Math.min(next.afterSeq, range.afterSeq),
+              endSeq: Math.max(next.endSeq, range.endSeq),
+              attempt: Math.min(next.attempt, range.attempt),
+            }
+          : range;
+      return;
+    }
+    const { sessionId, generation, afterSeq, endSeq, attempt } = range;
+    const current = () =>
+      !this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+    this.turnRepairOut = true;
+    void this.readTurnRecords(sessionId, generation, afterSeq, endSeq)
+      .then(
+        (stored) => {
+          if (!current()) return;
+          // Only the range's own held records are compared: O(range), however much the pane holds.
+          const held = new Set<number>();
+          for (let at = firstHeldFrom(this.events, afterSeq + 1); at < this.events.length; at += 1) {
+            const seq = this.events[at]!.seq;
+            if (seq > endSeq) break;
+            held.add(seq);
+          }
+          const missing = stored.filter((event) => !held.has(event.seq));
+          if (missing.length === 0) return;
+          let from = Infinity;
+          for (const event of missing) from = Math.min(from, event.seq);
+          mergeIntoHeld(this.events, missing);
+          this.sawPrompts(missing);
+          this.rebuildKeepingLiveState(from - 1);
+          this.emit("connected");
+        },
+        () => {
+          const delay = LAG_RETRY_MS[attempt];
+          if (delay === undefined) return;
+          setTimeout(() => {
+            if (current()) this.repairTurns({ ...range, attempt: attempt + 1 });
+          }, delay);
+        },
+      )
+      .finally(() => {
+        this.turnRepairOut = false;
+        const next = this.turnRepairNext;
+        this.turnRepairNext = undefined;
+        if (
+          next &&
+          !this.closed &&
+          next.generation === this.selectionGeneration &&
+          this.selectedSessionId === next.sessionId
+        )
+          this.repairTurns(next);
+      });
   }
 
   /// The chat's stored transcript records after `afterSeq` through `endSeq`, paged.
@@ -9499,6 +9613,7 @@ export class AcpmuxDirectClient {
         if (!this.turnOpen) {
           this.turnStartedAtMs = undefined;
           this.turnPromptAtMs = event.at;
+          this.turnOpenedSeq = event.seq;
         }
         this.turnOpen = true;
       } else if (event.kind === "stopping") {
@@ -9520,6 +9635,7 @@ export class AcpmuxDirectClient {
         // A prompt opens its turn (user_message); one opening with none open, and naming no turn, is
         // a turn the agent started on its own, never the turn before's.
         const agentStarted = !this.turnOpen && startedTurnId === undefined;
+        if (!this.turnOpen) this.turnOpenedSeq = event.seq;
         this.stoppingOpens(event);
         this.stopSeesTurnOpen(event, startedTurnId, agentStarted);
         if (this.stoppingTurn && startedTurnId !== undefined && startedTurnId !== this.stoppingTurn.turnId) {
