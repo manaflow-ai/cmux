@@ -705,4 +705,26 @@ mod tests {
             assert!(e.data.is_none(), "{message}");
         }
     }
+
+    /// The gateway's 401 for a Gemini or Grok call with no team or owner key says
+    /// `agent.sign_in_required`: a turn or start that fails on it is a sign-in, typed
+    /// `auth.signed_out`, and a start's refusal names the harness (hq#11225).
+    #[test]
+    fn the_gateways_sign_in_marker_is_a_sign_in() {
+        for message in [
+            "[API Error: 401 cmux: sign in required (agent.sign_in_required)]",
+            "agent process closed (grok): 401 Unauthorized: cmux: sign in required (agent.sign_in_required)",
+        ] {
+            assert_eq!(auth_kind(message), Some(kind::AUTH_SIGNED_OUT), "{message}");
+        }
+        let mut e = RpcError::new(
+            -32603,
+            "Request failed: 401 cmux: sign in required (agent.sign_in_required)",
+        );
+        assert!(start_sign_in(&mut e, "gemini"));
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], SIGN_IN_REQUIRED);
+        assert_eq!(data["errorKind"], kind::AUTH_SIGNED_OUT);
+        assert_eq!(data["details"]["harness"], "gemini");
+    }
 }
