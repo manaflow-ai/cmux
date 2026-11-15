@@ -25,6 +25,7 @@ fn request(keys: Vec<ListKey>, max: u32) -> Page {
         filter: None,
         edition: None,
         fold: None,
+        turns: false,
     }
 }
 

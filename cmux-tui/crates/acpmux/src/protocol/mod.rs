@@ -301,6 +301,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_KEEP, Request),
         keyed::<params::WatchTakeOverParams>(method::MUX_WATCH_TAKE_OVER, Request),
+        keyed::<params::ReleaseToWatchParams>(method::MUX_RELEASE_TO_WATCH, Request),
         keyed::<params::ArchiveParams>(method::MUX_ARCHIVE, Request),
         keyed::<params::SideParams>(method::MUX_SIDE, Request),
         keyed::<params::BtwParams>(method::MUX_BTW, Request),
@@ -382,6 +383,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INBOX_REPLY, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
+        untyped(method::MUX_COMPUTER_USE_ENDPOINT, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
         untyped(method::MUX_PERSON_HOLDS, Request),
         // The person's phones and their chats (`hub/approvers.rs`, `hub/person.rs`).

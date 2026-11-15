@@ -3092,3 +3092,20 @@ On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807) sat 
 placement, so the runs-on fell through to `fromJSON(vars.RUNNER_POOLS).macos_26`.
 `tests/test_ci_next_macos_cascade.py` `test_every_blacksmith_macos_job_is_behind_the_off_switch` refuses a
 Mac job whose runs-on can name a Blacksmith macOS label while the switch is off.
+
+The repository's generic `vars.MACOS_RUNNER_26` is a Blacksmith macOS read too, and it sat ahead of the switch: a
+bot re-run past an attempt cap (`run_attempt <= 3`, #22565), or one carrying attempt 1's placement, took it. On
+2026-11-14 cmux#42880's fast tier (run 43600399789, attempt 5) waited on `blacksmith-6vcpu-macos-26` with no runner
+(cmuxterm-hq#10952). It is inside the wrap now, `(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER ||
+vars.MACOS_RUNNER_26 || <pool>)`, in cmux-next.yml (runs-on, `CMUX_NEXT_RUNNER`, `CMUX_NEXT_SIDE_ROUTE`),
+cmux-next-batch.yml and cmux-next-terminal.yml's bot re-run fallback. `tests/test_ci_next_macos_cascade.py`
+`RerunPastTheAttemptCap` evaluates every route of every workflow with an attempt cap at bot attempts 2 to 6, placement re-run or carried,
+and refuses a Blacksmith macOS label for a route attempt 1 serves with an owned one.
+
+## note-351
+
+The same off-switch contract applies to every workflow, including auxiliary simulator and parity jobs. A new
+macOS job must select an owned sim-first or side route before its Blacksmith overflow, and must not spell a
+Blacksmith macOS label directly in `runs-on`. `BlacksmithMacosOffSwitch.test_every_blacksmith_macos_job_is_behind_the_off_switch`
+scans every workflow file and evaluates each route expression; add a regression case when a new picker shape is
+introduced so a direct label cannot return silently during a later attempt.

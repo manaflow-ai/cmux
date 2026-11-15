@@ -1917,6 +1917,56 @@ class RateLimitTests(unittest.TestCase):
             self.assertEqual(report["changed"], "false", "nothing is saved over the last trusted state")
             self.assertFalse(os.path.exists(os.path.join(d, "state.json")))
 
+    def test_a_result_run_waits_out_the_rate_limit_and_reads_the_state(self):
+        # A result run carries the controller's result of a part that ran: doing nothing drops it.
+        refused = cron.RateLimited("GET /repos/N/actions/artifacts: HTTP 403")
+        refused.wait = 240
+        slept = []
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(cron, "fetch_state", mock.Mock(side_effect=[refused, True])) as fetch, \
+                mock.patch.object(cron.time, "sleep", slept.append):
+            cron.cmd_fetch_state(argparse.Namespace(repo="o/r", dir=d, wait_limit=2700))
+            self.assertEqual(fetch.call_count, 2, "the state is read again after the wait")
+            self.assertFalse(os.path.exists(os.path.join(d, cron.RATE_LIMITED)))
+        self.assertEqual(len(slept), 1)
+        self.assertGreaterEqual(slept[0], 240)
+
+    def test_a_wait_past_the_limit_or_on_a_plain_tick_still_does_nothing(self):
+        for wait, limit in ((3000, 2700), (240, 0), (None, 2700)):
+            refused = cron.RateLimited("x")
+            refused.wait = wait
+            with tempfile.TemporaryDirectory() as d, \
+                    mock.patch.object(cron, "fetch_state", mock.Mock(side_effect=[refused, True])) as fetch, \
+                    mock.patch.object(cron.time, "sleep", mock.Mock(side_effect=AssertionError("no wait"))):
+                cron.cmd_fetch_state(argparse.Namespace(repo="o/r", dir=d, wait_limit=limit))
+                self.assertEqual(fetch.call_count, 1)
+                self.assertTrue(os.path.exists(os.path.join(d, cron.RATE_LIMITED)))
+
+    def test_a_refusal_says_how_long_until_github_takes_calls_again(self):
+        import email.message
+        for name, value, want in (("retry-after", "90", 90), ("x-ratelimit-reset", str(int(cron.time.time()) + 600), 600)):
+            headers = email.message.Message()
+            headers["x-ratelimit-remaining"] = "0"
+            headers[name] = value
+
+            def limited(*a, headers=headers, **k):
+                raise urllib.error.HTTPError("https://api.github.com/x", 403, "Forbidden", headers, io.BytesIO(b"{}"))
+            with mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), mock.patch.object(urllib.request, "urlopen", limited):
+                with self.assertRaises(cron.RateLimited) as ctx:
+                    cron.gh_request("/repos/o/r")
+            self.assertAlmostEqual(ctx.exception.wait, want, delta=5)
+
+    def test_the_workflow_calls_only_subcommands_the_cron_has(self):
+        # A lost space ("plan--repo") makes argparse exit 2 and the plan step fail on every tick.
+        import re
+        root = os.path.join(HERE, "..", "..", "..")
+        source = open(os.path.join(HERE, "..", "perf-cron.py")).read()
+        known = set(re.findall(r'add_parser\("([a-z-]+)"', source))
+        workflow = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
+        called = re.findall(r"python3 -I scripts/cmux-next/perf-cron\.py (\S+)", workflow)
+        self.assertIn("plan", called)
+        self.assertEqual([c for c in called if c not in known], [])
+
     def test_any_other_403_is_still_an_error(self):
         def forbidden(*a, **k):
             import email.message
@@ -1979,6 +2029,17 @@ class RateLimitTests(unittest.TestCase):
             ok2 = cron.commit_on_branch("o/r", "f" * 40, ok.verified())
             self.assertTrue(ok2("a" * 40))
         self.assertEqual(len(asked), 1, "the state's verified commits need no compare call")
+
+    def test_a_commit_the_shallow_checkout_cannot_place_is_asked_of_github(self):
+        # The partial clone fetched the commit alone (cat-file finds it), with no path to the tip.
+        asked = []
+        with mock.patch.object(cron, "gh_request", lambda p, *a, **k: asked.append(p) or {"status": "ahead"}), \
+                mock.patch.object(cron.subprocess, "run", lambda *a, **k: mock.Mock(returncode=0)), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False):
+            ok = cron.commit_on_branch("o/r", "f" * 40)
+            self.assertTrue(ok("a" * 40), "a bisect step older than the checkout's depth stays in the state")
+            self.assertEqual(ok.verified(), ["a" * 40])
+        self.assertEqual(len(asked), 1)
 
     def test_a_rate_limited_compare_is_raised_not_read_as_off_the_branch(self):
         with mock.patch.object(cron, "gh_request", mock.Mock(side_effect=cron.RateLimited("x"))), \

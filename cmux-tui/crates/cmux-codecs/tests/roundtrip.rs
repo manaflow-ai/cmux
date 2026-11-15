@@ -104,6 +104,7 @@ fn bench_row_runs() {
         on_time_ms: 100,
         deadline_ms: 200,
         seed: 1,
+        h264: Default::default(),
     })
     .expect("row");
     assert!(row["shown_fps"].as_f64().unwrap() > 10.0, "{row}");

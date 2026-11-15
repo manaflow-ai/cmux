@@ -1310,6 +1310,28 @@ RATE_LIMITED = "RATE_LIMITED"
 class RateLimited(Exception):
     """GitHub refused a call for the rate limit (403 or 429 with no calls left, a Retry-After, or that message)."""
 
+    # Seconds until GitHub says it takes calls again (Retry-After, or the reset time of a spent limit); None when
+    # the refusal does not say.
+    wait = None
+
+
+def limit_wait(error):
+    headers = getattr(error, "headers", None) or {}
+    try:
+        if headers.get("retry-after"):
+            return max(0, int(headers.get("retry-after")))
+        if headers.get("x-ratelimit-remaining") == "0" and headers.get("x-ratelimit-reset"):
+            return max(0, int(headers.get("x-ratelimit-reset")) - int(time.time()))
+    except ValueError:
+        pass
+    return None
+
+
+def refused_for_the_limit(what, error):
+    refused = RateLimited(f"{what}: HTTP {error.code}")
+    refused.wait = limit_wait(error)
+    return refused
+
 
 def rate_limited(error):
     if not isinstance(error, urllib.error.HTTPError) or error.code not in (403, 429):
@@ -1341,7 +1363,7 @@ def gh_request(path, method="GET", body=None, raw=False, timeout=30):
             payload = r.read()
     except urllib.error.HTTPError as error:
         if rate_limited(error):
-            raise RateLimited(f"{method} {gh_shape(path)}: HTTP {error.code}") from error
+            raise refused_for_the_limit(f"{method} {gh_shape(path)}", error) from error
         raise
     return payload if raw else (json.loads(payload) if payload else {})
 
@@ -1452,7 +1474,7 @@ def download_redirected(url, timeout=120):
             return r.read()
     except urllib.error.HTTPError as error:
         if rate_limited(error):
-            raise RateLimited(f"GET {gh_shape(url)}: HTTP {error.code}") from error
+            raise refused_for_the_limit(f"GET {gh_shape(url)}", error) from error
         if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
             raise
         location = error.headers["Location"]
@@ -1768,10 +1790,14 @@ ON_BRANCH_KEEP = 300  # commits the state remembers as verified on the branch (e
 
 def commit_on_branch(repo, tip, known=()):
     """ok(sha): the sha is 40 hex characters and an ancestor of tip (or tip). The plan's checkout is shallow, so a
-    commit it does not have is asked of the GitHub compare API ('ahead' or 'identical': on the branch), once: known
-    holds the commits a trusted earlier tick verified (feat-cmux-next is never rewritten). ok.verified lists every
-    commit found on the branch, for the state. A rate-limit refusal is raised, never read as 'not on the branch' (that
-    would drop the state's commits)."""
+    commit it cannot place under tip is asked of the GitHub compare API ('ahead' or 'identical': on the branch), once:
+    known holds the commits a trusted earlier tick verified (feat-cmux-next is never rewritten). ok.verified lists
+    every commit found on the branch, for the state. A rate-limit refusal is raised, never read as 'not on the branch'
+    (that would drop the state's commits).
+
+    Only the checkout's yes counts. It is a partial clone too, so asking for a commit older than its depth fetches
+    that one commit with no path to tip, and 'not an ancestor' is then true of every such commit: on 2026-11-14 each
+    tick dropped its bisect step at 281f9aa9680d that way and started it again (15:20Z to 17:27Z, 0 of 3 parts)."""
     cache = {sha: True for sha in known if is_sha(sha)}
 
     def ok(sha):
@@ -1779,8 +1805,8 @@ def commit_on_branch(repo, tip, known=()):
             return False
         if sha not in cache:
             have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
-            if have:
-                cache[sha] = is_ancestor(sha, tip)
+            if have and is_ancestor(sha, tip):
+                cache[sha] = True
             else:
                 try:
                     cache[sha] = gh_request(f"/repos/{repo}/compare/{sha}...{tip}").get("status") in ("ahead", "identical")
@@ -2536,9 +2562,25 @@ def write_outputs(path, values):
             f.write(f"{k}={v}\n")
 
 
+# Past the time GitHub names, before the state is read again.
+LIMIT_WAIT_SLACK_S = 5
+
+
 def cmd_fetch_state(o):
+    # A result run (--wait-limit) carries the controller's result of a part that ran on the bench: doing nothing
+    # drops it and the next tick asks for the same part again (2026-11-14: the build of babcb18cd895 ran twice and
+    # both results met a spent limit). It waits for the limit's reset, once, and reads the state then.
+    limit = getattr(o, "wait_limit", 0) or 0
     try:
-        fetch_state(o.repo, o.dir)
+        try:
+            fetch_state(o.repo, o.dir)
+        except RateLimited as error:
+            if error.wait is None or error.wait > limit:
+                raise
+            print(f"perf-cron: GitHub rate limit ({error}); waiting {error.wait} s for its reset to keep this run's result",
+                  flush=True)
+            time.sleep(error.wait + LIMIT_WAIT_SLACK_S)
+            fetch_state(o.repo, o.dir)
     except RateLimited as error:
         # No state read: the plan must not start from an empty one. It and the report see the mark and do nothing.
         os.makedirs(o.dir, exist_ok=True)
@@ -3479,6 +3521,8 @@ def main(argv=None):
     s = sub.add_parser("fetch-state", help="download the newest perf-cron-state artifact")
     s.add_argument("--repo", required=True)
     s.add_argument("--dir", required=True)
+    s.add_argument("--wait-limit", type=int, default=0,
+                   help="wait at most this many seconds for a rate limit's reset, then read the state again (0: never)")
     s = sub.add_parser("plan", help="pick this tick's work (Linux)")
     s.add_argument("--repo", required=True)
     s.add_argument("--dir", required=True)
