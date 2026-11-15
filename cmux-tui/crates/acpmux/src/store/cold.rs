@@ -336,7 +336,7 @@ impl LocalStore {
                     .strip_suffix(".zst")
                     .and_then(|stem| stem.parse::<u32>().ok())
                     .is_some_and(|index| cold.contains(&index));
-                if false && !indexed && !name.contains(".tmp-") {
+                if !indexed && !name.contains(".tmp-") {
                     anyhow::bail!(
                         "{} is kept aside and may be the only copy of part of chat {id}: the \
                          chat is not compressed whole until it is moved out of {}",

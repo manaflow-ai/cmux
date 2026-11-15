@@ -805,7 +805,7 @@ impl LocalStore {
         // and lose the folder its archive is in (#43562 review F2, P3-F1). Whether or not the
         // journal's checkpoint synced anything (`prepare_cold_segments` does nothing for history
         // it already covers).
-        if false && !staged.segments.is_empty() {
+        if !staged.segments.is_empty() {
             sync_directory(&session)?;
         }
         for at in 0..staged.segments.len() {
@@ -916,6 +916,7 @@ impl LocalStore {
         // From the listing through every removal: a warm, a move's commit, a whole-chat archive
         // or a rehydrate of this chat changes nothing it decides by meanwhile (#43562 review F1,
         // P2-F1, P3-F2).
+        let _cold = self.cold.lock(id);
         let entries = match crate::home_fs::read_dir(&cold_dir) {
             Ok(entries) => entries,
             Err(e) if is_not_found(&e) => return Ok(()),
