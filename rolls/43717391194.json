@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43717391194",
+  "recorded_at": "2026-11-15T13:18:03Z",
+  "reason": "cmux-tui 28d749ede7bd changes the image's cmux-tui (pinned c10f26a1af0f)",
+  "dry_run": false,
+  "cmux_tui": "28d749ede7bdc6bdcebd515500109fcf8b3ff347",
+  "fixes": [
+    {
+      "sha": "2f6b1d0b2b1571b80fa76b68651588856fe6dc2c",
+      "mergedAt": "2026-11-15T04:50:00-08:00",
+      "subject": "Bind remote capture cleanup to its lease and reaped workers (#43074)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T13:18:03Z",
+    "snapshot_id": "sh-9f2572c47bfc4456b17b5ffa888f029d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43717391194): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3d7389fc6e35dd02702c95cb82ed24087eff9827",
+    "image": "cloud-native-auto-28d749ed-43717391194-1",
+    "revision": "ci-43717391194-1",
+    "at": "2026-11-15T13:18:03Z"
+  },
+  "rolled_back": false
+}
