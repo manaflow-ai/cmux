@@ -641,6 +641,76 @@ class Refusal(unittest.TestCase):
         self.assertIn("waiting for the rest of the run to finish", summary)
         self.assertIn("re-ran the failed jobs", summary)
 
+    def test_a_refusal_is_re_run_at_once_when_no_sibling_is_running(self):
+        # Run 43716323834 (#43733), 2026-11-15: 'cmux-next generated files' was refused at 14:32Z while the fast
+        # tier only waited for a runner (queued until 15:33Z). The rescue re-ran it at 15:47Z, after the run ended.
+        # A waiting sibling has no work a cancel would kill: cancel and re-run the failed jobs at the refusal.
+        def jobs(seconds):
+            sibling = job("macos / app-host unit tests (1/7)", labels=[MINI], created=40,
+                          status="completed" if seconds >= 3600 else "queued")
+            if seconds >= 3600:
+                sibling.update(conclusion="success", completed_at=stamp(3600), runner_name="mini-2")
+            return [changes()(seconds), refused_job("macos / app-host unit tests (2/7)"), sibling]
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda seconds: seconds >= 3600)
+        _, summary = run_main(api, clock)
+        self.assertIn("cancel", api.calls)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertLess(api.rerun_at, 600)
+        self.assertNotIn("waiting for the rest of the run to finish", summary)
+        self.assertIn("no other job of the run is running", summary)
+
+    def test_a_sibling_starting_before_the_refusal_cancel_keeps_the_watch_until_the_run_ends(self):
+        # The sibling only waits at the look, then takes a runner as the cancel is about to go out (refusal_guard()
+        # reads it running). Nothing is cancelled, and the watch goes on: the refused job is still re-run once the
+        # run ends, as before the re-run-now path. Without the watch going on, the refused job stayed red for good.
+        started = []
+
+        def jobs(seconds):
+            sibling = job("macos / app-host unit tests (1/7)", labels=[MINI], created=40,
+                          status="completed" if seconds >= 3600 else "in_progress" if started else "queued",
+                          runner="mini-2" if started else "")
+            if started:
+                sibling["started_at"] = stamp(started[0])
+            if seconds >= 3600:
+                sibling.update(conclusion="success", completed_at=stamp(3600))
+            return [changes()(seconds), refused_job("macos / app-host unit tests (2/7)"), sibling]
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda seconds: seconds >= 3600)
+        real_cancel = api.cancel
+
+        def cancel(run_id, before_send=None):
+            started.append(clock.seconds)  # the sibling takes a runner as the cancel is about to go out
+            real_cancel(run_id, before_send=before_send)
+
+        api.cancel = cancel
+        _, summary = run_main(api, clock)
+        self.assertTrue(started)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("force-cancel", api.calls)
+        self.assertEqual(api.calls.count("rerun-failed"), 1, summary[-1500:])
+        self.assertGreaterEqual(api.rerun_at, 3600)
+        self.assertIn("the refused job is re-run once the run ends", summary)
+
+    def test_a_refusal_without_a_pull_request_still_waits_for_the_run(self):
+        # The re-run-now path is a pull request run's: an E2E dispatch (pr_number 0) keeps waiting for the run to
+        # end, as before, rather than being cancelled at the refusal with no re-check before the cancel.
+        def jobs(seconds):
+            sibling = job("e2e / sibling", labels=[MINI], created=40,
+                          status="completed" if seconds >= 3600 else "queued")
+            if seconds >= 3600:
+                sibling.update(conclusion="success", completed_at=stamp(3600), runner_name="mini-2")
+            return [e2e_runner()(seconds), refused_job("e2e / refused"), sibling]
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda seconds: seconds >= 3600)
+        _, summary = run_main(api, clock, payload=e2e_event())
+        self.assertNotIn("no other job of the run is running", summary)
+        # It waits as before (its own short watch then ends as before, cancelling at the deadline).
+        self.assertIn("waiting for the rest of the run to finish", summary)
+
     def test_a_finished_run_with_a_refusal_needs_no_cancel(self):
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60)
