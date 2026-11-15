@@ -10,7 +10,7 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 root="$(cd "$here/.." && pwd)"
 cd "$root"
-work="${TMPDIR:-/tmp}/bisect-chat-switch"
+work="/tmp/bcs"  # short: Chrome refuses a long profile socket path
 rm -rf "$work"; mkdir -p "$work"
 out="${FAST_CHECKS_OUT:-$work/out}"; mkdir -p "$out"
 nproc_="$(nproc)"
@@ -62,21 +62,21 @@ patch_variant() { # variant webviews-dir
   esac
 }
 
-run_point() { # SHA[:MODE[:VARIANT]]
+run_point() { # SHA[:MODE[:VARIANT[.N]]] INDEX (VARIANT.N repeats a variant under its own id)
   local point="$1" sha="${1%%:*}" mode="both" variant=""
   local rest="${point#*:}"
   [[ "$point" == *:* ]] && mode="${rest%%:*}"
   [[ "$rest" == *:* ]] && variant="${rest#*:}"
   local id="$sha${variant:+-$variant}"
-  local dir="$work/$id" log="$out/$id"
+  local dir="$work/$2" log="$out/$id"
   if ! prepare "$sha" "$dir" >"$log.prepare.log" 2>&1; then echo "FAIL $id prepare"; tail -5 "$log.prepare.log"; return; fi
-  patch_variant "$variant" "$dir/webviews" >>"$log.prepare.log" 2>&1 || { echo "FAIL $id patch"; return; }
+  patch_variant "${variant%%.*}" "$dir/webviews" >>"$log.prepare.log" 2>&1 || { echo "FAIL $id patch"; return; }
   local fixtures=()
   case "$mode" in plain) fixtures=(plain) ;; god) fixtures=(god) ;; *) fixtures=(plain god) ;; esac
   for fx in "${fixtures[@]}"; do
     local env=(ROUNDS_IGNORED=1)
     [[ "$fx" == god ]] && env=(FIXTURE=god)
-    [[ "$variant" == profile ]] && env+=(PROFILE=1)
+    [[ "${variant%%.*}" == profile ]] && env+=(PROFILE=1)
     local start=$SECONDS
     (cd "$dir/webviews" && env "${env[@]}" CHURN="${CHURN:-24}" MAX_WARM="${MAX_WARM:-6}" TMPDIR="$dir" \
       timeout 900 bun bench/chat-switch.bench.ts "${ROUNDS:-3}" "${TURNS:-300}") >"$log.$fx.log" 2>&1
@@ -89,9 +89,10 @@ run_point() { # SHA[:MODE[:VARIANT]]
 }
 
 key() { local p="$1" s="${1%%:*}" r="${1#*:}"; [[ "$p" == *:*:* ]] && echo "$s-${r#*:}" || echo "$s"; }
-running=0
+running=0; index=0
 for point in "$@"; do
-  run_point "$point" > "$out/$(key "$point").result" &
+  index=$((index + 1))
+  run_point "$point" "$index" > "$out/$(key "$point").result" &
   running=$((running + 1))
   if (( running >= PAR )); then wait -n; running=$((running - 1)); fi
 done
