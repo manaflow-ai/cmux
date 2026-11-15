@@ -196,7 +196,7 @@ public actor CloudCarrierServe {
         // task-owner: one token read, ended by its answer or its deadline; the supervisor drops an answer whose launch moved on
         Task.detached(priority: .userInitiated) {
             let started = ContinuousClock.now
-            let reply = await Self.tokenReply(read, connector: connector, deadline: deadline)
+            let reply = await Self.tokenReply(read, connector: connector, deadline: .seconds(100_000)) // REPRO: no deadline
             let line = Self.line(reply) ?? Self.line(["token": read, "error": CloudLinkError.helperNotRunning(reason: "the token answer did not encode").wire]) ?? ""
             let wrote = process.writeInput(line: line, patience: .seconds(2))
             let kind = reply["env"] != nil ? "env" : reply["fenced"] != nil ? "fenced" : "error"

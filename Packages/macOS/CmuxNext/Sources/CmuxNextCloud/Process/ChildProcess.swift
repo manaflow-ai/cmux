@@ -70,24 +70,10 @@ package final class ChildProcess: Sendable {
     @discardableResult
     package func writeInput(line: String, patience: Duration = .milliseconds(500)) -> Bool {
         let bytes = Array((line + "\n").utf8)
-        let deadline = ContinuousClock.now + patience
         return state.withLock { state in
             guard let input = state.input else { return false }
-            let fd = input.fileDescriptor
-            var sent = 0
-            while sent < bytes.count {
-                // concurrency-allow: the held stdin is O_NONBLOCK (startHoldingInput): a full pipe returns EAGAIN, never waits
-                let wrote = bytes[sent...].withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
-                if wrote > 0 { sent += wrote; continue }
-                guard wrote < 0, errno == EAGAIN || errno == EINTR else { return false }
-                let left = ContinuousClock.now.duration(to: deadline)
-                guard left > .zero else { return false }
-                var ready = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-                let (seconds, attoseconds) = left.components
-                // concurrency-allow: bounded by `patience`; the child reads its stdin as lines arrive
-                _ = Darwin.poll(&ready, 1, Int32(min(seconds * 1000 + attoseconds / 1_000_000_000_000_000, 1000)) + 1)
-            }
-            return true
+            // concurrency-allow: REPRO: the base's one write
+            return bytes.withUnsafeBytes { Darwin.write(input.fileDescriptor, $0.baseAddress, $0.count) } == bytes.count
         }
     }
 
