@@ -51,7 +51,7 @@
       "cmux": [
         "workspace", "name:Extension", "screen", "current", "pane", "current", "tab", "current",
         "terminal", "current", "write", "--text",
-        "clear; cd .. && cmux ext new board --kind pane && cd board && cmux ext shot --out /dev/null 2>&1 | head -12; cmux ext new tab --kind newtab\r"
+        "clear; cd .. && cmux ext new board --kind pane && cd board && cmux ext shot --out /dev/null 2>&1 | head -12; cmux ext new tab --kind menu\r"
       ],
       "wait": 6
     }

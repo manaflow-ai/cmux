@@ -19,7 +19,8 @@ use super::{Request, exit, parse, scaffold};
 const BUDGET: Duration = Duration::from_secs(1);
 
 /// The kinds that make a folder; `view` when the kind draws one.
-const KINDS: [(&str, bool); 3] = [("sidebar", true), ("pane", true), ("command", false)];
+const KINDS: [(&str, bool); 4] =
+    [("sidebar", true), ("pane", true), ("newtab", true), ("command", false)];
 
 /// One kind's run: save to reloaded, and that reload's build and copy-to-frame times.
 struct Measured {
@@ -137,7 +138,7 @@ fn every_kind_is_new_loads_then_shows_an_edit_within_a_second() {
 /// When the interface lands this fails: give the kind its template.
 #[test]
 fn a_kind_whose_interface_has_not_landed_names_what_it_needs() {
-    for (kind, needs) in [("newtab", "cmux.newtab/1"), ("menu", "cmux.context_menu/1")] {
+    for (kind, needs) in [("menu", "cmux.context_menu/1")] {
         assert!(
             !cmux_app_manifest::KNOWN_INTERFACES.contains(&needs),
             "{needs} landed: give --kind {kind} its template"

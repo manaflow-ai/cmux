@@ -10,7 +10,7 @@ save, so cmux changes as you work. `cmux apps ...` keeps working; `ext` is the a
 
 ```sh
 cmux ext new my-prs          # ./my-prs: cmux-app.json, src/main.ts, dist/main.js, sdk/, README.md, cmux-app.d.ts
-                             # --kind sidebar (default), pane or command
+                             # --kind sidebar (default), pane, newtab or command
 cd my-prs
 cmux ext dev                 # validate, build, load; then one line per save
 ```
@@ -125,8 +125,9 @@ leads out of the folder, is refused by name.
 |---|---|---|
 | `sidebar` (default; `section` too) | a sidebar section | `cmux.section/1` |
 | `pane` | a view in a tab, opened from the command palette by its title | `cmux.pane/1` |
+| `newtab` | a whole New Tab page, shown once picked: `cmux settings set tabs.newTabApp local/NAME` | `cmux.newtab/1` |
 | `command` | a command in the palette, `cmux NAME hello` in a terminal, and a tool for agents | `catalog.json` |
-| `newtab`, `menu` | refused until cmux has `cmux.newtab/1` and `cmux.context_menu/1`; the error says what to make meanwhile | |
+| `menu` | refused until cmux has context-menu contributions (`cmux.context_menu/1`); the error says what to make meanwhile | |
 
 Each kind loads as written, and a save to its `src/main.ts` is on screen within a second
 (`cmux-tui` test `every_kind_is_new_loads_then_shows_an_edit_within_a_second`, which runs

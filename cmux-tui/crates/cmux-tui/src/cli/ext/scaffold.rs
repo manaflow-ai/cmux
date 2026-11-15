@@ -1,4 +1,4 @@
-//! `cmux ext new NAME [--kind sidebar|pane|command]`: a working extension
+//! `cmux ext new NAME [--kind sidebar|pane|newtab|command]`: a working extension
 //! folder from templates embedded in the binary (manifest v2, `src/main.ts`
 //! on the public SDK, its built `dist/main.js`, a README with the loop, and
 //! the API types). Each kind loads as written, and a save to its source is
@@ -18,7 +18,7 @@
 use std::path::{Path, PathBuf};
 
 /// The kinds `--kind` takes (`section` is `sidebar`'s first name).
-pub(super) const KINDS: &[&str] = &["sidebar", "section", "pane", "command"];
+pub(super) const KINDS: &[&str] = &["sidebar", "section", "pane", "newtab", "command"];
 
 /// The first lines of every kind's `dist/main.js`; the packer's build follows.
 pub(super) const FIRST_BUILD_HEADER: &str = "// The packer's build of src/main.ts, so this folder loads before bun is installed. `cmux ext dev`\n\
@@ -28,10 +28,8 @@ pub(super) const FIRST_BUILD_HEADER: &str = "// The packer's build of src/main.t
 /// Kinds whose cmux interface has not landed: the kind, the interface it
 /// needs, and what to make meanwhile. `ext new` refuses them by name rather
 /// than scaffold an API this cmux does not have.
-pub(super) const PENDING: &[(&str, &str, &str)] = &[
-    ("newtab", "cmux.newtab/1", "--kind pane makes a view you open from the command palette"),
-    ("menu", "cmux.context_menu/1", "--kind command makes a command for the command palette"),
-];
+pub(super) const PENDING: &[(&str, &str, &str)] =
+    &[("menu", "cmux.context_menu/1", "--kind command makes a command for the command palette")];
 
 /// Why `kind` cannot be made, when it is one of `PENDING`.
 pub(super) fn pending(kind: &str) -> Option<String> {
@@ -52,6 +50,12 @@ const PANE: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/pane/cmux-app.json")),
     ("src/main.ts", include_str!("templates/pane/src/main.ts")),
     ("dist/main.js", include_str!("templates/pane/dist/main.js")),
+];
+
+const NEWTAB: &[(&str, &str)] = &[
+    ("cmux-app.json", include_str!("templates/newtab/cmux-app.json")),
+    ("src/main.ts", include_str!("templates/newtab/src/main.ts")),
+    ("dist/main.js", include_str!("templates/newtab/dist/main.js")),
 ];
 
 const COMMAND: &[(&str, &str)] = &[
@@ -155,6 +159,11 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
             "Open the pane from the command palette by its title.",
             "",
         ),
+        "newtab" => (
+            "a whole New Tab page.",
+            "Pick it as your New Tab page: `cmux settings set tabs.newTabApp local/{{NAME}}` (Settings >\nTabs > New Tab App); unset it to get cmux's own page back.",
+            "",
+        ),
         "command" => (
             "a command.",
             "Run it from the command palette, from a terminal as `cmux {{NAME}} hello [NAME]`, or as\n`cmux apps run local/{{NAME}} hello`. `catalog.json` says where it is offered: its `cli.path`,\n`palette` title and `mcp.expose` (agents see it as a tool).",
@@ -169,6 +178,7 @@ pub(super) fn files(name: &str, kind: &str) -> Option<Vec<(&'static str, String)
     let templates = match kind {
         "sidebar" | "section" => SECTION,
         "pane" => PANE,
+        "newtab" => NEWTAB,
         "command" => COMMAND,
         _ => return None,
     };
