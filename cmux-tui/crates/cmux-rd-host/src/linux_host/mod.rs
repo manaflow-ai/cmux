@@ -18,7 +18,8 @@
 //!
 //! Consent: a viewer the person already allowed (the hub's `view`/`full` permission) is
 //! served; any other request waits for `approve` and is never answered by the host itself
-//! (consent.rs). A `view` session applies no input.
+//! (consent.rs). A `view` session applies no input, and so does every session of a host that
+//! captures through the Wayland portal (it applies no input): there it is served view only.
 
 mod b64;
 mod consent;
@@ -28,6 +29,7 @@ mod net;
 mod rd_doc;
 mod session;
 
+use crate::capture_backend::CaptureBackend;
 use crate::Res;
 use consent::{LocalConsent, Pending};
 use hub::{now_ms, Hub, HubError};
@@ -333,18 +335,37 @@ fn enable(args: &Args) -> Res<()> {
         "This desktop is shared as \"{}\" ({}), {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
         hub.device.name,
         hub.device.id,
-        if consent.full { "view and control" } else { "view only" }
+        shares_line(&Ok(consent), host_applies_input())
     );
     Ok(())
 }
 
-/// Runs `attempt` (sign in and register) with `device`; the device it succeeded with.
+/// Whether the hub refused this device's identity itself: it never registers a removed id
+/// again, and a key mismatch means another key holds the id.
+fn refuses_identity(e: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
+    e.downcast_ref::<HubError>()
+        .is_some_and(|h| matches!(h.code.as_str(), "device_removed" | "device_key_mismatch"))
+}
+
+/// Runs `attempt` (sign in and register) with `device`; the device it succeeded with. When
+/// the hub refuses that identity (`device_removed`, `device_key_mismatch`), once more with a
+/// new device of the same name, as the Mac app does.
 fn with_fresh_identity<T>(
     device: Device,
     mut attempt: impl FnMut(&Device) -> Res<T>,
 ) -> Res<(Device, T)> {
-    let done = attempt(&device)?;
-    Ok((device, done))
+    match attempt(&device) {
+        Ok(done) => Ok((device, done)),
+        Err(e) if refuses_identity(&*e) => {
+            let fresh = Device::generate(&device.name)?;
+            eprintln!(
+                "cmux-rd linux-host: the hub refused this desktop's old id ({e}); registering it as a new device"
+            );
+            let done = attempt(&fresh)?;
+            Ok((fresh, done))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn share_on(args: &Args) -> Res<()> {
@@ -386,16 +407,23 @@ fn approve(id: &str, args: &Args) -> Res<()> {
         pending.list(now)?.into_iter().find(|r| r.id == id).ok_or_else(|| {
             format!("no waiting request {id} (see `cmux-rd linux-host requests`)")
         })?;
-    let scope =
-        consent::decision_scope(&request, args.get("scope"), LocalConsent::load(&dir)?, true)?;
+    let applies_input = host_applies_input();
+    let scope = consent::decision_scope(
+        &request,
+        args.get("scope"),
+        LocalConsent::load(&dir)?,
+        applies_input,
+    )?;
     let decision = if args.flag("always") { "always" } else { "once" };
     hub.decide(id, decision, Some(&scope))?;
     pending.remove(id, now)?;
+    let lowered = request.scope == "full" && scope == "view" && args.get("scope").is_none();
     println!(
-        "Approved {} to {} this desktop{}.",
+        "Approved {} to {} this desktop{}{}.",
         printable(&request.viewer_name),
         if scope == "full" { "control" } else { "view" },
-        if decision == "always" { " from now on" } else { " once" }
+        if decision == "always" { " from now on" } else { " once" },
+        if lowered { NO_INPUT_NOTE } else { "" }
     );
     Ok(())
 }
@@ -422,7 +450,7 @@ fn status() -> Res<()> {
         println!("Not enabled.");
         return Ok(());
     };
-    let shares = shares_line(&LocalConsent::load(&dir), true);
+    let shares = shares_line(&LocalConsent::load(&dir), host_applies_input());
     match Account::load(&dir)? {
         Some(a) => println!(
             "{} ({}) on {}, anchored until {} (Unix ms), {}",
@@ -433,15 +461,36 @@ fn status() -> Res<()> {
     Ok(())
 }
 
+/// Why a host whose capture applies no input shares view only.
+const NO_INPUT_NOTE: &str =
+    " (view only: this desktop is captured through the Wayland portal, which applies no input)";
+
 /// What `status` says this desktop shares, under `consent` and a capture that does or does
 /// not apply input.
-fn shares_line(consent: &Res<LocalConsent>, _applies_input: bool) -> &'static str {
+fn shares_line(consent: &Res<LocalConsent>, applies_input: bool) -> &'static str {
     // A missing consent file serves nothing; say so instead of failing.
     match consent {
-        Ok(c) if c.full => "view and control",
+        Ok(c) if c.full && applies_input => "view and control",
+        Ok(c) if c.full => {
+            "view only (control is allowed, but this desktop is captured through the Wayland portal, which applies no input)"
+        }
         Ok(_) => "view only",
         Err(_) => "nothing shared (consent.json missing or unreadable)",
     }
+}
+
+/// The capture backend the running host chose (`run` records it in the runtime directory),
+/// else this session's own choice.
+fn host_capture(runtime: Option<&std::path::Path>) -> CaptureBackend {
+    let recorded = runtime
+        .and_then(|dir| identity::read_private(&dir.join("capture")).ok().flatten())
+        .and_then(|bytes| CaptureBackend::parse(&String::from_utf8_lossy(&bytes)).ok());
+    recorded.unwrap_or_else(|| CaptureBackend::from_env(None).unwrap_or_default())
+}
+
+/// Whether a viewer's input reaches this desktop with the host's capture.
+fn host_applies_input() -> bool {
+    host_capture(identity::runtime_dir().ok().as_deref()).applies_input()
 }
 
 /// A session this host serves: its id, its scope (`view`/`full`) and its stop flag.
@@ -519,8 +568,11 @@ fn run(args: &Args) -> Res<()> {
         }
     }
     // The capture choice is checked now, so a bad --capture fails at start, not per session.
-    crate::capture_backend::CaptureBackend::from_env(args.get("capture"))?;
-    let applies_input = true;
+    let capture = CaptureBackend::from_env(args.get("capture"))?;
+    // Every session is served with this capture: a portal one applies no input, so control
+    // tickets are served view only, and `approve` and `status` read this to say so.
+    let applies_input = capture.applies_input();
+    identity::write_private(&runtime.join("capture"), capture.name().as_bytes())?;
     let serve_args = ServeArgs(serve_args);
     if account.anchored_until != 0 && account.anchored_until <= now_ms() {
         return Err(Fatal::needs("This desktop's 30-day sign-in ended", Fatal::SHARE_ON).into());
@@ -528,7 +580,12 @@ fn run(args: &Args) -> Res<()> {
     let hub = Arc::new(hub);
     let current: Current = Arc::new(Mutex::new(None));
     let mut backoff = Duration::from_secs(1);
-    eprintln!("linux-host: serving \"{}\" ({})", hub.device.name, hub.device.id);
+    eprintln!(
+        "linux-host: serving \"{}\" ({}){}",
+        hub.device.name,
+        hub.device.id,
+        if applies_input { "" } else { NO_INPUT_NOTE }
+    );
     loop {
         let started = Instant::now();
         let (result, stopped) = hold_link(&current, || {
@@ -623,11 +680,17 @@ enum OnTicket {
 }
 
 /// The answer to a host ticket `push`; `admit` maps its scope to `Some(view_only)` or None
-/// when this desktop does not allow it.
+/// when this desktop does not allow it. A ticket that does not parse is ended too, as the
+/// Mac host does: the hub approved the session, and only `/end` closes it.
 fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket {
     let ticket = match Ticket::from_push(push) {
         Ok(t) => t,
-        Err(e) => return OnTicket::Drop(e.to_string()),
+        Err(e) => {
+            return match push["sessionId"].as_str().filter(|id| !id.is_empty()) {
+                Some(id) => OnTicket::End(id.to_owned(), "failed", format!("ticket refused: {e}")),
+                None => OnTicket::Drop(e.to_string()),
+            }
+        }
     };
     match admit(&ticket.scope) {
         Some(view_only) => OnTicket::Serve(ticket, view_only),
@@ -1096,5 +1159,17 @@ mod tests {
         // With no session id there is nothing to end.
         malformed["sessionId"] = Value::Null;
         assert!(matches!(on_ticket(&malformed, |_| Some(true)), OnTicket::Drop(_)));
+    }
+
+    #[test]
+    fn approve_and_status_read_the_capture_the_host_recorded() {
+        let dir = consent_dir("capture");
+        identity::write_private(&dir.join("capture"), CaptureBackend::Portal.name().as_bytes())
+            .unwrap();
+        assert_eq!(host_capture(Some(&dir)), CaptureBackend::Portal);
+        assert!(!host_capture(Some(&dir)).applies_input());
+        identity::write_private(&dir.join("capture"), b"x11").unwrap();
+        assert_eq!(host_capture(Some(&dir)), CaptureBackend::X11);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

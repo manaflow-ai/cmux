@@ -240,11 +240,12 @@ impl Carrier for ServeCarrier {
 }
 
 /// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
-/// with `capture`.
-fn view_only_for(scope: &str, _capture: CaptureBackend) -> Res<bool> {
+/// with `capture`: a capture that applies no input (the Wayland portal) is view only, so the
+/// viewer is told view, not a control session whose input is dropped.
+fn view_only_for(scope: &str, capture: CaptureBackend) -> Res<bool> {
     match scope {
         "view" => Ok(true),
-        "control" => Ok(false),
+        "control" => Ok(!capture.applies_input()),
         other => Err(format!("scope {other}: use view or control").into()),
     }
 }
