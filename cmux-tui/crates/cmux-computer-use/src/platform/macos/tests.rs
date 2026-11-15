@@ -112,7 +112,7 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
 }
 
 /// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
-/// 27.2+; earlier minors and other majors run with it off), and any off
+/// 27.0.1+; earlier versions and other majors run with it off), and any off
 /// switch that says 0 turns it off, whichever source says it.
 #[test]
 fn the_key_in_app_scope_is_gated() {
@@ -122,7 +122,10 @@ fn the_key_in_app_scope_is_gated() {
     assert!(gate("27.2", &[]));
     assert!(gate("27.3.1", &[]));
     assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
-    assert!(!gate("27.0.1", &[]), "before the verified 27 minor");
+    // 27.0.1 verified live (the person's macOS): on from 27.0.1, not 27.0.
+    assert!(gate("27.0.1", &[]));
+    assert!(gate("27.0.2", &[]));
+    assert!(!gate("27.0", &[]), "27.0 itself was not verified");
     assert!(!gate("28.0", &[]));
     assert!(!gate("15.7", &[]));
     assert!(!gate("", &[]));

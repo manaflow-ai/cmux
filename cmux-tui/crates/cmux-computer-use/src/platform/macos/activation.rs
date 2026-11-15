@@ -25,7 +25,7 @@
 //! Gated: the records are undocumented (layout from cua-driver's
 //! `skylight.rs`, MIT, read as a reference) and the make-key pair uses the
 //! mouse-down/up record kinds, so the scope runs only on the macOS majors it
-//! was verified on live ([`VERIFIED`]: 26.6+ and 27.2+) and never when
+//! was verified on live ([`VERIFIED`]: 26.6+ and 27.0.1+) and never when
 //! `CMUX_CU_BG_ACTIVATE=0` (in the worker's environment, or set for the user
 //! with `launchctl setenv CMUX_CU_BG_ACTIVATE 0` and then a cmux restart).
 //! Off, disabled background menu items are refused with the reason.
@@ -52,11 +52,12 @@ struct Calls {
 /// The macOS versions the scope was verified on live (front app, key
 /// window, menu bar owner, the target's windows and panels, input source,
 /// cursor and z-order sampled every 1 ms with the person typing; Safari,
-/// TextEdit, Finder, VS Code): 26.6 and 27.2 guests. On both, the focus
-/// record plus the make-key pair validated the menus in 0.8-0.9 s and either
-/// alone did not within 5 s; nothing the person sees changed. Per major, the
-/// first verified minor: earlier minors run with the scope off.
-pub(super) const VERIFIED: &[(u32, u32)] = &[(26, 6), (27, 2)];
+/// TextEdit, Finder, VS Code): 26.6, 27.0.1 and 27.2 guests. On each, the
+/// focus record plus the make-key pair validated the menus in 0.8-0.9 s and
+/// either alone did not within 5 s; nothing the person sees changed. Per
+/// major, the first verified version (major, minor, patch): earlier ones run
+/// with the scope off.
+pub(super) const VERIFIED: &[(u32, u32, u32)] = &[(26, 6, 0), (27, 0, 1)];
 
 /// The environment variable that turns the scope off (`0`).
 pub(super) const OFF_ENV: &str = "CMUX_CU_BG_ACTIVATE";
@@ -71,7 +72,7 @@ pub(super) const AX_TIMEOUT_IN_SCOPE: f32 = 0.25;
 const POLL: Duration = Duration::from_millis(20);
 
 /// Whether the scope may run (pure, for tests): a verified macOS major at
-/// or past its verified minor, and no off switch says `0`. `switches` are
+/// or past its first verified version, and no off switch says `0`. `switches` are
 /// the values found (the worker's environment, the user's launchd
 /// environment); any `0` turns it off.
 pub(super) fn gate(os_version: &str, switches: &[&str]) -> bool {
@@ -79,10 +80,10 @@ pub(super) fn gate(os_version: &str, switches: &[&str]) -> bool {
         return false;
     }
     let mut parts = os_version.split('.').map(|p| p.trim().parse::<u32>().ok());
-    let (Some(Some(major)), minor) = (parts.next(), parts.next().flatten().unwrap_or(0)) else {
-        return false;
-    };
-    VERIFIED.iter().any(|&(m, min)| m == major && minor >= min)
+    let Some(Some(major)) = parts.next() else { return false };
+    let minor = parts.next().flatten().unwrap_or(0);
+    let patch = parts.next().flatten().unwrap_or(0);
+    VERIFIED.iter().any(|&(m, min, pat)| m == major && (minor, patch) >= (min, pat))
 }
 
 /// The off switch's values: the worker's own environment and the user's
