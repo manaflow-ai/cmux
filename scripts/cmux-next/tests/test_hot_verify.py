@@ -297,6 +297,41 @@ class MarkerTest(unittest.TestCase):
         self.assertIn("app=1.2-345", hv.marker("a" * 40, "1.2 345", ["web"], "pr"))
 
 
+class BrowserEngineTest(unittest.TestCase):
+    """The copy starts on WebKit unless the steps file says chromium: a Chromium-default NEXT nightly turns
+    uncapturable 10-25 s after launch (the kit's CHROMIUM_UNCAPTURABLE), which failed the first fleet look."""
+
+    def test_steps_engine_defaults_to_webkit(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(hv.steps_engine(None), "webkit")
+            path = Path(d) / "steps.json"
+            path.write_text(json.dumps({"steps": [{"shot": "a"}]}))
+            self.assertEqual(hv.steps_engine(str(path)), "webkit")
+            path.write_text(json.dumps({"steps": [{"shot": "a"}], "engine": "chromium"}))
+            self.assertEqual(hv.steps_engine(str(path)), "chromium")
+            path.write_text(json.dumps({"steps": [{"shot": "a"}], "engine": "gecko"}))
+            with self.assertRaises(hv.Usage):
+                hv.steps_engine(str(path))
+
+    def test_set_browser_engine_keeps_other_settings(self):
+        with tempfile.TemporaryDirectory() as d:
+            config = Path(d) / "config" / "cmux-next.json"
+            hv.set_browser_engine(config, "webkit")
+            self.assertEqual(json.loads(config.read_text()), {"browser": {"defaultEngine": "webkit"}})
+            config.write_text(json.dumps({"browser": {"homePage": "x"}, "ui": {"density": "compact"}}))
+            hv.set_browser_engine(config, "chromium")
+            self.assertEqual(json.loads(config.read_text()),
+                             {"browser": {"homePage": "x", "defaultEngine": "chromium"}, "ui": {"density": "compact"}})
+
+    def test_set_browser_engine_never_overwrites_an_unreadable_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            config = Path(d) / "cmux-next.json"
+            config.write_text("{ // a comment\n}")
+            with self.assertRaises(hv.LookError):
+                hv.set_browser_engine(config, "webkit")
+            self.assertEqual(config.read_text(), "{ // a comment\n}")
+
+
 class ControlSocketTest(unittest.TestCase):
     """The copy's socket is the one side-instance.sh named, asked once: no scan of every cmux socket (each a 5 s
     timeout) while it launches."""

@@ -147,6 +147,78 @@ class HotApplyRust(unittest.TestCase):
         self.assertIn("ZZZZZ99999", receipt["error"])
         self.assertEqual(self.sha(), self.old)
 
+    def publish_team_signed(self, files, team=None):
+        """cmux-tui-team-signed.yml's set for the tree: FILES (bin file -> bytes) signed by TEAM, each under its
+        sha256, and the completion.json naming them; every other companion the build has none of."""
+        signed = self.tmp / "tree" / self.key / "team-signed"
+        entries = {file: None for file in ("cmux", "cmux-app-host", "cmux-cloud", "cmux-browser-host",
+                                           "cmux-tui-host", "cmux-holder", "cmux-agent-screen-detection")}
+        for file, body in files.items():
+            digest = hashlib.sha256(body).hexdigest()
+            (signed / digest).mkdir(parents=True, exist_ok=True)
+            (signed / digest / file).write_bytes(body)
+            entries[file] = {"sha256": digest, "unsigned_sha256": "0" * 64, "size": len(body)}
+        (signed / "completion.json").write_text(json.dumps({
+            "schema": 1, "key": self.key, "target": self.name.removeprefix("cmux-tui-"), "team": team or TEAM,
+            "commit": FIX, "files": entries}))
+        return {file: hashlib.sha256(body).hexdigest() for file, body in files.items()}
+
+    def test_a_team_signed_app_takes_the_team_signed_set_over_the_ad_hoc_tree(self):
+        # cmuxterm-hq#11364: CI signs each tree's darwin build with the nightly's team, so the rust part
+        # reaches a NIGHTLY instead of being held back.
+        self.team_signed_app()
+        adhoc = macho("cmux_tui-8cc59fe5f00f9770", adhoc=True, pad=4096)
+        self.publish(adhoc, hashlib.sha256(adhoc).hexdigest())
+        (self.app / "Contents/Resources/bin/cmux-holder").write_bytes(b"the app's holder")
+        signed = self.publish_team_signed({"cmux": macho("cmux", TEAM), "cmux-cloud": macho("cmux-cloud", TEAM)})
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertIn("rust", plan["parts"])
+        self.assertEqual(plan["build"], f"team-signed ({TEAM})")
+        self.assertNotIn("Rust (the published build is not signed as this app is)", plan["left"])
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["applied"], ["rust"])
+        self.assertEqual(receipt["steps"]["build"], f"team-signed ({TEAM})")
+        self.assertEqual(self.sha(), signed["cmux"])
+        bin_ = self.app / "Contents/Resources/bin"
+        self.assertEqual(hashlib.sha256((bin_ / "cmux-cloud").read_bytes()).hexdigest(), signed["cmux-cloud"])
+        self.assertFalse((bin_ / "cmux-holder").exists())  # the signed build has none, as the tree's has none
+        code, receipt, err = self.hot("rollback", "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.old)
+        self.assertEqual((bin_ / "cmux-holder").read_bytes(), b"the app's holder")
+
+    def test_an_ad_hoc_app_keeps_taking_the_ad_hoc_tree(self):
+        self.publish_team_signed({"cmux": macho("cmux", TEAM)})
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["steps"]["build"], "ad-hoc")
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_team_signed_set_of_another_team_is_not_taken(self):
+        self.team_signed_app()
+        adhoc = macho("cmux_tui-8cc59fe5f00f9770", adhoc=True, pad=4096)
+        self.publish(adhoc, hashlib.sha256(adhoc).hexdigest())
+        self.publish_team_signed({"cmux": macho("cmux", "ZZZZZ99999")}, team="ZZZZZ99999")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 3, err)
+        self.assertIn("Rust (the published build is not signed as this app is)", receipt["left"])
+        self.assertEqual(self.sha(), self.old)
+
+    def test_a_team_signed_file_that_does_not_hash_to_its_completion_is_refused(self):
+        self.team_signed_app()
+        adhoc = macho("cmux_tui-8cc59fe5f00f9770", adhoc=True, pad=4096)
+        self.publish(adhoc, hashlib.sha256(adhoc).hexdigest())
+        signed = self.publish_team_signed({"cmux": macho("cmux", TEAM)})
+        (self.tmp / "tree" / self.key / "team-signed" / signed["cmux"] / "cmux").write_bytes(b"not it")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--parts", "rust")
+        self.assertEqual(code, 1, err)
+        self.assertIn("does not hash", receipt["error"])
+        self.assertEqual(self.sha(), self.old)
+
     def publish(self, body, digest, listed=None):
         tree = self.tmp / "tree" / self.key
         tree.mkdir(parents=True, exist_ok=True)

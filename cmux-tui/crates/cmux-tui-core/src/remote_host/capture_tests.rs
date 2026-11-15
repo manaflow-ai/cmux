@@ -54,7 +54,7 @@ impl Fixture {
 
     fn supervisor(&self) -> RemoteHostSupervisor {
         let supervisor = RemoteHostSupervisor::default();
-        supervisor.configure(self.paths.clone());
+        supervisor.configure(self.paths.clone(), Weak::new());
         supervisor
     }
 
