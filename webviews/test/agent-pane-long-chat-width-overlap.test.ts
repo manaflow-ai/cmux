@@ -100,16 +100,49 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
     record("mux", "turn_result", { status: "completed" });
   }
 
-  function answer(method: string): unknown {
+  /// Paged as acpmux pages a long chat (hub/paging.rs `events_page`): the newest records before
+  /// `beforeSeq`, ending before their JSON passes `maxBytes`, at most `limit`. Off: the whole chat at
+  /// attach.
+  let paged = false;
+  const newestPage = (beforeSeq: number, limit: number, maxBytes: number | undefined) => {
+    const out: Event[] = [];
+    let bytes = 0;
+    let hasMore = false;
+    for (const event of events.filter((record) => record.seq < beforeSeq).reverse()) {
+      if (out.length === limit) {
+        hasMore = true;
+        break;
+      }
+      bytes += JSON.stringify(event.msg).length + event.kind.length + 120;
+      if (maxBytes !== undefined && out.length > 0 && bytes > maxBytes) {
+        hasMore = true;
+        break;
+      }
+      out.push(event);
+    }
+    return { events: out.reverse(), hasMore };
+  };
+  const limitOf = (params: Record<string, any>) => Math.min(Number(params.limit ?? 400), paged ? 120 : Infinity);
+  const bytesOf = (params: Record<string, any>) =>
+    params.maxBytes === undefined ? undefined : Number(params.maxBytes);
+  function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
         return { sessions: [summary()] };
-      case "_acpmux/attach":
-        return { session: summary(), lastSeq: events.length, events };
-      case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+      case "_acpmux/attach": {
+        if (!paged) return { session: summary(), lastSeq: events.length, events };
+        const page = newestPage(Number.POSITIVE_INFINITY, limitOf(params), bytesOf(params));
+        return { session: summary(), lastSeq: events.length, events: page.events, hasMore: page.hasMore };
+      }
+      case "_acpmux/events": {
+        const kinds: string[] | undefined = Array.isArray(params.kinds) ? params.kinds.map(String) : undefined;
+        if (!paged || params.beforeSeq === undefined || kinds?.includes("transcript") !== true)
+          return { events: [], hasMore: false, lastSeq: events.length };
+        const page = newestPage(Number(params.beforeSeq), limitOf(params), bytesOf(params));
+        return { events: page.events, hasMore: page.hasMore, lastSeq: events.length };
+      }
       default:
         return null;
     }
@@ -127,9 +160,11 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+            );
         },
       },
     });
@@ -181,9 +216,16 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
         }),
     );
 
+  const cases = [
+    { label: "whole chat, opened wide and narrowed", paged: false, open: 1600 },
+    { label: "paged chat, opened narrow", paged: true, open: 620 },
+    { label: "paged chat, opened wide and narrowed", paged: true, open: 1600 },
+  ];
   for (const [name] of engines)
-    test(`${name}: a long chat opened wide and narrowed draws no row over another as the reader scrolls`, async () => {
-      const page = await browsers.get(name)!.newPage({ viewport: { width: 1600, height: 900 } });
+    for (const scenario of cases)
+    test(`${name}: ${scenario.label}: no row draws over another as the reader scrolls`, async () => {
+      paged = scenario.paged;
+      const page = await browsers.get(name)!.newPage({ viewport: { width: scenario.open, height: 900 } });
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -200,7 +242,7 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
       await page.setViewportSize({ width: 620, height: 900 });
       await check("narrowed, at the latest row");
       await page.mouse.move(300, 400);
-      for (let step = 1; step <= 6; step++) {
+      for (let step = 1; step <= (scenario.paged ? 14 : 6); step++) {
         await page.mouse.wheel(0, -1400);
         await check(`narrowed, scrolled up ${step}`);
       }
@@ -213,7 +255,7 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
         await page.mouse.wheel(0, 900);
         await check(`narrowed, jumped to ${share} and scrolled down`);
       }
-      console.log(`WIDTH_OVERLAP_REPORT ${JSON.stringify({ engine: name, crossings: found.slice(0, 12), total: found.length })}`);
+      console.log(`WIDTH_OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: scenario.label, crossings: found.slice(0, 12), total: found.length })}`);
       await page.close();
       expect(found.slice(0, 6)).toEqual([]);
     });
