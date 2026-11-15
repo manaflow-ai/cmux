@@ -98,7 +98,9 @@ impl Scratch {
         (socket, dials)
     }
 
-    fn command(&self, acpmux: &Path, args: &[&str]) -> Command {
+    /// `cmux-tui remote ARGS --state-dir S --via-machine mac --invite-file F TAIL`: the connect
+    /// options before `TAIL`, which holds `exec`'s `-- COMMAND`.
+    fn command(&self, acpmux: &Path, invitation: &Path, args: &[&str], tail: &[&str]) -> Command {
         let home = self.path("home");
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
         command
@@ -106,6 +108,9 @@ impl Scratch {
             .args(args)
             .arg("--state-dir")
             .arg(self.path("state"))
+            .args(["--via-machine", "mac", "--invite-file"])
+            .arg(invitation)
+            .args(tail)
             .env("ACPMUX_SOCKET", acpmux)
             .env("HOME", &home)
             .env("XDG_STATE_HOME", home.join("state"))
@@ -162,22 +167,17 @@ fn exit_within_guard(child: &mut Child) -> Option<std::process::ExitStatus> {
 /// structured line naming the reason.
 #[test]
 fn a_consent_refusal_stops_connect_exec_and_cp_after_one_dial() {
-    let cases: [(&str, &[&str], bool); 3] = [
-        ("connect", &["connect", ROUTE, "--headless", "--json"], true),
-        ("exec", &["exec", ROUTE, "--", "true"], false),
-        ("cp", &["cp", ROUTE, "--json", "remote:/etc/hostname", "/tmp/never-written"], true),
+    let cases: [(&str, &[&str], &[&str], bool); 3] = [
+        ("connect", &["connect", ROUTE, "--headless", "--json"], &[], true),
+        ("exec", &["exec", ROUTE], &["--", "true"], false),
+        ("cp", &["cp", ROUTE, "--json", "remote:/etc/hostname", "/tmp/never-written"], &[], true),
     ];
-    for (name, args, json) in cases {
+    for (name, args, tail, json) in cases {
         let scratch = Scratch::new();
         let (acpmux, dials) = scratch.acpmux(Some(CONSENT_REFUSED));
         let invitation = scratch.invitation();
         let started = Instant::now();
-        let mut child = scratch
-            .command(&acpmux, args)
-            .args(["--via-machine", "mac", "--invite-file"])
-            .arg(&invitation)
-            .spawn()
-            .unwrap();
+        let mut child = scratch.command(&acpmux, &invitation, args, tail).spawn().unwrap();
         let (lines, stdout) = watch(&mut child);
         let status = exit_within_guard(&mut child);
         let took = started.elapsed();
@@ -220,12 +220,8 @@ fn a_transient_failure_redials_and_says_so_every_few_seconds() {
     let scratch = Scratch::new();
     let (acpmux, dials) = scratch.acpmux(Some(RELAY_DOWN));
     let invitation = scratch.invitation();
-    let mut child = scratch
-        .command(&acpmux, &["connect", ROUTE, "--headless", "--json"])
-        .args(["--via-machine", "mac", "--invite-file"])
-        .arg(&invitation)
-        .spawn()
-        .unwrap();
+    let connect = ["connect", ROUTE, "--headless", "--json"];
+    let mut child = scratch.command(&acpmux, &invitation, &connect, &[]).spawn().unwrap();
     let (lines, _stdout) = watch(&mut child);
     let watched = Duration::from_secs(11);
     let started = Instant::now();
@@ -265,12 +261,8 @@ fn a_stalled_first_dial_says_it_is_still_connecting() {
     let scratch = Scratch::new();
     let (acpmux, _dials) = scratch.acpmux(None);
     let invitation = scratch.invitation();
-    let mut child = scratch
-        .command(&acpmux, &["connect", ROUTE, "--headless", "--json"])
-        .args(["--via-machine", "mac", "--invite-file"])
-        .arg(&invitation)
-        .spawn()
-        .unwrap();
+    let connect = ["connect", ROUTE, "--headless", "--json"];
+    let mut child = scratch.command(&acpmux, &invitation, &connect, &[]).spawn().unwrap();
     let (lines, _stdout) = watch(&mut child);
     let deadline = Instant::now() + Duration::from_secs(7);
     let mut seen = Vec::new();
