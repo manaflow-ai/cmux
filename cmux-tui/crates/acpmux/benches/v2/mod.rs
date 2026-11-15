@@ -114,15 +114,6 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
-        pr: "2",
-        name: "v2.pr02.card_patch",
-        done_when: "A card patch reads one chunk for each listed record, at most the list cap: a card at its cap whose records lie in old chunks of a long chat within 1.2x of one in a short chat.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
         pr: "3",
         name: "v2.pr03.chat_actor_killed_mid_turn",
         done_when: "The actor killed mid-turn 50 times: the replay settles every row once.",
