@@ -30,7 +30,7 @@ import Testing
         return DaemonTree(workspaces: [workspace])
     }
 
-    @Test func aPageFromHomesLoneDockShowsInItsColumnAtOnce() throws {
+    @Test(.timeLimit(.minutes(1))) func aPageFromHomesLoneDockShowsInItsColumnAtOnce() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -43,6 +43,11 @@ import Testing
         store.connectionState = .connected(identity)
         store.apply(snapshot: Self.homeDockAlone())
         services.pages.register(Page())
+        let (asked, ask) = AsyncStream<ConversationTabSplit?>.makeStream()
+        services.pages.createStoreTab = { _, _, _, _, _, split in
+            ask.yield(split)
+            throw CancellationError()
+        }
         let model = try #require(store.workspaces.first?.screens.first?.panes.first)
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
         let window = WindowController(state: WindowState(record: record), services: services, frame: NSRect(x: 200, y: 200, width: 1100, height: 720))
@@ -65,5 +70,9 @@ import Testing
         #expect(direction == .right)
         #expect(provisional.tab?.conversation?.page == InternalPageID.settings.rawValue)
         #expect(store.pane(PaneID(rawValue: 1))?.tabs.map(\.surface) == [SurfaceID(rawValue: 1)], "the Settings tab showed in Home's dock")
+        var requests = asked.makeAsyncIterator()
+        let sent = await requests.next()
+        #expect(sent??.direction == .right, "new-conversation-tab went to the dock, not its new column")
+        #expect(sent??.paneID == provisional.paneID, "the daemon's pane would not replace the column shown")
     }
 }
