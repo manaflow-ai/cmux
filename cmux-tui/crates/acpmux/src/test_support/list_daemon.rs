@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// An error of this module's own: what a step that cannot go on found.
@@ -182,18 +182,91 @@ pub fn twenty_live_beside(hub: &Hub, closed: usize) -> io::Result<usize> {
     Ok(20 + closed)
 }
 
-/// A proxy to a daemon's socket that counts the bytes the daemon sends. It relays until dropped.
+/// A proxy to a daemon's socket that counts the bytes the daemon sends, and the connections it
+/// relays. It relays until dropped.
 pub struct Counted {
     pub path: PathBuf,
     pub bytes: Arc<AtomicU64>,
+    open: Arc<Open>,
     _dir: tempfile::TempDir,
     _tasks: cmux_scope::Scope,
 }
+
+/// The connections a [`Counted`] relays now, and a wake as each one ends.
+#[derive(Default)]
+struct Open {
+    count: AtomicUsize,
+    ended: tokio::sync::Notify,
+}
+
+/// One relay's place in [`Open`], given back when the relay ends.
+struct Relaying(Arc<Open>);
+
+impl Relaying {
+    fn new(open: &Arc<Open>) -> Self {
+        open.count.fetch_add(1, Ordering::AcqRel);
+        Self(open.clone())
+    }
+}
+
+impl Drop for Relaying {
+    fn drop(&mut self) {
+        self.0.count.fetch_sub(1, Ordering::AcqRel);
+        self.0.ended.notify_waiters();
+    }
+}
+
+/// How long [`Counted::settled`] waits for the daemon to close the connections clients left.
+const SETTLE: Duration = Duration::from_secs(10);
 
 impl Counted {
     /// The bytes the daemon has sent through the proxy.
     pub fn sent(&self) -> u64 {
         self.bytes.load(Ordering::Relaxed)
+    }
+
+    /// Waits until the proxy relays no connection: each client that left had its daemon side
+    /// shut, and the daemon closed it, having sent all it owed. An error past [`SETTLE`]: the
+    /// daemon keeps a connection its client left.
+    pub async fn settled(&self) -> io::Result<()> {
+        let deadline = tokio::time::Instant::now() + SETTLE;
+        loop {
+            let ended = self.open.ended.notified();
+            tokio::pin!(ended);
+            ended.as_mut().enable();
+            if self.open.count.load(Ordering::Acquire) == 0 {
+                return Ok(());
+            }
+            if tokio::time::timeout_at(deadline, ended).await.is_err() {
+                let open = self.open.count.load(Ordering::Acquire);
+                return Err(failed(format!(
+                    "the daemon kept {open} connections open {SETTLE:?} after their clients left"
+                )));
+            }
+        }
+    }
+}
+
+/// The descriptors this process holds (`None` off Linux).
+pub fn open_fds() -> Option<usize> {
+    std::fs::read_dir("/proc/self/fd").ok().map(Iterator::count)
+}
+
+/// The descriptors a gate may hold past its first round's start, after any round: room for
+/// the runtime's own and descriptors still closing after [`Counted::settled`] returns (the
+/// client's reader task, the in-process daemon's halves), never for a sample's connections
+/// (7 each). Keep that slack: at 0 the assert fails on closes still in flight.
+pub const FDS_PAST_A_ROUND: usize = 6;
+
+/// Fails `name` if this process holds more than [`FDS_PAST_A_ROUND`] descriptors beyond
+/// `before` ([`open_fds`] before the gate's first round): a fixture that keeps a sample's
+/// connections grows by each sample.
+pub fn assert_fds_given_back(name: &str, before: Option<usize>) {
+    if let (Some(before), Some(now)) = (before, open_fds()) {
+        assert!(
+            now <= before + FDS_PAST_A_ROUND,
+            "{name}: {now} descriptors open after a round, {before} before the first"
+        );
     }
 }
 
@@ -204,6 +277,8 @@ pub async fn counted(target: PathBuf) -> io::Result<Counted> {
     let listener = tokio::net::UnixListener::bind(&path)?;
     let bytes = Arc::new(AtomicU64::new(0));
     let total = bytes.clone();
+    let open = Arc::new(Open::default());
+    let relaying = open.clone();
     let tasks = cmux_scope::Scope::new("list-daemon counted proxy");
     // One task: the accepts and every connection's relay, polled together.
     tasks.spawn_until_cancelled("list-daemon counted proxy", async move {
@@ -214,28 +289,32 @@ pub async fn counted(target: PathBuf) -> io::Result<Counted> {
                 accepted = listener.accept() => {
                     let Ok((client, _)) = accepted else { return };
                     let Ok(server) = tokio::net::UnixStream::connect(&target).await else { return };
-                    relays.push(relay(client, server, total.clone()));
+                    let place = Relaying::new(&relaying);
+                    relays.push(relay(client, server, total.clone(), place));
                 }
                 Some(()) = relays.next(), if !relays.is_empty() => {}
             }
         }
     });
-    Ok(Counted { path, bytes, _dir: dir, _tasks: tasks })
+    Ok(Counted { path, bytes, open, _dir: dir, _tasks: tasks })
 }
 
 /// One connection through [`Counted`]: the client's bytes up, the daemon's down and counted,
-/// until the daemon's side ends.
+/// until the daemon's side ends. Both sockets, and `_place`, go with it.
 async fn relay(
     client: tokio::net::UnixStream,
     server: tokio::net::UnixStream,
     total: Arc<AtomicU64>,
+    _place: Relaying,
 ) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (mut client_read, mut client_write) = client.into_split();
     let (mut server_read, mut server_write) = server.into_split();
     let up = async move {
         let _ = tokio::io::copy(&mut client_read, &mut server_write).await;
-        // The client's side ended: the daemon's answers still come down.
+        // The client's side ended: the daemon reads its end too, and its answers still come
+        // down until it closes.
+        let _ = server_write.shutdown().await;
         std::future::pending::<()>().await;
     };
     let down = async move {
