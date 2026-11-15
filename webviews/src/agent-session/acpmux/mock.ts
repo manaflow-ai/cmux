@@ -1190,7 +1190,7 @@ export class MockAcpmuxSocket {
   ): Promise<never> {
     await this.delay(350);
     const turnCount = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 1);
-    const fields = { error: failure.message, code: failure.code, ...(failure.data ?? {}) };
+    const fields = { error: failure.message, code: failure.code, ...failure.data };
     this.emit(target, { mux: "turn_error", msg: { ...fields, turnSeq: turnCount } });
     this.emit(target, {
       mux: "turn_result",
