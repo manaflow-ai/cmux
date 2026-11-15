@@ -5,7 +5,8 @@ keeps no kind-to-symbol table of its own (Leo 2026-11-14: "nicer icons ... acros
 related areas").
 
 Each surface below must read the daemon's symbol field. No Swift file under Packages/macOS may spell a
-device-kind wire name next to a symbol name (a second mapping). Exit 1 names what is missing.
+device-kind wire name next to a symbol name (a second mapping); a file in a `Tests` folder may, since
+it asserts the table rather than drawing from it. Exit 1 names what is missing.
 
 Usage: check-device-glyph-surfaces.py [--repo DIR]
 """
@@ -57,6 +58,9 @@ def main() -> int:
     # A second table: a Swift line that pairs a kind's wire name with its symbol.
     pairs = [(kind, symbol) for kind, symbol in kinds.items() if kind != symbol]
     for file in sorted([*(root / "Packages/macOS").rglob("*.swift"), *(root / "Packages/Shared").rglob("*.swift")]):
+        # Tests assert the table; they don't draw from it.
+        if "Tests" in file.relative_to(root).parts:
+            continue
         text = file.read_text(errors="replace")
         if str(file.relative_to(root)) in GENERATED:
             if not text.startswith(GENERATED_HEADER):
