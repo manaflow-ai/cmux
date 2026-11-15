@@ -206,7 +206,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { startRefusalRoute } from "./startRefusal";
+import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -4117,8 +4117,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
       currentClient: () => directClient.current ?? undefined,
     };
-    return { cloudSignIn: cloudAgentLogin(login), apiKeySignIn: localApiKeyLogin(login) };
-  }, [connected, cloudMachineID, chatElsewhere, snapshot.sessionId, snapshot.summary?.harness]);
+    // A start refused because its agent is not signed in on the machine (hq#11225): that agent's own
+    // sign-in there, which the failed start's card leads with (SwitchNotice.tsx).
+    const refused =
+      snapshot.switching?.phase === "failed" && snapshot.switching.code === SIGN_IN_REQUIRED
+        ? snapshot.switching.harness
+        : undefined;
+    return {
+      cloudSignIn: cloudAgentLogin(login),
+      apiKeySignIn: localApiKeyLogin(login),
+      // A new chat has no session yet: its machine signs the agent in there with none, where its
+      // daemon can (`agent_login_machine`); elsewhere the card says to sign in on that machine.
+      refusedSignIn: refused
+        ? cloudAgentLogin({
+            ...login,
+            harness: refused,
+            machineLogin: directClient.current?.supportsMachineLogin === true,
+          })
+        : undefined,
+    };
+  }, [
+    connected,
+    cloudMachineID,
+    chatElsewhere,
+    snapshot.sessionId,
+    snapshot.summary?.harness,
+    snapshot.switching?.phase,
+    snapshot.switching?.code,
+    snapshot.switching?.harness,
+  ]);
   const turnActions = useMemo<TurnActions>(
     () => ({
       showCall,
@@ -12016,6 +12043,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // its host marked as that machine's, says where it runs.
   const startsElsewhere =
     remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
+  // The login command of an agent whose start was refused for its sign-in (SwitchNotice's Sign in).
+  const switchLoginCommand =
+    snapshot.switching?.phase === "failed" && snapshot.switching.code === SIGN_IN_REQUIRED
+      ? chatLoginCommand(catalog, snapshot.switching.harness, harnessHealth)
+      : undefined;
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -12162,6 +12194,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               switching={snapshot.switching}
               // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
               installs={!startsElsewhere}
+              // An agent not signed in: on another machine its sign-in runs there, in the card; on
+              // this Mac its login runs in a terminal tab, then Retry starts it (hq#11225).
+              {...(startsElsewhere && chatSignIns.refusedSignIn && { agentSignIn: chatSignIns.refusedSignIn })}
+              runsLogin={!startsElsewhere && switchLoginCommand !== undefined}
               onRetry={() => void callNative("chat.harness.retry")}
               // The refused prompt is back in the composer; a chat on another machine starts only
               // with a send, so the share's retry sends it again (as Trust's answer does).
@@ -12177,6 +12213,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
                       run: true,
                     }).catch(() => undefined);
+                  return;
+                }
+                // The refused agent's login, where its sign-in page or code shows; Retry then starts it.
+                if (action === "signIn") {
+                  if (switchLoginCommand && !startsElsewhere) {
+                    healthStale.current = true;
+                    void callNative("tab.open", {
+                      kind: "terminal",
+                      text: switchLoginCommand,
+                      ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+                      run: true,
+                      keep: true,
+                    }).catch(() => undefined);
+                  }
                   return;
                 }
                 const route = startRefusalRoute(action, startsElsewhere);
