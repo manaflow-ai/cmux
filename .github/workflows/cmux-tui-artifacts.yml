@@ -16,7 +16,7 @@ name: cmux-tui artifacts
 #                                                  install as cmux-cloud beside it
 #   cmux-tui/<commit-sha>/cmux-tui-browser-host-<rust-target>  browser host (macOS);
 #                                                  install as cmux-browser-host beside cmux-tui
-#   cmux-tui/<commit-sha>/cmux-tui-host-<rust-target>  slim terminal host (macOS);
+#   cmux-tui/<commit-sha>/cmux-tui-host-<rust-target>  slim terminal host (macOS, Linux);
 #                                                  install as cmux-tui-host beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
 #                                                  install as cmux-holder beside cmux-tui
@@ -2183,6 +2183,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2670,6 +2672,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2795,6 +2799,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2873,6 +2879,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2933,6 +2941,8 @@ jobs:
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
               --require-artifact cmux-tui-host-aarch64-apple-darwin \
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+              --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+              --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-holder-aarch64-apple-darwin \
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
               --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -3127,6 +3137,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
