@@ -805,3 +805,16 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let (_, code) = shot::report(&broken, &dir, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
 }
+
+/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+#[test]
+fn a_new_tab_page_is_placed_where_the_person_picks_it() {
+    let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
+    let placed = dev::placements(&manifest, true);
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0]["interface"], "cmux.newtab/1");
+    assert!(
+        placed[0]["where"].as_str().is_some_and(|w| w.contains("tabs.newTabApp")),
+        "{placed:?}"
+    );
+}
