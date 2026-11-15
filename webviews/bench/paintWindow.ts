@@ -157,8 +157,8 @@ export async function paintWindow(
     probe.on = true;
   });
   const events: TraceEvent[] = [];
-  const collect = (payload: { value: TraceEvent[] }) => {
-    for (const event of payload.value) events.push(event);
+  const collect = (payload: { value: object[] }) => {
+    for (const event of payload.value) events.push(event as TraceEvent);
   };
   cdp.on("Tracing.dataCollected", collect);
   await cdp.send("Tracing.start", {

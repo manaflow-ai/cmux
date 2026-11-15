@@ -61,7 +61,10 @@ const RESIZE = process.env.RESIZE !== "0";
 // and no record arriving (in empty x1 and long x1 a turn opened for it and closed after; running x1's own turn, a
 // command started in it and finished after), read twice: the renderers' CPU, then a
 // trace of what the shown page draws (paintWindow.ts: frames, main-thread frames and paints, the running animations
-// and what each animates). A chat with a turn open moves only its running marks, on the compositor.
+// and what each animates). A chat with a turn open moves only its running marks, on the compositor. Beside it, the
+// same trace before the turn opens and while the open turn takes one reply chunk a second. Rows per window
+// (idle_closed, idle_open, trickle_open): frames_per_s, main_frames_per_s, paints_per_s, main_ms_per_s, and
+// idle_open_cpu_pct; none is in ratio_max.
 const PAINT = process.env.PAINT !== "0";
 const RESIZE_WIDTHS = [700, 620, 540, 460];
 // CPU settle: once a launch's chats are loaded or grown, its renderers are sampled every second until two samples in
@@ -511,8 +514,19 @@ try {
       if (PAINT && count === 1) {
         const { page, cdp } = pages[0]!;
         const id = sessionId(0);
+        // Each window's rows (`${window}_frames_per_s`, ...): numbers of their own, never in ratio_max.
+        const rows = (prefix: string, paint: Awaited<ReturnType<typeof paintWindow>>) => {
+          const row = (key: string, value: number, unit: string) =>
+            perfRow({ name: `${ROW}.${name}.${prefix}_${key}`, p50: value, p95: value, unit });
+          row("frames_per_s", paint.framesPerS, "count");
+          row("main_frames_per_s", paint.mainFramesPerS, "count");
+          row("paints_per_s", paint.paintsPerS, "count");
+          row("main_ms_per_s", paint.taskMsPerS, "ms");
+        };
         if (runGrow === 0) {
-          console.log(describePaintWindow(`${name} idle, no turn`, await paintWindow(page, cdp, IDLE_S, sources)));
+          const closed = await paintWindow(page, cdp, IDLE_S, sources);
+          console.log(describePaintWindow(`${name} idle, no turn`, closed));
+          rows("idle_closed", closed);
           emit(id, "mux", "user_message", { text: "Wait on the lanes" });
           emit(id, "mux", "turn_started", {});
           setStatus(id, "running");
@@ -536,13 +550,8 @@ try {
         const openPct = await window(IDLE_S);
         const paint = await paintWindow(page, cdp, IDLE_S, sources);
         console.log(describePaintWindow(`${name} idle, turn open, ${openPct.toFixed(2)} % CPU`, paint));
-        const row = (key: string, value: number, unit: string) =>
-          perfRow({ name: `${ROW}.${name}.idle_open_${key}`, p50: value, p95: value, unit });
-        row("cpu_pct", openPct, "pct");
-        row("frames_per_s", paint.framesPerS, "count");
-        row("main_frames_per_s", paint.mainFramesPerS, "count");
-        row("paints_per_s", paint.paintsPerS, "count");
-        row("main_ms_per_s", paint.taskMsPerS, "ms");
+        perfRow({ name: `${ROW}.${name}.idle_open_cpu_pct`, p50: openPct, p95: openPct, unit: "pct", clock: "cpu" });
+        rows("idle_open", paint);
         // A trickle: the open turn takes one reply chunk a second (a coordinator's slow stream), so what one record
         // costs in frames and paints shows beside the window above.
         let trickling = true;
@@ -557,9 +566,7 @@ try {
         trickling = false;
         await trickle;
         console.log(describePaintWindow(`${name} turn open, a chunk a second`, trickled));
-        row("trickle_frames_per_s", trickled.framesPerS, "count");
-        row("trickle_paints_per_s", trickled.paintsPerS, "count");
-        row("trickle_main_ms_per_s", trickled.taskMsPerS, "ms");
+        rows("trickle_open", trickled);
         said({
           sessionUpdate: "tool_call_update",
           toolCallId: "paint-wait",
