@@ -97,7 +97,7 @@ impl OwnFolder {
         if own.parent() != Some(worktrees.as_path()) {
             return false;
         }
-        let Ok(record) = std::fs::read(self.path.join(RECORD)) else { return false };
+        let Ok(Some(record)) = self.read(RECORD) else { return false };
         let Ok(record) = String::from_utf8(record) else { return false };
         let entry = path_from(own, Path::new(record.trim_end_matches(['\n', '\r'])));
         let (folder, root) = (entry.parent().and_then(real), real(root));
