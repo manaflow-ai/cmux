@@ -231,6 +231,23 @@ impl Backoff {
         self.failures = 0;
     }
 
+    /// The first wait after the remote refused this computer's ssh login.
+    pub const LOGIN_REFUSED_BASE: Duration = Duration::from_secs(5 * 60);
+    /// The longest wait between refused logins.
+    pub const LOGIN_REFUSED_CAP: Duration = Duration::from_secs(60 * 60);
+
+    /// The least wait after the `refusals`-th refused ssh login in a row (1 for the first):
+    /// doubling from `LOGIN_REFUSED_BASE` to `LOGIN_REFUSED_CAP`, plus up to a fifth more with
+    /// `jitter`. A refused key does not fix itself in seconds, and each attempt counts against the
+    /// remote's limit on failed logins (a ban tool blocks an address after a few in minutes), so a
+    /// computer never redials it in a loop; an explicit reconnect still tries at once.
+    pub fn login_refused(refusals: u32, jitter: f64) -> Duration {
+        let doublings = refusals.saturating_sub(1).min(8);
+        let step =
+            Self::LOGIN_REFUSED_BASE.saturating_mul(1u32 << doublings).min(Self::LOGIN_REFUSED_CAP);
+        step + step.mul_f64(jitter.clamp(0.0, 1.0) / 5.0)
+    }
+
     /// Steps drawn since the last `reset`.
     pub fn failures(&self) -> u32 {
         self.failures

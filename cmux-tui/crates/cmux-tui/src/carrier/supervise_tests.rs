@@ -40,6 +40,7 @@ fn config(dir: &Path, script: &str) -> Config {
         stop_grace: Duration::from_millis(300),
         kill_after: Duration::from_millis(300),
         lease_wait: Duration::from_secs(5),
+        token_read_deadline: Duration::from_secs(30),
         refresh_delay: |_| Duration::from_secs(3600),
         check: |_| Ok(()),
     }
@@ -450,4 +451,31 @@ fn the_serve_argv_parses() {
         None
     );
     assert_eq!(parse(&["supervise", "--socket", "/tmp/a.sock"].map(str::to_owned)), None);
+}
+
+/// A token read the app never answers fails at its deadline instead of
+/// holding the lease and every connect forever (2026-11-15: every Cloud chat
+/// start waited 180 s on such a read); the next connect reads again.
+#[tokio::test]
+async fn an_unanswered_token_read_fails_at_its_deadline_and_the_next_connect_reads_again() {
+    let dir = scratch("unanswered");
+    let mut config = config(&dir, &format!("{READY}\ncat >/dev/null"));
+    config.token_read_deadline = Duration::from_millis(300);
+    let mut serve = Harness::start(config);
+    serve.connect(1);
+    let first = serve.read().await;
+    let resumed = serve.expect("resume").await;
+    assert_eq!(resumed["resume"], json!([1]));
+    assert_eq!(resumed["error"]["kind"], "helper_not_running", "{resumed}");
+    assert_eq!(launches(&dir), 0, "no child without a token");
+    serve.token(first, "t-late");
+    serve.none("resume", Duration::from_millis(200)).await;
+    serve.connect(2);
+    let second = serve.read().await;
+    assert_ne!(second, first);
+    serve.token(second, "t-2");
+    let resumed = serve.expect("resume").await;
+    assert_eq!(resumed, json!({"resume": [2], "socket": serve.socket}));
+    assert_eq!(serve.end().await, 0);
+    assert_eq!(launches(&dir), 1);
 }

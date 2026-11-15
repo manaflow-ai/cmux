@@ -19,15 +19,34 @@ pub(super) const LINK_PREFIX: &str = "cmux-collection:";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::cli) enum Request {
     List,
-    On { name: String },
-    Off { name: String },
-    Order { name: String, position: Position },
-    Remove { name: String },
-    Export { file: Option<String>, link: bool, only_on: bool, name: Option<String> },
-    Import { source: String, on: bool },
+    On {
+        name: String,
+    },
+    Off {
+        name: String,
+    },
+    Order {
+        name: String,
+        position: Position,
+    },
+    Remove {
+        name: String,
+    },
+    Export {
+        file: Option<String>,
+        link: bool,
+        only_on: bool,
+        name: Option<String>,
+    },
+    Import {
+        source: String,
+        on: bool,
+    },
+    /// Every pull request entry against what is published and this build.
+    Refresh,
 }
 
-const USAGE: &str = "customize library takes list, on NAME, off NAME, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
+const USAGE: &str = "customize library takes list, refresh, on NAME, off NAME, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
 
 /// Parses the words after `library`.
 pub(super) fn parse(words: &[String]) -> Result<Request, String> {
@@ -38,6 +57,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
     let Some((verb, rest)) = words.split_first() else { return Ok(Request::List) };
     match verb.as_str() {
         "list" | "ls" if rest.is_empty() => Ok(Request::List),
+        "refresh" if rest.is_empty() => Ok(Request::Refresh),
         "on" | "enable" => Ok(Request::On { name: name(rest, "on")? }),
         "off" | "disable" => Ok(Request::Off { name: name(rest, "off")? }),
         "remove" | "rm" => Ok(Request::Remove { name: name(rest, "remove")? }),
@@ -103,6 +123,7 @@ pub(super) fn execute(
             let human = list_lines(&listing);
             Answer::Library { json: json!({ "library": listing }), human }
         }
+        Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
         Request::On { name } => changed(customize.library_set_on(&name, true, origin, now_ms)?),
         Request::Off { name } => changed(customize.library_set_on(&name, false, origin, now_ms)?),
         Request::Order { name, position } => {
@@ -165,6 +186,10 @@ fn change_lines(change: &Changed) -> String {
             generation.n,
             change.changed.join(", ")
         )),
+        // A code layer moves web-dev.json, which no generation holds.
+        None if change.changed.iter().any(|key| key == cmux_customize::library::WEB_KEY) => {
+            out.push_str("web pages now load from the layer the library says; open pages reload\n");
+        }
         None => out.push_str("nothing live changed\n"),
     }
     out
@@ -180,8 +205,23 @@ fn list_lines(listing: &Listing) -> String {
     out.push_str("Your library, top first (where two entries that are on set the same thing, the higher one wins):\n");
     let width = listing.entries.iter().map(|entry| entry.name.len()).max().unwrap_or(4);
     for entry in &listing.entries {
-        let what: Vec<&str> =
-            entry.settings.iter().chain(entry.files.iter()).map(String::as_str).collect();
+        let mut what: Vec<String> =
+            entry.settings.iter().chain(entry.files.iter()).cloned().collect();
+        if let Some(code) = &entry.code {
+            what.push(if code.has_web() {
+                format!(
+                    "web layer of #{} at {}",
+                    code.pr,
+                    code.head.get(..12).unwrap_or(&code.head)
+                )
+            } else {
+                format!("#{}: nothing a running cmux can take", code.pr)
+            });
+            what.extend(code.needs_build.iter().map(|line| format!("needs a build: {line}")));
+            if !code.note.is_empty() {
+                what.push(code.note.clone());
+            }
+        }
         let words = entry.words.first().map(|w| format!("  \"{w}\"")).unwrap_or_default();
         out.push_str(&format!(
             "{:>3} {} {:width$}  {}{}\n      {}\n",
