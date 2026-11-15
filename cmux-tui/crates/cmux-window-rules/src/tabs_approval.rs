@@ -150,9 +150,13 @@ fn split_hint(label: &str) -> (String, Option<String>) {
     if let Some(open) = label.rfind(" (")
         && label.ends_with(')')
     {
-        let hint = &label[open + 2..label.len() - 1];
-        if !hint.is_empty() && hint.chars().count() <= 12 && !hint.contains(' ') {
-            return (label[..open].trim_end().to_owned(), Some(hint.to_owned()));
+        let hint = label.get(open.saturating_add(2)..label.len().saturating_sub(1)).unwrap_or("");
+        if !hint.is_empty()
+            && hint.chars().count() <= 12
+            && !hint.contains(' ')
+            && let Some(head) = label.get(..open)
+        {
+            return (head.trim_end().to_owned(), Some(hint.to_owned()));
         }
     }
     (label.to_owned(), None)
@@ -176,15 +180,16 @@ fn kind(label: &str) -> &'static str {
 /// The dialog at the bottom of `screen`, or None.
 pub fn terminal_approval(facts: &ApprovalScreen) -> Option<TerminalApproval> {
     let rows: Vec<Row> = facts.screen.lines().map(Row::read).collect();
-    let filled: Vec<usize> = (0..rows.len()).filter(|&i| !rows[i].blank()).collect();
-    let window = &filled[filled.len().saturating_sub(OPTION_ROWS)..];
+    let filled: Vec<usize> =
+        rows.iter().enumerate().filter(|(_, r)| !r.blank()).map(|(i, _)| i).collect();
+    let window = filled.get(filled.len().saturating_sub(OPTION_ROWS)..).unwrap_or_default();
     // The last run of options numbered 1, 2, 3, ... in a row (blank rows between are fine).
     let mut run: Vec<(usize, ApprovalOption)> = Vec::new();
     let mut found: Vec<(usize, ApprovalOption)> = Vec::new();
     for &at in window {
-        let next = option(&rows[at]);
-        let continues =
-            matches!((&next, run.last()), (Some(n), Some((_, last))) if last.key + 1 == n.key);
+        let next = rows.get(at).and_then(option);
+        let continues = matches!((&next, run.last()),
+            (Some(n), Some((_, last))) if last.key.checked_add(1) == Some(n.key));
         if !continues && run.len() >= 2 {
             found = std::mem::take(&mut run);
         }
@@ -203,7 +208,12 @@ pub fn terminal_approval(facts: &ApprovalScreen) -> Option<TerminalApproval> {
         return None;
     }
     // Below the options: a few hints at most, never the prompt box or more transcript.
-    let below: Vec<&Row> = rows[last + 1..].iter().filter(|r| !r.blank()).collect();
+    let below: Vec<&Row> = rows
+        .get(last.saturating_add(1)..)
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| !r.blank())
+        .collect();
     if below.len() > HINT_ROWS || !below.iter().all(|r| r.hint()) {
         return None;
     }
@@ -213,18 +223,22 @@ pub fn terminal_approval(facts: &ApprovalScreen) -> Option<TerminalApproval> {
     let question_at = above
         .iter()
         .copied()
-        .take_while(|&i| !rows[i].rule())
-        .find(|&i| rows[i].text.ends_with('?'))?;
-    let question = &rows[question_at];
+        .take_while(|&i| rows.get(i).is_some_and(|r| !r.rule()))
+        .find(|&i| rows.get(i).is_some_and(|r| r.text.ends_with('?')))?;
+    let question = rows.get(question_at)?;
     // Between the question and the options (Codex's reason and command).
-    let after: Vec<&Row> =
-        (question_at + 1..first).map(|i| &rows[i]).filter(|r| !r.blank()).collect();
+    let after: Vec<&Row> = rows
+        .get(question_at.saturating_add(1)..first)
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| !r.blank())
+        .collect();
     // Above the question, up to the dialog's edge: its heading and body (Claude Code's).
     let mut before: Vec<&Row> = Vec::new();
-    let mut blanks = 0;
-    for row in rows[..question_at].iter().rev() {
+    let mut blanks = 0_u8;
+    for row in rows.get(..question_at).unwrap_or_default().iter().rev() {
         if row.blank() {
-            blanks += 1;
+            blanks = blanks.saturating_add(1);
             if blanks >= 2 {
                 break;
             }
@@ -244,14 +258,14 @@ pub fn terminal_approval(facts: &ApprovalScreen) -> Option<TerminalApproval> {
         .first()
         .filter(|r| r.indent <= question.indent && before.len() > 1)
         .map(|r| r.text.clone());
-    let body = &before[usize::from(header.is_some())..];
+    let body = before.get(usize::from(header.is_some())..).unwrap_or_default();
     let mut detail: Vec<String> = Vec::new();
     let mut command = None;
     if header.as_deref().is_some_and(|h| h.to_lowercase().ends_with("command"))
         && let Some(first) = body.first()
     {
         command = Some(first.text.clone());
-        detail.extend(body[1..].iter().map(|r| r.text.clone()));
+        detail.extend(body.get(1..).unwrap_or_default().iter().map(|r| r.text.clone()));
     } else {
         detail.extend(body.iter().map(|r| r.text.clone()));
     }
@@ -317,8 +331,11 @@ pub fn answer_keys(answer: &ApprovalAnswer) -> Option<Vec<&'static str>> {
     let target =
         shown.options.iter().position(|o| o.key == answer.key && o.label == answer.label)?;
     let selected = shown.options.iter().position(|o| o.selected)?;
-    let (key, moves) =
-        if target < selected { ("up", selected - target) } else { ("down", target - selected) };
+    let (key, moves) = if target < selected {
+        ("up", selected.abs_diff(target))
+    } else {
+        ("down", target.abs_diff(selected))
+    };
     let mut keys = vec![key; moves];
     keys.push("enter");
     Some(keys)

@@ -116,6 +116,11 @@ Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks in
   [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
 - Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
+- A held button changes only its background fill: never its weight (no bold on press), font, size, scale,
+  offset, opacity or icon, on macOS, iOS and web. Use the shared looks (`ChromeHover`,
+  `.buttonStyle(.cmuxPressFill)` on macOS and iOS, web `.ui-btn`), never SwiftUI `.plain`/`.borderless`/`.link`
+  (they dim the label). `check-pressed-state.py` enforces it; rule and exceptions:
+  [design/pressed-state.md](design/pressed-state.md) (Lawrence 2026-11-15).
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
   needs a reason that proves the code is safe; it is not a way to pass the gate.
 - Never change a Ghostty-default shortcut without the user's explicit OK. Ghostty's split keys
@@ -282,20 +287,23 @@ such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
 capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
 enforces this.
 
-**Nightlies run on one Mac mini, and nobody cancels them** (Lawrence, 2026-11-04).
+**Nightlies run on one signing Mac, end to end, and nobody cancels them** (Lawrence,
+2026-11-04: "the single nightly mini: cmux15"; Leo, 2026-11-12, hq#10366: "ultra1
+signs the nightly too, cmux15 stays ready as the standby signer").
 The whole nightly (build, sign, notarize, verify and publish, for cmux-next on
-`nightly-next` and classic on `main`) runs on the single nightly mini: cmux15, the
-signing-reserved mini (its runners carry `glaeda-trusted-next-signing` and the
-nightly-only labels). This applies to humans, Leo and every agent:
+`nightly-next` and classic on `main`) runs on one signing Mac: ultra1 or cmux15,
+the hosts whose runners carry `glaeda-trusted-next-signing` (cmuxterm-hq
+`build-fleet/mini-fleet.json` `runner.trustedNextSigning`). This applies to humans,
+Leo and every agent:
 
-- Never move a nightly job to Blacksmith, a GitHub-hosted runner or another mini,
-  and never split one nightly across minis, also not "only for this run".
+- Never move a nightly job to Blacksmith, a GitHub-hosted runner or a Mac without
+  that label, and never split one nightly across Macs, also not "only for this run".
 - Never cancel a nightly run, a nightly job or the nightly queue to make room or
   to speed up a proof. A queued nightly waits its turn; the sign yield
   (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
   one without cancelling anything.
-- When the nightly mini is short of capacity or a nightly is slow, report it and
-  fix the mini or the workflow on that mini. Do not reroute the nightly.
+- When a signing Mac is short of capacity or a nightly is slow, report it and
+  fix that Mac or the workflow on it. Do not reroute the nightly.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
