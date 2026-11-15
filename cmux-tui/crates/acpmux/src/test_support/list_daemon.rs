@@ -38,6 +38,9 @@ pub struct ListDaemon {
     pub path: PathBuf,
     pub dir: tempfile::TempDir,
     pub tasks: cmux_scope::Scope,
+    // PROBE (temporary).
+    #[cfg(all(test, target_os = "linux"))]
+    pub probe_tee: Option<Arc<crate::hub::list_tee::TeeHandle>>,
 }
 
 fn memory_hub() -> io::Result<Arc<Hub>> {
@@ -111,6 +114,8 @@ pub async fn bound_away(v2: &V2, chat_id: &str) -> io::Result<()> {
 pub async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> io::Result<ListDaemon> {
     let hub = memory_hub()?;
     let tasks = cmux_scope::Scope::new("list-daemon");
+    #[cfg(all(test, target_os = "linux"))]
+    let mut probe_tee = None;
     let v2 = match serves {
         Serves::NoV2 => None,
         Serves::ListOff | Serves::List => {
@@ -122,6 +127,10 @@ pub async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> io::Resu
             };
             let v2 = Arc::new(V2::with_surfaces(index, writer, surfaces));
             let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
+            #[cfg(all(test, target_os = "linux"))]
+            {
+                probe_tee = Some(tee.clone());
+            }
             hub.install_v2_tee(tee);
             v2.hub.set_page_provider(Arc::new(crate::hub::list_tee::V1PageProvider::new(
                 hub.clone(),
@@ -152,7 +161,54 @@ pub async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> io::Resu
     let listener = crate::server::bind_unix(&path).await.map_err(failed)?;
     let server = crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone());
     tasks.spawn_until_cancelled("list-daemon server", server);
-    Ok(ListDaemon { hub, v2, path, dir, tasks })
+    // PROBE (temporary): from here to the walk's end, and the writer's seq on the way.
+    #[cfg(all(test, target_os = "linux"))]
+    if let (Some(tee), Some(v2)) = (probe_tee.clone(), v2.clone()) {
+        let returned = Instant::now();
+        let (walked, marks) = tee.probe();
+        let seq_at_return = v2.hub.snapshot().seq();
+        eprintln!(
+            "PROBE serve_return rows={rows} walk_finished={walked} marks_pending={marks} seq={seq_at_return}"
+        );
+        tasks.spawn_until_cancelled("list-daemon probe", async move {
+            while !tee.probe().0 {
+                tokio::time::sleep(Duration::from_micros(200)).await;
+            }
+            let walk_end = returned.elapsed();
+            let seq_at_walk_end = v2.hub.snapshot().seq();
+            while tee.probe().1 {
+                tokio::time::sleep(Duration::from_micros(200)).await;
+            }
+            let marks_drained = returned.elapsed();
+            let mut last = v2.hub.snapshot().seq();
+            let mut last_at = returned.elapsed();
+            let quiet_from = Instant::now();
+            while quiet_from.elapsed() < Duration::from_secs(2) {
+                let seq = v2.hub.snapshot().seq();
+                if seq != last {
+                    last = seq;
+                    last_at = returned.elapsed();
+                }
+                tokio::time::sleep(Duration::from_micros(200)).await;
+            }
+            eprintln!(
+                "PROBE walk_end rows={rows} walk_past_serve_us={} seq_at_walk_end={seq_at_walk_end} marks_drained_past_serve_us={} last_seq={last} last_seq_move_past_serve_us={}",
+                walk_end.as_micros(),
+                marks_drained.as_micros(),
+                last_at.as_micros()
+            );
+            std::future::pending::<()>().await
+        });
+    }
+    Ok(ListDaemon {
+        hub,
+        v2,
+        path,
+        dir,
+        tasks,
+        #[cfg(all(test, target_os = "linux"))]
+        probe_tee,
+    })
 }
 
 /// The gates' fixture: 20 live chats, and `closed` closed ones beside them (all older). The

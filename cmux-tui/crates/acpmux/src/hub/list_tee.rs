@@ -59,6 +59,12 @@ impl TeeHandle {
     pub(super) fn lists_hub_rows(&self) -> bool {
         self.state.lists
     }
+
+    // PROBE (temporary): the startup walk's end and the marks left.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(crate) fn probe(&self) -> (bool, bool) {
+        (self.state.walk_finished(), self.state.has_pending())
+    }
 }
 
 /// The `initialize` feature of a daemon whose v2 list holds the rows of the hub's machines

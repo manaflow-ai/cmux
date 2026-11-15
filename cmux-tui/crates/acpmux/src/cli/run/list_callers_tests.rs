@@ -25,6 +25,8 @@ struct Daemon {
     _dir: tempfile::TempDir,
     /// The daemon's server, tee and writer: they stop when it drops.
     _tasks: cmux_scope::Scope,
+    // PROBE (temporary).
+    probe_tee: Option<Arc<crate::hub::list_tee::TeeHandle>>,
 }
 
 /// A session's record (`list_daemon::meta`).
@@ -36,8 +38,8 @@ fn meta(id: &str, name: &str, status: &str, at: u64, tags: Value) -> crate::stor
 async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> Daemon {
     let daemon = list_daemon::serve(serves, seed).await.unwrap();
     let client = Client::connect(&daemon.path).await.unwrap();
-    let ListDaemon { hub, v2, path, dir, tasks } = daemon;
-    Daemon { _hub: hub, v2, path, client, _dir: dir, _tasks: tasks }
+    let ListDaemon { hub, v2, path, dir, tasks, probe_tee } = daemon;
+    Daemon { _hub: hub, v2, path, client, _dir: dir, _tasks: tasks, probe_tee }
 }
 
 /// The differential fixture: live and closed chats, a child whose parent is closed, a child whose
@@ -400,6 +402,17 @@ async fn v2_pr07b_callers() {
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for _ in 0..5 {
             let (mut sw, mut sb, mut gw, mut gb) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            // PROBE (temporary): the god side's tee and seq around round 1 of `ls`.
+            let probe = |when: &str| {
+                if caller == "ls" && god_wall.is_empty() {
+                    let (walked, marks) = god.probe_tee.as_ref().unwrap().probe();
+                    let seq = god.v2.as_ref().unwrap().hub.snapshot().seq();
+                    eprintln!(
+                        "PROBE ls_round1_{when} walk_finished={walked} marks_pending={marks} seq={seq}"
+                    );
+                }
+            };
+            probe("before");
             for _ in 0..20 {
                 let (wall, bytes) = gate_run(caller, &small_proxy).await;
                 sw.push(wall);
@@ -407,6 +420,15 @@ async fn v2_pr07b_callers() {
                 let (wall, bytes) = gate_run(caller, &god_proxy).await;
                 gw.push(wall);
                 gb.push(bytes);
+            }
+            probe("after");
+            if caller == "ls" {
+                eprintln!(
+                    "PROBE ls_round{} god_p95={} small_p95={}",
+                    god_wall.len() + 1,
+                    list_daemon::p95(&mut gw.clone()),
+                    list_daemon::p95(&mut sw.clone())
+                );
             }
             small_wall.push(sw);
             small_bytes.push(sb);
