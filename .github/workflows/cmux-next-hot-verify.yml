@@ -13,7 +13,7 @@ name: cmux-next hot verify
 # read-only token) runs the plan on the PR head and, for an eligible change, starts a run of this workflow on
 # feat-cmux-next (workflow_dispatch pr/head/layers). That run takes this file and every script from the
 # protected branch, never from the PR:
-#   - web: the PR's web layer through cmux-next-web-bundle-publish.yml as a reusable workflow (pr=N), so
+#   - web: one dispatch of cmux-next-web-bundle-publish.yml (pr=N, its own credentials), then an HTTP wait until
 #     files.cmux.com/cmux-next-web/pr/<N>/latest.json names this head (`cmux customize use pr:N`)
 #   - rust: waits (HTTP to files.cmux.com, bounded) for the head's cmux-tui tree that cmux-tui-artifacts.yml
 #     publishes for a same-repository PR head (cmux-tui/tree/<key>/completion.json, written last)
@@ -163,7 +163,7 @@ jobs:
   target:
     name: check the pull request
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -205,47 +205,46 @@ jobs:
             [[ ",$LAYERS," == *,rust,* ]] && echo "rust=true" || echo "rust=false"
           } >> "$GITHUB_OUTPUT"
 
-  # The PR's web layer on files.cmux.com (cmux-next-web-bundle-publish.yml's pr path, which also keeps its own
-  # dispatch). Its build job runs the PR's web build with no secret; its publish job checks out this branch.
+  # The PR's web layer on files.cmux.com: one dispatch of cmux-next-web-bundle-publish.yml's own pr path (its
+  # build job runs the PR's web build with no secret; its publish job holds its own credentials), then a bounded
+  # HTTP wait until cmux-next-web/pr/<N>/latest.json names this head. No secret passes through this workflow.
   web:
     name: web layer
     needs: target
     if: ${{ needs.target.outputs.ok == 'true' && needs.target.outputs.web == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 45
     permissions:
-      contents: read
-      pull-requests: read
-    uses: ./.github/workflows/cmux-next-web-bundle-publish.yml
-    with:
-      pr: ${{ needs.target.outputs.pr }}
-    secrets: inherit
-
-  web-check:
-    name: web layer names this head
-    needs: [target, web]
-    if: ${{ needs.target.outputs.ok == 'true' && needs.target.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
-    permissions: {}
+      actions: write
     steps:
-      - name: Read latest.json
+      - name: Start the web layer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.target.outputs.pr }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-web-bundle-publish.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f pr="$PR"
+      - name: Wait for latest.json to name this head
         env:
           PR: ${{ needs.target.outputs.pr }}
           HEAD_SHA: ${{ needs.target.outputs.head }}
-          KEY: ${{ needs.web.outputs.key }}
         run: |
           set -euo pipefail
           url="https://files.cmux.com/cmux-next-web/pr/$PR/latest.json"
-          curl -fsS --retry 3 --max-time 60 "$url?hot-verify=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/latest.json"
-          python3 - "$RUNNER_TEMP/latest.json" "$HEAD_SHA" "$KEY" <<'PY'
-          import json, sys
-          layer = json.load(open(sys.argv[1]))
-          head, key = sys.argv[2], sys.argv[3]
-          if layer.get("head") != head:
-              raise SystemExit(f"latest.json names head {str(layer.get('head'))[:12]}, not {head[:12]}")
-          if key and layer.get("key") != key:
-              raise SystemExit(f"latest.json names key {str(layer.get('key'))[:12]}, not this run's {key[:12]}")
-          PY
-          echo "web layer of #$PR at ${HEAD_SHA:0:12}: $url (\`cmux customize use pr:$PR\`)" | tee -a "$GITHUB_STEP_SUMMARY"
+          deadline=$(( $(date +%s) + 40 * 60 ))
+          while :; do
+            if curl -fsS --max-time 30 "$url?hot-verify=$GITHUB_RUN_ID-$(date +%s)" -o "$RUNNER_TEMP/latest.json" 2>/dev/null \
+              && [[ "$(jq -r '.head // ""' "$RUNNER_TEMP/latest.json" 2>/dev/null)" == "$HEAD_SHA" ]]; then
+              echo "web layer of #$PR at ${HEAD_SHA:0:12}: $url (\`cmux customize use pr:$PR\`)" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if (( $(date +%s) >= deadline )); then
+              echo "::warning title=web layer::latest.json of #$PR did not name ${HEAD_SHA:0:12} within 40 minutes"
+              echo "web layer of #$PR at ${HEAD_SHA:0:12}: not published within 40 minutes" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 30
+          done
 
   # The head's cmux-tui tree, which cmux-tui-artifacts.yml publishes for a same-repository PR head (its
   # completion.json is written last). HTTP to files.cmux.com only, bounded; no GitHub API call.
@@ -253,7 +252,7 @@ jobs:
     name: rust layer
     needs: target
     if: ${{ needs.target.outputs.ok == 'true' && needs.target.outputs.rust == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 55
     permissions:
       contents: read
@@ -365,7 +364,7 @@ jobs:
           name: cmux-next-hot-verify-${{ needs.target.outputs.pr }}-${{ needs.target.outputs.head }}
           path: ${{ runner.temp }}/look/out.tar
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   # Every write goes through .github/actions/pr-media-publish (the private-terms list, OCR, the shared privacy
   # check) from this protected branch's own scripts; out.tar is data from a fleet worker.
@@ -373,7 +372,7 @@ jobs:
     name: post the look
     needs: [target, look]
     if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && needs.look.outputs.result == 'ok' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
     environment: pr-media
     # contents: write reaches the pr-media branch (the code branches are protected by their rulesets);

@@ -266,7 +266,7 @@ class Comment(unittest.TestCase):
             calls.append((args, body))
             if args[1].endswith("/pulls/7"):
                 return HEAD + "\n"
-            if "--paginate" in args:
+            if "/comments?per_page=100&page=1" in args[1]:
                 return json.dumps({"id": 99, "login": "github-actions[bot]", "head": MARKER[:40]}) + "\n"
             return "{}"
 
@@ -294,13 +294,12 @@ class Workflow(unittest.TestCase):
                 self.assertTrue(f"hot-verify-ci.py {command} " in text or f'"$tool" {command} ' in text)
         self.assertIn("environment: pr-media", text)
         self.assertIn("uses: ./.github/actions/pr-media-publish", text)
-        self.assertIn("uses: ./.github/workflows/cmux-next-web-bundle-publish.yml", text)
+        self.assertIn("gh workflow run cmux-next-web-bundle-publish.yml", text)
+        self.assertNotIn("secrets: inherit", text)
         self.assertIn("--script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar", text)
 
-    def test_the_web_publisher_is_callable(self) -> None:
+    def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
-        self.assertIn("workflow_call:", text)
-        self.assertIn("value: ${{ jobs.build.outputs.key }}", text)
         self.assertIn("workflow_dispatch:", text)
 
 

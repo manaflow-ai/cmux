@@ -380,12 +380,27 @@ def our_comment(listing: str, login: str = BOT) -> int | None:
     return found
 
 
+COMMENT_PAGES = 30  # 100 comments a page, one bounded call each (never gh api's paginate flag)
+
+
+def comment_listing(pr: int, repo: str = REPO) -> str:
+    """The PR's comments as JSON lines of id/login/head, read one page of 100 per call, at most COMMENT_PAGES."""
+    lines: list[str] = []
+    for page in range(1, COMMENT_PAGES + 1):
+        chunk = gh("api", f"repos/{repo}/issues/{pr}/comments?per_page=100&page={page}",
+                   "--jq", '.[] | {id: .id, login: .user.login, head: .body[0:40]}')
+        got = [line for line in chunk.splitlines() if line.strip()]
+        lines += got
+        if len(got) < 100:
+            return "\n".join(lines)
+    raise Refused(f"#{pr} has more than {COMMENT_PAGES * 100} comments")
+
+
 def post(body: str, pr: int, head: str, repo: str = REPO) -> str:
     live = gh("api", f"repos/{repo}/pulls/{pr}", "--jq", ".head.sha").strip()
     if live != head:
         return f"#{pr} moved to {live[:12]}; its own run comments"
-    listing = gh("api", "--paginate", f"repos/{repo}/issues/{pr}/comments",
-                 "--jq", '.[] | {id: .id, login: .user.login, head: .body[0:40]}')
+    listing = comment_listing(pr, repo)
     existing = our_comment(listing)
     payload = json.dumps({"body": body})
     if existing is not None:
