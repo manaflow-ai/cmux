@@ -1439,7 +1439,7 @@ jobs:
           name: cmux-vm-migrate-production-receipts
           path: ${{ runner.temp }}/receipts
           if-no-files-found: ignore
-          retention-days: 90
+          retention-days: 7
 
   db-connections-staging:
     name: staging database connections
@@ -1555,4 +1555,4 @@ jobs:
           name: cmux-vm-migrate-staging-receipts
           path: ${{ runner.temp }}/receipts
           if-no-files-found: ignore
-          retention-days: 90
+          retention-days: 7

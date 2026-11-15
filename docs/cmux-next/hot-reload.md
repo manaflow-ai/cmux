@@ -505,6 +505,11 @@ breaks the bundle's seal until `rollback` or the next update. The running app do
 `scripts/measure/hot-apply-nightly.sh` runs apply and rollback on a copy of the newest nightly on a
 fleet Mac.
 
+Every receipt has `phases`, the seconds spent in plan, key, fetch, verify, backup, find, swap, reload
+and rollback. stderr prints them, largest first. `apply SHA --dry-run` plans, fetches and verifies
+without changing the app, and its receipt goes only to `history.jsonl`. `--base COMMIT` stands in for
+the app's commit, so `plan` and `--dry-run` also work on a host with no app.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:

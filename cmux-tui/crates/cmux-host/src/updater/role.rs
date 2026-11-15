@@ -81,7 +81,7 @@ fn log(line: &str) {
     eprintln!("cmux-host: updater: {line}");
 }
 
-fn now() -> u64 {
+pub(super) fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
@@ -423,6 +423,24 @@ thread_local! {
     static WORKER_GENERATION: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
+thread_local! {
+    /// The deadline of the step this thread runs ([`within`]): a GET still running
+    /// at it is killed.
+    static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// Runs `f` with every GET it makes ([`curl`]) killed at `deadline`.
+pub(super) fn within<T>(deadline: Instant, f: impl FnOnce() -> T) -> T {
+    let before = DEADLINE.with(|d| d.replace(Some(deadline)));
+    let out = f();
+    DEADLINE.with(|d| d.set(before));
+    out
+}
+
+fn past_deadline() -> bool {
+    DEADLINE.with(Cell::get).is_some_and(|at| Instant::now() >= at)
+}
+
 fn stopped() -> bool {
     WORKER_GENERATION.with(Cell::get).is_some_and(|mine| mine != GENERATION.load(Ordering::SeqCst))
 }
@@ -651,12 +669,12 @@ impl Outcome {
 /// unlocks before it closes: a child the service forked meanwhile keeps no
 /// lock through its copy, so the next check does not fail as "another update
 /// check runs".
-struct Lock {
+pub(super) struct Lock {
     _lock: cmux_file_lock::FileLock,
 }
 
 impl Lock {
-    fn take(paths: &Paths, wait: bool) -> Option<Lock> {
+    pub(super) fn take(paths: &Paths, wait: bool) -> Option<Lock> {
         use cmux_file_lock::{FileLock, Kind};
         let dir = paths.at(super::STATE_DIR);
         fs::create_dir_all(&dir).ok()?;
@@ -697,21 +715,26 @@ pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
     let outcome = check_step(paths, looks.watch, looks.handled, &clocks, || {
         check_inner(paths, &stops, honor, &mut skipped)
     });
+    if let Some(kind) = skipped {
+        log(&format!("went past a {} hold (--skip-resume-hold): {}", kind.name(), outcome.line()));
+    }
+    save_outcome(paths, &outcome, "");
+    (outcome, skipped)
+}
+
+/// Keeps a check's outcome for `cmux host update status` and, as codes, for the
+/// machine's Cloud status report (`look.rs`); `prefix` names the step that ran it.
+pub(super) fn save_outcome(paths: &Paths, outcome: &Outcome, prefix: &str) {
     let mut state = load_state(paths);
-    let line = outcome.line();
+    let line = format!("{prefix}{}", outcome.line());
     if state.last.as_deref() != Some(line.as_str()) {
         log(&line);
     }
-    if let Some(kind) = skipped {
-        log(&format!("went past a {} hold (--skip-resume-hold): {line}", kind.name()));
-    }
     state.last = Some(line);
     state.last_at = now();
-    // The same outcome as codes, for the machine's Cloud status report (`look.rs`).
     state.look =
-        Some(super::look::Look::next(state.look.take(), super::look::seen_of(&outcome), wall_ms()));
+        Some(super::look::Look::next(state.look.take(), super::look::seen_of(outcome), wall_ms()));
     let _ = save_state(paths, &state);
-    (outcome, skipped)
 }
 
 /// Runs one check (`inner`), then the pause look over it on every way out
@@ -1015,12 +1038,21 @@ pub(super) fn short_hex(hash: &str) -> &str {
     hash.get(..12).unwrap_or(hash)
 }
 
-fn store_binary(sha: &str) -> PathBuf {
+pub(super) fn store_binary(sha: &str) -> PathBuf {
     Path::new(STORE_DIR).join(sha).join(CMUX_TUI)
 }
 
 /// Downloads what the store lacks, each checked against the signed sha256 and size.
 fn stage(paths: &Paths, plan: &Plan) -> Result<(), String> {
+    stage_with(paths, plan, |bin, file| fetch(&bin.url, bin.size, Some(file)).map(drop))
+}
+
+/// [`stage`] with `download` (`bin` into the file) for the GET.
+pub(super) fn stage_with(
+    paths: &Paths,
+    plan: &Plan,
+    mut download: impl FnMut(&channel::Binary, &Path) -> Result<(), String>,
+) -> Result<(), String> {
     let need: Vec<_> = [(&plan.cmux_tui, CMUX_TUI), (&plan.cmux_tui_hook, CMUX_TUI_HOOK)]
         .into_iter()
         .filter(|(bin, name)| !store::has_entry(paths, &bin.sha256, name))
@@ -1036,8 +1068,7 @@ fn stage(paths: &Paths, plan: &Plan) -> Result<(), String> {
     for (bin, name) in need {
         let file = dir.join(format!("{}-{name}", bin.sha256));
         let _ = fs::remove_file(&file);
-        fetch(&bin.url, bin.size, Some(&file))
-            .map_err(|e| format!("downloading {}: {e}", bin.url))?;
+        download(bin, &file).map_err(|e| format!("downloading {}: {e}", bin.url))?;
         let size = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
         if size != bin.size {
             let _ = fs::remove_file(&file);
@@ -1068,7 +1099,7 @@ static CHANNEL_CACHE: Mutex<channel::Cache> = Mutex::new(channel::Cache::new());
 
 /// The channel's payload, verified now: a conditional GET of [`CHANNEL_URL`]
 /// against [`CHANNEL_CACHE`].
-fn read_channel() -> Result<channel::Payload, String> {
+pub(super) fn read_channel() -> Result<channel::Payload, String> {
     read_channel_from(&CHANNEL_CACHE, CHANNEL_URL, "=https", &channel::trusted_keys(), now())
 }
 
@@ -1107,7 +1138,7 @@ pub(super) fn read_channel_from(
 
 /// HTTPS GET with curl (the image has it; no redirects), at most `max`
 /// bytes; into `out`, or the body.
-fn fetch(url: &str, max: u64, out: Option<&Path>) -> Result<Vec<u8>, String> {
+pub(super) fn fetch(url: &str, max: u64, out: Option<&Path>) -> Result<Vec<u8>, String> {
     curl(url, "=https", max, max, &[], false, out)
 }
 
@@ -1163,6 +1194,11 @@ fn curl(
             let _ = child.kill();
             let _ = child.wait();
             return Err("the updater stopped".to_owned());
+        }
+        if past_deadline() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("past the step's deadline".to_owned());
         }
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -1611,7 +1647,7 @@ fn user_systemctl(args: &[&str]) -> bool {
 
 /// The previous build's `cmux host update guard --to <to>`, as a transient
 /// timer [`GUARD_AFTER_SECS`] from now.
-fn arm_guard(pending: &Pending) -> Result<(), String> {
+pub(super) fn arm_guard(pending: &Pending) -> Result<(), String> {
     arm_guard_with(pending, &store::profile_dir(&Paths::new("/"), pending.from).join("bin/cmux"))
 }
 
@@ -1642,7 +1678,7 @@ fn arm_guard_with(pending: &Pending, program: &Path) -> Result<(), String> {
 
 /// Stops the guard's timer (its service, a oneshot, has not started; the
 /// guard itself never calls this).
-fn disarm_guard() {
+pub(super) fn disarm_guard() {
     let _ = systemctl(&["stop", &format!("{GUARD_UNIT}.timer")]);
     let _ = systemctl(&["reset-failed", &format!("{GUARD_UNIT}.timer")]);
 }
@@ -1650,6 +1686,13 @@ fn disarm_guard() {
 /// Restarts what runs `old` (the binary just replaced): the work user's
 /// acpmux, the other `cmux-*` system services, and last `cmux-host.service`.
 fn restart_after_flip(old: &Path) {
+    restart_others(old);
+    let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
+}
+
+/// [`restart_after_flip`] but `cmux-host.service`: the work user's acpmux and the
+/// other `cmux-*` system services that run `old`.
+pub(super) fn restart_others(old: &Path) {
     if !user_systemctl(&["restart", "--no-block", ACPMUX_UNIT]) {
         log("restarting the work user's acpmux.service failed (none on this image?)");
     }
@@ -1660,7 +1703,6 @@ fn restart_after_flip(old: &Path) {
             let _ = systemctl(&["restart", "--no-block", &unit]);
         }
     }
-    let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
 }
 
 /// The system services (`/system.slice/<unit>.service`) with a process

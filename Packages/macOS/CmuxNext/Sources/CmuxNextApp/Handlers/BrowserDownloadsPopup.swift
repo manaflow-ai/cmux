@@ -121,7 +121,7 @@ final class BrowserDownloadsPopup {
 
     private func makeContent() -> FirstMouseHostingView<BrowserDownloadsPopupView> {
         let content = FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model))
-        let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
         return content

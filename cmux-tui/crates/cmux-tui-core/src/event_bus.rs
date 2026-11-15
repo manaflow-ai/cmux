@@ -307,6 +307,7 @@ impl SurfaceSessionScope {
             | MuxEvent::AppsChanged(_)
             | MuxEvent::StashChanged { .. }
             | MuxEvent::TasksChanged(_)
+            | MuxEvent::ChatsChanged { .. }
             | MuxEvent::Empty => true,
         }
     }

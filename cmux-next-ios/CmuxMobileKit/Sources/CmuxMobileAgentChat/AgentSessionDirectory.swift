@@ -72,6 +72,9 @@ public final class AgentSessionDirectory {
         let key = Self.key(id: summary.id, macID: summary.macID)
         if let store = stores[key] { return store }
         let store = AgentChatStore(source: makeSource(summary))
+        // Kept for the tab while the person is elsewhere: it spills and answers memory warnings
+        // on its own, as the chat on screen does.
+        store.boundsMemoryOffScreen()
         stores[key] = store
         return store
     }

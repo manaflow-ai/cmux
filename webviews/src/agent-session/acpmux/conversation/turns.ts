@@ -205,14 +205,17 @@ const footerSays = (row: AcpmuxRow) =>
 /// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
 /// show over the turn gap below, so nothing moves.
 ///
-/// The chat's last turn (`retryable`: no prompt after it) that spoke and then ended on work, with no
-/// reply after its last call, is not empty: it ends the chat, so its row with Copy (the whole turn,
-/// turnCopy.ts) shows once it ends, as ChatGPT's does under every finished turn (Leo, 2026-11-02:
-/// "the latest copy buttons auto showing when the turn is done like chatgpt"). Before, that footer
-/// drew nothing, so the chat ended on a blank band with no buttons. A footer that is empty never
+/// A finished turn that spoke and then ended on work, with no reply after its last call, is not
+/// empty, whether or not a prompt came after it: its row with Copy (the whole turn, turnCopy.ts)
+/// stays, as ChatGPT's does under every finished turn (Leo, 2026-11-02: "the latest copy buttons auto
+/// showing when the turn is done like chatgpt"). It used to be kept only while the turn was the
+/// chat's last (`retryable`), so the row vanished, and the transcript jumped by its height, the
+/// moment the next prompt went; and a turn paged in from history without its prompt drew none until
+/// the prompt came (Leo, 2026-11-14: "the copy sometimes disappears entirely? which causes big
+/// shifts. it happens often when scrolling up and stuff loads"). A footer that is empty never
 /// carries Retry: the prompt keeps it (`retryPlacement`).
 export const isEmptyFooter = (row: AcpmuxRow) =>
-  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !endsChatOnWork(row);
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !endsOnWork(row);
 
 /// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
 /// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
@@ -291,9 +294,10 @@ function retryTargetAt(rows: readonly AcpmuxRow[], starts: readonly number[]): n
   return -1;
 }
 
-/// The last turn's footer when the turn said something and ended on work (`isEmptyFooter` above).
-/// transcriptGrid.ts rowMark repeats it inline (that module imports nothing).
-export const endsChatOnWork = (row: AcpmuxRow) => row.retryable === true && (row.turnCopy?.length ?? 0) > 0;
+/// A turn's footer when the turn said something and ended on work (`isEmptyFooter` above), the chat's
+/// last turn or not. transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline (those
+/// modules cannot import this one).
+export const endsOnWork = (row: AcpmuxRow) => (row.turnCopy?.length ?? 0) > 0;
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
@@ -678,7 +682,11 @@ export function turnViewFrom(
       const row = rows[index++]!;
       if (!isVisiblyEmptyMessage(row)) out.push(row);
     }
-    out = foldBackgroundRuns(foldBackgroundTurns(out, expanded), expanded);
+    // A turn paged in without its prompt ends on acpmux's bare summary, which carries no answer: its
+    // footer gets its reply and its turn to copy here, as `shapeTurn` gives them once the prompt
+    // pages in, so its action row is there from the start and paging the prompt in moves nothing
+    // (Leo, 2026-11-14: "it happens often when scrolling up and stuff loads").
+    out = foldBackgroundRuns(foldBackgroundTurns(withTailAnswers(out, NO_ENDED_BACKGROUND), expanded), expanded);
     lead = index;
     starts = [];
     times = [];
@@ -2080,9 +2088,10 @@ function shapeTurn(
   return shaped;
 }
 
-/// `tail` with each of its summaries carrying the reply of the turn it ends, as `shapeTurn` gives the
-/// prompt's own summary: a reply's footer is a 32 row of its own, never an empty one laid over the
-/// gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary after no reply stays as it came.
+/// `tail` with each of its summaries carrying the reply of the turn it ends and the turn to copy, as
+/// `shapeTurn` gives the prompt's own summary: the footer under a turn that said anything is a 32 row
+/// of its own, never an empty one laid over the gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary
+/// after a turn that said nothing stays as it came.
 function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>, seq?: number): AcpmuxRow[] {
   let from = 0;
   let out: AcpmuxRow[] | undefined;
@@ -2093,19 +2102,22 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>
     from = at + 1;
     if (row.text) continue;
     const answer = body[answerAt(body)];
-    if (!answer) continue;
+    const parts = turnCopyParts(body);
+    if (!answer && !parts) continue;
     out ??= [...tail];
+    // The memoized footer redraws when its turn's rows do.
+    const key = body.reduce((sum, each) => (sum * 31 + each.version) % VERSION_SPAN, body.length);
     out[at] = {
       ...row,
-      text: answer.text,
-      answerId: answer.id,
-      turnCopy: turnCopyParts(body),
+      ...(answer && { text: answer.text, answerId: answer.id }),
+      turnCopy: parts,
       ...withWork(body),
-      version: row.version * VERSION_SPAN + answer.version,
+      version: row.version * VERSION_SPAN + key,
     };
   }
   return backgroundFooters(out ?? tail, endedBackground, seq);
 }
+const NO_ENDED_BACKGROUND: ReadonlySet<string> = new Set();
 
 /// A finished stretch's timed work, for its footer's Timeline (waterfallSpans.ts), when it has any.
 function withWork(rows: readonly AcpmuxRow[]): Pick<AcpmuxRow, "turnWork"> {
@@ -3228,10 +3240,37 @@ function isWorkNarration(text: string): boolean {
       if (!action) return false;
       // An action prefix alone does not make a progress note: "Running two tasks is faster"
       // and "Let me check; the cache is stale" contain answers. Ambiguous clauses stay visible.
-      return !/[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?)\b/i.test(
-        note.slice(action[0].length),
+      const rest = note.slice(action[0].length);
+      return (
+        !/[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?|than)\b/i.test(
+          rest,
+        ) && !hasFiniteVerb(rest)
       );
     })
+  );
+}
+
+/// Words before which an "-ed" word is an adjective ("the failed jobs"), not a verb.
+const ED_ADJECTIVE_AFTER =
+  /^(?:the|a|an|its|this|that|these|those|each|every|all|any|my|your|our|their|some|both|for|of|in|on|from|with|to|at|by|and|or|newly|recently)$/i;
+/// Verbs a gerund subject takes: "Checking the cache found no errors." and "Running both takes 2 s."
+/// report a result, so the sentence is a finding, not narration (#42279 follow-up F1).
+const FINDING_VERBS =
+  /^(?:found|took|made|gave|got|came|went|ran|saw|left|broke|said|told|kept|held|brought|knew|lost|won|beat|fell|grew|stood|meant|cost|finds|takes|makes|gives|gets|works|fails|passes|helps|saves|costs|beats|wins|needs|breaks|returns|stays|matches|fixes|causes|leads|keeps|hides|drops|skips|hangs|crashes|seems|looks|turns|proves|confirms)$/i;
+/// Whether the words after a narration's action hold a finite verb: the action was a gerund
+/// subject and the sentence says what it found. The first word is the action's object, never a verb.
+function hasFiniteVerb(rest: string): boolean {
+  const words = rest
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}'’-]/gu, ""));
+  return words.some(
+    (word, at) =>
+      at > 0 &&
+      (FINDING_VERBS.test(word) ||
+        (/^[\p{L}]{2,}ed$/u.test(word) &&
+          !/(?:eed|need)$/i.test(word) &&
+          !ED_ADJECTIVE_AFTER.test(words[at - 1] ?? ""))),
   );
 }
 /// A personal steer closes the reply before it for the reader, even though the harness continues the

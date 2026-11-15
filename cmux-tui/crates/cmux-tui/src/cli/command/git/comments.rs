@@ -1,6 +1,7 @@
-//! `git comments list|save|delete`: the diff page's review comments
+//! `git comments list|save|delete|send`: the diff page's review comments
 //! (`diff.comments.*`), which the session host keeps per worktree root. An
-//! agent reads them, adds one, or removes those it resolved.
+//! agent reads them, adds one, or removes those it resolved; `send` hands
+//! the named comments to an agent chat as one prompt and then clears them.
 
 use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Value};
@@ -14,9 +15,11 @@ const MAX_IDS: usize = 500;
 /// The most bytes of one comment id.
 const MAX_ID_BYTES: usize = 128;
 
-/// `git comments list`, `git comments save --comment <json>` and
-/// `git comments delete <id>... [--versions-json <json>]`, each for
-/// `--root` (the current directory by default).
+/// `git comments list`, `git comments save --comment <json>`,
+/// `git comments delete <id>... [--versions-json <json>]` and
+/// `git comments send <id>... --acp-session <id> --text <prompt>
+/// --versions-json <json>`, each for `--root` (the current directory by
+/// default).
 pub(super) fn parse(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     params.insert("root".into(), Value::String(root(flags)?));
@@ -28,15 +31,21 @@ pub(super) fn parse(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, Us
             Op::DiffCommentsSave
         }
         ["delete", ids @ ..] if !ids.is_empty() => {
-            if ids.len() > MAX_IDS {
-                return Err(UsageError::new(format!("give at most {MAX_IDS} comment ids")));
-            }
-            let ids = ids.iter().map(|id| comment_id(id)).collect::<Result<Vec<_>, _>>()?;
-            params.insert("ids".into(), Value::Array(ids));
+            params.insert("ids".into(), comment_ids(ids)?);
             if let Some(versions) = flags.take("versions-json") {
                 params.insert("versions".into(), versions_object(&versions)?);
             }
             Op::DiffCommentsDelete
+        }
+        ["send", ids @ ..] if !ids.is_empty() => {
+            params.insert("ids".into(), comment_ids(ids)?);
+            params.insert("acp_session".into(), Value::String(flags.required("acp-session")?));
+            params.insert("text".into(), Value::String(flags.required("text")?));
+            // The session host requires the versions on a send (an empty
+            // object checks none), so a comment edited since is not sent.
+            let versions = flags.required("versions-json")?;
+            params.insert("versions".into(), versions_object(&versions)?);
+            Op::DiffCommentsSend
         }
         _ => return usage("git comments action"),
     };
@@ -81,6 +90,14 @@ fn lexical(path: &std::path::Path) -> std::path::PathBuf {
         }
     }
     out
+}
+
+/// At most [`MAX_IDS`] comment ids, each checked by [`comment_id`].
+fn comment_ids(ids: &[&str]) -> Result<Value, UsageError> {
+    if ids.len() > MAX_IDS {
+        return Err(UsageError::new(format!("give at most {MAX_IDS} comment ids")));
+    }
+    Ok(Value::Array(ids.iter().map(|id| comment_id(id)).collect::<Result<Vec<_>, _>>()?))
 }
 
 fn comment_id(id: &str) -> Result<Value, UsageError> {

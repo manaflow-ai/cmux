@@ -9,6 +9,8 @@ public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public static let status = "cmux.status/1"
     public static let pane = "cmux.pane/1"
     public static let paletteScope = "cmux.palette.scope/1"
+    /// A whole New Tab page, shown only when the person names its app in `tabs.newTabApp`.
+    public static let newTab = "cmux.newtab/1"
 
     /// `cmux.section/1`.
     public var interface: String
@@ -21,17 +23,23 @@ public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public var export: String?
     /// A pane cmux draws itself (`native`, for example `home`): no scene.
     public var native: String?
+    /// A page under the app's `runtime.web.root` (`render: web`, for example
+    /// `web/index.html`), opened on the shared page host at `cmux-app://<id>/`.
+    /// The daemon (cmux-app-manifest `web_pages`) resolves the root, the entry
+    /// and the CSP; the client only keeps the entry so it knows the pane is a page.
+    public var web: String?
     /// `options` (v2) or the whole entry (v1): `defaultRegion`, `maxRows`, `placement`.
     public var options: [String: AppJSON]
 
     public init(interface: String, id: String? = nil, title: AppLocalizedText? = nil, symbol: String? = nil,
-                export: String? = nil, native: String? = nil, options: [String: AppJSON] = [:]) {
+                export: String? = nil, native: String? = nil, web: String? = nil, options: [String: AppJSON] = [:]) {
         self.interface = interface
         self.id = id ?? interface
         self.title = title
         self.symbol = symbol
         self.export = export
         self.native = native
+        self.web = web
         self.options = options
     }
 
@@ -40,7 +48,9 @@ public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public var isStatusItem: Bool { interface == Self.status }
     public var isPane: Bool { interface == Self.pane }
     /// Rendered from a scene the app host streams (not a native pane).
-    public var hasScene: Bool { native == nil && export != nil }
+    public var hasScene: Bool { native == nil && web == nil && export != nil }
+    /// Rendered as a web page on `cmux-app://<id>/` (`render: web`).
+    public var isWebPage: Bool { native == nil && web != nil }
     /// Sections and status items render as scenes the store can preview.
     public var isPreviewable: Bool { (isSection || isStatusItem) && hasScene }
     /// `defaultRegion` of a sidebar section (`middle` when absent).
