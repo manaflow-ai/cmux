@@ -1,5 +1,6 @@
 use super::*;
 use acpmux_book::index::{HOT_WINDOW_MS, IndexRecord, SortedSnapshot};
+use std::fs;
 use std::time::Instant;
 
 #[tokio::test(flavor = "current_thread")]
@@ -9,7 +10,7 @@ async fn compaction_failures_back_off_and_recover_without_new_records() {
     writer.apply(Summary::new("retained")).unwrap();
     // A real rename failure: the snapshot destination is a directory.
     let obstruction = dir.path().join("index.snap");
-    std::fs::create_dir(&obstruction).unwrap();
+    fs::create_dir(&obstruction).unwrap();
     for seconds in [1, 2, 4, 8, 16, 32, 64, 64] {
         writer.next_compaction = Some(Instant::now());
         writer = tokio::task::spawn_blocking(move || {
@@ -35,7 +36,7 @@ async fn compaction_failures_back_off_and_recover_without_new_records() {
         assert_eq!(writer.log.as_ref().unwrap().generation(), 2);
     }
     assert_eq!(hub.compaction_stats().failed, 8);
-    std::fs::remove_dir(obstruction).unwrap();
+    fs::remove_dir(obstruction).unwrap();
     writer.next_compaction = Some(Instant::now());
     writer = tokio::task::spawn_blocking(move || {
         writer.process_batch();

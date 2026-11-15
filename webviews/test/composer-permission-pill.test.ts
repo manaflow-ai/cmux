@@ -1,8 +1,9 @@
 // Both composer looks use Codex's permission capsule; its padding belongs to the control,
 // independent of the surrounding row's spacing. Claude's look draws it in the quiet row under the
 // box (#26551), its shield under the + glyph; Codex's draws it inside the box, on +'s row after
-// it (#32682, #34709). Its corner is the button radius, `--ds-radius-control`: every button rounds
-// as a tab (Lawrence 2026-11-12, a660569b1c62). Measure the real gallery composer in Chromium.
+// it (#32682, #34709). Its corner is the composer's capsule radius (`--acpmux-permission-pill-radius`) at every
+// density (Lucas 2026-11-14), the exception to every button rounding as a tab (Lawrence 2026-11-12,
+// a660569b1c62). Measure the real gallery composer in Chromium.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -59,8 +60,9 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
             paddingStart: Number.parseFloat(css.paddingInlineStart),
             paddingEnd: Number.parseFloat(css.paddingInlineEnd),
             radius: Number.parseFloat(css.borderTopLeftRadius),
-            // The button radius that the page resolves (desktop.css), not a number of this test.
-            control: Number.parseFloat(css.getPropertyValue("--ds-radius-control")),
+            // The capsule radius that the page resolves (composerFooterShared.css), not a number of this test:
+            // the access chip is a capsule at every density (Lucas 2026-11-14).
+            control: Number.parseFloat(css.getPropertyValue("--acpmux-permission-pill-radius")),
           };
         });
       const normal = await measure();

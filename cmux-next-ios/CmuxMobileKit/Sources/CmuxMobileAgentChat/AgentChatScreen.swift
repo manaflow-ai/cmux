@@ -22,12 +22,27 @@ public final class AgentChatSurface {
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
-    public var holdsTranscript = false
+    public var holdsTranscript = false {
+        // A release reloads with everything: nothing held is left to show.
+        didSet { if !holdsTranscript { heldChangePending = false } }
+    }
     /// Bumped to apply what arrived while held, in one reload (the grid's
-    /// once-a-second card refresh).
+    /// card refresh, at most once a second after a change).
     private(set) var heldRefresh = 0
-    public func refreshHeldTranscript() { heldRefresh &+= 1 }
-    var attachments: [AgentAttachment] = []
+    public func refreshHeldTranscript() {
+        heldChangePending = false
+        heldRefresh &+= 1
+    }
+    /// A change arrived while held and is not shown yet.
+    @ObservationIgnored public private(set) var heldChangePending = false
+    /// Told once per held change (the grid schedules a refresh then, not on a timer).
+    @ObservationIgnored public var onHeldChange: (@MainActor () -> Void)?
+    func noteHeldChange() {
+        guard !heldChangePending else { return }
+        heldChangePending = true
+        onHeldChange?()
+    }
+    public var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the
     /// binding, and an unconditional invalidation there can feed back into
@@ -100,7 +115,7 @@ public final class AgentChatSurface {
             do {
                 targets = try await store.source.handoffTargets()
             } catch {
-                return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                return UserFacingError.message(error)
             }
             if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: targets) { return refusal }
             guard let target = CmuxSlashCommand.target(args, in: targets) else { return nil }
@@ -572,8 +587,9 @@ struct AgentChatEmptyState: View {
     let store: AgentChatStore
 
     var body: some View {
-        if store.isLoadingHistory, !store.hasTurns {
-            // An existing chat whose history is on its way: never the new-chat prompt.
+        if store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt {
+            // An existing chat whose history is on its way, or a new one whose first message
+            // (New Task's) is on its way: never the new-chat prompt.
             AgentChatLoadingState(store: store)
         } else if store.isNewChat {
             VStack(spacing: 12) {
@@ -595,12 +611,12 @@ struct AgentChatEmptyState: View {
 struct AgentChatLoadingState: View {
     let store: AgentChatStore
 
+    static func text(_ store: AgentChatStore) -> String { store.loadingText }
+
     var body: some View {
         VStack(spacing: 12) {
             CmuxSpinner()
-            Text(store.summary.status == .disconnected
-                 ? "Connecting to \(store.summary.macName)…"
-                 : "Loading chat…")
+            Text(Self.text(store))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }

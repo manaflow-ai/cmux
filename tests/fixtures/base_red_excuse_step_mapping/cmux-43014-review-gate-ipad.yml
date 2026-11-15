@@ -1,0 +1,51 @@
+# 'Reviewer path' steps from .github/workflows/ios-review-gate.yml at d2314cf2 (#43014's are the same), each run: cut to its first line.
+name: fixture
+'on': push
+jobs:
+  reviewer-path:
+    name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
+    strategy:
+      fail-fast: false
+      matrix:
+        family:
+        - iphone
+        - ipad
+        - duo
+    runs-on: fixture
+    steps:
+    - name: Result paths
+      run: '# Under RUNNER_TEMP: upload-artifact refuses a path with ''..'''
+    - name: Checkout the app source
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - name: Checkout the gate
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - name: Select Xcode
+      run: ./scripts/select-ci-xcode.sh
+    - name: The source is the NEXT app
+      run: set -euo pipefail
+    - name: Install xcodegen
+      run: set -euo pipefail
+    - name: Pick the ${{ matrix.family }} simulator
+      run: bash .review-gate/cmux-next-ios/scripts/app_review_pick_step.sh "$FAMILY"
+    - name: Set up pinned Rust
+      if: env.UDID != ''
+      uses: ./.github/actions/setup-cmux-tui-rust
+    - name: Cache cargo
+      if: env.UDID != ''
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+    - name: Build CmuxMobileLinkFFI.xcframework
+      if: env.UDID != ''
+      run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+    - name: Build the app and the gate for testing
+      if: env.UDID != ''
+      run: set -euo pipefail
+    - name: Walk the reviewer path on ${{ matrix.family }}
+      if: env.UDID != ''
+      run: '# Never -e (Actions runs `bash -e`): a failing suite must still'
+    - name: Agent reviewer pass
+      if: matrix.family == 'ipad' && env.UDID != '' && (github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass)
+      run: set -euo pipefail
+    - name: Upload results
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

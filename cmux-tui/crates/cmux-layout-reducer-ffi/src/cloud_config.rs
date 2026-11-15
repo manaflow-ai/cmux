@@ -26,6 +26,10 @@ fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
+        b"cloud_auth_capture_next" => {
+            let request: cmux_cloud_config::capture_auth::Request = read(request)?;
+            json!(cmux_cloud_config::capture_auth::next(&request))
+        }
         // The build's Cloud from the runtime selection, with its token store's names.
         b"cloud_config_from_selection" => {
             let inputs: config::Inputs = read(request)?;
@@ -279,7 +283,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 own_email: Option<String>,
             }
             let request: Request = read(request)?;
-            let rows = auth::team_rows(&request.teams, request.active.as_deref(), request.own_email.as_deref());
+            let rows = auth::team_rows(
+                &request.teams,
+                request.active.as_deref(),
+                request.own_email.as_deref(),
+            );
             json!({ "rows": rows })
         }
         b"cloud_vm_agent_key_request" => {

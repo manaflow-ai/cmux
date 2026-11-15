@@ -28,10 +28,9 @@ commands take `--dry-run`. Environment:
 - App Store Connect key: `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, and
   `ASC_API_KEY_PATH` or `ASC_API_KEY_P8_BASE64` (or the INTERNAL builder's
   `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY_PATH`).
-- `CMUX_IOS_REVIEW_CHIEF_NAME`: the demo account's Cloud Chief, from the
-  `IOS_APPSTORE_REVIEW_CHIEF_NAME` repository variable. `sync-notes` stops before
-  writing anything while it, or any App Store Connect field the notes use, is
-  empty.
+- Nothing else: the demo account, its public inbox and the contact come from
+  App Store Connect, and `sync-notes` stops before writing anything while any of
+  them is empty.
 
 ## Locales and version
 

@@ -1978,6 +1978,32 @@
      "nullable": false,
      "since": 9
     },
+    "unchanged": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-known-v1",
+     "constraints": [
+      "True when the request's known tree is current: workspaces is then empty, and the client keeps the tree it holds."
+     ]
+    },
+    "tree_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-known-v1",
+     "constraints": [
+      "Opaque revision of everything the tree shows; only in replies to a request with known. Send it back in known."
+     ]
+    },
     "workspaces": {
      "type": {
       "kind": "array",
@@ -1988,6 +2014,82 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-limit-v1",
+     "constraints": [
+      "With limit: the number of workspaces in the session."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ListWorkspacesKnown": {
+   "kind": "object",
+   "fields": {
+    "registry_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "generation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "workspace_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "pane_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "terminal_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "tree_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Opaque; from the tree_revision of the last whole tree."
+     ]
     }
    },
    "additional_properties": false
@@ -11869,7 +11971,36 @@
    "capability": null,
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "known": {
+      "type": {
+       "kind": "ref",
+       "name": "ListWorkspacesKnown"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "list-workspaces-known-v1",
+      "constraints": [
+       "The identity and revisions of the whole tree the client holds ({} when none). When all are current the result is unchanged: true with empty workspaces; keep the tree you hold. Otherwise the whole tree with its tree_revision."
+      ]
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "list-workspaces-limit-v1",
+      "constraints": [
+       "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+      ]
+     }
+    },
     "additional_properties": false
    },
    "result": {

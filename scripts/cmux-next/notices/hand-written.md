@@ -605,12 +605,6 @@ The following packages are linked into the cmux app binary.
 - **Copyright:** Copyright (c) 2014, John MacFarlane; cmark-gfm portions Copyright (c) 2017, GitHub, Inc.
 - **Source:** https://github.com/swiftlang/swift-cmark
 
-### iroh-ffi
-
-- **License:** MIT License or Apache License 2.0 (dual-licensed; cmux elects MIT)
-- **Copyright:** Copyright 2025 N0, INC.
-- **Source:** https://github.com/manaflow-ai/iroh-ffi (fork of https://github.com/n0-computer/iroh-ffi)
-
 ### Swift Crypto and Swift ASN.1
 
 - **License:** Apache License 2.0
@@ -1107,7 +1101,9 @@ unchanged, for each rustc that built one of its binaries:
   `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`, `bin/cmux-cloud`,
   `bin/cmux-mobile-host` and `Helpers/cmux-remote-browser-host.app`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
-  iroh-ffi (`Iroh.framework`; Release builds merge its code into the app binary)
+  no binary in this app is known to be built by rustc 1.91.0 since the app
+  stopped linking iroh-ffi; the reviewed file still ships, for any Rust
+  binary built by that rustc
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
   `bin/cmux-diff-sidecar`
 

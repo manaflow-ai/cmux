@@ -104,13 +104,16 @@
   background: none;
   padding: 0;
 }
-/* The shared × (ui/DismissButton.tsx) at the head's end: it keeps its room while hidden, so the
-   head's text is laid out beside it and a hover moves nothing. Muted, as the pager. */
-.acpmux-hat-questions__dismiss {
-  width: var(--ds-control-icon, 20px);
-  height: var(--ds-control-icon, 20px);
-  min-height: 0;
+/* The shared × (ui/DismissButton.tsx) at the head's end, at the size every card's × has: it keeps its
+   room while hidden, so the head's text is laid out beside it and a hover moves nothing. Muted, as the
+   pager, and the text colour on hover or focus. With the button's own classes: `.ui-button.ui-btn`
+   (ui/controls.css) sets the foreground colour, and a rule of one class lost to it, so the × showed
+   at full contrast. */
+.acpmux-hat-questions__dismiss.ui-button.ui-btn {
   color: var(--agent-muted);
+}
+.acpmux-hat-questions__dismiss.ui-button.ui-btn:is(:hover, :focus-visible) {
+  color: var(--agent-text);
 }
 /* The gallery's comparison arm: the × over the band's corner, in no room of its own. */
 .acpmux-hat-questions[data-dismiss="corner"] .acpmux-hat-questions__body {
