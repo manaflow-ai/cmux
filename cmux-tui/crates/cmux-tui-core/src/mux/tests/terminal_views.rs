@@ -718,6 +718,52 @@ fn moving_a_terminal_between_workspaces_refreshes_the_workspace_size_policy() {
     assert_eq!(source.size(), (55, 14), "cross-workspace tab drags refresh too");
 }
 
+#[test]
+fn projected_terminal_moves_refresh_the_workspace_size_policy() {
+    let mux = test_mux();
+    let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+    mux.resize_surface_for_client(source.id, 0, 120, 40).unwrap();
+    let destination = mux.new_workspace(None, Some((80, 24))).unwrap();
+    mux.set_workspace_size_policy(
+        mux.surface_workspace(destination.id).unwrap(),
+        Some(TerminalSizingPolicy::new(
+            crate::sizing_policy::TerminalSizingMode::Fixed,
+            Vec::new(),
+            Some(TerminalGridSize::new(60, 16)),
+        )),
+    )
+    .unwrap();
+    let terminal = source.terminal_public_id().unwrap().to_string();
+    let destination_pane = mux.with_state(|state| state.pane_of(destination.id).unwrap());
+    let commit = mux
+        .resource_project_terminal_selected(
+            crate::ResourceSelectors {
+                terminal: Some(terminal),
+                ..Mux::ordinary_resource_selectors()
+            },
+            mux.ordinary_pane_selectors(destination_pane).unwrap(),
+            usize::MAX,
+            None,
+            None,
+            &WorkspaceMutation::daemon_local("sizing-project"),
+        )
+        .unwrap();
+    assert_eq!(source.size(), (60, 16), "a projection applies its workspace default before attach");
+    let source_pane = mux.with_state(|state| state.pane_of(source.id).unwrap());
+    mux.resource_move_terminal_selected(
+        crate::ResourceSelectors {
+            tab: Some(commit.result["tab"].as_str().unwrap().to_string()),
+            ..Mux::ordinary_resource_selectors()
+        },
+        mux.ordinary_pane_selectors(source_pane).unwrap(),
+        usize::MAX,
+        None,
+        &WorkspaceMutation::daemon_local("sizing-move-projection"),
+    )
+    .unwrap();
+    assert_eq!(source.size(), (120, 40), "moving the last projection out releases the default");
+}
+
 // Resize audit (2026-10-19), bug A: `apply_terminal_grid` records the
 // engine decision in `applied` before it resizes and ignores the error. A
 // failed grow-back after a viewer leaves therefore never retries: the owner's
