@@ -7,6 +7,7 @@
 // out and back, or drawn again from history, stays as the reader left it. Find opens a collapsed
 // prompt that holds its current match. The bubble keeps the whole text; Copy copies all of it.
 import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useT } from "../i18n";
 import { FindReveal, foldFind } from "./chatFind";
 import {
@@ -160,9 +161,12 @@ export function PromptText({
       measure(0);
       return;
     }
+    // The fold it decides commits inside the delivery (flushSync), so the frame being drawn paints it: committed
+    // later, the prompt drew whole for a frame, then its Show more came and every row under it moved (Leo,
+    // 2026-11-15: "there is layout shift here... why...", a chat shown again).
     const observer = new ResizeObserver((entries?: ResizeObserverEntry[]) => {
       const entry = entries?.[entries.length - 1];
-      measure(Math.round(entry?.borderBoxSize?.[0]?.inlineSize ?? entry?.contentRect.width ?? 0));
+      flushSync(() => measure(Math.round(entry?.borderBoxSize?.[0]?.inlineSize ?? entry?.contentRect.width ?? 0)));
     });
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
