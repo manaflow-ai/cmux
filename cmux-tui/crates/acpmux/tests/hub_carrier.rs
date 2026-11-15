@@ -1515,7 +1515,7 @@ async fn hub_carrier_a_signed_in_machine_is_a_workspace_target_after_its_one_cli
     assert_eq!(target["host"], "machine-b");
     assert_eq!(target["daemonId"], b.as_str());
     assert_eq!(target["via"], "hub");
-    assert_eq!(target["route"], "unix");
+    assert_eq!(target["route"], "unix", "{target}");
     let socket = std::path::PathBuf::from(target["socket"].as_str().unwrap());
     {
         use std::os::unix::fs::PermissionsExt;
