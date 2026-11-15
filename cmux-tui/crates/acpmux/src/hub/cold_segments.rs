@@ -176,7 +176,7 @@ impl Hub {
         #[cfg(not(test))]
         let level = level_now();
         anyhow::ensure!(
-            level.is_none() || level.is_some(),
+            level.is_none(),
             "{SETTING_ON} is on, so its worker would compress them again: turn it off first \
              (`cmux settings set {SETTING_ON} false`), then run `cmux chats warm` again"
         );

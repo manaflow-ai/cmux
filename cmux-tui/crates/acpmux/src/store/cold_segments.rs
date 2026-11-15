@@ -185,9 +185,8 @@ pub(crate) fn open_segment(path: &Path) -> Result<SegmentFile> {
             // index and archive go, so it is the segment now.
             Err(e) => match session_and_index(path) {
                 Some((session, index))
-                    if index == u32::MAX
-                        && crate::home_fs::try_exists_nofollow(ndjson_path(session, index))
-                            .unwrap_or(false) =>
+                    if crate::home_fs::try_exists_nofollow(ndjson_path(session, index))
+                        .unwrap_or(false) =>
                 {
                     Ok(SegmentFile::Local(crate::config::private_state_file(&ndjson_path(
                         session, index,
@@ -711,7 +710,9 @@ fn write_warm(session: &Path, index: u32) -> Result<(PathBuf, Index)> {
     match written {
         Ok(()) => Ok((tmp, doc)),
         Err(e) => {
-            let _ = (crashed, &tmp);
+            if !crashed {
+                let _ = crate::home_fs::remove_file(&tmp);
+            }
             Err(e)
         }
     }
@@ -1010,7 +1011,11 @@ impl LocalStore {
             let (tmp, doc) = match write_warm(&session, index) {
                 Ok(written) => written,
                 Err(e) if e.is::<Crash>() => return Err(e),
-                Err(e) => return Err(e),
+                Err(e) => {
+                    tracing::warn!(session = %id, index, "a cold segment stays cold: {e:#}");
+                    warmed.left.push((index, format!("{e:#}")));
+                    continue;
+                }
             };
             let idx = idx_path(&session, index);
             let src = ndjson_path(&session, index);
@@ -1022,13 +1027,13 @@ impl LocalStore {
                     let _ = crate::home_fs::remove_file(&tmp);
                     continue;
                 }
-                crate::home_fs::remove_file(&idx)?;
+                crate::home_fs::rename(&tmp, &src)?;
                 sync_directory(&events)?;
                 #[cfg(test)]
                 if crash_after(Step::WarmPlaced) {
                     return Err(Crash.into());
                 }
-                crate::home_fs::rename(&tmp, &src)?;
+                crate::home_fs::remove_file(&idx)?;
                 // The commit point: the segment is plain from here on.
                 sync_directory(&events)?;
             }
