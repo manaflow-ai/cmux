@@ -216,4 +216,87 @@ mod tests {
             );
         }
     }
+
+    /// A hub whose config is `root/config.json` (memory store, no profiles), as the daemon runs.
+    fn hub_on_disk(root: &std::path::Path) -> (std::path::PathBuf, Arc<Hub>) {
+        let path = root.join("config.json");
+        let config = Config {
+            path: Some(path.clone()),
+            profile_sources: ProfileSources::none(),
+            ..Config::default()
+        };
+        config.save().unwrap();
+        let mut config = config;
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, root).unwrap();
+        let hub = Hub::new(config, store);
+        *hub.probe_only.lock().unwrap() = Some(Default::default());
+        (path, hub)
+    }
+
+    /// `acpmux config --set remote_daemon=127.0.0.1:PORT` on a running daemon (step 4 of the
+    /// fleet Mac bootstrap) serves the cmux-tui remote daemon at once, and clearing it stops it,
+    /// with no restart (cmux#43305 review, P1-F1).
+    #[cfg(feature = "hub-carrier")]
+    #[tokio::test]
+    async fn config_set_remote_daemon_reaches_the_cmux_tui_service_without_a_restart() {
+        use crate::hub_carrier::CmuxTuiGate;
+        let root = tempfile::tempdir().unwrap();
+        let (path, hub) = hub_on_disk(root.path());
+        let gate = crate::cmux_tui_service::ConfiguredGate::new(&hub);
+        assert_eq!(gate.admit(7781).await.unwrap_err().reason, "service.off");
+
+        // What `acpmux config --set` does: load, set, save, then `_acpmux/reload_config`.
+        let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+        changed.set("remote_daemon", "127.0.0.1:7781").unwrap();
+        changed.save().unwrap();
+        hub.reload_catalog().await.unwrap();
+        assert_eq!(hub.config.read().await.remote_daemon.as_deref(), Some("127.0.0.1:7781"));
+        // Served now: admitted, or held only by this machine's own consent.
+        match gate.admit(7781).await {
+            Ok(address) => assert_eq!(address, "127.0.0.1:7781".parse().unwrap()),
+            Err(refused) => {
+                assert_eq!(refused.reason, crate::cli::cloud_join::CONSENT_REQUIRED, "{refused:?}")
+            }
+        }
+
+        let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+        changed.set("remote_daemon", "none").unwrap();
+        changed.save().unwrap();
+        hub.reload_catalog().await.unwrap();
+        assert_eq!(gate.admit(7781).await.unwrap_err().reason, "service.off");
+    }
+
+    /// The other settings a reload used to leave behind until a restart follow the file too.
+    #[tokio::test]
+    async fn reload_applies_every_setting_read_where_it_is_used() {
+        let root = tempfile::tempdir().unwrap();
+        let (path, hub) = hub_on_disk(root.path());
+        let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+        changed.notify_command = Some("true".into());
+        changed.disk_low_bytes = Some(4096);
+        changed.agent_inbox = Some(false);
+        changed.hold_agent_starts_to_starter = true;
+        changed.auto_resume_delays_ms = Some(vec![]);
+        changed.login_env_allow = vec!["RELOAD_TEST_*".into()];
+        changed.coderouter_claude_route = Some("claude".into());
+        changed.btw.model.insert("claude".into(), "claude-haiku".into());
+        changed.titles.generate = Some(false);
+        changed.context_overrides.user = Some("from the file".into());
+        changed.save().unwrap();
+        let expected = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+
+        hub.reload_catalog().await.unwrap();
+        let current = hub.config.read().await;
+        assert_eq!(current.notify_command, expected.notify_command);
+        assert_eq!(current.disk_low_bytes, Some(4096));
+        assert_eq!(current.agent_inbox, Some(false));
+        assert!(current.hold_agent_starts_to_starter);
+        assert_eq!(current.auto_resume_delays_ms, Some(vec![]));
+        assert_eq!(current.login_env_allow, expected.login_env_allow);
+        assert_eq!(current.coderouter_claude_route, expected.coderouter_claude_route);
+        assert_eq!(current.btw, expected.btw);
+        assert_eq!(current.titles, expected.titles);
+        assert_eq!(current.context_overrides, expected.context_overrides);
+    }
 }
