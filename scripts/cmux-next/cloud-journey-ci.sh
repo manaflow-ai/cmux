@@ -29,7 +29,7 @@ summary="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 verdict() { # result
   [ "${JOURNEY_PHASE:-}" = baseline ] && return 0
   echo "::notice title=Cloud journey verdict::target=$TARGET result=$1"
-  # The same verdict as step outputs, for cmux-vm.yml's journey-proofs job (cloud-journey-proof-record.sh).
+  # The same verdict as step outputs, for cmux-vm.yml's journey-proof-<env> jobs (cloud-journey-proof-record.sh).
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
     { echo "verdict=$1"; echo "verdict_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; } >> "$GITHUB_OUTPUT"
   fi

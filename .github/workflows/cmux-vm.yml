@@ -498,7 +498,7 @@ jobs:
     needs: [check, migrate-staging]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
-    # The after-deploy journey's verdict, for journey-proofs.
+    # The after-deploy journey's verdict, for journey-proof-staging.
     outputs:
       verdict: ${{ steps.journey-after.outputs.verdict }}
       verdict_at: ${{ steps.journey-after.outputs.verdict_at }}
@@ -944,13 +944,14 @@ jobs:
 
   # Each after-deploy verdict of this run, on the branch cloud-journey-proofs (cloud-journey-proof-record.sh), so
   # NOW's cloud_deploy_gate reads it with git when GitHub's API refuses its run lists (2026-11-15 08:38-08:42Z).
-  # Its own job: the write token never meets the deploy jobs' secrets or third-party steps.
-  journey-proofs:
-    needs: [deploy-staging, journey-production]
+  # One job per environment, so neither proof waits for the other deploy chain. Their own jobs: the write token
+  # never meets the deploy jobs' secrets or third-party steps.
+  journey-proof-staging:
+    needs: deploy-staging
     if: >-
       !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      (needs.deploy-staging.outputs.verdict != '' || needs.journey-production.outputs.verdict != '')
+      needs.deploy-staging.outputs.verdict != ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
@@ -961,16 +962,35 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/cmux-next/cloud-journey-proof-record.sh
           sparse-checkout-cone-mode: false
-      - name: Record the journey proofs
+      - name: Record the staging journey proof
         env:
           TOKEN: ${{ github.token }}
-          STAGING: ${{ needs.deploy-staging.outputs.verdict }}
-          STAGING_AT: ${{ needs.deploy-staging.outputs.verdict_at }}
-          PRODUCTION: ${{ needs.journey-production.outputs.verdict }}
-          PRODUCTION_AT: ${{ needs.journey-production.outputs.verdict_at }}
-        run: |
-          if [ -n "$STAGING" ]; then bash scripts/cmux-next/cloud-journey-proof-record.sh staging "$STAGING" "$STAGING_AT"; fi
-          if [ -n "$PRODUCTION" ]; then bash scripts/cmux-next/cloud-journey-proof-record.sh production "$PRODUCTION" "$PRODUCTION_AT"; fi
+          VERDICT: ${{ needs.deploy-staging.outputs.verdict }}
+          VERDICT_AT: ${{ needs.deploy-staging.outputs.verdict_at }}
+        run: bash scripts/cmux-next/cloud-journey-proof-record.sh staging "$VERDICT" "$VERDICT_AT"
+
+  journey-proof-production:
+    needs: journey-production
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.journey-production.outputs.verdict != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/cloud-journey-proof-record.sh
+          sparse-checkout-cone-mode: false
+      - name: Record the production journey proof
+        env:
+          TOKEN: ${{ github.token }}
+          VERDICT: ${{ needs.journey-production.outputs.verdict }}
+          VERDICT_AT: ${{ needs.journey-production.outputs.verdict_at }}
+        run: bash scripts/cmux-next/cloud-journey-proof-record.sh production "$VERDICT" "$VERDICT_AT"
 
   smoke-production:
     # After deploy-production, or alone (action smoke-production: the live version, no deploy, no rollback).
