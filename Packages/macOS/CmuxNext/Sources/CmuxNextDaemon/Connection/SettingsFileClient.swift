@@ -27,7 +27,7 @@ public struct SettingsFileClient: Sendable {
             ResourceRequestEnvelope(id: id, operation: "settings.edit",
                                     params: ["edits": .array(edits), "origin": .string("app")],
                                     idempotencyKey: idempotencyKey)
-        }, as: ResourceMutationResult<EditChange>.self).value.applied
+        }, as: ResourceMutationResult<EditChange>.self).value.appliedIndexes
     }
 
     private struct SnapshotPath: Decodable, Sendable {
@@ -35,6 +35,12 @@ public struct SettingsFileClient: Sendable {
     }
 
     private struct EditChange: Decodable, Sendable {
-        var applied: [Int]
+        // Not `applied`: the crash ratchet reads a name the module declares as both an array
+        // and a dictionary as an array, and DaemonStore's `applied` is a dictionary.
+        var appliedIndexes: [Int]
+
+        private enum CodingKeys: String, CodingKey {
+            case appliedIndexes = "applied"
+        }
     }
 }
