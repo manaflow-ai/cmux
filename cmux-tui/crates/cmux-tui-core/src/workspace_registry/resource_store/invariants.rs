@@ -109,30 +109,6 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
             .collect::<Result<Vec<_>, _>>()?
     };
-    for (workspace_id, screen_id) in active_screens {
-        let child_screens =
-            resource_children(transaction, "resource_screens", "workspace_id", &workspace_id)?;
-        match screen_id {
-            Some(screen_id) => {
-                let owner = live_resource_field(
-                    transaction,
-                    "resource_screens",
-                    "workspace_id",
-                    &screen_id,
-                )?;
-                if owner.as_deref() != Some(workspace_id.as_str()) {
-                    anyhow::bail!(
-                        "workspace {workspace_id} selects screen {screen_id} owned by {owner:?}"
-                    );
-                }
-            }
-            None if !child_screens.is_empty() => {
-                anyhow::bail!("workspace {workspace_id} has screens but no active screen");
-            }
-            None => {}
-        }
-    }
-
     let screens = {
         let mut statement = transaction.prepare(
             "SELECT public_id, workspace_id, layout_json, active_pane_id, zoomed_pane_id,
@@ -152,27 +128,77 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             })?
             .collect::<Result<Vec<_>, _>>()?
     };
+    // Each loop below asked SQLite about the parent and the children of each
+    // row: 11 statements, each compiled at its call, for one workspace with
+    // one screen, pane, tab and terminal. The rows that answer those questions
+    // are the rows of the loops themselves, so each list is read in front of
+    // the first loop that needs it and the loops look in memory.
+    let live_workspaces = active_screens
+        .iter()
+        .map(|(workspace_id, _)| workspace_id.as_str())
+        .collect::<HashSet<_>>();
+    let mut screen_owners = HashMap::<&str, &str>::new();
+    let mut workspaces_with_screens = HashSet::<&str>::new();
+    for (screen_id, workspace_id, ..) in &screens {
+        screen_owners.insert(screen_id.as_str(), workspace_id.as_str());
+        workspaces_with_screens.insert(workspace_id.as_str());
+    }
+    for (workspace_id, screen_id) in &active_screens {
+        match screen_id {
+            Some(screen_id) => {
+                let owner = screen_owners.get(screen_id.as_str()).copied();
+                if owner != Some(workspace_id.as_str()) {
+                    anyhow::bail!(
+                        "workspace {workspace_id} selects screen {screen_id} owned by {owner:?}"
+                    );
+                }
+            }
+            None if workspaces_with_screens.contains(workspace_id.as_str()) => {
+                anyhow::bail!("workspace {workspace_id} has screens but no active screen");
+            }
+            None => {}
+        }
+    }
+
+    let panes = {
+        let mut statement = transaction.prepare(
+            "SELECT public_id, screen_id, active_tab_id FROM resource_panes
+             WHERE deleted_revision IS NULL",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let mut panes_by_screen = HashMap::<&str, HashSet<String>>::new();
+    for (pane_id, screen_id, _) in &panes {
+        panes_by_screen.entry(screen_id.as_str()).or_default().insert(pane_id.clone());
+    }
+    let no_panes = HashSet::<String>::new();
     let mut expected_splits = HashSet::new();
-    for (screen_id, workspace_id, layout_json, active_pane, zoomed_pane, viewport_json) in screens {
-        if live_resource_field(transaction, "resource_workspaces", "public_id", &workspace_id)?
-            .is_none()
-        {
+    for (screen_id, workspace_id, layout_json, active_pane, zoomed_pane, viewport_json) in &screens
+    {
+        if !live_workspaces.contains(workspace_id.as_str()) {
             anyhow::bail!("screen {screen_id} has closed workspace {workspace_id}");
         }
-        let layout: RegistryLayoutNode = serde_json::from_str(&layout_json)?;
-        let viewport: RegistryViewport = serde_json::from_str(&viewport_json)?;
+        let layout: RegistryLayoutNode = serde_json::from_str(layout_json)?;
+        let viewport: RegistryViewport = serde_json::from_str(viewport_json)?;
         let mut layout_panes = HashSet::new();
         let mut layout_splits = HashSet::new();
         validate_layout_node(&layout, &mut layout_panes, &mut layout_splits)?;
         validate_registry_viewport(&viewport, &layout, &layout_panes, &layout_splits)?;
         let layout_panes =
             layout_panes.into_iter().map(ToString::to_string).collect::<HashSet<_>>();
-        let stored_panes =
-            resource_children(transaction, "resource_panes", "screen_id", &screen_id)?;
-        if layout_panes != stored_panes {
+        let stored_panes = panes_by_screen.get(screen_id.as_str()).unwrap_or(&no_panes);
+        if layout_panes != *stored_panes {
             anyhow::bail!("screen {screen_id} layout does not match its live pane rows");
         }
-        if !stored_panes.contains(&active_pane)
+        if !stored_panes.contains(active_pane)
             || zoomed_pane.as_ref().is_some_and(|pane| !stored_panes.contains(pane))
         {
             anyhow::bail!("screen {screen_id} selects a pane outside its layout");
@@ -194,42 +220,6 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
         anyhow::bail!("live split identities do not match persisted screen layouts");
     }
 
-    let panes = {
-        let mut statement = transaction.prepare(
-            "SELECT public_id, screen_id, active_tab_id FROM resource_panes
-             WHERE deleted_revision IS NULL",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    for (pane_id, screen_id, active_tab) in panes {
-        if live_resource_field(transaction, "resource_screens", "public_id", &screen_id)?.is_none()
-        {
-            anyhow::bail!("pane {pane_id} has closed screen {screen_id}");
-        }
-        let child_tabs = resource_children(transaction, "resource_tabs", "pane_id", &pane_id)?;
-        match active_tab {
-            Some(active_tab) => {
-                let owner =
-                    live_resource_field(transaction, "resource_tabs", "pane_id", &active_tab)?;
-                if owner.as_deref() != Some(pane_id.as_str()) {
-                    anyhow::bail!("pane {pane_id} selects tab {active_tab} owned by {owner:?}");
-                }
-            }
-            None if !child_tabs.is_empty() => {
-                anyhow::bail!("pane {pane_id} has tabs but no active tab");
-            }
-            None => {}
-        }
-    }
-
     let tabs = {
         let mut statement = transaction.prepare(
             "SELECT public_id, pane_id, content_kind, content_id
@@ -246,28 +236,27 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             })?
             .collect::<Result<Vec<_>, _>>()?
     };
-    for (tab_id, pane_id, content_kind, content_id) in tabs {
-        if live_resource_field(transaction, "resource_panes", "public_id", &pane_id)?.is_none() {
-            anyhow::bail!("tab {tab_id} has closed pane {pane_id}");
+    let mut tab_owners = HashMap::<&str, &str>::new();
+    let mut panes_with_tabs = HashSet::<&str>::new();
+    for (tab_id, pane_id, ..) in &tabs {
+        tab_owners.insert(tab_id.as_str(), pane_id.as_str());
+        panes_with_tabs.insert(pane_id.as_str());
+    }
+    for (pane_id, screen_id, active_tab) in &panes {
+        if !screen_owners.contains_key(screen_id.as_str()) {
+            anyhow::bail!("pane {pane_id} has closed screen {screen_id}");
         }
-        let table = match content_kind.as_str() {
-            "terminal" => "resource_terminals",
-            "browser" => "resource_browsers",
-            other => anyhow::bail!("tab {tab_id} has invalid content kind {other:?}"),
-        };
-        if live_resource_field(transaction, table, "public_id", &content_id)?.is_none() {
-            anyhow::bail!("tab {tab_id} references closed {content_kind} {content_id}");
-        }
-        let identity_kind = transaction
-            .query_row(
-                "SELECT kind FROM resource_identities
-                 WHERE public_id = ?1 AND deleted_revision IS NULL",
-                [&content_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        if identity_kind.as_deref() != Some(content_kind.as_str()) {
-            anyhow::bail!("tab {tab_id} content {content_id} has identity kind {identity_kind:?}");
+        match active_tab {
+            Some(active_tab) => {
+                let owner = tab_owners.get(active_tab.as_str()).copied();
+                if owner != Some(pane_id.as_str()) {
+                    anyhow::bail!("pane {pane_id} selects tab {active_tab} owned by {owner:?}");
+                }
+            }
+            None if panes_with_tabs.contains(pane_id.as_str()) => {
+                anyhow::bail!("pane {pane_id} has tabs but no active tab");
+            }
+            None => {}
         }
     }
 
@@ -282,11 +271,80 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             })?
             .collect::<Result<Vec<_>, _>>()?
     };
-    for (public_id, terminal_id, lifecycle) in terminals {
+    let live_browsers = {
+        let mut statement = transaction
+            .prepare("SELECT public_id FROM resource_browsers WHERE deleted_revision IS NULL")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    // The live identity of the content of each live tab, by the content id as
+    // the tab row holds it. From the live tabs, not from all live identities:
+    // the open must not read the identities that no tab shows.
+    let content_identity_kinds = {
+        let mut statement = transaction.prepare(
+            "SELECT t.content_id, i.kind
+             FROM resource_tabs t
+             JOIN resource_identities i ON i.public_id = t.content_id
+             WHERE t.deleted_revision IS NULL AND i.deleted_revision IS NULL",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<HashMap<_, _>, _>>()?
+    };
+    let live_panes = panes.iter().map(|(pane_id, ..)| pane_id.as_str()).collect::<HashSet<_>>();
+    let live_terminals =
+        terminals.iter().map(|(public_id, ..)| public_id.as_str()).collect::<HashSet<_>>();
+    for (tab_id, pane_id, content_kind, content_id) in &tabs {
+        if !live_panes.contains(pane_id.as_str()) {
+            anyhow::bail!("tab {tab_id} has closed pane {pane_id}");
+        }
+        let live_content = match content_kind.as_str() {
+            "terminal" => live_terminals.contains(content_id.as_str()),
+            "browser" => live_browsers.contains(content_id.as_str()),
+            other => anyhow::bail!("tab {tab_id} has invalid content kind {other:?}"),
+        };
+        if !live_content {
+            anyhow::bail!("tab {tab_id} references closed {content_kind} {content_id}");
+        }
+        let identity_kind = content_identity_kinds.get(content_id.as_str()).map(String::as_str);
+        if identity_kind != Some(content_kind.as_str()) {
+            anyhow::bail!("tab {tab_id} content {content_id} has identity kind {identity_kind:?}");
+        }
+    }
+
+    // The host row of each live terminal, by the host id as the terminal row
+    // holds it. `terminal_from_stored` stays in the loop, so a host row that
+    // does not parse is said at its terminal, as before.
+    let hosts = {
+        let mut statement = transaction.prepare(
+            "SELECT r.terminal_id, h.terminal_id, h.workspace_key, h.incarnation, h.lifecycle,
+                    h.launch_spec_json, h.exit_json, h.on_exit
+             FROM resource_terminals r
+             JOIN terminal_hosts h ON h.terminal_id = r.terminal_id
+             WHERE r.deleted_revision IS NULL",
+        )?;
+        statement
+            .query_map([], |row| {
+                let stored: StoredTerminal = (
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                );
+                Ok((row.get::<_, String>(0)?, stored))
+            })?
+            .collect::<Result<HashMap<_, _>, _>>()?
+    };
+    for (public_id, terminal_id, lifecycle) in &terminals {
         if lifecycle != "active" {
             anyhow::bail!("live terminal {public_id} has lifecycle {lifecycle}");
         }
-        let placement = read_terminal(transaction, &terminal_id)?;
+        let placement =
+            hosts.get(terminal_id.as_str()).cloned().map(terminal_from_stored).transpose()?;
         if placement
             .as_ref()
             .is_none_or(|terminal| terminal.lifecycle == TerminalLifecycle::Tombstoned)
