@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43716574580",
+  "recorded_at": "2026-11-15T13:10:33Z",
+  "reason": "cmux-tui c10f26a1af0f changes the image's cmux-tui (pinned f04737750c2c)",
+  "dry_run": false,
+  "cmux_tui": "c10f26a1af0f00b9517efd5bd7fc6ac527ae55d7",
+  "fixes": [
+    {
+      "sha": "c10f26a1af0f00b9517efd5bd7fc6ac527ae55d7",
+      "mergedAt": "2026-11-15T12:44:05Z",
+      "subject": "cloud copy: send small files several to a round trip (from-folder copies were bound by link round trips) (#43667)"
+    },
+    {
+      "sha": "79bf0c3f0b026c0536a9e0114bdd77282556536d",
+      "mergedAt": "2026-11-15T04:39:31-08:00",
+      "subject": "fix(rd): cmux-rd-host macOS clippy is green again (dead code in hybrid.rs) (#43668)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T13:10:33Z",
+    "snapshot_id": "sh-489a8b58371a47d299676cb6ccd876f4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43716574580): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bc952a543c65ffa76729d810bbf694552c0bf8cc",
+    "image": "cloud-native-auto-c10f26a1-43716574580-1",
+    "revision": "ci-43716574580-1",
+    "at": "2026-11-15T13:10:33Z"
+  },
+  "rolled_back": false
+}
