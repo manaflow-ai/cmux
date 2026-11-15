@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4373471694201",
+  "notes": "notes/4373471694201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43358,
+      "title": "Audit and mark unmeasured v2 gate rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43758,
+      "title": "cmux-tui: Linux terminal hosts run from the slim cmux-tui-host (4.3 to 0.6 MB per terminal; infinite items n1000 51x to 19x)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43801,
+      "title": "ci(ios): seed the gate's LinkFFI framework cache in R2",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43675,
+      "title": "cmux-tui: remote-host stop and share off go to the worker until step B",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43792,
+      "title": "test(workflows): restore cancellation state after ACP fixture reload (#34021)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43797,
+      "title": "live_apply: cmux-tui's own C, Objective-C and Zig sources are daemon, as hot-apply applies them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43741,
+      "title": "acpmux v2: the gates' counted proxy gives back each sample's connections",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43805,
+      "title": "acpmux: a Gemini or Grok key held only in the vault or machine.env keeps own mode on a Cloud machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43791,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-170d1567c69e78bfe1f518156e65a01c25c42382",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43576,
+      "title": "cloud: replay unfiltered agent-stream gaps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43813,
+      "title": "Agent chat: the text layout library's measuring canvas starts over, so a god chat's native memory stops growing with it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43382,
+      "title": "acpmux: each of the account's other machines is a workspace target with a local route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43811,
+      "title": "hot-verify plan: a PR is planned from its own fork, not from an older nightly",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43812,
+      "title": "What's New: an Improved highlight with a hand-published clip still gets its recorded before",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42973,
+      "title": "ci: iOS E2E runs on pull requests into feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43773,
+      "title": "cmux-rd linux-host: review follow-ups (portal view-only, new id after removal, end bad tickets)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43643,
+      "title": "Cloud: every picker harness on a fresh Cloud VM starts or says sign_in_required naming it (test, restacked)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43776,
+      "title": "perf(cmux-tui): the terminal host's title scan jumps whole CSIs; host stage 213 to 243 MB/s (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43804,
+      "title": "Hover card test: drop the removed delaySettles hook",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43815,
+      "title": "hot-apply tests: fetch the release the FFI fixture's parent pins",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43728,
+      "title": "perf(new-tab): one New Tab spare agent page instead of two",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
