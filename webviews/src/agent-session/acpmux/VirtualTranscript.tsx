@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -1690,7 +1691,7 @@ function TranscriptView({
   /// Filled with the placement Toggle Terminal and Chat makes before the pane shows (togglePlace.ts):
   /// row `rowId` at the top of the view, or the latest message for null, in one frame with no glide.
   /// False when the row is not loaded. A transcript with no height yet places on its first layout.
-  placeNow?: React.MutableRefObject<((rowId: string | null) => boolean) | undefined>;
+  placeNow?: React.Ref<(rowId: string | null) => boolean>;
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
@@ -6003,7 +6004,7 @@ function TranscriptView({
     unlift();
     clearScrollOrigin(node);
     if (index < 0) {
-      node.scrollTop = latest;
+      writeAnchorScrollTop(node, latest);
       scrolledTo.current = { top: node.scrollTop, atLatest: true };
       follow(true, "toggle");
     } else {
@@ -6016,15 +6017,7 @@ function TranscriptView({
     reportAnchorRef.current();
     return true;
   };
-  const placeAtRef = useRef(placeAt);
-  placeAtRef.current = placeAt;
-  useEffect(() => {
-    if (!placeNow) return;
-    placeNow.current = (rowId) => placeAtRef.current(rowId);
-    return () => {
-      placeNow.current = undefined;
-    };
-  }, [placeNow]);
+  useImperativeHandle(placeNow, () => placeAt);
   /// Jump up (jumpUp.ts): to where the reader left off, holding where the view is; pressed again
   /// (or Esc), back there. The reader asked for this place, so the view stops following the reply.
   /// It glides on Jump to latest's ride (curve, distance duration, move token): a long way skips at

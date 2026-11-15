@@ -51,13 +51,13 @@ extension AgentPaneView {
         var at: Int?
     }
 
-    static func seconds(_ duration: Duration) -> Double {
+    private static func seconds(_ duration: Duration) -> Double {
         Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
     /// `work`'s answer, or nil once `deadline` passes first: a page script cannot be cancelled
     /// (WebKit's ignores a timeout), so the swap stops waiting on it instead.
-    static func answer<T: Sendable>(by deadline: ContinuousClock.Instant,
+    private static func answer<T: Sendable>(by deadline: ContinuousClock.Instant,
                                             _ work: @escaping @MainActor () async -> T?) async -> T? {
         guard ContinuousClock.now < deadline else { return nil }
         let answer = TogglePlaceAnswer<T>()
@@ -79,6 +79,9 @@ extension AgentPaneView {
 @MainActor
 private final class TogglePlaceAnswer<T: Sendable> {
     var continuation: CheckedContinuation<T?, Never>?
+
+    // A generic main-actor class's isolated deinit crashes the Release optimizer (#23050).
+    nonisolated deinit {}
 
     func finish(_ value: T?) {
         continuation?.resume(returning: value)

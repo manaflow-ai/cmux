@@ -6869,7 +6869,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
-  const placeTranscript = useRef<((rowId: string | null) => boolean) | undefined>(undefined);
+  const placeTranscript = useRef<((rowId: string | null) => boolean) | null>(null);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom

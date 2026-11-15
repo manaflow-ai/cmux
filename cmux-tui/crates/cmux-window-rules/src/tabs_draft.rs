@@ -122,11 +122,13 @@ pub fn to_terminal(facts: &ToTerminal) -> TerminalDraft {
 /// shell, output still drawing).
 pub fn shown_input(screen: &str) -> Option<String> {
     let rows: Vec<&str> = screen.lines().collect();
-    let bottom = &rows[rows.len().saturating_sub(SCREEN_ROWS)..];
+    let bottom = rows.get(rows.len().saturating_sub(SCREEN_ROWS)..).unwrap_or_default();
     let start = bottom.iter().rposition(|row| inner(row).starts_with(PROMPT_MARKS))?;
-    let first = inner(bottom[start]);
-    let mut text = first[first.chars().next()?.len_utf8()..].to_string();
-    for row in &bottom[start + 1..] {
+    let first = inner(bottom.get(start)?);
+    let mut chars = first.chars();
+    chars.next()?;
+    let mut text = chars.as_str().to_string();
+    for row in bottom.get(start.saturating_add(1)..).unwrap_or_default() {
         let row = inner(row);
         if row.is_empty() || row.starts_with(RULES) {
             break;
@@ -180,7 +182,7 @@ pub fn typed_draft(bytes: &[u8], truncated: bool) -> Typed {
                     .text
                     .char_indices()
                     .rfind(|(_, c)| c.is_whitespace())
-                    .map_or(0, |(space, c)| space + c.len_utf8());
+                    .map_or(0, |(space, c)| space.saturating_add(c.len_utf8()));
                 line.text.truncate(start);
             }
             Key::Ignored => {}
@@ -229,60 +231,67 @@ const SHIFT: u32 = 1;
 const CTRL: u32 = 4;
 
 impl<'a> Key<'a> {
-    /// The key at `at` and where the next one starts.
+    /// The key at `at` and where the next one starts (past the end: Unknown, at the end).
     fn read(bytes: &'a [u8], at: usize) -> (Key<'a>, usize) {
-        let byte = bytes[at];
+        let Some(&byte) = bytes.get(at) else { return (Key::Unknown, bytes.len()) };
+        let next = at.saturating_add(1);
         match byte {
-            b'\r' => (Key::Enter, at + 1),
-            0x7f | 0x08 => (Key::Erase, at + 1),
-            0x15 | 0x03 => (Key::Clear, at + 1),
-            0x17 => (Key::Word, at + 1),
+            b'\r' => (Key::Enter, next),
+            0x7f | 0x08 => (Key::Erase, next),
+            0x15 | 0x03 => (Key::Clear, next),
+            0x17 => (Key::Word, next),
             ESC => Self::escape(bytes, at),
-            0x00..=0x1f => (Key::Unknown, at + 1),
+            0x00..=0x1f => (Key::Unknown, next),
             _ => {
-                let end = bytes[at..]
-                    .iter()
-                    .position(|&byte| byte < 0x20 || byte == 0x7f)
-                    .map_or(bytes.len(), |length| at + length);
-                (Key::Text(&bytes[at..end]), end)
+                let rest = bytes.get(at..).unwrap_or_default();
+                let length =
+                    rest.iter().position(|&byte| byte < 0x20 || byte == 0x7f).unwrap_or(rest.len());
+                let text = rest.get(..length).unwrap_or_default();
+                (Key::Text(text), at.saturating_add(length))
             }
         }
     }
 
     fn escape(bytes: &'a [u8], at: usize) -> (Key<'a>, usize) {
-        let rest = &bytes[at..];
-        if rest.starts_with(PASTE_START) {
-            let body = at + PASTE_START.len();
-            return match find(&bytes[body..], PASTE_END) {
-                Some(length) => {
-                    (Key::Paste(&bytes[body..body + length]), body + length + PASTE_END.len())
-                }
+        let rest = bytes.get(at..).unwrap_or_default();
+        if let Some(after) = rest.strip_prefix(PASTE_START) {
+            let body = at.saturating_add(PASTE_START.len());
+            return match find(after, PASTE_END) {
+                Some(length) => (
+                    Key::Paste(after.get(..length).unwrap_or_default()),
+                    body.saturating_add(length).saturating_add(PASTE_END.len()),
+                ),
                 // A paste still arriving: its end is not here yet.
                 None => (Key::Unknown, bytes.len()),
             };
         }
+        let past = |n: usize| at.saturating_add(n).min(bytes.len());
         match rest.get(1) {
-            Some(b'[') => Self::csi(bytes, at + 2),
+            Some(b'[') => Self::csi(bytes, at.saturating_add(2)),
             // OSC: a color or clipboard answer, to BEL or ST.
-            Some(b']') => (Key::Ignored, string_end(bytes, at + 2, true)),
+            Some(b']') => (Key::Ignored, string_end(bytes, at.saturating_add(2), true)),
             // DCS, APC, PM: a terminal's answer (XTGETTCAP, DECRQSS), to ST.
-            Some(b'P' | b'_' | b'^') => (Key::Ignored, string_end(bytes, at + 2, false)),
+            Some(b'P' | b'_' | b'^') => {
+                (Key::Ignored, string_end(bytes, at.saturating_add(2), false))
+            }
             // SS3: an arrow or F1-F4 in application mode.
-            Some(b'O') => (Key::Unknown, (at + 3).min(bytes.len())),
+            Some(b'O') => (Key::Unknown, past(3)),
             // Esc itself, or Alt with a key.
-            _ => (Key::Unknown, (at + 2).min(bytes.len())),
+            _ => (Key::Unknown, past(2)),
         }
     }
 
     /// A CSI sequence whose parameters start at `start`.
     fn csi(bytes: &'a [u8], start: usize) -> (Key<'a>, usize) {
-        let Some(length) = bytes[start..].iter().position(|byte| (0x40..=0x7e).contains(byte))
-        else {
+        let rest = bytes.get(start..).unwrap_or_default();
+        let Some(length) = rest.iter().position(|byte| (0x40..=0x7e).contains(byte)) else {
             return (Key::Unknown, bytes.len());
         };
-        let params = &bytes[start..start + length];
-        let end = start + length + 1;
-        let key = match (params, bytes[start + length]) {
+        let (Some(params), Some(&last)) = (rest.get(..length), rest.get(length)) else {
+            return (Key::Unknown, bytes.len());
+        };
+        let end = start.saturating_add(length).saturating_add(1);
+        let key = match (params, last) {
             // Focus in and out.
             (b"", b'I' | b'O') => Key::Ignored,
             // An SGR mouse report.
@@ -369,12 +378,15 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 /// Where a string sequence that starts at `start` ends: after ST (ESC \), or BEL when `bel`.
 fn string_end(bytes: &[u8], start: usize, bel: bool) -> usize {
-    let mut at = start;
-    while at < bytes.len() {
-        match bytes[at] {
-            0x07 if bel => return at + 1,
-            ESC if bytes.get(at + 1) == Some(&b'\\') => return at + 2,
-            _ => at += 1,
+    let rest = bytes.get(start..).unwrap_or_default();
+    for (offset, &byte) in rest.iter().enumerate() {
+        let at = start.saturating_add(offset);
+        match byte {
+            0x07 if bel => return at.saturating_add(1),
+            ESC if rest.get(offset.saturating_add(1)) == Some(&b'\\') => {
+                return at.saturating_add(2);
+            }
+            _ => {}
         }
     }
     bytes.len()
