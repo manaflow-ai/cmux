@@ -35,6 +35,7 @@ use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use super::input::Route;
 use super::sys::symbol;
 
 type PostRecordFn = unsafe extern "C" fn(*const c_void, *const u8) -> i32;
@@ -184,6 +185,10 @@ pub(super) trait ScopeOs {
     fn any_window(&self, pid: i32) -> Option<u32>;
     /// The stop epoch ([`crate::stop::epoch`]): a change ends waits.
     fn stop_epoch(&self) -> u64;
+    /// The clock the scope's bound is measured with.
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
 }
 
 /// The system's calls.
@@ -225,55 +230,113 @@ impl ScopeOs for Real {
 }
 
 /// Open scopes per app: the window they made key and how many share it.
-/// The map's lock is held only to read or update it. Per process: one
-/// Computer Use worker serves every session of a cmux app, so sessions never
-/// defocus under each other; two cmux apps (a release and a tagged build)
-/// driving the same target app at once are not coordinated (a shared lock
-/// per target pid would need a cleanup story for crashed holders; not done).
+/// Per process: one Computer Use worker serves every session of a cmux app,
+/// so sessions never defocus under each other; two cmux apps (a release and
+/// a tagged build) driving the same target app at once are not coordinated
+/// (a shared lock per target pid would need a cleanup story for crashed
+/// holders; not done).
 pub(super) struct Registry {
     /// pid -> (the window made key, scopes sharing it, when the first one
     /// entered: joiners never extend past one bound from then).
     open: Mutex<HashMap<i32, (u32, usize, Instant)>>,
-    /// Held while records are posted, so a joiner returns only after the
-    /// first scope's records went out, and a hand-back never races an entry.
-    posting: Mutex<()>,
+    /// pid -> until when input stays refused after a failed hand-back.
+    held: Mutex<HashMap<i32, Instant>>,
+    /// The pids whose lock is taken: entering a scope, handing it back and
+    /// posting input to an app each hold its pid's lock, so a joiner returns
+    /// only after the first scope's records went out, a hand-back never
+    /// races an entry, and no input is posted while a scope can open. Per
+    /// pid: a paced drag in one app never blocks another app's scope.
+    busy: Mutex<std::collections::HashSet<i32>>,
+    freed: std::sync::Condvar,
+}
+
+/// One pid's lock ([`Registry::lock_pid`]); released when dropped.
+pub(super) struct PidLock<'a> {
+    registry: &'a Registry,
+    pid: i32,
+}
+
+impl Drop for PidLock<'_> {
+    fn drop(&mut self) {
+        let mut busy = self.registry.busy.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        busy.remove(&self.pid);
+        drop(busy);
+        self.registry.freed.notify_all();
+    }
 }
 
 impl Registry {
     pub(super) fn new() -> Registry {
-        Registry { open: Mutex::new(HashMap::new()), posting: Mutex::new(()) }
+        Registry {
+            open: Mutex::new(HashMap::new()),
+            held: Mutex::new(HashMap::new()),
+            busy: Mutex::new(std::collections::HashSet::new()),
+            freed: std::sync::Condvar::new(),
+        }
     }
     fn map(&self) -> std::sync::MutexGuard<'_, HashMap<i32, (u32, usize, Instant)>> {
         self.open.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-    fn posting(&self) -> std::sync::MutexGuard<'_, ()> {
-        self.posting.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    /// Takes `pid`'s lock, waiting while another thread holds it.
+    pub(super) fn lock_pid(&self, pid: i32) -> PidLock<'_> {
+        let mut busy = self.busy.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while busy.contains(&pid) {
+            busy = self.freed.wait(busy).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        busy.insert(pid);
+        PidLock { registry: self, pid }
     }
-}
 
-impl Registry {
-    /// Whether a scope is open on the app with `pid` (any session's).
+    /// Whether `pid`'s lock is held right now (tests).
+    #[cfg(test)]
+    pub(super) fn pid_locked(&self, pid: i32) -> bool {
+        self.busy.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&pid)
+    }
+
+    /// Whether input to the app with `pid` must wait: a scope is open on it
+    /// (any session's), or its hand-back failed a moment ago.
     pub(super) fn is_open(&self, pid: i32) -> bool {
-        self.map().get(&pid).is_some_and(|e| e.1 > 0)
+        if self.map().get(&pid).is_some_and(|e| e.1 > 0) {
+            return true;
+        }
+        let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match held.get(&pid) {
+            Some(until) if Instant::now() < *until => true,
+            Some(_) => {
+                held.remove(&pid);
+                false
+            }
+            None => false,
+        }
     }
 
-    /// Runs `post` (posting keys, text or pointer input to the app with
-    /// `pid`) while no scope is open on it and none can open: the check and
-    /// the post happen under the posting lock that entering a scope takes.
-    /// While a scope is open the lock is let go and the check repeats, at
-    /// most `bound`; `None` when a scope stayed open (nothing was posted).
+    /// Keeps input to `pid` refused for [`HAND_BACK_HOLD`]: its hand-back
+    /// failed, so it may still take itself for the active app.
+    fn hold(&self, pid: i32) {
+        self.held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(pid, Instant::now() + HAND_BACK_HOLD);
+    }
+
+    /// Runs `post` with a [`Posting`] for `pid` (the only way to post input
+    /// to an app's process) while no scope is open on it and none can open:
+    /// the check and the post happen under `pid`'s lock, which entering a
+    /// scope takes. While one is open the lock is let go and the check
+    /// repeats, at most `bound`; `None` when it stayed open (nothing posted).
     pub(super) fn post_unprimed<T>(
         &self,
         pid: i32,
+        window: u32,
         bound: Duration,
-        post: impl FnOnce() -> T,
+        post: impl FnOnce(&Posting) -> T,
     ) -> Option<T> {
         let start = Instant::now();
         loop {
             {
-                let _posting = self.posting();
+                let _lock = self.lock_pid(pid);
                 if !self.is_open(pid) {
-                    return Some(post());
+                    return Some(post(&Posting { route: Route::Pid { pid, window } }));
                 }
             }
             if start.elapsed() >= bound {
@@ -282,19 +345,42 @@ impl Registry {
             std::thread::sleep(POLL);
         }
     }
+}
 
-    /// Whether the posting lock is held right now (tests).
-    #[cfg(test)]
-    pub(super) fn posting_held(&self) -> bool {
-        self.posting.try_lock().is_err()
+/// Permission to post input on one route: for an app's process (a pid
+/// route) only [`Registry::post_unprimed`] makes one, so no input reaches an
+/// app while it is primed; the system-wide route needs none.
+/// `input`'s posting functions take one instead of a route.
+pub(super) struct Posting {
+    route: Route,
+}
+
+impl Posting {
+    /// The system-wide (HID) route, for foreground input.
+    pub(super) fn hid() -> Posting {
+        Posting { route: Route::Hid }
+    }
+    pub(super) fn route(&self) -> Route {
+        self.route
     }
 }
 
-/// Runs `post` for the app with `pid` only while it is not primed
-/// ([`Registry::post_unprimed`], at most [`SCOPE_BOUND`] of waiting).
-pub(super) fn post_unprimed<T>(pid: i32, post: impl FnOnce() -> T) -> Option<T> {
-    registry().post_unprimed(pid, SCOPE_BOUND, post)
+/// Runs `post` on `route`: a pid route only while the app is not primed
+/// ([`Registry::post_unprimed`], waiting at most [`WAIT_BOUND`]); the HID
+/// route at once.
+pub(super) fn post_unprimed<T>(route: Route, post: impl FnOnce(&Posting) -> T) -> Option<T> {
+    match route {
+        Route::Pid { pid, window } => registry().post_unprimed(pid, window, WAIT_BOUND, post),
+        Route::Hid => Some(post(&Posting::hid())),
+    }
 }
+
+/// How long input waits for a scope on its app to end: the scope's bound
+/// plus a margin for its last AX call and hand-back.
+pub(super) const WAIT_BOUND: Duration = Duration::from_millis(1500 + 750);
+
+/// How long input stays refused after a failed hand-back.
+pub(super) const HAND_BACK_HOLD: Duration = Duration::from_millis(2000);
 
 /// The refusal when a scope stayed open on the app.
 pub(super) const PRIMED_KEYS_REFUSAL: &str = "another Computer Use call is making a menu item of this app available right now; no input is sent to the app meanwhile, so nothing was sent. Try again";
@@ -401,14 +487,15 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         window: u32,
         pid: i32,
     ) -> Option<KeyInApp<'a, O>> {
-        let front = || os.front_pid() == Some(pid);
-        let posting = registry.posting();
+        // Fail closed on entry: an unreadable front app counts as the target.
+        let front = || os.front_pid().is_none_or(|p| p == pid);
+        let posting = registry.lock_pid(pid);
         let open = registry.map().get(&pid).copied();
         match entry(open.map(|e| (e.0, e.1)), window, front()) {
             Entry::Refuse => return None,
             Entry::Join => {
                 let psn = os.psn_of(window)?;
-                let first = open.map_or_else(Instant::now, |e| e.2);
+                let first = open.map_or_else(|| os.now(), |e| e.2);
                 if let Some(e) = registry.map().get_mut(&pid) {
                     e.1 += 1;
                 }
@@ -428,14 +515,14 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
             Entry::Post => {}
         }
         let psn = os.psn_of(window)?;
-        registry.map().insert(pid, (window, 1, Instant::now()));
+        registry.map().insert(pid, (window, 1, os.now()));
         let scope = KeyInApp {
             os,
             registry,
             window,
             pid,
             psn,
-            opened: Instant::now(),
+            opened: os.now(),
             epoch: os.stop_epoch(),
             ended: false,
         };
@@ -458,7 +545,7 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
     /// Whether the scope may still act: not past [`SCOPE_BOUND`], not
     /// stopped, and the app is not the person's front app.
     pub(super) fn live(&self) -> bool {
-        self.opened.elapsed() < SCOPE_BOUND
+        self.os.now().saturating_duration_since(self.opened) < SCOPE_BOUND
             && self.os.stop_epoch() == self.epoch
             && self.os.front_pid() != Some(self.pid)
     }
@@ -488,7 +575,7 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         if self.ended {
             return Ended::Fine;
         }
-        let posting = self.registry.posting();
+        let posting = self.registry.lock_pid(self.pid);
         let ended = self.finish_locked();
         drop(posting);
         ended
@@ -523,7 +610,10 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         );
         let name = match plan {
             HandBack::StillOpen | HandBack::TargetIsFront => return Ended::Fine,
-            HandBack::NoWindow => return Ended::HandBackFailed,
+            HandBack::NoWindow => {
+                self.registry.hold(self.pid);
+                return Ended::HandBackFailed;
+            }
             HandBack::Post(name) => name,
         };
         for _ in 0..2 {
@@ -539,6 +629,8 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
             "cmux computer use: could not hand window {name} of pid {} back (defocus record)",
             self.pid
         );
+        // It may still take itself for the active app: input waits a moment.
+        self.registry.hold(self.pid);
         Ended::HandBackFailed
     }
 }

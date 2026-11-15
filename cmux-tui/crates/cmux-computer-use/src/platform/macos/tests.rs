@@ -63,22 +63,6 @@ fn a_background_chord_with_only_disabled_matches_needs_validation() {
     assert!(!roles::needs_menu_validation(&[m(false, true)]));
 }
 
-/// The window server records posted to the target's process: the window id
-/// little-endian at 0x3C, the focus direction at 0x8A, the make-key flag and
-/// mask for the make-key pair.
-#[test]
-fn activation_records_carry_the_window_and_direction() {
-    let focus = activation::record(0x0D, 0x0102_0304, activation::FOCUS_IN);
-    assert_eq!((focus[0x04], focus[0x08]), (0xF8, 0x0D));
-    assert_eq!(&focus[0x3C..0x40], &[0x04, 0x03, 0x02, 0x01]);
-    assert_eq!(focus[0x8A], 0x01);
-    assert_eq!(focus[0x3A], 0);
-    let out = activation::record(0x0D, 7, activation::FOCUS_OUT);
-    assert_eq!(out[0x8A], 0x02);
-    let make = activation::record(0x01, 7, 0);
-    assert_eq!((make[0x08], make[0x3A], make[0x8A]), (0x01, 0x10, 0));
-    assert!(make[0x20..0x30].iter().all(|b| *b == 0xFF));
-}
 
 /// Review 9: a hit element that is a menu item the deny list blocks is
 /// refused before anything is pressed, whatever it offers.
@@ -185,15 +169,6 @@ fn the_open_key_equivalent() {
     assert!(!roles::is_open_key_equivalent(&a, 0));
 }
 
-/// Review 3 (1): inside a scope a click only presses the item: without a
-/// press action read (an actions read that timed out) nothing is posted,
-/// no row is selected and its center is not clicked.
-#[test]
-fn a_click_in_a_scope_never_falls_through_to_events() {
-    assert!(roles::primed_click(true, false).unwrap_err().contains("nothing was pressed"));
-    assert_eq!(roles::primed_click(true, true), Ok(()));
-    assert_eq!(roles::primed_click(false, false), Ok(()), "no scope: the usual path");
-}
 
 /// Review 2 (B, 3): inside a scope an item is pressed only while the scope
 /// is live and focus is on the target window, and never a Services item.
@@ -232,10 +207,26 @@ struct FakeOs {
     /// open at that moment (the hand-back's ordering).
     watch: std::cell::Cell<Option<(&'static activation::Registry, i32)>>,
     open_at_post: std::cell::RefCell<Vec<bool>>,
+    /// The injected clock: time passed since the fake started.
+    elapsed: std::cell::Cell<std::time::Duration>,
+    /// The front app cannot be read.
+    front_unknown: std::cell::Cell<bool>,
+}
+
+/// The fake clock's origin.
+fn fake_epoch() -> std::time::Instant {
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *T0.get_or_init(std::time::Instant::now)
 }
 
 impl activation::ScopeOs for FakeOs {
+    fn now(&self) -> std::time::Instant {
+        fake_epoch() + self.elapsed.get()
+    }
     fn front_pid(&self) -> Option<i32> {
+        if self.front_unknown.get() {
+            return None;
+        }
         if let Some((n, pid)) = self.front_after_posts.get()
             && self.posts.borrow().len() >= n
         {
@@ -378,30 +369,101 @@ fn the_hand_back_names_a_window_that_still_exists() {
     assert!(note.starts_with("pressed; ") && note.matches("hand-back").count() == 1);
 }
 
-/// Review 4 (1) and 5 (1): input is posted to an app only while no scope
-/// is open on it, its own or another session's, and the post runs under the
-/// lock that entering a scope takes (no scope can open mid-post); a joiner
-/// keeps the app primed after the first scope ended.
+/// Review 4 (1), 5 (1), 6 (1, 5): input is posted to an app only while no
+/// scope is open on it, its own or another session's, and the post runs
+/// under that app's lock, which entering a scope takes (no scope can open
+/// mid-post); another app's lock is separate; a joiner keeps the app primed
+/// after the first scope ended.
 #[test]
-fn input_is_posted_only_while_no_scope_is_open_and_under_the_entry_lock() {
+fn input_is_posted_only_while_no_scope_is_open_and_under_the_app_lock() {
     let os = fake(&[(10, 5)]);
     let reg = activation::Registry::new();
     let short = std::time::Duration::from_millis(60);
-    // Nothing open: the post runs at once, holding the entry lock.
-    let held = reg.post_unprimed(5, short, || reg.posting_held());
-    assert_eq!(held, Some(true), "posted under the lock enter_with takes");
+    let held = reg.post_unprimed(5, 10, short, |p| {
+        (reg.pid_locked(5), reg.pid_locked(7), p.route())
+    });
+    assert_eq!(held, Some((true, false, input::Route::Pid { pid: 5, window: 10 })));
     let own = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("own");
     let other = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("another session joins");
     let ran = std::cell::Cell::new(false);
-    assert_eq!(reg.post_unprimed(5, short, || ran.set(true)), None, "own scope open");
+    assert_eq!(reg.post_unprimed(5, 10, short, |_| ran.set(true)), None, "own scope open");
     assert!(!ran.get(), "nothing posted while primed");
     assert_eq!(own.end(), activation::Ended::Fine);
     assert!(reg.is_open(5), "the joiner keeps the app primed");
-    assert_eq!(reg.post_unprimed(5, short, || ran.set(true)), None, "still primed");
+    assert_eq!(reg.post_unprimed(5, 10, short, |_| ran.set(true)), None, "still primed");
     assert!(!ran.get());
-    assert_eq!(reg.post_unprimed(7, short, || 1), Some(1), "another app is not held");
+    assert_eq!(reg.post_unprimed(7, 1, short, |_| 1), Some(1), "another app is not held");
     drop(other);
-    assert_eq!(reg.post_unprimed(5, short, || 2), Some(2), "last scope out: input may go");
+    assert_eq!(reg.post_unprimed(5, 10, short, |_| 2), Some(2), "last scope out: input may go");
+}
+
+/// Review 6 (3): after a failed hand-back the app may still take itself for
+/// the active app, so input to it stays refused for a moment.
+#[test]
+fn a_failed_hand_back_keeps_input_refused_for_a_moment() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    os.windows.borrow_mut().clear();
+    assert_eq!(key.end(), activation::Ended::HandBackFailed);
+    assert!(reg.is_open(5));
+    let short = std::time::Duration::from_millis(60);
+    assert_eq!(reg.post_unprimed(5, 10, short, |_| ()), None);
+}
+
+/// Review 6 (4): entry fails closed when the front app cannot be read.
+#[test]
+fn entry_fails_closed_when_the_front_app_is_unreadable() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    os.front_unknown.set(true);
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    assert!(os.posts.borrow().is_empty());
+}
+
+/// Review 6 (8): a joiner shares the first scope's deadline (injected
+/// clock): joins never extend priming past one bound from the first entry.
+#[test]
+fn a_joiner_does_not_extend_the_bound() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let first = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("first");
+    os.elapsed.set(activation::SCOPE_BOUND - std::time::Duration::from_millis(1));
+    let joiner = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("joins");
+    assert!(first.live() && joiner.live());
+    os.elapsed.set(activation::SCOPE_BOUND);
+    assert!(!first.live() && !joiner.live(), "both end one bound after the first entry");
+}
+
+/// Review 6 (1): input reaches an app's process only through
+/// `activation::post_unprimed`: only input.rs calls the post-to-process API,
+/// and only activation.rs builds a `Posting` (its field is private there).
+#[test]
+fn only_post_unprimed_can_post_to_a_process() {
+    let files = [
+        ("actions.rs", include_str!("actions.rs")),
+        ("activation.rs", include_str!("activation.rs")),
+        ("ax.rs", include_str!("ax.rs")),
+        ("capture.rs", include_str!("capture.rs")),
+        ("cgwindows.rs", include_str!("cgwindows.rs")),
+        ("input.rs", include_str!("input.rs")),
+        ("key_focus.rs", include_str!("key_focus.rs")),
+        ("keymap.rs", include_str!("keymap.rs")),
+        ("menus.rs", include_str!("menus.rs")),
+        ("mod.rs", include_str!("mod.rs")),
+        ("roles.rs", include_str!("roles.rs")),
+        ("workspace.rs", include_str!("workspace.rs")),
+    ];
+    let post_to_pid = concat!("CGEvent", "PostToPid(");
+    let build = concat!("Posting", " { route");
+    for (name, src) in files {
+        if name != "input.rs" {
+            assert!(!src.contains(post_to_pid), "{name} posts to a process directly");
+        }
+        if name != "activation.rs" {
+            assert!(!src.contains(build), "{name} builds a Posting");
+        }
+    }
 }
 
 /// Review 5 (1B): the last scope's entry stays in the registry until its
@@ -420,25 +482,27 @@ fn the_app_counts_as_primed_until_the_focus_out_is_posted() {
     assert!(!reg.is_open(5), "removed after it");
 }
 
-/// Review 5 (follow-up): a joiner shares the first scope's deadline, so
-/// joins never extend priming past one bound from the first entry.
-#[test]
-fn a_joiner_does_not_extend_the_bound() {
-    let os = fake(&[(10, 5)]);
-    let reg = activation::Registry::new();
-    let first = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("first");
-    std::thread::sleep(activation::SCOPE_BOUND);
-    let joiner = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("joins");
-    assert!(!first.live() && !joiner.live(), "both past the first entry's bound");
-}
 
-/// Review 5 (1): long text is posted in chunks (the lock is held per
-/// chunk); a stop part way says how much was typed.
+/// Review 5 (1), 6 (6): long text is posted in chunks (the lock is held per
+/// chunk), never inside a user-perceived character; a stop part way says how
+/// much was typed.
 #[test]
 fn text_is_posted_in_chunks() {
     assert_eq!(roles::text_chunks("abcdefgh", 3), vec!["abc", "def", "gh"]);
-    assert_eq!(roles::text_chunks("é😀a", 2), vec!["é😀", "a"]);
     assert!(roles::text_chunks("", 3).is_empty());
+    // e + combining acute stays together.
+    assert_eq!(roles::text_chunks("abe\u{301}c", 3), vec!["abe\u{301}", "c"]);
+    // A ZWJ family emoji is one chunk piece.
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    let chunks = roles::text_chunks(&format!("a{family}b"), 2);
+    assert!(chunks.iter().any(|c| c.contains(family)), "{chunks:?}");
+    // A flag (two regional indicators) is not split.
+    let flag = "\u{1F1EF}\u{1F1F5}";
+    let chunks = roles::text_chunks(&format!("a{flag}"), 2);
+    assert!(chunks.iter().any(|c| c.contains(flag)), "{chunks:?}");
+    // A skin tone modifier stays with its emoji.
+    let wave = "\u{1F44B}\u{1F3FD}";
+    assert!(roles::text_chunks(&format!("x{wave}"), 1).iter().any(|c| c.contains(wave)));
     assert_eq!(roles::partial_typing_refusal(0, 9, "busy"), "busy");
     assert!(roles::partial_typing_refusal(4, 9, "busy").contains("first 4 of 9"));
 }

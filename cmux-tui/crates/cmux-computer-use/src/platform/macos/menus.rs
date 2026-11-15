@@ -157,7 +157,14 @@ fn escape_while_showing(escape_to: Route, windows: &[u32]) {
     if !showing(windows) {
         return;
     }
-    let _ = input::key(escape_to, ESCAPE, 0, None);
+    // Under the app's lock (never into a primed app), the menu read again
+    // right before posting. Refused (a scope stayed open): the menu still
+    // shows, which the callers report.
+    let _ = super::activation::post_unprimed(escape_to, |p| {
+        if showing(windows) {
+            let _ = input::key(p, ESCAPE, 0, None);
+        }
+    });
     wait_for(CANCEL_WAIT, || !showing(windows));
 }
 
@@ -1161,7 +1168,12 @@ impl MacDesktop {
         let before = menu_window_ids();
         let start = Instant::now();
         let route = Route::Pid { pid, window: t.window.id };
-        input::click(route, at, Button::Right, 1, 0, Duration::ZERO)?;
+        super::activation::post_unprimed(route, |p| {
+            input::click(p, at, Button::Right, 1, 0, Duration::ZERO)
+        })
+        .unwrap_or_else(|| {
+            Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
+        })?;
         let find = || {
             app.element("AXShownMenuUIElement")
                 .filter(is_menu)

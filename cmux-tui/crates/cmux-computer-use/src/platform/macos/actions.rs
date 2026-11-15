@@ -453,8 +453,8 @@ fn click_point(
         return Ok(out);
     }
     let route = d.pointer_route(t, spec.delivery)?;
-    unprimed(route, || {
-        input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)
+    unprimed(route, |p| {
+        input::click(p, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)
     })?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
 }
@@ -835,11 +835,11 @@ pub(super) fn type_text(
     // Never into a primed app (another session's scope): each chunk is posted
     // under the lock entering a scope takes, so a scope can open between
     // chunks but no key lands inside one.
-    if let Route::Pid { pid, .. } = route {
+    if matches!(route, Route::Pid { .. }) {
         let chunks = roles::text_chunks(text, TYPE_CHUNK);
         let mut sent = 0usize;
         for chunk in &chunks {
-            match super::activation::post_unprimed(pid, || input::type_text(route, chunk)) {
+            match super::activation::post_unprimed(route, |p| input::type_text(p, chunk)) {
                 Some(res) => res?,
                 None => {
                     return Err(DesktopError::Unsupported(roles::partial_typing_refusal(
@@ -853,7 +853,7 @@ pub(super) fn type_text(
         }
         return Ok(ActionOutcome::delivered(route.name()));
     }
-    input::type_text(route, text)?;
+    unprimed(route, |p| input::type_text(p, text))?;
     Ok(ActionOutcome::delivered(route.name()))
 }
 
@@ -1135,7 +1135,7 @@ pub(super) fn press_keys(
     };
     // Never into a primed app (its own or another session's scope): posted
     // under the lock entering a scope takes, waiting at most the bound.
-    unprimed(route, || input::key(route, code, flags, keymap::carries_text(&combo.key, flags)))?;
+    unprimed(route, |p| input::key(p, code, flags, keymap::carries_text(&combo.key, flags)))?;
     let mut out = ActionOutcome::delivered(route.name());
     if let Some(title) = disabled_item {
         out.note = format!(
@@ -1151,18 +1151,16 @@ pub(super) fn press_keys(
 /// Characters per chunk of background typing: the lock is held per chunk.
 const TYPE_CHUNK: usize = 16;
 
-/// Posts `post` on a process route only while the app is not primed (under
-/// the lock entering a scope takes; [`super::activation::post_unprimed`]);
-/// other routes post at once.
-fn unprimed(route: Route, post: impl FnOnce() -> DResult<()>) -> DResult<()> {
-    match route {
-        Route::Pid { pid, .. } => {
-            super::activation::post_unprimed(pid, post).unwrap_or_else(|| {
-                Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
-            })
-        }
-        _ => post(),
-    }
+/// Posts `post` on `route`: a process route only while the app is not
+/// primed (under its lock; [`super::activation::post_unprimed`]), the
+/// system-wide route at once.
+fn unprimed(
+    route: Route,
+    post: impl FnOnce(&super::activation::Posting) -> DResult<()>,
+) -> DResult<()> {
+    super::activation::post_unprimed(route, post).unwrap_or_else(|| {
+        Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
+    })
 }
 
 /// A refusal inside a key-in-app scope: the scope ends first (the app is
@@ -1306,7 +1304,7 @@ pub(super) fn scroll(
         PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
     };
     let route = d.pointer_route(&t, Delivery::Background)?;
-    unprimed(route, || input::scroll(route, at, dx, dy))?;
+    unprimed(route, |p| input::scroll(p, at, dx, dy))?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
 }
 
@@ -1334,7 +1332,7 @@ pub(super) fn drag(
         }
     }
     let route = d.pointer_route(&t, delivery)?;
-    unprimed(route, || input::drag(route, from, to, button))?;
+    unprimed(route, |p| input::drag(p, from, to, button))?;
     Ok(ActionOutcome::delivered(route.name()).at(to))
 }
 

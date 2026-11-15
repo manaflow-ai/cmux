@@ -300,7 +300,9 @@ pub fn press_error_falls_back(code: i32) -> bool {
 /// documents); its title is an open or reveal command (`open_titles`,
 /// English and AppKit's languages); its key equivalent is AppKit's Open
 /// (Command-O) or Finder's Open (Command-Down), which holds in any language;
-/// or its title or key equivalent could not be read (fail closed).
+/// or its title or key equivalent could not be read (fail closed). The
+/// title list is best effort: an app's own open command under another name
+/// is caught only by its place or its Command-O key equivalent.
 pub fn prime_block(
     title: Option<&str>,
     ancestors: Option<&[String]>,
@@ -388,10 +390,53 @@ pub fn primed_press(
     Ok(())
 }
 
-/// Text split into chunks of at most `n` characters (pure, for tests).
+/// Text split into chunks of about `n` characters, never inside a
+/// user-perceived character (pure, for tests): a chunk does not end before a
+/// combining mark, variation selector, zero-width joiner, emoji modifier or
+/// tag character, nor right after a joiner, nor between the two regional
+/// indicators of a flag. (A conservative rule instead of full UAX #29.)
 pub fn text_chunks(text: &str, n: usize) -> Vec<String> {
+    let extends = |c: char| {
+        matches!(c as u32,
+            0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF
+            | 0xFE00..=0xFE0F | 0xFE20..=0xFE2F | 0x200D | 0x1F3FB..=0x1F3FF
+            | 0xE0020..=0xE007F | 0xE0100..=0xE01EF)
+            || matches!(unicode_category_mark(c), true)
+    };
+    let regional = |c: char| (0x1F1E6..=0x1F1FF).contains(&(c as u32));
     let chars: Vec<char> = text.chars().collect();
-    chars.chunks(n.max(1)).map(|c| c.iter().collect()).collect()
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut count = 0usize;
+    let mut ri_run = 0usize;
+    for (i, &c) in chars.iter().enumerate() {
+        let prev = i.checked_sub(1).map(|j| chars[j]);
+        let joins = extends(c)
+            || prev == Some('\u{200D}')
+            || (regional(c) && ri_run % 2 == 1);
+        if count >= n.max(1) && !joins {
+            out.push(std::mem::take(&mut cur));
+            count = 0;
+        }
+        ri_run = if regional(c) { ri_run + 1 } else { 0 };
+        cur.push(c);
+        count += 1;
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Combining marks outside the ranges above that scripts commonly use
+/// (Devanagari and other Indic vowel signs, Hangul jamo medials and finals,
+/// Thai and Arabic marks): kept with their base.
+fn unicode_category_mark(c: char) -> bool {
+    matches!(c as u32,
+        0x0483..=0x0489 | 0x0591..=0x05BD | 0x0610..=0x061A | 0x064B..=0x065F | 0x0670
+        | 0x06D6..=0x06DC | 0x0900..=0x0903 | 0x093A..=0x094F | 0x0951..=0x0957
+        | 0x0962..=0x0963 | 0x0981..=0x0983 | 0x09BC..=0x09D7 | 0x0E31 | 0x0E34..=0x0E3A
+        | 0x0E47..=0x0E4E | 0x1160..=0x11FF | 0x302A..=0x302F | 0x3099..=0x309A)
 }
 
 /// The refusal when typing stopped part way because the app became primed.

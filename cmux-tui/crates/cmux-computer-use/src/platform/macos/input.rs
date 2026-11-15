@@ -1,4 +1,7 @@
-//! Synthetic input as CGEvents. Background delivery posts to the target
+//! Synthetic input as CGEvents. Every posting function takes a
+//! [`Posting`]: for an app's process only `activation::post_unprimed` makes
+//! one, so no input reaches an app while a key-in-app scope is open on it.
+//! Background delivery posts to the target
 //! process (`CGEventPostToPid`), so the window gets the event without
 //! activation and the person's pointer never moves. A scroll posted to a
 //! process reaches one of its windows only when it names the window (field
@@ -20,6 +23,7 @@
 //! Events come from a private event source, so the person's held modifier
 //! keys never leak into an agent's event (and the reverse).
 
+use super::activation::Posting;
 use super::keymap;
 use super::roles;
 use super::sys::*;
@@ -183,13 +187,14 @@ fn mouse_event(src: &Cf, ty: u32, at: Point, button: Button, flags: u64) -> DRes
 
 /// `count` clicks (1: single, 2: double, ...) of `button` at `at`.
 pub fn click(
-    route: Route,
+    p: &Posting,
     at: Point,
     button: Button,
     count: u8,
     flags: u64,
     gap: std::time::Duration,
 ) -> DResult<()> {
+    let route = p.route();
     let src = source()?;
     // Presses are not window-addressed (see the module notes).
     let aim = None;
@@ -215,7 +220,8 @@ pub fn click(
     Ok(())
 }
 
-pub fn drag(route: Route, from: Point, to: Point, button: Button) -> DResult<()> {
+pub fn drag(p: &Posting, from: Point, to: Point, button: Button) -> DResult<()> {
+    let route = p.route();
     let src = source()?;
     // Presses are not window-addressed (see the module notes).
     let aim = None;
@@ -245,7 +251,8 @@ pub fn drag(route: Route, from: Point, to: Point, button: Button) -> DResult<()>
 }
 
 /// Scrolls by lines at `at` (`dy > 0` down, `dx > 0` right).
-pub fn scroll(route: Route, at: Point, dx: f64, dy: f64) -> DResult<()> {
+pub fn scroll(p: &Posting, at: Point, dx: f64, dy: f64) -> DResult<()> {
+    let route = p.route();
     let (wheel_y, wheel_x) = roles::wheel_deltas(dx, dy);
     if wheel_x == 0 && wheel_y == 0 {
         return Ok(());
@@ -282,7 +289,8 @@ fn key_event(src: &Cf, code: u16, down: bool, flags: u64, text: Option<&[u16]>) 
 }
 
 /// One key press (down and up) with modifier flags.
-pub fn key(route: Route, code: u16, flags: u64, text: Option<char>) -> DResult<()> {
+pub fn key(p: &Posting, code: u16, flags: u64, text: Option<char>) -> DResult<()> {
+    let route = p.route();
     let src = source()?;
     let mut buf = [0u16; 2];
     let len = text.map(|c| c.encode_utf16(&mut buf).len());
@@ -295,7 +303,8 @@ pub fn key(route: Route, code: u16, flags: u64, text: Option<char>) -> DResult<(
 /// Types text one character at a time as Unicode key events. Characters on
 /// the ANSI layout use their own key code (apps that read codes, such as
 /// terminals, see the real key); newlines and tabs press Return and Tab.
-pub fn type_text(route: Route, text: &str) -> DResult<()> {
+pub fn type_text(p: &Posting, text: &str) -> DResult<()> {
+    let route = p.route();
     let src = source()?;
     let mut buf = [0u16; 2];
     for c in text.chars() {
