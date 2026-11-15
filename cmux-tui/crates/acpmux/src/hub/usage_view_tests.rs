@@ -138,7 +138,7 @@ async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
     assert_eq!(every_row_generation(&hub), every, "no other closed row went stale");
     let told = hub.events.list_since(head).unwrap().rows;
     assert!(
-        told.iter().any(|(_, key, _)| *key == super::row_log::RowKey::Own("aging".into())),
+        told.iter().any(|(_, key, _)| *key == crate::hub::row_log::RowKey::Own("aging".into())),
         "it took a list position: {told:?}"
     );
 }
