@@ -111,9 +111,9 @@ for entry in "${headers_in[@]}"; do
   printf 'module %s {\n    header "%s"\n    export *\n}\n' "$module" "$(basename "$header")" > "$headers/$module/module.modulemap"
 done
 
+rm -rf "$out_root/slices"
 mkdir -p "$out_root/slices" "$out_root/macos"
-rm -rf "$out_root/macos/$lib_name" "$out_root/slices/"*.a
-dylibs=()
+dylibs=() libs=()
 for target in "${targets[@]}"; do
   echo "==> cargo build cmux-app-ffi ($target)" >&2
   # --print native-static-libs: the system libraries and frameworks the static
@@ -123,22 +123,34 @@ for target in "${targets[@]}"; do
     | tee "$work/$target.cargo.log" >&2
   native="$(sed -n 's/^note: native-static-libs: //p' "$work/$target.cargo.log" | tail -n 1)"
   [[ -n "$native" ]] || { echo "error: cargo printed no native-static-libs for $target" >&2; exit 1; }
-  read -r -a native_libs <<<"$native"
+  # clang links libSystem itself (-lSystem, -lc and -lm are in it).
+  native_libs=()
+  for one in $native; do case "$one" in -lSystem|-lc|-lm) ;; *) native_libs+=("$one") ;; esac; done
   arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
-  # One image whose only globals are the C ABIs: every Rust and std symbol,
-  # rust_eh_personality included, is local to it.
+  # One prelinked object whose only globals are the C ABIs: every Rust and std
+  # symbol, rust_eh_personality included, becomes local (one copy per image).
+  # It is also kept as a static archive (macos/libcmux_app_ffi.a, not in the
+  # xcframework) for the Linux cross-compile parity check, which builds the same
+  # object (scripts/ci/macos-cross.sh ffi).
+  clang -target "$arch-apple-macos$MACOSX_DEPLOYMENT_TARGET" -r -nostdlib \
+    -Wl,-force_load,"$CARGO_TARGET_DIR/$target/release/$lib_name" \
+    -Wl,-exported_symbols_list,"$exports" -o "$work/$target.o"
+  libtool -static -o "$out_root/slices/$target.a" "$work/$target.o"
+  libs+=("$out_root/slices/$target.a")
+  # The library: that object, the native libraries it needs, and -dead_strip.
   clang -target "$arch-apple-macos$MACOSX_DEPLOYMENT_TARGET" -dynamiclib -dead_strip \
     -install_name "@rpath/$dylib_name" -compatibility_version 1 -current_version 1 \
-    -Wl,-force_load,"$CARGO_TARGET_DIR/$target/release/$lib_name" \
     -Wl,-exported_symbols_list,"$exports" -Wl,-headerpad_max_install_names \
-    "${native_libs[@]}" -o "$out_root/slices/$target.dylib"
+    "$work/$target.o" "${native_libs[@]}" -o "$out_root/slices/$target.dylib"
   dylibs+=("$out_root/slices/$target.dylib")
 done
 lib="$out_root/macos/$dylib_name"
 if ((${#dylibs[@]} == 1)); then
   cp -f "${dylibs[0]}" "$lib"
+  cp -f "${libs[0]}" "$out_root/macos/$lib_name"
 else
   lipo -create "${dylibs[@]}" -output "$lib"
+  lipo -create "${libs[@]}" -output "$out_root/macos/$lib_name"
 fi
 # The symbol names go into the dSYM (a crash report's Rust frames symbolicate
 # from it), then out of the library, as strip-release-bundle.sh strips the app's

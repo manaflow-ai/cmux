@@ -3,7 +3,7 @@
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
-      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (static Rust), CCmuxAppFFI while its pin is the static library (Rust: cmux-tui/crates/cmux-app-ffi, the prebuilt xcframework of app-ffi-pin.json; rustc std of cmux-tui's toolchain), Sparkle client",
+      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (Rust; Release builds merge Iroh.framework's code into the app binary), CCmuxAppFFI while its pin is the static library (Rust: cmux-tui/crates/cmux-app-ffi, the prebuilt xcframework of app-ffi-pin.json; rustc std of cmux-tui's toolchain), Sparkle client",
       "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
     },
     {
