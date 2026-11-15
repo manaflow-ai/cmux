@@ -2386,7 +2386,24 @@ class DeeperDestination(unittest.TestCase):
 
 
 PLACEMENT_ID = 700001
-DAEMON_ID = 700002
+WAITING_ID = 700002
+
+
+def rerun_workflow():
+    """CMUX_NEXT_FIXTURE whose placement runs on the bot's attempts through 3 (rescue.CMUX_NEXT_ATTEMPT_3_PLACEMENT)."""
+    return CMUX_NEXT_FIXTURE.replace(
+        "    name: cmux-next macOS placement\n",
+        "    name: cmux-next macOS placement\n    if: ${{ github.run_attempt == 1 || ("
+        + rescue.CMUX_NEXT_ATTEMPT_3_PLACEMENT + ") }}\n", 1)
+
+
+def placed_jobs(label=SIDE, status="queued", conclusion=None):
+    """A cmux-next attempt: its placement succeeded, and its swift test (which needs it) waits on `label`."""
+    waiting = {**job("cmux-next swift test", labels=[label], created=0, status=status), "id": WAITING_ID}
+    if conclusion:
+        waiting["conclusion"] = conclusion
+    return [{**job("cmux-next macOS placement", status="completed", labels=["ubuntu-24.04"]), "id": PLACEMENT_ID,
+             "conclusion": "success", "started_at": stamp(0)}, waiting]
 
 
 class RerunAPI:
@@ -2394,14 +2411,12 @@ class RerunAPI:
     settles after `settles_after` seconds of the test clock."""
 
     def __init__(self, clock, *, attempt=2, jobs=None, snapshot=None, path=rescue.CMUX_NEXT_WORKFLOW_PATH,
-                 status="queued", settles_after=10):
+                 status="queued", settles_after=10, workflow=None, pull_head=HEAD):
         self.clock, self.attempt, self.path, self.status = clock, attempt, path, status
-        self.jobs_now = jobs if jobs is not None else [
-            {**job("cmux-next macOS placement", status="completed", labels=["ubuntu-24.04"]), "id": PLACEMENT_ID,
-             "conclusion": "success"},
-            {**job("cmux-next daemon tests", labels=[SIDE], created=0), "id": DAEMON_ID}]
+        self.jobs_now = jobs if jobs is not None else placed_jobs()
         self.snapshot = snapshot or (lambda seconds: {"generated_at": stamp(seconds), "pools": {}})
-        self.settles_after = settles_after
+        self.workflow = rerun_workflow() if workflow is None else workflow
+        self.settles_after, self.pull_head = settles_after, pull_head
         self.cancelled_at: float | None = None
         self.calls: list[str] = []
 
@@ -2415,9 +2430,17 @@ class RerunAPI:
                 "head_branch": "lane/x", "head_repository": {"full_name": "manaflow-ai/cmux"},
                 "pull_requests": [{"number": 42}], "triggering_actor": {"login": "teamleaderleo"}}
 
+    def pull(self, number):
+        self.calls.append("pull")
+        return {"state": "open", "head": {"sha": self.pull_head}}
+
     def jobs(self, run_id, attempt):
         self.calls.append(f"jobs:{attempt}")
         return [dict(found) for found in self.jobs_now]
+
+    def workflow_file(self, path, ref):
+        self.calls.append("workflow")
+        return self.workflow
 
     def pool_snapshot(self, now):
         self.calls.append("snapshot")
@@ -2470,30 +2493,48 @@ class RerunInput(unittest.TestCase):
         self.assertLess(api.calls.index("cancel"), api.calls.index(f"rerun-job:{PLACEMENT_ID}"))
         self.assertIn("attempt 3", summary)
 
+    def test_a_job_the_placement_would_not_bring_back_takes_the_failed_jobs_re_run(self):
+        # A cancelled Linux check needs no placement: a placement re-run would leave it cancelled.
+        clock = Clock()
+        checks = {**job("cmux-next checks (god files, concurrency, crash safety, l10n)", status="completed",
+                        labels=["ubuntu-24.04"]), "id": 3, "conclusion": "cancelled"}
+        api = RerunAPI(clock, jobs=placed_jobs() + [checks])
+        run_rerun(api, clock)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn(f"rerun-job:{PLACEMENT_ID}", api.calls)
+
     def test_past_the_placed_attempts_the_re_run_keeps_the_depth_rule(self):
         # Attempt 4 has no placement (cmux-next.yml places bot attempts through 3): its jobs take the side label,
-        # which may not be deeper than the label they leave.
-        clock = Clock()
-        jobs = [{**job("cmux-next daemon tests", labels=[GUI], created=0), "id": DAEMON_ID}]
-        api = RerunAPI(clock, attempt=3, jobs=jobs, snapshot=depth_snapshot())
-        code, summary = run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
-        self.assertEqual(code, 0)
-        self.assertNotIn("cancel", api.calls)
-        self.assertNotIn("rerun-failed", api.calls)
-        self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", summary)
-        clock = Clock()
-        api = RerunAPI(clock, attempt=3, jobs=jobs, snapshot=depth_snapshot(destination=0, destination_oldest=0))
-        code, summary = run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
-        self.assertIn("cancel", api.calls)
-        self.assertIn("rerun-failed", api.calls)
+        # which may not be deeper than the label they leave, a finished run's cancelled job included.
+        for status, conclusion in (("queued", None), ("completed", "cancelled")):
+            clock = Clock()
+            jobs = [{**job("cmux-next daemon tests", labels=[GUI], created=0, status=status), "id": WAITING_ID,
+                     "conclusion": conclusion}]
+            run_status = "completed" if conclusion else "queued"
+            api = RerunAPI(clock, attempt=3, jobs=jobs, snapshot=depth_snapshot(), status=run_status)
+            code, summary = run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+            self.assertEqual(code, 0)
+            self.assertNotIn("cancel", api.calls)
+            self.assertNotIn("rerun-failed", api.calls)
+            self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", summary)
+            clock = Clock()
+            api = RerunAPI(clock, attempt=3, jobs=jobs, status=run_status,
+                           snapshot=depth_snapshot(destination=0, destination_oldest=0))
+            run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+            self.assertIn("rerun-failed", api.calls)
 
-    def test_a_running_job_or_another_workflow_is_left_alone(self):
+    def test_a_running_job_a_moved_head_or_another_workflow_is_left_alone(self):
         clock = Clock()
         running = {**job("cmux-next swift test", status="in_progress", labels=[SIDE], runner="mini-1"), "id": 3}
         api = RerunAPI(clock, jobs=[running])
         _, summary = run_rerun(api, clock)
         self.assertNotIn("cancel", api.calls)
         self.assertIn("not re-run: cmux-next swift test is running", summary)
+        clock = Clock()
+        api = RerunAPI(clock, pull_head="b" * 40)
+        _, summary = run_rerun(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("no longer open at the run's head", summary)
         clock = Clock()
         api = RerunAPI(clock, path=".github/workflows/nightly.yml")
         _, summary = run_rerun(api, clock)
