@@ -93,3 +93,72 @@ fn only_an_own_socket_is_reached() {
         "a symlink is never followed to a socket"
     );
 }
+
+/// Share This Mac confirmed on the owner's other device uses this same consent, not a grant of
+/// its own: a target admits the approval only with `signedInMachines` granted for its account,
+/// and only from an asker signed in to that account.
+#[test]
+fn share_approvals_are_admitted_only_by_the_signed_in_machines_grant() {
+    use crate::share_approval::{Asker, SameAccountGrant};
+    let mine = Asker { device: "laptop", account: "user-1" };
+    let other = Asker { device: "laptop", account: "user-2" };
+    let grant = |status: Value, account: Option<&str>| {
+        SignedInMachinesGrant::new(status, account.map(str::to_owned))
+    };
+    // Granted for this account: the same account's machine is covered, another account's is not.
+    assert!(grant(status("granted", true), ME).covers(&mine));
+    assert!(!grant(status("granted", true), ME).covers(&other));
+    // Off by default, after Not now, signed in as another account now, or not joined: nothing.
+    assert!(!grant(status("none", false), ME).covers(&mine));
+    assert!(!grant(status("none", true), ME).covers(&mine));
+    assert!(!grant(status("granted", true), Some("user-2")).covers(&other));
+    assert!(!grant(status("granted", true), None).covers(&mine));
+    // Screen and control granted do not stand in for it.
+    let mut control_only = status("none", false);
+    control_only["consent"]["screen"] = json!("granted");
+    assert!(!grant(control_only, ME).covers(&mine));
+}
+
+/// The whole target check with this grant: a signed approval from a granted same-account
+/// device is admitted; without the grant it is refused as not granted.
+#[test]
+fn a_share_approval_passes_admit_only_with_the_grant() {
+    use std::collections::HashSet;
+
+    use base64::Engine as _;
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair as _};
+
+    use crate::share_approval::{AskerKeys, ShareApproval, Target, VERSION, admit};
+
+    struct Keys(String);
+    impl AskerKeys for Keys {
+        fn signing_key(&self, device: &str) -> Option<String> {
+            (device == "laptop").then(|| self.0.clone())
+        }
+    }
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    let pair =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    let engine = base64::engine::general_purpose::STANDARD;
+    let keys = Keys(engine.encode(pair.public_key().as_ref()));
+    let mut approval = ShareApproval {
+        v: VERSION.into(),
+        target: "studio".into(),
+        target_name: "Studio".into(),
+        asker: "laptop".into(),
+        asker_name: "Laptop".into(),
+        confirmed_by: "user-1".into(),
+        confirmed_at: 1_794_700_000,
+        nonce: "n-1".into(),
+        signature: String::new(),
+    };
+    approval.signature =
+        engine.encode(pair.sign(&rng, approval.canonical().as_bytes()).unwrap().as_ref());
+    let target = Target { device: "studio", account: "user-1", now: 1_794_700_010 };
+    let granted = SignedInMachinesGrant::new(status("granted", true), Some("user-1".into()));
+    assert_eq!(admit(&approval, &target, &granted, &keys, &mut HashSet::new()), Ok(()));
+    let off = SignedInMachinesGrant::new(status("none", true), Some("user-1".into()));
+    let refused = admit(&approval, &target, &off, &keys, &mut HashSet::new()).unwrap_err();
+    assert_eq!(refused.code, "share.not_granted");
+}
