@@ -119,18 +119,18 @@ struct FeedWaiterRegistryTests {
 
         // The tool's own PreToolUse precedes its request; unstamped hooks and
         // other sessions, sources, or subagents prove nothing.
-        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 1_990)).isEmpty)
-        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 2_000)).isEmpty)
-        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: nil)).isEmpty)
-        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 3_000, session: "other")).isEmpty)
-        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 3_000, source: "codex")).isEmpty)
-        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 3_000, agentID: "subagent")).isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 1_990)).pending.isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 2_000)).pending.isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: nil)).pending.isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 3_000, session: "other")).pending.isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 3_000, source: "codex")).pending.isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 3_000, agentID: "subagent")).pending.isEmpty)
         #expect(registry.isAwaiting("request"))
 
         let superseded = registry.supersede(by: stamped(.preToolUse, sentAt: 3_000))
-        #expect(superseded.map { $0.0.requestID } == ["request"])
+        #expect(superseded.pending.map { $0.0.requestID } == ["request"])
         #expect(registration.semaphore.wait(timeout: .now()) == .success)
-        #expect(registry.supersede(by: stamped(.stop, sentAt: 4_000)).isEmpty)
+        #expect(registry.supersede(by: stamped(.stop, sentAt: 4_000)).pending.isEmpty)
         let finished = registry.finish(registration)
         #expect(!finished.shouldCancel)
         guard case .unavailable = finished.outcome.result else {
@@ -145,7 +145,7 @@ struct FeedWaiterRegistryTests {
         registry.accepted(registration, event: event(), item: item())
         let later = WorkstreamEvent(sessionId: "session", hookEventName: .preToolUse, source: "claude",
             toolName: "Bash", extraFieldsJSON: #"{"_hook_sent_at_ms":9000}"#)
-        #expect(registry.supersede(by: later).isEmpty)
+        #expect(registry.supersede(by: later).pending.isEmpty)
         #expect(registry.isAwaiting("request"))
     }
 
@@ -242,12 +242,12 @@ struct FeedWaiterRegistryTests {
         }
         registry.cleanupStored(requestID: lingering.requestID, groupID: lingering.groupID)
 
-        #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 1_990)).isEmpty)
-        #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: nil)).isEmpty)
-        #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 3_000, session: "other")).isEmpty)
-        let retired = registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 3_000))
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 1_990)).handedOff.isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: nil)).handedOff.isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 3_000, session: "other")).handedOff.isEmpty)
+        let retired = registry.supersede(by: stamped(.preToolUse, sentAt: 3_000)).handedOff
         #expect(Set(retired.map(\.requestID)) == ["request", "lingering"])
-        #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 4_000)).isEmpty)
+        #expect(registry.supersede(by: stamped(.preToolUse, sentAt: 4_000)).handedOff.isEmpty)
     }
 
     @Test func onlyAnUnansweredTimeoutIsHandedOff() throws {
@@ -281,7 +281,7 @@ struct FeedWaiterRegistryTests {
         registry.cleanupStored(requestID: third.requestID, groupID: third.groupID)
         _ = registry.invalidate(source: "claude", sessionID: "session")
 
-        #expect(registry.retireHandedOff(supersededBy: later).isEmpty)
+        #expect(registry.supersede(by: later).handedOff.isEmpty)
 
         // Unstamped, so no later hook could ever show it was answered.
         let unstamped = WorkstreamEvent(sessionId: "session", hookEventName: .permissionRequest, source: "claude",
@@ -290,7 +290,34 @@ struct FeedWaiterRegistryTests {
         registry.accepted(fourth, event: unstamped, item: item())
         _ = registry.finish(fourth)
         registry.cleanupStored(requestID: fourth.requestID, groupID: fourth.groupID)
-        #expect(registry.retireHandedOff(supersededBy: later).isEmpty)
+        #expect(registry.supersede(by: later).handedOff.isEmpty)
         _ = registry.finish(second)
+    }
+
+    @Test func oneHookRetiresWaitingAndHandedOffRequestsInOneStep() throws {
+        func stamped(_ hook: WorkstreamEvent.HookEventName, sentAt: Int, request: String? = nil) -> WorkstreamEvent {
+            WorkstreamEvent(sessionId: "session", hookEventName: hook, source: "claude",
+                toolName: "Tool", toolInputJSON: "{}", requestId: request,
+                extraFieldsJSON: #"{"_hook_sent_at_ms":\#(sentAt)}"#)
+        }
+        let registry = FeedWaiterRegistry()
+        let timedOutEvent = stamped(.permissionRequest, sentAt: 1_000, request: "timed-out")
+        let timedOut = try #require(registry.register(requestID: "timed-out", event: timedOutEvent))
+        registry.accepted(timedOut, event: timedOutEvent, item: item())
+        #expect(registry.finish(timedOut).shouldCancel)
+        registry.cleanupStored(requestID: timedOut.requestID, groupID: timedOut.groupID)
+        let waitingEvent = stamped(.permissionRequest, sentAt: 2_000, request: "waiting")
+        let waiting = try #require(registry.register(requestID: "waiting", event: waitingEvent))
+        registry.accepted(waiting, event: waitingEvent, item: item())
+
+        // A Stop leaves the handoff for the next hook to resolve.
+        let stop = registry.supersede(by: stamped(.stop, sentAt: 3_000), retiringHandedOff: false)
+        #expect(stop.pending.map { $0.0.requestID } == ["waiting"])
+        #expect(stop.handedOff.isEmpty)
+        _ = registry.finish(waiting)
+
+        let later = registry.supersede(by: stamped(.preToolUse, sentAt: 4_000))
+        #expect(later.pending.isEmpty)
+        #expect(later.handedOff.map(\.requestID) == ["timed-out"])
     }
 }
