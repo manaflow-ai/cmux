@@ -242,7 +242,7 @@ pub fn serve(
                 break Ended { reason, connected, tell_hub };
             }
         }
-        // The viewer's signals. A connected session outlives its signaling.
+        // The viewer's signals. A connected session outlives lost signaling, not the hub's close.
         if !signaling {
             std::thread::sleep(Duration::from_millis(100));
             continue;
@@ -250,6 +250,17 @@ pub fn serve(
         let text = match ws.recv(Duration::from_millis(100)) {
             Ok(None) => continue,
             Ok(Some(Message::Text(text))) => text,
+            Ok(Some(Message::Closed(code, why))) if close_ends_session(code) => {
+                // The hub's word (revoked, sharing off, ended, replaced): the media stops too.
+                break Ended {
+                    reason: format!(
+                        "the hub closed the session ({code} {})",
+                        super::printable(&why)
+                    ),
+                    connected,
+                    tell_hub: None,
+                };
+            }
             Ok(Some(Message::Closed(..))) | Err(_) => {
                 signaling = false;
                 if serve.is_none() || !connected {
@@ -325,6 +336,14 @@ pub fn serve(
     }
     ws.close();
     ended
+}
+
+/// Whether a signaling close `code` ends the session rather than only its signaling. Only
+/// lost transport is survivable (going away, no code, abnormal, server error, restart, try
+/// later, bad gateway): every code the hub chooses itself (1000 on /end or bye, 4000 when
+/// another socket took this role, 4002 on revocation or sharing off, any other) ends it.
+pub fn close_ends_session(code: u16) -> bool {
+    !matches!(code, 1001 | 1005 | 1006 | 1011 | 1012 | 1013 | 1014)
 }
 
 /// `{"type": .., "sdp": .., "fpSig": ..}` signed for the host role.

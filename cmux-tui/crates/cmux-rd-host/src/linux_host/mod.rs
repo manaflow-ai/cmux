@@ -424,14 +424,70 @@ fn status() -> Res<()> {
     Ok(())
 }
 
+/// A session this host serves: its id, its scope (`view`/`full`) and its stop flag.
+struct Served {
+    id: String,
+    scope: String,
+    stop: Arc<AtomicBool>,
+}
+
 /// The session this host serves now (one at a time; a newer ticket replaces it).
-type Current = Arc<Mutex<Option<(String, Arc<AtomicBool>)>>>;
+type Current = Arc<Mutex<Option<Served>>>;
+
+/// How often the running host reads its consent file again.
+const CONSENT_EVERY: Duration = Duration::from_secs(1);
+
+/// Stops the session being served, if any; its id.
+fn stop_current(current: &Current) -> Option<String> {
+    let served = current.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+    served.stop.store(true, Ordering::SeqCst);
+    Some(served.id)
+}
+
+/// Holds one hub link with `hold`; when it ends, for any reason, the session it served stops.
+/// The hub does not replay a revocation, an end or sharing turned off that it pushed while
+/// the link was down, so a session must not outlive the link that would hear them (fail
+/// closed). The result of `hold` and the id of the session stopped.
+fn hold_link(current: &Current, hold: impl FnOnce() -> Res<()>) -> (Res<()>, Option<String>) {
+    let result = hold();
+    (result, stop_current(current))
+}
+
+/// How a ticket with `scope` is served under the consent on disk now: `Some(view_only)`,
+/// or None when this desktop does not allow it or its consent file cannot be read.
+fn admit(dir: &std::path::Path, scope: &str) -> Option<bool> {
+    match LocalConsent::load(dir) {
+        Ok(consent) => consent.serve(scope),
+        Err(e) => {
+            eprintln!("linux-host: consent unreadable, nothing is served: {e}");
+            None
+        }
+    }
+}
+
+/// Stops the session being served when `consent` (read again from disk; an error when it
+/// cannot be read) no longer allows its scope; its id.
+fn withdraw_unconsented(current: &Current, consent: Res<LocalConsent>) -> Option<String> {
+    let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
+    let allowed = match (&consent, guard.as_ref()) {
+        (_, None) => return None,
+        (Ok(consent), Some(served)) => consent.serve(&served.scope).is_some(),
+        (Err(_), Some(_)) => false,
+    };
+    if allowed {
+        return None;
+    }
+    let served = guard.take()?;
+    served.stop.store(true, Ordering::SeqCst);
+    Some(served.id)
+}
 
 fn run(args: &Args) -> Res<()> {
     let (dir, hub, account) = load()?;
     let runtime = identity::runtime_dir()?;
     identity::private_dir(&runtime)?;
-    let consent = LocalConsent::load(&dir)?;
+    // Read at start so a bad file fails now; read again for every ticket and every second.
+    LocalConsent::load(&dir)?;
     let mut serve_args = Vec::new();
     for key in ["display", "xauthority", "capture"] {
         if let Some(v) = args.get(key) {
@@ -450,7 +506,13 @@ fn run(args: &Args) -> Res<()> {
     eprintln!("linux-host: serving \"{}\" ({})", hub.device.name, hub.device.id);
     loop {
         let started = Instant::now();
-        match hold_socket(&hub, &runtime, consent, &serve_args, &current) {
+        let (result, stopped) =
+            hold_link(&current, || hold_socket(&hub, &dir, &runtime, &serve_args, &current));
+        if let Some(id) = stopped {
+            eprintln!("linux-host: the hub link dropped; the session it served stopped");
+            end_later(&hub, &id, "peer_offline");
+        }
+        match result {
             Ok(()) => {}
             Err(e) => {
                 if let Some(fatal) = Fatal::from_hub(&*e) {
@@ -470,14 +532,25 @@ fn run(args: &Args) -> Res<()> {
 /// Holds one User DO socket until it closes; handles its pushes.
 fn hold_socket(
     hub: &Arc<Hub>,
+    dir: &std::path::Path,
     runtime: &std::path::Path,
-    consent: LocalConsent,
     serve_args: &ServeArgs,
     current: &Current,
 ) -> Res<()> {
     let mut ws = hub.user_socket()?;
     let mut last_ping = Instant::now();
+    let mut last_consent = Instant::now();
     loop {
+        if last_consent.elapsed() >= CONSENT_EVERY {
+            // `enable` without --allow-control while this runs: a control session stops now.
+            if let Some(id) = withdraw_unconsented(current, LocalConsent::load(dir)) {
+                eprintln!(
+                    "linux-host: this desktop's consent no longer allows the session; stopped"
+                );
+                end_later(hub, &id, "host_stopped");
+            }
+            last_consent = Instant::now();
+        }
         if last_ping.elapsed() >= PING_EVERY {
             // Exactly these bytes: the hub's auto-response matches them.
             ws.send_text(r#"{"type":"ping"}"#)?;
@@ -504,7 +577,7 @@ fn hold_socket(
             }
             Some(Message::Text(text)) => {
                 let Ok(push) = serde_json::from_str::<Value>(&text) else { continue };
-                handle_push(hub, &push, runtime, consent, serve_args, current);
+                handle_push(hub, &push, dir, runtime, serve_args, current);
             }
         }
     }
@@ -513,8 +586,8 @@ fn hold_socket(
 fn handle_push(
     hub: &Arc<Hub>,
     push: &Value,
+    dir: &std::path::Path,
     runtime: &std::path::Path,
-    consent: LocalConsent,
     serve_args: &ServeArgs,
     current: &Current,
 ) {
@@ -544,7 +617,7 @@ fn handle_push(
                     return;
                 }
             };
-            let Some(view_only) = consent.serve(&ticket.scope) else {
+            let Some(view_only) = admit(dir, &ticket.scope) else {
                 eprintln!(
                     "linux-host: a {} session is not allowed on this desktop; ended",
                     printable(&ticket.scope)
@@ -558,9 +631,9 @@ fn handle_push(
             let Some(id) = push["sessionId"].as_str() else { return };
             let _ = pending.remove(id, now_ms());
             let guard = current.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some((current_id, stop)) = guard.as_ref() {
-                if current_id == id {
-                    stop.store(true, Ordering::SeqCst);
+            if let Some(served) = guard.as_ref() {
+                if served.id == id {
+                    served.stop.store(true, Ordering::SeqCst);
                 }
             }
         }
@@ -578,14 +651,18 @@ fn start_session(
     let stop = Arc::new(AtomicBool::new(false));
     {
         let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((old, old_stop)) = guard.take() {
+        if let Some(old) = guard.take() {
             // One viewer at a time, the newest. A reattach of the same session replaces its own.
-            old_stop.store(true, Ordering::SeqCst);
-            if old != ticket.session_id {
-                end_later(hub, &old, "replaced");
+            old.stop.store(true, Ordering::SeqCst);
+            if old.id != ticket.session_id {
+                end_later(hub, &old.id, "replaced");
             }
         }
-        *guard = Some((ticket.session_id.clone(), stop.clone()));
+        *guard = Some(Served {
+            id: ticket.session_id.clone(),
+            scope: ticket.scope.clone(),
+            stop: stop.clone(),
+        });
     }
     let (hub, args, current) = (hub.clone(), serve_args.clone(), current.clone());
     let spawned = std::thread::Builder::new().name("linux-host-session".into()).spawn(move || {
@@ -602,7 +679,8 @@ fn start_session(
             }
         }
         let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
-        if guard.as_ref().is_some_and(|(id, s)| id == &ticket.session_id && Arc::ptr_eq(s, &stop)) {
+        let ours = |s: &Served| s.id == ticket.session_id && Arc::ptr_eq(&s.stop, &stop);
+        if guard.as_ref().is_some_and(ours) {
             *guard = None;
         }
     });
