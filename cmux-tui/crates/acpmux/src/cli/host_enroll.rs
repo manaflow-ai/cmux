@@ -329,6 +329,8 @@ pub(super) enum SshFailure {
     KeyRejected,
     HostKeyChanged,
     HostKeyRevoked,
+    HostKeyConfigInvalid,
+    HostKeyUnknown,
     HostKeyUntrusted,
     Other,
 }
@@ -342,6 +344,14 @@ impl SshFailure {
             Self::HostKeyRevoked
         } else if any(&["remote host identification has changed"]) {
             Self::HostKeyChanged
+        } else if s.contains("error checking host key") && s.contains("in revoked keys file") {
+            Self::HostKeyConfigInvalid
+        } else if s.lines().any(|line| {
+            line.starts_with("no ")
+                && line.contains(" host key is known for ")
+                && line.contains("you have requested strict checking")
+        }) {
+            Self::HostKeyUnknown
         } else if any(&["host key verification failed"]) {
             Self::HostKeyUntrusted
         } else if any(&["connection refused"]) {
@@ -371,7 +381,8 @@ impl SshFailure {
             Self::KeyRejected => "the ssh key was rejected",
             Self::HostKeyChanged => "the host key has changed",
             Self::HostKeyRevoked => "the host key has been revoked",
-            Self::HostKeyUntrusted => "the host key is not trusted",
+            Self::HostKeyConfigInvalid => "the ssh revocation file could not be checked",
+            Self::HostKeyUnknown | Self::HostKeyUntrusted => "the host key is not trusted",
             Self::Other => "ssh failed",
         }
     }
@@ -396,8 +407,14 @@ impl SshFailure {
             Self::HostKeyRevoked => format!(
                 "The host key for {bare} was revoked and cannot be accepted. Contact its owner to replace the revoked key and verify the replacement fingerprint before reconnecting."
             ),
-            Self::HostKeyUntrusted => format!(
+            Self::HostKeyConfigInvalid => format!(
+                "Check the RevokedHostKeys file in your SSH configuration for {bare}. Restore a readable, valid revocation file before reconnecting."
+            ),
+            Self::HostKeyUnknown => format!(
                 "Run `ssh {host}` to inspect the host key. For a new machine, Add Machine or `acpmux machine enroll {host} --accept-new-host-key` records its first key; changed keys are still refused."
+            ),
+            Self::HostKeyUntrusted => format!(
+                "Run `ssh -v {host}` to inspect the host-key verification failure. Check your SSH configuration and verify the host and IP fingerprints with the machine's owner before reconnecting."
             ),
             Self::Other => format!("Run `ssh {host}` in a terminal to see why it fails."),
         }

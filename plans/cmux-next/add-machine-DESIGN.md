@@ -29,9 +29,10 @@ Linux. The app is one sheet on top of it.
   destination and refuses a changed or revoked key. The app passes it after the Add click.
   CLI enrollment without the flag, doctor (including `--fix`) and subsequent connections retain
   their normal host-key policy. Candidate probes force strict checking and disable key updates,
-  so background discovery never records a key. An unknown key leaves `ssh_ok` absent and the
-  candidate selectable; changed and revoked keys remain rejected. No key is removed or replaced
-  by this flow.
+  so background discovery never accepts an unknown key. Positive unknown-key diagnostics leave
+  `ssh_ok` absent and the candidate selectable; all other verification failures remain rejected.
+  Error diagnostics are preserved under quiet SSH configurations. A configured `CheckHostIP`
+  may record an already trusted key under its IP; no key is removed or replaced by this flow.
 - `cmux-tui acp host doctor NAME|HOST [--fix] [--reverse] --json` runs the checks alone. `--fix`
   re-runs only the steps whose checks failed.
 - `cmux-tui acp host candidates --json [--probe]` lists Tailscale peers (online, OS, DNS name)

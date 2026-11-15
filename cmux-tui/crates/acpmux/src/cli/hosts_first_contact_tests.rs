@@ -132,7 +132,7 @@ fn first_contact_quiet_probe_keeps_diagnostics() {
     let empty = f.stored();
     let probe = host_candidates::probe_argv("first-contact-test").unwrap();
     let unknown = f.run(&probe).expect_err("strict probe must reject an unknown key");
-    assert_eq!(SshFailure::of(&unknown), SshFailure::HostKeyUntrusted, "{unknown}");
+    assert_eq!(SshFailure::of(&unknown), SshFailure::HostKeyUnknown, "{unknown}");
     assert_eq!(f.stored(), empty);
 }
 
@@ -141,7 +141,7 @@ fn first_contact_real_ssh_records_only_unknown_keys() {
     let Some(f) = Fixture::new() else { return };
     let empty = f.stored();
     let unknown = f.contact(false).expect_err("strict first contact must reject unknown key");
-    assert_eq!(SshFailure::of(&unknown), SshFailure::HostKeyUntrusted, "{unknown}");
+    assert_eq!(SshFailure::of(&unknown), SshFailure::HostKeyUnknown, "{unknown}");
     assert_eq!(f.stored(), empty);
 
     // Exercise the actual background probe argv, including a permissive user config.
@@ -150,7 +150,7 @@ fn first_contact_real_ssh_records_only_unknown_keys() {
     std::fs::write(&f.client, &config).unwrap();
     let probe = host_candidates::probe_argv("first-contact-test").unwrap();
     let unknown = f.run(&probe).expect_err("background probe cannot record a key");
-    assert_eq!(SshFailure::of(&unknown), SshFailure::HostKeyUntrusted, "{unknown}");
+    assert_eq!(SshFailure::of(&unknown), SshFailure::HostKeyUnknown, "{unknown}");
     assert_eq!(f.stored(), empty);
 
     passed_host_key_check(f.contact(true));
@@ -201,7 +201,23 @@ fn first_contact_real_ssh_records_only_unknown_keys() {
     let revoked = f.run(&probe).expect_err("probe must reject revocation-file key");
     assert_eq!(SshFailure::of(&revoked), SshFailure::HostKeyRevoked, "{revoked}");
     assert_eq!(f.stored(), recorded);
+
+    for file in [f._dir.path().join("missing_revocations"), revoked_keys] {
+        if file.exists() {
+            std::fs::write(&file, "not a valid revocation file\n").unwrap();
+        }
+        std::fs::write(&f.client, format!("{config}\n RevokedHostKeys {}\n", file.display()))
+            .unwrap();
+        for accept in [false, true] {
+            let failed = f.contact(accept).expect_err("invalid revocation file must fail closed");
+            assert_eq!(SshFailure::of(&failed), SshFailure::HostKeyConfigInvalid, "{failed}");
+            assert_eq!(f.stored(), recorded);
+        }
+        let failed = f.run(&probe).expect_err("probe must reject invalid revocation file");
+        assert_eq!(SshFailure::of(&failed), SshFailure::HostKeyConfigInvalid, "{failed}");
+        assert_eq!(f.stored(), recorded);
+    }
     eprintln!(
-        "PASS first_contact_real_ssh: quiet-config/unknown/probe/accept/reconnect/changed/revoked/revocation-file; stored keys preserved"
+        "PASS first_contact_real_ssh: quiet-config/unknown/probe/accept/reconnect/changed/revoked/revocation-file/invalid-revocations; stored keys preserved"
     );
 }

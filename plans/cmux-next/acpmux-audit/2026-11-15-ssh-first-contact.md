@@ -7,6 +7,9 @@ and disables host-key updates. Changed and revoked keys stay rejected; revoked-k
 recovery asks the owner to replace the key rather than suggesting first-contact acceptance.
 Both `known_hosts`'s `@revoked` marker and `RevokedHostKeys` file diagnostics use that recovery.
 Probes and first-contact checks preserve error diagnostics under quiet SSH configurations.
+Only positive unknown-key diagnostics permit first contact; generic verification failures and
+invalid revocation files remain rejected, with configuration-specific recovery. The user's
+`CheckHostIP` policy remains intact and may add an IP alias for an already trusted key.
 
 This runs only in the bounded candidate CLI probe and enrollment reach check. The existing
 32-host limit and eight concurrent probes are unchanged; no daemon request path, timer,

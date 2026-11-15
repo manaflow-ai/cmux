@@ -44,7 +44,7 @@ pub(crate) struct Candidate {
     /// With `--probe`: key-only ssh worked. Not tried for an offline machine,
     /// one that is not [`Candidate::mine`], or one past [`MAX_PROBES`].
     /// Also unknown when host-key verification needs explicit first contact:
-    /// Add Machine may offer it, but a background probe never records a key.
+    /// Add Machine may offer it, but a background probe never accepts an unknown key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ssh_ok: Option<bool>,
 }
@@ -112,7 +112,7 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
         .collect()
 }
 
-/// A read-only SSH probe, even when the user's configuration accepts new keys.
+/// Reject unknown keys even when the user's configuration accepts new keys.
 /// Keep error diagnostics available for classification under quiet configurations.
 pub(crate) fn probe_argv(target: &str) -> Result<Vec<String>> {
     let target = checked_host(target)?;
@@ -158,7 +158,7 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
                     while let Some((i, argv)) = targets.get(next.fetch_add(1, Ordering::SeqCst)) {
                         let result = ssh(argv);
                         let verified = if !result.ok
-                            && SshFailure::of(&result.stderr) == SshFailure::HostKeyUntrusted
+                            && SshFailure::of(&result.stderr) == SshFailure::HostKeyUnknown
                         {
                             None
                         } else {
@@ -396,6 +396,11 @@ mod tests {
                 "Host key ED25519 SHA256:example revoked by file /tmp/revoked_keys\nHost key verification failed.",
                 Some(false),
             ),
+            (
+                "Error checking host key ED25519 SHA256:example in revoked keys file /tmp/revoked_keys: No such file or directory\nHost key verification failed.",
+                Some(false),
+            ),
+            ("Host key verification failed.", Some(false)),
             ("Permission denied (publickey).", Some(false)),
             ("Connection refused", Some(false)),
         ] {

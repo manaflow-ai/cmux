@@ -213,7 +213,7 @@ fn ssh_stderr_is_classified() {
         ),
         (
             "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.",
-            SshFailure::HostKeyUntrusted,
+            SshFailure::HostKeyUnknown,
         ),
         ("kex_exchange_identification: read: Connection reset by peer", SshFailure::Other),
     ];
@@ -1391,6 +1391,31 @@ fn first_contact_revoked_key_recovery_never_suggests_acceptance_or_removal() {
         assert!(result.detail.contains("revoked"), "{}", result.detail);
         let fix = result.fix.as_deref().unwrap();
         assert!(fix.contains("revoked"), "{fix}");
+        assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        assert!(!fix.contains("ssh-keygen -R"), "{fix}");
+    }
+}
+
+#[test]
+fn first_contact_verification_errors_do_not_offer_unknown_key_acceptance() {
+    for (stderr, class, advice) in [
+        (
+            "Error checking host key ED25519 SHA256:example in revoked keys file /tmp/revoked_keys: No such file or directory\nHost key verification failed.",
+            SshFailure::HostKeyConfigInvalid,
+            "Restore a readable, valid revocation file",
+        ),
+        ("Host key verification failed.", SshFailure::HostKeyUntrusted, "host and IP fingerprints"),
+    ] {
+        assert_eq!(SshFailure::of(stderr), class);
+        let fake = Fake::new(|_, _| RemoteOut {
+            ok: false,
+            stderr: stderr.into(),
+            ..RemoteOut::default()
+        });
+        let result = reach(&fake, true);
+        assert_eq!(result.state, StepState::Fail);
+        let fix = result.fix.as_deref().unwrap();
+        assert!(fix.contains(advice), "{fix}");
         assert!(!fix.contains("accept-new-host-key"), "{fix}");
         assert!(!fix.contains("ssh-keygen -R"), "{fix}");
     }
