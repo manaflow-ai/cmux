@@ -134,9 +134,14 @@ import Testing
     // else waits there, and its only line came after its last run.
 
     func eventually(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+        // One check per pass, and its answer is the result: a condition that takes something (a semaphore's
+        // signal) answers true once, so a second check after the loop said false (#43979's first fleet run).
         let deadline = ContinuousClock.now + timeout
-        while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
-        return condition()
+        while true {
+            if condition() { return true }
+            if ContinuousClock.now >= deadline { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     /// The real updater's staged state: Sparkle's Installation folder in the user's caches holds the staged
