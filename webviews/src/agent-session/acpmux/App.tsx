@@ -502,7 +502,7 @@ import {
 } from "./conversation/artifactPin";
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifactsModel";
-import { artifactVersions } from "./conversation/artifactVersions";
+import { artifactVersions, finishedReplyDocuments } from "./conversation/artifactVersions";
 import { artifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -2017,11 +2017,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const scanned = artifactRows
       ? current.path
         ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === current.path))
-        : (renderVersions(pages, current) ??
-          artifactVersions(
-            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-            current,
-          ))
+        : (renderVersions(pages, current) ?? artifactVersions(finishedReplyDocuments(artifactRows), current))
       : undefined;
     // The live source holds the opened fence's streamed slot; versions finished after opening (a
     // later reply's rewrite, a newly paged reply) still join it.
