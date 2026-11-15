@@ -1,8 +1,5 @@
 public import AppKit
 
-/// The WebKit selector that updates a page's rendering now and calls back once it is presented.
-let renderNowSelector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
-
 public extension NSView {
     /// Draws a keystroke's edit in the frame it was made in, in a first-party WebKit page. Call
     /// after `super.keyDown(with:)` in the page's web view, so the update is queued behind the key.
@@ -20,7 +17,9 @@ public extension NSView {
     /// wakeups. A WebKit without the selector keeps its own pacing.
     @MainActor
     func renderKeyEditNow() {
+        // The WebKit selector that updates a page's rendering now and calls back once it is presented.
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
+        let renderNowSelector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
         guard responds(to: renderNowSelector) else { return }
         typealias Action = @convention(block) () -> Void
         // WebKit keeps the block until the update is presented: it must be an escaping one.
