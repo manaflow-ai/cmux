@@ -254,8 +254,7 @@ class CheckerTests(unittest.TestCase):
         self.fx.commit("base")
         upstream = Path(tempfile.mkdtemp(prefix="ffi-caller-ratchet-origin-"))
         self.addCleanup(shutil.rmtree, upstream, True)
-        self.fx.git("clone", "-q", "--bare", str(self.fx.dir), str(upstream / "origin.git"))
-        origin = upstream / "origin.git"
+        origin = git_fixture_env.clone_repo(self.fx.dir, upstream / "origin.git", "--bare", env=self.fx.env)
         subprocess.run(["git", "-C", str(origin), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True,
                        env=self.fx.env)
         pinned = self.fx.commit("pinned source")
@@ -283,13 +282,11 @@ class CheckerTests(unittest.TestCase):
         tip = self.fx.commit("tip")
         upstream = Path(tempfile.mkdtemp(prefix="ffi-caller-ratchet-origin-"))
         self.addCleanup(shutil.rmtree, upstream, True)
-        origin = upstream / "origin.git"
-        self.fx.git("clone", "-q", "--bare", str(self.fx.dir), str(origin))
+        origin = git_fixture_env.clone_repo(self.fx.dir, upstream / "origin.git", "--bare", env=self.fx.env)
         subprocess.run(["git", "-C", str(origin), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True,
                        env=self.fx.env)
         shallow = upstream / "shallow"
-        subprocess.run(["git", "clone", "-q", "--depth=2", f"file://{origin}", str(shallow)], check=True,
-                       env=self.fx.env)
+        git_fixture_env.clone_repo(f"file://{origin}", shallow, "--depth=2", env=self.fx.env)
         self.assertEqual(subprocess.run(["git", "-C", str(shallow), "rev-parse", "HEAD"], capture_output=True,
                                         text=True, check=True).stdout.strip(), tip)
         self.assertNotEqual(subprocess.run(["git", "-C", str(shallow), "cat-file", "-e", pinned],
