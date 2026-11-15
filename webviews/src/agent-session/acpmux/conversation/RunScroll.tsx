@@ -1,10 +1,11 @@
-// An opened run of calls (ToolRun.tsx, ToolGroupRow.tsx) as the Codex app draws a long one: 14
-// lines that scroll on their own, faded at the top and bottom where more is hidden
+// An opened run of calls (ToolRun.tsx, ToolGroupRow.tsx) as Codex draws it: a 224px
+// scroll box, faded at the top and bottom where more is hidden
 // (runScroll.experiment.ts; Lucas, 2026-11-11). A short run draws as before: no fade, nothing to scroll.
 import { useCallback, useContext, useLayoutEffect, useRef, type ReactNode } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { FindReveal } from "./chatFind";
 import { runScroll } from "./runScroll.experiment";
+import { ShimmerEnabledContext } from "./ShimmerText";
 
 /// The fades say where more is hidden: `data-fade-top` once scrolled down, `data-fade-bottom` while
 /// more is under the box. Written on the box itself, so a scroll draws the run again never.
@@ -64,10 +65,13 @@ function useScrollFades(follow: boolean) {
 
 export function RunScroll({ running = false, children }: { running?: boolean; children: ReactNode }) {
   const { box, content, mark, hold } = useScrollFades(running);
-  if (experimentArm(runScroll) !== "box") return children;
+  if (experimentArm(runScroll) !== "box")
+    return <ShimmerEnabledContext value={false}>{children}</ShimmerEnabledContext>;
   return (
     <div ref={box} className="cv-run-scroll" onScroll={mark} onClickCapture={hold}>
-      <div ref={content}>{children}</div>
+      <div ref={content}>
+        <ShimmerEnabledContext value={false}>{children}</ShimmerEnabledContext>
+      </div>
     </div>
   );
 }

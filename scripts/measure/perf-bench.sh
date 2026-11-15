@@ -4,12 +4,15 @@
 # scrolling, video, switching tabs; cold launch; new tab first paint; idle
 # wakeups and CPU at 20 tabs; memory at 1/10/20 tabs). Method and rows:
 # scripts/perf-bench/README.md. Run alone on an idle mini (it launches apps):
-#   cmux-ci run --class exclusive --measurement --pool perf-lead --label measure \
+#   cmux-ci run --class exclusive --measurement --label bench \
 #     --script scripts/measure/perf-bench.sh --ref SHA --artifact artifacts/perf-bench/results.json \
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
 #     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off]
-#     [--arg=budgets=scripts/perf-bench/budgets.json] [--arg=bench_config=debug|bench]
+#     [--arg=budgets=scripts/perf-bench/budgets.json] [--arg=bench_config=debug|bench] [--arg=app_config=release|bench]
+# app_config= (default release) is the measured app's build. bench keeps Release optimization and compiles in
+# the debug.* control surface (reload.sh --config bench), so the budget scenario's waker lines (debug.wakeups)
+# name who wakes the app instead of "not read: method_not_found".
 # tabswitch= (default on; tabswitch=off skips it) also builds a tagged Debug app at this checkout and
 # runs scripts/cmux-next/tab-switch-matrix.py: real-window tab switch end to end (input event to
 # commit) per tab kind at each count, as a "Tab switch" section of BENCH.md and gate rows.
@@ -29,17 +32,18 @@
 #     --script scripts/measure/perf-bench.sh --ref SHA --arg=suite=parity --artifact artifacts/perf-bench/parity.json \
 #     [--arg=rounds=2] [--arg=parity_rows=key-field,...] [--arg=parity_loads=light,load] [--arg=vdisplay=120x1]
 #     [--arg=geometry=FILE.json]
-# --display: the step needs a console session (real HID input and screen capture); no --pool, since the
-# perf-lead pool's workers stay paused. Output: PARITY.md in the log, artifacts/perf-bench/{parity.json,PARITY.md,parity-results.jsonl}. A FAIL row
+# --display: the step needs a console session (real HID input and screen capture); no --pool (the
+# perf-lead reservation was lifted 2026-11-06). Output: PARITY.md in the log, artifacts/perf-bench/{parity.json,PARITY.md,parity-results.jsonl}. A FAIL row
 # never fails the step (a bench, not a gate).
 set -euo pipefail
 suite=xbench parity_rows="" parity_loads="light,load" vdisplay="" geometry=""
-rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4 bench_config=debug
+rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4 bench_config=debug app_config=release
 tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on budgets=scripts/perf-bench/budgets.json
 browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
     bench_config=*) bench_config="${arg#bench_config=}" ;;
+    app_config=*) app_config="${arg#app_config=}" ;;
     suite=*) suite="${arg#suite=}" ;;
     parity_rows=*) parity_rows="${arg#parity_rows=}" ;;
     parity_loads=*) parity_loads="${arg#parity_loads=}" ;;
@@ -80,6 +84,10 @@ case "$suite" in
   xbench | parity) ;;
   *) echo "perf-bench.sh: suite=xbench or suite=parity" >&2; exit 2 ;;
 esac
+case "$app_config" in
+  release | bench) ;;
+  *) echo "perf-bench.sh: app_config=release or app_config=bench" >&2; exit 2 ;;
+esac
 [ "$suite" = parity ] && [ "$rounds" = 3 ] && rounds=2
 [ "$suite" = parity ] && [ "$maxload" = 4 ] && maxload=2
 debug=0
@@ -108,7 +116,7 @@ fi
 apps=()
 case "$cmux" in
   build)
-    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config release 2>&1 | tee "$work/reload.log" \
+    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config "$app_config" 2>&1 | tee "$work/reload.log" \
       || { tail -n 80 "$work/reload.log"; exit 1; }
     app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
     [[ -n "$app" && -d "$app" ]] || { echo "perf-bench: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }

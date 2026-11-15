@@ -15,6 +15,8 @@ export const SUBAGENT_EMPTY = "subagentEmpty";
 /// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
 /// runningTray.ts).
 export const SUBAGENT_DONE = "subagentDone";
+/// The agents a recorded group started, kept in sight beside the turn's work fold.
+export const SUBAGENT_STARTED = "subagentStarted";
 /// A Claude workflow's card where it started (Labs `workflowLabs`, summary/WorkflowCard.tsx;
 /// runningTray.ts `withSubagentLines`): a row per workflow a group started, in the group's place.
 export const WORKFLOW_CARD = "workflowCard";

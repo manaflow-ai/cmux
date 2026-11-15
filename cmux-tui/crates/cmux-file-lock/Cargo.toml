@@ -1,0 +1,16 @@
+[package]
+name = "cmux-file-lock"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A held file lock that unlocks before it closes, so a child process forked meanwhile keeps no lock through its copy of the descriptor"
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true

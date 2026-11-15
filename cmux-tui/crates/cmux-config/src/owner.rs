@@ -15,7 +15,8 @@ use crate::location::team_policy_path;
 use crate::managed::{ManagedReader, TeamPolicyLayer};
 use crate::refusal::Refusal;
 use crate::schema::Schema;
-use crate::store::{self, Change, FileRead, Op, Outcome, State};
+use crate::store::{self, Change, FileRead, Op, Outcome, State, ThemeRead};
+use crate::theme_file;
 
 /// What one op did. `changes` holds every revision it produced (an external
 /// edit found by the write-time refresh comes first), emitted as events
@@ -58,7 +59,17 @@ impl ConfigStore {
         let team =
             state_dir.as_deref().and_then(|dir| read_team_policy(dir, schema)).unwrap_or_default();
         let revision = cached.as_ref().map_or(0, |(revision, _)| *revision);
-        let mut state = State::new(schema, file, reader.read(), team, Domains::default(), revision);
+        let managed = reader.read();
+        let mut state =
+            State::new(schema, file.clone(), managed.clone(), team, Domains::default(), revision);
+        // The theme file the settings pick applies from the first read.
+        if state.theme_wanted().is_some() {
+            let config_dir = config_path.parent().map(Path::to_path_buf).unwrap_or_default();
+            state = state
+                .reload_with_theme(file, managed, |name| Some(read_theme(&config_dir, name)))
+                .0;
+            state = state.with_revision(revision);
+        }
         if let Some((revision, effective)) = cached
             && effective != state.effective().root
         {
@@ -92,7 +103,8 @@ impl ConfigStore {
     pub fn apply(&mut self, op: Op) -> ApplyResult {
         let mut changes = Vec::new();
         let team_before = self.state.team().clone();
-        let writes = matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. });
+        let writes =
+            matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. });
         // Daemons of other sessions may own the same file: hold its advisory
         // lock across refresh, reduce and publish so no update is lost.
         let _lock = if writes { lock_config(&self.config_path) } else { None };
@@ -116,6 +128,12 @@ impl ConfigStore {
                 }
             }
         };
+        // A write that picks another theme file: read that file now.
+        if self.state.theme_wanted().is_some_and(|(_, stale)| stale)
+            && let Some(change) = self.reload()
+        {
+            changes.push(change);
+        }
         if *self.state.team() != team_before {
             self.write_team_policy();
         }
@@ -128,7 +146,11 @@ impl ConfigStore {
     /// Re-reads cmux.json and the managed values (the watcher calls this).
     /// A change only when the effective settings changed.
     pub fn reload(&mut self) -> Option<Change> {
-        let (next, change) = self.state.reload(self.read_file(), self.reader.read());
+        let config_dir = self.config_dir();
+        let (next, change) =
+            self.state.reload_with_theme(self.read_file(), self.reader.read(), |name| {
+                Some(read_theme(&config_dir, name))
+            });
         self.state = next;
         if change.is_some() {
             self.write_cache();
@@ -140,10 +162,23 @@ impl ConfigStore {
         read_settings(&self.config_path, self.seed_path.as_deref())
     }
 
+    /// The folder of the settings file, where `themes/` is.
+    fn config_dir(&self) -> PathBuf {
+        self.config_path.parent().map(Path::to_path_buf).unwrap_or_default()
+    }
+
+    /// The active theme file's path (it may not exist), when one is picked.
+    /// It changes when `appearance.themeFile` does: a watcher of it is
+    /// re-armed then (`watch_paths` includes it).
+    pub fn theme_watch_path(&self) -> Option<PathBuf> {
+        self.state.theme_wanted().map(|(name, _)| theme_file::path(&self.config_dir(), name))
+    }
+
     /// Files whose changes may change the settings: cmux.json (and its
-    /// symlink target) and the managed reader's files.
+    /// symlink target), the managed reader's files and the active theme file.
     pub fn watch_paths(&self) -> Vec<PathBuf> {
         let mut paths = vec![self.config_path.clone()];
+        paths.extend(self.theme_watch_path());
         let resolved = resolve_symlinks(&self.config_path);
         if resolved != self.config_path {
             paths.push(resolved);
@@ -179,6 +214,16 @@ impl ConfigStore {
     }
 }
 
+/// Theme file `name` beside the settings file: the user's, else the one
+/// cmux ships.
+fn read_theme(config_dir: &Path, name: &str) -> ThemeRead {
+    ThemeRead {
+        name: name.to_string(),
+        read: theme_file::source(config_dir, name, None),
+        folder: Some(theme_file::folder(config_dir)),
+    }
+}
+
 /// The settings file's text, or the seed's while the file does not exist.
 fn read_settings(config_path: &Path, seed_path: Option<&Path>) -> FileRead {
     match seed_path {
@@ -207,7 +252,7 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
 /// around its own writes of the settings file, until those writes are
 /// `settings.*` ops: Swift `SettingsFileLock` in `CmuxNextSettings`. Change
 /// the lock kind or the file name in both places.
-pub(crate) fn lock_config(config_path: &Path) -> Option<std::fs::File> {
+pub(crate) fn lock_config(config_path: &Path) -> Option<ConfigLock> {
     // Beside the configured path, not a symlink's target: a dotfiles repo
     // never gets a lock file.
     let directory = config_path.parent().filter(|dir| !dir.as_os_str().is_empty())?;
@@ -220,5 +265,28 @@ pub(crate) fn lock_config(config_path: &Path) -> Option<std::fs::File> {
         .open(directory.join(format!(".{name}.lock")))
         .ok()?;
     file.lock().ok()?;
-    Some(file)
+    Some(ConfigLock(file))
 }
+
+/// [`lock_config`]'s lock, held until dropped. The drop unlocks before the
+/// file closes: a child another thread started meanwhile keeps a copy of the
+/// open file until it execs or exits, and a close alone would leave the lock
+/// held in that copy.
+pub(crate) struct ConfigLock(std::fs::File);
+
+impl std::ops::Deref for ConfigLock {
+    type Target = std::fs::File;
+    fn deref(&self) -> &std::fs::File {
+        &self.0
+    }
+}
+
+impl Drop for ConfigLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+#[cfg(all(test, unix))]
+#[path = "owner_lock_tests.rs"]
+mod lock_tests;

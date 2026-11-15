@@ -1,3 +1,5 @@
+import CmuxConversationCore
+import CmuxMobileModel
 import Foundation
 import Network
 import Observation
@@ -36,6 +38,8 @@ public final class ChiefSources {
         case create
         /// The chief's Cloud brain is off: turn it on (``turnOn(_:)``).
         case turnOn(CloudChief)
+        /// The service failed or could not be reached: look again (``refresh()``).
+        case retry
     }
 
     public internal(set) var cloudState: CloudState = .off
@@ -59,6 +63,11 @@ public final class ChiefSources {
 
     @ObservationIgnored var http: ChiefCloudHTTP?
     @ObservationIgnored var userID: String?
+    /// The Stack project this build signs in to (``CmuxMobileAuthModel/stackProjectID``): the
+    /// Cloud's user and team ids are derived from it.
+    @ObservationIgnored public var stackProjectID: String?
+    /// ``cloudConversation(_:)``'s sessions, by conversation id (emptied on sign-out).
+    @ObservationIgnored private var cloudConversations: [String: ChiefSession] = [:]
     @ObservationIgnored private var lookup: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
@@ -213,6 +222,8 @@ public final class ChiefSources {
         lookup = nil
         http = nil
         userID = nil
+        for session in cloudConversations.values { session.backend.close() }
+        cloudConversations = [:]
         cloudState = .off
         cloudChiefs = []
         changeError = nil
@@ -447,6 +458,45 @@ public final class ChiefSources {
         cloud.use(backend, identity: identity)
     }
 
+    /// This account's Cloud participant id, as the Cloud derives it (the Mac's
+    /// `CloudIdentity.workerUserID`); nil without a project or a signed-in account.
+    public var cloudUserID: String? {
+        guard let stackProjectID, let userID else { return nil }
+        return CloudIDs.user(project: stackProjectID, stackUser: userID)
+    }
+
+    /// The Cloud's team id for a Stack team (`x-cmux-team`; the Mac's `CloudIdentity.workerTeamID`),
+    /// or nil for the personal space or without a project.
+    public func cloudTeamID(stackTeamID: String) -> String? {
+        guard let stackProjectID, !stackTeamID.hasPrefix("personal-") else { return nil }
+        return CloudIDs.team(project: stackProjectID, stackTeam: stackTeamID)
+    }
+
+    /// A Cloud conversation other than the open Cloud Chief's (a teammate DM or
+    /// group New Message made, another Cloud Chief's main conversation), with
+    /// this account's token. One session per conversation while signed in to
+    /// the same account; nil when signed out or the build has no Cloud.
+    public func cloudConversation(_ route: CloudConversationRoute) -> ChiefSession? {
+        if let session = cloudConversations[route.conversationID] { return session }
+        let identity = ChiefIdentity(meID: userID.map { $0.hasPrefix("user_") ? $0 : "user_\($0)" } ?? "user_local",
+                                     chiefID: route.chief ?? "agent_unknown", title: route.title, avatar: homeInitials(route.title))
+        let backend: any ConversationBackend
+        if let http {
+            backend = ChiefCloudBackend(http: http, conversationID: route.conversationID, identity: identity, preferences: cloud.preferences)
+        } else {
+            #if DEBUG
+            guard DeveloperOptions.mockContentEnabled else { return nil }
+            // A conversation with people starts empty and nobody answers in the demo.
+            backend = ChiefMockBackend(identity: identity, quiet: route.chief == nil)
+            #else
+            return nil
+            #endif
+        }
+        let session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil))
+        cloudConversations[route.conversationID] = session
+        return session
+    }
+
     /// The service refused the Cloud Chief's conversation: Home falls back to
     /// the Mac Chief, and the next foreground or Home visit looks again.
     private func refused(conversation: String) {
@@ -459,7 +509,8 @@ public final class ChiefSources {
     #if DEBUG
     /// Demo and UI tests only: a ready Cloud Chief named `name` over the mock
     /// Chief, with no Cloud service, so Home shows it beside the Mac Chief.
-    public func showDemoCloudChief(named name: String) {
+    public func showDemoCloudChief(named name: String, brains: Bool = false) {
+        if brains { brainsAvailable = true }
         let chief = CloudChief(id: "agent_demo_cloud", displayName: name, isDefault: true,
                                mainConversation: "conv_demo_cloud", rev: 1, brainPlace: nil)
         let identity = chief.identity(userID: "user_demo")
@@ -493,6 +544,8 @@ public final class ChiefSources {
     }
 
     nonisolated static let notOnThisServer = String(localized: "Cloud Chief is not available on this server.")
+    /// The service failed (a 5xx, an unexpected status, a refused read): no status code, and a Try Again.
+    nonisolated static let unavailableNow = String(localized: "Cloud Chief isn't available right now. Try again in a moment.")
 
     /// A well-formed agent id no account owns: the brain route answers it
     /// 403 (forbidden) where Chief brains run, and 404 where they do not.
@@ -519,7 +572,7 @@ public final class ChiefSources {
                 case 404: return .unavailable(notOnThisServer, nil, chiefs: chiefs, brains: false)
                 case 403: return .unavailable(String(localized: "You don't have a Cloud Chief yet."), .create, chiefs: chiefs, brains: true)
                 default:
-                    return .unavailable(String(localized: "Cloud Chief couldn't load (HTTP \(probe.status))."), nil, chiefs: chiefs, brains: nil)
+                    return .unavailable(unavailableNow, .retry, chiefs: chiefs, brains: nil)
                 }
             }
             // A chief placed on a server: that server's brain answers on the
@@ -534,9 +587,12 @@ public final class ChiefSources {
         } catch let error as ChiefCloudError {
             // No Home routes at all on this service.
             if error.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: listed, brains: false) }
-            return .unavailable(String(localized: "Cloud Chief couldn't load: \(error.message)"), nil, chiefs: listed, brains: nil)
+            // The service's own sentence for a refusal (not a 5xx); never a status or a code.
+            let said = (error.status ?? 500) < 500 && UserFacingError.isProse(error.message)
+            return .unavailable(said ? String(localized: "Cloud Chief couldn't load: \(error.message)") : unavailableNow, .retry,
+                                chiefs: listed, brains: nil)
         } catch {
-            return .unavailable(String(localized: "Couldn't reach Cloud Chief. Check your connection."), nil, chiefs: listed, brains: nil)
+            return .unavailable(String(localized: "Couldn't reach Cloud Chief. Check your connection."), .retry, chiefs: listed, brains: nil)
         }
     }
 

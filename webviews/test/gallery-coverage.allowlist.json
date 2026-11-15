@@ -10,7 +10,6 @@
     "agent-activity/viewer.tsx#FrameViewer",
     "agent-session/acpmux/CloudEnvironmentEditor.tsx#CloudEnvironmentEditor",
     "agent-session/acpmux/CloudEnvironmentEditorContent.tsx#CloudEnvironmentEditorContent",
-    "agent-session/acpmux/DictationListening.tsx#OutsideLevelBars",
     "agent-session/acpmux/EnvironmentPicker.tsx#AnotherMachineIcon",
     "agent-session/acpmux/EnvironmentPicker.tsx#ServerIcon",
     "agent-session/acpmux/ExtraFolderList.tsx#ExtraFolderList",

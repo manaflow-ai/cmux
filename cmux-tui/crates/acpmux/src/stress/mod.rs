@@ -11,6 +11,7 @@
 //!   count), the class of `acpmux::hub::outbox::Outbox::save` rewriting a whole file per change
 //!   (cmuxterm-hq#8660);
 //! - bytes left on disk;
+//! - bytes read on a restart and an open of one god chat ([`god_chat`]);
 //! - open file descriptors and resident memory, in a child process of this test binary that runs
 //!   one test alone ([`isolated`]), since both are process-wide.
 //!
@@ -23,6 +24,9 @@
 //! (`store::test_clock::follow_tokio`) and a seeded jitter, so hours of backoff take
 //! milliseconds and a seed replays a run draw for draw.
 
+// Test-only as the whole module is; said here too, for check-spawn-owner.py's file walk.
+#[cfg(test)]
+mod god_chat;
 mod outbox;
 mod reconnect;
 mod store;

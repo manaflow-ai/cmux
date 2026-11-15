@@ -319,9 +319,12 @@ jobs:
 
       # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
       # The head and the base run on the same machine, so either way they compare like for like.
+      # Its download can fail (GitHub answered 504 on 2026-11-08); the next step's fallback covers that
+      # too, so a failed setup leaves no path rather than failing the group.
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
         if: runner.os == 'Linux'
+        continue-on-error: true
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
@@ -361,6 +364,9 @@ jobs:
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
+          # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
+          # verdict (its reds counted as the change's) instead of a cancelled job that merge_hold waits on.
+          step_started=$(date +%s)
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
           # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
@@ -379,8 +385,12 @@ jobs:
           done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
           if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
             echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
-              --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
+            budget=$(( 23 * 60 - ( $(date +%s) - step_started ) ))
+            if [ "$budget" -lt 60 ]; then budget=60; fi
+            timeout --kill-after=10 "$budget" \
+              scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
+              --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 \
+              || echo "::warning::the base re-run ended early (exit $?, budget ${budget}s); a red with no base result counts as this change's"
             tail -1 "$RUNNER_TEMP/guards-base.log"
           elif [ -d .guard-base ]; then
             echo "no red step on the head; the base is not re-run"

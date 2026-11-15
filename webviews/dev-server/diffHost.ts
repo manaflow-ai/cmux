@@ -118,7 +118,18 @@ export function dependencyCacheName(port: number): string {
   return `.vite-dev-deps-${port}`;
 }
 
-/// Whether a request path is one of the optimized dependency modules in `cacheName`.
-export function isDependencyCacheRequest(pathname: string, cacheName: string): boolean {
-  return pathname.startsWith(`/node_modules/${cacheName}/`);
+/// Optimized modules may live under the root or at an external CMUX_VITE_CACHE_DIR.
+export function isDependencyCacheRequest(pathname: string, cacheDir: string, root: string): boolean {
+  let requested: string;
+  try {
+    requested = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  const cache = path.resolve(root, cacheDir);
+  const relative = path.relative(root, cache);
+  const insideRoot = relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  const relativeURL = `/${relative.split(path.sep).join("/")}/`;
+  const absoluteURL = `/@fs/${cache.split(path.sep).join("/").replace(/^\/+/, "")}/`;
+  return (insideRoot && requested.startsWith(relativeURL)) || requested.startsWith(absoluteURL);
 }

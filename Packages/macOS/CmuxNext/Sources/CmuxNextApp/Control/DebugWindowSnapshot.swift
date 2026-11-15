@@ -35,7 +35,8 @@ import CmuxNextScreenshots
 /// (``NSWindow/compositedImageWithOverlays(cuttingOverlays:capture:)``), so a glass popover or menu
 /// blurs the window under it, as on screen (composited apart, it came out grey). The
 /// async verb also paints each engine's own image of every shown page
-/// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
+/// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts; a failed
+/// Chromium page, as one waiting in a dialog, shows striped),
 /// and of their docked DevTools (`devtools_not_captured`: striped, Chromium gave no image),
 /// since the window server
 /// leaves out page content other processes draw unless the app has the
@@ -157,20 +158,9 @@ enum DebugWindowSnapshot {
                     failed += 1
                 }
             }
-            let pages = chromiumPages(in: window, services: services)
-            var pagesFailed = 0
-            for (page, rect) in pages {
-                guard let image = try? await page.snapshot() else { pagesFailed += 1; continue }
-                // The page window's holes (find bar, prompt bar, error page, the whole New Tab page) show the window there, as on screen.
-                let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-                layers += WindowImageLayer.chromiumPage(image, rect, holes: holes, clip: page.pageWindowClip, devTools: await page.dockedDevToolsPicture())
-            }
-            // React pages on the Chromium engine (the agent page, Settings) draw the same way.
-            let reactPages = PageRegistry.shownChromiumPages(in: window)
-            for (page, rect) in reactPages {
-                guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered
-            }
+            let pages = await AppWindowImage.pageLayers(in: window, services: services)
+            layers += pages.layers
+            let pagesFailed = pages.failed
             var floatingCount = together?.floating ?? 0
             if base.method == .composited {
                 // A Chromium page image covered the panels, popovers and menus over its page:
@@ -200,10 +190,10 @@ enum DebugWindowSnapshot {
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
                 "child_windows_failed": JSONValue(children.count - childrenIncluded),
                 "floating_windows": JSONValue(base.method == .composited || painted != nil ? floatingCount : 0),
-                "chromium_pages": JSONValue(pages.count + reactPages.count),
-                "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
+                "chromium_pages": JSONValue(pages.pages),
+                "chromium_pages_composited": JSONValue(pages.pages - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
-                "devtools_not_captured": JSONValue(layers.count(where: { if case .notCaptured = $0 { true } else { false } })),
+                "devtools_not_captured": JSONValue(layers.count(where: { if case .notCaptured = $0 { true } else { false } }) - pagesFailed),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {

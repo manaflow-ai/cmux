@@ -419,6 +419,12 @@ pub mod method {
 
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
+    /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
+    /// transport hands the same stream to the framed v2 connection afterward.
+    pub const MUX_V2: &str = "_acpmux/v2";
+    /// The unix socket's first line that turns the connection into a pipe to a machine's cmux-tui
+    /// remote daemon over the hub carrier (`cmux_tui_service.rs`); the reply is the last line.
+    pub const MUX_REMOTE_PIPE: &str = "_acpmux/remote.pipe";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
@@ -441,6 +447,11 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// The person marks a chat read without showing it (`hub/seen.rs`, cmux's `chat.mark_read`).
+    pub const MUX_MARK_READ: &str = "_acpmux/markRead";
+    /// The person saw a chat through a log seq (`hub/seen.rs` `read_through`): moves their seen
+    /// cursor forward only.
+    pub const MUX_SEEN: &str = "_acpmux/seen";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
@@ -454,6 +465,9 @@ pub mod method {
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
+    /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
+    /// stops and it watches its own transcript (`hub/release_to_watch.rs`): `{sessionId}`.
+    pub const MUX_RELEASE_TO_WATCH: &str = "_acpmux/release_to_watch";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
@@ -549,6 +563,10 @@ pub mod method {
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     /// The signed app gives the daemon its legacy Computer Use agent endpoint.
     pub const MUX_COMPUTER_USE_ENROLL: &str = "_acpmux/computer_use_enroll";
+    /// A local session reads the current legacy Computer Use endpoint (`cua_socket::from_env`):
+    /// its spawn env holds the endpoint of the app launch it started under, which an app
+    /// relaunch replaces (`cmux mcp serve`'s `cua_recovery.rs`).
+    pub const MUX_COMPUTER_USE_ENDPOINT: &str = "_acpmux/computer_use_endpoint";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
@@ -860,6 +878,23 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    /// The person's other machines' workspace routes (`machine_routes.rs`): `{}` ->
+    /// `{machines: [{host, daemonId, via, route, socket, state, refusal}]}`. Local socket only.
+    pub const MUX_MACHINE_ROUTES: &str = "_acpmux/machine_routes";
+    /// One session circuit to a listed machine, opened and closed: `{daemonId}` -> `{ok}` or the
+    /// refusal (`reason`). What New Workspace asks first: the far machine asks its person once.
+    pub const MUX_MACHINE_ROUTE_PROBE: &str = "_acpmux/machine_route_probe";
+    /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
+    /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
+    pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";
+    /// Signing out leaves the hub only when signing in joined this machine for the account signing
+    /// out: `{userId?}` -> `{left, kept?, hub?}`. Local socket only.
+    pub const MUX_MACHINE_LEAVE_IF_AUTO: &str = "_acpmux/machine_leave_if_auto";
+    /// The app's signed-in person changed (`server/sign_in_follow.rs`): `{userId|null, previous?,
+    /// accessToken?, hub?, buildTag?}` -> `{accepted, recorded?, leave, enroll}`. acpmux records the
+    /// account signing out, leaves its sign-in join and enrolls the next person, with its retry.
+    /// Local socket only.
+    pub const MUX_MACHINE_SIGNED_IN: &str = "_acpmux/machine_signed_in";
     // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
     // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
     // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's
@@ -898,6 +933,10 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To a peer daemon's link, for a record of an attached session it is not sent live (an
+    /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
+    /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.
+    pub const MUX_UNSENT: &str = "_acpmux/unsent";
     /// To the connection whose `session/cancel` notification was refused, which has no answer to
     /// read: `{sessionId, message, reason?, peer?}` (`server/requests/cancel_refused.rs`).
     pub const MUX_CANCEL_REFUSED: &str = "_acpmux/cancel_refused";

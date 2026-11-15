@@ -1,9 +1,9 @@
 /**
- * The running line's text shimmer has one compositor loop on each of its two layers: the masked
+ * The running line's text shimmer has one finite sweep on each of its two layers: the masked
  * band and the generated lit copy. Keep the layers separate so a duplicate loop on one element
  * still fails the gallery check instead of being mistaken for the approved pair.
  */
-export const RUNNING_LINE_SHIMMER_NAMES = ["cmux-shimmer-band", "cmux-shimmer-lit"] as const;
+export const RUNNING_LINE_SHIMMER_NAMES = ["cmux-cadenced-shimmer-band", "cmux-cadenced-shimmer-lit"] as const;
 
 export type RunningLineLoop = {
   name: string | undefined;
@@ -12,6 +12,7 @@ export type RunningLineLoop = {
   playbackRate: number;
   currentTime: CSSNumberish | null;
   duration: number;
+  iterations: number;
   progress: number | null;
 };
 
@@ -27,7 +28,8 @@ export function checkRunningLineLoops(loops: readonly RunningLineLoop[]): Runnin
       loop.playState === "running" &&
       loop.playbackRate !== 0 &&
       Number.isFinite(loop.duration) &&
-      loop.duration > 0 &&
+      loop.duration === 1_000 &&
+      loop.iterations === 1 &&
       typeof loop.currentTime === "number" &&
       Number.isFinite(loop.currentTime) &&
       typeof loop.progress === "number" &&
@@ -36,8 +38,8 @@ export function checkRunningLineLoops(loops: readonly RunningLineLoop[]): Runnin
       loop.progress <= 1,
   );
   const shimmer = active.filter((loop) => {
-    if (loop.name === "cmux-shimmer-band") return loop.target?.classList.contains("cv-shimmer__band") ?? false;
-    if (loop.name === "cmux-shimmer-lit") {
+    if (loop.name === "cmux-cadenced-shimmer-band") return loop.target?.classList.contains("cv-shimmer__band") ?? false;
+    if (loop.name === "cmux-cadenced-shimmer-lit") {
       return (
         loop.target?.classList.contains("cv-shimmer__lit") === true &&
         loop.target.parentElement?.classList.contains("cv-shimmer__band") === true

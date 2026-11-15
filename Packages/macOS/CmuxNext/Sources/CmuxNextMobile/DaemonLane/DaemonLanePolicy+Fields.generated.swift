@@ -7,7 +7,7 @@ extension DaemonLanePolicy {
     static let commandFields: [String: Set<String>] = [
         "ack-tab-notifications": ["surface"],
         "add-tabs-to-tab-group": ["group", "surfaces", "transaction"],
-        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "mode", "replay_history_rows", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
+        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "mode", "output_coalesce_ms", "replay_history_rows", "replay_history_start", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
         "browser-activate": ["surface"],
         "browser-back": ["surface"],
         "browser-forward": ["surface"],
@@ -54,7 +54,7 @@ extension DaemonLanePolicy {
         "list-tab-groups": [],
         "list-terminals": [],
         "list-workspace-groups": [],
-        "list-workspaces": [],
+        "list-workspaces": ["known", "limit"],
         "machine-listening-tcp": [],
         "machine-usage": [],
         "move-tab": ["index", "pane", "surface", "transaction"],

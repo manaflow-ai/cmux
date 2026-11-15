@@ -270,8 +270,18 @@ extension AgentPaneModel {
         case .sessionInfoOverlays(let rects):
             sessionInfo.updateOverlays(rects)
             return AgentPaneReply.success()
+        case .sessionInfoPinch(let pinch):
+            sessionInfo.updatePinch(pinch)
+            return AgentPaneReply.success()
         case .toastAvoidance(let rect):
             setToastAvoidance(rect)
+            return AgentPaneReply.success()
+        case .toast(let message, let isError, let group):
+            guard let onToast else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.toast")
+            }
+            let kind = "agentPane.\(group ?? "feedback")"
+            onToast(CmuxToast(id: kind, message: message, tone: isError ? .error : .neutral))
             return AgentPaneReply.success()
         case .hostGlass(let surfaces):
             // Drawn before the reply, which only confirms: the page shows a surface's content first and

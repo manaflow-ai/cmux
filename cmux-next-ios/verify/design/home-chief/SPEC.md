@@ -69,7 +69,7 @@ Chief E2E journey against the 604fc689 Mac app.
 
 | # | Level | Screen | Change | Owner |
 | --- | --- | --- | --- | --- |
-| 1 | Blocker | Home | The compose button opens the existing Chief conversation with the keyboard up (user decision, see 1.4) | mobile |
+| 1 | Blocker | Home | The compose button opens New Message with the Mac's sections and flow (user decision 2026-11-11, see 1.4) | mobile |
 | 2 | Blocker | Home | Fix the AX5 layout: today titles truncate to "Cla…", the time wraps to "1:14 A / M", and the search text is clipped | mobile |
 | 3 | Major | Home, header, New Message, details | Draw Chief one way everywhere, using the Mac's avatar: today it has sparkles in two places and "C" in two others | mobile + Mac |
 | 4 | Major | Chief transcript | Render Chief's Markdown (inline code, bold, lists): today raw backticks show | upstream |
@@ -159,6 +159,16 @@ placeholder is taller than the capsule and is clipped (`img/11`).
   the bottom, but the tab bar is there, so the top is right.
 
 ### 1.4 Compose (`img/10`, `raw/r4-back-compose-402w.mp4`)
+
+**Decided 2026-11-11 (user):** "The compose button ... should be full parity with cmux next mac.
+atm it just opens a random chief. it must show the same ux as mac", built by looping on Messages'
+New Message sheet on a simulator. Compose opens New Message (`HomeNewMessage`), the Mac's
+`HomeNewMessageView` drawn as Messages' sheet: the Chiefs (main first, tagged where each runs) with
+New Chief, then the team (or Invite) before anything is typed; typed people, agent chats and
+addresses ("Invite … to <team>" after an email); one Chief chosen shows its conversation under To:
+with its own message box; the first send opens the Chief or agent chat, or makes the Cloud DM
+(`dm.open`) or group (`conversation.create`) with this account's own token. The rest of this
+section is the earlier round's record.
 
 **Now:** the compose button opens New Message (CmuxConversation's
 `ConversationComposeViewController`) with an empty "To:" field and a

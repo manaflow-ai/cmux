@@ -461,17 +461,16 @@ export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
 }
 
 /**
- * Terminal identity every daemon-spawned pane inherits. The Mac app renders
- * each pane in its embedded Ghostty and exports the same identity to local and
- * SSH shells, so panes get TERM=xterm-256color, TERM_PROGRAM=ghostty, and
- * TERM_PROGRAM_VERSION from /etc/cmux/ghostty-version (the image's Ghostty
- * .deb pin, written by the devbox bake and Dockerfile; empty on images that
- * predate it). The daemon itself adds COLORTERM=truecolor at spawn. Agents
- * gate synchronized output, progress reporting, strikethrough, and Cmd-click
- * on TERM_PROGRAM. cmux-devbox-boot repeats this string byte for byte.
+ * Terminal identity every daemon-spawned pane inherits, the same one the Mac
+ * app gives local shells: TERM=xterm-256color and TERM_PROGRAM=cmux. The
+ * daemon itself adds COLORTERM=truecolor and cmux's TERM_PROGRAM_VERSION at
+ * spawn (cmux_pty::TERMINAL_IDENTITY), so no Ghostty version goes out here.
+ * The claude and codex wrappers start those agents with TERM_PROGRAM=ghostty,
+ * the name they gate synchronized output, progress reporting, strikethrough
+ * and Cmd-click on. cmux-devbox-boot repeats this string byte for byte.
  */
 export const CMUX_TUI_DAEMON_TERMINAL_ENV =
-  'TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)"';
+  'TERM=xterm-256color TERM_PROGRAM=cmux';
 
 /** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
 export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;

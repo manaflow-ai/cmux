@@ -12,6 +12,13 @@ impl Mux {
             "workspace.registry",
         );
         self.publish_journal_event();
+        // A close that took a space's last workspace deleted the space in its
+        // commit (LAST-WORKSPACE-CLOSES-SPACE): clients refetch the spaces.
+        if let Ok(Some(personal_revision)) =
+            self.read_registry_state(crate::state::room_emptied::take_cascaded_personal_revision)
+        {
+            self.emit(MuxEvent::PersonalChanged { personal_revision });
+        }
         // A terminal's first cwd report can precede its registration, and its
         // shell may then stay quiet. Each committed graph change is where such
         // a terminal can join the graph, so publish whatever report waited.
@@ -94,6 +101,12 @@ impl Mux {
         task: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<()> {
         self.journal_ingress.spawn_writer(name, task)
+    }
+
+    /// Sets this session's journal deadline (deadline tests: `JOURNAL_DEADLINE_TEST_WAIT`).
+    #[cfg(test)]
+    pub(crate) fn set_journal_durable_wait_for_test(&self, wait: Duration) {
+        self.journal_ingress.set_durable_wait_for_test(wait);
     }
 
     #[cfg(test)]
@@ -380,6 +393,16 @@ impl Mux {
         release: Receiver<()>,
     ) {
         self.registry_connection.set_journal_before_commit_for_test(entered, release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_failing_statement_after_hold_for_test(&self) {
+        self.registry_connection.set_journal_failing_statement_after_hold_for_test();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_statement_until_deadline_for_test(&self) {
+        self.registry_connection.set_journal_statement_until_deadline_for_test();
     }
 
     #[cfg(test)]

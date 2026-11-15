@@ -2,14 +2,31 @@
 
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "usage: $0 <package-path>" >&2
+if [ "$#" -ne 1 ] && { [ "$#" -ne 3 ] || [ "$2" != --repeat ]; }; then
+  echo "usage: $0 <package-path> [--repeat N]" >&2
   exit 2
 fi
 
 package_path="$1"
+# Opt-in admission: build/list once, then run each suite in fresh processes
+# against those products. No retry may turn a failed repetition into a pass.
+# Omit --repeat for the ordinary suite runner's existing retry policy.
+admission=0
+repetitions=1
+if [ "$#" -eq 3 ]; then
+  repetitions="$3"
+  admission=1
+  if ! [[ "$repetitions" =~ ^[1-9][0-9]{0,3}$ ]]; then
+    echo "--repeat must be an integer from 1 to 9999" >&2
+    exit 2
+  fi
+fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
+  if [ "$admission" -eq 1 ]; then
+    echo "--repeat is for suites, not settings export" >&2
+    exit 2
+  fi
   source "$script_dir/swift-test-debug-info.sh"
   source "$script_dir/swiftpm-binary-module-guard.sh"
   swiftpm_binary_module_guard "$package_path" || exit $? # 75: fetch failed, no test ran
@@ -350,34 +367,47 @@ attempt_suite() {
 }
 
 # run_suite INDEX SINK...: run suite INDEX with one retry on a timeout, then the
-# execution check, and write its status to suite-INDEX.status. Always returns 0.
+# execution check, and write its status to suite-INDEX.status. Admission mode
+# repeats without retries and stops this suite at its first failure. Always returns 0.
 run_suite() {
   local index="$1"
   shift
   local suite="${suites[$index]}"
   local execution="$evidence_dir/suite-$index.execution.log"
   local suite_status=0 started=$SECONDS
-  attempt_suite "$suite" "$execution" "$@" || suite_status=$?
-  # --ignore-lock skips the scratch lock, but `swift test --skip-build` still
-  # opens .build/build.db (SQLite); when another suite's process holds it,
-  # SwiftPM gives up before any test runs ("database is locked", then "no tests
-  # found"). That is contention, not a result: try again, at most 3 times.
-  local locked_retries=0
-  while [ "$suite_status" -ne 0 ] && [ "$locked_retries" -lt 3 ] \
-    && grep -Fq 'unable to attach DB' "$execution" && grep -Fq 'database is locked' "$execution"; do
-    locked_retries=$((locked_retries + 1))
-    echo "SwiftPM build database was locked by another suite; retrying $suite ($locked_retries/3)." | "$@"
-    suite_status=0
+  local repetition repetition_started passed=0
+  for ((repetition = 1; repetition <= repetitions; repetition++)); do
+    repetition_started=$SECONDS
     attempt_suite "$suite" "$execution" "$@" || suite_status=$?
+    # --ignore-lock skips the scratch lock, but `swift test --skip-build` still
+    # opens .build/build.db (SQLite); when another suite's process holds it,
+    # SwiftPM gives up before any test runs ("database is locked", then "no tests
+    # found"). That is contention, not a result: try again, at most 3 times.
+    local locked_retries=0
+    while [ "$admission" -eq 0 ] && [ "$suite_status" -ne 0 ] && [ "$locked_retries" -lt 3 ] \
+      && grep -Fq 'unable to attach DB' "$execution" && grep -Fq 'database is locked' "$execution"; do
+      locked_retries=$((locked_retries + 1))
+      echo "SwiftPM build database was locked by another suite; retrying $suite ($locked_retries/3)." | "$@"
+      suite_status=0
+      attempt_suite "$suite" "$execution" "$@" || suite_status=$?
+    done
+    if [ "$admission" -eq 0 ] && [ "$suite_status" -eq 124 ]; then
+      echo "Swift test suite timed out; retrying $suite once." | "$@"
+      suite_status=0
+      attempt_suite "$suite" "$execution" "$@" || suite_status=$?
+    fi
+    if [ "$suite_status" -eq 0 ]; then
+      python3 "$script_dir/require_swift_test_execution.py" --log "$execution" 2>&1 | "$@" \
+        || suite_status=$?
+    fi
+    if [ "$admission" -eq 1 ]; then
+      echo "ci-repeat $suite $repetition/$repetitions exit=$suite_status seconds=$((SECONDS - repetition_started))" | "$@"
+    fi
+    [ "$suite_status" -eq 0 ] || break
+    passed=$((passed + 1))
   done
-  if [ "$suite_status" -eq 124 ]; then
-    echo "Swift test suite timed out; retrying $suite once." | "$@"
-    suite_status=0
-    attempt_suite "$suite" "$execution" "$@" || suite_status=$?
-  fi
-  if [ "$suite_status" -eq 0 ]; then
-    python3 "$script_dir/require_swift_test_execution.py" --log "$execution" 2>&1 | "$@" \
-      || suite_status=$?
+  if [ "$admission" -eq 1 ]; then
+    echo "Swift admission $suite: $passed/$repetitions passed (no retries)" | "$@"
   fi
   echo "$((SECONDS - started))" > "$evidence_dir/suite-$index.seconds"
   echo "$suite_status" > "$evidence_dir/suite-$index.status"

@@ -56,7 +56,7 @@ if "--bench=new-pane-start-state" in sys.argv:
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
 import bench_arms  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -88,6 +88,11 @@ parser.add_argument("--switch-keys", type=int, default=0,
                     help="runs of the tab-switch key check before the bench: a click on a loaded Chromium tab and three keys in the same turn")
 parser.add_argument("--activate", action="store_true", help="launch without CMUX_NEXT_NO_ACTIVATE: the app takes the keyboard, as a person's does")
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--launch-pairs", type=int, default=0,
+                    help="instead of the arms: this many launches, each timing the session's first Cmd-T after "
+                         "--launch-settle seconds, a second Cmd-T one second after the first key, and a warm Cmd-T after a "
+                         "ready spare (`ready_ms`: the New Tab page painted and taking keys; `opening.spare`: a spare was adopted)")
+parser.add_argument("--launch-settle", type=float, default=5, help="--launch-pairs: seconds from a shown terminal to the first Cmd-T")
 parser.add_argument("--json")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
@@ -471,34 +476,58 @@ def longest_stall(hangs):
     return out
 
 
-def workspace_count():
+# The workspaces no close path closes (the app's home workspace), found by reset_workspaces: never the bench's own.
+KEPT_WORKSPACES = frozenset()
+
+
+def workspace_ids():
     snap = rpc("snapshot.get") or {}
     topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
-    return len(topology.get("workspaces") or [])
+    return [w.get("id") for w in topology.get("workspaces") or [] if isinstance(w, dict)]
+
+
+def workspace_count():
+    """The workspaces of the measured topology: every listed one but those reset_workspaces could not close."""
+    return len([ws for ws in workspace_ids() if ws not in KEPT_WORKSPACES])
 
 
 def grow_workspaces(count):
     """At least `count` workspaces; optionally seed empty rows to avoid opening 1000 PTYs."""
     have = workspace_count()
+    failed = []
     for index in range(have, count):
         if opts.empty_workspaces:
-            run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+            done = run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+            if done.returncode != 0:
+                failed.append(f"bench-{index}: exit {done.returncode} {done.stderr.strip()[-200:]}")
         else:
-            rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
-    now = workspace_count()
+            reply = rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
+            if isinstance(reply, dict) and reply.get("error"):
+                failed.append(f"bench-{index}: {json.dumps(reply['error'])[:200]}")
+    # The creates return before the published topology lists them (bench_launch.wait_for_count).
+    now = wait_for_count(workspace_count, count)
     print(f"workspaces: {have} -> {now}", flush=True)
     if now < count:
-        sys.exit(f"could not reach {count} workspaces (have {now})")
+        sys.exit(f"could not reach {count} workspaces (have {now}; {len(failed)} creates failed: {failed[:3]})")
     return now
 
 
 def reset_workspaces():
     """Drop restored rows in this isolated bench profile before an exact topology run."""
+    global KEPT_WORKSPACES
     if workspace_count() == 0:
         return
-    done = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
-    if done.returncode != 0 or not wait(lambda: workspace_count() == 0, 30):
-        sys.exit(f"could not clear restored workspaces: {done.stderr[-400:]}")
+    done = {}
+
+    def close_all():
+        done["run"] = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+        return done["run"].returncode
+
+    # The home workspace stays (home_not_closable); the topology counts without what close-all leaves.
+    KEPT_WORKSPACES, closed = close_all_workspaces(workspace_ids, close_all)
+    print(f"workspaces close-all could not close (not counted): {len(KEPT_WORKSPACES)}", flush=True)
+    if not closed:
+        sys.exit(f"could not clear restored workspaces: {done['run'].stderr[-400:]}")
 
 
 def frame_of(row, key="visible_ms"):
@@ -572,6 +601,61 @@ def cleanup():
         os.remove(SOCKET)
 
 
+def last_opening():
+    openings = (rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or []
+    return openings[-1] if openings else None
+
+
+def spare_ready():
+    return any(s.get("ready") for s in (rpc("debug.new_tab", {"action": "state"}) or {}).get("spares") or [])
+
+
+def launch_pairs(relaunch):
+    """`--launch-pairs`: per launch, the session's first Cmd-T after `--launch-settle` s, a second one a second after the
+    first key (the person opens two), then a warm one after a ready spare; each row has `ready_ms` and `opening`."""
+    rows = []
+    for index in range(opts.launch_pairs):
+        try:
+            relaunch()
+        except SystemExit as error:
+            rows.append({"run": index, "arm": "first", "error": f"launch: {error}"})
+            continue
+        if not ensure_terminal():
+            rows.append({"run": index, "arm": "first", "error": "no focused terminal"})
+            continue
+        rpc("debug.new_tab", {"action": "retarget"})  # no-activate windows never become key: as a key change does
+        time.sleep(opts.launch_settle)  # test harness: the person's first Cmd-T comes this long after the window shows
+        spares_before = (rpc("debug.new_tab", {"action": "state"}) or {}).get("spares") or []
+        pressed = time.monotonic()
+        for arm in ("first", "second"):
+            if arm == "second":
+                time.sleep(max(0.0, 1.0 - (time.monotonic() - pressed)))  # test harness: the second key a second after the first
+            row = timed("new_tab", "launch", index, arm=arm)
+            row["opening"] = last_opening()
+            if arm == "first":
+                row["spares_before"] = len(spares_before)
+            print(f"LAUNCHPAIR {arm} #{index}: ready_ms={row.get('ready_ms')} visible_ms={row.get('visible_ms')} "
+                  f"opening={row['opening']}" + (f" spares_before={len(spares_before)}" if arm == "first" else ""), flush=True)
+            rows.append(row)
+        wait(spare_ready, 20, step=0.25)
+        time.sleep(1)  # test harness: input quiet before the warm reference
+        row = timed("new_tab", "launch", index, arm="warm_ref")
+        row["opening"] = last_opening()
+        print(f"LAUNCHPAIR warm_ref #{index}: ready_ms={row.get('ready_ms')} visible_ms={row.get('visible_ms')} opening={row['opening']}", flush=True)
+        rows.append(row)
+    out = {}
+    for arm in ("first", "second", "warm_ref"):
+        sel = [r for r in rows if r.get("arm") == arm]
+        ready_ms = [r.get("ready_ms") for r in sel]
+        out[arm] = {"n": len(sel), "ready_p50": pct(ready_ms, .5), "ready_max": pct(ready_ms, 1),
+                    "visible_p50": pct([r.get("visible_ms") for r in sel], .5),
+                    "ready_missed": sum(r is None for r in ready_ms),
+                    "spare_adopted": sum(bool((r.get("opening") or {}).get("spare")) for r in sel)}
+    print("LAUNCHPAIR-SUMMARY", json.dumps(out), flush=True)
+    return {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "launch_settle_s": opts.launch_settle,
+            "launch_pairs": out, "runs": rows}
+
+
 def main():
     global app, SOCKET
     # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
@@ -604,6 +688,11 @@ def main():
         launch()
         return window_key()
 
+    if opts.launch_pairs:
+        result = launch_pairs(relaunch)
+        if opts.json:
+            open(opts.json, "w").write(json.dumps(result, indent=1))
+        return True
     launch()
     time.sleep(2)  # test harness: shell prompt
     window = window_key()

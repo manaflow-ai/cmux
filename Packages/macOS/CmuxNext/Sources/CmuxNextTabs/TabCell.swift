@@ -454,7 +454,9 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
-        backgroundLayer.cornerCurve = Metrics.tabCornerCurve
+        // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
+        // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
+        backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve
         // The flush corner: the selected tab runs down into the card, rounded only on top (no foot, no point).
         backgroundLayer.maskedCorners = runsIntoCard ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
@@ -531,8 +533,10 @@ final class TabCell {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
-            closeBackgroundLayer.cornerRadius = m.nestedCornerRadius(closeRect, in: bounds)
-            let inset = (closeRect.width - m.closeGlyphSize) / 2
+            // Helium's own corner on its x square (not nested in the pill), and its stroke, at every density.
+            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
+            closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
+            let inset = (closeRect.width - m.closeGlyphInk) / 2 + m.closeGlyphPathInset
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
             closeGlyphLayer.frame = glyph

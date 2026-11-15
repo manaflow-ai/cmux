@@ -119,7 +119,8 @@ await requireBrowserLane("file-kind-icons.test.ts", async () => {
         timeout: 120_000,
       });
       await page.waitForSelector(".cv-chip svg");
-      return page.evaluate(() => {
+      // Await here: a bare return lets the finally close the page while the read is still in flight.
+      return await page.evaluate(() => {
         const icon = document.querySelector(".cv-chip svg");
         const kind = [...(icon?.classList ?? [])].find((name) => name.startsWith("cv-file-kind--"));
         return kind?.slice("cv-file-kind--".length) ?? "none";

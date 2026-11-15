@@ -35,6 +35,8 @@ import Testing
         PageDescriptor.iconPicker.id: .transparentOverlay,
         PageDescriptor.serverCards.id: .transparentOverlay,
         PageDescriptor.groupEditor.id: .transparentOverlay,
+        // Settings opens from the page host pool's parked WebKit document, so it paints with its tab.
+        PageDescriptor.settings.id: .pooledInstantOpen,
     ]
 
     /// A bundle with a resource folder for every shipped page, and the table Chromium gets for it.
@@ -56,8 +58,8 @@ import Testing
         for (page, _) in Self.surfaces {
             let entry = try #require(entries[page.id], "Chromium does not serve \(page.id)")
             #expect(entry.csp == page.csp.header, "\(page.id) gets another CSP in Chromium")
-            // Chromium asks the page host for exactly the page's generated paths.
-            #expect(entry.dynamicPrefixes == page.dynamicPrefixes, "\(page.id) dynamic prefixes")
+            // Shared chunks also pass through the common adapter, including outside the live loop.
+            #expect(entry.dynamicPrefixes == page.dynamicPrefixes.union(["__shared"]), "\(page.id) dynamic prefixes")
         }
     }
 

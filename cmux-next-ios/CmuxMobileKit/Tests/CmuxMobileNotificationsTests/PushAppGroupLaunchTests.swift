@@ -28,6 +28,14 @@ import Testing
         var countOnMain: Int { lock.withLock { onMain } }
     }
 
+    /// Set once a hung lookup finally answers.
+    final class Answered: @unchecked Sendable { // crash-allow: lock-guarded test flag
+        private let lock = NSLock()
+        private var marked = false
+        func mark() { lock.withLock { marked = true } }
+        var isMarked: Bool { lock.withLock { marked } }
+    }
+
     static func environment(entitled: [String]?, lookups: Lookups,
                             answer: (@Sendable () -> Void)? = nil) -> PushAppGroupResolver.Environment {
         PushAppGroupResolver.Environment(
@@ -66,21 +74,23 @@ import Testing
     /// starting returns at once and a reader gets "no group" after its timeout,
     /// while the lookup still hangs.
     ///
-    /// No wall-clock bound on the read: the main actor is shared with every
-    /// other suite's @MainActor tests, so the hop back here after the read can
-    /// wait seconds on them (it did, 2.7-4.3 s, once heavier Feed tests landed).
-    /// The lookup outlives the whole test instead, so a reader that waited for
-    /// it would see its answer, not nil.
+    /// No wall-clock bound on start or the read: the main actor is shared with
+    /// every other suite's @MainActor tests, so a hop here can wait seconds on
+    /// them (it did, 2.7-4.3 s, once heavier Feed tests landed). The lookup
+    /// outlives the whole test instead: a start that ran it in line would return
+    /// only once it answered, and a reader that waited for it would see its
+    /// answer, not nil.
     @MainActor @Test func aLookupThatDoesNotAnswerNeverHoldsTheMainThread() async {
         let lookups = Lookups()
         let gate = DispatchSemaphore(value: 0)
+        let answered = Answered()
         let resolver = PushAppGroupResolver(environment: Self.environment(entitled: nil, lookups: lookups) {
             _ = gate.wait(timeout: .now() + 60)
+            answered.mark()
         })
-        let clock = ContinuousClock()
-        let start = clock.now
         resolver.start()
-        #expect(clock.now - start < .milliseconds(250))
+        // start returned while the lookup still hangs: it did not wait for it.
+        #expect(!answered.isMarked)
         #expect(await resolver.resolved(timeout: .milliseconds(200)) == nil)
         // The reader gave up on its own timeout: the lookup has not answered.
         #expect(resolver.cached == nil)

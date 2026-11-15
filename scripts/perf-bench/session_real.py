@@ -1408,7 +1408,8 @@ class AppDriver:
         before = self.last_sequence()
         self.soft("debug.hangs", {"clear": True})
         if timer:
-            self.soft(timer, {"action": "start"})
+            # Each row of the timer then has the key window changes of its switch (`timer_key_changes`).
+            self.soft(timer, {"action": "start", "key_changes": True})
         self.soft("debug.frames", {"action": "start"})
         time.sleep(0.1)  # a few frames at rest before the action
         started = time.monotonic()
@@ -1427,6 +1428,8 @@ class AppDriver:
             "commit_ms": own.get("commit_ms"), "budget_id": own.get("id"), "outcome": own.get("outcome"),
             "timer_commit_ms": samples[0].get("commit_ms") if samples else None,
             "timer_late_vsyncs": samples[0].get("late_vsyncs") if samples else None,
+            # No count from a recording whose span ring filled (the row says it): later marks are missing.
+            "timer_key_changes": samples[0].get("key_changes") if samples and not samples[0].get("key_marks_full") else None,
             "frames": len(intervals), "refresh_ms": frames.get("refresh_ms"),
             "max_frame_ms": max(intervals) if intervals else None, "max_main_ms": max(busy) if busy else None,
             "late_frames": sum(1 for i in intervals if frames.get("refresh_ms") and i > frames["refresh_ms"] * 1.5),
@@ -1450,7 +1453,7 @@ class AppDriver:
 def summarize(name, rows, note=""):
     out = {"row": name, "runs": len(rows), "errors": sum(1 for r in rows if r.get("error")), "note": note}
     measured = [r for r in rows if not r.get("error")]  # a failed run is counted in `errors`, not in the times
-    for key in ("commit_ms", "timer_commit_ms", "reply_ms", "max_frame_ms", "max_main_ms", "main_max_gap_ms"):
+    for key in ("commit_ms", "timer_commit_ms", "reply_ms", "max_frame_ms", "max_main_ms", "main_max_gap_ms", "timer_key_changes"):
         out[key] = spread([r.get(key) for r in measured])
     out["late_frames_total"] = sum(r.get("late_frames") or 0 for r in rows)
     out["refresh_ms"] = next((r.get("refresh_ms") for r in rows if r.get("refresh_ms")), None)

@@ -27,6 +27,7 @@ New fields may be added; a field is never renamed or given another meaning witho
 from __future__ import annotations
 
 import json
+import math
 import statistics
 import sys
 from pathlib import Path
@@ -50,22 +51,27 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
     kbps, fps, sampled_fps, encode, decode = {}, {}, {}, {}, {}
     for name in WINDOW_PHASES:
         span = phases.get(name)
-        rows = [] if not span else [s for s in series if span["start_unix_ms"] + PHASE_GUARD_MS < s["unix_ms"] <= span["end_unix_ms"]]
+        rows = []
+        if span:
+            for sample in series:
+                duration = sample.get("duration_ms", 1000)
+                if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
+                    continue
+                if (span["start_unix_ms"] + PHASE_GUARD_MS <= sample["unix_ms"] - duration
+                        and sample["unix_ms"] <= span["end_unix_ms"]):
+                    rows.append(sample)
         if not rows:
             kbps[name] = fps[name] = sampled_fps[name] = encode[name] = decode[name] = None
             continue
+        # Missing counts remain unmeasured; valid counts are weighted by actual duration.
+        elapsed_s = sum(s.get("duration_ms", 1000) for s in rows) / 1000
         byte_rows = [s.get("bytes") for s in rows]
-        kbps[name] = (round(sum(byte_rows) * 8 / 1000 / len(rows), 1)
-                      if all(isinstance(value, (int, float)) for value in byte_rows) else None)
         frame_rows = [s.get("frames") for s in rows]
-        fps[name] = (round(sum(frame_rows) / len(frame_rows), 1)
-                     if all(isinstance(value, (int, float)) for value in frame_rows) else None)
         sampled_rows = [s.get("sampled_changes") for s in rows]
-        durations = [s.get("duration_ms") for s in rows]
-        elapsed_ms = (sum(durations) if all(isinstance(d, (int, float)) and d > 0 for d in durations) else 0)
-        sampled_fps[name] = (round(sum(sampled_rows) / (elapsed_ms / 1000), 1)
-                             if elapsed_ms > 0
-                             and all(isinstance(value, (int, float)) for value in sampled_rows) else None)
+        measured = lambda values: all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in values)
+        kbps[name] = round(sum(byte_rows) * 8 / 1000 / elapsed_s, 1) if measured(byte_rows) else None
+        fps[name] = round(sum(frame_rows) / elapsed_s, 1) if measured(frame_rows) else None
+        sampled_fps[name] = round(sum(sampled_rows) / elapsed_s, 1) if measured(sampled_rows) else None
         enc = [s["encode_ms"] for s in rows if isinstance(s.get("encode_ms"), (int, float))]
         dec = [s["decode_ms"] for s in rows if isinstance(s.get("decode_ms"), (int, float))]
         encode[name] = round(statistics.median(enc), 2) if enc else None
@@ -101,8 +107,10 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if split.get("input_to_capture_parts"):
             result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
+        # A window-only target (its `caps` verb; screen-stream-eval.sh) has no latency stage, and
+        # Screen Sharing.app's latency is unavailable unless the presented observer measured it.
         unavailable = (split.get("method") or "").startswith("apple-screen-sharing-app:")
-        if g2g.get("p50") is None and not unavailable:
+        if g2g.get("p50") is None and not unavailable and not (folder / "window-only").exists():
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
     # that measured it, and extra.repeats keeps each repeat's own numbers.
@@ -119,9 +127,14 @@ def target(name: str, folder: Path, out: Path) -> None:
                     phases[row["phase"]] = row
         kbps, fps, sampled_fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        missing = [k for k in WINDOW_PHASES if fps[k] is None and sampled_fps[k] is None]
+        # Bytes are required, except from a viewer that says it cannot expose them (Screen
+        # Sharing.app's `bytes_method`); that one needs frame or sampled-change counts instead.
+        if "bytes_method" in (window.get("extra") or {}):
+            missing = [k for k in WINDOW_PHASES if fps[k] is None and sampled_fps[k] is None]
+        else:
+            missing = [k for k in WINDOW_PHASES if kbps[k] is None]
         if missing:
-            errors.append(f"window {rep}: no frame or sampled-change numbers for {missing} (phases logged: {sorted(phases)})")
+            errors.append(f"window {rep}: no numbers for {missing} (phases logged: {sorted(phases)})")
         if ocr is None:
             errors.append(f"ocr {rep}: no result")
         else:
@@ -157,13 +170,14 @@ def target(name: str, folder: Path, out: Path) -> None:
                 result["ocr"][k] = middle.get(k)
     else:
         errors.append("ocr: no result")
-    first_extra = extras[0] if extras else {}
-    metadata = {k: v for k, v in first_extra.items() if k not in {"first_frame_ms", "cpu_pct", "process_cpu_pct"}}
-    cpu_values = (e.get("cpu_pct") if isinstance(e.get("cpu_pct"), (int, float)) else None
-                  for e in extras)
+    # Codec observations are per-repeat evidence, not first-repeat metadata: missing quality or
+    # timing in one repeat stays visible in extra.repeats rather than becoming an aggregate taken
+    # from another repeat. First frame and CPU are each the median of the repeats that measured it.
+    metadata = {k: v for k, v in (extras[0] if extras else {}).items()
+                if k not in {"netem_metrics", "first_frame_ms", "cpu_pct", "process_cpu_pct"}}
     result["extra"] = {**metadata,
                         "first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
-                        "cpu_pct": median_of(cpu_values),
+                        "cpu_pct": median_of(e.get("cpu_pct") for e in extras),
                         "process_cpu_pct": median_of(e.get("process_cpu_pct") for e in extras),
                         "repeats": per_rep}
     result["sampled_fps"] = {k: median_of(r["sampled_fps"][k] for r in per_rep) for k in WINDOW_PHASES}

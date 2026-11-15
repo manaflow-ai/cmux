@@ -143,9 +143,15 @@ import Testing
         // terminal starts its chevron 2 pt in. The arrow's ink starts on the box every tab icon shares.
         let iconLeft = iconFrame.minX
         #expect(iconInk.lowerBound >= -0.01, "\(preset): the tab icon draws inside its box")
-        #expect(abs(arrowLeft - iconLeft) <= 0.75, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
-        // The arrow reads at the tab icon's size: its ink is the icon box's side.
+        // The arrow's ink starts on the icon box, or as near as the toolbar's leading edge lets it: a large density's
+        // button is wider than its 13 pt ink, and the button stays inside the toolbar (OmnibarStyle.toolbarInset).
+        #expect(arrowLeft >= iconLeft - 0.75, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
+        #expect(arrowLeft <= iconLeft + 0.75 || OmnibarStyle.toolbarInset == 0,
+                "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
+        // The arrow's ink is a point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13: the arrows were
+        // bigger than Helium's), not the tab icon's box.
         let arrowWidth = arrowInk.upperBound - arrowInk.lowerBound
-        #expect(abs(arrowWidth - iconFrame.width) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, tab icon box \(iconFrame.width)")
+        let ink = DensityTokens.toolbarGlyphInk(smallIcon: Metrics.smallIconSize)
+        #expect(abs(arrowWidth - ink) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, want \(ink)")
     }
 }
