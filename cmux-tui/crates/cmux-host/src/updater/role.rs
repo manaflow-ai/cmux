@@ -1704,8 +1704,10 @@ pub(super) fn report_then_restart(
     report: impl FnOnce() -> Result<(), String>,
     restart: impl FnOnce(),
 ) {
-    // RED STUB: no report yet.
-    let _ = report;
+    match report() {
+        Ok(()) => log("reported stopping to the Cloud before the restart"),
+        Err(e) => log(&format!("the stopping report before the restart: {e}")),
+    }
     restart();
 }
 

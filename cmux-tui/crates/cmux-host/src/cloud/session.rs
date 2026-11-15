@@ -169,8 +169,10 @@ impl Session {
     /// connects (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s later,
     /// and its chat never connected).
     pub fn after_restart(mut self, restarted: bool) -> Session {
-        // RED STUB: no behavior yet.
-        let _ = restarted;
+        if restarted {
+            self.awaiting_daemon = true;
+            self.reporter.replace_state(super::sender::MachineState::Degraded);
+        }
         self
     }
 
@@ -320,12 +322,27 @@ impl Session {
     /// On a restarted service ([`Session::after_restart`]) this answer is the restarted daemon
     /// coming back: the state turns `running`, in the same report as a new block.
     pub fn daemon_identified(&mut self, daemon: &DaemonInfo, now: u64) -> Vec<OpRequest> {
-        let base = daemon.with_activity(false, false, false);
-        if base == self.base {
-            return Vec::new();
+        let ready = std::mem::take(&mut self.awaiting_daemon);
+        if ready {
+            self.reporter.replace_state(super::sender::MachineState::Running);
         }
-        self.base = base;
-        self.daemon_block(now)
+        let base = daemon.with_activity(false, false, false);
+        let block = if base == self.base {
+            false
+        } else {
+            self.base = base;
+            let daemon = self.daemon_now();
+            let changed = &daemon != self.reporter.daemon();
+            self.reporter.replace_daemon(daemon);
+            changed
+        };
+        let reason = match (block, ready) {
+            (true, true) => "daemon+state",
+            (true, false) => "daemon",
+            (false, true) => "state",
+            (false, false) => return Vec::new(),
+        };
+        self.reporter.trigger(reason, now).into_iter().collect()
     }
 
     /// The daemon block as it stands: `activity` while the stream is live, `activity-turns` with
