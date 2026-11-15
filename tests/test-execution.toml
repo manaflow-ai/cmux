@@ -1750,7 +1750,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_install_axe_ci.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/install-axe-ci.sh (the sha256 refusal) and ios-e2e.yml's and iroh-release-gate.yml's use of it instead of the Homebrew tap; run python3 tests/test_install_axe_ci.py yourself after changing any of them (under a second, no build)."
 
 [[test]]
 path = "tests/test_install_git_hooks.py"

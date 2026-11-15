@@ -121,10 +121,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_cache_runner_cargo_home.py
 
-      - name: Validate iOS simulator workflows install AXe from its pinned archive
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_install_axe_ci.py
-
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
