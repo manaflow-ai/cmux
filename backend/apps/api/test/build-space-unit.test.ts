@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import { ACCOUNT_WIDE_BINDINGS, PER_BUILD_BINDINGS, envForObject, spaceOf, spaceOfObject, spacedEnv, spacedName } from "../src/build-space.ts"
 import { spaceRows } from "../src/build-space-projection.ts"
+import { projectRows } from "../src/projection-targets.ts"
 import type { RawEnv } from "../src/env.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
@@ -17,11 +18,16 @@ describe("build spaces inside the Worker", () => {
     expect(spaceOf(request, { ENVIRONMENT: "production" })).toEqual({ ok: true, space: "" })
     expect(spaceOf(new Request("https://api.test", { headers: { "x-cmux-build-space": "nope" } }), { ENVIRONMENT: "production" })).toEqual({ ok: true, space: "" })
     expect(spaceOf(request, { ENVIRONMENT: "staging" })).toEqual({ ok: true, space: "dev:a" })
+    // An allow-list: an environment that is missing or misspelled serves nightly only.
+    for (const ENVIRONMENT of ["", "prod", "Production", "preview"]) {
+      expect(spaceOf(request, { ENVIRONMENT })).toEqual({ ok: true, space: "" })
+      expect(() => spacedEnv({ ...raw, ENVIRONMENT } as RawEnv, "dev:a")).toThrow(/serves no dev spaces/)
+    }
     const production = { ...raw, ENVIRONMENT: "production" } as RawEnv
-    expect(() => spacedEnv(production, "dev:a")).toThrow(/production/)
+    expect(() => spacedEnv(production, "dev:a")).toThrow(/serves no dev spaces/)
     // An object named into a dev space refuses to start in production.
     const ctx = { id: { name: spacedName("dev:a", "user_x") }, storage: { kv: { get: () => undefined, put: () => undefined } } } as unknown as DurableObjectState
-    expect(() => envForObject(ctx, production)).toThrow(/production/)
+    expect(() => envForObject(ctx, production)).toThrow(/serves no dev spaces/)
   })
 
   it("an object's calls and alarms stay in its space", async () => {
@@ -60,6 +66,19 @@ describe("build spaces inside the Worker", () => {
     // A shared object's host row names its space in the payload.
     const host = spaceRows("", [{ id: 4, kind: "host.upsert", entity: "h", payload: { id: "host_1", space: "dev:b" }, seq: 4 }] as never)
     expect((host.dev[0]!.payload as any).id).toBe("dev:b|host_1")
+  })
+
+  it("projects a dev build's rows to the Postgres shadow when MySQL is the primary", async () => {
+    const calls: Array<[string, Array<string>]> = []
+    const fake = (target: string) => async (_env: unknown, _stream: string, rows: ReadonlyArray<{ id: number; payload: unknown }>) => {
+      calls.push([target, rows.map((r) => String((r.payload as { id: string }).id))])
+      return { sent: rows.map((r) => r.id), dead: [] }
+    }
+    const env = { ...raw, BUILD_SPACE: "dev:a", PROJECTION_PRIMARY: "mysql", PROJECTION_SHADOW: "postgres" } as never
+    const rows = [{ id: 1, kind: "home.conversation.upsert", entity: "c", payload: { id: "conv_X" }, seq: 1 }] as never
+    const r = await projectRows(env, "conv:conv_X", rows, { postgres: fake("postgres"), mysql: fake("mysql") } as never)
+    expect(calls).toEqual([["postgres", ["dev:a|conv_X"]]])
+    expect(r.sent).toEqual([1])
   })
 
   it("classifies every Durable Object binding exactly once", () => {

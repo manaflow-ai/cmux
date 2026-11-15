@@ -1,4 +1,5 @@
 import { env, exports } from "cloudflare:workers"
+import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 
@@ -8,6 +9,10 @@ import { describe, expect, it } from "vitest"
  * members) is the same object for all three; an install token works only in the space that minted it.
  */
 const raw = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string }
+/** The raw bindings: names here are the full object names (`dev:<slug>|<name>` for a dev build's objects). */
+const objects = env as unknown as { USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace }
+/** Untyped stubs: runInDurableObject over a typed RPC stub is too deep for the checker. */
+const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 const worker = (exports as unknown as { default: Fetcher }).default
 const SPACES = ["", "dev:a", "dev:b"] as const
 type Space = (typeof SPACES)[number]
@@ -54,11 +59,13 @@ const macInstall = async (space: Space, token: string, user: string) => {
   return { install, token: minted.token!, mint }
 }
 
-describe("build spaces (dev builds do not intertwine)", () => {
-  it("keeps one person's inbox, conversations, hosts and installs apart per space; the team is shared", async () => {
+/** One person signed in to nightly, dev:a and dev:b: each with a Mac install, a conversation and a registered host. */
+type Person = { user: string; team: string; install: string; installToken: string; conversation: string; host: string; mint: (at: Space) => Promise<{ status: number; token?: string }> }
+let fixture: Promise<{ token: string; per: Record<string, Person> }> | undefined
+const people = () => (fixture ??= (async () => {
     const sub = `spaces-${crypto.randomUUID().slice(0, 8)}`
     const token = await session(sub)
-    const per: Record<string, { user: string; team: string; install: string; installToken: string; conversation: string; host: string; mint: (at: Space) => Promise<{ status: number; token?: string }> }> = {}
+    const per: Record<string, Person> = {}
     for (const space of SPACES) {
       const ensured = await op(space, token, "user.ensure", {})
       expect(ensured.status, JSON.stringify(ensured.json)).toBe(200)
@@ -71,6 +78,12 @@ describe("build spaces (dev builds do not intertwine)", () => {
       expect(host.status, JSON.stringify(host.json)).toBe(200)
       per[space] = { user, team, install: mac.install, installToken: mac.token, conversation: created.json.value.conversation.id, host: host.json.value.id, mint: mac.mint }
     }
+    return { token, per }
+  })())
+
+describe("build spaces (dev builds do not intertwine)", () => {
+  it("keeps one person's inbox, conversations, hosts and installs apart per space; the team is shared", async () => {
+    const { token, per } = await people()
     // The same person and the same personal team in every space.
     expect(new Set(SPACES.map((s) => per[s]!.user)).size).toBe(1)
     expect(new Set(SPACES.map((s) => per[s]!.team)).size).toBe(1)
@@ -108,6 +121,41 @@ describe("build spaces (dev builds do not intertwine)", () => {
     const members = await Promise.all(SPACES.map(async (s) => (await read(s, token, "team.members.list", {})).json.value.members))
     expect(members[1]).toEqual(members[0])
     expect(members[2]).toEqual(members[0])
+
+  })
+
+  it("a shared TeamDO sees a per-build object's own principals in that object's space", async () => {
+    const { per } = await people()
+    const user = per[""]!.user, team = per[""]!.team
+    // A principal a per-build object builds for itself (a chief's, a system one) carries no build_space, yet the
+    // shared TeamDO sees it in the space of the object that called (build-space.ts principalsInSpace).
+    for (const space of ["dev:a", "dev:b"] as const) {
+      const listed = await inDO(objects.USER_DO.get(objects.USER_DO.idFromName(`${space}|${user}`)), async (instance) => {
+        const stub = instance.env.TEAM_DO.get(instance.env.TEAM_DO.idFromName(team))
+        const r = await stub.readOp(team, { identity: `agent:chief_test`, kind: "agent", agent: "chief_test", user }, "team.hosts.list", {})
+        return (r.value?.hosts ?? []).map((h: { id: string }) => h.id)
+      })
+      expect(listed).toEqual([per[space]!.host])
+    }
+  })
+
+  it("checks a presence proof in the requester's space, where its challenge was made", async () => {
+    const { per } = await people()
+    const user = per[""]!.user, team = per[""]!.team
+    // Presence: challenge and assert reach the UserDO of the requester's space, never nightly's.
+    const presence = await inDO(objects.TEAM_DO.get(objects.TEAM_DO.idFromName(team)), async (instance) => [
+      instance.presenceUser(user, "dev:a").id.toString(),
+      instance.presenceUser(user, "").id.toString()
+    ])
+    expect(presence).toEqual([objects.USER_DO.idFromName(`dev:a|${user}`).toString(), objects.USER_DO.idFromName(user).toString()])
+  })
+
+  it("keeps a dev build's attachments under its own space's bucket prefix", async () => {
+    const { per } = await people()
+    // Attachments: a dev build's conversation stores its objects under its own space's prefix.
+    const keys = await inDO(objects.CONVERSATION_DO.get(objects.CONVERSATION_DO.idFromName(`dev:a|${per["dev:a"]!.conversation}`)), async (instance) =>
+      instance.attachmentKeyPrefix(per["dev:a"]!.conversation))
+    expect(keys).toBe(`home/v1/dev:a|${per["dev:a"]!.conversation}/`)
   })
 
   it("refuses a malformed space header instead of reading it as nightly", async () => {
