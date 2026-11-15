@@ -117,3 +117,10 @@ leads out of the folder, is refused by name.
 
 `ext dev` refuses a folder in the local apps folder that it did not make, and an id that is not
 `local/NAME` (`local/customize` is `~/.config/cmux/customize`, which reloads on save already).
+
+An app under its own id (a fork of a first-party app renamed so it does not collide with the
+shipped one, or an extension with a publisher) can run
+from your checkout without `ext dev`: start cmux with `CMUX_APPS_DIRS` naming the folder that holds
+the app's folder. Every `CMUX_APPS_DIRS` folder is watched like the local apps folder, so a save of
+an app there (its built `dist/main.js` or its manifest) reloads it and remounts its open views.
+These apps keep no rollback copy: they are your files.

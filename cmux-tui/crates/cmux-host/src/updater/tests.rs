@@ -901,12 +901,12 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
-    assert!(role::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
+    assert!(resolve::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
     assert!(looks.is_empty(), "it looked until the sessions left");
 
     let mut attached = || Some("1 carrier session(s) attached".to_owned());
     tx.send(role::Msg::Stop).unwrap();
-    assert!(!role::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
+    assert!(!resolve::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
 }
 
 /// Review F2 of #38326: the guard's rollback waits for carrier sessions too,
@@ -923,7 +923,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
     let mut hold = carrier::CarrierHold::default();
     let mut carrier = || hold.look(clock.get(), Ok(vec!["stuck/session".to_owned()])).busy;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut carrier, |d| {
+    resolve::guard_rollback_waits(&mut carrier, |d| {
         slept += d;
         clock.set(clock.get() + d);
     });
@@ -932,7 +932,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
 
     let mut idle = || None;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut idle, |d| slept += d);
+    resolve::guard_rollback_waits(&mut idle, |d| slept += d);
     assert_eq!(slept, Duration::ZERO, "no session, no wait");
 }
 
