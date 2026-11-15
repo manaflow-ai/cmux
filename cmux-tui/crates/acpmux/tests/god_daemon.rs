@@ -476,6 +476,20 @@ impl Daemon {
     }
 
     /// `VmRSS` and `VmHWM` of the daemon, in bytes.
+    /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
+    fn cpu_seconds(&self) -> f64 {
+        let stat =
+            std::fs::read_to_string(format!("/proc/{}/stat", self.child.id())).unwrap_or_default();
+        // The fields after the command name, which is in parentheses and may hold spaces.
+        let rest = stat.rsplit_once(')').map_or("", |(_, r)| r);
+        let ticks: Vec<u64> = rest.split_whitespace().filter_map(|f| f.parse().ok()).collect();
+        // utime and stime (fields 14 and 15): the 11th and 12th numbers after the state letter.
+        let used = ticks.get(10).zip(ticks.get(11)).map_or(0, |(u, s)| u + s);
+        // SAFETY: sysconf reads a constant.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1);
+        used as f64 / hz as f64
+    }
+
     fn rss(&self) -> (u64, u64) {
         let status = std::fs::read_to_string(format!("/proc/{}/status", self.child.id()))
             .unwrap_or_default();
@@ -1178,6 +1192,7 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
         .unwrap();
     assert!(wait_listed(&mut rpc, 1, rows).is_some(), "the peer was never listed");
     let (rss_listed, _) = daemon.rss();
+    let cpu_listed = daemon.cpu_seconds();
 
     // The daemon starved: pinned with busy threads on its CPUs.
     pin(daemon.child.id() as i32, cpus);
@@ -1233,6 +1248,7 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
     .unwrap();
     let (mut rpc, sampled_bytes, sampled_lists, samples) = sampled;
     let (rss_churned, _) = daemon.rss();
+    let cpu_churn = daemon.cpu_seconds() - cpu_listed;
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     for spinner in spinners {
         spinner.join().unwrap();
@@ -1274,6 +1290,8 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
         "sampledPeakLists": sampled_lists, "sampledPeakBytes": sampled_bytes,
         "drainMs": drain_ms,
         "rssListed": rss_listed, "rssChurned": rss_churned, "rssEnd": rss_end, "peakRss": peak_rss,
+        // The daemon's CPU seconds over the churn (with no busy threads, its cost; with them, its share).
+        "cpuChurnS": cpu_churn,
         "samples": samples,
         "arenas": std::env::var("ACPMUX_CHURN_ARENAS").ok(),
         "heapEndBytes": heap.as_ref().map(|h| h["endBytes"].clone()),
