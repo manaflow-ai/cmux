@@ -151,7 +151,7 @@ enum NewTabSlot {
     static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil, services: AppServices? = nil) -> Int? {
         switch target {
         case .after(let anchor, _): TabGroupWrites.slot(after: anchor, in: others) ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane)
-            .flatMap { TabGroupWrites.slot(after: $0, in: others) } ?? NewTabSuccession.rebasedSlot(in: pane, by: open, among: others) }
+            .flatMap { TabGroupWrites.slot(after: $0, in: others) } ?? (services?.daemon(for: pane).supports(DaemonCapability.tabInsertAfter.rawValue) == true ? nil : NewTabSuccession.rebasedSlot(in: pane, by: open, among: others)) } // made in its slot (NewTabInsertion): no move
         case .start: others.prefix { $0.pinned }.count
         }
     }
