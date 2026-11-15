@@ -238,7 +238,12 @@ impl Customize {
         let changed = changes(&base, &scan.tree, draft.as_ref());
         if let Some(current) = index.current().filter(|_| changed.is_empty()).cloned() {
             self.store.put_draft(None)?;
-            return Ok(Applied { generation: current, recorded: false, changes: changed });
+            return Ok(Applied {
+                generation: current,
+                recorded: false,
+                changes: changed,
+                library: None,
+            });
         }
         let label = label
             .map(str::trim)
@@ -251,7 +256,10 @@ impl Customize {
         let generation = self.record(&mut index, kind, &tree, origin, &label, now_ms)?;
         self.store.put_draft(None)?;
         self.store.prune(&mut index)?;
-        Ok(Applied { generation, recorded: true, changes: changed })
+        // Every apply saves itself in the library; a library that cannot be
+        // written never fails the apply it follows.
+        let library = self.remember_locked(&generation, draft.as_ref(), now_ms).ok().flatten();
+        Ok(Applied { generation, recorded: true, changes: changed, library })
     }
 
     pub(crate) fn current_generation(&self) -> Result<Option<u32>, Error> {
@@ -311,7 +319,7 @@ impl Customize {
 
     // ---- inside ----
 
-    fn current_tree(&self, index: &Index) -> io::Result<Tree> {
+    pub(crate) fn current_tree(&self, index: &Index) -> io::Result<Tree> {
         match index.current {
             Some(n) => self.store.tree(n),
             None => Ok(Tree::new()),
@@ -331,7 +339,7 @@ impl Customize {
     /// The live tree with every file's content in the store. Each file is
     /// stored from one read, so the tree names exactly what was stored even
     /// while someone is saving.
-    fn capture(&self) -> io::Result<Tree> {
+    pub(crate) fn capture(&self) -> io::Result<Tree> {
         let Scan { mut tree, .. } = tree::scan(&self.roots)?;
         let paths: Vec<String> = tree.keys().cloned().collect();
         for path in paths {
@@ -357,7 +365,7 @@ impl Customize {
     /// Writes generation `next` and its index row. Baseline, applied and
     /// by-hand generations become current; a discarded or autosaved one is
     /// only kept.
-    fn record(
+    pub(crate) fn record(
         &self,
         index: &mut Index,
         kind: Kind,

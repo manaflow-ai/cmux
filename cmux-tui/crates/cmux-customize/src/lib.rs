@@ -20,6 +20,7 @@
 mod brief;
 mod diff;
 mod engine;
+pub mod library;
 mod paths;
 pub mod profile;
 pub mod redact;
@@ -145,6 +146,9 @@ pub struct Applied {
     /// False when the live tree already was the current generation.
     pub recorded: bool,
     pub changes: Vec<Change>,
+    /// The library entry this apply was saved as (`cmux customize library`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -187,6 +191,9 @@ pub enum Error {
     NothingToTry,
     /// A try-on time outside a second to [`MAX_TRY_ON_MINUTES`].
     TryOnTime,
+    /// A library verb that cannot run (no such entry, a preview is open, a
+    /// collection that does not read); nothing was changed.
+    Library(String),
 }
 
 impl Error {
@@ -203,6 +210,7 @@ impl Error {
             Error::Protected(_) => "customize.protected",
             Error::NothingToTry => "customize.nothing_to_try",
             Error::TryOnTime => "customize.try_on_time",
+            Error::Library(_) => "customize.library",
         }
     }
 }
@@ -234,7 +242,7 @@ impl std::fmt::Display for Error {
                 f,
                 "a try-on lasts from a second to {MAX_TRY_ON_MINUTES} minutes (--minutes)"
             ),
-            Error::Profile(why) => f.write_str(why),
+            Error::Profile(why) | Error::Library(why) => f.write_str(why),
             Error::Protected(keys) => write!(
                 f,
                 "nothing was changed: putting that setup back would also change {} that only the person can change ({}). They can run the same `cmux customize` command themselves in a terminal",
