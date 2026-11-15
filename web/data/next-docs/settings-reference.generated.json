@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 617,
+  "count": 616,
   "sections": [
     {
       "id": "general",
@@ -1396,7 +1396,7 @@
         {
           "key": "tabs.plusButton",
           "title": "+ Button Visibility",
-          "help": "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+          "help": "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows.",
           "kind": "choice",
           "default": "hover",
           "group": "Tabs",
@@ -3641,7 +3641,7 @@
         {
           "key": "sidebar.controlsOnHover",
           "title": "Show Sidebar Controls Only on Hover",
-          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -3754,7 +3754,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 400,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3775,7 +3775,7 @@
           "title": "Group Card Delay",
           "help": "How long the pointer rests on a group before its summary card opens.",
           "kind": "number",
-          "default": 1500,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3936,7 +3936,7 @@
         {
           "key": "sidebar.minimal",
           "title": "Minimal Mode",
-          "help": "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -6638,14 +6638,6 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
-        {
-          "key": "customize.fromTheApp",
-          "title": "Customize From the Window",
-          "help": "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Labs"
-        },
         {
           "key": "developerTools.appPages",
           "title": "Developer Tools for cmux Pages",
