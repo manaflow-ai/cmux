@@ -217,6 +217,9 @@ pub mod session_liveness;
 pub mod session_name;
 mod session_scope;
 pub mod session_search;
+/// A workspace here for the person's other machines, over the hub carrier (`session_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod session_service;
 pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).

@@ -68569,6 +68569,89 @@
 
       ],
       "category" : "agents",
+      "cliName" : "action palette-capture-screenshot-to-chat",
+      "computed" : {
+        "canonical_action_id" : "palette.captureScreenshotToChat",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "s",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : "Picks a region of the screen with the system's picker and puts the screenshot into the focused agent chat's composer (else a new chat's) as an unsent draft. Its system-wide key works while another app is in front once app.captureScreenshotGlobalHotKey is on.",
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "palette.captureScreenshotToChat",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : true,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "screenshot",
+        "capture",
+        "screen",
+        "region",
+        "image",
+        "picture",
+        "attach",
+        "chat",
+        "agent",
+        "global",
+        "hotkey",
+        "hot key"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "camera.viewfinder",
+      "targets" : [
+
+      ],
+      "title" : "Capture Screenshot to Chat",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
       "cliName" : "action palette-add-harness",
       "computed" : {
         "canonical_action_id" : "palette.addHarness",

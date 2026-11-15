@@ -10227,6 +10227,20 @@ An observation attachment gets `agent_session.read_only`, and a teammate's or
 link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
 its agent in. The code and key are never logged.
 
+`agent-session-login-machine-v1` (advertised with `agent-session-login-v1`): a
+new chat that has no session yet (its start was refused
+`agent_session.sign_in_required`) signs its agent in on this machine. A step for
+a tab with no attachment that is an unbound agent tab of this store (the tab
+`agent-session-start` would start) takes the same fields plus an optional
+`vm_kind`, and sends acpmux's `_acpmux/agent_login/<op>` with no `sessionId`:
+the sign-in is this machine's own and no chat restarts. It is gated exactly as
+`agent-session-start`: a trusted carrier only (a teammate's or link guest's
+link is refused), the same host check (on a Cloud VM only the caller's
+`vm_kind:"owner"` lets it run, else `agent_session.host_unverified`; a team VM
+`agent_session.team_vm_blocked`). Any other tab with no attachment (one with a
+session, one of another store) is still `agent_session.not_attached`. The step
+runs on a worker; answers and refusals are as above.
+
 ### agent-session-btw
 
 `agent-session-btw-v1` (advertised with `agent-session-attach-v1`): the
