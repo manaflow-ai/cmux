@@ -47,6 +47,13 @@ CRATES_DIR = "cmux-tui/crates"
 OWNERS = {"cmux-process", "cmux-scope"}
 SKIP_DIRS = {"target", ".build", "tests", "benches", "examples", "fixtures", "node_modules"}
 BASELINE = "scripts/cmux-next/spawn-owner-baseline.tsv"
+# A baseline allowance follows a production seam when its unowned spawn sites move to a
+# child module. Keep this explicit: a new path may inherit only from its named old path,
+# and only while the old path has no remaining findings.
+MOVED_BASELINE_PATHS = {
+    "cmux-tui/crates/cmux-remote/src/identity/auth_database.rs":
+        "cmux-tui/crates/cmux-remote/src/identity.rs",
+}
 CLIPPY_CONF = "scripts/cmux-next/spawn-owner-clippy"
 NEXT = ("next: spawn the task with its owner's `Scope::spawn` / `spawn_named` / `spawn_until_cancelled` "
         "(cmux-scope; the owner closes it), or start the process with `cmux_process::Command` and keep "
@@ -187,9 +194,15 @@ def judge_against_base(rows: dict[str, int], base: dict[str, int] | None, ref: s
         return 0
     status = 0
     for path, count in sorted(rows.items()):
-        if count > base.get(path, 0):
+        base_count = base.get(path)
+        moved_from = MOVED_BASELINE_PATHS.get(path)
+        if base_count is None and moved_from in base and moved_from not in rows:
+            base_count = base[moved_from]
+            print(f"check-spawn-owner: {BASELINE} carries {moved_from} -> {path} at {count} "
+                  f"(base {ref}: {base_count})")
+        if count > (base_count or 0):
             status = 1
-            print(f"check-spawn-owner: {BASELINE} raises {path} to {count} (base {ref}: {base.get(path, 0)}). "
+            print(f"check-spawn-owner: {BASELINE} raises {path} to {count} (base {ref}: {(base_count or 0)}). "
                   "The baseline only goes down.", file=sys.stderr)
     if status:
         print(NEXT, file=sys.stderr)
