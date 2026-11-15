@@ -173,6 +173,10 @@ public final class SidebarGroupEditor {
         hide()
     }
 
+    /// A scripted open (`debug.overlay_open_bench`) is a new click: the last close was no click of it, though AppKit's
+    /// current event (no new input between scripted calls) still says so.
+    func forgetLastClose() { lastClosed = nil }
+
     /// Whether the editor of `group` closed during the click that is
     /// happening now (the click made the sidebar's window key, which closes
     /// the bubble first): that click toggles it closed, it does not reopen it.

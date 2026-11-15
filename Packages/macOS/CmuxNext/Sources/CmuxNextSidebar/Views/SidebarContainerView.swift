@@ -304,6 +304,7 @@ public final class SidebarContainerView: NSView {
     public func beginRenameFirstGroup() -> Bool {
         let first = model.sections.lazy.flatMap(\.nodes).compactMap { node -> GroupID? in if case let .group(group) = node { group.id } else { nil } }.first
         guard let first else { return false }
+        sidebarView.list.groupEditor.forgetLastClose()
         beginRename(group: first)
         return true
     }
