@@ -1,7 +1,10 @@
 //! Ignored release measurement for a peer's `all` page (decision 266): the serving side's
-//! read of this machine's rows, newest and deep, with 11,000 closed rows beside 20 live
+//! read of this machine's rows, newest and deep, with 11,028 closed rows beside 20 live
 //! against 20 closed. On both sides a third machine's run of rows sits just before the last
-//! 20 closed rows, so the deep page skips it on both.
+//! 20 closed rows, so the deep page skips it on both. 11,028 is 20 past a multiple of 256,
+//! the snapshot's records per checkpoint, as the small side's 20 is: each snapshot piece's
+//! seek then decodes the same records from its checkpoint on both sides, which the gate
+//! asserts outside the clock.
 
 use super::*;
 use crate::wire::{ListKey, ListView, Page, PageResult};
@@ -17,6 +20,9 @@ const SAMPLES: usize = 200;
 const LIVE: u64 = 20;
 const ROWS: usize = 20;
 const THIRD: u64 = 500;
+/// The large side's closed rows: 11,000 and more, and the same place in a checkpoint's block
+/// as the small side's (see the module comment).
+const GOD_CLOSED: u64 = 11_028;
 
 fn row(origin: &str, id: String, activity: u64, closed: bool) -> Summary {
     let mut summary = Summary::new(id);
@@ -114,9 +120,10 @@ fn sample(hub: &Hub, page: &Page) -> u128 {
 fn pr08b_serve_page() {
     // Leaked so a part's closure may hand out the sides' hubs; the test ends with the process.
     let small: &'static Side = Box::leak(Box::new(fixture(ROWS as u64)));
-    let god: &'static Side = Box::leak(Box::new(fixture(11_000)));
+    let god: &'static Side = Box::leak(Box::new(fixture(GOD_CLOSED)));
     // What each side holds and answers, checked outside the clock.
-    for (name, side, closed) in [("small", small, ROWS as u64), ("god", god, 11_000)] {
+    let mut scans = Vec::new();
+    for (name, side, closed) in [("small", small, ROWS as u64), ("god", god, GOD_CLOSED)] {
         let index = side.hub.snapshot();
         assert_eq!(index.len() as u64, LIVE + closed + THIRD, "{name}: rows held");
         let third = (0..THIRD)
@@ -139,6 +146,7 @@ fn pr08b_serve_page() {
                 let snapshot = DiskSnapshot::open(&side.path)
                     .expect("the snapshot opens")
                     .expect("a snapshot on disk");
+                let mut scan = Vec::new();
                 for (n, (anchor, piece_bytes)) in
                     PEER_ANCHORS.with(|read| read.borrow().clone()).into_iter().enumerate()
                 {
@@ -150,7 +158,9 @@ fn pr08b_serve_page() {
                     eprintln!(
                         "SERVE_PAGE_SEEK side={name} piece={n} ordinal={at} scanned={scanned} bytes={piece_bytes}"
                     );
+                    scan.push(scanned);
                 }
+                scans.push(scan);
             }
             assert!(
                 rows.iter()
@@ -159,6 +169,11 @@ fn pr08b_serve_page() {
             );
         }
     }
+    // The seeks decode the same records on both sides, so the sides differ in list length only.
+    assert_eq!(
+        scans[0], scans[1],
+        "snapshot_deep: records each piece's seek decodes, small and god"
+    );
     let mut parts = Vec::new();
     for part in ["newest", "deep", "snapshot_deep"] {
         let pick = |side: &'static Side| -> (&'static Hub, Page) {
