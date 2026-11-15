@@ -714,6 +714,11 @@ impl StartRefused {
         }
         Refusal::of(error).into()
     }
+
+    /// The start's refusal with `harness`, the agent the start asked for, named in its facts.
+    pub(super) fn naming(self, _harness: Option<&str>) -> Self {
+        self
+    }
 }
 
 /// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
@@ -748,7 +753,7 @@ fn start_and_bind(
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let family = catalog_family(catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
+    let family = start_family(catalog, params.harness.as_deref())?;
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
     // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
@@ -812,7 +817,7 @@ fn start_and_bind(
                 }
             },
         )
-        .map_err(StartRefused::of_session_new);
+        .map_err(|error| StartRefused::of_session_new(error).naming(params.harness.as_deref()));
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
@@ -896,6 +901,11 @@ fn catalog_family(catalog: &Value, harness: Option<&str>) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|family| !family.is_empty())
         .map(str::to_owned)
+}
+
+/// The family a start resolves to ([`catalog_family`]).
+fn start_family(catalog: &Value, harness: Option<&str>) -> Result<String, StartRefused> {
+    catalog_family(catalog, harness).ok_or_else(|| Refusal::NotAsking.into())
 }
 
 fn refused_family(table: &Value, family: &str) -> bool {
@@ -1196,5 +1206,63 @@ mod tests {
             StartRefused::of_session_new(LinkError::Timeout),
             StartRefused(Refusal::Timeout, None)
         );
+    }
+
+    /// An agent the machine's acpmux catalog does not have (pi on a Cloud machine, whose image
+    /// ships `pi` but not the `pi-acp` adapter acpmux runs it through) is refused as
+    /// `harness_missing` naming it, never `not_asking`, which said the agent cannot ask first
+    /// (hq#11225). A harness the catalog has resolves to its family as before.
+    #[test]
+    fn a_start_of_an_agent_the_machine_lacks_names_it() {
+        let catalog = json!({
+            "harnesses": {"claude": {"family": "claude"}, "cmux": {"family": "claude"}},
+            "families": {"claude": ["claude", "cmux"]},
+            "defaultHarness": "claude",
+        });
+        assert_eq!(start_family(&catalog, Some("cmux")), Ok("claude".to_owned()));
+        assert_eq!(start_family(&catalog, None), Ok("claude".to_owned()));
+        let StartRefused(refusal, data) = start_family(&catalog, Some("pi")).unwrap_err();
+        assert_eq!(refusal.code(), "agent_session.harness_missing");
+        assert_eq!(data, Some(json!({"reason": "agent.not_installed", "harness": "pi"})));
+        // A name that is no harness id is never echoed back.
+        let StartRefused(refusal, data) = start_family(&catalog, Some("no such!")).unwrap_err();
+        assert_eq!(refusal, Refusal::HarnessMissing);
+        assert_eq!(data, Some(json!({"reason": "agent.not_installed"})));
+        // No harness named and no default: still the missing agent, not a mode refusal.
+        let bare = json!({"harnesses": {}, "families": {}});
+        assert_eq!(start_family(&bare, None).unwrap_err().0, Refusal::HarnessMissing);
+    }
+
+    /// A start whose agent's model route cannot serve it on the machine (acpmux `route.*`: the
+    /// cmux router harness on a Cloud machine, which runs no signed-in local router) is refused
+    /// as `route_unavailable` naming the route's reason and the harness asked for, never the
+    /// bare `refused` (hq#11225). acpmux's message never passes.
+    #[test]
+    fn a_start_whose_route_cannot_serve_it_names_the_route() {
+        for reason in ["route.unavailable", "route.not_found", "route.invalid"] {
+            let down = LinkError::Rpc(
+                "the local CodeRouter is not running (No such file or directory)".into(),
+                json!({"reason": reason}),
+            );
+            let StartRefused(refusal, data) =
+                StartRefused::of_session_new(down).naming(Some("cmux"));
+            assert_eq!(refusal.code(), "agent_session.route_unavailable", "{reason}");
+            assert_eq!(data, Some(json!({"reason": reason, "harness": "cmux"})), "{reason}");
+        }
+        let down = LinkError::Rpc("x".into(), json!({"reason": "route.unavailable"}));
+        let StartRefused(refusal, data) = StartRefused::of_session_new(down).naming(None);
+        assert_eq!(refusal, Refusal::RouteUnavailable);
+        assert_eq!(data, Some(json!({"reason": "route.unavailable"})));
+        // Naming leaves every other refusal as it was, and a sign-in's own harness stays.
+        assert_eq!(
+            StartRefused::from(Refusal::Refused).naming(Some("cmux")),
+            StartRefused(Refusal::Refused, None)
+        );
+        let signed_out = LinkError::Rpc(
+            "Authentication required".into(),
+            json!({"reason": "agent.sign_in_required", "details": {"harness": "cursor"}}),
+        );
+        let StartRefused(_, data) = StartRefused::of_session_new(signed_out).naming(Some("grok"));
+        assert_eq!(data.unwrap()["harness"], "cursor");
     }
 }
