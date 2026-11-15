@@ -23,6 +23,7 @@ extension SettingDescriptor {
         if path == CustomDensitiesSetting.configPath { return CustomDensitiesSetting.accepts(value) }
         if path == CommandLabelsSetting().configPath { return CommandLabelsSetting.accepts(value) }
         if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
+        if path == NewTabAppSetting.configPath { return value.stringValue.map(NewTabAppSetting.isValidID) ?? false }
         if path == ChatSettings.rootsPath {
             guard let items = value.arrayValue else { return false }
             let validator = ChatRootValidator()

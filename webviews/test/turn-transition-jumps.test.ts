@@ -114,10 +114,16 @@ await requireBrowserLane("turn-transition-jumps.test.ts", async () => {
       for (const window of report) console.log(`turn-transition ${scenario} ${JSON.stringify(window)}`);
       expect(report.map((window) => window.step)).toEqual(STEPS[scenario]);
       for (const window of report) {
+        // The reader's own steer lands at once (Leo, 2026-11-11: "that slow settle animation is just
+        // so bad. Like, just do it."): in the frame the composer empties the prompt is in its place
+        // at full ink and the thread above it is moved up by it, so that step holds only the live
+        // line and the composer to the bound, and its prompt is no pop-in.
+        const sent = window.step === "steer";
+        const worstPx = sent ? Math.max(window.livePx, window.composerPx) : window.worstPx;
         // The step, so a failure names it.
-        expect({ step: window.step, worstPx: window.worstPx }).toEqual({
+        expect({ step: window.step, worstPx }).toEqual({
           step: window.step,
-          worstPx: Math.min(window.worstPx, MAX_TRANSITION_PX),
+          worstPx: Math.min(worstPx, MAX_TRANSITION_PX),
         });
         // The stream's own frames (the reply's text growing and the chase bringing it home) keep to
         // the chase's bound: no frame moves more than a line (followChase CHASE_MAX_FRAME_LINES).
@@ -126,7 +132,7 @@ await requireBrowserLane("turn-transition-jumps.test.ts", async () => {
           streamPx: Math.min(window.streamPx, LINE_PX + 0.5),
         });
         // Nothing comes in at full ink, and nothing moves after the motion ended.
-        expect(window.popIns).toEqual([]);
+        expect(window.popIns.filter((row) => !(sent && row === "live-steer"))).toEqual([]);
         expect(window.reflows).toBe(0);
       }
     },

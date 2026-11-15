@@ -80,12 +80,7 @@ public final class KeepAwakeService {
         }
     }
 
-    /// Phones can reach this Mac now (`MobileHostService.isServing`).
-    public func setPhoneServing(_ serving: Bool) {
-        policy.phoneServing = serving
-    }
-
-    /// NEXT phones can reach this Mac; turning either host off preserves the other hold.
+    /// iPhones can reach this Mac now (`IPhoneHostService`).
     public func setIPhoneServing(_ serving: Bool) {
         policy.iPhoneServing = serving
     }

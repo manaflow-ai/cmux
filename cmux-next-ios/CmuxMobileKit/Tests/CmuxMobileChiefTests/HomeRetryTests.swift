@@ -70,13 +70,13 @@ import Testing
         await feed.connect(link: link, macID: "mac-home")
         #expect(await MacHomeFeedTests().until { feed.rows != nil })
         quiet.isOn = true
-        let clock = ContinuousClock()
-        let start = clock.now
+        let clock = HomeRetryClock()
 
-        await feed.reload(cap: .milliseconds(200))
+        await feed.reload(cap: .milliseconds(200), on: clock)
 
-        #expect(clock.now - start >= .milliseconds(200))
-        #expect(clock.now - start < .seconds(10))
+        // It came back at its cap, 200 ms after the tap, on a clock no runner's load can move.
+        #expect(clock.sleptUntil == [HomeRetryClock.at(.milliseconds(200))])
+        #expect(clock.now == HomeRetryClock.at(.milliseconds(200)))
     }
 
     @Test func offlineHomeRetryRequestsOnlyItsOwningMac() async {
@@ -211,5 +211,35 @@ final class QuietSwitch: @unchecked Sendable {
     var isOn: Bool {
         get { lock.withLock { on } }
         set { lock.withLock { on = newValue } }
+    }
+}
+
+/// A clock that moves only when told to. Each sleep records its deadline and
+/// ends at once: a cancelled sleep throws, as a real clock's does, and any other
+/// sleep moves the clock to its deadline when that is later. No wall time is
+/// read, so a timing test on it cannot flake under load. (The same clock as
+/// CmuxMobileWorkspacesTests' RecordedClock.)
+final class HomeRetryClock: Clock, @unchecked Sendable { // crash-allow: lock-guarded test clock
+    struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    static func at(_ offset: Duration) -> Instant { Instant(offset: offset) }
+
+    private let lock = NSLock()
+    private var current = Instant(offset: .zero)
+    private var deadlines: [Instant] = []
+
+    var now: Instant { lock.withLock { current } }
+    var minimumResolution: Duration { .zero }
+    var sleptUntil: [Instant] { lock.withLock { deadlines } }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        lock.withLock { deadlines.append(deadline) }
+        try Task.checkCancellation()
+        lock.withLock { if current < deadline { current = deadline } }
     }
 }

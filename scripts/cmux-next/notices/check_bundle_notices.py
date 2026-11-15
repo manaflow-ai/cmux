@@ -268,8 +268,9 @@ def check(
             if not requirement_holds(need, owner, rel):
                 errors.append(missing(rel, need))
         # Rust code can land in a binary that the map does not expect (Xcode
-        # merges Iroh.framework's static code into Contents/MacOS/cmux in
-        # Release), so every Mach-O is scanned for rustc's std paths.
+        # merges a framework's static code, as it once did Iroh.framework's,
+        # into Contents/MacOS/cmux in Release), so every Mach-O is scanned
+        # for rustc's std paths.
         if "rust-std" not in seen:
             module, _ = toolchain_manifest()
             commits = module.rustc_commits(app / rel)

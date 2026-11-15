@@ -50,11 +50,15 @@ import Testing
         return found
     }
 
-    @Test func thePaneTypeChevronDrawsNoBlockWhileItsMenuIsOpen() throws {
+    /// The stroke looks (`tabs.trailingButtons` glyphs, merged) draw no block behind the ⌄ while its menu is open. The
+    /// default split look (Lucas 2026-11-12, #41212) is checked by ``theSplitChevronFillsItsOwnSegmentWhileItsMenuIsOpen()``.
+    @Test(arguments: [TabTrailingButtons.glyphs, .merged])
+    func thePaneTypeChevronDrawsNoBlockWhileItsMenuIsOpen(style: TabTrailingButtons) throws {
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
         let chooser = harness.strip.newTabMenuButton
         #expect(!chooser.isHidden, "the pane asks for its type chooser")
+        chooser.style = style
         chooser.isHighlighted = true // what the strip sets while the chooser's menu is open
         chooser.layoutSubtreeIfNeeded()
         let layer = try #require(chooser.layer)
@@ -62,15 +66,25 @@ import Testing
         #expect(blocks.isEmpty, "the ⌄ paints a rectangular block: \(blocks.map { "\($0.bounds.size) r\($0.cornerRadius)" })")
     }
 
-    @Test func thePaneMoreDrawsNoPlateWhileItsMenuIsOpen() throws {
-        let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 80, height: TabStripView.preferredHeight))
-        toolbar.show(more: true, lit: false)
-        toolbar.layoutSubtreeIfNeeded()
-        toolbar.moreButton.showsMenu = true
-        toolbar.moreButton.updateLayer()
-        let layer = try #require(toolbar.moreButton.layer)
-        let blocks = filledLayers(layer).filter { abs($0.bounds.width - $0.bounds.height) > 0.5 || $0.cornerRadius < $0.bounds.width / 2 - 0.5 }
-        #expect(blocks.isEmpty, "the ⋮ paints a plate: \(blocks.map { "\($0.bounds.size) r\($0.cornerRadius)" })")
+    /// The split `+ ⌄` (the default since Lucas 2026-11-12, #41212: "only on hover"): an open ⌄ menu fills the ⌄'s
+    /// whole segment, a tab's height, with the group's trailing corners rounded as a tab's, in the pressed fill. It is
+    /// the right half of one control, not a square plate of its own.
+    @Test func theSplitChevronFillsItsOwnSegmentWhileItsMenuIsOpen() throws {
+        let harness = Harness()
+        defer { harness.window.closeAfterTest() }
+        let chooser = harness.strip.newTabMenuButton
+        chooser.style = .split
+        chooser.isHighlighted = true
+        chooser.layoutSubtreeIfNeeded()
+        let layer = try #require(chooser.layer)
+        let fills = filledLayers(layer)
+        #expect(fills.count == 1, "one fill: \(fills.map { "\($0.bounds.size)" })")
+        let fill = try #require(fills.first)
+        #expect(fill.frame == chooser.bounds, "the fill is the whole segment")
+        #expect(fill.cornerRadius == NewTabButtonView.splitCornerRadius)
+        #expect(fill.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner], "only the group's trailing corners round")
+        chooser.isHighlighted = false
+        #expect(filledLayers(layer).isEmpty, "no fill once the menu closes and the pointer is away")
     }
 
     @Test func theChevronIsDrawnAtThePlusStrokeWeight() throws {

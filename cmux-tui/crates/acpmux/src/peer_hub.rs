@@ -18,7 +18,7 @@ impl Peer {
     }
 
     /// Whether this peer has a hub path: the daemon runs the carrier or may start it (joined,
-    /// with the WireGuard transport's key lock: the carrier never takes the lock itself), and
+    /// and the node key is not the cmux link's: `HubCarrierSlot::for_daemon`), and
     /// the peer names a hub `daemonId` or the running carrier has a route for it.
     pub(crate) fn has_hub_path(&self) -> bool {
         self.hub_carrier.get().is_some_and(|(slot, daemon)| {
@@ -32,7 +32,7 @@ impl Peer {
     /// loopback listener, as a WireGuard stream does.
     pub(crate) async fn hub_stream(&self) -> Result<crate::hub_carrier::HubStream, String> {
         let (slot, daemon) = self.hub_carrier.get().ok_or_else(|| "no hub route".to_owned())?;
-        let carrier = slot.get().ok_or_else(|| "the hub carrier is off".to_owned())?.clone();
+        let carrier = slot.get().ok_or_else(|| "the hub carrier is off".to_owned())?;
         let daemon = daemon
             .clone()
             .or_else(|| carrier.route(&self.name))

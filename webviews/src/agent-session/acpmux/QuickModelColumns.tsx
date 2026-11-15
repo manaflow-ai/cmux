@@ -397,11 +397,13 @@ function Columns({
   const widthOf = useCallback(
     (popup: HTMLElement | null | undefined) => {
       if (!popup || dragging.current) return;
-      const room = "var(--available-width, calc(100vw - 24px))";
+      const available = "var(--available-width, calc(100vw - 24px))";
+      const column = popup.ownerDocument.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+      const room = column ? `min(${Math.max(0, column.width - 10)}px, ${available})` : available;
+      popup.style.minWidth = `min(${ownWidth ? `${MODEL_MENU_MIN_WIDTH}px` : "var(--acpmux-cols-min-width)"}, ${room})`;
       if (ownWidth) {
         // A width the person dragged to is theirs, from the drag's floor up to the window.
         popup.style.width = `min(${ownWidth}px, ${room})`;
-        popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${room})`;
         popup.style.maxWidth = room;
         return;
       }
@@ -409,8 +411,7 @@ function Columns({
       // scale and chrome text size as the names do. The stylesheet's floor (28.5em) and cap (40em)
       // still hold; a name longer than the cap wraps under it.
       popup.style.width = natural ? `min(${natural.width}em, ${room})` : "";
-      popup.style.minWidth = "";
-      popup.style.maxWidth = "";
+      popup.style.maxWidth = `min(40em, ${room})`;
     },
     [ownWidth, natural],
   );
@@ -519,7 +520,14 @@ function Columns({
     return labels;
   }, [list, effort?.levels, fast, t]);
   const effortKey = effortLabels.map((label) => label.text).join("\u0000");
-  useLayoutEffect(() => widthOf(popupRef.current), [widthOf, popupNode]);
+  useLayoutEffect(() => {
+    widthOf(popupNode);
+    const column = popupNode?.ownerDocument.querySelector(CHAT_COLUMN);
+    if (!column || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => widthOf(popupNode));
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [widthOf, popupNode]);
   const shown = list.find((family) => family.id === tab);
   const tabs = useMemo(() => familyTabs(list), [list]);
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
@@ -779,65 +787,75 @@ function Columns({
     observer.observe(list);
     return () => observer.disconnect();
   }, [open, modelsListElement, rowsKey, pending, current, markStarRooms]);
-  /// A drag on the menu's outer edge: the width follows the pointer and is kept on release. The other
-  /// edge, the one lined up with the chip, stays where it is, and the menu never grows past the room
-  /// it has (the chat column, else the window). Base UI places the popup a frame or more after a
-  /// size change (a React render), so each width step drew the menu off its edge for a frame and,
-  /// past the room, ran it out of the pane until the release snapped it back: the flicker in Lucas's
-  /// recording (2026-11-10). While the drag runs, a translate holds the edge until Base UI catches up.
-  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+  // Edge and corner drags share one frame update and pin the sides nearest the chip.
+  const startResize = (event: React.PointerEvent<HTMLDivElement>, axes: "width" | "height" | "both") => {
     const popup = popupRef.current;
     const positioner = popup?.parentElement;
-    if (event.button !== 0 || !popup || !positioner) return;
+    const content = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
+    if (event.button !== 0 || !popup || !positioner || !content) return;
     event.preventDefault();
     event.stopPropagation();
+    const horizontal = axes !== "height";
+    const vertical = axes !== "width";
     const grip = event.currentTarget;
     const doc = popup.ownerDocument;
+    const view = doc.defaultView;
     const start = popup.getBoundingClientRect();
+    const startHeight = content.getBoundingClientRect().height;
     const startX = event.clientX;
+    const startY = event.clientY;
     const fromEnd = align === "end";
-    // The room: the chat column the menus keep to (CHAT_COLUMN), else the window, less the popup's
-    // collision padding (5 px, popupInset.ts).
+    const fromTop = side === "top";
     const bound = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
     const left = (bound?.left ?? 0) + 5;
-    const right = (bound?.right ?? doc.defaultView?.innerWidth ?? start.right) - 5;
-    const most = Math.max(MODEL_MENU_MIN_WIDTH, fromEnd ? start.right - left : right - start.left);
+    const right = (bound?.right ?? view?.innerWidth ?? start.right) - 5;
+    const mostWidth = Math.max(0, Math.floor(fromEnd ? start.right - left : right - start.left));
+    const leastWidth = Math.min(mostWidth, MODEL_MENU_MIN_WIDTH);
+    const bottom = (view?.innerHeight ?? start.bottom) - 5;
+    const mostHeight = Math.max(0, Math.floor(fromTop ? start.bottom - 5 : bottom - start.top));
+    const leastHeight = Math.min(mostHeight, MODEL_MENU_MIN_HEIGHT);
     let width = start.width;
-    // Where the popup's left edge belongs for `width`; the translate makes up whatever Base UI has
-    // not placed yet, read live each time it moves the positioner.
+    let height = startHeight;
     const pin = () => {
-      const wanted = fromEnd ? start.right - width : start.left;
-      const placed = positioner.getBoundingClientRect().left;
-      const offset = Math.round((wanted - placed) * 100) / 100;
-      popup.style.translate = offset ? `${offset}px 0` : "";
-      return offset;
+      const wantedX = fromEnd ? start.right - width : start.left;
+      const wantedY = vertical && fromTop ? start.bottom - popup.getBoundingClientRect().height : start.top;
+      const placed = positioner.getBoundingClientRect();
+      const x = horizontal ? Math.round((wantedX - placed.left) * 100) / 100 : 0;
+      const y = vertical ? Math.round((wantedY - placed.top) * 100) / 100 : 0;
+      popup.style.translate = x || y ? `${x}px ${y}px` : "";
+      return x === 0 && y === 0;
     };
     const placed = new MutationObserver(() => {
-      if (pin() === 0 && !dragging.current) placed.disconnect();
+      if (pin() && !dragging.current) placed.disconnect();
     });
     placed.observe(positioner, { attributes: true, attributeFilter: ["style"] });
     grip.setPointerCapture?.(event.pointerId);
     grip.dataset.dragging = "";
     dragging.current = true;
-    // Pointer moves come faster than frames: each frame takes the last one and does one width write
-    // and one layout read (pin), never a forced layout per move (Lawrence 2026-11-11: "can you
-    // resize the model picker very fast?").
     let frame = 0;
     let pointerX = startX;
-    const view = doc.defaultView;
+    let pointerY = startY;
     const apply = () => {
       frame = 0;
-      const delta = (pointerX - startX) * (fromEnd ? -1 : 1);
-      const next = Math.round(Math.min(most, Math.max(MODEL_MENU_MIN_WIDTH, start.width + delta)));
-      if (next === width && popup.style.width === `${width}px`) return;
-      width = next;
-      popup.style.width = `${width}px`;
-      popup.style.minWidth = `${MODEL_MENU_MIN_WIDTH}px`;
-      popup.style.maxWidth = `${most}px`;
+      if (horizontal) {
+        const delta = (pointerX - startX) * (fromEnd ? -1 : 1);
+        width = Math.round(Math.min(mostWidth, Math.max(leastWidth, start.width + delta)));
+        popup.style.width = `${width}px`;
+        popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${mostWidth}px)`;
+        popup.style.maxWidth = `${mostWidth}px`;
+      }
+      if (vertical) {
+        const delta = (pointerY - startY) * (fromTop ? -1 : 1);
+        height = Math.round(Math.min(mostHeight, Math.max(leastHeight, startHeight + delta)));
+        content.style.minHeight = "";
+        content.style.height = `${height}px`;
+        content.style.maxHeight = `${height}px`;
+      }
       pin();
     };
     const move = (next: PointerEvent) => {
       pointerX = next.clientX;
+      pointerY = next.clientY;
       if (!frame) frame = view?.requestAnimationFrame(apply) ?? 0;
       if (!frame) apply();
     };
@@ -849,84 +867,15 @@ function Columns({
       grip.removeEventListener("pointercancel", end);
       delete grip.dataset.dragging;
       dragging.current = false;
-      // The edge is held until Base UI has placed the final width, then the translate goes.
-      if (pin() === 0) placed.disconnect();
-      // A drag back to the width already kept changes nothing in the store: the popup still goes back to
-      // its width within the room, not the px the drag held.
-      if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
-      widthOf(popup);
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", end);
-    grip.addEventListener("pointercancel", end);
-  };
-  /// A drag on the menu's edge away from the chip (its bottom when it opens down from New Tab, its top
-  /// when it opens up from a composer): the height follows the pointer and is kept on release (standup
-  /// 2026-11-12: "resize vertical height"). The edge at the chip stays where it is, held by a translate
-  /// until Base UI places the new height, as the width's drag does (startResize).
-  const startResizeHeight = (event: React.PointerEvent<HTMLDivElement>) => {
-    const popup = popupRef.current;
-    const positioner = popup?.parentElement;
-    const frame = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
-    if (event.button !== 0 || !popup || !positioner || !frame) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const grip = event.currentTarget;
-    const doc = popup.ownerDocument;
-    const view = doc.defaultView;
-    const start = popup.getBoundingClientRect();
-    const startHeight = frame.getBoundingClientRect().height;
-    const startY = event.clientY;
-    const fromTop = side === "top";
-    // The room: the window, less the popup's collision padding (5 px, popupInset.ts).
-    const bottom = (view?.innerHeight ?? start.bottom) - 5;
-    const most = Math.max(MODEL_MENU_MIN_HEIGHT, fromTop ? start.bottom - 5 : bottom - start.top);
-    let height = startHeight;
-    const pin = () => {
-      const wanted = fromTop ? start.bottom - popup.getBoundingClientRect().height : start.top;
-      const placed = positioner.getBoundingClientRect().top;
-      const offset = Math.round((wanted - placed) * 100) / 100;
-      popup.style.translate = offset ? `0 ${offset}px` : "";
-      return offset;
-    };
-    const placed = new MutationObserver(() => {
-      if (pin() === 0 && !dragging.current) placed.disconnect();
-    });
-    placed.observe(positioner, { attributes: true, attributeFilter: ["style"] });
-    grip.setPointerCapture?.(event.pointerId);
-    grip.dataset.dragging = "";
-    dragging.current = true;
-    // One height write and one layout read per frame, whatever the pointer's rate (startResize).
-    let frameId = 0;
-    let pointerY = startY;
-    const apply = () => {
-      frameId = 0;
-      const delta = (pointerY - startY) * (fromTop ? -1 : 1);
-      const next = Math.round(Math.min(most, Math.max(MODEL_MENU_MIN_HEIGHT, startHeight + delta)));
-      if (next === height && frame.style.height === `${height}px`) return;
-      height = next;
-      frame.style.minHeight = "";
-      frame.style.height = `${height}px`;
-      frame.style.maxHeight = `${height}px`;
-      pin();
-    };
-    const move = (next: PointerEvent) => {
-      pointerY = next.clientY;
-      if (!frameId) frameId = view?.requestAnimationFrame(apply) ?? 0;
-      if (!frameId) apply();
-    };
-    const end = () => {
-      if (frameId) view?.cancelAnimationFrame(frameId);
-      apply();
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", end);
-      grip.removeEventListener("pointercancel", end);
-      delete grip.dataset.dragging;
-      dragging.current = false;
-      if (pin() === 0) placed.disconnect();
-      // A new height re-renders with it (heightOf); a drag back to where it started keeps the one it had.
-      if (Math.abs(height - startHeight) >= 1) setModelMenuHeight(height);
-      else heightOf(popup);
+      if (pin()) placed.disconnect();
+      if (horizontal) {
+        if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
+        widthOf(popup);
+      }
+      if (vertical) {
+        if (Math.abs(height - startHeight) >= 1) setModelMenuHeight(height);
+        else heightOf(popup);
+      }
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", end);
@@ -1479,7 +1428,7 @@ function Columns({
           className="acpmux-cols-resize"
           data-edge={align === "end" ? "start" : "end"}
           aria-hidden="true"
-          onPointerDown={startResize}
+          onPointerDown={(event) => startResize(event, "width")}
           onDoubleClick={() => setModelMenuWidth(undefined)}
         />
         {/* The edge away from the chip, top or bottom: a drag sets the menu's height for every composer,
@@ -1489,8 +1438,20 @@ function Columns({
           className="acpmux-cols-resize-y"
           data-edge={side === "top" ? "top" : "bottom"}
           aria-hidden="true"
-          onPointerDown={startResizeHeight}
+          onPointerDown={(event) => startResize(event, "height")}
           onDoubleClick={() => setModelMenuHeight(undefined)}
+        />
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; both dimensions also have defaults */}
+        <div
+          className="acpmux-cols-resize-corner"
+          data-edge={align === "end" ? "start" : "end"}
+          data-side={side === "top" ? "top" : "bottom"}
+          aria-hidden="true"
+          onPointerDown={(event) => startResize(event, "both")}
+          onDoubleClick={() => {
+            setModelMenuWidth(undefined);
+            setModelMenuHeight(undefined);
+          }}
         />
         {/* ui-allow: Up, Down, Left, Right and Return move through the columns, as in a column browser. */}
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the field's keys bubble here: arrows move the columns */}
@@ -1545,7 +1506,7 @@ function Columns({
                 )}
                 {card}
               </span>
-              <SearchIcon size={12} />
+              <SearchIcon size={14} />
               <input
                 ref={fieldRef}
                 type="search"

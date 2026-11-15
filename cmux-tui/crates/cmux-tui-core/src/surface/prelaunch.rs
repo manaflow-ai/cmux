@@ -8,8 +8,10 @@ impl Surface {
     /// building its surface, so a caller can launch several hosts in
     /// parallel outside the creation transaction and finish each one with
     /// [`Surface::spawn_prelaunched`] inside it. Dropping the result before
-    /// then exact-kills the host (the attachment's launch guard); a protocol
-    /// v4 host also never starts its child before activation. The host starts
+    /// then exact-kills the host (the attachment's launch guard). A protocol
+    /// v4 host starts its child at the Launch frame and holds the child's
+    /// output until activation; the child can connect to the daemon in that
+    /// time, and the host's seat names its terminal. The host starts
     /// with Kitty graphics disabled; its share of the image budget is applied
     /// once the surface commits. `standby` is a host process started ahead
     /// (R81, the pool's spare); `None` starts one now. The host's first
@@ -43,6 +45,7 @@ impl Surface {
             terminal_id,
             standby,
             workspace_key,
+            &terminal_runtime::host_seating(&mux, &terminal_public_id),
         )?;
         Ok(PrelaunchedHost {
             id,
@@ -80,6 +83,26 @@ impl Surface {
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
             .unwrap_or_default();
+        // With the holder on, the new shell runs there as a new terminal's
+        // does: a respawn never brings back a host process per tab. The
+        // surface is active at once; the respawn's install and activation
+        // treat it as an adopted one (`activate_hosted_launch_stream`).
+        #[cfg(unix)]
+        if crate::holder_runtime::enabled() {
+            return Self::spawn_on_holder(HolderSpawn {
+                id,
+                opts,
+                mux,
+                host_root: root,
+                terminal_id: Some(terminal_id),
+                seed: seed.to_vec(),
+                terminal_public_id,
+                resource_identity: Some(resource_identity),
+                kitty_reservation,
+                initial_kitty_limits,
+                cell_pixels,
+            });
+        }
         let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let attachment = crate::terminal_host_runtime::launch_terminal_host_seeded(
             &opts,
@@ -88,6 +111,7 @@ impl Surface {
             terminal_id,
             None,
             (seed, ""),
+            &terminal_runtime::host_seating(&mux, &terminal_public_id),
         )?;
         Self::spawn_hosted(
             id,

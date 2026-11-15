@@ -117,8 +117,16 @@ reviews:
       instructions: |
         Apply `.github/review-bot-rules/cloud-persistent-session-and-early-input.md` during review. Cloud terminal creation must reuse the machine-owned persistent cmux-tui session, start a focused user-created manual Ghostty runtime at reservation time, preserve ordered input ownership through attachment, and retain auth, idempotency, revision, and lease fences. Logical per-terminal streams over one carrier are allowed. Do not require a remote PTY, shell, or local command-wrapper installation before showing a manual surface's empty cursor.
 
+    - path: "{Packages/macOS/CmuxNext/Sources/**/*.swift,cmux-next-ios/**/*.swift,webviews/src/**,agent-chat/src/**}"
+      instructions: |
+        Apply `.github/review-bot-rules/pressed-state.md` during review (design rule: `design/pressed-state.md`). A held button (mousedown, touch, `:active`, a held frame, SwiftUI `configuration.isPressed`, AppKit `isPressed`/`isHighlighted`) changes only its background fill. Flag a press that changes the label's weight (bold on press), font, size or letter spacing; the button's size, padding or place (transform, scale, translate, `.scaleEffect`, `.offset`, a press sink or shrink); the label's or icon's opacity, or its symbol; a pressed look set from a helper or a `pointerdown`/`mousedown` handler; a new SwiftUI `.buttonStyle(.plain)`, `.borderless` or `.link` (they dim the label); or an on toggle (`aria-pressed="true"`, `data-pressed`) that changes weight or size. Require the shared looks: `ChromeHover` (AppKit), `.buttonStyle(.cmuxPressFill)` (SwiftUI on macOS and iOS), `.ui-btn` (web). Pass for a different fill or a wash over the rest fill, a press rule that repeats the hover look or removes a ring or shadow, an on toggle's selected fill and ink, drag handles and sliders, a reasoned `pressed-state: allow <reason>`, and tests, galleries and prototypes.
+
   pre_merge_checks:
     custom_checks:
+      - name: "cmux pressed state changes only the fill"
+        mode: error
+        instructions: |
+          For changes under `Packages/macOS/CmuxNext/Sources/`, `cmux-next-ios/`, `webviews/src/` or `agent-chat/src/`, fail when a pressed state (mousedown, touch, `:active`, held frame, `isPressed`, `isHighlighted`) changes anything but the background fill, per `.github/review-bot-rules/pressed-state.md`: bold or another font, weight or size on press; scale, transform, offset or padding on press; a dimmed label or icon, or a different symbol; a new SwiftUI `.plain`, `.borderless` or `.link` button style; or an on toggle that changes weight or size. Pass for fill-only presses through `ChromeHover`, `.buttonStyle(.cmuxPressFill)` or `.ui-btn`, presses that repeat the hover look, drag handles, reasoned `pressed-state: allow` exceptions, and tests, galleries and prototypes.
       - name: "cmux Cloud persistent session and early input"
         mode: error
         instructions: |

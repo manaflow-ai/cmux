@@ -36,6 +36,7 @@ use crate::gate::MAX_EVENT_BYTES;
 use crate::store::Store;
 #[cfg(unix)]
 use crate::sys::private_file;
+#[cfg(all(test, unix))]
 use crate::trigger::Trigger;
 
 /// The longest an event is held while lines keep coming, whatever the debounce.
@@ -122,6 +123,8 @@ pub struct Watches {
     pending: HashMap<String, Pending>,
     next_generation: u64,
     events: u64,
+    /// The `cmux` an event trigger's command runs (`cmux automation events NAME`).
+    program: String,
 }
 
 impl Watches {
@@ -138,7 +141,14 @@ impl Watches {
             pending: HashMap::new(),
             next_generation: 1,
             events: 0,
+            program: "cmux".to_string(),
         }
+    }
+
+    /// The `cmux` binary event triggers run (the runner passes its own).
+    pub fn with_program(mut self, program: impl Into<String>) -> Watches {
+        self.program = program.into();
+        self
     }
 
     /// Start, stop and restart watch commands to match `automations`.
@@ -146,16 +156,17 @@ impl Watches {
         let wanted: HashMap<&str, Spec> = automations
             .iter()
             .filter(|a| a.enabled && !a.fenced())
-            .filter_map(|a| match &a.trigger {
-                Trigger::Watch { command, debounce_seconds } => Some((
+            .filter_map(|a| {
+                let command = a.trigger.watch_command(&self.program)?;
+                let debounce_seconds = a.trigger.debounce_seconds()?;
+                Some((
                     a.id.as_str(),
                     Spec {
-                        command: command.clone(),
+                        command,
                         folder: a.body.folder().map(str::to_string),
-                        debounce_ms: (*debounce_seconds as i64).saturating_mul(1000),
+                        debounce_ms: (debounce_seconds as i64).saturating_mul(1000),
                     },
-                )),
-                _ => None,
+                ))
             })
             .collect();
         let gone: Vec<String> = self

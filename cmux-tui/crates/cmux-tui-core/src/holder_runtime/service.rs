@@ -2,7 +2,6 @@
 //! terminals on it, and hand every live terminal to a new holder after a
 //! holder crash.
 
-use cmux_process::Stdio;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::os::fd::OwnedFd;
@@ -11,11 +10,17 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::{Duration, Instant};
 
+use cmux_holder::client::{PendingClient, link_taken_before_the_answer};
 use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
 use cmux_holder::{Listed, SpawnRequest};
 
 use super::{HolderSink, HolderTerminal};
 use crate::panic_free::RecoverPoison;
+
+mod launch;
+
+#[cfg(not(test))]
+pub(crate) use launch::prepare_in_background;
 
 /// The current link and the CLOSEs waiting for one. Held only for a
 /// moment: never while connecting, launching or re-adopting.
@@ -40,6 +45,11 @@ pub(crate) struct HolderService {
     /// caller that holds a surface lock may wait for it: a surface's kill
     /// and acknowledgements use [`Self::open_link`] only.
     connecting: Mutex<()>,
+    /// A connect the holder took and did not answer while its caller waited
+    /// ([`Self::connect`]): the next connect waits on it again, so a holder
+    /// that is slow to answer gets one connect from this daemon and not one
+    /// for each wait. Read and written under `connecting` only.
+    pending: Mutex<Option<PendingClient>>,
     next_chan: AtomicU32,
     /// Terminals this daemon runs on the holder, for a re-adoption after a
     /// holder crash.
@@ -80,6 +90,26 @@ const RELINK_HEALTHY: Duration = Duration::from_secs(10);
 /// First and longest wait before a relink after a link that ended sooner.
 const RELINK_INITIAL: Duration = Duration::from_millis(10);
 const RELINK_MAX: Duration = Duration::from_secs(5);
+/// How long a connect waits for the holder's answer when its caller gives no
+/// bound of its own.
+const CONNECT_WAIT: Duration = Duration::from_secs(10);
+
+/// What one ask of the holder found ([`HolderService::reach`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HolderReach {
+    /// The holder answered: its link is open.
+    Linked,
+    /// The holder took the connect and did not answer while the caller
+    /// waited. The connect stays open: the next ask waits on it again.
+    Silent,
+    /// The holder ended the connect before its answer, or refused it
+    /// because another connect took its link in that time. Such a holder may
+    /// still run every terminal: a new connect asks it again.
+    Dropped,
+    /// No holder serves the socket, the holder refused this daemon, or the
+    /// ask failed in another way.
+    Absent,
+}
 
 impl HolderService {
     /// The service of `host_root`, made on first use. One per root in the
@@ -104,6 +134,7 @@ impl HolderService {
             token,
             link: Mutex::default(),
             connecting: Mutex::new(()),
+            pending: Mutex::default(),
             next_chan: AtomicU32::new(1),
             live: Mutex::default(),
             claiming: RwLock::new(()),
@@ -133,6 +164,19 @@ impl HolderService {
         socket_path(host_root).is_ok_and(|socket| socket.exists())
     }
 
+    /// The socket of `host_root`'s holder, for a test that stands in for one.
+    #[cfg(test)]
+    pub(crate) fn socket_for_test(host_root: &Path) -> io::Result<PathBuf> {
+        socket_path(host_root)
+    }
+
+    /// For a test that stands in for a holder: this service connects no
+    /// more, so the end of the stand-in's link starts no real holder.
+    #[cfg(test)]
+    pub(crate) fn retire_for_test(&self) {
+        self.superseded.store(true, Ordering::Release);
+    }
+
     /// The live link: connects to a running holder, else starts one. A link
     /// made after a lost one hands every live terminal to the new holder.
     pub(crate) fn link(self: &Arc<Self>) -> io::Result<Arc<HolderLink>> {
@@ -145,9 +189,60 @@ impl HolderService {
         self.link.lock().recover_poison().link.clone().filter(|link| link.is_open())
     }
 
+    /// Ask the holder for its link without starting one, and wait for its
+    /// answer only while `left` is not zero (`left` is asked before each read
+    /// of the socket and bounds that read). Says how the ask ended; a
+    /// [`HolderReach::Silent`] holder keeps the connect, and a later ask (or
+    /// any other use of the link) waits on the same one.
+    pub(crate) fn reach(self: &Arc<Self>, left: &dyn Fn() -> Duration) -> HolderReach {
+        match self.link_or_launch_while(false, Some(left)) {
+            Ok(_) => HolderReach::Linked,
+            Err(error) => match error.kind() {
+                io::ErrorKind::TimedOut => HolderReach::Silent,
+                io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::BrokenPipe => {
+                    eprintln!("cmux-tui: the terminal holder ended the connect: {error}");
+                    HolderReach::Dropped
+                }
+                // A holder that wrote this refusal runs: it gave its link
+                // to a connect that it read after this one (for example a
+                // connect of a daemon that is gone). It is not a holder
+                // that refuses this daemon, and not one that is gone.
+                _ if link_taken_before_the_answer(&error) => {
+                    eprintln!(
+                        "cmux-tui: the terminal holder gave its link to another connect \
+                         before its answer: {error}"
+                    );
+                    HolderReach::Dropped
+                }
+                _ => {
+                    eprintln!("cmux-tui: no terminal holder to reach: {error}");
+                    HolderReach::Absent
+                }
+            },
+        }
+    }
+
+    /// Whether another daemon of the session took the holder: this daemon is
+    /// on its way out and does not reach the holder again.
+    pub(crate) fn gave_way(&self) -> bool {
+        self.superseded.load(Ordering::Acquire)
+    }
+
     /// [`Self::link`]; with `launch` false a holder that does not run is not
     /// started (a restart only asks whether one kept terminals).
     fn link_or_launch(self: &Arc<Self>, launch: bool) -> io::Result<Arc<HolderLink>> {
+        self.link_or_launch_while(launch, None)
+    }
+
+    /// [`Self::link_or_launch`], waiting for the holder's answer while
+    /// `patience` is not zero instead of [`CONNECT_WAIT`].
+    fn link_or_launch_while(
+        self: &Arc<Self>,
+        launch: bool,
+        patience: Option<&dyn Fn() -> Duration>,
+    ) -> io::Result<Arc<HolderLink>> {
         if let Some(link) = self.open_link() {
             return Ok(link);
         }
@@ -161,11 +256,16 @@ impl HolderService {
             ));
         }
         let had_link = self.link.lock().recover_poison().link.is_some();
-        let (link, listed) = match self.connect() {
+        let (link, listed) = match self.connect(patience) {
             Ok(connected) => connected,
             Err(_) if launch => {
                 self.launch()?;
-                self.connect()?
+                // A holder listens now: a new one, or the one that did not
+                // answer (a launch that lost to it also returns `Ok`). The
+                // kept connect is dropped either way and one new connect
+                // asks.
+                drop(self.pending.lock().recover_poison().take());
+                self.connect(patience)?
             }
             Err(error) => return Err(error),
         };
@@ -483,12 +583,49 @@ impl HolderService {
         }
     }
 
-    fn connect(self: &Arc<Self>) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
+    /// Connect to the holder, or go on with the connect an earlier wait left
+    /// pending, and wait for its answer: [`CONNECT_WAIT`], or while
+    /// `patience` is not zero. A wait that times out keeps the connect for
+    /// the next call. A kept connect that ended while nobody waited on it is
+    /// replaced with one new connect. Called under `connecting`.
+    fn connect(
+        self: &Arc<Self>,
+        patience: Option<&dyn Fn() -> Duration>,
+    ) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
+        let deadline = Instant::now() + CONNECT_WAIT;
+        let wait = || deadline.saturating_duration_since(Instant::now());
+        let left: &dyn Fn() -> Duration = match patience {
+            Some(patience) => patience,
+            None => &wait,
+        };
+        let hello = || PendingClient::hello(&self.socket, &self.token, cmux_holder::wire::VERSION);
+        let (mut pending, mut kept) = match self.pending.lock().recover_poison().take() {
+            Some(pending) => (pending, true),
+            None => (hello()?, false),
+        };
+        loop {
+            match pending.welcomed(left) {
+                Ok(()) => break,
+                Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                    *self.pending.lock().recover_poison() = Some(pending);
+                    return Err(error);
+                }
+                Err(error) => {
+                    if !std::mem::take(&mut kept) {
+                        return Err(error);
+                    }
+                    eprintln!(
+                        "cmux-tui: the terminal holder ended or refused the connect that \
+                         waited for its answer ({error}): one new connect"
+                    );
+                    pending = hello()?;
+                }
+            }
+        }
         let weak = Arc::downgrade(self);
         let linked_at = Instant::now();
-        HolderLink::connect(
-            &self.socket,
-            &self.token,
+        HolderLink::from_pending(
+            pending,
             Box::new(move |end| {
                 let Some(service) = weak.upgrade() else { return };
                 if end == LinkEnd::Superseded {
@@ -534,145 +671,11 @@ impl HolderService {
             }),
         )
     }
-
-    /// Start a holder and wait until it listens: the standalone
-    /// `cmux-holder` (std and libc only, its own content-addressed copy on
-    /// macOS, `crate::host_exe::holder_executable`) when the daemon has one
-    /// that speaks its wire, else the holder built into the host executable
-    /// (`cmux-tui-host __holder`).
-    fn launch(&self) -> io::Result<()> {
-        let configure =
-            |command: &mut cmux_process::Command| {
-                command
-                    .arg("--socket")
-                    .arg(&self.socket)
-                    // Every shell gets back the open-file limit cmux started
-                    // with; the holder keeps the daemon's raised one.
-                    .envs(
-                        cmux_pty::original_open_file_limit()
-                            .map(|soft| (cmux_holder::NOFILE_SOFT_ENV, soft.to_string())),
-                    )
-                    // A DEV build's, debug build's or test's grace, as its hosts
-                    // get: the holder ends its terminals once no daemon came back.
-                    .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
-                        (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
-                    }))
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null());
-            };
-        if !self.standalone_failed.load(Ordering::Acquire)
-            && let Some(path) = standalone_holder()
-        {
-            let mut command = cmux_process::Command::new(&path);
-            command.arg0(crate::host_exe::HOLDER_NAME);
-            configure(&mut command);
-            // Not to a file `CMUX_TUI_HOLDER_EXE` names: that is a test's
-            // stand-in for an older holder, which refuses arguments it
-            // does not know.
-            if std::env::var_os(crate::host_exe::HOLDER_ENV).is_none_or(|value| value.is_empty()) {
-                command.args(crate::terminal_host_runtime::host_owner_args());
-            }
-            let started = command.spawn().and_then(|child| self.handshake(child));
-            match started {
-                Ok(()) => return Ok(()),
-                // It lost a race to another holder of this session, which
-                // listens now: connect to that one.
-                Err(_) if std::os::unix::net::UnixStream::connect(&self.socket).is_ok() => {
-                    return Ok(());
-                }
-                Err(error) => {
-                    // A standalone holder that answers `--version` but does
-                    // not start (a startup error, a crash in serve, a hang
-                    // before `ready`, a macOS major it fails on) must not
-                    // cost every holder terminal: this daemon runs the
-                    // built-in holder from now on.
-                    eprintln!(
-                        "cmux-tui: the terminal holder {} did not start ({error}); \
-                         using the built-in holder",
-                        path.display()
-                    );
-                    self.standalone_failed.store(true, Ordering::Release);
-                }
-            }
-        }
-        let child = crate::host_exe::spawn_host_isolated(|command| {
-            command.arg("__holder");
-            configure(command);
-            command.args(crate::terminal_host_runtime::host_owner_args());
-        })?;
-        self.handshake(child)
-    }
-
-    /// Hand a just-started holder its token and wait for its `ready`. A
-    /// holder that answers anything else, or nothing in time, is killed and
-    /// reaped; one that is ready is reaped whenever it exits while this
-    /// daemon runs.
-    fn handshake(&self, mut child: cmux_process::Child) -> io::Result<()> {
-        match first_line(&mut child, &self.token) {
-            Ok(line) if line.trim() == "ready" => {}
-            answer => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(match answer {
-                    Ok(line) => {
-                        io::Error::other(format!("the terminal holder did not start: {line:?}"))
-                    }
-                    Err(error) => error,
-                });
-            }
-        }
-        // Reaped here while this daemon runs; it outlives the daemon (that is what keeps
-        // terminals across a restart), also when the reaper thread cannot start.
-        child.detach("the terminal holder outlives this daemon so its terminals survive a restart");
-        let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
-        Ok(())
-    }
 }
 
 /// The grace a CLOSE gives the shell of an abandoned terminal before
 /// SIGKILL: a shell's usual hang-up grace.
 const ABANDONED_CLOSE_GRACE_MS: u32 = 2000;
-
-/// Write `token` to a just-started holder's stdin and read the first line
-/// it prints (`ready` once it listens), waiting at most
-/// [`cmux_holder::client::READY_TIMEOUT`]: a holder that hangs before it
-/// (and does not exit) must not hold the `connecting` lock, and with it
-/// every terminal create and holder restart, for ever.
-fn first_line(child: &mut cmux_process::Child, token: &[u8; 32]) -> io::Result<String> {
-    let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
-    let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
-    stdin.write_all(format!("{hex}\n").as_bytes())?;
-    drop(stdin);
-    let mut stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
-    cmux_holder::client::first_line_within(&mut stdout, cmux_holder::client::READY_TIMEOUT)
-}
-
-/// The standalone holder this daemon starts, when it has one whose wire
-/// range it speaks (`cmux-holder --version`).
-pub(crate) fn standalone_holder() -> Option<PathBuf> {
-    crate::host_exe::holder_executable(&|answer| {
-        cmux_holder::parse_version_line(answer).is_some_and(|(min, max)| {
-            min <= cmux_holder::wire::VERSION && max >= cmux_holder::wire::MIN_VERSION
-        })
-    })
-}
-
-/// Make the standalone holder's copy and run its `--version` on a
-/// background thread, so the first terminal of a session does not pay for
-/// the copy, its hash and its first exec. Only with the holder model on.
-/// A daemon calls it when it starts serving (unit tests start none).
-#[cfg(not(test))]
-pub(crate) fn prepare_in_background() {
-    if !super::enabled() {
-        return;
-    }
-    let _ = std::thread::Builder::new().name("cmux-holder-exe".into()).spawn(|| {
-        let _ = standalone_holder();
-    });
-}
 
 /// `/tmp/cmux-hd-<uid>/<hash of the host root>.sock`: short enough for
 /// `sun_path`, one per session, in a 0700 directory of this user.

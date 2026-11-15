@@ -19,6 +19,11 @@ struct Record<'a> {
     is_sidechain: bool,
     is_meta: bool,
     is_compact_summary: bool,
+    /// A `result` record's own name for it, not under `rename_all`.
+    #[serde(rename = "is_error")]
+    is_error: bool,
+    #[serde(borrow)]
+    subtype: Cow<'a, str>,
     #[serde(borrow)]
     message: Option<Message<'a>>,
     #[serde(borrow)]
@@ -39,6 +44,38 @@ struct Message<'a> {
     content: Option<&'a RawValue>,
     #[serde(borrow)]
     stop_reason: Option<Cow<'a, str>>,
+    /// Read apart from the line, so a `usage` that is no object (`null`) reads as none.
+    #[serde(borrow)]
+    usage: Option<&'a RawValue>,
+}
+/// A model call's usage. Claude names its fresh input apart from the cache's reads and writes.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Usage<'a> {
+    #[serde(borrow)]
+    input_tokens: Option<&'a RawValue>,
+    #[serde(borrow)]
+    output_tokens: Option<&'a RawValue>,
+    #[serde(borrow)]
+    cache_read_input_tokens: Option<&'a RawValue>,
+    #[serde(borrow)]
+    cache_creation_input_tokens: Option<&'a RawValue>,
+}
+/// The turn-end notice: its status and the turn's tokens. Claude's book has no v1 seq, so it is
+/// not `forkable` and names no `seq`; it has no checkpoints, error code or prompt sent now.
+fn end(state: &mut State, status: &str, out: &mut Output<'_>) -> Result<(), Error> {
+    if !state.in_turn() {
+        state.finish(out);
+        return Ok(());
+    }
+    let mut end = state.row(RowKind::Notice, out)?;
+    end.field("notice", "turn_result");
+    end.field("status", status);
+    if let Some(tokens) = state.claude_tokens().json() {
+        end.fields.insert("tokens".into(), tokens);
+    }
+    state.end_turn(end, status, out);
+    Ok(())
 }
 pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Result<(), Error> {
     let rec: Record<'_> = input::parse(bytes)?;
@@ -53,8 +90,8 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
         state.at_ms = at.saturating_mul(1000);
     }
     if rec.kind == "result" {
-        state.finish(out);
-        return Ok(());
+        let failed = rec.is_error || rec.subtype.starts_with("error");
+        return end(state, if failed { "failed" } else { "completed" }, out);
     }
     let Some(message) = rec.message else { return Ok(()) };
     let Some(body) = message.content else { return Ok(()) };
@@ -110,12 +147,34 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                         notice,
                         body: Some(body),
                         images: None,
+                        // Claude's own lines name no sender and no prompt id a claim could name.
+                        sender: super::user::Sender::default(),
+                        inline_parts: None,
+                        pasted: None,
+                        place: 0,
+                        span: 0,
                     },
                     out,
                 )?;
             }
         }
         "assistant" => {
+            let usage: Usage<'_> = message
+                .usage
+                .and_then(|raw| serde_json::from_str(raw.get()).ok())
+                .unwrap_or_default();
+            if let Some(output) = input::count(usage.output_tokens) {
+                state.claude_call(
+                    &message.id,
+                    super::Tokens {
+                        output,
+                        input: input::count(usage.input_tokens).unwrap_or(0),
+                        cache_read: input::count(usage.cache_read_input_tokens).unwrap_or(0),
+                        cache_write: input::count(usage.cache_creation_input_tokens).unwrap_or(0),
+                        ..Default::default()
+                    },
+                );
+            }
             if body.get().starts_with('"') {
                 state.text(&input::text(body)?, &message.id, &message.id, false, out)?;
             } else {
@@ -160,7 +219,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                 })?;
             }
             if matches!(message.stop_reason.as_deref(), Some("end_turn" | "stop_sequence")) {
-                state.finish(out);
+                end(state, "completed", out)?;
             }
         }
         _ => {}

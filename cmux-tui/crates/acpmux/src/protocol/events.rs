@@ -1,5 +1,5 @@
 //! Attaching to a session and reading its log: `_acpmux/attach`,
-//! `_acpmux/events`, `_acpmux/detach`, `_acpmux/view`, `_acpmux/markUnread`,
+//! `_acpmux/events`, `_acpmux/detach`, `_acpmux/view`, `_acpmux/markUnread`, `_acpmux/markRead`,
 //! `_acpmux/watch` and the `_acpmux/event` notification.
 //!
 //! A session is named by `sessionId`; the daemon also takes `session` or a

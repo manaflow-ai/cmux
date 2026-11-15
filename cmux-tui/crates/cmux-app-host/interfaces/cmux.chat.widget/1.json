@@ -1,0 +1,34 @@
+{
+  "name": "cmux.chat.widget/1",
+  "version": 1,
+  "docs": "A card an extension draws in a chat, under an agent's tool call or for a widget part an agent sends. cmux ships no widgets of its own: every widget is an installed extension's. The daemon routes: `apps.chat_widgets.route` picks the installed, enabled and visible app whose `options.tools` matches the call's tool name (`*` matches any run of characters; the pattern with the most literal characters wins, then the app id), or the app a widget part names, and builds the mount context. The render export gets that context: {surface: \"chatWidget\", widget: {key}, tool?: {name, title?, status?, input?, output?}, props?}. `widget.key` is stable for the call or the part: keep state that must outlive the app in cmux.storage under it. `tool.input` is the call's input (JSON), `tool.output` its result text; each is cut to 16 KiB. `props` are a widget part's props (data only). The scene is drawn with the same renderer as sidebar sections, in the transcript's column. Clicks run the node's onTap with the app's own scopes. A client without the app, or a render that fails, shows the call as it always did (or the part's fallback text). The same export may also implement cmux.section/1 to show in the sidebar.",
+  "props": {
+    "title": "string",
+    "symbol": "string?"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "tools": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:/*-]+$",
+          "not": { "pattern": "^\\*+$" }
+        },
+        "description": "Tool names whose results this widget draws (`mcp__github__get_pull_request`, `mcp__github__*pull_request*`). `*` matches any run of characters; a pattern of only `*` is refused, so no widget answers every call. Without tools the widget shows only for widget parts that name the app."
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

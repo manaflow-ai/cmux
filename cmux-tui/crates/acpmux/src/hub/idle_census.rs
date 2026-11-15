@@ -96,7 +96,8 @@ impl Hub {
         if let (Some(pid), Some(sidecars)) = (pid, sidecars) {
             // The listing, each candidate's argv and the match all run in the bounded task.
             let census = tokio::task::spawn_blocking(move || {
-                let found = crate::agent_host::tree::under(pid)?;
+                // A reading shared with the pass's other censuses (`agent_host/proc_table.rs`).
+                let found = crate::agent_host::tree::under_shared(pid)?;
                 let (list, path) = (&sidecars.list, sidecars.path.as_deref());
                 Some(classify(&found, pid, list, path, crate::agent_host::tree::identity))
             });

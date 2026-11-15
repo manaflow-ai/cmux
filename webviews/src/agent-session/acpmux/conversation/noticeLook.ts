@@ -29,3 +29,25 @@ const snapshot = () => current;
 
 /// The look now.
 export const useNoticeLook = (): NoticeLook => useSyncExternalStore(subscribe, snapshot, snapshot);
+
+/// What an opened notice says (agentNotice.ts `openedNoticeText`). `body`, the default: its body, else
+/// its title. The others are gallery versions kept beside it (NoticeRow.gallery.ts): `title-body`,
+/// its title whole above the body; `wrap`, the body alone, the line's title wrapping whole while
+/// open. The native host sends no value, so the default holds there.
+export type NoticeBodyLook = "body" | "title-body" | "wrap";
+
+const BODY_LOOKS: readonly NoticeBodyLook[] = ["body", "title-body", "wrap"];
+let body: NoticeBodyLook = "body";
+
+/// The theme carried a body look: the transcript follows at once. Anything else keeps the default.
+export function configureNoticeBodyLook(value: unknown): void {
+  const next = BODY_LOOKS.find((look) => look === value) ?? "body";
+  if (next === body) return;
+  body = next;
+  for (const listener of listeners) listener();
+}
+
+const bodySnapshot = () => body;
+
+/// The body look now.
+export const useNoticeBodyLook = (): NoticeBodyLook => useSyncExternalStore(subscribe, bodySnapshot, bodySnapshot);

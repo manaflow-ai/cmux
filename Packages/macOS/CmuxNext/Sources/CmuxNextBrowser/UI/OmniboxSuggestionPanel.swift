@@ -56,7 +56,14 @@ final class OmniboxSuggestionPanel {
                 let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
-                row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
+                row.onPointer = { [weak self] inside, pointer in
+                    guard let self else { return }
+                    // Leaving one row for the next keeps the pointer on the card: the next row's entry takes the
+                    // highlight. Clearing it in between flashed the keyboard's row (Lucas 2026-11-14). Only leaving the
+                    // card clears the hover.
+                    if !inside, self.cardContains(screenPoint: pointer) { return }
+                    self.onHover?(inside ? index : nil, pointer)
+                }
                 rows.append(row)
                 content.card.addSubview(row)
             }
@@ -64,6 +71,13 @@ final class OmniboxSuggestionPanel {
         }
         if rows.count != count { content.setAccessibilityRows(rows) }
         place(at: anchor, upward: upward, pane: pane, in: window)
+    }
+
+    /// Whether `point` (screen coordinates) is on the card.
+    private func cardContains(screenPoint point: CGPoint) -> Bool {
+        let card = content.card
+        guard let window = card.window else { return false }
+        return window.convertToScreen(card.convert(card.bounds, to: nil)).contains(point)
     }
 
     /// Sizes the card and its rows to `anchor` (the bar) and puts it under

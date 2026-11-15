@@ -42,8 +42,21 @@ export const SNAPSHOT_ROOT_CLASS = "cmux-snapshot-root";
 export const SNAPSHOT_SCROLL_ATTRIBUTE = "data-cmux-snapshot-scroll";
 /// A shadow root's adopted sheets, by index in the snapshot's `sheets`.
 export const SNAPSHOT_SHEETS_ATTRIBUTE = "data-cmux-snapshot-sheets";
-/// The page's stylesheet (build-agent-pane-web.sh).
+/// The page's stylesheet, a `<link>` to `pane.css` beside the page (build-agent-pane-web.sh). Its
+/// `data-copy` names the copy's sheet beside it: the page's rules with ``shadowSelector`` applied
+/// (scripts/agent-pane/snapshotCss.mjs), a file so every chat page of the renderer shares one parse.
 export const PAGE_STYLE_ID = "cmux-pane-styles";
+
+/// `html`, `body` and `:root` in a selector, where they are a selector and not part of a name.
+const PAGE_ROOTS = /(^|[\s,(>+~])(html|body)(?![-\w])|:root(?![-\w])/g;
+
+/// The page's selectors for the copy's shadow tree: `html` and `body` name their stand-ins, `:root`
+/// the root stand-in's class, each with its own specificity, so the copy cascades as the page did.
+export function shadowSelector(selector: string): string {
+  return selector.replace(PAGE_ROOTS, (_match, before: string | undefined, tag: string | undefined) =>
+    tag ? `${before ?? ""}${tag === "html" ? SNAPSHOT_HTML_TAG : SNAPSHOT_BODY_TAG}` : `.${SNAPSHOT_ROOT_CLASS}`,
+  );
+}
 
 export type SnapshotAttributes = Record<string, string>;
 

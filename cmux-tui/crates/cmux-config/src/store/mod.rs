@@ -14,7 +14,7 @@ use serde_json::Value;
 
 pub use reads::{GetView, RowView, Snapshot, managed_json};
 pub use replay::REPLAY_CAPACITY;
-pub use state::{FileRead, State};
+pub use state::{FileRead, State, ThemeRead};
 
 use crate::domains::Domains;
 use crate::keypath::key_path;

@@ -137,8 +137,12 @@ import Testing
                 ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try Self.capitalsMidY(list, of: pin)),
                 ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, iconTitle),
             ]
+            // Beside a bare glyph (Home's house, a pin) the title drops 0.04 em on the pixel grid, so a mostly lowercase
+            // word sits level with a glyph whose mass is low (Lucas 2026-11-13; SidebarItemRowView's `opticalDrop`).
+            let drop = (SidebarStyle.titleFont.pointSize * 0.04 * 2).rounded() / 2
             for (name, glyph, text) in pairs {
-                #expect(abs(glyph - text) <= Self.tolerance, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
+                let allowed = name == "icon" ? Self.tolerance : Self.tolerance + drop
+                #expect(abs(glyph - text) <= allowed, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
             }
         }
     }

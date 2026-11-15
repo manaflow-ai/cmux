@@ -31,10 +31,11 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
               app-host-only route (cmux-tui Rust, App/) does; swift test, the
               daemon and scheme tiers carry those.
 
-An app FFI re-pin (the app-ffi-repin bot's pull request) runs no tier but native: its diff is only the
+An app FFI re-pin runs native and the fast tier's HandlerCoverageTests only: its diff is only the
 pin in app-ffi-pin.json and the checksum line of Package.swift's loader block, and that release's source commit has
 HEAD's FFI sources (pure_ffi_repin, read with `--base-rev`). The app compile is its compile verdict, with the Mac Release
 compile as the fallback when the build fleet gives none; "Check the app FFI pin" (checks) proves the pin.
+HandlerCoverageTests binds the app actions against that pin so a catalog-only addition cannot trap at launch.
 
 A change to .github/workflows/cmux-next.yml runs every tier, unless `--base-rev`
 names the base and the change leaves every job a Mac job runs or needs as it was
@@ -522,7 +523,7 @@ class Route:
     # The fast tier's own registry, runner or job action changed.
     fast_registry: bool = False
     vendored_pin: bool = False
-    # A pure app FFI re-pin (pure_ffi_repin): the app compile alone, never the Mac fast tier.
+    # A pure app FFI re-pin (pure_ffi_repin): the app compile and only handler coverage in the Mac fast tier.
     ffi_repin: bool = False
     # A change to the swift test job's own steps (WORKFLOW_JOB_TIERS): every test target runs.
     all_tests: bool = False
@@ -545,8 +546,8 @@ class Route:
     def fast_tier(self) -> bool:
         """The Mac fast tier's package build or suites can change: a package target's sources, a file its
         suites' test targets read, a package it builds, its registry, runner or job action, an input only
-        the Mac Release compile sees, or an input of every tier. Never for a pure app FFI re-pin."""
-        return not self.ffi_repin and (self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
+        the Mac Release compile sees, or an input of every tier. A pure app FFI re-pin runs only handler coverage."""
+        return (self.ffi_repin or self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
                 or self.swift_canary or self.fast_registry)
 
 
@@ -1047,7 +1048,7 @@ REPIN_MANIFEST = PACKAGE + "Package.swift"
 REPIN_PIN_FILE = PACKAGE + "app-ffi-pin.json"
 # A re-pin writes the pin file and the checksum line of Package.swift's loader block together (app_ffi_pin.rewrite).
 REPIN_PATHS = sorted((REPIN_MANIFEST, REPIN_PIN_FILE))
-REPIN_REASON = "(an app FFI re-pin: no other Mac tier)"
+REPIN_REASON = "(an app FFI re-pin: compile and handler coverage only)"
 
 
 def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) -> str | None:
@@ -1120,10 +1121,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         return result
     if repin is not None and sorted(changed) == REPIN_PATHS and "dev-build" not in labels:
         # The pin and Package.swift are inputs of every package test, but a pure re-pin changes only which published
-        # release the app links: the app compile decides it (mac_release keeps the Mac Release compile as the
-        # fallback when the build fleet gives no verdict), and checks' "Check the app FFI pin" proves the pin.
+        # release the app links. Compile plus runtime handler coverage decide it; ffi_repin limits both
+        # fast-tier routes to that suite. mac_release remains the compile fallback.
         result.native = result.mac_release = result.ffi_repin = True
-        result.reasons.append(f"{repin}: only the app compile runs {REPIN_REASON}")
+        result.reasons.append(f"{repin}: the app compile and handler coverage run {REPIN_REASON}")
         return result
 
     # The workflow defines the native build and its routing contract. A change
@@ -1356,6 +1357,7 @@ def outputs(result: Route) -> dict[str, str]:
         "mac_release": flag(result.mac_release),
         "macos": flag(macos),
         "fast_tier": flag(fast_tier),
+        "ffi_repin": flag(result.ffi_repin),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
         "swift": flag(result.swift),

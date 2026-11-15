@@ -51,6 +51,9 @@ pub mod clock;
 pub mod cloud_host;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
+/// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod cmux_tui_service;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
@@ -124,6 +127,7 @@ pub mod hunk_summary;
 mod job;
 pub mod launch_credential;
 pub mod launch_policy;
+pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
 pub mod list_bytes;
@@ -136,6 +140,9 @@ pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
 pub(crate) mod machine_info;
+/// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod machine_routes;
 pub mod machine_tunnel;
 pub mod machine_wake;
 pub mod mailbox;
@@ -164,6 +171,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
+pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod placement;
@@ -179,6 +188,7 @@ pub mod prompt_provenance;
 pub mod prompt_uploads;
 pub mod protected_folders;
 pub mod protocol;
+mod provider_cloud_auth;
 pub mod qos;
 pub mod question_answer;
 #[cfg(target_os = "linux")]
@@ -211,6 +221,9 @@ pub mod session_liveness;
 pub mod session_name;
 mod session_scope;
 pub mod session_search;
+/// A workspace here for the person's other machines, over the hub carrier (`session_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod session_service;
 pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
@@ -220,7 +233,8 @@ pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
-#[cfg(test)]
+// The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
+#[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
@@ -246,6 +260,9 @@ mod test_exec;
 mod test_hooks_tree;
 #[cfg(test)]
 mod test_stack;
+/// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub mod test_support;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;

@@ -24,15 +24,15 @@ public struct AgentPaneHibernationCapture {
     }
 
     /// Reads restorable state and holds a usable cover when the page's engine can draw it.
-    /// `keepsDraft`: a composer holding a draft keeps the page (``AgentPaneWakeState/keepReason(_:hasHandshake:keepsDraft:)``).
+    /// What the page says it cannot hand back keeps it (``AgentPaneWakeState/keepReason(_:hasHandshake:)``).
     public func capture(
-        key: String, images: AgentPaneLaunchImages, requiresFrame: Bool, keepsDraft: Bool = false,
+        key: String, images: AgentPaneLaunchImages, requiresFrame: Bool,
         wake: @MainActor (AgentPaneView) async -> AgentPaneWakeState?,
         snapshot: @MainActor (AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?
     ) async -> (wake: AgentPaneWakeState?, kept: String?) {
         let wasNewTab = view.model.newTab != nil
         let state = await wake(view)
-        if let reason = AgentPaneWakeState.keepReason(state, hasHandshake: view.model.hasHandshake, keepsDraft: keepsDraft) { return (state, reason) }
+        if let reason = AgentPaneWakeState.keepReason(state, hasHandshake: view.model.hasHandshake) { return (state, reason) }
         // Chromium draws over native covers. An untouched New Tab instead uses its native
         // context to rebuild. Never capture that hidden CEF surface: CEFThumbnail documents
         // the renderer-exit crash in the pinned engine's hidden capture path.

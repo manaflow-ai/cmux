@@ -67,7 +67,8 @@ extension SidebarDocProjection {
             }
             // After the lists a section draws its groups; an app section draws its view (a block) with none.
             guard !passedMachines || !nodes.isEmpty || layoutSection.content == .app else { continue }
-            let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)
+            let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title,
+                                                                             showsTitle: false, region: layoutSection.region)), nodes: nodes)
             if passedMachines { after.append(section) } else { before.append(section) }
         }
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count

@@ -1,48 +1,5 @@
 import CmuxNextImportSuggestions
-import CmuxNextOnboarding
 import Foundation
-
-/// cmux Classic's saved workspaces that have not come over yet: classic's
-/// session file against the migration ledger, as an automatic run would plan
-/// it. A session file over ``maximumSessionBytes`` is not read (the card is
-/// a hint; Import Workspaces from Classic cmux still reads it). Off the main thread.
-nonisolated struct ClassicWorkspaceCount: Sendable {
-    static let maximumSessionBytes = 32 * 1024 * 1024
-
-    var support: URL
-    var bundleID: String?
-
-    init(support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
-         bundleID: String? = Bundle.main.bundleIdentifier) {
-        self.support = support
-        self.bundleID = bundleID
-    }
-
-    /// Where the migration keeps its ledger (`AppOnboardingServices.classicMigrationDirectory`).
-    var ledgerDirectory: URL {
-        support.appending(path: "cmux-next", directoryHint: .isDirectory)
-            .appending(path: bundleID ?? "com.cmuxterm.app.next", directoryHint: .isDirectory)
-            .appending(path: "classic-migration", directoryHint: .isDirectory)
-    }
-
-    func count() async -> Int? {
-        let finder = ClassicMigrationSourceFinder(support: support, ownBundleID: bundleID)
-        // The first file that reads, newest channel first, as the migration itself falls back.
-        let snapshot = finder.allCandidates().lazy.compactMap { candidate -> ClassicSessionSnapshot? in
-            let size = ((try? FileManager.default.attributesOfItem(atPath: candidate.url.path))?[.size] as? NSNumber)?.intValue ?? 0
-            guard size > 0, size <= Self.maximumSessionBytes else { return nil }
-            return try? ClassicSessionImporter(fileURL: candidate.url).readSnapshot()
-        }.first
-        guard let snapshot else { return nil }
-        let ledger: ClassicMigrationLedger?
-        switch await ClassicMigrationRepository(directory: ledgerDirectory).load() {
-        case .ledger(let saved): ledger = saved
-        default: ledger = nil
-        }
-        let plan = ClassicMigrationPlanner().plan(snapshot, ledger: ledger, live: [], liveGroups: [], mode: .automatic)
-        return plan.workspaces.count
-    }
-}
 
 /// An iTerm2 profile's colors as a Ghostty theme in the person's themes folder
 /// (`~/.config/ghostty/themes`, where Ghostty and every cmux theme picker look),

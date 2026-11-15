@@ -432,7 +432,8 @@ final class MacComposeDraftController: NSViewController, NSTableViewDataSource, 
             suggestionsPanel.alphaValue = session.suggestions.isEmpty ? 0 : 1
             updateServiceLine()
             view.needsLayout = true
-        case .sending:
+        case .rows, .sending:
+            // This draft lists `suggestions` (it sets no listing).
             break
         }
     }
