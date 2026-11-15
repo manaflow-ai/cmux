@@ -3,8 +3,8 @@
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
-      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (Rust; Release builds merge Iroh.framework's code into the app binary), CCmuxAppFFI while its pin is the static library (Rust: cmux-tui/crates/cmux-app-ffi, the prebuilt xcframework of app-ffi-pin.json; rustc std of cmux-tui's toolchain), Sparkle client",
-      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
+      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), Sparkle client. No Rust: CCmuxAppFFI is Contents/Frameworks/libcmux_app_ffi.dylib, so no rust-std here; Rust that lands in this binary again fails the rustc scan until this entry asks for rust-std",
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
     },
     {
       "path": "Contents/Frameworks/Sparkle.framework/*",
