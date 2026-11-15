@@ -353,8 +353,8 @@ final class CreationInputCoordinator {
         return services.windows.owner(of: window)?.state.id
     }
 
-    /// `key`'s page arrived or Chromium created its browser: a hold that awaited it ends now (reopen-browser-plain-keys cycle B).
-    func pageArrived(_ key: String) { holdEnds.pageArrived(key); router?.services?.windows.controllers.compactMap(\.window).filter { buffers[$0.windowNumber]?.awaitedTab == key }.forEach(scheduleFlush) }
+    /// `key`'s page arrived or Chromium created its browser: a hold that awaited it ends now (reopen-browser-plain-keys cycle B). Nil: the page window of a cmux page or an agent chat got its grant, and every page hold checks again.
+    func pageArrived(_ key: String?) { if let key { holdEnds.pageArrived(key) }; router?.services?.windows.controllers.compactMap(\.window).filter { key == nil ? buffers[$0.windowNumber]?.awaitsPage == true : buffers[$0.windowNumber]?.awaitedTab == key }.forEach(scheduleFlush) }
 
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
