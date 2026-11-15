@@ -2,7 +2,7 @@ public import CmuxNextActions
 import CmuxNextDevices
 public import CmuxNextPalette
 
-/// One root palette row per device Screen Sharing lists ("Screen Sharing: air-blue"), so typing a
+/// One root palette row per device Screen Sharing lists ("Screen Sharing: Studio"), so typing a
 /// machine's name opens its screen in one step instead of opening Screen Sharing and then choosing it.
 /// A row runs `macScreen.open` with that device, the action the Screen Sharing page and the CLI
 /// (`cmux tab new-mac-screen --device`) run; the hub still asks the host and owns the session.
@@ -21,7 +21,7 @@ public enum MacScreenPaletteRows {
         }
     }
 
-    /// The rows for `devices`, titled by the action ("Screen Sharing: air-blue"); `perform` runs the open.
+    /// The rows for `devices`, titled by the action ("Screen Sharing: Studio"); `perform` runs the open.
     static func rows(devices: [HubDevice], actionTitle: String?, perform: @escaping @MainActor (ActionInvocation) -> Void) -> [PaletteItem] {
         guard let actionTitle, !actionTitle.isEmpty else { return [] }
         let connect = L.t("macScreen.toolbar.connect", "Connect")

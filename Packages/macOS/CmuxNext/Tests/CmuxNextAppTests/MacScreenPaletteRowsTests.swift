@@ -7,19 +7,19 @@ import Foundation
 import Testing
 
 /// Screen Sharing in the palette: found by what a person types ("screen share", "vnc", "remote desktop"),
-/// and one row per device ("Screen Sharing: air-blue") that opens that device's screen in one step.
+/// and one row per device ("Screen Sharing: Studio") that opens that device's screen in one step.
 @MainActor @Suite struct MacScreenPaletteRowsTests {
-    private let mac = HubDevice(id: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "air-blue", platform: .macos, online: true)
+    private let mac = HubDevice(id: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "Studio", platform: .macos, online: true)
 
     @Test func eachDeviceRowOpensThatDevicesScreenAsAPerson() throws {
-        let phone = HubDevice(id: "1b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "Leo's iPhone", platform: .ios, macScreenShared: true)
+        let phone = HubDevice(id: "1b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "iPhone", platform: .ios, macScreenShared: true)
         let unnamed = HubDevice(id: "2b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "")
         var ran: [ActionInvocation] = []
         let rows = MacScreenPaletteRows.rows(devices: [mac, phone, unnamed], actionTitle: "Screen Sharing") { ran.append($0) }
-        #expect(rows.map(\.title) == ["Screen Sharing: air-blue", "Screen Sharing: Leo's iPhone"])
+        #expect(rows.map(\.title) == ["Screen Sharing: Studio", "Screen Sharing: iPhone"])
         #expect(rows.map(\.symbol) == ["display", "iphone"])
         let row = try #require(rows.first)
-        #expect(row.keywords.contains("air-blue"))
+        #expect(row.keywords.contains("Studio"))
         #expect(row.keywords.contains("vnc"))
         #expect(row.frecencyKey == "macScreen.devices:\(mac.id)")
         guard case let .perform(run) = row.primary.effect else {
