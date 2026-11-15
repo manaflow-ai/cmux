@@ -158,7 +158,10 @@ pub(super) fn record_dir(line: &[u8]) -> Option<&[u8]> {
 /// order) ends the search at the file's length, which reads the segment from its end as before.
 /// The caller reads back from the offset through the same `file`: log retention may rename a
 /// compacted segment over the path meanwhile (`store/compact.rs`).
-pub(super) fn offset_of_seq(file: &mut File, before: u64) -> Result<u64> {
+pub(super) fn offset_of_seq<F: Read + std::io::Seek + ?Sized>(
+    file: &mut F,
+    before: u64,
+) -> Result<u64> {
     use std::io::{Seek, SeekFrom};
     const PROBE: usize = 64 * 1024;
     let len = file.seek(SeekFrom::End(0))?;
@@ -223,8 +226,8 @@ pub(super) fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> boo
 }
 
 /// `for_each_line_rev` over the bytes of `file` before offset `end` (a line start, or past the end).
-pub(super) fn for_each_line_rev_from(
-    file: &mut File,
+pub(super) fn for_each_line_rev_from<F: Read + std::io::Seek + ?Sized>(
+    file: &mut F,
     end: u64,
     visit: &mut dyn FnMut(&[u8]) -> bool,
 ) -> Result<()> {
@@ -232,8 +235,8 @@ pub(super) fn for_each_line_rev_from(
 }
 
 /// [`for_each_line_rev_from`] over the bytes of `file` from offset `start` (a line start) to `end`.
-pub(super) fn for_each_line_rev_between(
-    file: &mut File,
+pub(super) fn for_each_line_rev_between<F: Read + std::io::Seek + ?Sized>(
+    file: &mut F,
     start: u64,
     end: u64,
     visit: &mut dyn FnMut(&[u8]) -> bool,
@@ -289,7 +292,11 @@ pub(super) fn for_each_line_rev_between(
 }
 
 pub(super) fn first_seq(path: &Path) -> Result<Option<u64>> {
-    let mut reader = BufReader::new(crate::config::private_state_file(path)?);
+    let file = super::cold_segments::open_segment(path)?;
+    if let super::cold_segments::SegmentFile::Cold(cold) = &file {
+        return Ok(cold.first_seq());
+    }
+    let mut reader = BufReader::new(file);
     let mut line = Vec::new();
     loop {
         line.clear();

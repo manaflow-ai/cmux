@@ -21,6 +21,7 @@ pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
 pub use deferred::{Deferral, Keep};
 mod cold;
+pub(crate) mod cold_segments;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
@@ -1728,6 +1729,12 @@ impl LocalStore {
                 out.push((idx, entry.path()));
             }
         }
+        // PROTOTYPE (`store/cold_segments.rs`): a segment whose archive is committed reads from it.
+        let cold = cold_segments::listed(&self.dir(id));
+        if !cold.is_empty() {
+            out.retain(|(idx, _)| !cold.iter().any(|(c, _)| c == idx));
+            out.extend(cold);
+        }
         out.sort();
         Ok((out, cut_pending))
     }
@@ -1920,7 +1927,11 @@ impl LocalStore {
         if full && let Some(old) = writers.open.remove(id) {
             // The full segment closes before the next one opens (rare: once per segment).
             let index = old.index + 1;
+            let sealed = old.index;
             old.close(id, &self.sync_failed);
+            if cold_segments::enabled() {
+                cold_segments::spawn_move(self.dir(id), sealed);
+            }
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
             let file = open_private_append(&path)?;
             writers
@@ -2296,7 +2307,7 @@ impl Store for LocalStore {
         let mut line = Vec::new();
         for (_, path) in self.segments(id)? {
             let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
+                BufReader::with_capacity(256 * 1024, cold_segments::open_segment(&path)?);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
@@ -2697,7 +2708,7 @@ impl LocalStore {
                 continue;
             }
             let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+                BufReader::with_capacity(256 * 1024, cold_segments::open_segment(path)?);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
