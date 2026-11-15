@@ -11,7 +11,8 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
-const ACTIONS_JSON: &str = include_str!("../../../../../plans/cmux-next/action-surfaces.json");
+pub(super) const ACTIONS_JSON: &str =
+    include_str!("../../../../../plans/cmux-next/action-surfaces.json");
 
 /// Scopes whose help lists their app verbs another way.
 const OWN_HELP: &[&str] = &["cloud"];
@@ -124,15 +125,14 @@ mod tests {
             let text = section(scope).expect("section");
             let rows = text.lines().skip(3).collect::<Vec<_>>();
             assert_eq!(rows.len(), verbs(scope).count(), "{scope}: one line per verb");
+            // Rows follow the sorted verbs; a verb may be several words (`chat channel create`).
             let columns = rows
                 .iter()
-                .filter_map(|line| {
-                    let rest = line.strip_prefix("  ")?;
-                    let verb = rest.split(' ').next()?;
-                    let after = &rest[verb.len()..];
-                    let title = after.trim_start();
+                .zip(offered()[scope].iter())
+                .filter_map(|(line, (verb, title))| {
+                    let rest = line.strip_prefix("  ")?.strip_prefix(verb.as_str())?;
                     (verb.len() <= VERB_COLUMN && !title.is_empty())
-                        .then(|| 2 + verb.len() + after.len() - title.len())
+                        .then(|| 2 + verb.len() + rest.len() - rest.trim_start().len())
                 })
                 .collect::<std::collections::BTreeSet<_>>();
             assert!(columns.len() <= 1, "{scope}: titles start at columns {columns:?}");

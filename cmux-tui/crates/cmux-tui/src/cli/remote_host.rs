@@ -268,10 +268,9 @@ mod tests {
     /// The app actions they route to are in the catalog the app reads.
     #[test]
     fn the_app_actions_for_share_off_and_stop_are_cataloged() {
-        let catalog: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../plans/cmux-next/action-surfaces.json"
-        ))
-        .expect("action-surfaces.json is valid JSON");
+        let catalog: serde_json::Value =
+            serde_json::from_str(crate::cli::app_action_help::ACTIONS_JSON)
+                .expect("the action catalog is valid JSON");
         for change in [LowerChange::ShareOff, LowerChange::StopSession] {
             let id = change.app_action();
             assert!(
