@@ -286,16 +286,17 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     assert_eq!(matched_outside.len(), ROUNDS * SAMPLES);
     assert_eq!(matched_during.len(), ROUNDS * SAMPLES);
     report_matched_rounds(&matched_outside, &matched_during);
-    let outside_rounds: Vec<Vec<u128>> =
+    let outside_samples: Vec<Vec<u128>> =
         matched_outside.chunks_exact(SAMPLES).map(<[u128]>::to_vec).collect();
+    let outside_rounds: Vec<_> = outside_samples.iter().map(|round| p95(round)).collect();
     assert_eq!(outside_rounds.len(), ROUNDS);
     let during_rounds: Vec<Vec<u128>> =
         matched_during.chunks_exact(SAMPLES).map(<[u128]>::to_vec).collect();
     gate_rounds::report(
         "v2.pr05b.apply_during_compaction",
-        &[("small", &outside_rounds), ("god", &during_rounds)],
+        &[("small", &outside_samples), ("god", &during_rounds)],
     );
-    let small = best_p95(&outside_rounds);
+    let small = best_p95(&outside_samples);
     let god = best_p95(&during_rounds);
     let all = all_p95(&during_rounds);
     report_split("during_gate_samples", &mut during);
