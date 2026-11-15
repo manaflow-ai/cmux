@@ -1044,6 +1044,8 @@ if args[:2] == ["simctl", "create"]:
     open(os.environ["FAKE_SIM_CREATES"], "a").write(" ".join(args) + "\\n")
     print("CREATED-UDID")
     sys.exit(0)
+if os.environ.get("FAKE_SIM_BROKEN") == "1":
+    sys.exit(72)
 types = [{"name": "iPhone 17 Pro Max", "identifier": "t.iphone"}, {"name": "iPad Pro 13-inch (M5)", "identifier": "t.ipad"}]
 if os.environ.get("FAKE_SIM_DUO") == "1":
     types.append({"name": "iPhone Duo", "identifier": "t.duo"})
@@ -1171,7 +1173,8 @@ class DevicePlanTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn(f"no {family} suite result", text)
 
-    def check(self, duo_on_image: bool, decision: dict) -> tuple[subprocess.CompletedProcess, Path, str]:
+    def check(self, duo_on_image: bool, decision: dict,
+              broken: bool = False) -> tuple[subprocess.CompletedProcess, Path, str]:
         bin_dir = self.root / "bin"
         bin_dir.mkdir(exist_ok=True)
         xcrun = bin_dir / "xcrun"
@@ -1183,7 +1186,8 @@ class DevicePlanTests(unittest.TestCase):
         out.unlink(missing_ok=True)
         proc = self.script("check", "--plan", json.dumps(decision), "--picker", str(PICKER), "--out", str(out),
                            env={"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-                                "FAKE_SIM_DUO": "1" if duo_on_image else "0", "FAKE_SIM_CREATES": str(creates)})
+                                "FAKE_SIM_DUO": "1" if duo_on_image else "0", "FAKE_SIM_CREATES": str(creates),
+                                "FAKE_SIM_BROKEN": "1" if broken else "0"})
         return proc, out, creates.read_text()
 
     def test_a_leg_fails_loudly_when_the_image_disagrees_with_the_plan(self) -> None:
@@ -1205,6 +1209,11 @@ class DevicePlanTests(unittest.TestCase):
         # A plan that decided nothing checks nothing.
         proc, out, _ = self.check(True, {"decided": False, "walk": ["iphone", "ipad", "duo"], "skip": {}})
         self.assertEqual((proc.returncode, out.exists()), (0, False))
+        # A check that could not read the image is never agreement.
+        proc, out, _ = self.check(False, skips_duo, broken=True)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("check could not read this image's simulators", proc.stderr)
+        self.assertTrue(out.exists())
 
     def test_the_matrix_walks_only_the_plans_families(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()

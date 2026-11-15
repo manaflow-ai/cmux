@@ -153,7 +153,12 @@ def check_main(args: argparse.Namespace) -> int:
         planned = family in decision.get("walk", [])
         if not planned and family not in decision.get("skip", {}):
             continue
-        found = on_image(picker, family)
+        try:
+            found = on_image(picker, family)
+        except (Exception, SystemExit) as error:  # a check that could not look is never agreement
+            mismatches.append({"family": family, "plan_on_image": planned, "image_on_image": None,
+                               "message": f"the {family} check could not read this image's simulators: {error!r}"})
+            continue
         if found != planned:
             said = "walks it" if planned else f"skipped it ({decision['skip'][family]})"
             mismatches.append({
