@@ -52,7 +52,11 @@ impl Hub {
             // person's own HTTP `cmux` entry.
             if crate::agent_tools::is_codex(&meta, Some(profile)) {
                 tools.without_cmux_beside_an_http_entry(
-                    crate::agent_tools::CodexLaunch { cwd: &meta.cwd, argv: &profile.argv },
+                    crate::agent_tools::CodexLaunch {
+                        cwd: &meta.cwd,
+                        argv: &profile.argv,
+                        answer: None,
+                    },
                     &profile.env,
                 )
             } else {

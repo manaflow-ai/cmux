@@ -586,8 +586,10 @@ pub fn person_entry_env(
 /// (`codex_cmux_entry::resolve`): the launch's program (the profile's `CODEX_PATH`, else its argv's
 /// program), its config options, the chat's folder and the Codex child's environment
 /// (`login_env::effective_for`). Only for a `codex ... app-server` launch; another program (an ACP
-/// adapter) is no answer. One chat start asks several times (its tool rows, its pool key, its
-/// `session/new`), so an answer is kept for [`RESOLVED_FOR`]; how long Codex took is logged.
+/// adapter) is no answer. Codex is asked once per `launch` that carries a cell for its answer
+/// (`CodexLaunch::answer`: one chat start, fork, pool spec or tool-rows read), never across
+/// launches, so a config the person changes counts at the next one; how long Codex took is
+/// logged.
 pub fn persons_cmux_entry(
     launch: CodexLaunch<'_>,
     env: &BTreeMap<String, String>,
@@ -607,39 +609,26 @@ pub fn persons_cmux_entry(
         launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect();
     let child_env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
         effective.iter().map(|(k, v)| (k.into(), v.into())).collect();
-    let key = format!("{program}\0{:?}\0{}\0{:?}", launch.argv, launch.cwd.display(), effective);
-    static ANSWERS: std::sync::Mutex<Vec<(String, std::time::Instant, CmuxEntry)>> =
-        std::sync::Mutex::new(Vec::new());
-    let mut answers = ANSWERS.lock().unwrap_or_else(|e| e.into_inner());
-    // Unit tests change a fake Codex's answer between asks: they read it each time.
-    let keep = if cfg!(test) { std::time::Duration::ZERO } else { RESOLVED_FOR };
-    answers.retain(|(_, at, _)| at.elapsed() < keep);
-    if let Some((_, _, entry)) = answers.iter().find(|(k, _, _)| *k == key) {
-        return entry.clone();
+    let ask = || {
+        let (entry, took) = crate::codex_cmux_entry::resolve(
+            std::path::Path::new(&program),
+            &args,
+            launch.cwd,
+            &child_env,
+        );
+        tracing::info!(
+            target: "acpmux::codex_cmux_entry",
+            ms = took.as_millis() as u64,
+            entry = ?entry,
+            "codex mcp get cmux"
+        );
+        entry
+    };
+    match launch.answer {
+        Some(cell) => cell.get_or_init(ask).clone(),
+        None => ask(),
     }
-    drop(answers);
-    let (entry, took) = crate::codex_cmux_entry::resolve(
-        std::path::Path::new(&program),
-        &args,
-        launch.cwd,
-        &child_env,
-    );
-    tracing::info!(
-        target: "acpmux::codex_cmux_entry",
-        ms = took.as_millis() as u64,
-        entry = ?entry,
-        "codex mcp get cmux"
-    );
-    ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).push((
-        key,
-        std::time::Instant::now(),
-        entry.clone(),
-    ));
-    entry
 }
-
-/// How long [`persons_cmux_entry`] keeps an answer: one chat start's several asks.
-pub const RESOLVED_FOR: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Whether a session whose profile, preset and session env is `env` is cut off from cmux's
 /// tools: `ACPMUX_AGENT_TOOLS=0` ([`SWITCH_ENV`]), or a server list ([`SERVERS_ENV`]) that leaves
@@ -675,12 +664,14 @@ pub fn send_person_entry_env(params: &mut Value, entry_env: Option<Value>) {
     params["_meta"]["cmux"]["mcpServerEntry"] = entry_env;
 }
 
-/// A Codex session's launch, for [`AgentTools::without_cmux_beside_an_http_entry`]: its folder and
-/// its profile's argv (the program first), whose `-c`, `--profile` and `-C` Codex reads too.
+/// A Codex session's launch, for [`persons_cmux_entry`]: its folder, its profile's argv (the
+/// program first), whose config options Codex reads too, and where the answer is kept once asked
+/// (`answer`: one per chat start, fork, pool spec or tool-rows read; `None` asks each time).
 #[derive(Clone, Copy, Debug)]
 pub struct CodexLaunch<'a> {
     pub cwd: &'a Path,
     pub argv: &'a [String],
+    pub answer: Option<&'a std::sync::OnceLock<crate::codex_cmux_entry::CmuxEntry>>,
 }
 
 /// `mcpServers` from `tools` for acpmux session `session_id`'s ACP harness; `all_tools`

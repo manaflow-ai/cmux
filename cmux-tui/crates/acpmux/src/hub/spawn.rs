@@ -145,8 +145,15 @@ impl Hub {
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
         // A fork through this child asks for the same list (`fork.rs`).
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
-        let codex = crate::agent_tools::is_codex(meta, Some(profile))
-            .then_some(crate::agent_tools::CodexLaunch { cwd: &meta.cwd, argv: &profile.argv });
+        // Codex's answer for the person's own `cmux` entry, asked once for this start.
+        let answer = std::sync::OnceLock::new();
+        let codex = crate::agent_tools::is_codex(meta, Some(profile)).then_some(
+            crate::agent_tools::CodexLaunch {
+                cwd: &meta.cwd,
+                argv: &profile.argv,
+                answer: Some(&answer),
+            },
+        );
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all, codex);
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());

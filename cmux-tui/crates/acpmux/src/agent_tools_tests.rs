@@ -582,7 +582,7 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
     let names = |t: super::AgentTools| t.servers.into_iter().map(|s| s.name).collect::<Vec<_>>();
     let argv =
         vec![codex.to_string_lossy().into_owned(), "-p".into(), "w".into(), "app-server".into()];
-    let at = super::CodexLaunch { cwd: &work, argv: &argv };
+    let at = super::CodexLaunch { cwd: &work, argv: &argv, answer: None };
     for (answer, want) in [
         (Some("/opt/x"), &["cmux", "acpmux"][..]),
         (Some("http"), &["acpmux"]),
@@ -601,7 +601,7 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
     // Not a Codex app-server launch (an ACP adapter): no answer, `cmux` stays.
     codex_answers(root.path(), Some("http"));
     let adapter = vec!["/opt/codex-acp-adapter".to_owned()];
-    let other = super::CodexLaunch { cwd: &work, argv: &adapter };
+    let other = super::CodexLaunch { cwd: &work, argv: &adapter, answer: None };
     assert_eq!(names(tools.without_cmux_beside_an_http_entry(other, &env)), ["cmux", "acpmux"]);
 }
 
@@ -629,7 +629,7 @@ fn a_codex_session_start_or_fork_beside_an_http_cmux_entry_sends_no_cmux() {
     let env = std::collections::BTreeMap::new();
     let argv = vec![codex.to_string_lossy().into_owned(), "app-server".to_owned()];
     let names = |cwd: Option<&std::path::Path>| {
-        let codex = cwd.map(|cwd| super::CodexLaunch { cwd, argv: &argv });
+        let codex = cwd.map(|cwd| super::CodexLaunch { cwd, argv: &argv, answer: None });
         super::acp_servers_with(tools.clone(), &env, "s-1", false, codex)
             .as_array()
             .unwrap()
@@ -683,7 +683,7 @@ fn a_persons_own_stdio_cmux_entry_learns_which_chat_starts_it() {
     std::fs::create_dir_all(&work).unwrap();
     let codex = fake_codex(root.path());
     let argv = vec![codex.to_string_lossy().into_owned(), "app-server".to_owned()];
-    let launch = super::CodexLaunch { cwd: &work, argv: &argv };
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: None };
     let mut env =
         std::collections::BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned())]);
     let without = serde_json::json!([{"name": "acpmux"}]);
@@ -782,4 +782,33 @@ pub(crate) fn codex_answers(dir: &std::path::Path, answer: Option<&str>) {
             let _ = std::fs::remove_file(dir.join("answer"));
         }
     }
+}
+
+/// Codex is asked once per launch that keeps its answer (one chat start, fork, pool spec), and
+/// asked again by the next launch, so a config the person changes between two chat starts counts.
+#[test]
+fn codex_is_asked_once_per_launch_and_again_by_the_next() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let codex = fake_codex(root.path());
+    let argv = vec![codex.to_string_lossy().into_owned(), "app-server".to_owned()];
+    let env = std::collections::BTreeMap::new();
+    let calls =
+        || std::fs::read_to_string(root.path().join("calls")).unwrap_or_default().lines().count();
+    codex_answers(root.path(), Some("/opt/x"));
+    let first = std::sync::OnceLock::new();
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&first) };
+    for _ in 0..3 {
+        assert!(matches!(
+            super::persons_cmux_entry(launch, &env),
+            crate::codex_cmux_entry::CmuxEntry::Stdio { .. }
+        ));
+    }
+    assert_eq!(calls(), 1, "one launch, one question");
+    codex_answers(root.path(), Some("http"));
+    let next = std::sync::OnceLock::new();
+    let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&next) };
+    assert!(super::persons_cmux_entry(launch, &env).is_http(), "the next launch asks again");
+    assert_eq!(calls(), 2);
 }

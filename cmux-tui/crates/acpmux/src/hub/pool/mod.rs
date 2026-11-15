@@ -397,6 +397,8 @@ impl Hub {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         spawn.env.hash(&mut h);
         credentials.hash(&mut h);
+        // Codex's answer for the person's own `cmux` entry, asked once for this spec.
+        let answer = std::sync::OnceLock::new();
         let key = PoolKey {
             origin: if draft.remote_origin { Origin::Remote } else { Origin::Local },
             cwd: draft.cwd.clone(),
@@ -416,7 +418,11 @@ impl Hub {
                 crate::agent_tools::current(),
                 &spawn.env,
                 crate::agent_tools::is_codex(draft, Some(profile)).then_some(
-                    crate::agent_tools::CodexLaunch { cwd: &draft.cwd, argv: &spawn.argv },
+                    crate::agent_tools::CodexLaunch {
+                        cwd: &draft.cwd,
+                        argv: &spawn.argv,
+                        answer: Some(&answer),
+                    },
                 ),
             ),
         };

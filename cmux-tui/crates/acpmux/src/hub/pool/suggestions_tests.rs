@@ -138,7 +138,7 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     };
     let env = std::collections::BTreeMap::new();
     let argv = vec![fake.to_string_lossy().into_owned(), "app-server".to_owned()];
-    let codex = || Some(crate::agent_tools::CodexLaunch { cwd: &work, argv: &argv });
+    let codex = || Some(crate::agent_tools::CodexLaunch { cwd: &work, argv: &argv, answer: None });
     let before = tool_servers(tools(), &env, codex());
     codex_answers(root.path(), Some("http"));
     let after = tool_servers(tools(), &env, codex());
@@ -169,7 +169,7 @@ fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
         )])
     };
     let argv = vec![fake.to_string_lossy().into_owned(), "app-server".to_owned()];
-    let codex = || Some(crate::agent_tools::CodexLaunch { cwd: &work, argv: &argv });
+    let codex = || Some(crate::agent_tools::CodexLaunch { cwd: &work, argv: &argv, answer: None });
     let before = tool_servers(tools(), &env("off"), codex());
     codex_answers(root.path(), Some("/opt/cmux"));
     let off = tool_servers(tools(), &env("off"), codex());
