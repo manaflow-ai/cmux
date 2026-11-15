@@ -409,8 +409,14 @@ final class AppReviewGateUITests: XCTestCase {
 
     // MARK: - Dead-control walker
 
-    /// Taps every enabled, hittable control on a screen, each from a fresh
-    /// `reach()`, and returns the ones that changed nothing.
+    /// Taps every enabled, hittable control on a screen, each from the screen
+    /// as `reach()` leaves it, and returns the ones that changed nothing.
+    ///
+    /// Each control starts from that same screen: the walk first tries to go
+    /// back to it in the running app (`returnToStart`) and relaunches only
+    /// when the whole element tree, frames included, does not match. A
+    /// relaunch per control cost Settings 38 launches and about 10 of the
+    /// walk's 18 minutes on iPhone (run 43652999096).
     @MainActor
     private func walkControls(
         screen: String,
@@ -425,12 +431,32 @@ final class AppReviewGateUITests: XCTestCase {
                 && !skipPrefixes.contains { control.key.hasPrefix($0) }
         }
         capture("walk-\(screen)-start", app)
+        var start = startPoint(app)
+        var launches = 1
+        var returned = 0
+        // A screen whose tree never settles back (a clock, a live count)
+        // stops trying after two misses that cost time and relaunches, as
+        // the walk did before.
+        var misses = 0
+        // The switch the last tap flipped, if it was one: flipping it back
+        // is a way back.
+        var flipped: XCUIElement?
         var dead: [String] = []
         var disabledWithoutReason: [String] = []
         for (offset, control) in controls.prefix(limit).enumerated() {
             if offset > 0 {
-                app.terminate()
-                app = reach()
+                let back = misses < 2 ? returnToStart(start, in: app, skip: skip, flipBack: flipped) : nil
+                flipped = nil
+                if back == true {
+                    returned += 1
+                    misses = 0
+                } else {
+                    if back == false { misses += 1 }
+                    app.terminate()
+                    app = reach()
+                    start = startPoint(app)
+                    launches += 1
+                }
             }
             let target = resolve(control, in: app)
             guard target.exists else { continue }
@@ -448,6 +474,7 @@ final class AppReviewGateUITests: XCTestCase {
             if target.isSelected { continue }
             let before = signature(app)
             target.tap()
+            if control.type == .switch { flipped = target }
             let changed = waitForChange(from: before, in: app, timeout: 3)
             if !changed {
                 dead.append("\(screen): \(control.key)")
@@ -457,6 +484,7 @@ final class AppReviewGateUITests: XCTestCase {
         if controls.count > limit {
             gateNote("walk-\(screen)-truncated", "\(screen) has \(controls.count) controls; the walk tapped the first \(limit)")
         }
+        print("WALK-STATS \(screen): \(min(controls.count, limit)) controls, \(launches) launches, \(returned) back without a relaunch")
         app.terminate()
         if !disabledWithoutReason.isEmpty {
             // A disabled control with no stated reason reads as broken to a
@@ -514,6 +542,90 @@ final class AppReviewGateUITests: XCTestCase {
         tree = tree.replacingOccurrences(of: #"\{\{[^}]*\}, \{[^}]*\}\}"#, with: "", options: .regularExpression)
         let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count
         return "\(tree)|alerts:\(alerts)"
+    }
+
+    /// The screen a control's tap starts from: its whole element tree with
+    /// frames (so the scroll position counts too), springboard alerts, and
+    /// the selected tab.
+    private struct StartPoint {
+        let layout: String
+        let tab: String?
+    }
+
+    @MainActor
+    private func layout(_ app: XCUIApplication) -> String {
+        guard app.state == .runningForeground else { return "state:\(app.state.rawValue)" }
+        let tree = app.debugDescription.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
+        let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count
+        return "\(tree)|alerts:\(alerts)"
+    }
+
+    /// The layout once two readings in a row agree (a launch may still be
+    /// animating), for up to 2 seconds.
+    @MainActor
+    private func startPoint(_ app: XCUIApplication) -> StartPoint {
+        var last = layout(app)
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            let now = layout(app)
+            if now == last { break }
+            last = now
+        }
+        let selected = app.tabBars.buttons.matching(NSPredicate(format: "isSelected == true")).firstMatch
+        return StartPoint(layout: last, tab: selected.exists ? selected.label : nil)
+    }
+
+    @MainActor
+    private func waitForLayout(_ wanted: String, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if layout(app) == wanted { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        } while Date() < deadline
+        return false
+    }
+
+    /// Back to `start` in the running app, the way a person would: the tab
+    /// the walk started on, the navigation bar's back button, an alert's or
+    /// a sheet's Cancel, Close or Done, then a switch tapped back. After each
+    /// it compares the whole tree with `start`; a control in `skip` is never
+    /// tapped. nil when only a relaunch helps (the app is not in front: a
+    /// link opened Safari) or nothing here leads anywhere; false when the
+    /// ways back were tried and the screen still differs.
+    @MainActor
+    private func returnToStart(
+        _ start: StartPoint, in app: XCUIApplication, skip: Set<String>, flipBack: XCUIElement?
+    ) -> Bool? {
+        guard app.state == .runningForeground else { return nil }
+        if waitForLayout(start.layout, in: app, timeout: 1) { return true }
+        var tried = false
+        for round in 0..<3 {
+            var ways: [XCUIElement] = []
+            if let tab = start.tab {
+                let button = app.tabBars.buttons[tab]
+                if button.exists, !button.isSelected { ways.append(button) }
+            }
+            ways.append(app.navigationBars.buttons["BackButton"])
+            for label in ["Cancel", "Close", "Not Now", "Done"] {
+                ways.append(app.alerts.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch)
+                ways.append(app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch)
+            }
+            // The switch the tap flipped, flipped back (first round only, or
+            // it would flip again).
+            if round == 0, let flipBack { ways.append(flipBack) }
+            var acted = false
+            for way in ways where way.exists && way.isHittable {
+                guard !skip.contains(way.identifier), !skip.contains(way.label) else { continue }
+                way.tap()
+                acted = true
+                tried = true
+                if waitForLayout(start.layout, in: app, timeout: 2) { return true }
+                break
+            }
+            if !acted { break }
+        }
+        return tried ? false : nil
     }
 
     @MainActor
