@@ -21,6 +21,10 @@
 // of noise.
 // HIDDEN=0 keeps every chat shown. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
 // windows.
+// Resize (x1 launches, after the readings above; RESIZE=0 skips it): the shown chat's page takes RESIZE_WIDTHS one at
+// a time, a second apart, as a window snapped or a divider let go does. Each width is new to the page, so the
+// transcript lays out the whole chat at it. `resize ms` is the page's time from the width to the second frame after
+// it; `resize cpu ms` is the renderer main thread's time over that second (the layout and the drawn rows' measures).
 // The fixture's turns are plain prose (no code blocks), so the pane's highlighter, which runs on the main thread on an
 // http: page and in a worker on cmux-page:, does no work here.
 //   bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]
@@ -47,6 +51,8 @@ const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
 const CASES = process.env.CASES ?? "all";
+const RESIZE = process.env.RESIZE !== "0";
+const RESIZE_WIDTHS = [700, 620, 540, 460];
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
 if (!["all", "main", "grown-many"].includes(CASES)) {
@@ -490,6 +496,37 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const pids = renderers(root);
       const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
+      if (count === 1 && RESIZE) {
+        const { page, cdp } = pages[0]!;
+        await cdp.send("Performance.enable", { timeDomain: "threadTicks" });
+        const threadMs = async () => {
+          const { metrics } = (await cdp.send("Performance.getMetrics")) as {
+            metrics: { name: string; value: number }[];
+          };
+          return (metrics.find((metric) => metric.name === "ThreadTime")?.value ?? 0) * 1000;
+        };
+        const resizeMs: number[] = [];
+        const resizeCpuMs: number[] = [];
+        for (const width of RESIZE_WIDTHS) {
+          const cpu = await threadMs();
+          const from = await page.evaluate(() => performance.now());
+          await page.setViewportSize({ width, height: 800 });
+          const drawn = await page.evaluate(
+            () =>
+              new Promise<number>((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now()))),
+              ),
+          );
+          resizeMs.push(drawn - from);
+          // fixed-wait: the window the CPU reading spans, so the drawn rows' measures after the width count too.
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          resizeCpuMs.push((await threadMs()) - cpu);
+        }
+        console.log(
+          `  ${name}: resize ms ${resizeMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeMs).toFixed(0)}); ` +
+            `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
+        );
+      }
       const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length };
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
       perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
