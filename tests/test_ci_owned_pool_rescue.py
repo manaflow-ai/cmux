@@ -1586,7 +1586,7 @@ class StrandedCancel(unittest.TestCase):
             looks = iter([("rescue", "queue alarm"), ("resume", "all")])
             resumed = []
 
-            def resume_rerun(api, target, *, now, sleep, log, every_job, only_job=None):
+            def resume_rerun(api, target, *, now, sleep, log, every_job, only_job=None, **depth):
                 resumed.append((target.attempt, every_job))
                 return "re-ran it"
             target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY, refusals_only=case == "refusals only")
@@ -1614,7 +1614,7 @@ class StrandedCancel(unittest.TestCase):
         verdicts = iter([("free", BLACKSMITH), ("stalled", BLACKSMITH)])
         resumed, logged = [], []
 
-        def resume_rerun(api, target, *, now, sleep, log, every_job, only_job=None):
+        def resume_rerun(api, target, *, now, sleep, log, every_job, only_job=None, **depth):
             resumed.append((target.attempt, every_job))
             return "re-ran it"
         target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
@@ -2384,6 +2384,70 @@ class DeeperDestination(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
 
+    def test_a_job_held_in_its_runner_s_setup_counts_as_a_label_it_leaves(self):
+        # A job glaeda's hook holds in "Set up runner" waits on its label as much as a queued one does.
+        def held(seconds):
+            found = job("cmux-next daemon tests", status="in_progress", labels=[GUI], created=0, runner="mini-1")
+            found.update(started_at=stamp(1), steps=[
+                {"name": "Set up job", "status": "completed", "conclusion": "success"},
+                {"name": "Set up runner", "status": "in_progress", "conclusion": None, "started_at": stamp(1)}])
+            return [found]
+        clock = Clock()
+        api = FakeAPI(clock, held, snapshot=depth_snapshot())
+        code, summary = run_main(api, clock, payload=self.PAYLOAD, env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", summary)
+        clock = Clock()
+        api = FakeAPI(clock, held, snapshot=depth_snapshot(destination=0, destination_oldest=0))
+        run_main(api, clock, payload=self.PAYLOAD, env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertIn("cancel", api.calls)
+
+    def test_a_resumed_failed_jobs_re_run_keeps_the_depth_rule(self):
+        # A rescue stopped between its cancel and its re-run. Where the head places the bot's next attempt, the
+        # successor re-runs the placement, which picks the shallower pool. Else the failed jobs can only take the
+        # side label: the cancel gave up their place in line, so waiting gains nothing; it goes ahead at once and
+        # says the side queue is deeper, never silently.
+        target = rescue.target_from_event(self.PAYLOAD, "manaflow-ai/cmux")
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: placed_jobs(label=GUI), snapshot=depth_snapshot(),
+                      workflow=rerun_workflow())
+        api.cancel(RUN_ID)
+        rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None, every_job=False,
+                            side_label=SIDE)
+        self.assertIn(f"rerun-job:{PLACEMENT_ID}", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+
+        clock = Clock()
+        api = FakeAPI(clock, gui_daemon_tests, snapshot=depth_snapshot())
+        api.cancel(RUN_ID)
+        lines = []
+        rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lines.append, every_job=False,
+                            side_label=SIDE)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertLess(clock.seconds, rescue.STALL_RECHECK_SECONDS)
+        self.assertTrue(any(f"goes ahead onto {SIDE} although {SIDE} has 61 queued" in line for line in lines),
+                        lines)
+
+    def test_a_refused_placement_re_run_of_a_resume_re_runs_the_failed_jobs(self):
+        # The run is cancelled already: a placement re-run GitHub refuses falls back to the failed jobs, never
+        # leaving the pull request with no checks.
+        target = rescue.target_from_event(self.PAYLOAD, "manaflow-ai/cmux")
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: placed_jobs(label=GUI), snapshot=depth_snapshot(),
+                      workflow=rerun_workflow())
+        api.cancel(RUN_ID)
+
+        def refused(run_id, job_id, next_attempt):
+            api.calls.append("rerun-job refused")
+            raise urllib.error.HTTPError("u", 422, "cannot re-run", None, io.BytesIO(b""))
+        api.rerun_job = refused
+        result = rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                     every_job=False, side_label=SIDE)
+        self.assertIn("rerun-job refused", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertIn("re-ran the failed jobs", result)
+
 
 PLACEMENT_ID = 700001
 WAITING_ID = 700002
@@ -2395,6 +2459,18 @@ def rerun_workflow():
         "    name: cmux-next macOS placement\n",
         "    name: cmux-next macOS placement\n    if: ${{ github.run_attempt == 1 || ("
         + rescue.CMUX_NEXT_ATTEMPT_3_PLACEMENT + ") }}\n", 1)
+
+
+def gui_workflow(*, gui=True):
+    """rerun_workflow() with cmux-next.yml's generated-files job, whose runs-on reads placement's gui_runner (as on
+    feat-cmux-next) unless `gui` is off."""
+    route = "needs.macos-placement.outputs.gui_runner || " if gui else ""
+    return rerun_workflow() + (
+        "  generated-files:\n"
+        "    name: cmux-next generated files\n"
+        "    needs: [macos-placement]\n"
+        f"    runs-on: ${{{{ {route}'macos-26' }}}}\n"
+        "    steps: [{run: \"true\"}]\n")
 
 
 def placed_jobs(label=SIDE, status="queued", conclusion=None):
@@ -2586,6 +2662,66 @@ class RerunInput(unittest.TestCase):
         api = RerunAPI(clock)
         run_rerun(api, clock)
         self.assertIn(rescue.CANCEL_SETTLED, api.out)
+
+    def test_a_side_re_run_deeper_than_the_gui_queue_is_refused_aloud(self):
+        # Rescue run 43738245468 on 2026-11-15: "re-ran the failed and cancelled jobs of run 43716323834 as attempt
+        # 5; attempt 5 takes glaeda-side-std-xcode-26.6", and 'cmux-next generated files' queued on side-std again
+        # while gui-std had 0 queued. It left side-std, so no label it left was shallower; the GUI label was.
+        clock = Clock()
+        generated = [{**job("cmux-next generated files", labels=[SIDE], created=0), "id": WAITING_ID}]
+        api = RerunAPI(clock, attempt=4, jobs=generated, workflow=gui_workflow(),
+                       snapshot=depth_snapshot(source=0, source_oldest=0, destination=42, destination_oldest=47))
+        code, summary = run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn(f"not re-run: attempt 5 takes {SIDE}, but {SIDE} has 41 queued (oldest 47 min), deeper than "
+                      f"{GUI}'s 0 queued", summary)
+
+    def test_the_run_s_own_waiting_jobs_do_not_make_the_side_queue_deeper(self):
+        # Its one job waiting on side-std is that queue's only job: re-running it there joins no deeper queue.
+        clock = Clock()
+        generated = [{**job("cmux-next generated files", labels=[SIDE], created=0), "id": WAITING_ID}]
+        api = RerunAPI(clock, attempt=4, jobs=generated, workflow=gui_workflow(),
+                       snapshot=depth_snapshot(source=0, source_oldest=0, destination=1, destination_oldest=47))
+        run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_a_job_whose_head_never_gives_it_the_gui_label_is_not_judged_against_it(self):
+        # The GUI label counts only for a job whose runs-on at the head reads placement's gui_runner.
+        clock = Clock()
+        generated = [{**job("cmux-next generated files", labels=[SIDE], created=0), "id": WAITING_ID}]
+        api = RerunAPI(clock, attempt=4, jobs=generated, workflow=gui_workflow(gui=False),
+                       snapshot=depth_snapshot(source=0, source_oldest=0, destination=42, destination_oldest=47))
+        run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_a_head_whose_placement_stops_at_attempt_three_is_not_re_placed_past_it(self):
+        plan, why = rescue.placement_rerun(rerun_workflow(), placed_jobs(), attempt=3)
+        self.assertIsNone(plan)
+        self.assertIn("does not run on the bot's attempt 4", why)
+        plan, _ = rescue.placement_rerun(rerun_workflow(), placed_jobs(), attempt=2)
+        self.assertIsNotNone(plan)
+
+    def test_a_head_that_places_every_bot_attempt_is_re_placed_at_attempt_five(self):
+        # cmux-next.yml's placement for every bot attempt (coord-deputy-2, 2026-11-15): the rerun input re-runs the
+        # placement at any attempt, so placement's depth choice picks the pool.
+        clock = Clock()
+        every_bot = CMUX_NEXT_FIXTURE.replace(
+            "    name: cmux-next macOS placement\n",
+            "    name: cmux-next macOS placement\n    if: ${{ github.run_attempt == 1 || contains(fromJSON("
+            "'[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) }}\n", 1)
+        api = RerunAPI(clock, attempt=4, workflow=every_bot,
+                       snapshot=depth_snapshot(source=0, source_oldest=0, destination=42, destination_oldest=47))
+        code, summary = run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertEqual(code, 0)
+        self.assertIn(f"rerun-job:{PLACEMENT_ID}", api.calls)
+        self.assertIn("attempt 5", summary)
+        # A head whose placement stops at the bot's attempt 3 is not re-placed at attempt 5.
+        clock = Clock()
+        api = RerunAPI(clock, attempt=4, snapshot=depth_snapshot(destination=0, destination_oldest=0))
+        run_rerun(api, clock, env_extra={"SIDE_LANE_RUNNER": SIDE})
+        self.assertNotIn(f"rerun-job:{PLACEMENT_ID}", api.calls)
 
     def test_a_running_job_a_moved_head_or_another_workflow_is_left_alone(self):
         clock = Clock()
@@ -5163,6 +5299,61 @@ class Sweeper(unittest.TestCase):
                                     log=lambda text: None, sweep_seconds=ticks * 60, tick_seconds=60,
                                     wait=clock.sleep, running_code=running)
         return clock, watched, outcomes
+
+    def test_a_rescue_s_cancel_past_the_watched_attempts_is_adopted_to_finish_its_re_run(self):
+        # The rerun input cancelled a bot's attempt 4 to re-run it, and its job stopped before the re-run. The
+        # sweeper adopts that attempt for its unsettled mark alone; a settled one stays out.
+        stopped = listed(9, path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=4, status="completed",
+                         conclusion="cancelled", updated_at=stamp(0), triggering_actor={"login": CMUX_BOT})
+        settled = dict(stopped, id=10)
+
+        class API(SweepAPI):
+            def rescue_jobs(self, earliest_end, run_id=0):
+                return [run_id]
+
+            def job_marks(self, job_id):
+                return {(job_id, 4): "sent" if job_id == 9 else "settled"}
+        watched, _ = self.sweep(API([stopped, settled], picker=[9, 10]))
+        self.assertEqual([entry[:2] for entry in watched], [(9, 4)])
+
+    def test_an_adopted_stranded_attempt_four_is_re_run(self):
+        # End to end from adoption: the watch of a cmux-next bot attempt 4 a rescue cancelled and never re-ran finds
+        # its unsettled mark and finishes the re-run at once. The side queue is deeper than the GUI one, but the
+        # cancel already gave up the job's place in line, so holding the re-run would gain nothing.
+        run = listed(RUN_ID, path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=4, status="completed",
+                     conclusion="cancelled", updated_at=stamp(0), triggering_actor={"login": CMUX_BOT})
+        cancelled = {**job("cmux-next generated files", labels=[SIDE], created=0, status="completed"), "id": 3,
+                     "conclusion": "cancelled", "steps": []}
+
+        class API(FakeAPI):
+            def run(self, run_id):
+                self.calls.append("run")
+                return run if self.attempt == 4 else {**run, "status": "queued", "conclusion": None,
+                                                      "run_attempt": self.attempt}
+
+            def jobs(self, run_id, attempt):
+                self.calls.append(f"jobs:{attempt}")
+                return [dict(cancelled)] if attempt == 4 else []
+
+            def annotations(self, job_id, *, final=False):
+                return [{"annotation_level": "failure", "message": f"The run was canceled by @{CMUX_BOT}."}]
+
+            def rescue_jobs(self, earliest_end, run_id=0):
+                return [7001]
+
+            def job_marks(self, job_id):
+                return rescue.cancel_marks([f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 4"])
+        clock = Clock()
+        api = API(clock, lambda seconds: [], workflow=gui_workflow(),
+                  snapshot=depth_snapshot(source=0, source_oldest=0, destination=42, destination_oldest=47))
+        api.attempt = 4
+        target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False, stranded=True)
+        self.assertNotIsInstance(target, str)
+        with unittest.mock.patch.object(rescue, "SETTLED_HERE", set()):
+            rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                          log=lambda text: None, side_label=SIDE)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertLess(clock.seconds, rescue.STALL_RECHECK_SECONDS)
 
     def test_light_rescue_starts_once_and_hands_over_even_when_the_app_budget_is_spent(self):
         import hosted_light_rescue
