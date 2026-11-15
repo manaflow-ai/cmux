@@ -147,6 +147,23 @@ struct CanvasSettingsFileTests {
         #expect(fixture.metrics.snapThreshold == 0)
     }
 
+    /// A `canvas` value that is not an object is a mistake to report, not a
+    /// removed section: the values already in effect must stay.
+    @Test(arguments: ["false", "null", "[]", "\"wide\"", "3"])
+    func malformedSectionOnReloadKeepsTheValuesInEffect(section: String) throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        try fixture.writePrimary(#"{"canvas":{"paneGap":28,"snappingEnabled":false}}"#)
+        let store = fixture.makeStore()
+        #expect(fixture.metrics.gap == 28)
+
+        try fixture.writePrimary("{\"canvas\":\(section)}")
+        store.reload()
+
+        #expect(fixture.metrics.gap == 28)
+        #expect(fixture.metrics.snapThreshold == 0)
+    }
+
     /// An isolated settings file, fallback file and defaults suite, so the test
     /// never reads or writes the developer's own cmux.json or preferences.
     private struct Fixture {
