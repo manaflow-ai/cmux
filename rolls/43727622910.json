@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43727622910",
+  "recorded_at": "2026-11-15T15:14:14Z",
+  "reason": "cmux-tui 7a5eac5c5ba0 changes the image's cmux-tui (pinned 8dfdb346e8b5)",
+  "dry_run": false,
+  "cmux_tui": "7a5eac5c5ba0173e237bab148ae9d100b6a0a02b",
+  "fixes": [
+    {
+      "sha": "7a5eac5c5ba0173e237bab148ae9d100b6a0a02b",
+      "mergedAt": "2026-11-15T06:47:11-08:00",
+      "subject": "Cloud start: the cmux router and pi agents start or fail named (hq#11225) (#43640)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T15:14:14Z",
+    "snapshot_id": "sh-ddc1c33582fa4295aa58e26a996f971b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43727622910): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ed5ff9ad2aa9b896a5915dbe3cb08417c4c1a8a3",
+    "image": "cloud-native-auto-7a5eac5c-43727622910-1",
+    "revision": "ci-43727622910-1",
+    "at": "2026-11-15T15:14:14Z"
+  },
+  "rolled_back": false
+}
