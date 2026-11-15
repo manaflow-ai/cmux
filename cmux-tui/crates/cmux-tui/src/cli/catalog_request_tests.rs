@@ -17,8 +17,8 @@ struct Case {
 fn cases() -> Vec<Case> {
     vec![Case {
         id: "workspace.unpinFromSpace",
-        argv: &["room", "unpin", "--workspace", "ws_1"],
-        values: vec![("target:workspace", json!("ws_1"))],
+        argv: &["room", "unpin", "--workspace", "ws_00000000000000000000000000000004"],
+        values: vec![("target:workspace", json!("ws_00000000000000000000000000000004"))],
     }]
 }
 
