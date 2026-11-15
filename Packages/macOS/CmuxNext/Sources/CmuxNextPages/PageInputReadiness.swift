@@ -28,6 +28,8 @@ public final class PageInputReadiness {
     public private(set) var isPointerOverSidewaysScroller = false
     /// Runs when ``isReady`` turns true.
     public var onReady: (() -> Void)?
+    /// The longest ``awaitFocusMove()`` keeps the page's keys when no focus move comes.
+    public var focusMoveLimit: Duration = .milliseconds(500)
     private weak var webView: WKWebView?
     /// Types into a page another engine shows (a Chromium page, ``PageWebView``); nil types into the
     /// attached web view.
@@ -62,6 +64,11 @@ public final class PageInputReadiness {
     public func attach(_ webView: WKWebView) {
         self.webView = webView
     }
+
+    /// The page is about to move its focus itself: a command it got opens and focuses a field (Cmd-F's find bar) in the
+    /// page's own turn. Until that focus comes, or ``focusMoveLimit``, the page counts as not ready, so keys typed
+    /// meanwhile wait for the field (the key router's type-ahead), as before the document's first focus.
+    public func awaitFocusMove() {}
 
     /// A stable token for the editable element that owns a queued edit sequence. The page stores
     /// it on that element; later Deletes refuse a different focused element, so an async insert
