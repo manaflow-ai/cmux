@@ -149,8 +149,8 @@ public final class PaletteController {
 
     // MARK: Warm-up
 
-    /// Runs `work` once, at the palette's first open from now on, on the main actor's next turn so the panel's first
-    /// frame is not held up: work made ahead of something a palette row may open next (the app's web overlay pages,
+    /// Runs `work` once, at the palette's first open from now on, after that open's frame is committed so the panel's
+    /// first frame is not held up: work made ahead of something a palette row may open next (the app's web overlay pages,
     /// made on this sign of intent and not at launch, as `MenuTracking.onFirstMenu` does for menus).
     public func onFirstShow(_ work: @escaping @MainActor () -> Void) {
         firstShowWork.append(work)
@@ -295,8 +295,7 @@ public final class PaletteController {
         if !firstShowWork.isEmpty {
             let work = firstShowWork
             firstShowWork = []
-            // task-owner: one ordering hop past the open; it ends with `work`
-            Task { @MainActor in work.forEach { $0() } }
+            scheduleAfterFrameCommit { work.forEach { $0() } }
         }
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
