@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43731567152",
+  "recorded_at": "2026-11-15T16:00:55Z",
+  "reason": "cmux-tui 3f75c558a758 changes the image's cmux-tui (pinned 086afb8f44e3)",
+  "dry_run": false,
+  "cmux_tui": "3f75c558a758b207dfb0f2c07cafd5a4dc3fb3d5",
+  "fixes": [
+    {
+      "sha": "3f75c558a758b207dfb0f2c07cafd5a4dc3fb3d5",
+      "mergedAt": "2026-11-15T15:28:17Z",
+      "subject": "acpmux: the cmux profile starts on a Cloud machine through its gateway (hq#11225) (#43658)"
+    },
+    {
+      "sha": "3e12cbb23b3228fb546bd127e99566e0d8816099",
+      "mergedAt": "2026-11-15T15:27:52Z",
+      "subject": "acpmux v2: a gate whose test fails reads red in the home (#43698)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T16:00:55Z",
+    "snapshot_id": "sh-be5cba27eb794cc4ba094b31e24cdea6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43731567152): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d3e0b983239fdafae0dbdbab77febc4c53fefe63",
+    "image": "cloud-native-auto-3f75c558-43731567152-1",
+    "revision": "ci-43731567152-1",
+    "at": "2026-11-15T16:00:55Z"
+  },
+  "rolled_back": false
+}
