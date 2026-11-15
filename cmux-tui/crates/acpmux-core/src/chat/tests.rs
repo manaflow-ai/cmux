@@ -733,6 +733,10 @@ fn actor_line_and_checkpoint_open_gate() {
         ("v2.pr03a3.actor_line", small.0, god.0, god.1),
         ("v2.pr03a3.checkpoint_open", small.2, god.2, god.3),
     ];
+    for (name, small, god, all) in measurements {
+        assert!((god as f64) <= small as f64 * 1.2, "{name} best p95");
+        assert!((all as f64) <= small as f64 * 2.0, "{name} aggregate p95");
+    }
     let mut gate_output = std::env::var_os("V2_GATE_OUT")
         .map(|path| fs::OpenOptions::new().create(true).append(true).open(path).unwrap());
     for (name, small, god, all) in measurements {
@@ -743,10 +747,6 @@ fn actor_line_and_checkpoint_open_gate() {
         if let Some(output) = gate_output.as_mut() {
             writeln!(output, "{line}").unwrap();
         }
-    }
-    for (name, small, god, all) in measurements {
-        assert!((god as f64) <= small as f64 * 1.2, "{name} best p95");
-        assert!((all as f64) <= small as f64 * 2.0, "{name} aggregate p95");
     }
 }
 
