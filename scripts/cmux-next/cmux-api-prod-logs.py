@@ -557,7 +557,13 @@ def main():
         rows = [row for row in payload["rows"] if isinstance(row, dict)]
         if len(rows) != len(payload["rows"]):
             sys.exit("private rows: every row must be an object")
-        pointer = private_upload(private_token, payload["header"], rows)
+        header = dict(payload["header"])
+        if "failures" in payload:
+            failures = payload["failures"]
+            if not isinstance(failures, list) or any(not isinstance(row, dict) for row in failures):
+                sys.exit("private rows: failures must be an array of objects")
+            header["failures"] = failures
+        pointer = private_upload(private_token, header, rows)
         print(json.dumps({"row_count": len(rows), "pointer": pointer}))
         return 0
     if not args.frm:

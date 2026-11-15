@@ -224,6 +224,7 @@ export class Journey {
   readonly steps: Step[] = [];
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
+  preclaimRows: PreclaimClaimRecord[] | null = null;
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -251,7 +252,8 @@ export class Journey {
     if (!this.outDir) return;
     const meta = this.publicSafe ? preclaimPublicMeta() : this.meta;
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
-    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta));
+    const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows)}`;
+    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
   }
 }
 
@@ -475,7 +477,7 @@ export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[]): string {
   const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
   const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
   const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90 };
-  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:---:|---:---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
+  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
 }
 
 function normalizedWireValue(value: unknown): Record<string, unknown> {
@@ -558,7 +560,8 @@ export async function runPreclaimChat(exec: Exec, session: string, prompt: strin
     const wait = /@@wait (\d+)/.exec(reply.stdout)?.[1];
     const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
     if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted };
-    if (wait && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}`);
+    // The send is queued: an idle exit before the turn starts is not a failed reply.
+    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}`);
   }
   throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
 }
@@ -616,7 +619,8 @@ async function runPreclaimBurst(args: {
     const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
     const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90, outcome: verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? "fail" : "pass", complete: preclaimRunComplete(rows, failures, args.claims) };
     if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary }, rows, failures }, null, 2)}\n`);
-    if (args.outDir) writeFileSync(path.join(args.outDir, "summary.md"), preclaimSummaryMarkdown(rows));
+    args.journey.preclaimRows = rows;
+    args.journey.flush();
   };
   try {
     for (let index = 0; index < args.claims; index++) {
