@@ -66,6 +66,8 @@ imbl.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
+# The four words a person compares for a Mac key (`cli/consent_grant.rs`).
+cmux-server-core = { path = "../cmux-server-core" }
 cmux-json.workspace = true
 cmux-netwatch.workspace = true
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
@@ -203,7 +205,6 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 cmux-cloud-api.workspace = true
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
-cmux-server-core = { path = "../cmux-server-core" }
 rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
