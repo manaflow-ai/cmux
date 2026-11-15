@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-// The pointer over the sidebar reveals, with Show Sidebar Controls Only on Hover (`sidebar.controlsOnHover`,
-// Lawrence 2026-10-27), its New Workspace button, spaces strip, profile control and Search
+// The pointer over the sidebar reveals, in Minimal Mode (`sidebar.minimal`, user 2026-11-15) or with Show Sidebar
+// Controls Only on Hover (`sidebar.controlsOnHover`, Lawrence 2026-10-27), its New Workspace button, spaces strip, profile control and Search
 // button; in Hide Bands Until Hover (`sidebar.minimalMode`, R54) the chosen pinned bands; and,
 // with the thin scrollers' opt-in auto-hide, the scrollers. By default the controls always show.
 extension SidebarViewComponents {
@@ -62,7 +62,7 @@ extension SidebarViewComponents {
     func chromeReveal(revealed: Bool) -> SidebarChromeReveal {
         let sections = design.sidebarSections
         return SidebarChromeReveal(revealed: revealed, minimalMode: sections.minimalMode,
-                                   controlsOnHover: sections.controlsOnHover, spacesVisibility: spacesVisibility)
+                                   controlsOnHover: sections.hidesControlsUntilHover, spacesVisibility: spacesVisibility)
     }
 
     /// The spaces strip's opacity: shown unless controls-on-hover hides it with the pointer away

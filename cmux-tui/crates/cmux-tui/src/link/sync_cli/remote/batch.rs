@@ -150,24 +150,26 @@ impl Remote {
                 return Err(Dropped("the machine daemon closed the connection".into()).into());
             }
             let answer: Value = serde_json::from_slice(&line)?;
-            let index = answer["id"]
+            let field = |key: &str| answer.get(key).unwrap_or(&Value::Null);
+            let slot = field("id")
                 .as_u64()
                 .and_then(|id| id.checked_sub(first_id))
                 .and_then(|index| usize::try_from(index).ok())
-                .filter(|index| *index < count && answers[*index].is_none());
-            let Some(index) = index else {
+                .and_then(|index| answers.get_mut(index))
+                .filter(|slot| slot.is_none());
+            let Some(slot) = slot else {
                 others += 1;
                 if others > MAX_OTHER_ANSWERS {
                     bail!("the machine daemon kept answering other requests");
                 }
                 continue;
             };
-            answers[index] = Some(if answer["ok"] == json!(true) {
-                Ok(answer["data"].clone())
+            *slot = Some(if field("ok") == &json!(true) {
+                Ok(field("data").clone())
             } else {
                 Err(FsRefusal {
-                    code: answer["error_code"].as_str().unwrap_or("fs.unknown").to_string(),
-                    message: answer["error"].as_str().unwrap_or_default().to_string(),
+                    code: field("error_code").as_str().unwrap_or("fs.unknown").to_string(),
+                    message: field("error").as_str().unwrap_or_default().to_string(),
                 }
                 .into())
             });
