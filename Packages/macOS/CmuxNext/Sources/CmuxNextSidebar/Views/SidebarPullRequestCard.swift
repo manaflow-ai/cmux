@@ -60,12 +60,15 @@ final class SidebarPullRequestCardController {
         guard !items.isEmpty, badge.window != nil else { return }
         closer.cancel()
         opener.cancel()
-        if isPresented || cards.machine.shownTarget != nil || cards.machine.phase.isGrace {
+        let machine = cards.machine
+        if isPresented || machine.ownedCardShown || machine.shownTarget != nil || machine.phase.isGrace {
             present(badge, items: items, cards: cards, open: open)
             return
         }
         opener.schedule(after: Self.openDelay) { @MainActor [weak self, weak badge, weak cards] in
-            guard let self, let badge, let cards else { return }
+            // The row may have been reused, its pull requests changed or its badge hidden during the
+            // wait: open with what the badge under the pointer lists now, or not at all.
+            guard let self, let badge, let cards, let items = badge.pointedItems, !items.isEmpty else { return }
             self.present(badge, items: items, cards: cards, open: open)
         }
     }

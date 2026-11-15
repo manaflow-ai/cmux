@@ -55,8 +55,8 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
 /// Hover card timing: the one source every hover card in the app reads (sidebar workspace rows,
 /// pinned rows, the rail, tabs, group headers and chips, the Update Ready card, Home link chips;
 /// the pages' cards read the same numbers from `HOVER_INTENT` in webviews/src/ui/hoverIntent.ts,
-/// and webviews/test/hover-intent-parity.test.ts fails when they drift). `HoverCardTimingSourceTests`
-/// fails when a hover card source names a delay of its own.
+/// and webviews/test/hover-intent-parity.test.ts fails when they drift).
+/// webviews/test/hover-card-timing-source.test.ts fails when a hover card source names a delay of its own.
 ///
 /// Chrome's numbers (Lawrence 2026-11-15, msg 32286: "copy chrome's delay exactly, make sure to
 /// read chrome's source code ... make sure it is consistent between every thing"), read in

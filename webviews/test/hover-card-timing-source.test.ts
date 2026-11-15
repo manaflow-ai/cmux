@@ -33,7 +33,9 @@ function unexplained(text: string, literal: RegExp) {
 test("no native hover card has a delay of its own", () => {
   const isCardSource = (file: string, text: string) =>
     /(^|\/)HoverCards\//.test(file) || /HoverTarget\(|presentOwned\(|HoverCardMachine\(/.test(text);
-  const literal = /\.(milliseconds|seconds)\(\s*[\d_.]+\s*\)/;
+  // Duration literals (`.milliseconds(400)`, `Duration.seconds(1)`, ...) and GCD/TimeInterval waits.
+  const literal =
+    /\.(milliseconds|microseconds|nanoseconds|seconds)\(\s*[\d_.]+\s*\)|\.now\(\)\s*\+\s*[\d.]+|(after|delay|Delay|interval|Interval):\s*[\d.]+\b/;
   const files = list(swiftRoot, /\.swift$/).filter((file) => file !== swiftSource);
   const found = files.flatMap((file) => {
     const text = fs.readFileSync(path.join(swiftRoot, file), "utf8");
@@ -51,8 +53,8 @@ test("no native hover card has a delay of its own", () => {
 
 test("no page hover card has a delay of its own", () => {
   const isCardSource = (file: string, text: string) =>
-    /hover-?card|updatedPreview|sessionHover/i.test(file) ||
-    /useHoverCard\(|useHoverIntent\(|new HoverGroup\(/.test(text);
+    /hover-?card|updatedPreview|sessionHover|threadMinimap/i.test(file) ||
+    /useHoverCard\(|useHoverIntent(<[^>]*>)?\(|new HoverGroup\(|new HoverIntent(<[^>]*>)?\(/.test(text);
   // A named delay constant or a delay argument written as a number.
   const literal =
     /\b[A-Z_]*(DWELL|DELAY|GRACE)[A-Z_]*\s*=\s*[\d_]+\b|\b(dwell|delay|grace)\s*:\s*[\d_]+\b|useHoverCard\(\s*[\d_]+/;

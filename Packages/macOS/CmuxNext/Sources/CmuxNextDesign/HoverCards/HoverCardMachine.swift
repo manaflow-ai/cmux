@@ -177,8 +177,16 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             guard activeTarget?.id == id else { return [] }
             return end() + resume()
         case .owned(let shown):
+            let wasShown = ownedCardShown
             ownedCardShown = shown
-            guard shown else { return [] }
+            guard shown else {
+                // The owner's card went: a hover this soon shows the next card at once, as after any
+                // card (Chrome's `kShowWithoutDelayTimeBuffer`, `reshowWindow`).
+                guard wasShown, phase == .idle, suppressions.isEmpty else { return [] }
+                let grace = takeToken()
+                phase = .grace(token: grace)
+                return [.schedule(token: grace, after: reshowWindow)]
+            }
             // The owner's card takes the window: no card of a target is pending or shown, and
             // nothing hides (the window morphs to the owner's content).
             quiet = false
