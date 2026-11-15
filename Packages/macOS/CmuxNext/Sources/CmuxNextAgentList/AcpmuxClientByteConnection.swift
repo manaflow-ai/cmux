@@ -9,6 +9,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     public static let maxUndeliveredBytes = 1 << 20
     private let client: AcpmuxClient
     private let queue = DispatchQueue(label: "cmux.acpmux-client.driver", qos: .utility) // qos-allow: socket bytes are background transport work
+    private var input = Data()
     private var pending = Data()
     private var pendingDelivery = false
     private var connection: AgentActivityLineConnection?
@@ -40,8 +41,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         queue.async { [self] in
             pending.removeAll(keepingCapacity: true)
             pendingDelivery = false
-            connection?.resumeBytes()
-            drain()
+            processInput()
         }
     }
 
@@ -51,6 +51,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
             closed = true
             connection?.cancel()
             connection = nil
+            input.removeAll()
             pending.removeAll()
             onChange = nil
         }
@@ -58,17 +59,33 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
 
     private func receive(_ bytes: Data) {
         guard !closed else { return }
-        _ = client.received(bytes)
-        while pending.count < Self.maxUndeliveredBytes, let change = client.nextChange() {
-            if !pending.isEmpty { pending.append(0x0a) }
-            pending.append(change)
+        input.append(bytes)
+        processInput()
+    }
+
+    private func processInput() {
+        guard !closed else { return }
+        while !input.isEmpty, pending.count < Self.maxUndeliveredBytes {
+            let consumed = client.received(input)
+            if consumed > 0 {
+                input.removeSubrange(input.startIndex..<input.index(input.startIndex, offsetBy: min(consumed, input.count)))
+            }
+            drainChanges()
+            if consumed == 0 { break }
         }
-        // The raw connection is suspended for this chunk; hold at most one
-        // <=1 MiB batch for the main actor and resume only after acknowledgement.
-        if pending.isEmpty {
+        // The raw connection is suspended for this chunk; keep it suspended while
+        // either unread input or one undelivered <=1 MiB batch remains.
+        if pending.isEmpty, input.isEmpty {
             connection?.resumeBytes()
         } else {
             drain()
+        }
+    }
+
+    private func drainChanges() {
+        while pending.count < Self.maxUndeliveredBytes, let change = client.nextChange() {
+            if !pending.isEmpty { pending.append(0x0a) }
+            pending.append(change)
         }
     }
 
