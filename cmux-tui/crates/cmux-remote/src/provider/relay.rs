@@ -2010,7 +2010,16 @@ async fn run_registration_once(
         let Some(pending) = renewal.take() else {
             return Err(failure);
         };
-        let Ok(control) = pending.await else {
+        let renewed = tokio::select! {
+            renewed = pending => renewed,
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    return Ok(());
+                }
+                return Err(failure);
+            }
+        };
+        let Ok(control) = renewed else {
             return Err(failure);
         };
         socket = control.socket;

@@ -212,9 +212,10 @@ async fn registration_outlives_its_ticket_with_no_failed_dial_or_broken_circuit(
             other => panic!("the daemon never registered: {:?}", other.map(|r| r.err())),
         }
     };
-    // The registration's ticket was minted at most this long ago: the run spans
-    // EXPIRIES of them past that, and a little more.
-    let run = Duration::from_secs(REGISTER_TICKET_SECONDS * EXPIRIES + 2);
+    // A registration that lasts only its ticket comes back about a second after
+    // each expiry (the relay's sweep runs every second), so EXPIRIES of them take
+    // up to (REGISTER_TICKET_SECONDS + 1) s each; the run spans that and more.
+    let run = Duration::from_secs((REGISTER_TICKET_SECONDS + 1) * EXPIRIES + 3);
     let deadline = Instant::now() + run;
 
     let pump = Arc::new(Mutex::new(Pump::default()));
@@ -322,8 +323,6 @@ async fn registration_outlives_its_ticket_with_no_failed_dial_or_broken_circuit(
     for broke in &pump.breaks {
         println!("  circuit broke at {broke}");
     }
-    // The registration was renewed rather than kept on one ticket past its expiry.
-    assert!(authentications > EXPIRIES, "the run renewed only {authentications} times");
     assert!(
         failures.is_empty() && pump.broke == 0 && pump.longest_gap < GAP_BOUND,
         "dials failed: {}, circuits broke: {}, longest gap: {} ms",
@@ -331,6 +330,8 @@ async fn registration_outlives_its_ticket_with_no_failed_dial_or_broken_circuit(
         pump.broke,
         pump.longest_gap.as_millis(),
     );
+    // The registration was renewed before each expiry, not kept on one ticket.
+    assert!(authentications > EXPIRIES, "the run registered only {authentications} times");
 
     registration.shutdown().await;
     relay_task.abort();
