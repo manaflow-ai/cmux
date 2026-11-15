@@ -141,7 +141,9 @@ pub(super) enum Request {
         wait: bool,
     },
     Profiles,
-    Recipes { open: bool },
+    Recipes {
+        open: bool,
+    },
     Library(library::Request),
     Paths,
     Schema {
