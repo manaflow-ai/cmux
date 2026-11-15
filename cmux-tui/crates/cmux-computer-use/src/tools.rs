@@ -193,7 +193,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "type_text",
         access: Access::Act,
-        description: "Type text into element_id (a text field, focused first through accessibility), or into the window's focused field. Refused when the focus is on a control that takes no text or nowhere while the window has fields. Check the result: the field's new value shows as a change.",
+        description: "Type text into element_id (a text field, focused first through accessibility), or into the window's focused field. Refused when element_id is a control that takes no text, or when the focus is on a native checkbox, slider or pop-up that would take the keys as commands. Check the result: the field's new value shows as a change; no change means the text did not land.",
         schema: || {
             obj(
                 json!({"window_id": window_id(), "text": {"type": "string"}, "element_id": {"type": "string"}, "delivery": delivery()}),

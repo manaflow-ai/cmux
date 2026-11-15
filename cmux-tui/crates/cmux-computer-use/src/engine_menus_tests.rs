@@ -157,19 +157,31 @@ fn a_click_opens_the_menu_and_lists_its_items_for_the_next_call() {
     }
     assert!(!tree.contains("Terminal") && !tree.contains("OK"), "{tree}");
     assert!(out.body["menu"].get("items").is_none());
-    // As JSON (a script), the result keeps its item list and the tree.
-    let json = e.call(
-        &ctx("c2"),
+    let tree = e.call(&ctx("t1"), "get_ui_tree", &json!({"window_id": "1", "full": true}));
+    assert!(!tree.body["tree"].as_str().unwrap().contains("Terminal"));
+}
+
+/// As JSON (a script), the open menu's result keeps its item list and the tree.
+#[test]
+fn a_click_that_opens_a_menu_keeps_the_items_as_json_for_scripts() {
+    let (d, e) = rig(MenuMode::Open);
+    let out = e.call(
+        &ctx("j1"),
         "click",
         &json!({"window_id": "1", "element_id": "p1", "format": "json"}),
     );
-    let titles: Vec<&str> = json.body["menu"]["items"]
+    assert!(!out.is_error, "{:?}", out.body);
+    assert!(d.popups()[0].open);
+    let titles: Vec<&str> = out.body["menu"]["items"]
         .as_array()
-        .map(|a| a.iter().filter_map(|i| i["title"].as_str()).collect())
-        .unwrap_or_default();
-    assert!(titles.is_empty() || titles == ["Always", "When Unlocked", "Never"], "{titles:?}");
-    let tree = e.call(&ctx("t1"), "get_ui_tree", &json!({"window_id": "1", "full": true}));
-    assert!(!tree.body["tree"].as_str().unwrap().contains("Terminal"));
+        .expect("items")
+        .iter()
+        .map(|i| i["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["Always", "When Unlocked", "Never"]);
+    let root = out.body["state"]["root"].to_string();
+    assert!(root.contains("When Unlocked") && !root.contains("Open in Terminal"), "{root}");
+    assert!(out.body["state"].get("tree").is_none());
 }
 
 #[test]

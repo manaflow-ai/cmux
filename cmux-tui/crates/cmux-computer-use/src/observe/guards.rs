@@ -131,20 +131,60 @@ fn text_inputs(root: &Element, max: usize) -> Vec<&Element> {
     out
 }
 
+/// Roles a focused one of which takes keys as commands, not text, in a native
+/// window: Space toggles a checkbox, arrows move a slider. Buttons and links
+/// are left out: web apps keep focus on them while their own key handlers
+/// take the text.
+fn takes_keys_as_commands(role: &str) -> bool {
+    matches!(
+        role,
+        "checkbox"
+            | "check_box"
+            | "check box"
+            | "radio"
+            | "radio_button"
+            | "radio button"
+            | "popup_button"
+            | "menu_button"
+            | "slider"
+            | "stepper"
+            | "switch"
+            | "toggle"
+            | "toggle_button"
+            | "toggle button"
+            | "disclosure_triangle"
+            | "color_well"
+            | "tab"
+            | "tab_item"
+    )
+}
+
+/// Whether `target` lies inside a web area of `root`.
+fn in_web(root: &Element, target: &Element) -> bool {
+    fn go(e: &Element, target: &Element, web: bool) -> Option<bool> {
+        let web = web || e.role == "web_area";
+        if std::ptr::eq(e, target) {
+            return Some(web);
+        }
+        e.children.iter().find_map(|c| go(c, target, web))
+    }
+    go(root, target, false).unwrap_or(false)
+}
+
 /// type_text with no element_id: the text goes to the window's focused
-/// element. Refused when that is a control that takes no text (Space would
-/// press it). No reported focus is let through: a background window or a
-/// custom view (a terminal, a canvas) often reports none and still types; the
-/// state after typing shows whether anything changed.
+/// element. Refused only when that is a native control that takes keys as
+/// commands (Space would toggle it, arrows move it). No reported focus, a
+/// focused button or link, and anything in web content are let through: the
+/// state after typing shows whether the text landed.
 pub fn typing_without_target(window: &str, root: &Element, _truncated: bool) -> Option<Refusal> {
     let fields = text_inputs(root, 4);
     let list =
         fields.iter().map(|e| format!("[{}] {}", e.id, named(e))).collect::<Vec<_>>().join(", ");
     match focused(root) {
-        Some(f) if is_non_text(&f.role) => refuse(
+        Some(f) if takes_keys_as_commands(&f.role) && !in_web(root, f) => refuse(
             "focus_not_on_text",
             format!(
-                "keyboard focus in window {window} is on [{}] {}, which takes no text: typing there would press it or do nothing. Pass element_id of the field to type into{} (it is focused through accessibility first), or click the field first.",
+                "keyboard focus in window {window} is on [{}] {}, which takes keys as commands, not text: typing there would toggle or move it. Pass element_id of the field to type into{} (it is focused through accessibility first), or click the field first.",
                 f.id,
                 named(f),
                 if list.is_empty() { String::new() } else { format!(" ({list})") }
@@ -232,6 +272,7 @@ pub fn pixel_click(
     root: &Element,
     truncated: bool,
     p: Point,
+    quartz: bool,
 ) -> Option<Refusal> {
     // A point of the screenshot's last pixel row or column maps onto the edge.
     let edge = Rect {
@@ -248,12 +289,20 @@ pub fn pixel_click(
             ),
         );
     }
-    if p.y >= frame.y + TITLE_BAR || truncated {
+    if p.y >= frame.y + TITLE_BAR || truncated || !quartz {
         return None;
     }
-    // Only when the tree has frames to test against.
-    let framed = root.children.iter().any(|c| c.frame.is_some());
-    if !framed || hit(root, p).is_some() {
+    // Only a real title bar: the window's own close, minimize or zoom button
+    // drawn in its top strip (a full-screen window, a hidden or custom-drawn
+    // title bar has none there).
+    let strip = frame.y + TITLE_BAR;
+    let real = root.children.iter().any(|c| {
+        matches!(
+            c.role.as_str(),
+            "close_button" | "minimize_button" | "zoom_button" | "full_screen_button"
+        ) && c.frame.is_some_and(|f| f.y >= frame.y && f.y + f.height <= strip + 1.0)
+    });
+    if !real || hit(root, p).is_some() {
         return None;
     }
     refuse(

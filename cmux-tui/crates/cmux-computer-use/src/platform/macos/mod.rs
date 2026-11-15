@@ -498,6 +498,10 @@ impl Desktop for MacDesktop {
 
     /// One window from the window server and its app alone; the full list
     /// asks every app with a window (tens of ms).
+    fn draws_title_bars(&self) -> bool {
+        true
+    }
+
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         let Ok(number) = id.parse::<u32>() else { return Ok(None) };
         let Some(cg) = cgwindows::by_id(number) else { return Ok(None) };

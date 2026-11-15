@@ -99,14 +99,19 @@ impl ToolOutput {
     pub fn to_mcp(&self) -> Value {
         let mut body = self.body.clone();
         let mut texts: Vec<(&str, String)> = Vec::new();
-        if let Some(Value::String(t)) = body.as_object_mut().and_then(|o| o.remove("tree")) {
-            texts.push(("tree", t));
-        }
-        if let Some(Value::String(t)) =
-            body.get_mut("state").and_then(Value::as_object_mut).and_then(|o| o.remove("tree"))
-        {
-            texts.push(("state.tree", t));
-        }
+        // The outline replaces the JSON tree (kept for direct callers) in what
+        // the model reads.
+        let mut take = |o: Option<&mut serde_json::Map<String, Value>>, place: &'static str| {
+            if let Some(o) = o
+                && let Some(Value::String(t)) = o.remove("tree")
+            {
+                o.remove("root");
+                o.remove("frames_in");
+                texts.push((place, t));
+            }
+        };
+        take(body.as_object_mut(), "tree");
+        take(body.get_mut("state").and_then(Value::as_object_mut), "state.tree");
         let mut content = vec![json!({"type": "text", "text": body.to_string()})];
         // `_meta` says where the text came from, so a script gets it back in place.
         for (from, t) in texts {
@@ -511,6 +516,11 @@ impl Engine {
             .then(|| args_str(&args, "window_id").and_then(|id| self.window_ids_over_target(id)))
             .flatten();
         let acted = self.acted_id(&args);
+        // Whether the agent had a screenshot of the window before acting: only
+        // then can the state say its pixels changed or not.
+        let had_screenshot = args_str(&args, "window_id").is_some_and(|id| {
+            lock(&self.seen).contains_key(&(ctx.session.clone(), format!("w:{id}")))
+        });
         let raising = self.foreground_begin(tool, &args);
         let mut guard = self.focus_begin(&ctx.session, tool, &args);
         let (mut out, app) = match self.dispatch(tool, ctx, &args) {
@@ -557,7 +567,14 @@ impl Engine {
         // The state as the model reads it: the outline of what changed, and
         // the app's windows that opened or closed (a batch's and a wait's too).
         if !out.is_error && out.body.get("state").is_some() {
-            self.present_state(ctx, &args, &mut out, windows_before.as_deref(), acted);
+            self.present_state(
+                ctx,
+                &args,
+                &mut out,
+                windows_before.as_deref(),
+                acted,
+                had_screenshot,
+            );
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
@@ -731,9 +748,7 @@ impl Engine {
                 rewrite_frames(&mut tree.root, &geometry);
                 let mut body = serde_json::Map::new();
                 body.insert("window_id".into(), json!(tree.window_id));
-                if tree.truncated {
-                    body.insert("truncated".into(), json!(true));
-                }
+                body.insert("truncated".into(), json!(tree.truncated));
                 self.present(
                     &ctx.session,
                     &window.id,
@@ -743,7 +758,7 @@ impl Engine {
                     &mut body,
                     Vec::new(),
                     None,
-                    false,
+                    observe_glue::Pixels::NotRead,
                 );
                 Ok((ToolOutput::ok(Value::Object(body)), Some(app)))
             }
@@ -1289,12 +1304,6 @@ impl Engine {
         self.capture_for(config, ctx, args, true, Check::Authorize)
     }
 
-    /// Waits for the window to settle after an acting call ([`Settle`]) and
-    /// adds its screenshot and tree to `out` as `state`. The ceiling counts
-    /// elapsed time, captures included. The window must still be `app`'s and
-    /// `app` still allowed before every capture and the tree; a window that
-    /// closed, changed app or became denied leaves the action's result as it
-    /// is, with the reason.
     /// Types `text` the way Anthropic's reference tool does: in groups of
     /// [`ANTHROPIC_TYPING_GROUP`] characters, [`ANTHROPIC_TYPING_DELAY`]
     /// between keys. The first character goes to `element` (it focuses it);

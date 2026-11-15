@@ -44,9 +44,23 @@ fn form(generation: u32, save_disabled: bool, focus_save: bool, name: &str) -> E
     file.actions = vec!["press".into()];
     file.children = vec![Element { children: vec![item], ..el(&p(11), "menu", "") }];
     let bar = Element { children: vec![file], ..el(&p(9), "menu_bar", "") };
-    Element {
-        children: vec![field, save, bar],
+    // The window's own close button in its title bar: a real title bar.
+    let mut close = framed(el(&p(20), "close_button", ""), 108.0, 104.0, 14.0, 14.0);
+    close.actions = vec!["press".into()];
+    let mut root = Element {
+        children: vec![field, save, bar, close],
         ..framed(el(&p(0), "window", "Form"), 100.0, 100.0, 800.0, 600.0)
+    };
+    // As on macOS: every element has its identity, the same across walks.
+    identify(&mut root, 1);
+    root
+}
+
+/// Gives every element an identity from its place in the tree.
+fn identify(e: &mut Element, seed: u64) {
+    e.identity = Some(seed);
+    for (i, c) in e.children.iter_mut().enumerate() {
+        identify(c, seed * 31 + i as u64 + 1);
     }
 }
 
@@ -81,7 +95,7 @@ fn the_first_look_is_whole_then_only_changes_and_ids_stay() {
     let first = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
     assert_eq!(
         tree_text(&first),
-        "[1] window \"Form\"\n  [2] text field \"Name\" actions: confirm\n  [3] button \"Save\"\n  [4] menu bar (click a menu's id to list its items)\n    [5] menu bar item \"File\"\nFocus: no element of this window has keyboard focus"
+        "[1] window \"Form\"\n  [2] text field \"Name\" actions: confirm\n  [3] button \"Save\"\n  [4] menu bar (click a menu's id to list its items)\n    [5] menu bar item \"File\"\n  [8] close button\nFocus: no element of this window has keyboard focus"
     );
     // Nothing changed: said so, in one line.
     set_tree(&d, form(2, false, false, ""));
@@ -188,17 +202,14 @@ fn a_pixel_click_on_the_title_bar_is_refused_in_the_background_only() {
 }
 
 #[test]
-fn typing_with_focus_on_a_button_is_refused_and_into_the_field_goes_through() {
+fn typing_with_focus_on_a_button_goes_through_and_into_a_button_is_refused() {
     let (d, e) = rig();
     set_tree(&d, form(1, false, true, ""));
-    let out = e.call(&ctx(), "type_text", &json!({"window_id": "1", "text": "Ada"}));
-    assert_eq!(out.code.as_deref(), Some("focus_not_on_text"), "{}", out.body);
-    let msg = out.body["error"].as_str().unwrap();
-    assert!(
-        msg.contains("[3] button \"Save\"") && msg.contains("[2] text field \"Name\""),
-        "{msg}"
-    );
-    assert!(d.events().is_empty());
+    // A web app keeps focus on a button while its own key handler takes the
+    // text: untargeted typing is let through, the state tells what landed.
+    let out =
+        e.call(&ctx(), "type_text", &json!({"window_id": "1", "text": "Ada", "observe": false}));
+    assert!(!out.is_error, "{}", out.body);
     let into = e.call(
         &ctx(),
         "type_text",
@@ -287,4 +298,128 @@ fn a_title_bar_click_after_a_look_cut_short_is_still_refused() {
     let out = e.call(&ctx(), "click", &json!({"window_id": "1", "x": 400.0, "y": 10.0}));
     assert_eq!(out.code.as_deref(), Some("title_bar"), "{}", out.body);
     assert!(*d.walks.lock().unwrap() > walks, "a fresh walk decided it");
+}
+
+#[test]
+fn with_no_earlier_screenshot_the_pixels_are_unknown_never_changed() {
+    let (_d, e) = rig();
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    // No screenshot of the window before the click: the settle capture has
+    // nothing to compare with.
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3"}));
+    let text = tree_text(&out);
+    assert!(text.contains("whether its pixels changed is unknown"), "{text}");
+    assert!(!text.contains("pixels changed (see"), "{text}");
+}
+
+#[test]
+fn a_look_cut_short_never_says_no_change_for_what_it_did_not_read() {
+    let (_d, e) = rig();
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1", "max_nodes": 3}));
+    let again = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1", "max_nodes": 3}));
+    let text = tree_text(&again);
+    assert!(text.starts_with("No change in the part of window 1 this look read"), "{text}");
+    assert!(text.contains("past the element limit it is unknown"), "{text}");
+}
+
+#[test]
+fn a_window_another_process_opens_over_the_target_is_reported() {
+    let (d, e) = rig();
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    *d.opens_on_input.lock().unwrap() = Some(Window {
+        id: "9".into(),
+        app_id: "com.apple.appkit.xpc.openAndSavePanelService".into(),
+        pid: 99,
+        title: "Save".into(),
+        frame: Rect { x: 200.0, y: 150.0, width: 400.0, height: 300.0 },
+        on_screen: true,
+        focused: false,
+        minimized: false,
+    });
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3"}));
+    let text = tree_text(&out);
+    assert!(
+        text.starts_with("+ window 9") && text.contains("opened over it (window_id 9)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn walks_of_two_windows_do_not_wait_for_each_other() {
+    let (_d, e) = rig();
+    let e = Arc::new(e);
+    // Hold window 1's walk lock; a walk of window 2 still runs.
+    let held = lock(&e.observe.walking).entry("1".into()).or_default().clone();
+    let _guard = lock(&held);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(e.walk_tree("2", TreeOptions::default()).is_ok());
+    });
+    assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(true));
+}
+
+#[test]
+fn a_menu_heal_walk_does_not_deepen_the_windows_later_walks() {
+    let (d, e) = rig();
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    // The action's state walk leaves the menus out: their ids are carried.
+    e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3", "observe": false}));
+    e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3"}));
+    // Clicking a menu item heals by walking with the menus...
+    e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "7", "observe": false}));
+    // ...at the default depth, and later default walks stay there.
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    assert_eq!(*d.last_max_nodes.lock().unwrap(), TreeOptions::default().max_nodes);
+}
+
+#[test]
+fn a_menu_bar_listing_shows_the_menu_as_it_is_now() {
+    let (d, e) = rig();
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    // The app adds an item after the look (Open Recent gains a file).
+    let mut now = form(2, false, false, "");
+    let menu = &mut now.children[2].children[0].children[0];
+    menu.children.push(el("2.13", "menu_item", "Recent.txt"));
+    set_tree(&d, now);
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "5"}));
+    assert!(tree_text(&out).contains("menu item \"Recent.txt\""), "{}", tree_text(&out));
+}
+
+#[test]
+fn a_look_keeps_the_json_tree_and_truncated_for_direct_callers() {
+    let (_d, e) = rig();
+    let out = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    assert_eq!(out.body["truncated"], false);
+    assert_eq!(out.body["root"]["children"][1]["name"], "Save");
+    // The model reads the outline, not both.
+    let mcp = out.to_mcp();
+    let head: Value = serde_json::from_str(mcp["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert!(head.get("root").is_none() && head["truncated"] == false, "{head}");
+    assert!(mcp["content"][1]["text"].as_str().unwrap().starts_with("[1] window"));
+}
+
+#[test]
+fn every_guard_refusal_says_force_skips_it() {
+    let (d, e) = rig();
+    set_tree(&d, form(1, true, false, ""));
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    for args in [
+        json!({"window_id": "1", "element_id": "3"}),
+        json!({"window_id": "1", "x": 400.0, "y": 10.0}),
+    ] {
+        let out = e.call(&ctx(), "click", &args);
+        assert!(out.is_error, "{}", out.body);
+        assert!(out.body["error"].as_str().unwrap().contains("force: true"), "{}", out.body);
+    }
+}
+
+#[test]
+fn the_last_looks_kept_per_session_are_bounded() {
+    let (_d, e) = rig();
+    for w in 0..40 {
+        e.record_seen("s9", &format!("w{w}"), crate::observe::outline::Outline::default());
+    }
+    let kept = lock(&e.observe.seen).keys().filter(|(s, _)| s == "s9").count();
+    assert!(kept <= 24, "{kept}");
+    assert!(lock(&e.observe.seen).contains_key(&("s9".into(), "w39".into())));
 }

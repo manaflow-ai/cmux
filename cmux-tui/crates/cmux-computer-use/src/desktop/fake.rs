@@ -97,6 +97,8 @@ pub struct FakeDesktop {
     pub tree: Mutex<Option<Element>>,
     /// Trees walked so far.
     pub walks: Mutex<u32>,
+    /// The element limit the latest walk was asked for.
+    pub last_max_nodes: Mutex<usize>,
 }
 
 impl FakeDesktop {
@@ -166,6 +168,7 @@ impl FakeDesktop {
             installed: Mutex::new(vec![("Terminal".into(), "com.apple.Terminal".into())]),
             tree: Mutex::new(None),
             walks: Mutex::new(0),
+            last_max_nodes: Mutex::new(0),
         }
     }
 
@@ -455,8 +458,12 @@ impl Desktop for FakeDesktop {
             origin,
         })
     }
+    fn draws_title_bars(&self) -> bool {
+        true
+    }
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
         *lock(&self.walks) += 1;
+        *lock(&self.last_max_nodes) = options.max_nodes;
         if let Some(mut root) = lock(&self.tree).clone() {
             self.known(window_id)?;
             if !options.menus {

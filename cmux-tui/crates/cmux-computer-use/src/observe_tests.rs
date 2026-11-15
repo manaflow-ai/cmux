@@ -85,7 +85,9 @@ fn a_row_inserted_above_keeps_each_rows_id_with_its_text() {
 }
 
 #[test]
-fn platform_identity_keeps_an_id_through_a_rename() {
+fn a_renamed_element_with_the_same_identity_gets_a_new_id() {
+    // Identity alone proves nothing (a freed reference is reused): a button
+    // whose label changed is new, and its old id is reported gone.
     let mut w = WindowIds::default();
     let mut n = 0u32;
     let root = |name: &str, gen_: u32| {
@@ -94,12 +96,13 @@ fn platform_identity_keeps_an_id_through_a_rename() {
             vec![ident(el(&format!("{gen_}.1"), "button", name), 77)],
         )
     };
-    let mut a = tree(root("Play", 1));
+    let mut a = tree(root("Cancel", 1));
     w.assign(&mut a, false, &mut n);
-    let play = id_of(&a, "Play");
-    let mut b = tree(root("Pause", 2));
+    let cancel = id_of(&a, "Cancel");
+    let mut b = tree(root("Delete", 2));
     w.assign(&mut b, false, &mut n);
-    assert_eq!(id_of(&b, "Pause"), play);
+    assert_ne!(id_of(&b, "Delete"), cancel);
+    assert_eq!(w.resolve(cancel), Resolved::Gone("button \"Cancel\"".into()));
 }
 
 #[test]
@@ -250,32 +253,26 @@ fn framed(mut e: Element, x: f64, y: f64, w: f64, h: f64) -> Element {
 }
 
 #[test]
-fn typing_is_refused_when_focus_is_on_a_button_or_nowhere_with_fields_around() {
+fn typing_is_refused_when_focus_is_on_a_native_checkbox_and_names_the_fields() {
     let mut field = el("2", "text_field", "Name");
-    let mut button = el("3", "button", "OK");
-    button.focused = true;
-    let root = with(el("1", "window", "W"), vec![field.clone(), button.clone()]);
+    let mut boxed = el("3", "checkbox", "OK");
+    boxed.focused = true;
+    let root = with(el("1", "window", "W"), vec![field.clone(), boxed.clone()]);
     let r = guards::typing_without_target("7", &root, false).unwrap();
     assert_eq!(r.code, "focus_not_on_text");
     assert!(
-        r.message.contains("[3] button \"OK\"") && r.message.contains("[2] text field \"Name\""),
+        r.message.contains("[3] checkbox \"OK\"") && r.message.contains("[2] text field \"Name\""),
         "{}",
         r.message
     );
-    button.focused = false;
-    let root = with(el("1", "window", "W"), vec![field.clone(), button.clone()]);
+    boxed.focused = false;
     // No reported focus is let through (a background window often reports none).
+    let root = with(el("1", "window", "W"), vec![field.clone(), boxed.clone()]);
     assert!(guards::typing_without_target("7", &root, false).is_none());
-    // A window with no text fields (a canvas, a terminal) is let through.
     let canvas = with(el("1", "window", "W"), vec![el("2", "canvas", "")]);
     assert!(guards::typing_without_target("7", &canvas, false).is_none());
     field.focused = true;
-    let root = with(el("1", "window", "W"), vec![field, button]);
-    assert!(guards::typing_without_target("7", &root, false).is_none());
-    // A focused list takes type-select.
-    let mut list = el("2", "list", "");
-    list.focused = true;
-    let root = with(el("1", "window", "W"), vec![list, el("3", "search_field", "Search")]);
+    let root = with(el("1", "window", "W"), vec![field, boxed]);
     assert!(guards::typing_without_target("7", &root, false).is_none());
 }
 
@@ -294,13 +291,13 @@ fn pixel_clicks_on_a_bare_title_bar_or_outside_are_refused() {
         400.0,
         300.0,
     );
-    let at = |x, y| guards::pixel_click("5", &frame, &root, false, Point { x, y });
+    let at = |x, y| guards::pixel_click("5", &frame, &root, false, Point { x, y }, true);
     assert_eq!(at(300.0, 110.0).unwrap().code, "title_bar");
     assert!(at(114.0, 110.0).is_none(), "the close button is a control");
     assert!(at(200.0, 160.0).is_none());
     assert_eq!(at(50.0, 160.0).unwrap().code, "point_outside_window");
     assert!(
-        guards::pixel_click("5", &frame, &root, true, Point { x: 300.0, y: 110.0 }).is_none(),
+        guards::pixel_click("5", &frame, &root, true, Point { x: 300.0, y: 110.0 }, true).is_none(),
         "truncated: can't tell"
     );
 }
@@ -483,16 +480,236 @@ fn an_unnamed_field_put_where_one_was_removed_is_new() {
     assert_ne!(b.root.children[0].id, old);
 }
 
+fn row(id: &str, text: &str, h: u64) -> Element {
+    ident(with(el(id, "row", ""), vec![el(&format!("{id}t"), "text", text)]), h)
+}
+
+fn rows(g: u32, texts: &[(&str, u64)]) -> UiTree {
+    tree(with(
+        el(&format!("{g}.0"), "window", "W"),
+        vec![with(
+            ident(el(&format!("{g}.1"), "table", ""), 1000),
+            texts.iter().enumerate().map(|(i, (t, h))| row(&format!("{g}.r{i}"), t, *h)).collect(),
+        )],
+    ))
+}
+
 #[test]
-fn a_recycled_row_whose_time_ticks_keeps_its_id() {
-    let row = |id: &str, text: &str| {
-        ident(with(el(id, "row", ""), vec![el(&format!("{id}t"), "text", text)]), 7)
+fn a_recycled_row_keeps_its_id_only_through_a_time_or_count_change() {
+    let cases = [
+        ("Ada, 2 min ago", "Ada, 3 min ago", true),
+        ("Inbox (4)", "Inbox (5)", true),
+        ("Lunch 12:05 PM", "Lunch 12:06 PM", true),
+        ("IMG_0001", "IMG_0002", false),
+        ("#1234", "#5678", false),
+        ("12", "13", false),
+        ("Ada", "Bob", false),
+    ];
+    for (before, after, keeps) in cases {
+        let mut w = WindowIds::default();
+        let mut n = 0u32;
+        let mut a = rows(1, &[(before, 7)]);
+        w.assign(&mut a, false, &mut n);
+        let mut b = rows(2, &[(after, 7)]);
+        w.assign(&mut b, false, &mut n);
+        let (x, y) = (&a.root.children[0].children[0].id, &b.root.children[0].children[0].id);
+        assert_eq!(x == y, keeps, "{before:?} -> {after:?}");
+    }
+}
+
+#[test]
+fn a_time_drift_keeps_an_id_only_at_the_same_place() {
+    let mut w = WindowIds::default();
+    let mut n = 0u32;
+    let mut a = rows(1, &[("Ada, 2 min ago", 7), ("Bob, 9 min ago", 8)]);
+    w.assign(&mut a, false, &mut n);
+    // The view of Ada's row is reused one place down, ticking: not the same row.
+    let mut b = rows(2, &[("Cy, 1 min ago", 9), ("Ada, 3 min ago", 7)]);
+    w.assign(&mut b, false, &mut n);
+    assert_ne!(b.root.children[0].children[1].id, a.root.children[0].children[0].id);
+}
+
+#[test]
+fn a_rebuilt_menu_item_or_sheet_button_at_a_reused_address_is_new() {
+    // Open Recent rebuilt: the first item's reference now names another file.
+    let menu = |g: u32, title: &str| {
+        tree(with(
+            el(&format!("{g}.0"), "window", "W"),
+            vec![with(
+                ident(el(&format!("{g}.1"), "menu", "Open Recent"), 5),
+                vec![ident(el(&format!("{g}.2"), "menu_item", title), 6)],
+            )],
+        ))
     };
     let mut w = WindowIds::default();
     let mut n = 0u32;
-    let mut a = tree(with(el("1.0", "window", "W"), vec![row("1.1", "Ada, 2 min ago")]));
+    let mut a = menu(1, "a.txt");
     w.assign(&mut a, false, &mut n);
-    let mut b = tree(with(el("2.0", "window", "W"), vec![row("2.1", "Ada, 3 min ago")]));
+    let mut b = menu(2, "b.txt");
     w.assign(&mut b, false, &mut n);
-    assert_eq!(a.root.children[0].id, b.root.children[0].id);
+    assert_ne!(id_of(&a, "a.txt"), id_of(&b, "b.txt"));
+    // A new sheet whose button lands at a dead button's address.
+    let sheet = |g: u32, button: &str| {
+        tree(with(
+            el(&format!("{g}.0"), "window", "W"),
+            vec![with(
+                ident(el(&format!("{g}.1"), "sheet", ""), 30),
+                vec![ident(el(&format!("{g}.2"), "button", button), 31)],
+            )],
+        ))
+    };
+    let mut c = sheet(3, "Don't Save");
+    w.assign(&mut c, false, &mut n);
+    let mut d = sheet(4, "Delete");
+    w.assign(&mut d, false, &mut n);
+    assert_ne!(id_of(&c, "Don't Save"), id_of(&d, "Delete"));
+}
+
+#[test]
+fn an_identifier_needs_the_label_when_it_is_not_unique_or_the_role_is_recycled() {
+    let with_id = |e: Element, id: &str| Element { identifier: id.into(), ..e };
+    // Two buttons share an identifier; they swap places.
+    let two = |g: u32, first: &str, second: &str| {
+        tree(with(
+            el(&format!("{g}.0"), "window", "W"),
+            vec![
+                with_id(el(&format!("{g}.1"), "button", first), "action"),
+                with_id(el(&format!("{g}.2"), "button", second), "action"),
+            ],
+        ))
+    };
+    let mut w = WindowIds::default();
+    let mut n = 0u32;
+    let mut a = two(1, "Keep", "Erase");
+    w.assign(&mut a, false, &mut n);
+    let mut b = two(2, "Erase", "Keep");
+    w.assign(&mut b, false, &mut n);
+    assert_eq!(id_of(&a, "Keep"), id_of(&b, "Keep"));
+    assert_eq!(id_of(&a, "Erase"), id_of(&b, "Erase"));
+    // A recycled row with an identifier and new text is a new row.
+    let one = |g: u32, text: &str| {
+        tree(with(
+            el(&format!("{g}.0"), "window", "W"),
+            vec![with_id(row(&format!("{g}.1"), text, u64::from(g)), "cell-view")],
+        ))
+    };
+    let mut c = one(1, "IMG_0001");
+    w.assign(&mut c, false, &mut n);
+    let mut d = one(2, "IMG_0002");
+    w.assign(&mut d, false, &mut n);
+    assert_ne!(c.root.children[0].id, d.root.children[0].id);
+}
+
+#[test]
+fn without_identity_an_unnamed_element_is_never_matched_by_place_alone() {
+    // Windows before RuntimeId, SwiftUI: no identity repeats.
+    let mut w = WindowIds::default();
+    let mut n = 0u32;
+    let mut a = tree(with(el("1.0", "window", "W"), vec![el("1.1", "text_field", "")]));
+    w.assign(&mut a, false, &mut n);
+    let mut b = tree(with(el("2.0", "window", "W"), vec![el("2.1", "text_field", "")]));
+    w.assign(&mut b, false, &mut n);
+    assert_ne!(a.root.children[0].id, b.root.children[0].id);
+    // An unnamed container holding the same labeled elements keeps its id,
+    // so its children keep theirs.
+    let pane = |g: u32| {
+        tree(with(
+            el(&format!("{g}.0"), "window", "W"),
+            vec![with(
+                el(&format!("{g}.1"), "group", ""),
+                vec![el(&format!("{g}.2"), "button", "OK"), el(&format!("{g}.3"), "text", "Sure?")],
+            )],
+        ))
+    };
+    let mut c = pane(3);
+    w.assign(&mut c, false, &mut n);
+    let mut d = pane(4);
+    w.assign(&mut d, false, &mut n);
+    assert_eq!(c.root.children[0].id, d.root.children[0].id);
+    assert_eq!(id_of(&c, "OK"), id_of(&d, "OK"));
+}
+
+#[test]
+fn a_running_registry_starts_its_ids_at_a_random_thousand() {
+    let mut r = ids::Registry::new();
+    let mut t = tree(el("1.0", "window", "W"));
+    r.assign("w", &mut t, false);
+    let first: u32 = t.root.id.parse().unwrap();
+    assert!(first > 1000 && first < 100_001, "{first}");
+}
+
+#[test]
+fn ids_a_cut_walk_did_not_reach_are_gone_after_a_few_walks() {
+    let mut w = WindowIds::default();
+    let mut n = 0u32;
+    let mut a = tree(form(1, &["Alpha"]));
+    w.assign(&mut a, false, &mut n);
+    let save = id_of(&a, "Save");
+    for g in 2..(ids::CARRY_WALKS as u32 + 4) {
+        let mut cut = tree(with(el(&format!("{g}.0"), "window", "Form"), vec![]));
+        cut.truncated = true;
+        w.assign(&mut cut, false, &mut n);
+    }
+    assert!(matches!(w.resolve(save), Resolved::Gone(_)), "{:?}", w.resolve(save));
+}
+
+#[test]
+fn time_drift_reads_times_and_counts_only() {
+    assert!(ids::time_drift("2 min ago", "10 min ago"));
+    assert!(ids::time_drift("Sent 3h", "Sent 4h"));
+    assert!(!ids::time_drift("Report 2024", "Report 2025"));
+    assert!(!ids::time_drift("v1.2", "v1.3"));
+}
+
+#[test]
+fn typing_with_focus_on_a_button_or_in_web_content_goes_through() {
+    let field = el("2", "text_field", "Name");
+    let mut button = el("3", "button", "Send");
+    button.focused = true;
+    let root = with(el("1", "window", "W"), vec![field.clone(), button]);
+    assert!(guards::typing_without_target("7", &root, false).is_none());
+    let mut boxed = el("3", "checkbox", "Remember");
+    boxed.focused = true;
+    let root = with(el("1", "window", "W"), vec![field.clone(), boxed.clone()]);
+    assert_eq!(guards::typing_without_target("7", &root, false).unwrap().code, "focus_not_on_text");
+    let web = with(el("4", "web_area", "Page"), vec![boxed]);
+    let root = with(el("1", "window", "W"), vec![field, web]);
+    assert!(guards::typing_without_target("7", &root, false).is_none());
+}
+
+#[test]
+fn the_title_bar_guard_needs_a_real_title_bar() {
+    let frame = Rect { x: 100.0, y: 100.0, width: 400.0, height: 300.0 };
+    let body = framed(el("3", "text_field", "Name"), 120.0, 150.0, 200.0, 22.0);
+    // No close, minimize or zoom button in the top strip: full screen, hidden
+    // or custom-drawn title bar.
+    let bare = framed(with(el("1", "window", "W"), vec![body.clone()]), 100.0, 100.0, 400.0, 300.0);
+    assert!(
+        guards::pixel_click("5", &frame, &bare, false, Point { x: 300.0, y: 110.0 }, true)
+            .is_none()
+    );
+    let mut close = framed(el("2", "close_button", ""), 108.0, 104.0, 14.0, 14.0);
+    close.actions = vec!["press".into()];
+    let real = framed(with(el("1", "window", "W"), vec![close, body]), 100.0, 100.0, 400.0, 300.0);
+    assert_eq!(
+        guards::pixel_click("5", &frame, &real, false, Point { x: 300.0, y: 110.0 }, true)
+            .unwrap()
+            .code,
+        "title_bar"
+    );
+    // A desktop that draws no title bars (Wayland) never refuses.
+    assert!(
+        guards::pixel_click("5", &frame, &real, false, Point { x: 300.0, y: 110.0 }, false)
+            .is_none()
+    );
+}
+
+#[test]
+fn an_element_read_anew_with_a_new_id_is_said_once_not_as_removed_and_added() {
+    let opts = Options::default();
+    let before = with(el("1", "window", "W"), vec![el("8", "close_button", "")]);
+    let after = with(el("1", "window", "W"), vec![el("9", "close_button", "")]);
+    let (a, b) = (outline::build(&before, false, &opts), outline::build(&after, false, &opts));
+    let c = diff::compute(&a, &b, &opts);
+    assert_eq!(diff::render(&a, &b, &c, &opts).unwrap(), "~ [9] close button (new id; was [8])");
 }

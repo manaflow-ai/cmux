@@ -33,6 +33,10 @@ pub struct Changes {
     pub unfolded: Vec<usize>,
     /// Lines of the old outline whose element is still there, folded now.
     pub folded: Vec<usize>,
+    /// (new line, old line): an element that reads the same, in the same
+    /// place, under a new id (an app that makes its elements anew for every
+    /// read; ids move only on evidence, so it got a new one).
+    pub renumbered: Vec<(usize, usize)>,
     /// The focus moved (new focused id, old one).
     pub focus: Option<(Option<u32>, Option<u32>)>,
 }
@@ -44,6 +48,7 @@ impl Changes {
             && self.removed.is_empty()
             && self.unfolded.is_empty()
             && self.folded.is_empty()
+            && self.renumbered.is_empty()
     }
 }
 
@@ -90,6 +95,25 @@ pub fn compute(old: &outline::Outline, new: &outline::Outline, opts: &Options) -
             c.removed.push(j);
         }
     }
+    // An added and a removed line that read the same at the same depth are
+    // one element read anew: say so, with its new id.
+    let mut removed = Vec::new();
+    for j in std::mem::take(&mut c.removed) {
+        let o = &old.lines[j];
+        let twin = c.added.iter().position(|&i| {
+            let n = &new.lines[i];
+            n.role == o.role
+                && n.label == o.label
+                && n.value == o.value
+                && n.identifier == o.identifier
+                && n.depth == o.depth
+        });
+        match twin {
+            Some(k) => c.renumbered.push((c.added.remove(k), j)),
+            None => removed.push(j),
+        }
+    }
+    c.removed = removed;
     let focus_id = |o: &outline::Outline| o.focused.and_then(|i| o.lines.get(i)).map(|l| l.id);
     let (was, now) = (focus_id(old), focus_id(new));
     if was != now {
@@ -270,6 +294,15 @@ pub fn render(
     }
     for &(i, j) in &c.changed {
         out.push(changed_line(&new.lines[i], &old.lines[j], opts));
+    }
+    for &(i, j) in &c.renumbered {
+        let l = &new.lines[i];
+        out.push(format!(
+            "~ [{}] {} (new id; was [{}])",
+            l.id,
+            line_text(l, opts),
+            old.lines[j].id
+        ));
     }
     // A container shown or folded only because its own state changed.
     for &i in &c.unfolded {

@@ -500,6 +500,13 @@ pub trait Desktop: Send + Sync {
     /// call ([`crate::menus`]). A desktop that opens no menus ignores it.
     fn set_menu_policy(&self, _policy: crate::menus::MenuPolicy) {}
 
+    /// Whether windows have title bars the desktop draws (macOS), where a
+    /// background click does nothing; elsewhere (Wayland's client-side
+    /// decorations, custom frames) the top of a window may be the app's own.
+    fn draws_title_bars(&self) -> bool {
+        false
+    }
+
     /// Whether `click` can open a menu, choose `ClickSpec::menu_item` and
     /// close it in one call.
     fn picks_menu_items(&self) -> bool {
