@@ -66,9 +66,6 @@ pub(super) struct Pending {
     wire: String,
     /// The watch showed its line (known by its text, which another line may repeat).
     shown: bool,
-    /// The watch read the `enqueue` line the app wrote when it queued it mid-turn: that line is
-    /// this delivery's, not a prompt typed in the terminal (`claim_enqueued`).
-    enqueued: bool,
     order: u64,
     turn: watch::Sender<Outcome>,
 }
@@ -116,7 +113,6 @@ impl Deliveries {
             text: text.to_owned(),
             wire: wire.to_owned(),
             shown: false,
-            enqueued: false,
             order: self.next,
             turn,
         };
@@ -146,25 +142,14 @@ impl Deliveries {
 pub(super) enum Claim {
     /// The delivery with this uuid was shown.
     Shown(String),
-    /// The `enqueue` line of the delivery with this uuid was read as its own.
-    Enqueued(String),
 }
 
 /// Gives back what a refused batch claimed (`Claim`).
 pub(super) fn unclaim(claims: &[Claim]) {
     let mut all = deliveries();
-    for claim in claims {
-        match claim {
-            Claim::Shown(uuid) => {
-                if let Some(p) = all.by_uuid.get_mut(uuid) {
-                    p.shown = false;
-                }
-            }
-            Claim::Enqueued(uuid) => {
-                if let Some(p) = all.by_uuid.get_mut(uuid) {
-                    p.enqueued = false;
-                }
-            }
+    for Claim::Shown(uuid) in claims {
+        if let Some(p) = all.by_uuid.get_mut(uuid) {
+            p.shown = false;
         }
     }
 }
@@ -210,26 +195,35 @@ fn oldest_with<'a>(
         .min_by_key(|(_, p)| p.order)
 }
 
-/// The `enqueue` line the app wrote for a prompt with `text` it queued mid-turn, when it is a
-/// delivery's: the oldest unanswered, unshown delivery into `session_id` with exactly that text and
-/// no `enqueue` line yet takes it (its uuid). Each delivery takes one line, so a prompt the terminal
-/// typed with the same text still shows as typed, and one whose text only contains a delivery's
-/// is never taken for it.
-pub(super) fn claim_enqueued(session_id: &str, text: &str) -> Option<String> {
+/// Whether a queue line with `text` may be a delivery's: an unanswered, unshown delivery into
+/// `session_id` has exactly that text. Claude Code's `enqueue` line carries the text alone, so such
+/// a line is told from a prompt typed in the terminal with the same text only when it runs (its
+/// attachment's `source_uuid` and origin, or its line's uuid): it shows then, never at once, so
+/// neither is lost nor shown twice. A prompt that only contains a delivery's text is not one.
+pub(super) fn may_be_delivery(session_id: &str, text: &str) -> bool {
     let mut all = deliveries();
-    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown && !p.enqueued)?;
-    p.enqueued = true;
-    Some(uuid.clone())
+    oldest_with(&mut all, session_id, text, |p| !p.shown).is_some()
 }
 
-/// The delivery a running turn took in by its text (`queued_command` attachment) when the
-/// attachment names no uuid acpmux sent: one whose `enqueue` line was its own
-/// (`claim_enqueued`) and that has not shown, marked shown.
-pub(super) fn delivered_enqueued(session_id: &str, text: &str) -> Option<ShownDelivery> {
+/// The delivery a running turn took in by its text when its attachment names no uuid acpmux sent
+/// but says it did not come from the person (`origin.kind` other than `human`): the oldest unshown
+/// delivery with exactly that text, marked shown.
+pub(super) fn delivered_queued(session_id: &str, text: &str) -> Option<ShownDelivery> {
     let mut all = deliveries();
-    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown && p.enqueued)?;
+    let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown)?;
     let uuid = uuid.clone();
     Some(show(&uuid, p))
+}
+
+/// The app took a queued prompt with `text` back (edited or cancelled in the terminal) that was a
+/// delivery's: the oldest unshown one with exactly that text ends with why, so its sender hears at
+/// once instead of waiting for a turn that never comes. True when one did.
+pub(super) fn taken_back(session_id: &str, text: &str) -> bool {
+    let mut all = deliveries();
+    let Some((_, p)) = oldest_with(&mut all, session_id, text, |p| !p.shown) else { return false };
+    p.shown = true;
+    p.turn.send_replace(Some(Err("taken back in the terminal before it ran".to_owned())));
+    true
 }
 
 /// The delivery a Codex rollout's prompt `text` in `session_id` shows: the oldest one acpmux
@@ -239,6 +233,12 @@ pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<ShownDelive
     let (uuid, p) = oldest_with(&mut all, session_id, text, |p| !p.shown)?;
     let uuid = uuid.clone();
     Some(show(&uuid, p))
+}
+
+/// The turn outcome of delivery `prompt_id`, for tests.
+#[cfg(test)]
+pub(super) fn delivery_turn(session_id: &str, prompt_id: &str) -> Option<watch::Receiver<Outcome>> {
+    deliveries().of_prompt(session_id, prompt_id).map(|(_, p)| p.turn.subscribe())
 }
 
 /// A delivery for tests that drive the watch alone: `uuid` into `session_id` as `prompt_id`.
@@ -437,7 +437,7 @@ impl Hub {
                 TerminalTarget::Ready(target) => Some(target),
                 // The terminal's harness ended: a watch as any other (Take Over runs it here).
                 TerminalTarget::Gone => {
-                    self.terminal_ended(session, driver.pid).await;
+                    self.terminal_ended(session, &driver).await;
                     None
                 }
                 TerminalTarget::NoInbox(why) => return Some(Err(no_inbox(&why))),

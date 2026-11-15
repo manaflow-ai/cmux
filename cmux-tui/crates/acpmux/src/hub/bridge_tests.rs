@@ -548,22 +548,28 @@ fn a_codex_delivery_is_found_by_its_text_once_and_oldest_first() {
     assert_eq!(delivered_text("sc", "hi\n\n[hint]"), None, "each line shows one delivery");
 }
 
-/// A queued line is a delivery's only by its exact text, once per delivery: a terminal prompt that
-/// merely contains a delivery's text, or repeats it, still shows as typed (review P1-F1, P2-F3).
+/// A queue line may be a delivery's only by its exact text (review P1-F1, P2-F3): one that merely
+/// contains a delivery's text is the terminal's own.
 #[test]
-fn a_queue_line_is_a_deliverys_only_by_exact_text_and_once() {
+fn a_queue_line_may_be_a_deliverys_only_by_exact_text() {
     deliveries().claim("u-q1".into(), "sq", "pq1", "test", "test").unwrap();
-    assert_eq!(claim_enqueued("sq", "please test the migration"), None, "containment is not it");
-    assert_eq!(claim_enqueued("other", "test"), None);
-    assert_eq!(claim_enqueued("sq", " test "), Some("u-q1".to_owned()));
-    assert_eq!(claim_enqueued("sq", "test"), None, "the same text typed again is typed");
-    // Taken into the turn by its text: shown once, under its id.
-    assert_eq!(
-        delivered_enqueued("sq", "test"),
-        Some(("u-q1".into(), "pq1".into(), "test".into()))
-    );
-    assert_eq!(delivered_enqueued("sq", "test"), None);
-    assert_eq!(delivered("sq", "u-q1"), None, "its own line does not show it again");
+    assert!(!may_be_delivery("sq", "please test the migration"), "containment is not it");
+    assert!(!may_be_delivery("other", "test"));
+    assert!(may_be_delivery("sq", " test "));
+    // Taken in by a turn as not the person's, with no uuid acpmux sent: shown once, under its id.
+    assert_eq!(delivered_queued("sq", "test"), Some(("u-q1".into(), "pq1".into(), "test".into())));
+    assert_eq!(delivered_queued("sq", "test"), None);
+    assert!(!may_be_delivery("sq", "test"), "shown: any later line is typed");
+}
+
+/// A delivery taken back in the terminal before it ran ends with why at once (review P2-F2).
+#[test]
+fn a_delivery_taken_back_in_the_terminal_ends_with_why() {
+    let rx = deliveries().claim("u-t1".into(), "st", "pt1", "later", "later").unwrap();
+    assert!(!taken_back("st", "other text"));
+    assert!(taken_back("st", "later"));
+    assert!(matches!(&*rx.borrow(), Some(Err(why)) if why.contains("taken back")));
+    assert!(!taken_back("st", "later"), "once");
 }
 
 /// A batch the journal refused gives back what it claimed, so the batch read again shows the
@@ -572,13 +578,9 @@ fn a_queue_line_is_a_deliverys_only_by_exact_text_and_once() {
 fn a_refused_batch_gives_its_claims_back() {
     deliveries().claim("u-r1".into(), "sr", "pr1", "hi", "hi").unwrap();
     let shown = delivered("sr", "u-r1").unwrap();
-    let queued = claim_enqueued("sr", "hi");
-    assert_eq!(queued, None, "a shown delivery takes no queue line");
+    assert!(delivered("sr", "u-r1").is_none());
     unclaim(&[Claim::Shown(shown.0)]);
-    assert_eq!(claim_enqueued("sr", "hi"), Some("u-r1".to_owned()));
-    unclaim(&[Claim::Enqueued("u-r1".to_owned())]);
-    assert_eq!(claim_enqueued("sr", "hi"), Some("u-r1".to_owned()), "given back");
-    assert!(delivered("sr", "u-r1").is_some(), "and still shows by its line");
+    assert!(delivered("sr", "u-r1").is_some(), "given back: it shows by its line");
 }
 
 /// The Codex loop: a prompt to a watched Codex desktop chat is queued for its thread through
