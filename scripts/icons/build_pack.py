@@ -72,6 +72,10 @@ NEKO_ROUNDS = {
     "whisker": ("round2", "03-whisker-"),
     "r3tail": ("round3", "tail/"),
     "r3mix": ("round3", "mix/"),
+    # One cat mark (app.cmux) instead of a family: neko-candidates/mark/README.md.
+    "markhead": ("mark", "head/"),
+    "marktile": ("mark", "tile/"),
+    "marktail": ("mark", "tail/"),
 }
 # Existing Cat accents include two drawings that are valid for the general Cat accent but violate
 # the Neko family contract: status marks and security/privacy marks stay semantic and unadorned.

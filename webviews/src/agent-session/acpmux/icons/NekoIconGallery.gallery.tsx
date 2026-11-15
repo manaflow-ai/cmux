@@ -87,6 +87,30 @@ const sets = {
     note: "Round 3: ear corners on the copy sheet and the bookmark star, tail curls on retry, speak and pin, toe-bean More. Unapproved.",
     round: "r3mix",
   },
+  markhead: {
+    title: "cmux Cat mark: head",
+    license: "First-party",
+    image: "",
+    note: "One cat mark instead of a family: the prompt becomes the face of an eared cat head. Candidate for the app mark only; unapproved.",
+    round: "markhead",
+    mark: true,
+  },
+  marktile: {
+    title: "cmux Cat mark: eared tile",
+    license: "First-party",
+    image: "",
+    note: "One cat mark instead of a family: the prompt sits in a rounded tile whose top corners rise into ears. Unapproved.",
+    round: "marktile",
+    mark: true,
+  },
+  marktail: {
+    title: "cmux Cat mark: tail prompt",
+    license: "First-party",
+    image: "",
+    note: "One cat mark instead of a family: the default prompt, its underscore raised into a hooked tail. Unapproved.",
+    round: "marktail",
+    mark: true,
+  },
 } as const;
 type SetName = keyof typeof sets;
 type Density = "compact" | "comfortable";
@@ -185,6 +209,71 @@ function TokenRow({
   );
 }
 
+const MARK = "app.cmux";
+const MARK_SIZES = [16, 24, 32, 48] as const;
+const MARK_TILE = 56;
+const MARK_TILE_GLYPH = 32;
+const MARK_HERO = 48;
+
+function MarkGlyph({ round, size }: { round?: RoundName; size: number }) {
+  return round ? (
+    <IconsProvider pack={roundPacks[round]}>
+      <span data-neko-drawing={MARK} style={{ display: "contents" }}>
+        <Icon name={MARK} size={size} />
+      </span>
+    </IconsProvider>
+  ) : (
+    <IconsProvider pack={baselinePack}>
+      <Icon name={MARK} size={size} />
+    </IconsProvider>
+  );
+}
+
+// The places one mark would live: a sidebar row, sizes up to hero, an app tile, an empty state.
+function MarkComparison({ round, scale }: { round: RoundName; scale: number }) {
+  const glyph = BASE.glyph * scale;
+  const rows = [
+    ["Default", undefined],
+    ["Cat", round],
+  ] as const;
+  return (
+    <div style={{ display: "grid", gap: px(BASE.rootGap) }} data-token-row="candidate">
+      {rows.map(([label, which]) => (
+        <div key={label} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: px(BASE.sampleGap) }}>
+          <span style={{ fontSize: "var(--text-detail)", width: px(BASE.itemWidth) }}>{label}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: px(BASE.itemGap), fontSize: "var(--text-body)" }}>
+            <MarkGlyph round={which} size={glyph} />
+            cmux
+          </span>
+          {MARK_SIZES.map((size) => (
+            <span key={size} style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap) }}>
+              <MarkGlyph round={which} size={size * scale} />
+              <span style={{ fontSize: "var(--text-caption)" }}>{size} px</span>
+            </span>
+          ))}
+          <span
+            style={{
+              display: "grid",
+              placeItems: "center",
+              width: px(MARK_TILE),
+              height: px(MARK_TILE),
+              borderRadius: px(MARK_TILE * 0.225),
+              background: "var(--agent-accent)",
+              color: "#fff",
+            }}
+          >
+            <MarkGlyph round={which} size={MARK_TILE_GLYPH * scale} />
+          </span>
+          <span style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap), opacity: 0.7 }}>
+            <MarkGlyph round={which} size={MARK_HERO * scale} />
+            <span style={{ fontSize: "var(--text-caption)" }}>No chats yet</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NekoIconGallery({
   mode = "light",
   set = "authored",
@@ -199,6 +288,7 @@ function NekoIconGallery({
   const art = sets[set];
   const dark = mode === "dark";
   const round = "round" in art ? art.round : undefined;
+  const mark = "mark" in art && art.mark;
   const roundActions = round ? samples.filter(([name]) => Object.hasOwn(rounds[round].icons, name)).length : 0;
   const scale = interfaceScale(density, uiScale);
   const glyphSize = BASE.glyph * scale;
@@ -227,11 +317,20 @@ function NekoIconGallery({
           {art.license} · Gallery only · {density} · UI scale {uiScale} · {glyphSize}px glyphs
         </div>
       </div>
-      <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
-        <span style={{ fontSize: "var(--text-detail)" }}>Default shared tokens</span>
-        <TokenRow scale={scale} />
-      </div>
-      {set === "authored" || round ? (
+      {mark && round ? (
+        <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
+          <span style={{ fontSize: "var(--text-detail)" }}>
+            App mark · sidebar row · 16 to 48 px · app tile · empty state
+          </span>
+          <MarkComparison round={round} scale={scale} />
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
+          <span style={{ fontSize: "var(--text-detail)" }}>Default shared tokens</span>
+          <TokenRow scale={scale} />
+        </div>
+      )}
+      {mark ? null : set === "authored" || round ? (
         <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
           <span style={{ fontSize: "var(--text-detail)" }}>
             Candidate · {round ? roundActions : 2}/{samples.length} actions · Shared spinner/status marks
@@ -275,7 +374,7 @@ function NekoIconGallery({
         style={{
           borderTop: `${px(BASE.footerBorder)} solid currentColor`,
           paddingTop: px(BASE.footerInset),
-          display: "grid",
+          display: mark ? "none" : "grid",
           gap: px(BASE.sectionGap),
         }}
       >

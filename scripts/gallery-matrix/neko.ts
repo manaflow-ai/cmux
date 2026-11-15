@@ -49,7 +49,7 @@ try {
           });
           try {
             const page = await context.newPage();
-            for (const set of ["noto", "fluent", "lucide", "authored", "earfold", "tailterm", "whisker", "r3tail", "r3mix"]) {
+            for (const set of ["noto", "fluent", "lucide", "authored", "earfold", "tailterm", "whisker", "r3tail", "r3mix", "markhead", "marktile", "marktail"]) {
               const errors: string[] = [];
               const listener = (error: Error) => errors.push(error.message);
               page.on("pageerror", listener);
@@ -73,7 +73,7 @@ try {
                 .locator("img")
                 .evaluateAll((images) => Promise.all(images.map((image) => (image as HTMLImageElement).decode())));
               // Round drawings are inline SVG from the shared renderer; a candidate row must draw them.
-              if (["earfold", "tailterm", "whisker", "r3tail", "r3mix"].includes(set)) {
+              if (["earfold", "tailterm", "whisker", "r3tail", "r3mix", "markhead", "marktile", "marktail"].includes(set)) {
                 const drawn = await stage.locator("[data-neko-drawing] svg[data-icon] path").count();
                 if (drawn === 0) throw new Error(`${set}: no candidate drawings rendered`);
               }
