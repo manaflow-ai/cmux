@@ -466,7 +466,7 @@ async fn a_daemon_restart_wakes_no_hibernated_chat_when_viewers_open_them_again(
     r.restart(&ids).await;
     let mut viewer = connect(&r.hub).await;
     for id in &ids {
-        let held = json!({"sessionId": id, "hold": true, "eventStream": true});
+        let held = json!({"sessionId": id, "hold": true, "eventStream": true, "kinds": ["status"]});
         viewer.request(method::MUX_ATTACH, held).await.unwrap();
         let page = viewer.request(method::MUX_ATTACH, json!({"sessionId": id})).await.unwrap();
         let shown = page["events"].as_array().unwrap();
