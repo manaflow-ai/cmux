@@ -1653,6 +1653,8 @@ jobs:
             [script-tests]
             # The pre-push gate refuses a push that adds a violation and names the commit in CI.
             python3 tests/test_cmux_next_prepush_gate.py
+            # A production journey workflow change needs its main twin (#43870); it ran nowhere before.
+            python3 tests/test_cmux_next_prepush_main_twin.py
             # hot-apply.py's plan, apply and rollback (about four minutes, so it starts early). It ran nowhere
             # before and broke unseen (#43815).
             python3 scripts/cmux-next/tests/test_hot_apply.py
