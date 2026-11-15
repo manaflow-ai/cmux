@@ -51,6 +51,10 @@ stop_pid() {
   rm -f "$file" "$file.start"
 }
 
+now_ms() {
+  python3 -c 'import time; print(time.time_ns() // 1_000_000)'
+}
+
 host_start() {
   head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$EVAL_STATE/token"
   chmod 600 "$EVAL_STATE/token"
@@ -216,11 +220,17 @@ EOF
     seconds=$1 snapshot=$2 go=$3 raw=$4
     ppm="$EVAL_STATE/snapshot.ppm"
     rm -f "$ppm"
+    start_ms=$(now_ms)
+    export EVAL_WINDOW_START_MS="$start_ms"
     bench --input none --duration-s "$seconds" --snapshot "$ppm" \
       >"$raw" 2>"$EVAL_STATE/window.err" &
     pid=$!
     for _ in $(seq 1 200); do
-      grep -q 'passive: first frame' "$EVAL_STATE/window.err" && break
+      if grep -q 'passive: first frame' "$EVAL_STATE/window.err"; then
+        first_ms=$(now_ms)
+        echo $((first_ms - start_ms)) >"$raw.first"
+        break
+      fi
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.1 # bounded wait for the first frame (20 s)
     done
@@ -238,7 +248,7 @@ EOF
       fi
     fi
     python3 -I - "$raw" "$out" "${EVAL_PEER_WALL_OFFSET_MS:-0}" <<'EOF'
-import json, sys
+import json, os, sys
 lines = open(sys.argv[1]).read().strip().splitlines()
 if not lines:
     sys.exit("rd: the window viewer printed no report")
@@ -248,7 +258,14 @@ series = [{"unix_ms": round(s["unix_ms"] + offset), "bytes": s["bytes"], "frames
            "duration_ms": s.get("duration_ms", 1000),
            "decode_ms": (s.get("decode_ms") or {}).get("p50"),
            "encode_ms": (s.get("host_stats") or {}).get("encode_ms_p50")} for s in raw["series"]]
-json.dump({"series": series, "extra": {"decode_errors": raw.get("decode_errors"), "client_cpu_pct": raw.get("client_cpu_pct"),
+first = None
+try:
+    if os.path.exists(sys.argv[1] + ".first"):
+        first = max(0, int(open(sys.argv[1] + ".first").read().strip()))
+except (ValueError, OSError):
+    first = None
+json.dump({"series": series, "extra": {"first_frame_ms": first, "cpu_pct": raw.get("client_cpu_pct"),
+                                       "decode_errors": raw.get("decode_errors"), "client_cpu_pct": raw.get("client_cpu_pct"),
                                        "welcome": raw.get("welcome"), "ended": raw.get("ended")}}, open(sys.argv[2], "w"))
 EOF
     python3 -I "$EVAL_ROOT/scripts/measure/screen-stream-eval/rd-metrics.py" \

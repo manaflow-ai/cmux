@@ -245,6 +245,9 @@ class IdFilterTests(unittest.TestCase):
         bad = event({"msg": "private text from another team", "team": "team_foreign"})
         head, rows = logs.publish([good, bad], [LISTED], TEAM)
         self.assertEqual(head["events_in_window"], 1)
+        # The window's own count, before the id filter: zero here says the query read nothing, not that no row was
+        # this id's (the 12:50Z read, hq#11503, could not tell the two apart).
+        self.assertEqual(head["events_scanned"], 2)
         self.assertNotIn("logs_dropped_unlisted", head)
         self.assertEqual(len(rows), 1)
 
