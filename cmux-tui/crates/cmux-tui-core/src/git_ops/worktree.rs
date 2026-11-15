@@ -210,15 +210,24 @@ fn create(
 }
 
 /// Starts the new worktree's setup from the project's recipe; what the
-/// reply says of it. No setup starts and no port is given when the
-/// worktree's `.git` file names a folder that is not a worktree's git
-/// folder of this repository ([`worktree_setup::Place::is_of`]).
+/// reply says of it. The ports of the worktree are in `common_dir`, the
+/// repository's git folder. No setup starts and no port is given when the
+/// folder that the worktree's `.git` file names is not the git folder that
+/// this repository keeps for the worktree
+/// ([`worktree_setup::Place::is_of`]): a line on stderr says so. The check
+/// is of the folder that the place opened, and the setup keeps that folder.
 fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     let main = main_root(common_dir).map(Path::to_path_buf);
     let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
     let root = worktree_setup::resolved(&attempt.root);
-    let place = worktree_setup::Place::new(root, main, &git_dir);
+    let place = worktree_setup::Place::new(root, main, &git_dir, common_dir);
     if !place.is_of(common_dir) {
+        eprintln!(
+            "cmux-tui: {}: no setup starts: the folder that the `.git` file names is not the \
+             git folder that {} keeps for this worktree",
+            attempt.root.display(),
+            common_dir.display()
+        );
         return json!({"state": "none"});
     }
     let main = place.main_root.as_deref();

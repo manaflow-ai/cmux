@@ -14,9 +14,13 @@
 
 use std::fs::File;
 use std::io::{self, Read as _, Write as _};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::{MAX_OWN_BYTES, TooLarge};
+
+/// The record that git keeps in the git folder of a worktree: the path of
+/// the worktree's `.git` file.
+const RECORD: &str = "gitdir";
 
 /// How a file that cmux writes or locks is opened.
 #[derive(Clone, Copy)]
@@ -42,6 +46,8 @@ enum Open {
 /// the repository's ports).
 pub(super) struct OwnFolder {
     path: PathBuf,
+    /// The real path of the folder at its open; `None` with no open folder.
+    real: Option<PathBuf>,
     folder: system::Folder,
 }
 
@@ -49,12 +55,42 @@ impl OwnFolder {
     /// The folder at `path`, opened here. With a folder that is not there, or
     /// that cannot be opened, each open of a name fails, and no name is there.
     pub(super) fn open(path: &Path) -> Self {
-        Self { path: path.to_path_buf(), folder: system::Folder::open(path) }
+        let (real, folder) = system::Folder::open(path);
+        Self { path: path.to_path_buf(), real, folder }
     }
 
     /// The path that the folder was opened by.
     pub(super) fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Whether this folder is the git folder that the repository whose git
+    /// folder is `common_dir` keeps for the worktree `root`. Each look is
+    /// at the folder that was opened, not at the folder that its path names
+    /// now:
+    ///
+    /// - the folder is directly in the `worktrees` folder of `common_dir`,
+    ///   by the real path of that folder and the real path that the open of
+    ///   this folder walked;
+    /// - the folder names the worktree back. Its record, read by its name in
+    ///   the open folder, is the path of the `.git` entry of `root`; git
+    ///   writes that path from the root of the file system, or from this
+    ///   folder.
+    pub(super) fn is_of(&self, root: &Path, common_dir: &Path) -> bool {
+        let real = |path: &Path| std::fs::canonicalize(path).ok();
+        let (Some(own), Some(worktrees)) =
+            (self.real.as_deref(), real(&common_dir.join("worktrees")))
+        else {
+            return false;
+        };
+        if own.parent() != Some(worktrees.as_path()) {
+            return false;
+        }
+        let Ok(Some(record)) = self.read(RECORD) else { return false };
+        let Ok(record) = String::from_utf8(record) else { return false };
+        let entry = path_from(own, Path::new(record.trim_end_matches(['\n', '\r'])));
+        let (folder, root) = (entry.parent().and_then(real), real(root));
+        entry.file_name().is_some_and(|name| name == ".git") && folder.is_some() && folder == root
     }
 
     /// Whether a thing is at `name`. A link is not followed.
@@ -139,13 +175,30 @@ impl OwnFolder {
     }
 }
 
+/// The path `path` from the folder `folder`; `path` itself when it starts at
+/// the root of the file system. Each `..` takes the last name off: `folder`
+/// is a real path, so its last name is no link.
+fn path_from(folder: &Path, path: &Path) -> PathBuf {
+    let mut whole = folder.to_path_buf();
+    for part in path.components() {
+        match part {
+            Component::ParentDir => {
+                whole.pop();
+            }
+            Component::CurDir => {}
+            part => whole.push(part),
+        }
+    }
+    whole
+}
+
 #[cfg(unix)]
 mod system {
     use std::ffi::{CStr, CString};
     use std::fs::File;
     use std::io;
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use super::{Access, Open};
     use crate::git_ops::work_tree_entry::{Kind, Stat, Tree, kind_in, open_at, stat_at, stat_of};
@@ -173,15 +226,19 @@ mod system {
     }
 
     impl Folder {
-        /// The folder at `path`. Its links are resolved one time, and each
-        /// folder of the path that this gives is then opened through its
-        /// parent and refuses a link.
-        pub(super) fn open(path: &Path) -> Self {
+        /// The folder at `path`, with its real path. Its links are resolved
+        /// one time, and each folder of the path that this gives is then
+        /// opened through its parent and refuses a link: the real path is
+        /// the path of the folder that is open.
+        pub(super) fn open(path: &Path) -> (Option<PathBuf>, Self) {
             let real = match std::fs::canonicalize(path) {
                 Ok(real) => real,
-                Err(error) => return Self(Err(error.kind())),
+                Err(error) => return (None, Self(Err(error.kind()))),
             };
-            Self(Tree::open(&real).map(Tree::into_top).ok_or(io::ErrorKind::NotFound))
+            match Tree::open(&real).map(Tree::into_top) {
+                Some(top) => (Some(real), Self(Ok(top))),
+                None => (None, Self(Err(io::ErrorKind::NotFound))),
+            }
         }
 
         /// The open folder and `name`, as the system's calls take them.
@@ -264,8 +321,10 @@ mod system {
     pub(super) struct Folder(PathBuf);
 
     impl Folder {
-        pub(super) fn open(path: &Path) -> Self {
-            Self(path.to_path_buf())
+        /// The folder at `path`, with its real path at this time. Each
+        /// later call is by `path`.
+        pub(super) fn open(path: &Path) -> (Option<PathBuf>, Self) {
+            (fs::canonicalize(path).ok(), Self(path.to_path_buf()))
         }
 
         pub(super) fn open_file(&self, name: &str, open: Open) -> io::Result<File> {

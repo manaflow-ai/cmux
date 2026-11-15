@@ -60,16 +60,6 @@ fn lock(folder: &OwnFolder, wait: Duration) -> Lock {
     Lock { file, _guard: guard }
 }
 
-/// The folder of the repository's port list, opened here: the repository's
-/// shared git folder (`git_dir` is a worktree's own,
-/// `<common>/worktrees/<name>`), so every session host on the machine reads
-/// the same list.
-pub(super) fn folder(git_dir: &Path) -> Option<OwnFolder> {
-    let worktrees = git_dir.parent()?;
-    let common = if worktrees.file_name()? == "worktrees" { worktrees.parent()? } else { git_dir };
-    Some(OwnFolder::open(common))
-}
-
 /// The ports of each worktree. A ports file above the size limit is not
 /// read, and it is not a list with no worktree: a port of a list that
 /// starts empty can be the port of another worktree.
@@ -152,8 +142,8 @@ mod lock_tests {
 /// git folder `folder`. The read takes no lock: a writer that has the file
 /// lock writes the ports file to a `.partial` file that then takes its name
 /// ([`OwnFolder::write`]), so a read gets a whole file then.
-pub(super) fn lookup(folder: Option<&OwnFolder>, root: &Path) -> Option<u16> {
-    load(folder?).ok()?.get(&key(root)).copied()
+pub(super) fn lookup(folder: &OwnFolder, root: &Path) -> Option<u16> {
+    load(folder).ok()?.get(&key(root)).copied()
 }
 
 /// The worktree's block, kept from before or the first free one: none
@@ -163,17 +153,16 @@ pub(super) fn lookup(folder: Option<&OwnFolder>, root: &Path) -> Option<u16> {
 ///
 /// No port is given, and the file stays, when the ports file is above
 /// the size limit.
-pub(super) fn allocate(folder: Option<&OwnFolder>, root: &Path) -> Result<Option<u16>, TooLarge> {
+pub(super) fn allocate(folder: &OwnFolder, root: &Path) -> Result<Option<u16>, TooLarge> {
     allocate_within(folder, root, WAIT)
 }
 
 /// [`allocate`], with at most `wait` for the file lock.
 pub(super) fn allocate_within(
-    folder: Option<&OwnFolder>,
+    folder: &OwnFolder,
     root: &Path,
     wait: Duration,
 ) -> Result<Option<u16>, TooLarge> {
-    let Some(folder) = folder else { return Ok(None) };
     let _guard = lock(folder, wait);
     let mut ports = load(folder)?;
     Ok(free_block(folder, &mut ports, root))
@@ -207,8 +196,7 @@ fn free_block(folder: &OwnFolder, ports: &mut BTreeMap<String, u16>, root: &Path
 /// Takes the worktree out of the list, so its block is free. With no file
 /// lock the list is not written: the block is free at a later allocation,
 /// when the worktree's folder is gone ([`free_block`]).
-pub(super) fn free(folder: Option<&OwnFolder>, root: &Path) {
-    let Some(folder) = folder else { return };
+pub(super) fn free(folder: &OwnFolder, root: &Path) {
     let held = lock(folder, WAIT);
     if held.file.is_none() {
         return;

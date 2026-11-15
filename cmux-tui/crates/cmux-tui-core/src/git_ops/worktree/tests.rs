@@ -289,7 +289,7 @@ fn own_tree_the_check_of_a_setup_folder_is_of_the_folder_that_the_setup_opened()
         record_of(folder, &root);
     }
     std::os::unix::fs::symlink(&elsewhere, &named).unwrap();
-    let place = worktree_setup::Place::new(root, None, &named);
+    let place = worktree_setup::Place::new(root, None, &named, &common);
     std::fs::remove_file(&named).unwrap();
     std::os::unix::fs::symlink(&admin, &named).unwrap();
 

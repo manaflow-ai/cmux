@@ -106,28 +106,29 @@ pub(super) struct Place {
     own: Arc<OwnFolder>,
     /// The repository's git folder, open: the ports of its worktrees and
     /// their lock are files of this folder.
-    shared: Option<OwnFolder>,
+    shared: OwnFolder,
 }
 
 impl Place {
-    /// The place of the worktree `root`, whose own git folder is `git_dir`.
-    /// That folder and the repository's git folder are opened here, one
-    /// time: a setup or a teardown in this place keeps the 2 folders that
-    /// it has at its start.
-    pub(super) fn new(root: PathBuf, main_root: Option<PathBuf>, git_dir: &Path) -> Self {
+    /// The place of the worktree `root`, whose own git folder is `git_dir`,
+    /// in the repository whose git folder is `common_dir`. The 2 folders are
+    /// opened here, one time: a setup or a teardown in this place keeps the
+    /// 2 folders that it has at its start.
+    pub(super) fn new(
+        root: PathBuf,
+        main_root: Option<PathBuf>,
+        git_dir: &Path,
+        common_dir: &Path,
+    ) -> Self {
         let own = Arc::new(OwnFolder::open(git_dir));
-        Self { root, main_root, own, shared: ports::folder(git_dir) }
+        Self { root, main_root, own, shared: OwnFolder::open(common_dir) }
     }
 
-    /// Whether the worktree's own git folder is a worktree's git folder of
-    /// the repository whose shared git folder is `common_dir`: a folder
-    /// directly in the `worktrees` folder of `common_dir`, by the real paths
-    /// of both.
+    /// Whether the worktree's own git folder, as this place opened it, is
+    /// the git folder that the repository whose git folder is `common_dir`
+    /// keeps for the worktree ([`OwnFolder::is_of`]).
     pub(super) fn is_of(&self, common_dir: &Path) -> bool {
-        let real = |path: &Path| fs::canonicalize(path).ok();
-        let folders = (real(self.own.path()), real(&common_dir.join("worktrees")));
-        let (Some(own), Some(worktrees)) = folders else { return false };
-        own.parent() == Some(worktrees.as_path())
+        self.own.is_of(&self.root, common_dir)
     }
 
     fn name(&self) -> String {
@@ -155,7 +156,7 @@ impl Place {
 /// Starts a new worktree's setup and answers what `git.worktree.create`
 /// reports of it. Nothing starts twice for one worktree.
 pub(super) fn start(place: Place, recipe: Recipe) -> Value {
-    let allocated = ports::allocate(place.shared.as_ref(), &place.root);
+    let allocated = ports::allocate(&place.shared, &place.root);
     let port = allocated.unwrap_or_default();
     if recipe.is_empty() {
         return json!({"state": "none", "port": port});
@@ -429,7 +430,7 @@ pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
     let outcome = shell(
         place,
         script,
-        ports::lookup(place.shared.as_ref(), &place.root),
+        ports::lookup(&place.shared, &place.root),
         &log,
         TEARDOWN_DEADLINE,
         None,
@@ -453,16 +454,17 @@ pub(super) fn resolved(root: &Path) -> PathBuf {
     fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf())
 }
 
-/// After a removal: the worktree's ports go back.
-pub(super) fn removed(git_dir: &Path, root: &Path) {
-    ports::free(ports::folder(git_dir).as_ref(), root);
+/// After a removal: the worktree's ports go back to the list of the
+/// repository whose git folder is `common_dir`.
+pub(super) fn removed(common_dir: &Path, root: &Path) {
+    ports::free(&OwnFolder::open(common_dir), root);
 }
 
 /// The setup of the worktree whose git folder is `git_dir`, and its output
 /// from byte `since` (at most the last 64 KiB of it). The git folder and the
-/// repository's git folder are opened one time for the read.
-pub(super) fn read(root: &Path, git_dir: &Path, since: u64) -> Value {
-    let port = ports::lookup(ports::folder(git_dir).as_ref(), root);
+/// repository's git folder `common_dir` are opened one time for the read.
+pub(super) fn read(root: &Path, git_dir: &Path, common_dir: &Path, since: u64) -> Value {
+    let port = ports::lookup(&OwnFolder::open(common_dir), root);
     let own = &OwnFolder::open(git_dir);
     let Some(mut status) = read_status(own) else {
         return json!({"state": "none", "port": port, "output": "", "output_start": "0", "output_end": "0"});
@@ -523,7 +525,7 @@ pub(super) fn dispatch(
     // The main checkout is set up by its user, not by cmux.
     let linked = main.as_deref().is_none_or(|main| !same_folder(main, root));
     let run = if linked {
-        read(root, target.git_dir(), since)
+        read(root, target.git_dir(), target.common_dir(), since)
     } else {
         json!({"state": "none", "output": "", "output_start": "0", "output_end": "0"})
     };
