@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "47a22221950420d74276eb623f4a6aef32828f4a508749f641b620b3d746375c",
+  "catalog_sha256": "61f14549dccd256e60a9c04b443ec32ed7364791cee56808fb50e486509d05d1",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -395,6 +395,9 @@
       "class": "read"
     },
     "git.files.search": {
+      "class": "read"
+    },
+    "git.fingerprint": {
       "class": "read"
     },
     "git.push": {

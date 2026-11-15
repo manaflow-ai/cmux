@@ -40,7 +40,7 @@ main() {
   settings_made_at="${4:-}"
   actions_made_at="${5:-}"
   actions_current=0 settings_current=0
-  action_exports='^plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)$'
+  action_exports='^plans/cmux-next/(action-surfaces\.json|action-catalog\.json|actions\.md|links\.json)$'
   # From scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes,
   # so this does not become a fourth hand-kept copy of it (review of #23915).
   local settings_alternation

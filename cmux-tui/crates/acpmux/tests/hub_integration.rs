@@ -105,6 +105,8 @@ mod run_parent;
 mod secrets;
 #[path = "hub_integration/seen.rs"]
 mod seen;
+#[path = "hub_integration/send_burst.rs"]
+mod send_burst;
 #[path = "hub_integration/session_offers.rs"]
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]

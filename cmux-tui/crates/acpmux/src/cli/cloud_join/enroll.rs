@@ -42,8 +42,8 @@
 //!   written) is finished, with nothing minted.
 //! - Every redeem says what this acpmux can do (`capabilities`, `vault.proxy.v1` when it runs
 //!   the vault's egress proxy, else an empty list). A join from before the hub took the list
-//!   keeps its credential: a sign-in never rotates it (a rotate the hub committed whose answer
-//!   was lost would leave this machine with a retired credential, read as revoked).
+//!   states it with its own credential (`self_capabilities.rs`), never by a rotate: a rotate the
+//!   hub committed whose answer was lost would leave this machine with a retired credential.
 //!
 //! Neither the access token nor the join token is put in argv, the environment, a file or a
 //! log: both stay in memory (zeroized when dropped) and go only into their own hub request.
@@ -151,6 +151,10 @@ pub(super) trait EnrollHub {
         &self,
         record: MachineCredential,
     ) -> impl Future<Output = leave::HubAnswer> + Send;
+    /// Starts, in the background, a joined record with no list stating this acpmux's
+    /// capabilities with its own credential (`self_capabilities.rs`). It saves only after the
+    /// enroll let go of the join lock.
+    fn state_capabilities(&self);
 }
 
 /// Whose a join is to the account acting on it.
@@ -205,7 +209,7 @@ fn enroll_name(build_tag: Option<&str>) -> String {
 }
 
 /// A sign-out's leave, marked before it starts and cleared when it is done (or a sign-in comes).
-const LEAVE_FILE: &str = "machine-join.leave.json";
+pub(super) const LEAVE_FILE: &str = "machine-join.leave.json";
 
 /// Queues `record`'s hub row, which the hub did not revoke, so it is revoked later; with
 /// `retry`, with its credential, so its own revoke is asked again. Never a match on the node key
@@ -317,22 +321,75 @@ fn leave_removing(home: &Path) -> bool {
     read_mark(home).is_some_and(|mark| mark.removing)
 }
 
+/// The last sign-in's enroll here: which account, and when it began (Unix ms). A leave intent
+/// from before it is stale.
+pub(super) const SIGNED_IN_FILE: &str = "machine-join.signed-in.json";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedIn {
+    account: String,
+    at_ms: u64,
+}
+
+/// Now, in Unix milliseconds (the app's `--signed-out-at` is on the same clock).
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Notes, before an enroll touches the leave mark, that `account` signed in at `at_ms`: an
+/// intent of that account's signing out from before then, written later, is stale
+/// ([`record_leave_intent`]).
+fn stamp_signed_in(home: &Path, account: &str, at_ms: u64) -> Result<()> {
+    let stamp = SignedIn { account: account.to_owned(), at_ms };
+    crate::config::private_state_dir(home)?;
+    recovery::write_durable(&home.join(SIGNED_IN_FILE), &serde_json::to_vec(&stamp)?, true)
+}
+
+/// Whether `account` signed in here after `at_ms` (a tie is not: the intent is recorded).
+fn signed_in_since(home: &Path, account: &str, at_ms: u64) -> bool {
+    crate::config::private_state_file(&home.join(SIGNED_IN_FILE))
+        .ok()
+        .and_then(|file| serde_json::from_reader::<_, SignedIn>(file).ok())
+        .is_some_and(|stamp| stamp.account == account && stamp.at_ms > at_ms)
+}
+
 /// Records that `account` signs out (`acpmux machine leave-intent`), with no daemon: the app
 /// writes it before it sends its leave, so a leave the daemon never gets (it was down, or the app
 /// quit first) is still finished as that account's, at the daemon's next start or by the next
 /// leave, which may name no account (a launch signed out). Only that account's sign-in join
 /// is left by it ([`owner_among`]).
-pub(crate) async fn record_leave_intent(account: &str) -> Result<()> {
+///
+/// `signed_out_at` (Unix ms; None: now, before the wait for the join lock) is when the sign-out
+/// happened. An intent written after that account signed in again (its writer waited on the
+/// lock while the new sign-in's enroll held it) is stale and not recorded: it never leaves the
+/// newer join. False when it was stale.
+pub(crate) async fn record_leave_intent(account: &str, signed_out_at: Option<u64>) -> Result<bool> {
+    record_leave_intent_at(&state_dir(), account, signed_out_at).await
+}
+
+async fn record_leave_intent_at(
+    home: &Path,
+    account: &str,
+    signed_out_at: Option<u64>,
+) -> Result<bool> {
+    let at = signed_out_at.unwrap_or_else(now_ms);
     let account = safe_id(account.trim()).ok_or_else(|| anyhow!("the user id is malformed"))?;
-    let home = state_dir();
-    let _lock = wait_for_lock(&home)
+    let _lock = wait_for_lock(home)
         .await
         .ok_or_else(|| anyhow!("another join or leave holds this machine; try again"))?;
-    mark_leave(&home, Some(&account))
+    if signed_in_since(home, &account, at) {
+        tracing::info!("sign-out intent: that account signed in again since; not recorded");
+        return Ok(false);
+    }
+    mark_leave(home, Some(&account))?;
+    Ok(true)
 }
 
 /// Takes the join lock in `home`, waiting up to [`LOCK_WAIT`] for a join or leave in progress.
-async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
+pub(super) async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
     let take = async {
         loop {
             if let Ok(lock) =
@@ -360,7 +417,15 @@ pub(super) async fn enroll_at(
 ) -> EnrollOutcome {
     // No account: a join made now would be no one's, and one here is not known to be this one's.
     let Some(account) = user_id else { return EnrollOutcome::OwnerUnknown };
+    // When this sign-in asked, before any wait: a sign-out after it, whose intent waits for the
+    // lock this enroll holds, is still recorded.
+    let asked_at = now_ms();
     let Some(_lock) = wait_for_lock(home).await else { return EnrollOutcome::Unavailable };
+    // This account's sign-out intents from before it asked are stale from here on, even one
+    // written after this enroll (its writer waited for this lock).
+    if stamp_signed_in(home, account, asked_at).is_err() {
+        return EnrollOutcome::Unavailable;
+    }
     // A sign-out whose local cleanup stopped part way left the record marked revoked: finished
     // first, so that mark is never read as a revoke at the hub.
     if leave_removing(home) {
@@ -449,6 +514,9 @@ pub(super) async fn enroll_at(
                 }
                 if let Err(e) = port.repair_relay() {
                     tracing::warn!("sign-in enroll: the relay config was not repaired: {e:#}");
+                }
+                if record.capabilities.is_none() {
+                    port.state_capabilities();
                 }
                 return EnrollOutcome::AlreadyJoined;
             }
@@ -646,6 +714,10 @@ impl EnrollHub for Platform {
 
     async fn revoke_own(&self, record: MachineCredential) -> leave::HubAnswer {
         revoke_self(record).await
+    }
+
+    fn state_capabilities(&self) {
+        super::self_capabilities::state_on_sign_in();
     }
 }
 
@@ -890,6 +962,8 @@ mod tests {
         resumes: AtomicUsize,
         /// The record a pending join completes into when resumed, if any.
         resumed: Mutex<Option<MachineCredential>>,
+        /// How many capability statements a sign-in started.
+        statements: AtomicUsize,
         /// What the hub answers a revoke with the machine's own credential; Revoked when None.
         own_answer: Mutex<Option<leave::HubAnswer>>,
         /// The credentials each such revoke sent.
@@ -964,6 +1038,9 @@ mod tests {
         async fn revoke_own(&self, record: MachineCredential) -> leave::HubAnswer {
             self.own_revokes.lock().unwrap().push(record.credential);
             self.own_answer.lock().unwrap().clone().unwrap_or(leave::HubAnswer::Revoked)
+        }
+        fn state_capabilities(&self) {
+            self.statements.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -1175,21 +1252,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_legacy_credential_is_never_rotated_by_a_sign_in() {
+    async fn an_empty_list_saved_after_a_409_changes_nothing_sent_and_states_nothing_again() {
+        // `self_capabilities.rs` saves [] when the hub refused to widen a narrower list.
+        let home = tempfile::tempdir().unwrap();
+        joined(home.path(), |r| r.capabilities = Some(Vec::new()));
+        // What this acpmux runs and sends comes from the build, never from the record.
+        const { assert!(RUNS_EGRESS_PROXY, "the egress proxy runs whatever the record says") };
+        assert_eq!(machine_capabilities(), vec!["vault.proxy.v1".to_owned()]);
+        // A sign-in finds a list recorded: no statement of its own.
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+        assert_eq!(port.statements.load(Ordering::SeqCst), 0);
+        assert_eq!(load_at(home.path()).unwrap().unwrap().capabilities, Some(Vec::new()));
+    }
+
+    #[tokio::test]
+    async fn a_legacy_credential_states_its_list_with_its_own_credential_and_is_never_rotated() {
         // A rotate the hub committed whose answer was lost would leave this machine with a
-        // retired credential, its relay's 401 read as a revoke: a sign-in never rotates, so the
-        // joined credential stays the one the hub holds.
+        // retired credential; a sign-in never rotates, so the joined credential stays the same.
         let home = tempfile::tempdir().unwrap();
         joined(home.path(), |r| r.capabilities = None);
         let port = FakeHub::at(home.path());
-        for _ in 0..2 {
-            assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
-            let record = load_at(home.path()).unwrap().unwrap();
-            assert_eq!((record.credential.as_str(), record.credential_generation), ("cmm_old", 1));
-            assert_eq!(record.capabilities, None);
-            assert!(!record.revoked);
-        }
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+        assert_eq!(port.statements.load(Ordering::SeqCst), 1);
+        let record = load_at(home.path()).unwrap().unwrap();
+        assert_eq!((record.credential.as_str(), record.credential_generation), ("cmm_old", 1));
+        assert_eq!(record.capabilities, None, "the statement saves the hub's answer itself");
         assert_eq!(port.mints.load(Ordering::SeqCst), 0);
+        // Its hub never answered: the next sign-in asks again, and still rotates nothing.
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+        assert_eq!(port.statements.load(Ordering::SeqCst), 2);
+        assert_eq!(load_at(home.path()).unwrap().unwrap().credential, "cmm_old");
     }
 
     /// A join proposal in `home` as `recovery::new_pending` writes it.
@@ -1914,6 +2007,34 @@ mod tests {
     /// The app's intent for `account`, as `acpmux machine leave-intent` writes it.
     fn intent(home: &Path, account: &str) {
         mark_leave(home, Some(account)).unwrap();
+    }
+
+    /// #38319 review F2 (#38440 F3): the app signs out, its intent writer starts and waits for
+    /// the join lock, the same account signs back in and enrolls, and only then does the writer
+    /// get the lock. Its intent is from before that sign-in: not recorded, and the next start
+    /// leaves the newer join. A sign-out after that sign-in is recorded and leaves.
+    #[tokio::test]
+    async fn a_leave_intent_written_late_never_leaves_the_newer_join() {
+        let home = tempfile::tempdir().unwrap();
+        let port = FakeHub::at(home.path());
+        let signed_out_at = now_ms().saturating_sub(1_000);
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        let joined = load_at(home.path()).unwrap().expect("joined");
+        let late = record_leave_intent_at(home.path(), "user_me", Some(signed_out_at)).await;
+        assert!(!late.unwrap(), "a stale intent is not recorded");
+        let at_start = finish_marked_at_start(home.path()).await;
+        assert!(at_start.as_ref().is_none_or(|left| !left.left), "{at_start:?}");
+        let kept = load_at(home.path()).unwrap().expect("the newer join stays");
+        assert_eq!(kept.credential, joined.credential);
+        assert!(!kept.revoked);
+        // Another account's late intent is still recorded: this sign-in was not theirs.
+        assert!(record_leave_intent_at(home.path(), "user_b", Some(signed_out_at)).await.unwrap());
+        remove_mark(home.path(), LEAVE_FILE);
+        // A sign-out after this sign-in is recorded, and the start leaves the join.
+        assert!(record_leave_intent_at(home.path(), "user_me", None).await.unwrap());
+        let left = finish_marked_at_start(home.path()).await.expect("a leave is marked");
+        assert!(left.left, "{left:?}");
+        assert!(load_at(home.path()).unwrap().is_none());
     }
 
     /// A leave asked of the daemon by `account` (None: a launch signed out).

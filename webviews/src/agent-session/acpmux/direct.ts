@@ -60,7 +60,7 @@ import {
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
-import { hostIsReconnecting, lostRetryDelay } from "./hostRetry";
+import { hostIsReconnecting, jitteredDelay, lostRetryDelay } from "./hostRetry";
 import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -392,6 +392,8 @@ const LIMIT_READS = 3;
 /// The waits before each new read of the events a lag dropped, after a failed one
 /// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
 const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
+/// Finished turns' stored records to read back (`repairTurns`): after `afterSeq` through `endSeq`.
+type TurnRepair = { sessionId: string; generation: number; afterSeq: number; endSeq: number; attempt: number };
 /// How long a lag read may be out before the stall check stops leaving the hole to it
 /// (`checkStall`): every retry's wait plus a margin. A read whose reply never comes (an acpmux
 /// replaced under the bridge drops it) no longer holds the chat's recovery off.
@@ -2874,6 +2876,9 @@ export class AcpmuxDirectClient {
   /// A request crossed its progress threshold on an open socket. This is a UI state, never a
   /// failure: a busy daemon may answer later, while a close still rejects promptly.
   private daemonWaitingSince?: number;
+  /// How many `pending` requests are `waiting` (`markWaiting`, `noteRequestSettled`): a reply asks
+  /// whether any still waits without walking every pending request (draining N cost N²).
+  private waitingRequests = 0;
   private daemonLastFrameAt = Date.now();
   /// The liveness probe out on the current socket, by request id and when it went; none while no
   /// request waits or once the daemon answered it.
@@ -3474,6 +3479,9 @@ export class AcpmuxDirectClient {
   /// A `fed` client (the guest page's) has no socket either, but draws what it is fed until `dispose`.
   private fedMode = false;
   private selectionGeneration = 0;
+  /// A finished turns' repair read is out, and the range turns ending meanwhile widen (`repairTurns`).
+  private turnRepairOut = false;
+  private turnRepairNext?: TurnRepair;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
   private shownToAcpmux?: { sessionId: string; visible: boolean };
@@ -3975,9 +3983,13 @@ export class AcpmuxDirectClient {
         resolve(socket);
       };
       socket.onerror = () => {
-        this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
+        // The bridge's open that got no answer in time names its wait (bridgeSocket.ts `openError`,
+        // `native.timed_out`), so the handshake loop retries it as a recovery.
+        const openError = opened ? undefined : (socket as { openError?: Error }).openError;
+        if (openError) this.wire.lifecycle("error", { message: openError.message });
+        else this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
         this.opening = false;
-        reject(new Error(translate("error.connectFailed")));
+        reject(openError ?? new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
         // A socket the pane gave up on itself (`recoverStall`) already took the lost path.
@@ -5095,12 +5107,15 @@ export class AcpmuxDirectClient {
       this.reconnectOwed = true;
       return;
     }
-    const delay = this.reconnectDelay;
+    // Jittered to 50-100% of the backoff step (home-channels DaemonGate.tsx): every tab restored
+    // over one daemon loses it at the same moment, and in lockstep they would all ask it again at
+    // the same moments too.
+    const delay = jitteredDelay(this.reconnectDelay);
     // Keep retrying forever while the daemon is unavailable, the pane's waiting snapshot visible
     // instead of a terminal failure. The wait doubles up to `RECONNECT_MAX_MS`: doubling without a
     // bound reached hours after a night of failed tries (a laptop asleep), so a chat came back long
     // after the machine had.
-    this.reconnectDelay = Math.min(delay * 2, RECONNECT_MAX_MS);
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
     this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
@@ -5137,7 +5152,7 @@ export class AcpmuxDirectClient {
       if (request && busy && request.retryable) {
         // The daemon's count and this page's drifted: the request goes again later, never at once.
         request.busy += 1;
-        request.waiting = true;
+        this.markWaiting(request);
         this.daemonWaitingSince ??= Date.now();
         this.armDaemonLiveness();
         this.emit("waiting: daemon");
@@ -6615,7 +6630,7 @@ export class AcpmuxDirectClient {
         ? setTimeout(() => {
             const request = this.pending.get(id);
             if (!request || request.waiting) return;
-            request.waiting = true;
+            this.markWaiting(request);
             this.daemonWaitingSince ??= Date.now();
             this.armDaemonLiveness();
             this.emit("waiting: daemon");
@@ -6636,11 +6651,20 @@ export class AcpmuxDirectClient {
     });
   }
 
+  private markWaiting(request: { waiting?: boolean }): void {
+    if (request.waiting) return;
+    request.waiting = true;
+    this.waitingRequests += 1;
+  }
+
   private noteRequestSettled(id: number | string): void {
     const wasWaiting = this.daemonWaitingSince !== undefined;
     const request = this.pending.get(id);
-    if (request) request.waiting = false;
-    if (![...this.pending.values()].some((entry) => entry.waiting)) this.daemonWaitingSince = undefined;
+    if (request?.waiting) {
+      request.waiting = false;
+      this.waitingRequests -= 1;
+    }
+    if (this.waitingRequests === 0) this.daemonWaitingSince = undefined;
     if (this.daemonWaitingSince === undefined) {
       this.daemonProbe = undefined;
       if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
@@ -7663,32 +7687,73 @@ export class AcpmuxDirectClient {
       afterSeq = oldest - 1;
     }
     if (afterSeq + 1 >= endSeq) return;
-    void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
-      (stored) => {
-        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-        // Only the turn's own held records are compared: O(turn), however much the pane holds.
-        const held = new Set<number>();
-        for (let at = firstHeldFrom(this.events, afterSeq + 1); at < this.events.length; at += 1) {
-          const seq = this.events[at]!.seq;
-          if (seq > endSeq) break;
-          held.add(seq);
-        }
-        const missing = stored.filter((event) => !held.has(event.seq));
-        if (missing.length === 0) return;
-        mergeIntoHeld(this.events, missing);
-        this.sawPrompts(missing);
-        this.rebuildKeepingLiveState(Math.min(...missing.map((event) => event.seq)) - 1);
-        this.emit("connected");
-      },
-      () => {
-        const delay = LAG_RETRY_MS[attempt];
-        if (delay === undefined) return;
-        setTimeout(() => {
-          if (!this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-            this.checkFinishedTurn(sessionId, endSeq, attempt + 1);
-        }, delay);
-      },
-    );
+    this.repairTurns({ sessionId, generation, afterSeq, endSeq, attempt });
+  }
+
+  /// One repair read of finished turns at a time per page: turns that end while it is out, and
+  /// retries, widen the one range read next (lowest start, highest end), so a burst of turn ends
+  /// costs two reads, not one per turn. A chat grown live to 100k rows (chat-100k-flat bench,
+  /// 2026-11-15) ended about 41,000 turns in seconds and queued 41,664 of these reads, drained
+  /// through its idle window at 16x an empty chat's CPU. The merged read is paged and
+  /// O(records since the last read), as the separate reads were together.
+  private repairTurns(range: TurnRepair): void {
+    if (this.turnRepairOut) {
+      const next = this.turnRepairNext;
+      this.turnRepairNext =
+        next && next.sessionId === range.sessionId && next.generation === range.generation
+          ? {
+              ...range,
+              afterSeq: Math.min(next.afterSeq, range.afterSeq),
+              endSeq: Math.max(next.endSeq, range.endSeq),
+              attempt: Math.min(next.attempt, range.attempt),
+            }
+          : range;
+      return;
+    }
+    const { sessionId, generation, afterSeq, endSeq, attempt } = range;
+    const current = () =>
+      !this.closed && generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+    this.turnRepairOut = true;
+    void this.readTurnRecords(sessionId, generation, afterSeq, endSeq)
+      .then(
+        (stored) => {
+          if (!current()) return;
+          // Only the range's own held records are compared: O(range), however much the pane holds.
+          const held = new Set<number>();
+          for (let at = firstHeldFrom(this.events, afterSeq + 1); at < this.events.length; at += 1) {
+            const seq = this.events[at]!.seq;
+            if (seq > endSeq) break;
+            held.add(seq);
+          }
+          const missing = stored.filter((event) => !held.has(event.seq));
+          if (missing.length === 0) return;
+          let from = Infinity;
+          for (const event of missing) from = Math.min(from, event.seq);
+          mergeIntoHeld(this.events, missing);
+          this.sawPrompts(missing);
+          this.rebuildKeepingLiveState(from - 1);
+          this.emit("connected");
+        },
+        () => {
+          const delay = LAG_RETRY_MS[attempt];
+          if (delay === undefined) return;
+          setTimeout(() => {
+            if (current()) this.repairTurns({ ...range, attempt: attempt + 1 });
+          }, delay);
+        },
+      )
+      .finally(() => {
+        this.turnRepairOut = false;
+        const next = this.turnRepairNext;
+        this.turnRepairNext = undefined;
+        if (
+          next &&
+          !this.closed &&
+          next.generation === this.selectionGeneration &&
+          this.selectedSessionId === next.sessionId
+        )
+          this.repairTurns(next);
+      });
   }
 
   /// The chat's stored transcript records after `afterSeq` through `endSeq`, paged.
@@ -15520,6 +15585,7 @@ export class AcpmuxDirectClient {
       );
     }
     this.pending.clear();
+    this.waitingRequests = 0;
     this.daemonWaitingSince = undefined;
     this.daemonProbe = undefined;
     if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);

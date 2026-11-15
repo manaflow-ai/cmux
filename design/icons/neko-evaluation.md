@@ -85,13 +85,14 @@ Gallery variants: `{earfold,tailterm,whisker}-{light,dark}`. Three monochrome, n
 alter copy/retry/speak (3/6 actions); More, bookmark, pin and spinner/status marks remain shared.
 The nine original SVGs and source-geometry manifest live in `neko-candidates/round2/`. They use the
 shared token names and compare against both the token family and actual transcript row. These
-experiments remain gallery-only. Scores are pending the same real 1x/2x capture review as round 1.
+experiments remain gallery-only. Their capture scores are below (Round 2 capture score).
 
 ## License survey
 
 `neko-candidates/manifest.json` pins upstream commits, exact source paths, byte counts and SHA-256
-hashes. The actual upstream license files accompany the three representative gallery assets. The
-full relevant license texts are also in the generated third-party notices.
+hashes. The actual upstream license files accompany the three representative gallery assets, and
+`neko-candidates/NOTICE.md` is their notice. The app's `THIRD_PARTY_LICENSES.md` lists only what the
+app bundles, so it carries no Neko art until a set ships (#37815).
 
 | Set | License scope verified | Coverage and suitability |
 | --- | --- | --- |
@@ -129,3 +130,55 @@ source review: only half the required action row has Neko-specific art. None has
 status. No round 2 drawing is in a shipped resource, and no Neko DEV action row or spinner exists;
 the setting remains hidden and resolves to the default family until a complete captured round passes
 at both device scales in both themes.
+
+## Round 3
+
+Leo, 2026-11-14: “And how about those Neko icons, man?”
+
+**License search.** Four more MIT or Apache-2.0 sets were checked at pinned commits (license file
+hashes in `neko-candidates/manifest.json` `surveyed`): Phosphor (MIT), Material Symbols (Apache-2.0),
+Tabler (MIT, newer commit than round 1) and Fluent System Icons (MIT). Each has a cat and/or paw
+noun glyph and nothing more; none has a cat treatment of copy, retry, speak, bookmark, pin or more.
+Together with rounds 1 and 2, no MIT or Apache-2.0 set found has a cat action family, so round 3
+was authored.
+
+**Fair rendering first (#37815).** Rounds 2 and 3 are now drawn through the shared `Icon` renderer
+from `nekoRounds.json` (build_pack.py), not as `<img>` files: `currentColor` in both themes and the
+pack's 1.25 px line at 16 px. Round 2's three directions now render at the same weight as the default
+row. Their round-2 scores still hold: they cover 3/6, so they were not re-graded.
+
+**Candidates.** Twelve first-party drawings in `neko-candidates/round3/` (`manifest.json` records base
+geometry and change per drawing). Both directions cover all six actions:
+
+- `tail`: a tail curl ends one open line on copy, retry, speak, bookmark and pin; More's dots become
+  toe beans.
+- `mix`: ear corners on the copy sheet and the bookmark star, tail curls on retry, speak and pin,
+  toe-bean More.
+
+**Capture.** The same harness (`scripts/gallery-matrix/neko.ts`): real 1x and 2x device scale, light and
+dark, compact and comfortable, UI scale 1 and 1.25, 144 images (32 of them round 3) from
+[run 43669925609](https://github.com/manaflow-ai/cmux/actions/runs/43669925609). Same rubric as rounds 1
+and 2: visual fit is stroke/size consistency, contrast and restrained cat cue (0–2 each); action
+recognition (0–2) and coverage are separate.
+
+| Direction | Coverage | Visual fit (/6) | Action recognition (/2) | Release decision |
+| --- | ---: | --- | ---: | --- |
+| Tail, all six | 6/6 | 4/6 (2, 2, 0) | 1/2 | Gallery only; rejected for release |
+| Ears and tail, all six | 6/6 | 4/6 (2, 2, 0) | 1/2 | Gallery only; rejected for release |
+
+- Weight and contrast match the default row in both themes at both scales, now that the renderer is
+  shared (2, 2).
+- The cat cue is the failure (0). At 1x, at 14 and 16 px, the toe beans, the star's tail or ears,
+  and the pin's curled needle can't be told from the default glyphs. Where the cue shows, at 2x and
+  20 px, it reads as a flaw rather than a cat: the copy tail as a torn corner, the copy ears as a
+  skewed sheet, the star ears as a crooked point.
+- Recognition 1/2: retry keeps round 2's clockwise arc, which runs opposite to the default's
+  counter-clockwise retry and reads closer to redo; the other five stay recognizable.
+- Full coverage alone doesn't clear the bar: neither direction looks clearly better than the default
+  row, and neither reads as Neko at the sizes the app draws.
+
+**Round decision:** release none. `IconFamily.neko` stays off: it is not in `IconFamily.shippedCases`,
+the setting stays hidden and resolves to the default family. What we learned: at 16 px a cat cue on
+a 1.5-unit line either vanishes or reads as a defect. A next round would need a different approach:
+for example one dedicated cat mark (a mascot spot, like Idlesse's footer cat) in place of cues on
+every action, or 2x-only art. That is a taste call for Leo, not more hill climbing on these cues.

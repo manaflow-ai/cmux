@@ -161,6 +161,58 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     assert!(scaffold::scaffold(&dir, "my-prs", "section").is_err(), "a folder with files stays");
 }
 
+/// A folder outside a cmux checkout (a sample copied out, one a person
+/// installs) has no copy of `cmux-extension-sdk`: the packer gets the SDK the
+/// CLI carries, whole, so it builds with no install.
+#[test]
+fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
+    let packer = tempfile::tempdir().unwrap();
+    let entry = dev::write_packer(packer.path()).unwrap();
+    let index = std::fs::read_to_string(&entry).unwrap();
+    assert!(index.contains("export function section("), "the SDK's own source");
+    let relative: Vec<&str> = index
+        .lines()
+        .filter_map(|l| l.split(" from \"").nth(1)?.split('"').next())
+        .filter(|p| p.starts_with('.'))
+        .collect();
+    assert!(!relative.is_empty(), "the SDK imports its tables");
+    for path in relative {
+        let file = entry.parent().unwrap().join(path);
+        assert!(file.is_file(), "{path} is carried with the SDK ({})", file.display());
+    }
+    // `cmux-extension-sdk/customize`, written from this build's schema.
+    let types = entry.parent().unwrap().join("generated/customize.ts");
+    let schema = cmux_customize::schema::Schema::current();
+    assert_eq!(
+        std::fs::read_to_string(&types).ok(),
+        Some(cmux_customize::schema::typescript(&schema)),
+        "the customize types are carried with the SDK"
+    );
+
+    let Some(bun) = dev::find_bun() else {
+        eprintln!("bun is not on PATH: the build half of this test needs it");
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("src/main.ts"),
+        "import { section, Text } from \"cmux-extension-sdk\"\nexport const renderHello = section(() => Text(\"hi\"))\n",
+    )
+    .unwrap();
+    let pkg = dev::Package {
+        dir: dir.clone(),
+        manifest: json!({}),
+        id: "local/hello".into(),
+        name: "hello".into(),
+    };
+    dev::build(&pkg, &dev::BuildPlan::Pack(bun), dev::BUILD_TIMEOUT)
+        .unwrap_or_else(|problems| panic!("{problems:?}"));
+    let main = std::fs::read_to_string(dir.join("dist/main.js")).unwrap();
+    assert!(main.contains("var renderHello = section("), "{main}");
+}
+
 #[test]
 fn package_files_refuse_links_and_paths_out_of_the_folder() {
     let root = tempfile::tempdir().unwrap();
@@ -760,4 +812,17 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
     let (_, code) = shot::report(&broken, &dir, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+#[test]
+fn a_new_tab_page_is_placed_where_the_person_picks_it() {
+    let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
+    let placed = dev::placements(&manifest, true);
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0]["interface"], "cmux.newtab/1");
+    assert!(
+        placed[0]["where"].as_str().is_some_and(|w| w.contains("tabs.newTabApp")),
+        "{placed:?}"
+    );
 }
