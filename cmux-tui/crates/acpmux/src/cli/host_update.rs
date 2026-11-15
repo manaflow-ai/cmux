@@ -320,7 +320,10 @@ impl Probe {
         let uname = parts[0].lines().find_map(|l| l.strip_prefix(UNAME)).unwrap_or_default();
         let uname = uname.trim().to_owned();
         let secs = |key: &str| {
-            parts[0].lines().find_map(|l| l.strip_prefix(key)).and_then(|v| v.trim().parse().ok())
+            parts
+                .first()
+                .and_then(|p| p.lines().find_map(|l| l.strip_prefix(key)))
+                .and_then(|v| v.trim().parse().ok())
         };
         let (clock, restarted) = (secs(CLOCK), secs(RESTARTED));
         Some(Probe { uname, cloud_vm, app_managed, build, busy, refused, clock, restarted })
