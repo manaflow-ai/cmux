@@ -497,12 +497,22 @@ THEME_CONFIG = os.path.join(ROOT, "cmux-next-ios/verify/pair-e2e-theme.ghostty")
 def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, screens):
     """The phone opens the paired Mac's first terminal (DEBUG demo `live-terminal`, which prints the
     palette in it); the phone and the Mac window are captured. Returns the summary line."""
+    # Sizing capture: a second, narrower viewer (39x26) of the Mac's terminal, attached before
+    # the phone opens it (cmux-next-ios/verify/scripts/narrow_viewer.py).
+    helper = os.path.join(ROOT, "cmux-next-ios/verify/scripts/narrow_viewer.py")
+    narrow = None
+    if os.path.isfile(helper):
+        narrow = rpc("action.run", {"action": "terminal.sendText", "args": {"text": f"python3 -I {helper}\n"}})
+        print(f"narrow viewer: {narrow}", flush=True)
+        time.sleep(6)
     since = time.monotonic()
     subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
     subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-terminal"],
                    env=phone_env, check=True, capture_output=True)
     shown = phone_log.wait_at(re.compile(r"demo step: live-terminal (shown|no \w+)"), 240, since=since)
     outcome = shown[1].group(1) if shown else "timed out"
+    if narrow is not None:
+        time.sleep(10)  # the grid settles and the ruler redraws at the new width
     phone = phone_shot("theme-phone-terminal")
     mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-mac-window.png")}, timeout=60)
     mac_line = "screens/theme-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
