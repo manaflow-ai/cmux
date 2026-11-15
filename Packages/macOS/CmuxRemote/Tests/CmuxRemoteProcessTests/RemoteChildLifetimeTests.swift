@@ -45,6 +45,31 @@ import os
         #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
     }
 
+    @Test(.timeLimit(.minutes(1))) func stopReachesAChildSpawnedFromAThreadThatBlocksSigterm() async throws {
+        let lifetime = RemoteChildLifetime()
+        // A child inherits its spawning thread's signal mask; this thread blocks SIGTERM.
+        let child = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ChildProcess, any Error>) in
+            let thread = Thread {
+                var blocked = sigset_t()
+                sigemptyset(&blocked)
+                sigaddset(&blocked, SIGTERM)
+                pthread_sigmask(SIG_BLOCK, &blocked, nil)
+                continuation.resume(with: Result {
+                    try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+                })
+            }
+            thread.start()
+        }
+        defer { close(child.stdin); close(child.stdout) }
+        lifetime.watch(child) { status in
+            if status >= 0 { lifetime.reaped(child) }
+        }
+        lifetime.freeze()
+        lifetime.stopOwnedChildren()
+        // stdin stays open: only the SIGTERM can end it.
+        #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
+    }
+
     @Test(.timeLimit(.minutes(1))) func duplicateReapCannotRemoveAnotherTrackedChild() async throws {
         let lifetime = RemoteChildLifetime()
         let old = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
