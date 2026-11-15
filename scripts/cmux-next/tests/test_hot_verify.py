@@ -297,5 +297,39 @@ class MarkerTest(unittest.TestCase):
         self.assertIn("app=1.2-345", hv.marker("a" * 40, "1.2 345", ["web"], "pr"))
 
 
+class ControlSocketTest(unittest.TestCase):
+    """The copy's socket is the one side-instance.sh named, asked once: no scan of every cmux socket (each a 5 s
+    timeout) while it launches."""
+
+    def serve(self, path: str, pid: int):
+        import socket
+        import threading
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        server.listen(4)
+        self.addCleanup(server.close)
+
+        def answer():
+            with contextlib.suppress(OSError):
+                while True:
+                    conn, _ = server.accept()
+                    with conn:
+                        conn.recv(1 << 16)
+                        conn.sendall((json.dumps({"id": 1, "ok": True, "result": {"pid": pid}}) + "\n").encode())
+
+        threading.Thread(target=answer, daemon=True).start()
+
+    def test_named_socket_answering_with_the_pid(self):
+        with tempfile.TemporaryDirectory(prefix="hv-") as d:
+            sock = os.path.join(d, "c.sock")
+            self.serve(sock, 4242)
+            self.assertEqual(hv.control_socket(4242, sock), sock)
+            self.assertIsNone(hv.control_socket(4243, sock))  # another app's socket at that path
+
+    def test_named_socket_not_there_yet(self):
+        with tempfile.TemporaryDirectory(prefix="hv-") as d:
+            self.assertIsNone(hv.control_socket(4242, os.path.join(d, "missing.sock")))
+
+
 if __name__ == "__main__":
     unittest.main()

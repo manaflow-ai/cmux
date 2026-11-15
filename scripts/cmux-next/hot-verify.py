@@ -437,6 +437,14 @@ class Side:
     def app(self) -> Path:
         return Path(self.run("path"))
 
+    def socket(self) -> str | None:
+        """The control socket side-instance.sh named for the copy (CMUX_NEXT_SOCKET_PATH), or None for a copy
+        made before it named one."""
+        try:
+            return self.run("socket", timeout=30) or None
+        except LookError:
+            return None
+
     def dir(self) -> Path:
         return self.app().parent
 
@@ -494,9 +502,12 @@ def process_runs(pid: int, name: str) -> bool:
     return Path(done.stdout.strip()).name == name
 
 
-def control_socket(pid: int) -> str | None:
-    """The copy's control socket: a side copy names it by its key hash, so each cmux socket is asked
-    system.identify and the one that answers with PID is it (scripts/measure/hot-apply-nightly.py)."""
+def control_socket(pid: int, named: str | None = None) -> str | None:
+    """The copy's control socket: the one side-instance.sh named (NAMED) when it answers system.identify with
+    PID; else, for a copy made before it named one, each cmux socket is asked and the one that answers with PID
+    is it (scripts/measure/hot-apply-nightly.py)."""
+    if named:
+        return named if os.path.exists(named) and rpc(named, "system.identify", timeout=5).get("pid") == pid else None
     import glob
     import pwd
     homes = dict.fromkeys([os.path.expanduser("~"), pwd.getpwuid(os.getuid()).pw_dir])
@@ -994,7 +1005,8 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
             pid = int(found.group(1))
-            sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid))
+            named = side.socket()
+            sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
             until("the copy's window", WINDOW_SECONDS, lambda: window_id(pid) if kit is None else True)
             time.sleep(SETTLE_LAUNCH)
         with phases("before"):
