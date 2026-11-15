@@ -402,6 +402,7 @@ def real_input_works():
     at, ok = landed(target)
     if ok and app_saw(lambda p: probe("move", p[0], p[1]), "posted") is not False:
         ROUTE = "posted"
+        REPORT["route_failures"] = why  # why each earlier route was passed over, also when a later one works
         return None
     why += [f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
            f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}" + (", the app saw no move" if ok else "")]
@@ -414,13 +415,17 @@ def real_input_works():
         cua_move(target[0] - 40, target[1])
         cua_move(target[0], target[1])
         at, ok = landed(target)
-        if ok and app_saw(lambda p: cua_move(*p), "cua") is not False:
+        # Only when the app is seen getting its moves: move_cursor warps (no mouse-moved event), so an unproven
+        # check (None: no row to tell) must not pick it (step 87a83e6c took it on None and measured nothing).
+        if ok and app_saw(lambda p: cua_move(*p), "cua") is True:
             ROUTE = "cua"
+            REPORT["route_failures"] = why
             return None
         why.append(f"cua-driver move_cursor {target[0]:.0f} {target[1]:.0f} (scale {CUA_SCALE:g}): pointer after {at}"
                    + (", the app saw no move (a warp sends no mouse-moved event)" if ok else ""))
     except (OSError, RuntimeError, ValueError) as error:
         why.append(f"cua-driver at {CUA_PATH}: {error}")
+    REPORT["route_failures"] = why
     return "; ".join(why)
 
 
