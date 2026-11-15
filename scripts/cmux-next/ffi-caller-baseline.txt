@@ -42,17 +42,14 @@ cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_sco
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_scope_free
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_scope_new
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_busy_cap_ns
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_failed
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_failed_at
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_failed_while_missing
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_is_exhausted
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_new
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_refused_busy
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_reset
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_waits_for_event_only
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_wakes_on_socket
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_woke
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_policy_new
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_policy_preset
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_abi_version
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_lines_free

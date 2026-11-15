@@ -31,7 +31,7 @@ over the provider socket (`CEFAgentRelay`, `ProviderDevToolsRelay`), WKWebView t
 | Part | Code | Language |
 | --- | --- | --- |
 | Legacy driver (default `computerUse.driver = legacy`) | `manaflow-ai/cmux-cua` `libs/cmux-cua/rust`, pinned v0.8.12 `e8a8dbfd` in `scripts/build-cmux-cua.sh`; "cmux Computer Use.app" `com.cmuxterm.cua` | Rust |
-| Helper v2 (`driver = upstream`) | upstream `trycua/cua` `cua-driver-rs-v0.34.0` as `libcua_driver_sdk.dylib`, Swift helper `Packages/macOS/CmuxComputerUseHelper` (dlopen, admission) | Rust engine, Swift host |
+| Helper v2 (`driver = upstream`) | upstream `trycua/cua` `cua-driver-rs-v0.38.0` as `libcua_driver_sdk.dylib`, Swift helper `Packages/macOS/CmuxComputerUseHelper` (dlopen, admission) | Rust engine, Swift host |
 | Agent wiring | acpmux `src/agent_tools.rs:469-509` gives every agent a `cmux-cua` MCP server; `cua_v2.rs` is a pass-through bridge | Rust |
 | App | `CmuxNextComputerUse/ComputerUseHelperDaemon.swift`, `ComputerUseHelperV2*.swift`, onboarding `CmuxNextOnboarding/Steps/ComputerUseStepView.swift`, Agent Activity pane | Swift |
 | Linux VM | `images/cmux-vm/inputs.lock.json` pins cmux-cua **0.8.7**; one Xvfb `:99` + `cmux-cua serve` systemd units, dev snapshots only (`web/scripts/cmux-vm-image/agent-tools.ts`); acpmux hands out `CMUX_CUA_DISPLAY=:N` per workspace but nothing starts those displays | TS image script, Rust driver |
