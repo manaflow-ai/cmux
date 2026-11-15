@@ -29,6 +29,8 @@ extension SettingsSchema {
         // Whether a chat shows the live view of the app its agent uses: looks only.
         "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
+        // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
+        "customize.fromTheApp",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",

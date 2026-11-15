@@ -25,7 +25,8 @@ One Rust map, `cmux-action-catalog/src/customize_elements.rs`, which the app rea
 
 ## How it behaves
 
-- **Starting.** Option alone, with the pointer moving over the key window. Option with Command, Control or Shift is a chord, not the inspector. It is on while the modifier-hold hints are (Settings: show shortcut hints while holding a modifier).
+- **Opting in.** Off by default. Settings > Advanced > Labs > Customize From the Window (`customize.fromTheApp`, also in the palette, `cmux settings set customize.fromTheApp true` and MCP) turns on the inspector and the right-click Customize… rows together. Turning it off hides both again: that is the way back, and nothing else changes.
+- **Starting.** Option alone, held 0.3 s (the shortcut hints' hold), with the pointer over the key window. Option with Command, Control or Shift is a chord, not the inspector.
 - **Clicks.** The outline never takes a click. Only the card takes the mouse.
 - **Reaching the buttons.** While the pointer is on the card, the part stays put, so the buttons can be reached with Option held or after letting go.
 - **Ending.** Any of these ends it:

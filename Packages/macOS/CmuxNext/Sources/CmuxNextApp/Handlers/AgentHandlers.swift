@@ -128,7 +128,7 @@ enum AgentHandlers {
         })
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
-        registry.bindAgentPane(settings: { context.services.settings }) { invocation in
+        registry.bindAgentPane(settings: { context.services.settings }, customizeRows: { context.services.settings?.snapshot.customizeFromTheApp == true }) { invocation in
             if openOnHost(invocation, context: context) { return }
             openLocalChat(invocation, context: context)
         }

@@ -1,5 +1,10 @@
 {
   "title": "Customize Inspector: hold Option over a part of the window to see what changes it",
+  "settings": {
+    "customize": {
+      "fromTheApp": true
+    }
+  },
   "steps": [
     {
       "title": "Launch",

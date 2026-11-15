@@ -29,7 +29,7 @@ final class WindowShortcutHints {
         monitor = WindowScopedShortcutHintModifierMonitor(window: window, keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
             self?.held = flags
             self?.refresh()
-            inspector.holdChanged(flags)
+            inspector.holdChanged(self?.controller?.services.settings?.snapshot.customizeFromTheApp == true ? flags : nil) // customize.fromTheApp, off by default
         }
         // Chips are a snapshot of where rows, tabs and panes are. A scroll moves them without a window
         // layout, so a scroll in this window while chips show re-places them.
@@ -38,7 +38,7 @@ final class WindowShortcutHints {
             return event
         }
         settingsTask = Task { [weak self] in
-            for await enabled in ObservationStream({ DesignSettings.shared.showModifierHoldHints }) {
+            for await enabled in ObservationStream({ [weak self] in DesignSettings.shared.showModifierHoldHints || self?.controller?.services.settings?.snapshot.customizeFromTheApp == true }) {
                 self?.monitor?.setEnabled(enabled)
             }
         }
@@ -47,7 +47,7 @@ final class WindowShortcutHints {
     func refresh() {
         guard let controller else { return }
         overlay.frame = controller.root.bounds
-        overlay.hints = held.map(hints(held:)) ?? []
+        overlay.hints = DesignSettings.shared.showModifierHoldHints ? held.map(hints(held:)) ?? [] : [] // the hold also drives the Customize Inspector
     }
 
     /// Content scrolled while chips show: re-place them once the scrolled view has taken the event

@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextFocusUI
+import CmuxNextSettings
 import Testing
 
 /// The Customize Inspector (hold Option over the window) and the right-click Customize… rows read
@@ -86,10 +87,29 @@ struct CustomizeInspectorTests {
         #expect(AgentHandlers.seed(for: invocation).draft == "/customize \(element.title): ")
     }
 
+    @Test func theWindowCustomizeSurfacesAreOneDefaultOffSettingOnEverySurface() throws {
+        let descriptor = try #require(SettingsSchema.descriptor(for: CmuxConfigSnapshot.customizeFromTheAppPath))
+        #expect(CmuxConfigSnapshot.customizeFromTheAppDefault == false)
+        #expect(descriptor.defaultValue == .bool(false))
+        #expect(descriptor.isPaletteExposed)
+        #expect(SettingsSchema.agentSettableKeys.contains(descriptor.id))
+        #expect(CmuxConfigSnapshot.empty.customizeFromTheApp == false)
+    }
+
+    @Test func rightClickCustomizeIsHiddenUntilTheSettingIsOn() {
+        var on = false
+        let registry = ActionRegistry()
+        #expect(registry.bindAgentPane(customizeRows: { on }) { _ in })
+        let id = ActionID(rawValue: CustomizeElement.openActionID)
+        #expect(ActionRegistry.locate(id, in: registry.makeContextMenu(for: .tabStrip)) == nil)
+        on = true
+        #expect(ActionRegistry.locate(id, in: registry.makeContextMenu(for: .tabStrip)) != nil)
+    }
+
     @Test func aRightClickCustomizeRowNamesItsMenusElement() throws {
         let registry = ActionRegistry()
         var opened: [ActionInvocation] = []
-        #expect(registry.bindAgentPane { opened.append($0) })
+        #expect(registry.bindAgentPane(customizeRows: { true }) { opened.append($0) })
         let menu = registry.makeContextMenu(for: .tabStrip)
         let found = try #require(ActionRegistry.locate(ActionID(rawValue: CustomizeElement.openActionID), in: menu))
         let run = try #require(ActionRegistry.menuRun(of: found.menu.items[found.index]))
