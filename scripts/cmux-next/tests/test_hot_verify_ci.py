@@ -82,9 +82,11 @@ class Verdict(unittest.TestCase):
 
 
 class Step(unittest.TestCase):
-    def test_hq_ref_prefers_hq_commit_then_commit_full(self) -> None:
+    def test_hq_ref_reads_commit_first(self) -> None:
+        self.assertEqual(hv.hq_ref(json.dumps({"version": "5033525e660f", "commit": HEAD, "hq_commit": OTHER})), HEAD)
         self.assertEqual(hv.hq_ref(json.dumps({"hq_commit": HEAD, "commit_full": OTHER})), HEAD)
         self.assertEqual(hv.hq_ref(json.dumps({"version": "5033525e660f", "commit_full": OTHER.upper()})), OTHER)
+        self.assertEqual(hv.hq_ref(json.dumps({"commit": "5033525e660f", "hq_commit": OTHER})), OTHER)
 
     def test_hq_ref_is_empty_without_a_full_commit(self) -> None:
         for text in ('{"version":"5033525e660f"}', '{"hq_commit":"5033525e660f"}', "", "not json", "[]"):

@@ -331,7 +331,7 @@ jobs:
           curl -fsS --retry 2 --max-time 30 "$CONTROLLER/v1/version" -o "$RUNNER_TEMP/version.json" || true
           hq_ref="$(python3 scripts/cmux-next/hot-verify-ci.py hq-ref "$RUNNER_TEMP/version.json")"
           if ! [[ "$hq_ref" =~ ^[0-9a-f]{40}$ ]]; then
-            say "hot verify: the fleet controller's /v1/version names no full HQ commit (hq_commit or commit_full); no look"
+            say "hot verify: the fleet controller's /v1/version names no full HQ commit (commit); no look"
             echo "result=skipped" >> "$GITHUB_OUTPUT"
             exit 0
           fi

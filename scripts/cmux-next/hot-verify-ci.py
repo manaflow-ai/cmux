@@ -109,14 +109,14 @@ def output_lines(found: dict) -> str:
 
 
 def hq_ref(text: str) -> str:
-    """The HQ main commit the controller runs (`hq_commit`, else `commit_full`), or "" when it names none."""
+    """The HQ main commit the controller runs (`commit`, from hq#11359), or "" when it names none."""
     try:
         data = json.loads(text)
     except ValueError:
         return ""
     if not isinstance(data, dict):
         return ""
-    for key in ("hq_commit", "commit_full"):
+    for key in ("commit", "hq_commit", "commit_full"):
         value = str(data.get(key) or "").strip().lower()
         if SHA.fullmatch(value):
             return value
