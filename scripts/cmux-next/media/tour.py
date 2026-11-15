@@ -330,6 +330,9 @@ def load_tour(path: Path) -> dict[str, Any]:
     for number, step in enumerate(steps, 1):
         if step.get("cmux"):
             step["cmux"] = fill_repo(step["cmux"], repo, f"{path}: step {number}")
+    # {repo} in the fixture's strings too, so a harness can run a checkout file (acpmux's fake_agent.py).
+    if harness_fixture is not None:
+        harness_fixture = json.loads(json.dumps(harness_fixture).replace("{repo}", json.dumps(repo)[1:-1]))
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
             "env": launch_env, "customize": data.get("customize", False), "launch_args": launch_args,
             "harness_fixture": harness_fixture}
