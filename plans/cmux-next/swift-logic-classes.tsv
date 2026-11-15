@@ -9220,6 +9220,7 @@ CmuxNextPhone	class	CloudDesktopSurfaceSources	0	MIXED	85	15	Packages/macOS/Cmux
 CmuxNextPhone	let	logger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	os.Logger
 CmuxNextPhoneAccess	class	CloudHostReplicaFollower	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/CloudHostReplicaFollower.swift	from class CloudHostReplicaFollower:21: follows settings, reconciles wanted cloud host replica state per daemon/account
 CmuxNextPhoneAccess	enum	MobilePairingState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobilePairingState.swift	mobile pairing step state machine
+CmuxNextPhoneAccess	struct	PhoneAccessLeftovers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/PhoneAccessLeftovers.swift	UserDefaults cleanup of the removed Phone Access listener's flag, platform plumbing
 CmuxNextPopups	class	BrowserPopupWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindow.swift	NSWindow for browser popup
 CmuxNextPopups	enum	BrowserPopupWindowGeometry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindowGeometry.swift	popup window size rules (Chrome AdjustToFit)
 CmuxNextPopups	class	BrowserPopupWindows	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindows.swift	popup window controller

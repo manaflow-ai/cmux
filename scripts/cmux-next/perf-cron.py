@@ -1144,8 +1144,10 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     # runs no CI job (it is a controller worker only), so a part there takes nothing: a measurement not pinned to
     # another host goes to it. From 2026-11-13 16:43Z to 11-14 02:29Z a nightly job was queued for a signing runner
     # at every tick, and no Mac part ran while the bench host could have taken each one.
+    # A bench host the measurement gave up for its silence (give_up_host) is still asked here: the give-up is for
+    # trying another host, and this rule leaves none. 2026-11-15 00:54Z to 02:54Z: no Mac part was asked for.
     bench_only = bool(github_busy and fleet and cur.get("host") in (None, BENCH_WORKER)
-                      and not host_avoided(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
+                      and not host_unreachable(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
     if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
