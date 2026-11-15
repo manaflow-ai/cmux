@@ -76,7 +76,7 @@ pub(super) fn remove_pdf_attachments(cwd: &Path, id: &str) {
     let Some(dir) = pdf_attachments_dir(&pdf_attachments_root(cwd), id) else {
         return;
     };
-    match std::fs::remove_dir_all(&dir) {
+    match crate::home_fs::remove_dir_all(&dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => tracing::warn!(session = id, "PDF attachments not deleted: {e}"),
