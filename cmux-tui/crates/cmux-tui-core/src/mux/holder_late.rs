@@ -8,15 +8,21 @@
 //! here for the holder's answer.
 //!
 //! The thread waits on the connect the start made, for as long as the holder
-//! is silent: no timer ends a terminal. A holder that ends the connect
-//! before its answer gets a new connect after a pause ([`RECONNECT_INITIAL`],
-//! doubled up to [`RECONNECT_MAX`]), each time it does so. When the holder
-//! answers, each terminal re-attaches as it does in the start pass (or
-//! ends, when the holder does not run it). A terminal ends without an
-//! answer only when no holder can be asked any more (a refused connect, a
-//! missing socket, a holder that refuses this daemon, or another error of
-//! the ask). The person can close the tab of a terminal that waits; the
-//! holder ends that shell when it answers.
+//! is silent: no timer ends a terminal. When the holder ends that kept
+//! connect, a new connect is made at once. When the holder also ends a new
+//! connect before its answer, the next one is made after a pause
+//! ([`RECONNECT_INITIAL`], doubled up to [`RECONNECT_MAX`]), each time.
+//! When the holder answers, each terminal re-attaches as it does in the
+//! start pass (or ends, when the holder does not run it). A terminal ends
+//! without an answer only when no holder can be asked any more (a refused
+//! connect, a missing socket, a holder that refuses this daemon, or another
+//! error of the ask). The person can close the tab of a terminal that
+//! waits; the holder ends that shell when it answers.
+//!
+//! A creation that a crash interrupted settles here when its terminal
+//! re-attached or ended. While its terminal is kept for the next start it
+//! stays pending: a client's ask for its result gets pending again, and a
+//! later start settles it.
 
 use super::*;
 use crate::holder_runtime::{HolderReach, HolderService};
