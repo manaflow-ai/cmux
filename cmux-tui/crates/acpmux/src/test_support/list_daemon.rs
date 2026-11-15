@@ -203,7 +203,7 @@ pub fn usage_beside(hub: &Hub, closed: usize, store: &Path) -> io::Result<usize>
         meta.chat_store = Some(store.to_path_buf());
         Ok((meta, sid))
     };
-    let mut add = |id: String, status: &str, at: u64, transcript: bool| -> io::Result<()> {
+    let add = |id: String, status: &str, at: u64, transcript: bool| -> io::Result<()> {
         let tags = if status == "closed" { json!({}) } else { json!({"area": "acpmux"}) };
         let (meta, sid) = claude(&id, status, at, tags)?;
         if transcript {

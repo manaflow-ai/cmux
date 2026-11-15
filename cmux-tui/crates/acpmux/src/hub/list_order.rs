@@ -125,6 +125,13 @@ impl Hub {
 
     /// How many times the order sorted every chat (its first read, a cursor the log could not
     /// follow, a count that did not match): a gate's timed read must be none of those.
+    /// Reads the order as a daemon's load pass does once every log is read (`log_load.rs`): a
+    /// seed that puts sessions in place goes through no load pass.
+    #[cfg(test)]
+    pub(crate) fn warm_list_order_for_test(&self) {
+        let _ = self.own_rows_from(None, 0);
+    }
+
     #[cfg(test)]
     pub(crate) fn list_order_rebuilds_for_test(&self) -> u64 {
         self.list_order.0.lock().unwrap_or_else(|e| e.into_inner()).rebuilds

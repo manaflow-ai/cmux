@@ -435,8 +435,15 @@ async fn v2_pr07b_callers() {
 
 /// The fixtures of the usage pass's probe: `aged` is [`list_daemon::usage_beside`] (closed rows
 /// two days old or more, beside live and closed-today Claude chats with transcripts), `recent` is
-/// [`list_daemon::twenty_live_beside`] (closed rows a minute old, no agent session ids).
-async fn usage_probe_daemon(fixture: &str, closed: usize) -> (ListDaemon, tempfile::TempDir) {
+/// [`list_daemon::twenty_live_beside`] (closed rows a minute old, no agent session ids). `warm`:
+/// the kept list order sorted once after the seed, as a daemon's load pass sorts it before it
+/// says the logs are read (`log_load.rs`); a seed that puts sessions in place, as this one does,
+/// goes through no load pass.
+async fn usage_probe_daemon(
+    fixture: &str,
+    closed: usize,
+    warm: bool,
+) -> (ListDaemon, tempfile::TempDir) {
     let store = tempfile::tempdir().unwrap();
     let path = store.path().to_path_buf();
     let daemon = list_daemon::serve(Serves::List, |hub| match fixture {
@@ -445,12 +452,17 @@ async fn usage_probe_daemon(fixture: &str, closed: usize) -> (ListDaemon, tempfi
     })
     .await
     .unwrap();
+    if warm {
+        daemon.hub.warm_list_order_for_test();
+    }
     (daemon, store)
 }
 
-/// The probe of a daemon's first usage read (before and after the usage pass read its
-/// candidates only): each part on a new daemon, timed twice, in µs. F: `Hub::refresh_usage_stats`
-/// in process; E: `_acpmux/info` by key over the socket, with `usage: true` and without; G:
+/// The probe of a daemon's first usage read: each part on a new daemon, timed twice, in µs.
+/// O: the kept order's one sort of every chat (a load pass's, off any request). F_cold: the
+/// first `Hub::refresh_usage_stats` with the order not yet sorted; F: the same after the load's
+/// sort, and F_parts its candidates, their metadata tests and the rest (the transcript reads).
+/// E: `_acpmux/info` by key over the socket, with `usage: true` and without; G:
 /// `ls --json --live`; A1: the first row text of a live chat, then of another. The second call
 /// of F, E and G comes inside `REFRESH_EVERY_MS`, so it reads no usage. Prints `PROBE` lines,
 /// asserts nothing of the times.
@@ -462,20 +474,44 @@ async fn probe_usage_first_read() {
         let live = if fixture == "aged" { list_daemon::USAGE_LIVE } else { 20 };
         let keys: Vec<String> = (0..live).map(|n| format!("live-{n:02}")).collect();
         for closed in [1_100, 11_000, 110_000] {
-            let (d, _store) = usage_probe_daemon(fixture, closed).await;
+            let line = |part: &str, t: &[u128]| {
+                eprintln!(
+                    "PROBE fixture={fixture} closed={closed} part={part} first_us={} second_us={}",
+                    t[0], t[1]
+                );
+            };
+            let (d, _store) = usage_probe_daemon(fixture, closed, false).await;
             let mut t = Vec::new();
             for _ in 0..2 {
                 let at = Instant::now();
-                d.hub.refresh_usage_stats().await;
+                d.hub.warm_list_order_for_test();
                 t.push(us(at));
             }
+            line("O", &t);
+            drop(d);
+            for (part, warm) in [("F_cold", false), ("F", true)] {
+                let (d, _store) = usage_probe_daemon(fixture, closed, warm).await;
+                let mut t = Vec::new();
+                for _ in 0..2 {
+                    let at = Instant::now();
+                    d.hub.refresh_usage_stats().await;
+                    t.push(us(at));
+                }
+                line(part, &t);
+                drop(d);
+            }
+            let (d, _store) = usage_probe_daemon(fixture, closed, true).await;
+            let (candidates, tests, sources) = d.hub.usage_parts_for_test().await;
+            let at = Instant::now();
+            d.hub.refresh_usage_stats().await;
+            let pass = us(at);
             eprintln!(
-                "PROBE fixture={fixture} closed={closed} part=F first_us={} second_us={}",
-                t[0], t[1]
+                "PROBE fixture={fixture} closed={closed} part=F_parts candidates_us={candidates} \
+                 tests_us={tests} sources={sources} whole_pass_us={pass}"
             );
             drop(d);
             for (part, usage) in [("E_usage", true), ("E_no_usage", false)] {
-                let (d, _store) = usage_probe_daemon(fixture, closed).await;
+                let (d, _store) = usage_probe_daemon(fixture, closed, true).await;
                 let client = Client::connect(&d.path).await.unwrap();
                 let mut t = Vec::new();
                 for _ in 0..2 {
@@ -488,13 +524,10 @@ async fn probe_usage_first_read() {
                     t.push(us(at));
                     assert_eq!(reply["rows"].as_array().map(Vec::len), Some(live));
                 }
-                eprintln!(
-                    "PROBE fixture={fixture} closed={closed} part={part} first_us={} second_us={}",
-                    t[0], t[1]
-                );
+                line(part, &t);
                 drop(d);
             }
-            let (d, _store) = usage_probe_daemon(fixture, closed).await;
+            let (d, _store) = usage_probe_daemon(fixture, closed, true).await;
             let mut t = Vec::new();
             for _ in 0..2 {
                 let client = Client::connect(&d.path).await.unwrap();
@@ -503,12 +536,9 @@ async fn probe_usage_first_read() {
                 super::ls::output(ls_args(&["--live"]), true, &client, via, 0).await.unwrap();
                 t.push(us(at));
             }
-            eprintln!(
-                "PROBE fixture={fixture} closed={closed} part=G first_us={} second_us={}",
-                t[0], t[1]
-            );
+            line("G", &t);
             drop(d);
-            let (d, _store) = usage_probe_daemon(fixture, closed).await;
+            let (d, _store) = usage_probe_daemon(fixture, closed, true).await;
             let rows: Vec<_> = d
                 .hub
                 .session_handles()
@@ -521,10 +551,7 @@ async fn probe_usage_first_read() {
                 let _ = d.hub.own_row_text(session, false);
                 t.push(us(at));
             }
-            eprintln!(
-                "PROBE fixture={fixture} closed={closed} part=A1 first_us={} second_us={}",
-                t[0], t[1]
-            );
+            line("A1", &t);
             drop(d);
         }
     }
@@ -541,12 +568,12 @@ async fn usage_gate_daemon(closed: usize) -> (ListDaemon, tempfile::TempDir) {
     })
     .await
     .unwrap();
-    let _ = daemon.hub.kept_order_for_test();
+    daemon.hub.warm_list_order_for_test();
     for _ in 0..2 {
         daemon.hub.usage_pass_due_for_test();
         daemon.hub.refresh_usage_stats().await;
     }
-    let _ = daemon.hub.kept_order_for_test();
+    daemon.hub.warm_list_order_for_test();
     (daemon, store)
 }
 
