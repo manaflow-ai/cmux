@@ -250,6 +250,9 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     let d = Arc::new(FakeDesktop::standard());
     *d.shows.lock().unwrap() = Some("text".into());
     *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    // Review of 02ca109 (7): no_effect needs a read-back that read the
+    // target unchanged.
+    *d.reads_back.lock().unwrap() = Some(false);
     let (e, _) = settling_engine(d);
     // The elements' baseline (a look at the tree), then the pixels'.
     assert!(!e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1"})).is_error);
@@ -464,6 +467,65 @@ fn no_effect_needs_the_value_read_back() {
         let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
         assert_eq!(out.body["outcome"], outcome, "{reads:?}: {}", out.body);
     }
+}
+
+/// Review of 02ca109 (2): a batch step's confirmed goes through the one
+/// confirm rule (its read-back must show the change) and loses the route's
+/// internal keys.
+#[test]
+fn a_batch_step_goes_through_the_confirm_rule() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.confirms_on_reread.lock().unwrap() = None;
+    let (e, _) = settling_engine(d);
+    let out = e.call(
+        &ctx(None),
+        "batch",
+        &json!({"window_id": "1", "actions": [{"action": "set_value", "element_id": "e1", "value": "x"}]}),
+    );
+    let step = &out.body["results"][0]["result"];
+    assert_eq!(step["evidence"], "delivered", "{}", out.body);
+    assert!(step.get("expect").is_none() && step.get("shows").is_none(), "{}", out.body);
+}
+
+/// Review of 02ca109 (follow-up): without an adaptive settle (observe false)
+/// nothing is confirmed.
+#[test]
+fn without_a_settle_nothing_is_confirmed() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d);
+    let out = e.call(
+        &ctx(None),
+        "set_value",
+        &json!({"window_id": "1", "element_id": "e1", "value": "x", "observe": false}),
+    );
+    assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+    assert_ne!(out.body["outcome"], "confirmed", "{}", out.body);
+}
+
+/// Review of 02ca109 (7): where an effect must show counts only with a
+/// read-back to check it; without one, never no_effect.
+#[test]
+fn no_effect_needs_a_read_back() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.shows.lock().unwrap() = Some("text".into());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    let (e, _) = settling_engine(d);
+    assert!(!e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1"})).is_error);
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
+    assert_eq!(out.body["outcome"], "uncertain", "{}", out.body);
+}
+
+/// Review of 02ca109 (6): the record written before the outcome never says
+/// confirmed.
+#[test]
+fn the_record_before_the_outcome_is_never_confirmed() {
+    let out = ToolOutput::ok(json!({"evidence": "confirmed", "expect": {}, "shows": "value"}));
+    let record: Value = serde_json::from_str(&provisional_record(&out)).unwrap();
+    let body = &record["body"];
+    assert_eq!(body["evidence"], "delivered", "{record}");
+    assert_eq!(body["outcome"], "uncertain", "{record}");
+    assert!(body.get("expect").is_none() && body.get("shows").is_none(), "{record}");
 }
 
 /// Root B at the engine: a route whose baseline could not be read attaches

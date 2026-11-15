@@ -182,6 +182,28 @@ pub fn is_browser(bundle_id: Option<&str>) -> bool {
     })
 }
 
+/// The value a set_value request writes, as `value_for` maps it: on an
+/// element whose value is a number, "true"/"on" is 1 and "false"/"off" is
+/// 0, and a number is that number (written out as AX reads it back);
+/// `None` when the request is no number there (the write is refused).
+pub fn requested_value(current_is_number: bool, value: &str) -> Option<String> {
+    if !current_is_number {
+        return Some(value.to_string());
+    }
+    let n: f64 = match value.trim() {
+        "true" | "on" => 1.0,
+        "false" | "off" => 0.0,
+        s => s.parse().ok()?,
+    };
+    Some(if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{n}") })
+}
+
+/// Whether the element is in web content, from the roles from it up to its
+/// window: unknown (a failed read) counts as web content.
+pub fn web_content(roles: Option<Vec<String>>) -> bool {
+    roles.is_none_or(|r| r.iter().any(|r| r == "AXWebArea"))
+}
+
 /// How a posted press is aimed, from the two readings of the front app
 /// taken right before the post.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

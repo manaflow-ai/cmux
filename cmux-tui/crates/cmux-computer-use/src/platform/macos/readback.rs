@@ -51,6 +51,78 @@ pub(super) fn all_known<T>(reads: impl IntoIterator<Item = Result<T, AXError>>) 
     reads.into_iter().collect::<Result<Vec<T>, AXError>>().ok()
 }
 
+/// A baseline read strictly before the action. Only this module can make
+/// one (its field is private), from a strict read that succeeded, so a
+/// constructor that takes it cannot be handed a guess.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Known<T>(T);
+
+impl<T> Known<T> {
+    /// From a strict read: `Some` only when it succeeded with a value.
+    fn of(read: Result<Option<T>, AXError>) -> Option<Known<T>> {
+        read.ok().flatten().map(Known)
+    }
+    pub(super) fn get(&self) -> &T {
+        &self.0
+    }
+}
+
+impl Known<String> {
+    /// `el`'s value as text, read now (no value: empty text).
+    pub(super) fn value(el: &Ax) -> Option<Known<String>> {
+        el.try_value_text().ok().map(|v| Known(v.unwrap_or_else(String::new)))
+    }
+}
+
+impl Known<f64> {
+    /// A number attribute of `el`, read now.
+    pub(super) fn number(el: &Ax, name: &str) -> Option<Known<f64>> {
+        Known::of(el.try_number(name))
+    }
+}
+
+impl Known<Option<CFRange>> {
+    /// `el`'s selected range, read now (none: `Known(None)`).
+    pub(super) fn range(el: &Ax) -> Option<Known<Option<CFRange>>> {
+        el.try_selected_range().ok().map(Known)
+    }
+}
+
+/// What the action asked for, never a value read after it
+/// ([`Wanted::from_request`]): the value requested, a direction, or only a
+/// change (a toggle).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Wanted {
+    /// The value the request names (the asked value, typed text joined in).
+    Value(String),
+    /// A number moving up (+1) or down (-1) from its value before.
+    Direction(f64),
+    /// Any other value than before (a toggle pressed).
+    Other,
+}
+
+impl Wanted {
+    /// The value a request asked for.
+    pub(super) fn from_request(value: impl Into<String>) -> Wanted {
+        Wanted::Value(value.into())
+    }
+}
+
+/// Whether `after` is what was wanted from `before` (`tolerance`: how far a
+/// number may be from an asked one, e.g. one step of a stepper).
+pub(super) fn wanted_reached(before: &str, after: &str, wanted: &Wanted, tolerance: f64) -> bool {
+    match wanted {
+        Wanted::Value(v) => value_matches(after, v, tolerance),
+        Wanted::Direction(sign) => {
+            match (before.trim().parse::<f64>(), after.trim().parse::<f64>()) {
+                (Ok(b), Ok(a)) => moved_toward(b, a, *sign),
+                _ => false,
+            }
+        }
+        Wanted::Other => after != before,
+    }
+}
+
 /// One scroll bar of a scrolled view: its value before and the way it must
 /// move (+1 toward the end: down or right; -1 toward the start).
 pub(super) struct Bar {
@@ -74,9 +146,9 @@ pub(super) enum Check {
     SelectAll { el: Ax, before: CFRange, chars: usize },
     /// All of the list `el`'s rows selected; before, `selected` of `rows`.
     AllRows { el: Ax, selected: usize, rows: usize },
-    /// `el`'s value went from `before` to `wanted` (a number within
-    /// `tolerance`).
-    Value { el: Ax, before: String, wanted: String, tolerance: f64 },
+    /// `el`'s value went from `before` to what the request `wanted` (a
+    /// number within `tolerance`).
+    Value { el: Ax, before: String, wanted: Wanted, tolerance: f64 },
     /// `el`'s selected text range went from `before` to `range`.
     Range { el: Ax, before: Option<CFRange>, range: CFRange },
     /// `row` is selected, and the only one; `before`: it already was.
@@ -121,8 +193,9 @@ fn walk(win: &Ax) -> Option<Vec<(Ax, usize)>> {
     let mut out = Vec::new();
     let mut queue = VecDeque::from([(win.clone(), 0usize)]);
     while let Some((el, depth)) = queue.pop_front() {
+        // Past the bound the window is not all read: unknown, not "none".
         if out.len() >= WALK_MAX {
-            break;
+            return None;
         }
         if depth < WALK_DEPTH {
             for c in el.try_elements("AXChildren").ok()? {
@@ -422,15 +495,15 @@ impl Check {
     /// caller read (strictly) before the insert.
     pub(super) fn text_from(
         el: &Ax,
-        before: &str,
+        before: &Known<String>,
         text: &str,
-        at: Option<CFRange>,
+        at: &Known<Option<CFRange>>,
     ) -> Option<Check> {
         (!text.is_empty()).then(|| Check::Text {
             el: el.clone(),
-            before: before.to_string(),
+            before: before.0.clone(),
             text: text.to_string(),
-            at,
+            at: at.0,
         })
     }
 
@@ -460,9 +533,12 @@ impl Check {
 
     /// Scroll bars a route moves itself: their values before (read by the
     /// route, strictly) and the values it sets.
-    pub(super) fn scroll_planned(plan: Vec<(Ax, f64, f64, f64)>) -> Check {
+    pub(super) fn scroll_planned(plan: Vec<(Ax, Known<f64>, f64, f64)>) -> Check {
         let wanted = plan.iter().map(|(_, _, w, _)| *w).collect();
-        let bars = plan.into_iter().map(|(el, before, _, sign)| Bar { el, before, sign }).collect();
+        let bars = plan
+            .into_iter()
+            .map(|(el, before, _, sign)| Bar { el, before: before.0, sign })
+            .collect();
         Check::Scroll { bars, wanted: Some(wanted) }
     }
 
@@ -482,19 +558,19 @@ impl Check {
 
     /// `el`'s value from `before` (read by the caller before the action) to
     /// `wanted`.
-    pub(super) fn value_from(el: &Ax, before: &str, wanted: &str, tolerance: f64) -> Check {
-        Check::Value {
-            el: el.clone(),
-            before: before.to_string(),
-            wanted: wanted.to_string(),
-            tolerance,
-        }
+    pub(super) fn value_from(
+        el: &Ax,
+        before: &Known<String>,
+        wanted: Wanted,
+        tolerance: f64,
+    ) -> Check {
+        Check::Value { el: el.clone(), before: before.0.clone(), wanted, tolerance }
     }
 
-    /// `el`'s value to `wanted`, its value now read as the before.
-    pub(super) fn value(el: &Ax, wanted: &str, tolerance: f64) -> Option<Check> {
-        let before = el.try_value_text().ok()?.unwrap_or_else(String::new);
-        Some(Check::value_from(el, &before, wanted, tolerance))
+    /// `el`'s value to what the request `wanted`, its value now read as
+    /// the before.
+    pub(super) fn value(el: &Ax, wanted: Wanted, tolerance: f64) -> Option<Check> {
+        Some(Check::value_from(el, &Known::value(el)?, wanted, tolerance))
     }
 
     /// `el`'s selected text range to `range`.
@@ -634,13 +710,14 @@ impl Check {
             Check::AllRows { selected, rows, .. } => {
                 (format!("{selected} of {rows}"), format!("{rows} of {rows}"))
             }
-            Check::Value { before, wanted, tolerance, .. } => {
-                if value_matches(before, wanted, *tolerance) {
+            Check::Value { before, wanted, tolerance, .. } => match wanted {
+                Wanted::Value(v) if value_matches(before, v, *tolerance) => {
                     (before.clone(), before.clone())
-                } else {
-                    (before.clone(), wanted.clone())
                 }
-            }
+                Wanted::Value(v) => (before.clone(), v.clone()),
+                Wanted::Direction(sign) => (before.clone(), format!("{before} moved {sign:+}")),
+                Wanted::Other => (before.clone(), format!("other than {before:?}")),
+            },
             Check::Range { before, range, .. } => (range_text(*before), range_text(Some(*range))),
             Check::Selected { before, .. } => {
                 let b = if *before { "only selected" } else { "not only selected" };
@@ -736,8 +813,8 @@ impl Check {
                 let selected = el.try_count("AXSelectedRows").ok()?;
                 Some(rows > 0 && selected == rows)
             }
-            Check::Value { el, wanted, tolerance, .. } => {
-                Some(value_matches(&el.try_value_text().ok()??, wanted, *tolerance))
+            Check::Value { el, before, wanted, tolerance } => {
+                Some(wanted_reached(before, &el.try_value_text().ok()??, wanted, *tolerance))
             }
             Check::Range { el, range, .. } => Some(el.try_selected_range().ok()? == Some(*range)),
             Check::Selected { row, list, .. } => only_selected(row, list),
@@ -1029,6 +1106,21 @@ mod tests {
         let last = checks.add(scroll());
         assert!(checks.take(last.token).is_some());
         assert!(checks.take(last.token).is_none());
+    }
+
+    /// Review of 02ca109 (1): a stepper asked for 10 that stopped at 7 has
+    /// not reached what was wanted (one step of tolerance); a direction is
+    /// reached only by moving that way; a toggle only by a different value.
+    #[test]
+    fn the_wanted_value_comes_from_the_request() {
+        let to = |v: &str| Wanted::from_request(v);
+        assert!(!wanted_reached("5", "7", &to("10"), 1.0), "stopped short");
+        assert!(wanted_reached("5", "9.5", &to("10"), 1.0), "within one step");
+        assert!(wanted_reached("5", "6", &Wanted::Direction(1.0), 0.0));
+        assert!(!wanted_reached("5", "4", &Wanted::Direction(1.0), 0.0), "the other way");
+        assert!(!wanted_reached("5", "5", &Wanted::Direction(-1.0), 0.0));
+        assert!(wanted_reached("0", "1", &Wanted::Other, 0.0));
+        assert!(!wanted_reached("1", "1", &Wanted::Other, 0.0));
     }
 
     #[test]

@@ -2652,3 +2652,36 @@ fn web_content_takes_keys_and_everything_else_the_ax_insert() {
     }
     assert!(!is_browser(None));
 }
+
+/// Review of 02ca109 (3): set_value on a checkbox wants what the write sets
+/// ("on" is 1), not the agent's word.
+#[test]
+fn a_set_value_wants_what_the_write_sets() {
+    assert_eq!(roles::requested_value(true, "on").as_deref(), Some("1"));
+    assert_eq!(roles::requested_value(true, "false").as_deref(), Some("0"));
+    assert_eq!(roles::requested_value(true, "2.0").as_deref(), Some("2"));
+    assert_eq!(roles::requested_value(true, "0.5").as_deref(), Some("0.5"));
+    assert_eq!(roles::requested_value(false, "on").as_deref(), Some("on"));
+    assert_eq!(roles::requested_value(true, "big"), None);
+}
+
+/// Review of 02ca109 (5): web content is the element itself or an ancestor,
+/// read strictly; an unread walk counts as web content (keys route).
+#[test]
+fn web_content_is_the_element_or_an_ancestor_and_unknown_counts() {
+    let roles = |v: &[&str]| Some(v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert!(roles::web_content(roles(&["AXWebArea", "AXScrollArea", "AXWindow"])), "itself");
+    assert!(roles::web_content(roles(&["AXTextField", "AXGroup", "AXWebArea", "AXWindow"])));
+    assert!(!roles::web_content(roles(&["AXTextField", "AXGroup", "AXWindow"])));
+    assert!(roles::web_content(None), "unknown");
+}
+
+/// Review of 02ca109 (4): only a clear rejection of an AX insert falls back
+/// to keys; a timeout or cannot-complete may have applied it.
+#[test]
+fn only_a_rejected_insert_falls_back_to_keys() {
+    assert!(roles::press_error_falls_back(-25201), "illegal argument");
+    assert!(roles::press_error_falls_back(-25205), "attribute unsupported");
+    assert!(!roles::press_error_falls_back(-25204), "cannot complete");
+    assert!(!roles::press_error_falls_back(-25200), "failure");
+}

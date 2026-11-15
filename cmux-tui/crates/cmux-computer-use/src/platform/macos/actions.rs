@@ -32,24 +32,35 @@ fn outcome_after(
     d: &MacDesktop,
     route: &str,
     action: &str,
-    before: Result<Option<String>, super::sys::AXError>,
+    before: Option<readback::Known<String>>,
     el: &Ax,
     effects: Option<readback::Check>,
 ) -> ActionOutcome {
     // Read strictly: a failed read is no value change and no baseline.
-    let after = el.try_value_text();
+    let after = el.try_value_text().ok().flatten();
     let role = el.string("AXRole").unwrap_or_default();
-    let mut out = match (&before, &after) {
-        (Ok(Some(b)), Ok(Some(a))) if a != b => {
+    // What the press asks of the value: a direction for increment and
+    // decrement, a selected radio button, else any other value (a toggle).
+    let wanted = match action {
+        "AXIncrement" => readback::Wanted::Direction(1.0),
+        "AXDecrement" => readback::Wanted::Direction(-1.0),
+        _ if role == "AXRadioButton" => readback::Wanted::from_request("1"),
+        _ => readback::Wanted::Other,
+    };
+    let baseline = before.as_ref().filter(|b| !b.get().is_empty());
+    let mut out = match (baseline, &after) {
+        (Some(b), Some(a))
+            if readback::wanted_reached(b.get(), a, &wanted, 0.0) && a != b.get() =>
+        {
             let mut out = ActionOutcome::confirmed(route);
-            out.expect = d.expect(Some(readback::Check::value_from(el, b, a, 0.0)));
+            out.expect = d.expect(Some(readback::Check::value_from(el, b, wanted, 0.0)));
             out
         }
         // A radio button already on stays on when pressed: done already,
         // not "no effect" (the read-back states no change).
-        (Ok(Some(b)), _) if roles::press_already_done(&role, action, b) => {
+        (Some(b), _) if roles::press_already_done(&role, action, b.get()) => {
             let mut out = ActionOutcome::delivered(route);
-            out.expect = d.expect(Some(readback::Check::value_from(el, b, b, 0.0)));
+            out.expect = d.expect(Some(readback::Check::value_from(el, b, wanted, 0.0)));
             out
         }
         _ => {
@@ -62,7 +73,7 @@ fn outcome_after(
     // triangle, stepper, slider) pressed, incremented or decremented shows
     // it in its value; a button, a confirm or cancel, a custom action may
     // act where nothing shows.
-    if matches!(before, Ok(Some(_)))
+    if baseline.is_some()
         && roles::press_shows_value(&role, el.string("AXSubrole").as_deref(), action)
     {
         out = out.showing("value");
@@ -376,19 +387,29 @@ fn menu_role(el: &Ax) -> Option<String> {
     roles::opens_menu(&role, in_web, has_menu).then_some(role)
 }
 
-/// Whether the element sits inside web content (an `AXWebArea` ancestor).
+/// Whether the element is, or sits inside, web content (an `AXWebArea`),
+/// read strictly: a read that fails on the way, or a walk past its bound,
+/// counts as web content (the AX routes are skipped; the events run).
 fn in_web_area(el: &Ax) -> bool {
-    let mut current = el.element("AXParent");
+    roles::web_content(web_walk(el))
+}
+
+/// The roles from `el` up to its window (inclusive), or `None` when a read
+/// failed or the walk ran past its bound.
+fn web_walk(el: &Ax) -> Option<Vec<String>> {
+    let mut roles = Vec::new();
+    let mut current = Some(el.clone());
     for _ in 0..64 {
-        let Some(node) = current else { return false };
-        match node.string("AXRole").as_deref() {
-            Some("AXWebArea") => return true,
-            Some("AXWindow") | Some("AXApplication") | None => return false,
-            _ => {}
+        let Some(node) = current else { return Some(roles) };
+        let role = node.try_string("AXRole").ok()?.unwrap_or_else(String::new);
+        let end = matches!(role.as_str(), "AXWindow" | "AXApplication" | "");
+        roles.push(role);
+        if end {
+            return Some(roles);
         }
-        current = node.element("AXParent");
+        current = node.try_element("AXParent").ok()?;
     }
-    false
+    None
 }
 
 /// The menu a pop-up or menu button holds as its child, when it shows it
@@ -549,7 +570,7 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
         roles::HitClick::Press => {
             d.refuse_submenu_open(&el)?;
             let holder = value_holder(&el);
-            let before = holder.try_value_text();
+            let before = readback::Known::value(&holder);
             let effects = press_effects(&el, "AXPress");
             let mut out = match el.perform("AXPress") {
                 Ok(()) => outcome_after(d, "ax_hit_press", "AXPress", before, &holder, effects),
@@ -856,7 +877,11 @@ fn slider_drag(
     }
     let wanted = slider_value_at(&frame, min, max, to);
     let tolerance = roles::slider_tolerance(min, max);
-    let check = readback::Check::value(&slider, &format!("{wanted}"), tolerance);
+    let check = readback::Check::value(
+        &slider,
+        readback::Wanted::from_request(format!("{wanted}")),
+        tolerance,
+    );
     let Some(cf) = Cf::number_f64(wanted) else { return Ok(None) };
     // Not in the person's app, not under another session's scope; from
     // here on a write was tried, so no drag is posted after it.
@@ -896,7 +921,7 @@ fn ax_scroll(
 
 /// A scroll bar to move: the bar, its value before, the value wanted and
 /// the way it moves (+1 toward the end).
-type ScrollPlan = Vec<(Ax, f64, f64, f64)>;
+type ScrollPlan = Vec<(Ax, readback::Known<f64>, f64, f64)>;
 
 /// The bars an AX scroll would move; `None`: the events instead.
 fn ax_scroll_plan(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<ScrollPlan> {
@@ -935,8 +960,8 @@ fn ax_scroll_plan(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Op
         if span <= 0.0 || !bar.settable("AXValue") {
             return None;
         }
-        let before = bar.number("AXValue")?;
-        let wanted = (before + lines * LINE_POINTS / span).clamp(0.0, 1.0);
+        let before = readback::Known::number(&bar, "AXValue")?;
+        let wanted = (before.get() + lines * LINE_POINTS / span).clamp(0.0, 1.0);
         plan.push((bar, before, wanted, lines.signum()));
     }
     (!plan.is_empty()).then_some(plan)
@@ -954,6 +979,7 @@ fn ax_scroll_run(
     let written = gated(d, t, || {
         let (mut moved, mut failed) = (false, false);
         for (bar, before, wanted, sign) in &plan {
+            let before = *before.get();
             if (wanted - before).abs() < 1e-9 {
                 continue;
             }
@@ -961,7 +987,7 @@ fn ax_scroll_run(
                 failed = true;
             }
             moved |=
-                bar.number("AXValue").is_some_and(|a| readback::moved_toward(*before, a, *sign));
+                bar.number("AXValue").is_some_and(|a| readback::moved_toward(before, a, *sign));
         }
         (moved, failed)
     })?;
@@ -1196,7 +1222,7 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         }
         // No value read inside a scope (the item has none to compare).
         let primed_press = menu_key.is_some();
-        let before = if menu_key.is_some() { Ok(None) } else { el.try_value_text() };
+        let before = if menu_key.is_some() { None } else { readback::Known::value(&el) };
         // Read before the press: what it must show elsewhere.
         let effects = if menu_key.is_some() { None } else { press_effects(&el, action) };
         let mut out = match el.perform(action) {
@@ -1257,10 +1283,12 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
     // The baseline, strictly: unreadable before anything is written, keys
     // are posted instead (nothing was inserted).
-    let (Ok(before), Ok(caret)) = (el.try_value_text(), el.try_selected_range()) else {
+    let (Some(known), Some(caret_known)) = (readback::Known::value(el), readback::Known::range(el))
+    else {
         return Ok(None);
     };
-    let before = before.unwrap_or_else(String::new);
+    let before = known.get().clone();
+    let caret = *caret_known.get();
     // A secure field hides its value; its length reads back the typing.
     let typed = text.encode_utf16().count() as f64;
     let length_check =
@@ -1270,9 +1298,20 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
         let check = if secure {
             length_check()
         } else {
-            readback::Check::text_from(el, &before, text, caret)
+            readback::Check::text_from(el, &known, text, &caret_known)
         };
-        if el.set("AXSelectedText", &cf).is_ok() {
+        let written = el.set("AXSelectedText", &cf);
+        // A write that timed out or could not complete may still apply:
+        // nothing is posted after it (keys could type it twice).
+        if let Err(code) = written
+            && !roles::press_error_falls_back(code)
+        {
+            let mut out = ActionOutcome::delivered("ax_insert_text");
+            out.note = "the app did not answer the accessibility write in time; it may have applied it, so no keys were posted after it".into();
+            out.expect = d.expect(check);
+            return Ok(Some(out.showing("text")));
+        }
+        if written.is_ok() {
             // Taken: no keys after it, ever (a slow app shows the text
             // later; posting keys would type it twice). Wait, bounded, for
             // the value to change before deciding.
@@ -1316,7 +1355,12 @@ fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcom
     let check = if secure {
         length_check()
     } else {
-        Some(readback::Check::value_from(el, &before, &wanted, 0.0))
+        Some(readback::Check::value_from(
+            el,
+            &known,
+            readback::Wanted::from_request(wanted.clone()),
+            0.0,
+        ))
     };
     el.set("AXValue", &value).map_err(|e| ax_error(e, "setting the value"))?;
     let reads_back =
@@ -2105,7 +2149,11 @@ pub(super) fn set_value(
     let check = if secure {
         readback::Check::length(&el, new_count)
     } else {
-        readback::Check::value(&el, value, 0.0)
+        // What the write sets, the same way value_for maps it ("on" -> 1).
+        let current_is_number = el.try_number("AXValue").ok().flatten().is_some();
+        let wanted =
+            roles::requested_value(current_is_number, value).unwrap_or_else(|| value.to_string());
+        readback::Check::value(&el, readback::Wanted::from_request(wanted), 0.0)
     };
     el.set("AXValue", &value_for(&el, value)?)
         .map_err(|e| ax_error(e, &format!("element {element_id}")))?;
@@ -2318,7 +2366,7 @@ pub(super) fn perform_action(
         return d.open_and_list(&t, &el, ax_action);
     }
     d.check_menu_item(&t, &el, Delivery::Background)?;
-    let before = el.try_value_text();
+    let before = readback::Known::value(&el);
     let effects = press_effects(&el, ax_action);
     el.perform(ax_action).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
     let route = if ax_action.starts_with("Name:") {
@@ -2536,6 +2584,8 @@ fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome
         return Ok(None);
     };
     let Some(target) = roles::step_target(value, min, max) else { return Ok(None) };
+    let start_known = readback::Known::value(el);
+    let mut step = 0.0_f64;
     let mut current = start;
     let mut capped = true;
     for _ in 0..200 {
@@ -2547,6 +2597,10 @@ fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome
         }
         el.perform(action).map_err(|e| ax_error(e, "step the value"))?;
         let Some(next) = number("AXValue") else { break };
+        // One step: the first move's size.
+        if step == 0.0 {
+            step = (next - current).abs();
+        }
         match roles::step_outcome(current, next, target, going_up) {
             roles::Step::Continue => current = next,
             roles::Step::AtEnd => {
@@ -2578,9 +2632,16 @@ fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome
         ActionOutcome::delivered("ax_step")
     };
     // Read again after the settle: the value it was stepped to.
-    let check =
-        readback::Check::value_from(el, &format!("{start}"), &format!("{read}"), STEP_EPSILON);
-    out.expect = d.expect(Some(check));
+    // The asked target, within one step (a stepper moves in fixed steps).
+    if let Some(known) = start_known.as_ref() {
+        let check = readback::Check::value_from(
+            el,
+            known,
+            readback::Wanted::from_request(format!("{target}")),
+            step.max(STEP_EPSILON),
+        );
+        out.expect = d.expect(Some(check));
+    }
     out = out.showing("value");
     out.note = format!(
         "stepped from {start} to {read} (asked {target}); the element moves in fixed steps"

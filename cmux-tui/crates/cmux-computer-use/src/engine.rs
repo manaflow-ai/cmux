@@ -540,8 +540,10 @@ impl Engine {
         };
 
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
+        // Recorded at once (a restart must not act twice), but never with a
+        // confirmed the outcome has not decided yet: replaced below.
         if let Some(call_id) = acting_id {
-            self.sessions.remember(&ctx.session, call_id, retry_record(&out));
+            self.sessions.remember(&ctx.session, call_id, provisional_record(&out));
         }
         if tool.acts()
             && let Some(reason) = out.code.as_deref().and_then(refusal_caption)
@@ -619,6 +621,12 @@ impl Engine {
         } else if let Some(body) = out.body.as_object_mut() {
             body.remove("shows");
             body.remove("expect");
+        }
+        // Without an outcome (no evidence, an error): the final record.
+        if let Some(call_id) = acting_id
+            && (out.is_error || name == "batch" || out.body.get("evidence").is_none())
+        {
+            self.sessions.remember(&ctx.session, call_id, retry_record(&out));
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
@@ -1554,6 +1562,18 @@ impl Engine {
                         failed = Some(done);
                         break;
                     }
+                    // Every step's result goes through the one confirm rule
+                    // (no settle of its own: a step's confirmed needs its
+                    // read-back to show the change now), and loses the
+                    // route's internal keys.
+                    let mut done = done;
+                    if done.body.get("evidence").is_some() {
+                        self.attach_outcome(&mut done, Some(0), None, None, None);
+                    }
+                    if let Some(body) = done.body.as_object_mut() {
+                        body.remove("shows");
+                        body.remove("expect");
+                    }
                     results.push(json!({"action": name, "ok": true, "result": done.body}));
                     acted_on = app.or(acted_on);
                 }
@@ -1698,8 +1718,12 @@ impl Engine {
         // A real settle: the adaptive wait captured more than once. The other
         // modes capture once, right away or after a fixed delay, which proves
         // nothing.
+        // A real settle: the adaptive wait (its floor, then captures until
+        // the window changed and the app went quiet, or the ceiling). The
+        // other modes capture once, right away or after a fixed delay. An
+        // unchanged window (what no_effect needs) took two captures or more.
         let settled =
-            (mode == SettleMode::Adaptive && captures >= 2).then_some(elapsed.as_millis() as u64);
+            (mode == SettleMode::Adaptive && captures >= 1).then_some(elapsed.as_millis() as u64);
         let mut state = shot.body.clone();
         state["settle"] = json!(mode.as_str());
         state["waited_ms"] = json!(elapsed.as_millis() as u64);
@@ -1744,6 +1768,9 @@ impl Engine {
             .as_object_mut()
             .and_then(|b| b.remove("shows"))
             .and_then(|v| v.as_str().map(String::from));
+        // Where the effect must show counts only with a read-back to check
+        // it: without one, nothing reads the target, so no no_effect.
+        let shows = shows.filter(|_| out.body.get("expect").is_some_and(|e| !e.is_null()));
         // The route's read-back, done now that the action settled: typed
         // keys and scrolls land a little after they are posted.
         let expect = out
@@ -1770,7 +1797,10 @@ impl Engine {
                 None => "unread".to_string(),
             }
         });
-        let shown = read.as_deref().is_some_and(|r| !matches!(r, "already" | "failed" | "unread"));
+        // Only after a real settle (adaptive mode, or a batch step's own
+        // read now): one capture at once, or none, proves nothing.
+        let shown = settled_ms.is_some()
+            && read.as_deref().is_some_and(|r| !matches!(r, "already" | "failed" | "unread"));
         if shown {
             out.body["evidence"] = json!("confirmed");
         } else {
@@ -1783,6 +1813,9 @@ impl Engine {
                 }
                 Some("failed") => {
                     Some("read back after the settle: the intended effect does not show")
+                }
+                _ if confirmed && settled_ms.is_none() => {
+                    Some("not watched through a settle, so the effect was not read again")
                 }
                 _ if confirmed => Some("the effect could not be read again after the settle"),
                 _ => None,
@@ -2118,6 +2151,21 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     format!(
         "no visible change within {waited_ms} ms: this window and the windows over it looked the same in every capture. If the action should change what it shows, take a screenshot before retrying, then try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An effect outside this window (copy, save, another app) is not seen here."
     )
+}
+
+/// The record written before the outcome is decided: as [`retry_record`],
+/// with a confirmed route downgraded to delivered and the outcome uncertain
+/// (a restart before the outcome must not return a confirmed it never got).
+fn provisional_record(out: &ToolOutput) -> String {
+    let mut record = out.clone();
+    if record.body.get("evidence") == Some(&json!("confirmed")) {
+        record.body["evidence"] = json!("delivered");
+    }
+    if record.body.get("evidence").is_some() {
+        record.body["outcome"] = json!("uncertain");
+        record.body["outcome_reason"] = json!("the call was cut off before its outcome was read");
+    }
+    retry_record(&record)
 }
 
 /// What a retried call id returns: the result without its state, image or
