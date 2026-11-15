@@ -1,6 +1,6 @@
 ---
 name: cmux-rich-output
-description: "Show work in a cmux chat as more than text when it helps: diagrams, charts and math the chat draws, live HTML pages, a page or file opened beside the chat, slide decks with present mode and PDF or PowerPoint export, documents as PDF, and LaTeX. Load it when the person asks for a chart, diagram, deck, slides, presentation, report, PDF or document, or when a picture would explain better than prose."
+description: "Show work in a cmux chat as more than text when it helps: diagrams, charts and math the chat draws, live HTML pages, a page or file opened beside the chat, slide decks with present mode and PDF or PowerPoint export, documents as PDF, LaTeX, and Google Slides or Figma files shown live. Load it when the person asks for a chart, diagram, deck, slides, presentation, report, PDF or document, a Google Slides deck or a Figma file, or when a picture would explain better than prose."
 ---
 
 # Rich output in a cmux chat
@@ -76,6 +76,24 @@ arrow keys, Present (F, Esc exits), Export PDF and Export .pptx.
   `pdflatex` is on PATH (a Cloud VM, a Mac with MacTeX), compile it and open the PDF with
   `open {kind: "file", path}`. Otherwise say so; never install a TeX distribution (hundreds of
   MB) unless the person asks.
+
+## Google Slides and Figma
+
+cmux has no Slides or Figma editor of its own: edit through the person's own connection, and show
+the live page beside the chat, where their cmux browser is signed in.
+
+- Google Slides, editing: only through a Slides MCP server the person added with their own Google
+  account: Google's own (`https://slidesmcp.googleapis.com/mcp/v1`: `read_presentation`,
+  `read_slide_page`, `read_slide_page_thumbnail`, `update_presentation` with batchUpdate requests)
+  or a Workspace MCP server that can also create a deck. When neither is connected, say so and offer
+  an HTML deck or a .pptx instead; never ask for a Google password or token.
+- Google Slides, preview: `open {kind: "page", url: "https://docs.google.com/presentation/d/ID/edit"}`.
+  Edits made through the API show there live; read them back with `read_presentation` before saying
+  they are done.
+- Figma: `open {kind: "page", url}` with the file URL's `www.figma.com` changed to `embed.figma.com`
+  and `?embed-host=cmux` added (it is required), for example
+  `https://embed.figma.com/design/FILE_KEY/Name?embed-host=cmux`; `proto`, `slides` and `deck` URLs
+  work the same way. A private file asks the person to sign in once in the cmux browser.
 
 ## Rules
 

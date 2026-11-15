@@ -10,6 +10,17 @@ import Testing
 /// The right sidebar's Machines section rows as the app reads them (the layout, words and controls
 /// are the page's: webviews/src/pages/machines, model.test.ts and machines-section.test.tsx).
 @Suite struct MachineSectionLayoutTests {
+    /// A row carries the SF Symbol its daemon named for the device (cmux-device-kind) to the page, and
+    /// sends none before the daemon said. A Cloud machine stays the cloud, whatever its VM reports.
+    @Test func aRowSendsItsDeviceSymbol() {
+        let silent = MachineSectionRow(id: "m", name: "build-mini", isConnected: true, isLocal: false)
+        #expect(MachineSectionPageProvider.json(silent)["symbol"] == nil)
+        let mini = MachineSectionRow(id: "m", name: "build-mini", isConnected: true, isLocal: false, symbol: "macmini")
+        #expect(MachineSectionPageProvider.json(mini)["symbol"] == .string("macmini"))
+        let vm = MachineSectionRow(id: "c", name: "vm", isConnected: true, isLocal: false, kind: .cloud, symbol: "server.rack")
+        #expect(MachineSectionPageProvider.json(vm)["symbol"] == nil)
+    }
+
     @Test func aRowsKindAndStateFollowItsLink() {
         #expect(MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true).kind == .local)
         #expect(MachineSectionRow(id: "x", name: "x", isConnected: false, isLocal: false).kind == .ssh)

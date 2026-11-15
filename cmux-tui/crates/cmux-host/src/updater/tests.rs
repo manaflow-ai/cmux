@@ -901,12 +901,12 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
-    assert!(role::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
+    assert!(resolve::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
     assert!(looks.is_empty(), "it looked until the sessions left");
 
     let mut attached = || Some("1 carrier session(s) attached".to_owned());
     tx.send(role::Msg::Stop).unwrap();
-    assert!(!role::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
+    assert!(!resolve::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
 }
 
 /// Review F2 of #38326: the guard's rollback waits for carrier sessions too,
@@ -923,7 +923,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
     let mut hold = carrier::CarrierHold::default();
     let mut carrier = || hold.look(clock.get(), Ok(vec!["stuck/session".to_owned()])).busy;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut carrier, |d| {
+    resolve::guard_rollback_waits(&mut carrier, |d| {
         slept += d;
         clock.set(clock.get() + d);
     });
@@ -932,7 +932,7 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
 
     let mut idle = || None;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut idle, |d| slept += d);
+    resolve::guard_rollback_waits(&mut idle, |d| slept += d);
     assert_eq!(slept, Duration::ZERO, "no session, no wait");
 }
 
@@ -2588,4 +2588,36 @@ fn a_flip_reports_stopping_before_it_restarts_the_services() {
     assert!(*restarted.borrow(), "a hung stopping report stopped the restart");
     assert!(started.elapsed() < Duration::from_secs(2), "the restart waited past the bound");
     assert_eq!(crate::cloud::role::STOPPING_REPORT_BOUND, Duration::from_secs(2));
+}
+
+/// The real [`role::restart_after_flip`] (the restart every flip, `adopt` and rollback run),
+/// driven inside the gate as the check's flip runs it: its stopping report goes out first, then
+/// the restarts of what runs the old binary. Its two effects are the test's record
+/// (`role::after_flip`), so a body that skips the report fails here.
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_after_flip_sends_the_stopping_report_before_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let old = role::store_binary(OLD_TUI);
+    role::after_flip::CALLS.with(|c| c.borrow_mut().clear());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::restart_after_flip(&paths, &old);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    let calls = role::after_flip::CALLS.with(|c| c.borrow().clone());
+    assert_eq!(
+        calls,
+        [format!("stopping {}", paths.at("/").display()), format!("restart {}", old.display())],
+        "restart_after_flip must report stopping, then restart"
+    );
 }

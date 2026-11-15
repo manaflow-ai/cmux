@@ -141,7 +141,13 @@ def held_swaps(n):
     steps = [timing("start")]
     for i in range(1, n + 1):
         steps.append(strip(f"Run {i} (e) held: Toggle chat to terminal, frames around it"))
-        steps.append(write("Helper", "true\r", f"Run {i}: the terminal face shows for {HOLD_S} s", HOLD_S))
+        # A tour step waits at most 30 s (tour.py), so the hold is cut into steps of up to 30 s.
+        left = HOLD_S
+        while left > 0:
+            part = min(left, 30)
+            steps.append(write("Helper", "true\r", f"Run {i}: the terminal face shows for {HOLD_S} s"
+                               + ("" if left == HOLD_S else f" ({left} s left)"), part))
+            left -= part
         steps.append(strip(f"Run {i} (f) held {HOLD_S} s: Toggle terminal to chat, frames around it", 2500))
     steps.append(timing("stop"))
     return steps
