@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4377106187101",
+  "notes": "notes/4377106187101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43954,
+      "title": "cmux-remote: a daemon's relay registration renews its ticket make-before-break, and its open circuits outlive the control socket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43951,
+      "title": "What's New clips: a tour that keeps failing no longer blocks newer highlights; the 4 failing specs repaired",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43922,
+      "title": "Screen Sharing: --device takes a device name, and a wrong one lists your devices",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43949,
+      "title": "perf cron: web-ui-god's transcript_replay god ratios are the median of paired rounds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43926,
+      "title": "cmux-tui: acpmux-cgu-sweep.sh, acpmux release rebuild time, size and pipe numbers per codegen-units count",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43938,
+      "title": "measure: nightly-fresh-launch dmg=build base=SHA, a base and a head built and measured on one Mac (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43946,
+      "title": "CMUX-571: relaunch harness reports first window frame, Chromium start and every launch mark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43840,
+      "title": "cmux-tui: terminal-command-context and the terminal-to-chat catalog rows (FFI step A of #38590)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
