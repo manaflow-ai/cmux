@@ -114,6 +114,7 @@ acpmux_lib_gates() {
   # Row 7b: rows by key, and the CLI and MCP list callers.
   run_acpmux_lib v2_pr07b_info_rows
   run_acpmux_lib v2_pr07b_callers
+  run_acpmux_lib v2_pr07b_usage_first_read
 }
 run_group acpmux-lib acpmux_lib_gates
 

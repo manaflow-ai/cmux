@@ -926,6 +926,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "7b",
+        name: "v2.pr07b.usage_first_read",
+        done_when: "A usage pass (`ls --json`, `--wide`, `_acpmux/info` and `_acpmux/sessions` with usage wait for it), wall time: 8 live and 8 closed-today Claude chats with 110k closed two days ago beside them against the same with 1.1k, 1.2x.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "7c",
         name: "v2.pr07c.update_plan_bytes",
         done_when: "the agent update plan's thread counts (cmux-tui-core), bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
