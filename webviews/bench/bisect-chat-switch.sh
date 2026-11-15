@@ -54,7 +54,7 @@ prepare() { # sha dir
 patch_variant() { # variant webviews-dir
   local d="$2/src/agent-session/acpmux/direct.ts"
   case "$1" in
-    ""|profile) ;;
+    ""|profile|r) ;;
     noahead) sed -i '/private readOlderAhead(pagingEpoch: number): void {/a\    return;' "$d" ;;
     small) sed -i 's/^const OLDER_PAGE_BYTES = 1024 \* 1024;/const OLDER_PAGE_BYTES = 256 * 1024;/; s/^const OLDER_PAGE_RECORDS = 2000;/const OLDER_PAGE_RECORDS = 400;/' "$d" ;;
     both) patch_variant noahead "$2"; patch_variant small "$2" ;;
