@@ -508,6 +508,7 @@ impl FakePeer {
                 keep_newer,
                 allow_downgrade: false,
                 caller: None,
+                now: true,
             },
         )
     }
@@ -521,6 +522,7 @@ impl FakePeer {
             keep_newer: false,
             allow_downgrade: false,
             caller: Some(caller),
+            now: true,
         };
         update_peer(self, &opts)
     }
@@ -812,6 +814,7 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
         keep_newer: false,
         allow_downgrade: false,
         caller: None,
+        now: true,
     };
     let up = update_peer(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::NeedsBinary, Some("wrongPlatform")));
@@ -907,6 +910,7 @@ fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
         keep_newer: false,
         allow_downgrade: true,
         caller: None,
+        now: true,
     };
     let up = update_peer(&peer, &opts);
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
@@ -919,13 +923,13 @@ fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
     peer.exe(".local/bin/acpmux", &installed);
     peer.exe(&format!("binaries/acpmux-{TARGET}"), &stamped_acpmux(NEW, Some(NEW), 1_794_744_982));
     let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
-    let e = push_update(&peer, &binary, None, false).expect_err("a refused push");
+    let e = push_update(&peer, &binary, None, false, false).expect_err("a refused push");
     assert!(e.is::<NewerInstalled>(), "{e:#}");
     assert!(e.to_string().contains("newer commit"), "{e:#}");
     assert_eq!(peer.read(".local/bin/acpmux"), installed);
     assert!(!peer.exists(".local/bin/acpmux.prev"));
     assert!(!peer.exists(".local/bin/.acpmux-new"));
-    assert!(push_update(&peer, &binary, None, true).is_ok());
+    assert!(push_update(&peer, &binary, None, true, false).is_ok());
     assert_eq!(peer.read(".local/bin/acpmux.prev"), installed);
 
     // A newer push onto a stamped host goes in as before.
@@ -935,6 +939,139 @@ fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
     peer.exe(&format!("binaries/acpmux-{TARGET}"), &newer);
     assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
     assert_eq!(peer.read(".local/bin/acpmux"), newer);
+}
+
+/// The host's restart stamp says an update restarted its daemon `ago`
+/// seconds ago by its clock (negative: in the future, a clock that went back).
+#[cfg(unix)]
+fn restarted_ago(peer: &FakePeer, ago: i64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let at = i64::try_from(now).unwrap_or(i64::MAX).saturating_sub(ago);
+    peer.write(".acpmux/update.restarted", &format!("{at}\n"));
+}
+
+/// The host's own install step keeps the restart window, for a pusher that
+/// never checks it first (an acpmux from before the check, or one that
+/// skips it): inside the window nothing is installed or staged, and the
+/// daemon is left alone.
+#[test]
+#[cfg(unix)]
+fn the_hosts_install_step_refuses_a_push_inside_the_restart_window() {
+    let peer = FakePeer::new("window-host-side");
+    restarted_ago(&peer, 5 * 60);
+    peer.offer(NEW, Some(NEW));
+    let installed = peer.read(".local/bin/acpmux");
+    let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+    let e = push_update(&peer, &binary, None, false, false).expect_err("refused inside the window");
+    let why = e.to_string();
+    assert!(why.contains("restart window: last update restart 5 min ago"), "{why}");
+    assert!(why.contains("--now"), "{why}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert!(!peer.exists(".local/bin/.acpmux-new"));
+    assert_eq!(peer.daemon(), OLD);
+    assert!(e.is::<RestartWindow>(), "{e:#}");
+    // `--now` passes the host's check.
+    assert!(push_update(&peer, &binary, None, false, true).is_ok());
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+
+    // The host's exemptions, each decided on the host.
+    let exempt = |tag: &str, set: &dyn Fn(&FakePeer)| {
+        let peer = FakePeer::new(tag);
+        restarted_ago(&peer, 5 * 60);
+        set(&peer);
+        peer.offer(NEW, Some(NEW));
+        let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+        let pushed = push_update(&peer, &binary, None, false, false);
+        assert!(pushed.is_ok(), "{tag}: {pushed:?}");
+        assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)), "{tag}");
+    };
+    // A daemon that does not run has nothing to wake.
+    exempt("window-down", &|p: &FakePeer| {
+        let _ = std::fs::remove_file(p.home.join("daemon"));
+    });
+    // A stamp from the host's future (its clock went back) is ignored.
+    exempt("window-future", &|p: &FakePeer| restarted_ago(p, -(2 * 60 * 60)));
+    // The window is the host's: two minutes, or 0 (off), in its file.
+    exempt("window-short", &|p: &FakePeer| p.write(".acpmux/update.restart-window", "120\n"));
+    exempt("window-off", &|p: &FakePeer| p.write(".acpmux/update.restart-window", "0\n"));
+}
+
+/// The window's length comes from the host: its file, else the daemon
+/// unit's `ACPMUX_UPDATE_RESTART_WINDOW_SECS`; the pusher's own environment
+/// has no say.
+#[test]
+#[cfg(unix)]
+fn the_restart_window_is_the_hosts_own() {
+    let peer = FakePeer::new("window-unit-env");
+    restarted_ago(&peer, 5 * 60);
+    peer.write(
+        &format!("{UNITS}/acpmux.service.d/window.conf"),
+        "[Service]\nEnvironment=ACPMUX_UPDATE_RESTART_WINDOW_SECS=120\n",
+    );
+    let opts = UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        if_idle: false,
+        keep_newer: false,
+        allow_downgrade: false,
+        caller: None,
+        now: false,
+    };
+    // The unit's two minutes are over, five minutes after the last restart.
+    peer.offer(NEW, Some(NEW));
+    let up = update_peer(&peer, &opts);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    // The file's hour wins over the unit's two minutes.
+    restarted_ago(&peer, 5 * 60);
+    peer.write(".acpmux/update.restart-window", "3600\n");
+    peer.offer("c3d4e5f6a 2026-10-23", Some("c3d4e5f6a 2026-10-23"));
+    let up = update_peer(&peer, &opts);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert!(up.line().starts_with("left alone: restart window: "), "{}", up.line());
+    assert_eq!(peer.daemon(), NEW);
+}
+
+/// `host setup` installs through the host's own install step too: inside
+/// the restart window it refuses, and the installed binary stays.
+#[test]
+#[cfg(unix)]
+fn a_host_setup_inside_the_restart_window_refuses_and_changes_nothing() {
+    let peer = FakePeer::new("window-setup");
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let e = push_binary(&peer, DAEMON_BIN, false, false).expect_err("refused inside the window");
+    let why = format!("{e:#}");
+    assert!(why.contains("restart window: last update restart 5 min ago"), "{why}");
+    assert!(why.contains("--now"), "{why}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.new"));
+    assert_eq!(peer.daemon(), OLD);
+    // `host setup` asks first, so nothing is copied, and refuses.
+    let opts = SetupOptions { port: 47811, auto_update: true, allow_downgrade: false, now: false };
+    let e = setup_locked(&peer, &opts).expect_err("refused inside the window");
+    assert!(e.is::<RestartWindow>(), "{e:#}");
+    assert!(e.to_string().contains("restart window: last update restart 5 min ago"), "{e:#}");
+    assert!(!peer.exists(".local/bin/acpmux.new"));
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+
+    // The window's length is the daemon unit's for setup too (review of
+    // #43709): a unit with two hours holds setup 61 minutes after a restart,
+    // where the default hour would let it through.
+    restarted_ago(&peer, 61 * 60);
+    peer.write(
+        &format!("{UNITS}/acpmux.service.d/window.conf"),
+        "[Service]\nEnvironment=ACPMUX_UPDATE_RESTART_WINDOW_SECS=7200\n",
+    );
+    let e = setup_locked(&peer, &opts).expect_err("the unit's window holds setup");
+    assert!(e.is::<RestartWindow>(), "{e:#}");
+    assert!(e.to_string().contains("last update restart 61 min ago"), "{e:#}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
 }
 
 #[test]
@@ -1789,6 +1926,7 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
             keep_newer: false,
             allow_downgrade: false,
             caller: None,
+            now: true,
         },
     );
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
@@ -1864,6 +2002,7 @@ fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
         keep_newer: true,
         allow_downgrade: false,
         caller: None,
+        now: true,
     };
     let up = update_locked(&Down, &opts);
     assert_eq!(
@@ -1897,6 +2036,7 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
         keep_newer: true,
         allow_downgrade: false,
         caller: None,
+        now: true,
     };
     let now = 1_793_000_000_000; // 2026-10-26
     let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);

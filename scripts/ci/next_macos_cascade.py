@@ -256,9 +256,37 @@ def blacksmith_on(env: Mapping[str, str]) -> bool:
     return BLACKSMITH_SWITCH not in env or (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
 
 
+# The scoped rescue value of BLACKSMITH_SWITCH (hq#11523, 2026-11-15: glaeda-side-std-xcode-26.6 had 76 jobs
+# queued, the oldest 150 min, while `on` would also have moved nightly, promote, signing and release jobs).
+# Only a cmux-next.yml pull_request run honors it (pr_rescue()): its placement takes Blacksmith macOS once the
+# owned route's oldest queued job has waited RESCUE_ROUTE_MINUTES (place()), under the same CAPACITY and
+# MAX_PER_RUN caps as `on`, and its re-run attempts' runs-on fall back to Blacksmith (cmux-next.yml). Every
+# other workflow compares the variable with exactly `on`, so for them it is off.
+PR_RESCUE = "pr-rescue"
+RESCUE_ROUTE_MINUTES = 45.0
+RESCUE_WORKFLOW = "/.github/workflows/cmux-next.yml@"
+
+
+def pr_rescue(env: Mapping[str, str]) -> bool:
+    """Whether this is a cmux-next.yml pull_request run with BLACKSMITH_SWITCH set to PR_RESCUE."""
+    return ((env.get(BLACKSMITH_SWITCH) or "").strip() == PR_RESCUE
+            and env.get("GITHUB_EVENT_NAME") == "pull_request"
+            and RESCUE_WORKFLOW in (env.get("GITHUB_WORKFLOW_REF") or ""))
+
+
+def rescue_open(env: Mapping[str, str], route_wait: float | None) -> bool:
+    """pr_rescue() and the owned route has started nothing for RESCUE_ROUTE_MINUTES (route_wait, minutes)."""
+    return pr_rescue(env) and route_wait is not None and route_wait >= RESCUE_ROUTE_MINUTES
+
+
 def blacksmith_off_why(env: Mapping[str, str]) -> str:
     """Why no job takes a Blacksmith macOS label (the switch is off), or ""."""
-    return "" if blacksmith_on(env) else f"Blacksmith macOS is off (vars.{BLACKSMITH_SWITCH} is not `on`)"
+    if blacksmith_on(env):
+        return ""
+    if pr_rescue(env):
+        return (f"Blacksmith macOS is in `{PR_RESCUE}` (vars.{BLACKSMITH_SWITCH}) and the owned route's oldest "
+                f"queued job has waited under {RESCUE_ROUTE_MINUTES:.0f} min")
+    return f"Blacksmith macOS is off (vars.{BLACKSMITH_SWITCH} is not `on`)"
 
 
 def label_full_or_dead(label: str, snapshot: Mapping[str, Any] | None,
@@ -879,9 +907,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     `route_wait`: how long the owned route the jobs would stay on has started nothing (dead_end()).
     """
     empty = {label: () for label in LABELS}
-    # With Blacksmith macOS off (blacksmith_on()) every label is unavailable: no slot, no overflow, no retry label,
+    # With Blacksmith macOS off (blacksmith_on(), rescue_open()) every label is unavailable: no slot, no overflow, no retry label,
     # and a feed's compile counts each full (fresh_stall), so every job stays on its owned label.
-    off = () if blacksmith_on(env) else LABELS
+    off = () if blacksmith_on(env) or rescue_open(env, route_wait) else LABELS
     unavailable = tuple(dict.fromkeys((*off, *(label for label in LABELS if seen is not None and label_full_or_dead(
         label, seen.snapshot, live=(live or {}).get(label, 0), queued=(waiting or {}).get(label, 0),
         now=seen.observed_at)))))
