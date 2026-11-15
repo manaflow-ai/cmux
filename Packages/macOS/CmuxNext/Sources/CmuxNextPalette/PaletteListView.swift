@@ -32,7 +32,9 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         super.init(frame: frame)
         drawsBackground = false
         hasVerticalScroller = true
-        SystemScrollers.follow(self)
+        // The sidebar's thin knob on no track: the stock scroller drew a gray track on a Mac set to
+        // show legacy scroll bars and took its width from every row (Lawrence 2026-11-15).
+        SystemScrollers.followThin(self)
         automaticallyAdjustsContentInsets = false
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("palette.column"))
         table.addTableColumn(column)
@@ -68,6 +70,14 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Always overlay: AppKit sets a scroll view back to the system's style (legacy on a Mac with a
+    /// mouse and "Show scroll bars: Automatic"), and a legacy scroller narrows the clip view, so the
+    /// rows' keys and kind labels would end left of the field's hint.
+    override var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = .overlay }
+    }
 
     private var boundsObserver: MainActorObservation?
 
