@@ -180,10 +180,12 @@ public final class MacScreenPages {
 
     /// This Mac started viewing or controlling another Mac: the first-use guide is done.
     func viewerStarted() {
+        store.markViewedBefore()
     }
 
     /// The hub says whether this Mac allows Mac Screen; on, the first-use guide is done.
     func hostSharingChanged(_ on: Bool) {
+        if on { store.markSharedBefore() }
     }
 
     /// Device tabs take their device's name from the hub (renames show live).

@@ -147,6 +147,9 @@ public final class MacScreenStore {
 
     /// Records the first time this Mac viewed or controlled another Mac (a local hint for the home-page guide).
     public func markViewedBefore() {
+        guard !hasViewedBefore else { return }
+        hasViewedBefore = true
+        save()
     }
 
     /// Keeps the names the hub lists now (a device's last name stays after it goes away). True when a name changed.
