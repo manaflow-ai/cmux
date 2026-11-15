@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43675484934",
+  "recorded_at": "2026-11-15T04:22:30Z",
+  "reason": "cmux-tui 502310855209 changes the image's cmux-tui (pinned fb78ddda5091)",
+  "dry_run": false,
+  "cmux_tui": "502310855209becea457cf92dd7aa947b9c76ce3",
+  "fixes": [
+    {
+      "sha": "502310855209becea457cf92dd7aa947b9c76ce3",
+      "mergedAt": "2026-11-14T19:52:45-08:00",
+      "subject": "acpmux: test that chats survive repeated restarts and each call and answer lands once (#43453)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T04:22:30Z",
+    "snapshot_id": "sh-ac4066360c734c75805d4531a802e503",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43675484934): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "77c4b3761e4577ac8f8f12bbb21ce5f0c7606e73",
+    "image": "cloud-native-auto-50231085-43675484934-1",
+    "revision": "ci-43675484934-1",
+    "at": "2026-11-15T04:22:30Z"
+  },
+  "rolled_back": false
+}
