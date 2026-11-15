@@ -738,7 +738,7 @@ fn projected_terminal_moves_refresh_the_workspace_size_policy() {
     let commit = mux
         .resource_project_terminal_selected(
             crate::ResourceSelectors {
-                terminal: Some(terminal),
+                terminal: Some(terminal.clone()),
                 ..Mux::ordinary_resource_selectors()
             },
             mux.ordinary_pane_selectors(destination_pane).unwrap(),
@@ -753,6 +753,7 @@ fn projected_terminal_moves_refresh_the_workspace_size_policy() {
     mux.resource_move_terminal_selected(
         crate::ResourceSelectors {
             tab: Some(commit.result["tab"].as_str().unwrap().to_string()),
+            terminal: Some(terminal),
             ..Mux::ordinary_resource_selectors()
         },
         mux.ordinary_pane_selectors(source_pane).unwrap(),
