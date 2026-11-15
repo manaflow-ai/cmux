@@ -194,11 +194,20 @@ import UIKit
 
         // Scrolled up until it is off screen, then opened along with a group on screen.
         chat.surface.following = false
+        let offsetBefore = chat.scroll.contentOffset.y
         chat.scroll.contentOffset.y -= chat.scroll.bounds.height * 2.5
+        let offsetSet = chat.scroll.contentOffset.y
         await chat.frames(20)
         // Off screen: no visible cell (UIKit may keep a hidden one parked for reuse).
         let parked = chat.list.cell(for: x)
-        try #require(!chat.scroll.visibleCells.contains { $0 === parked }, "the first group is off screen")
+        try #require(!chat.scroll.visibleCells.contains { $0 === parked }, """
+            the first group is off screen: offset \(offsetBefore) -> \(offsetSet) -> \(chat.scroll.contentOffset.y), \
+            content \(chat.scroll.contentSize.height), bounds \(chat.scroll.bounds.height), \
+            x frame \(parked?.frame ?? .zero), following \(chat.surface.following), \
+            holding \(chat.controller.isHoldingFold), decelerating \(chat.scroll.isDecelerating), \
+            scroll animations \(chat.scroll.layer.animationKeys() ?? []), \
+            presented offset \(chat.scroll.layer.presentation()?.bounds.origin.y ?? -1)
+            """)
         let y = try lowest(chat, "group")
         let keyY = try #require(chat.key(y))
         _ = try await fold(chat, y) {
