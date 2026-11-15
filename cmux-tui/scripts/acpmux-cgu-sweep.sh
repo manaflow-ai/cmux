@@ -9,6 +9,10 @@
 # every core, then runs the hub carrier's pipe numbers (an on-demand acpmux test)
 # against a lib built at that count. Env: SWEEP_TARGET (default: the host),
 # SWEEP_JOBS (default: "4 <cores>"), SWEEP_RUNTIME=0 skips the run-time numbers.
+# Each rebuild also prints acpmux's unit from cargo's --timings report: its
+# whole time, and rmeta_time, when its metadata was ready and dependents could
+# start (the front end; the rest is code generation). That bounds what a crate
+# split could overlap.
 set -euo pipefail
 tui="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(cd "$tui/.." && pwd)"
@@ -22,8 +26,14 @@ export CARGO_TARGET_DIR="${SWEEP_TARGET_DIR:-$tui/target/cgu-sweep}"
 cfg() { printf '%s\n' "--config=profile.release.package.acpmux.codegen-units=$1"; }
 build() { # <cgu> <jobs>
   # shellcheck disable=SC2086 # $features is one flag or empty
-  cargo build --release --locked --target "$target" -j "$2" -p acpmux-standalone --bin acpmux-standalone \
+  cargo build --release --locked --timings --target "$target" -j "$2" -p acpmux-standalone --bin acpmux-standalone \
     $features "$(cfg "$1")"
+}
+unit_times() { # acpmux's and acpmux-standalone's units in the newest --timings report
+  local report
+  report=$(ls -t "$CARGO_TARGET_DIR"/cargo-timings/cargo-timing-*.html 2>/dev/null | head -1)
+  [[ -n "$report" ]] || return 0
+  grep -oE '\{[^{}]*"name": ?"acpmux(-standalone)?"[^{}]*\}' "$report" | sed 's/^/sweep: unit /' || true
 }
 echo "sweep: host $(uname -sm), $cores cores, target $target, features ${features:-none}, rustc $(rustc -V)"
 echo "sweep: warm-up build (dependencies) at codegen-units 1"
@@ -39,6 +49,7 @@ for n in "${cgus[@]}"; do
     s=$(( $(date +%s) - start ))
     size=$(stat -c %s "$bin" 2>/dev/null || stat -f %z "$bin")
     echo "sweep: codegen-units $n, jobs $j: rebuild $s s, binary $size bytes"
+    unit_times
     printf '| %s | %s | %s | %s |\n' "$n" "$j" "$s" "$size" >> "$CARGO_TARGET_DIR/sweep.md"
   done
   if [[ "${SWEEP_RUNTIME:-1}" != 0 ]]; then
