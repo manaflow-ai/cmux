@@ -1809,3 +1809,22 @@ fn a_pause_inside_a_command_does_not_learn_the_line_so_far_as_a_prompt() {
     session.type_key("x");
     assert_eq!(session.drawn(), "");
 }
+
+#[test]
+fn a_layout_change_after_the_first_prompt_still_learns_it() {
+    // The phone lays the surface out after the shell's first prompt arrived.
+    let mut session = Session::new();
+    session.remote("$ ");
+    session.engine.layout_changed(session.clock);
+    session.advance(ms(600));
+    for character in ["l", "s"] {
+        session.type_key(character);
+        session.remote(character);
+    }
+    session.engine.presented_frame(session.clock);
+    session.type_key("\r");
+    session.remote("\r\nCargo.toml\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "g");
+}

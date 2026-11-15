@@ -684,9 +684,9 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
-        // A new width can rewrap the row.
-        self.row.forget();
-        self.prompt_candidate = None;
+        // The row is kept: a resize moves no text left of the cursor on its
+        // line, and every byte still reaches the engine. A row only ever
+        // matches a prompt exactly, after the answer to Return.
         let changed = self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
