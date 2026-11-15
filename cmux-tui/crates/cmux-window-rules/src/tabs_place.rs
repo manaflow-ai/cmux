@@ -78,8 +78,8 @@ pub fn terminal_place(facts: &ToTerminal) -> TerminalPlace {
     }
     let rows = prompt_rows(&facts.prompts, &facts.screen, facts.columns);
     // The asked prompt's row, else the nearest older prompt the window still has.
-    match rows[..=at.min(rows.len() - 1)].iter().rev().find_map(|row| *row) {
-        Some(row) => TerminalPlace::Row { row: facts.base + row },
+    match rows.iter().take(at.saturating_add(1)).rev().find_map(|row| *row) {
+        Some(row) => TerminalPlace::Row { row: facts.base.saturating_add(row) },
         None => TerminalPlace::Stay,
     }
 }
@@ -89,8 +89,10 @@ pub fn chat_place(facts: &ToChat) -> ChatPlace {
         return ChatPlace::Latest;
     }
     let rows = prompt_rows(&facts.prompts, &facts.screen, facts.columns);
-    let found =
-        rows.iter().enumerate().filter_map(|(index, row)| row.map(|row| (index, facts.base + row)));
+    let found = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| row.map(|row| (index, facts.base.saturating_add(row))));
     let mut first = None;
     let mut turn = None;
     for (index, row) in found {
@@ -127,7 +129,7 @@ pub fn prompt_rows(prompts: &[String], screen: &str, columns: usize) -> Vec<Opti
     let marked = backward(&keys, &rows, &by_word, true);
     let any = backward(&keys, &rows, &by_word, false);
     let count = |found: &[Option<usize>]| found.iter().flatten().count();
-    if count(&marked) > 0 && count(&marked) * 2 >= count(&any) { marked } else { any }
+    if count(&marked) > 0 && count(&marked).saturating_mul(2) >= count(&any) { marked } else { any }
 }
 
 /// Newest prompt first, each the nearest matching row above the newer one's.
@@ -144,12 +146,14 @@ fn backward(
         let word = key.split(' ').next().unwrap_or_default();
         let Some(candidates) = by_word.get(word) else { continue };
         let end = candidates.partition_point(|&row| row < below);
-        let hit =
-            candidates[..end].iter().rev().copied().find(|&row| {
-                (!marked || rows[row].marked) && rows[row].text.starts_with(key.as_str())
-            });
+        let hit = candidates.get(..end).unwrap_or_default().iter().rev().copied().find(|&at| {
+            rows.get(at)
+                .is_some_and(|row| (!marked || row.marked) && row.text.starts_with(key.as_str()))
+        });
         if let Some(row) = hit {
-            found[index] = Some(row);
+            if let Some(slot) = found.get_mut(index) {
+                *slot = Some(row);
+            }
             below = row;
         }
     }

@@ -80,6 +80,9 @@ extension AgentPaneView {
 private final class TogglePlaceAnswer<T: Sendable> {
     var continuation: CheckedContinuation<T?, Never>?
 
+    // A generic main-actor class's isolated deinit crashes the Release optimizer (#23050).
+    nonisolated deinit {}
+
     func finish(_ value: T?) {
         continuation?.resume(returning: value)
         continuation = nil
