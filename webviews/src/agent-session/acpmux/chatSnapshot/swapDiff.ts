@@ -42,11 +42,29 @@ function boxesIn(scope: ParentNode): Record<string, Box> {
   return boxes;
 }
 
+/// Whether the live page lays out what the copy shows: every part the copy has (the bottom stack, the
+/// composer and its chips, the header, the last rows) is in the live page within a pixel. The swap waits
+/// for it (live.ts `swapChatSnapshot`): a bottom ask the host answers after the chat is read (a folder's
+/// trust) came into the stack 50 ms after the swap and drew every row up by its height.
+export function liveMatchesCopy(copy: ParentNode, live: ParentNode): boolean {
+  const a = boxesIn(copy);
+  const b = boxesIn(live);
+  for (const [name, x] of Object.entries(a)) {
+    const y = b[name];
+    if (!y || Math.max(Math.abs(x.x - y.x), Math.abs(x.y - y.y), Math.abs(x.w - y.w), Math.abs(x.h - y.h)) > 1)
+      return false;
+  }
+  return true;
+}
+
 export type SwapDiff = {
   /// Elements whose box differs by more than a pixel, or that only one side has.
   changed: Record<string, { copy?: Box; live?: Box }>;
   copyStack: string[];
   liveStack: string[];
+  /// How long the swap waited for the live page to match the copy (``liveMatchesCopy``), and whether it did.
+  held_ms?: number;
+  matched?: boolean;
   /// The live stack's height changes after the swap, ms after it.
   after: { at_ms: number; h: number; parts: string[] }[];
 };
@@ -58,7 +76,12 @@ export function swapDiff(): SwapDiff | undefined {
 }
 
 /// Reads both sides; called in the swap's task before the copy goes.
-export function noteSwap(copy: ParentNode, live: ParentNode, view: Window): void {
+export function noteSwap(
+  copy: ParentNode,
+  live: ParentNode,
+  view: Window,
+  held?: { ms: number; matched: boolean },
+): void {
   try {
     const a = boxesIn(copy);
     const b = boxesIn(live);
@@ -75,6 +98,7 @@ export function noteSwap(copy: ParentNode, live: ParentNode, view: Window): void
       changed,
       copyStack: stackParts(copy.querySelector(".acpmux-dock")),
       liveStack: stackParts(dock),
+      ...(held ? { held_ms: Math.round(held.ms), matched: held.matched } : {}),
       after: [],
     };
     last = diff;

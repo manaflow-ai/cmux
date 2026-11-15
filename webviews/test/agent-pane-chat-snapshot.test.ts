@@ -51,13 +51,20 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
     .composer { position: absolute; bottom: 0; left: 0; right: 0; height: 80px; }
     .composer textarea { width: 300px; height: 40px; }
     @media (min-width: 1px) { :root .acpmux-row { padding-left: 4px; } }
+    .acpmux-dock { position: absolute; bottom: 80px; left: 0; right: 0; }
+    .acpmux-dock .ask { height: 91px; }
+    .acpmux-dock .acpmux-composer { height: 20px; }
   `;
-  const MARKUP = () => {
+  /// `dock`: a bottom stack over the composer, with an ask in it ("ask") or none ("bare").
+  const MARKUP = (dock?: "ask" | "bare") => {
     const rows = Array.from(
       { length: 100 },
       (_, at) => `<article class="acpmux-row" data-row-id="r${at}" style="top:${at * 40}px">row ${at}</article>`,
     ).join("");
-    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div><div class="composer"><div class="prompt" contenteditable="true"></div><textarea></textarea></div>`;
+    const stack = dock
+      ? `<div class="acpmux-dock">${dock === "ask" ? '<div class="ask">Trust this folder?</div>' : ""}<div class="acpmux-composer"></div></div>`
+      : "";
+    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div>${stack}<div class="composer"><div class="prompt" contenteditable="true"></div><textarea></textarea></div>`;
   };
   /// The person's theme.css, which the page adds once the host sends it (paneTheme.ts).
   const USER_CSS = "#root .header { height: 52px; }";
@@ -134,13 +141,24 @@ const user = document.createElement("style");
 user.textContent = w.userCss;
 document.head.append(user);
 root.innerHTML = w.liveMarkup;
+// askLate: the stack's ask comes that many frames after the chat drew (a folder's trust, answered later).
+if (w.askLate) {
+  let left = w.askLate;
+  const later = () => {
+    if (--left > 0) return requestAnimationFrame(later);
+    const ask = document.createElement("div");
+    ask.className = "ask";
+    root.querySelector(".acpmux-dock")!.prepend(ask);
+  };
+  requestAnimationFrame(later);
+}
 document.documentElement.style.setProperty("--agent-indent", "20px");
 root.querySelector(".prompt")!.textContent = "draft text";
 root.querySelector(".acpmux-scroll")!.scrollTop = 2000;
 w.frames = [];
 const watch = () => {
-  w.frames.push({ host: !!document.querySelector("cmux-chat-snapshot"), opacity: root.style.opacity });
-  if (w.frames.length < 6) requestAnimationFrame(watch);
+  w.frames.push({ host: !!document.querySelector("cmux-chat-snapshot"), opacity: root.style.opacity, ask: !!root.querySelector(".acpmux-dock .ask") });
+  if (w.frames.length < (w.askLate ? 14 : 6)) requestAnimationFrame(watch);
 };
 requestAnimationFrame(() => {
   // The swap's frame callback is queued before the watch's, so the watch reads what that frame paints.
@@ -163,9 +181,16 @@ requestAnimationFrame(() => {
 
   /// The page the chat was written from: the chat scrolled to row 50, a draft in the composer, and
   /// the agent theme's variable set as the page's theme event sets it.
-  async function written(page: Page, attributes = HTML_ATTRIBUTES): Promise<Record<string, unknown>> {
+  async function written(
+    page: Page,
+    attributes = HTML_ATTRIBUTES,
+    dock?: "ask" | "bare",
+  ): Promise<Record<string, unknown>> {
     await page.route("http://chat.test/a.html", (route) =>
-      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`, attributes) }),
+      route.fulfill({
+        contentType: "text/html",
+        body: htmlDocument(`<main id="root">${MARKUP(dock)}</main>`, attributes),
+      }),
     );
     await page.goto("http://chat.test/a.html");
     await page.addScriptTag({ content: capture });
@@ -205,7 +230,16 @@ requestAnimationFrame(() => {
       drawFirst = false,
       holdDraw = false,
       attributes = HTML_ATTRIBUTES,
-    }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean; holdDraw?: boolean; attributes?: string } = {},
+      dock,
+      askLate = 0,
+    }: {
+      holdUntil?: "bundle" | "drawn";
+      drawFirst?: boolean;
+      holdDraw?: boolean;
+      attributes?: string;
+      dock?: "ask" | "bare";
+      askLate?: number;
+    } = {},
   ): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
@@ -221,7 +255,7 @@ requestAnimationFrame(() => {
       if (url.pathname === "/fixture.js")
         return route.fulfill({
           contentType: "text/javascript",
-          body: `self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};`,
+          body: `self.liveMarkup=${JSON.stringify(MARKUP(dock))};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};self.askLate=${askLate};`,
         });
       if (url.pathname === "/__snapshot/chat.js")
         return (
@@ -287,6 +321,38 @@ requestAnimationFrame(() => {
     expect(frames.findIndex((frame) => !frame.host)).toBe(1);
     const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, unknown>;
     expect(afterSwap).toEqual({ header: before.header, row: before.row, composer: before.composer });
+    await context.close();
+  });
+
+  // Leo, 2026-11-14: "too much render shift when the thing restarts to update". The relaunch-shift bench
+  // saw a folder's trust ask come into the stack 50 ms after the swap and draw every row up by 91 px.
+  test("the copy stays until the live page lays out what it shows, then goes in one frame", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage(), HTML_ATTRIBUTES, "ask");
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { dock: "bare", askLate: 4 });
+    await page.waitForFunction(() => (window as any).frames?.length >= 14);
+    const frames = (await page.evaluate(() => (window as any).frames)) as { host: boolean; ask: boolean }[];
+    const gone = frames.findIndex((frame) => !frame.host);
+    // Held past the first frame, while the live stack had no ask; the first frame without the copy has it.
+    expect(gone).toBeGreaterThan(1);
+    expect(frames[gone]!.ask).toBe(true);
+    for (const frame of frames.slice(0, gone)) expect(frame.host).toBe(true);
+    for (const frame of frames.slice(gone)) expect(frame.host).toBe(false);
+    const report = (await page.evaluate(() => (window as any).__cmuxChatSnapshotShown)) as Record<string, number>;
+    expect(report.swappedAt).toBeGreaterThan(report.at);
+    await context.close();
+  });
+
+  test("a copy whose part the live page never draws goes at the hold's end", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage(), HTML_ATTRIBUTES, "ask");
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { dock: "bare" });
+    await page.waitForFunction(() => !document.querySelector("cmux-chat-snapshot"), undefined, { timeout: 3_000 });
+    const shown = (await page.evaluate(() => (window as any).__cmuxChatSnapshotShown)) as Record<string, number>;
+    // The hold (live.ts SWAP_MATCH_MS, 600 ms) and no longer, with a frame's slack.
+    expect(shown.swappedAt! - shown.at).toBeLessThan(1_500);
     await context.close();
   });
 

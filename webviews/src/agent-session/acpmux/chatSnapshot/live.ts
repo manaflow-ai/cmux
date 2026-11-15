@@ -2,7 +2,7 @@
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { captureMiss, captureSnapshot } from "./capture";
-import { noteSwap, swapDiff } from "./swapDiff";
+import { liveMatchesCopy, noteSwap, swapDiff } from "./swapDiff";
 import {
   SNAPSHOT_GLOBAL,
   SNAPSHOT_HOST_TAG,
@@ -64,7 +64,7 @@ export function chatSnapshotReport(): Record<string, unknown> {
 
 /// The live page shows and the copy goes, in the same task, so the frame after shows the live page
 /// and no frame shows both or neither. `doc` is the page's document.
-export function removeChatSnapshot(doc: Document = document): boolean {
+export function removeChatSnapshot(doc: Document = document, held?: { ms: number; matched: boolean }): boolean {
   // The copy's input watch (``reportChatSnapshot``) ends with the copy, however it goes.
   stopCopyInput?.();
   stopCopyInput = undefined;
@@ -72,7 +72,7 @@ export function removeChatSnapshot(doc: Document = document): boolean {
   const root = doc.getElementById("root");
   if (root) root.style.removeProperty("opacity");
   if (!host) return false;
-  if (host.shadowRoot && root && doc.defaultView) noteSwap(host.shadowRoot, root, doc.defaultView);
+  if (host.shadowRoot && root && doc.defaultView) noteSwap(host.shadowRoot, root, doc.defaultView, held);
   host.remove();
   const value = shown();
   if (value) value.swappedAt = performance.now();
@@ -80,13 +80,35 @@ export function removeChatSnapshot(doc: Document = document): boolean {
   return true;
 }
 
-/// Takes over from the copy at the next frame: the live page's frame is in by then (it rendered
-/// under the copy), and removing the copy before that frame paints shows it in one step.
+/// The longest the swap waits for the live page to lay out what the copy shows (``swapChatSnapshot``).
+/// A part the copy has and the live page never draws (an ask answered since) keeps it no longer.
+const SWAP_MATCH_MS = 600;
+
+/// Takes over from the copy once the live page lays out what the copy shows (swapDiff.ts
+/// `liveMatchesCopy`), at most ``SWAP_MATCH_MS`` after the page drew the chat: the live page renders
+/// under the copy, and removing the copy before a frame paints shows it in one step. Swapped at the
+/// first frame, a part the host answers after the chat is read (a folder's trust ask, 91 px over the
+/// composer) came in 50 ms later and drew every row up by its height, after each relaunch (relaunch-shift
+/// bench; Leo, 2026-11-14: "too much render shift when the thing restarts to update").
 export function swapChatSnapshot(): void {
   // A copy the host answers after this draws nothing (boot.ts): the page shows the chat itself.
   if (typeof window !== "undefined") liveSide().drawn = true;
   if (!showsChatSnapshot()) return;
-  requestAnimationFrame(() => removeChatSnapshot());
+  const start = performance.now();
+  const step = () => {
+    const host = document.querySelector(SNAPSHOT_HOST_TAG);
+    // Gone already: a press ended it (``reportChatSnapshot``).
+    if (!host) return;
+    const root = document.getElementById("root");
+    const waited = performance.now() - start;
+    const matched = !host.shadowRoot || !root || liveMatchesCopy(host.shadowRoot, root);
+    if (!matched && waited < SWAP_MATCH_MS) {
+      requestAnimationFrame(step);
+      return;
+    }
+    removeChatSnapshot(document, { ms: waited, matched });
+  };
+  requestAnimationFrame(step);
 }
 
 /// How long the live page may take to draw the chat before the copy goes anyway, so a page that
