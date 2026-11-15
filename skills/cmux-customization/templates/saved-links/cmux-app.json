@@ -1,0 +1,29 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-saved-links",
+  "name": "Dashboard links",
+  "version": "1.0.0",
+  "description": "Keep your actual dashboard and project links in the sidebar.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSavedLinks",
+      "title": "Dashboard links",
+      "symbol": "link",
+      "options": {
+        "defaultRegion": "bottom",
+        "maxRows": 12
+      }
+    }
+  },
+  "scopes": {
+    "storage:local": "Keep your saved dashboard links across reloads.",
+    "actions:run": "Open the link you click."
+  }
+}

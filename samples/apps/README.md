@@ -1,5 +1,11 @@
 # Sample cmux apps
 
+The [Customization showcase](../../docs/cmux-next/customization-showcase.md) provides ten short,
+editable examples in **Settings → Customize → Examples**. Each uses `cmux ext dev` in its own
+folder, preserves existing customization, and reloads on save. The `showcase-*` folders use
+plain `main.js`; rename their `cmux-app.v2.json` to `cmux-app.json` when copying. They are
+examples to make your own, not bundled widgets.
+
 | App | Contribution | Shows |
 | --- | --- | --- |
 | `github-prs` | two sidebar sections + command | your open pull requests, and "PRs · last 24h" (`recent`, `defaultRegion: bottom`): PRs you authored, were asked to review or are assigned, created or updated in the last 24 hours, open and merged, newest first. Both sections read the `github.pulls` signal with `cmux.watch` (integration gateway, else `net:api.github.com`; one read per section's params, polled behind the signal, no app timers; see `examples/extensions/pr-list` for the recipe). Manifest v2 has one `cmux.section/1`, so its v2 file keeps only `prs` |

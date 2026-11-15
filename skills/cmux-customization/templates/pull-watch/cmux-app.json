@@ -1,0 +1,29 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-pull-watch",
+  "name": "My pull requests",
+  "version": "1.0.0",
+  "description": "See your real open pull requests from connected GitHub.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderPulls",
+      "title": "My pull requests",
+      "symbol": "arrow.triangle.pull",
+      "options": {
+        "defaultRegion": "bottom",
+        "maxRows": 12
+      }
+    }
+  },
+  "scopes": {
+    "integration:github:read": "Read your open pull requests through connected GitHub.",
+    "actions:run": "Open the pull request you click."
+  }
+}

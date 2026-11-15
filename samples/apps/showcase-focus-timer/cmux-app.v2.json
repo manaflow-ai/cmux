@@ -1,0 +1,18 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-focus-timer",
+  "name": "Focus timer",
+  "version": "1.0.0",
+  "description": "Start or pause a short focus session beside your work. Native controls count down and cmux tells you when time is up.",
+  "icon": {"symbol": "timer"},
+  "engines": {"cmux": "^2.0"},
+  "runtime": {"main": "main.js"},
+  "implements": {
+    "cmux.section/1": {"export": "renderTimer", "title": "Focus timer", "symbol": "timer", "options": {"defaultRegion": "bottom"}}
+  },
+  "files": ["main.js"],
+  "scopes": {
+    "workspace:read": "Read the focused workspace name."
+  }
+}

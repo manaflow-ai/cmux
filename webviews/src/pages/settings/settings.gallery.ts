@@ -1804,6 +1804,7 @@ export default settingsPageEntry({
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
+    "pages/settings/components/CustomizeExamplesCard.tsx#CustomizeExamplesCard",
     "pages/settings/components/ArtBrowser.tsx",
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",

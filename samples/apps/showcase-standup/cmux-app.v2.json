@@ -1,0 +1,19 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-standup",
+  "name": "Today",
+  "version": "1.0.0",
+  "description": "Keep a small Today list beside your workspace. Add a note and keep it across reloads using local app storage.",
+  "icon": {"symbol": "checklist"},
+  "engines": {"cmux": "^2.0"},
+  "runtime": {"main": "main.js"},
+  "implements": {
+    "cmux.section/1": {"export": "renderStandup", "title": "Today", "symbol": "checklist", "options": {"defaultRegion": "bottom", "maxRows": 12}}
+  },
+  "scopes": {
+    "storage:local": "Keep your notes on this Mac.",
+    "workspace:read": "Read the focused workspace name."
+  },
+  "files": ["main.js"]
+}

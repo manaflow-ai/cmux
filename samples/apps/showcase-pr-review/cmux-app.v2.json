@@ -1,0 +1,21 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-pr-review",
+  "name": "Review requests",
+  "version": "1.0.0",
+  "description": "Keep the pull requests waiting for your review in the sidebar. Open a review in a cmux browser tab.",
+  "icon": {"symbol": "eye"},
+  "engines": {"cmux": "^2.0"},
+  "runtime": {"main": "main.js"},
+  "implements": {
+    "cmux.section/1": {"export": "renderReviewRequests", "title": "Review requests", "symbol": "eye", "options": {"defaultRegion": "top", "maxRows": 12}}
+  },
+  "scopes": {
+    "integration:github:read": "Read pull requests through your connected GitHub account.",
+    "actions:run": "Open a pull request in a browser tab."
+  },
+  "files": ["main.js"],
+  "optionalScopes": {"net:api.github.com": "Read public review requests when GitHub is not connected."},
+  "settings": {"type": "object", "properties": {"login": {"type": "string", "title": "GitHub login (public fallback)", "default": ""}}}
+}

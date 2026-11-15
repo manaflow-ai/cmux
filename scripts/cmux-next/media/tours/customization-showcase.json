@@ -1,0 +1,247 @@
+{
+  "title": "cmux NEXT customization showcase: each example's first render",
+  "customize": true,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Showcase"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Showcase workspace",
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "My PRs: first render in a fresh capture app (skills/cmux-customization/templates/pull-watch/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/skills/cmux-customization/templates/pull-watch/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/skills/cmux-customization/templates/pull-watch/cmux-app.json > \"$D/cmux-app.json\" && echo saved pull-watch\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Needs you: first render in a fresh capture app (skills/cmux-customization/templates/needs-you/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/skills/cmux-customization/templates/needs-you/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/skills/cmux-customization/templates/needs-you/cmux-app.json > \"$D/cmux-app.json\" && echo saved needs-you\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "This workspace: first render in a fresh capture app (skills/cmux-customization/templates/workspace-tabs/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/skills/cmux-customization/templates/workspace-tabs/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/skills/cmux-customization/templates/workspace-tabs/cmux-app.json > \"$D/cmux-app.json\" && echo saved workspace-tabs\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "This workspace: a second tab redraws the list (mixed tabs)",
+      "cmux": [
+        "action",
+        "run",
+        "newSurface"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "This workspace: focus moves back to the first tab (focus changed)",
+      "cmux": [
+        "action",
+        "run",
+        "prevSurface"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Dashboard links: first render in a fresh capture app (skills/cmux-customization/templates/saved-links/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/skills/cmux-customization/templates/saved-links/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/skills/cmux-customization/templates/saved-links/cmux-app.json > \"$D/cmux-app.json\" && echo saved saved-links\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Branch status: first render in a fresh capture app (skills/cmux-customization/templates/branch-status/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/skills/cmux-customization/templates/branch-status/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/skills/cmux-customization/templates/branch-status/cmux-app.json > \"$D/cmux-app.json\" && echo saved branch-status\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Review requests: first render in a fresh capture app (samples/apps/showcase-pr-review/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/samples/apps/showcase-pr-review/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/samples/apps/showcase-pr-review/cmux-app.v2.json > \"$D/cmux-app.json\" && echo saved showcase-pr-review\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Working agents: first render in a fresh capture app (samples/apps/showcase-agent-status/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/samples/apps/showcase-agent-status/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/samples/apps/showcase-agent-status/cmux-app.v2.json > \"$D/cmux-app.json\" && echo saved showcase-agent-status\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Quick actions: first render in a fresh capture app (samples/apps/showcase-command-buttons/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/samples/apps/showcase-command-buttons/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/samples/apps/showcase-command-buttons/cmux-app.v2.json > \"$D/cmux-app.json\" && echo saved showcase-command-buttons\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Focus timer: ready, first render in a fresh capture app (samples/apps/showcase-focus-timer/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/samples/apps/showcase-focus-timer/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/samples/apps/showcase-focus-timer/cmux-app.v2.json > \"$D/cmux-app.json\" && echo saved showcase-focus-timer\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Today: first render in a fresh capture app (samples/apps/showcase-standup/main.js rendered as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Showcase",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/samples/apps/showcase-standup/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/samples/apps/showcase-standup/cmux-app.v2.json > \"$D/cmux-app.json\" && echo saved showcase-standup\r"
+      ],
+      "wait": 6
+    }
+  ]
+}

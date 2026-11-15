@@ -1,0 +1,18 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-command-buttons",
+  "name": "Quick actions",
+  "version": "1.0.0",
+  "description": "Put useful cmux actions in your sidebar. Each button runs a real app action from your click.",
+  "icon": {"symbol": "bolt"},
+  "engines": {"cmux": "^2.0"},
+  "runtime": {"main": "main.js"},
+  "implements": {
+    "cmux.section/1": {"export": "renderCommands", "title": "Quick actions", "symbol": "bolt", "options": {"defaultRegion": "bottom"}}
+  },
+  "scopes": {
+    "actions:run": "Run a configured cmux action when you click a button."
+  },
+  "files": ["main.js"]
+}

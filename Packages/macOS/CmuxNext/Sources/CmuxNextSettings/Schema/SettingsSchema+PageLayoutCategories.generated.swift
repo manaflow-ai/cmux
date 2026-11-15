@@ -6,7 +6,7 @@ extension SettingsPageLayout {
     public static let sidebarSections: [SidebarSection] = [
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, appearanceCategory, sidebarCategory, tabsCategory, newTabCategory]),
-        SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
+        SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory, customizeCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory]),
@@ -158,6 +158,12 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.remote"),
         ],
         trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
+    )
+
+    private static let customizeCategory = CategorySpec(
+        id: "customize", title: SettingsText.keyed("settings.category.customize", "Customize"), symbol: "wand.and.stars",
+        groups: [],
+        lead: [.customizationExamples]
     )
 
     /// How the agent chat looks and reads. Agents keeps what the agents may do.

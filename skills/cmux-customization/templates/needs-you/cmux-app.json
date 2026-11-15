@@ -1,0 +1,29 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-needs-you",
+  "name": "Needs you",
+  "version": "1.0.0",
+  "description": "See the agent chats waiting for your answer.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderNeedsYou",
+      "title": "Needs you",
+      "symbol": "questionmark.bubble",
+      "options": {
+        "defaultRegion": "bottom",
+        "maxRows": 12
+      }
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read the agent chats and their current state.",
+    "actions:run": "Open the chat you click."
+  }
+}

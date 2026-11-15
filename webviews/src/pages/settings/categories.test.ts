@@ -41,6 +41,7 @@ test("the categories are the approved ones, in order", () => {
     "terminal",
     "editor",
     "browser",
+    "customize",
     "chat",
     "agents",
     "chief",
