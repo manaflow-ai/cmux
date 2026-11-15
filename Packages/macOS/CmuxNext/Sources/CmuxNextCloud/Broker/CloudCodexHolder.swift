@@ -22,10 +22,14 @@ public import Foundation
         /// Where cmux keeps its machine client sessions (`cmux cloud machine-io`'s).
         public let cacheDirectory: URL?
         public let appVersion: String
+        /// The Stack project the app signs in to: the holder maps the scope's Stack team to the
+        /// cmux API's `team_` id with it (cmux-tui `cloud_codex_holder.rs` `route_team`).
+        public let stackProject: String?
 
-        public init(binary: URL?, root: URL, userHome: URL, api: URL, cacheDirectory: URL?, appVersion: String) {
+        public init(binary: URL?, root: URL, userHome: URL, api: URL, cacheDirectory: URL?, appVersion: String, stackProject: String? = nil) {
             self.binary = binary; self.root = root; self.userHome = userHome
             self.api = api; self.cacheDirectory = cacheDirectory; self.appVersion = appVersion
+            self.stackProject = stackProject
         }
     }
 
@@ -101,6 +105,7 @@ public import Foundation
             "api": configuration.api.absoluteString, "app_version": configuration.appVersion,
         ]
         if let cache = configuration.cacheDirectory { config["cache_dir"] = cache.path }
+        if let project = configuration.stackProject { config["stack_project"] = project }
         let configLine = (try? JSONSerialization.data(withJSONObject: config)) ?? Data()
         let pipe = configuration.binary.map { CloudCodexHolderPipe(binary: $0, config: configLine, events: sink) }
         self.pipe = pipe

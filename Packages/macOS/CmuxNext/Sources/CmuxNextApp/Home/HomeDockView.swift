@@ -52,7 +52,7 @@ final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
             guard let shown = messages?.shown else { return nil }
             // A Cloud conversation keeps its message too: with no owner resolver, the page pages its own
             // timeline to the message and opens its thread (store.ts openKnown), as the native view does.
-            let thread = messages?.host.flatMap { HomePageTab.transcript(in: $0) }?.openThreadMessage
+            let thread = messages?.host.flatMap { HomeNativeTranscriptView.first(in: $0) }?.openThreadMessage
             return Selection(conversation: shown.rawValue, message: thread)
         case .channels:
             guard let channels, let ask = channelsSelection else { return nil }

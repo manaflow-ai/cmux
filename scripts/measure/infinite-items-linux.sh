@@ -3,6 +3,9 @@
 # chat pages (webviews/bench/chat-pages-memory.bench.ts, RELEASE=1), at each count. Run at a pushed head:
 #   cmux-ci test -- bash -c 'scripts/measure/infinite-items-linux.sh [counts=10,100,1000] [days=3] [pages=0]; echo rc=$?'
 #   infinite-items-linux.sh build-only: only the release build.
+#   infinite-items-linux.sh before=own-exe ...: first runs the same build with no cmux-tui-host beside its daemon (a
+#     copy of cmux-tui alone), so every terminal host re-execs the daemon's own file as before host_exe/linux.rs: the
+#     slim host's before (BEFORE lines) and after from one build on one runner in one job.
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
 set -euo pipefail
 counts="10,100,1000"
@@ -10,6 +13,7 @@ days=3
 pages=1
 page_counts=""
 build_only=0
+before=""
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -17,6 +21,7 @@ for arg in "$@"; do
     days=*) days="${arg#days=}" ;;
     pages=*) pages="${arg#pages=}" ;;
     build-only) build_only=1 ;;
+    before=*) before="${arg#before=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -40,7 +45,8 @@ fi
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
-cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3
+# cmux-tui-host: the slim terminal host the daemon runs its hosts from when it sits beside it (host_exe.rs).
+cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
 # build-only: the perf cron builds in a step of its own, so the build and the run each get its 30-minute cap.
 [[ "$build_only" == 1 ]] && exit 0
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
@@ -53,6 +59,17 @@ else
 fi
 status=0
 ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" || true
+if [[ "$before" == own-exe ]]; then
+  own_dir="$(mktemp -d)"
+  cp "$target/release/cmux-tui" "$own_dir/cmux-tui"
+  echo "INFINITE-AB before=own-exe after=cmux-tui-host head=$(git rev-parse HEAD)"
+  python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$own_dir/cmux-tui" \
+    --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/BEFORE /' || status=$?
+  rm -rf "$own_dir"
+elif [ -n "$before" ]; then
+  echo "infinite-items-linux.sh: unknown before=$before (own-exe)" >&2
+  exit 2
+fi
 python3 scripts/measure/infinite-items.py --acpmux "$target/release/acpmux" --tui "$target/release/cmux-tui" \
   --counts "$counts" --days "$days" --out "$out/infinite-items.json" ${extra[@]+"${extra[@]}"} || status=$?
 if [[ "$pages" == 1 ]]; then

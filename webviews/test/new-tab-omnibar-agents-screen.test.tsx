@@ -11,6 +11,7 @@ import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownF
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -74,7 +75,11 @@ const SESSIONS = [
   { sessionId: "s2", displayTitle: "Release notes", harness: "codex", cwd: "/Users/me/notes", activityAt: 4 },
 ] as AcpmuxSessionEntry[];
 
-async function render(calls: unknown[][], completeFolder?: (path: string) => Promise<readonly string[]>) {
+async function render(
+  calls: unknown[][],
+  completeFolder?: (path: string) => Promise<readonly string[]>,
+  takeDraft?: () => { text: string; attachments: ComposerAttachment[] },
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -99,6 +104,7 @@ async function render(calls: unknown[][], completeFolder?: (path: string) => Pro
         onOpenSession={(id) => calls.push(["session", id])}
         onShowAll={noop}
         {...(completeFolder ? { completeFolder } : {})}
+        {...(takeDraft ? { takeDraft } : {})}
       />,
     ),
   );
@@ -165,4 +171,67 @@ test("a typed path lists its folder's subfolders once the host answers, and Tab 
   await key(editable, "Tab");
   // The field holds Markdown (`\~`); the page acts on its text.
   expect(handle.agentText(handle.value())).toBe("codex ~/fun/games/");
+});
+
+const selected = () => options().findIndex((row) => row.getAttribute("aria-selected") === "true");
+
+test("Tab fills the top row's folder once; on a row Tab stepped to, the next Tab steps on", async () => {
+  await render([], async () => ["games", "gallery"]);
+  const { handle, editable } = await type("~/fun/ga");
+  await until(() => options().map(label).includes("Claude Code in ~/fun/games"));
+  const starts = options()
+    .map((row, index) => (label(row).includes(" in ~/fun/") ? index : -1))
+    .filter((index) => index >= 0);
+  expect(starts.length).toBeGreaterThan(1);
+  // Step to the first start row, then Tab again: the selection moves on, the text stays.
+  while (selected() < starts[0]!) await key(editable, "Tab");
+  const text = handle.agentText(handle.value());
+  await key(editable, "Tab");
+  expect(selected()).toBe(starts[0]! + 1);
+  expect(handle.agentText(handle.value())).toBe(text);
+});
+
+test("a folder listed once is read again when the path comes back, so a new folder shows", async () => {
+  let folders = ["cmux", "games"];
+  const asked: string[] = [];
+  await render([], async (path) => {
+    asked.push(path);
+    return folders;
+  });
+  const { handle } = await type("codex ~/fun/ga");
+  await until(() => options().map(label).includes("Codex in ~/fun/games"));
+  folders = ["cmux", "games", "gallery"];
+  const retype = (text: string) =>
+    act(async () => {
+      handle.selectAll();
+      handle.type(text);
+    });
+  await retype("codex ~/");
+  await until(() => asked.includes("/Users/me"));
+  await retype("codex ~/fun/ga");
+  await until(() => options().map(label).includes("Codex in ~/fun/gallery"));
+});
+
+test("a press on a start row starts an empty chat there; the staged files stay for the prompt", async () => {
+  const calls: unknown[][] = [];
+  const file: ComposerAttachment = {
+    id: "f1",
+    kind: "image",
+    name: "shot.png",
+    mimeType: "image/png",
+    size: 3,
+    data: "AQID",
+  };
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ attachmentView: "strip" });
+  await render(calls, undefined, () => ({ text: "", attachments: [file] }));
+  await type("codex cmux");
+  await until(() => host.querySelectorAll(".acpmux-attachments .acpmux-attachment").length === 1);
+  const start = options().find((row) => label(row) === "Codex in ~/fun/cmux")!;
+  await act(async () => start.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.slice(0, 4)).toEqual(["ask", "codex", "", "/Users/me/fun/cmux"]);
+  const sent = calls[0]![6] as ComposerAttachment[] | undefined;
+  expect(sent ?? []).toEqual([]);
+  setComposerSettings({ attachmentView: "inline" });
 });
