@@ -333,6 +333,33 @@ fn a_whole_chat_archive_takes_its_cold_segments_and_brings_them_back() {
     assert_eq!(all(&store), expected(1500));
 }
 
+/// The whole-chat archive takes a cold segment only as its archive decodes whole to what its index
+/// records. An index damaged to a shorter `rawLen`, still valid JSON, would otherwise stage only
+/// that prefix, hash the prefix as the file, and let the commit drop the intact segment archive
+/// (#43562 review F1 at 8dd36113).
+#[test]
+fn a_whole_chat_archive_refuses_a_cold_segment_whose_index_is_short() {
+    let (_home, sessions, store) = chat(1500);
+    assert!(move_all(&store) > 0);
+    let session = sessions.join(ID);
+    let idx = names(&session.join("events"))
+        .into_iter()
+        .find(|n| n.ends_with(".cold.idx"))
+        .expect("a cold segment's index");
+    let idx = session.join("events").join(idx);
+    let mut doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&idx).unwrap()).unwrap();
+    let raw = doc["rawLen"].as_u64().unwrap();
+    doc["rawLen"] = (raw / 2).into();
+    std::fs::write(&idx, serde_json::to_vec(&doc).unwrap()).unwrap();
+    let archives = names(&session.join(COLD_DIR));
+    assert!(store.stage_cold(ID).is_err(), "a short index is refused, not archived as the segment");
+    assert!(!store.is_cold(ID));
+    assert_eq!(names(&session.join(COLD_DIR)), archives, "every segment archive is still there");
+    doc["rawLen"] = raw.into();
+    std::fs::write(&idx, serde_json::to_vec(&doc).unwrap()).unwrap();
+    assert_eq!(all(&store), expected(1500), "the history is whole once the index is");
+}
+
 fn journal_store(home: &Path, journal: &cmux_journal::SimStorage) -> Box<dyn Store> {
     let config = crate::config::StoreConfig { segment_bytes: SEGMENT, ..Default::default() };
     let journal_config = cmux_journal::Config {
