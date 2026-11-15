@@ -99,7 +99,10 @@ class StatusFromOutside(unittest.TestCase):
                 self.assertIn("inputs.same_tree_status_sha != ''", reporter["if"])
                 self.assertEqual(set(reporter["needs"]), {"same-tree-cmux-tui", *tested})
                 self.assertEqual(reporter["permissions"].get("statuses"), "write")
-                self.assertNotIn("continue-on-error", json.dumps(reporter))
+                # Only the spare token's mint may fail soft (SAME_TREE_STATUS_SPARE_TOKEN): the post never does.
+                soft = [s.get("name") for s in reporter["steps"] if "continue-on-error" in s]
+                self.assertEqual(soft, ["Mint the cmux-bot same-tree status token"])
+                self.assertNotIn("continue-on-error", reporter)
                 [post] = [s for s in reporter["steps"] if s.get("name") == "Post the same-tree status"]
                 self.assertIn(f"--tier {tier}", post["run"])
                 self.assertIn("toJSON(needs)", post["env"]["NEEDS"])
