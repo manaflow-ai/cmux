@@ -241,17 +241,21 @@ def parse_region(path, start, end, into):
         payload = data[at + RECORD_HEADER: at + RECORD_HEADER + length]
         if flags == 1:
             into["markers"] += 1
+            into["seq"].append(None)
         else:
             into["records"] += 1
             into["payload"] += length
             label = f"kind{kind}/{'ack' if klass == 1 else 'stream'}"
+            stamp = None
             if kind == 1 and len(payload) >= 4:
                 idlen = struct.unpack_from("<I", payload)[0]
                 try:
                     line = json.loads(payload[4 + idlen:])
                     label += f" {line.get('dir')}:{line.get('kind')}"
+                    stamp = line.get("at")
                 except ValueError:
                     pass
+            into["seq"].append((klass == 1, label, stamp))
             row = into["by"].setdefault(label, [0, 0])
             row[0] += 1
             row[1] += length
@@ -273,7 +277,7 @@ class Probe:
                 "proc": read_io(f"/proc/{self.pid}/io")}
 
     def diff(self, a, b):
-        acc = {"records": 0, "payload": 0, "markers": 0, "by": {}}
+        acc = {"records": 0, "payload": 0, "markers": 0, "by": {}, "seq": []}
         jdir = os.path.join(self.d.home, "journal")
         for name, size in b["seg"].items():
             start = a["seg"].get(name, SEGMENT_HEADER)
@@ -335,7 +339,7 @@ def case_stream(args, Daemon):
         c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "hello"}]})
         viewer = Client(d.sock)
         attach(viewer, sid)
-        stop = threading.Event()
+        stop, seen_ms = threading.Event(), []
 
         def app():
             tick = 0
@@ -343,7 +347,9 @@ def case_stream(args, Daemon):
                 tick += 1
                 try:
                     if viewer.last_seq:
+                        t0 = time.perf_counter()
                         viewer.call("_acpmux/seen", {"sessionId": sid, "seq": viewer.last_seq}, timeout=30)
+                        seen_ms.append((time.perf_counter() - t0) * 1000.0)
                     if tick % 2 == 0:
                         viewer.call("_acpmux/sessions", {}, timeout=30)
                 except RuntimeError as exc:
@@ -363,7 +369,9 @@ def case_stream(args, Daemon):
         log(f"stream: {turns} turns, viewer saw {viewer.events} messages")
         viewer.close()
         c.close()
-        return probe.diff(a, b)
+        out = probe.diff(a, b)
+        out[1]["lat"] = {"seen": seen_ms}
+        return out
     finally:
         d.stop()
 
@@ -380,16 +388,20 @@ def case_typing(args, Daemon):
         probe = Probe(d)
         a = probe.snap()
         deadline = time.monotonic() + args.typing
-        text, keys, source = "", 0, " ".join(WORDS)
+        text, keys, source, key_ms = "", 0, " ".join(WORDS), []
         while time.monotonic() < deadline:
             keys += 1
             text = (text + source[keys % len(source)])[-400:]
+            t0 = time.perf_counter()
             c.call("_acpmux/draft_set", {"sessionId": sid, "text": text})
+            key_ms.append((time.perf_counter() - t0) * 1000.0)
             time.sleep(args.key_ms / 1000.0)  # bench: a person's typing pace
         b = probe.snap()
         log(f"typing: {keys} keys")
         c.close()
-        return probe.diff(a, b)
+        out = probe.diff(a, b)
+        out[1]["lat"] = {"draft_set": key_ms}
+        return out
     finally:
         d.stop()
 
@@ -398,6 +410,31 @@ def case_typing(args, Daemon):
 
 
 ROWS = []
+
+
+def report_syncs(case, acc, per_h):
+    """What each sync covered: the records between two markers went out in one sync (a marker follows
+    each sync that covered records, before the next records it writes). Acked records per sync, and the
+    first acked syncs with their records' `at` stamps, show whether a turn's acks share syncs."""
+    groups, cur = [], []
+    for entry in acc["seq"]:
+        if entry is None:
+            if cur:
+                groups.append(cur)
+            cur = []
+        else:
+            cur.append(entry)
+    acked = [g for g in groups if any(e[0] for e in g)]
+    acks = sum(1 for g in groups for e in g if e[0])
+    print(f"JWRITES {case} syncs: {len(groups)} covered records ({len(groups) * per_h:.0f}/h), {len(acked)} "
+          f"held acked records ({len(acked) * per_h:.0f}/h); {acks} acked records, "
+          f"{acks / len(acked) if acked else 0:.2f} per acked sync", flush=True)
+    first = next((e[2] for g in acked for e in g if e[2]), None)
+    for g in acked[:24]:
+        labels = ", ".join(e[1].split(" ", 1)[-1] for e in g if e[0])
+        stamps = [e[2] for e in g if e[0] and e[2]]
+        when = f"+{stamps[0] - first} ms" if stamps and first else "?"
+        print(f"JWRITES {case} acked sync {when}: {sum(1 for e in g if not e[0])} stream + [{labels}]", flush=True)
 
 
 def perf_row(name, value, unit):
@@ -455,6 +492,14 @@ def main():
               f"process dirtied {h['process_dirtied'] / mb:.2f} MB; amplification {amp:.1f}x", flush=True)
         for label, (n, size) in sorted(acc["by"].items(), key=lambda kv: -kv[1][0]):
             print(f"JWRITES {case} by {label}: {n} records {size} B ({n * per_h:.0f}/h)", flush=True)
+        report_syncs(case, acc, per_h)
+        for name, values in sorted(acc.get("lat", {}).items()):
+            if values:
+                values = sorted(values)
+                pick = lambda q: values[min(len(values) - 1, int(q * len(values)))]
+                print(f"JWRITES {case} latency {name}: n={len(values)} p50 {pick(0.5):.2f} ms, "
+                      f"p95 {pick(0.95):.2f} ms, max {values[-1]:.2f} ms", flush=True)
+                row["latency_" + name] = {"p50": pick(0.5), "p95": pick(0.95), "max": values[-1]}
         perf_row(f"journal_writes.{case}.payload_mb_per_hour", h["payload"] / mb, "MB")
         perf_row(f"journal_writes.{case}.dirtied_mb_per_hour", h["dirtied"] / mb, "MB")
         perf_row(f"journal_writes.{case}.macos_est_mb_per_hour", h["macos_est"] / mb, "MB")
