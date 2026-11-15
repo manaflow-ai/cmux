@@ -78,10 +78,10 @@ export function noteSwap(copy: ParentNode, live: ParentNode, view: Window): void
       after: [],
     };
     last = diff;
-    if (!dock || typeof view.ResizeObserver !== "function") return;
+    if (!dock || typeof ResizeObserver !== "function") return;
     const start = view.performance.now();
     let height = Math.round(dock.getBoundingClientRect().height);
-    const observer = new view.ResizeObserver(() => {
+    const observer = new ResizeObserver(() => {
       const at = view.performance.now() - start;
       const now = Math.round(dock.getBoundingClientRect().height);
       if (at > AFTER_MS || diff.after.length >= MAX_CHANGES) {
