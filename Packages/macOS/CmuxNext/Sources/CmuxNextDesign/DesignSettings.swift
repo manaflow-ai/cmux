@@ -71,7 +71,7 @@ public final class DesignSettings {
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
-            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(); } else { document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)'); }"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
@@ -264,6 +264,10 @@ public final class DesignSettings {
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
+    /// The size in points the terminals draw at (the loaded config's `font-size`, `terminal.fontSize`
+    /// over the Ghostty config's), as last loaded (`GhosttyConfigFontFamily.recordLoad`); nil before.
+    /// The iPhone gets it (`ThemePhone`); nothing here repaints on it.
+    public var terminalFontSize: Double?
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
     /// repaints, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {

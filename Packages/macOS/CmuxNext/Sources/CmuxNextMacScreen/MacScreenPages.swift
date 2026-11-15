@@ -58,12 +58,19 @@ public final class MacScreenPages {
             hubChanged(from: oldValue)
         }
     }
+    /// The service-owned capture barrier, available even after sign-out.
+    var captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)?
     /// Whether this build has a usable device hub address: always, unless a
     /// DEV build's `deviceHub.url` override is not valid. The home page says
     /// "sign in" when it does and asks to fix the address when it does not.
     public var hubConfigured: Bool {
         get { hubBox.configured }
         set { hubBox.configured = newValue }
+    }
+    /// Startup failure before a hub exists; cleared only on recovery or a changed account/address.
+    var hubStartupError: String? {
+        get { hubBox.startupError }
+        set { hubBox.startupError = newValue }
     }
     /// The hub as views observe it.
     let hubBox = MacScreenHubBox()
@@ -239,6 +246,17 @@ public final class MacScreenPages {
     func openDeviceInNewTab(_ id: String, scope: SessionScope?, from key: String) {
         if let scope { pendingScopes[id] = scope }
         events.openInNewTab(MacScreenRecord(deviceID: id), key)
+    }
+
+    /// Makes a record for an already-resolved screen-device UUID. Machine routes,
+    /// joined IDs and display names are not screen identities; callers that have
+    /// a person-requested scope can carry it into the first connection.
+    public func record(forDevice device: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
+        guard let id = MacScreenRecord.normalizedDeviceID(device) else {
+            return MacScreenRecord(macID: nil)
+        }
+        if let scope { pendingScopes[id] = scope }
+        return MacScreenRecord(deviceID: id)
     }
 
     /// At launch: the shortcut tap, the permissions, and the saved device names

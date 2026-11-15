@@ -133,9 +133,13 @@ test("a Send now (the prompt continues the turn it ended) counts too", () => {
   expect(ids(footers(view))).toEqual([`${SUPERSEDED}-s1`]);
 });
 
-test("no footer for a steer the agent has not read, a reply still streaming, or work alone", () => {
+test("a steer the agent has not read has its footer from the send; none for a reply still streaming, or work alone", () => {
   const options = { working: true, agentFamily: "claude", now: START + 1e6 };
-  expect(footers(turnView(running("waiting"), new Set(), options))).toEqual([]);
+  // The footer comes with the prompt the person sent, and is the same one once the agent reads it: it
+  // never comes in above the prompt after it was drawn (Leo, 2026-11-09: "i hate the way when i send
+  // off a message it seems to move up and under your current running tool call or whatever").
+  expect(ids(footers(turnView(running("waiting"), new Set(), options)))).toEqual([`${SUPERSEDED}-s1`]);
+  expect(ids(footers(turnView(running("landed"), new Set(), options)))).toEqual([`${SUPERSEDED}-s1`]);
   expect(footers(turnView(running("landed", { streaming: true }), new Set(), options))).toEqual([]);
   const workOnly = [
     row("u", "user", { text: "Run it" }),

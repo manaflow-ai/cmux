@@ -307,6 +307,7 @@ impl SurfaceSessionScope {
             | MuxEvent::AppsChanged(_)
             | MuxEvent::StashChanged { .. }
             | MuxEvent::TasksChanged(_)
+            | MuxEvent::ChatsChanged { .. }
             | MuxEvent::Empty => true,
         }
     }
@@ -561,6 +562,16 @@ impl MuxEventReceiver {
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> Result<MuxEvent, RecvTimeoutError> {
+        self.recv_until_interrupted_or(interrupt, None)
+    }
+
+    /// [`Self::recv_until_interrupted`] that also returns `Timeout` at
+    /// `deadline`.
+    pub(crate) fn recv_until_interrupted_or(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+        deadline: Option<Instant>,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
             if let Some(event) = state.pop() {
@@ -572,7 +583,15 @@ impl MuxEventReceiver {
             if interrupt.is_fired() {
                 return Err(RecvTimeoutError::Timeout);
             }
-            state = self.mailbox.changed.wait(state).recover_poison();
+            state = match deadline {
+                None => self.mailbox.changed.wait(state).recover_poison(),
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Err(RecvTimeoutError::Timeout);
+                    };
+                    self.mailbox.changed.wait_timeout(state, remaining).recover_poison().0
+                }
+            };
         }
     }
 

@@ -328,7 +328,9 @@ jobs:
           path: ~/.cache/cmux-lint-tools
           key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
 
-      - name: Fast gates on the merge
+      # This is one timing-budget step; the runner prints a named critical-path gate and writes every gate's
+      # duration to the summary, so a future budget alert identifies the check that grew instead of only this step.
+      - name: Fast gates on the merge (parallel independent gates)
         id: gates
         env:
           BASE: ${{ needs.resolve.outputs.base }}

@@ -459,10 +459,15 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
   /// prompt above scrolls back into view by design. This harness measures loading (open, reconnects,
   /// paging, a cold restart), so every page it records pins the arm that keeps every reply, as #41213
   /// pinned old arms in other suites; turn-fold-keeps-replies.test.ts covers the fold itself.
+  /// The follow arm is pinned to `blocks` for the same reason. On the slim `send` arm, a turn that
+  /// ends while its reply still reveals brings the rows above down with its fold, and the reply's
+  /// last lines take them back up: a turn-end motion, not a load flip. That is tracked in
+  /// manaflow-ai/cmuxterm-hq#10502, whose detector is this test with the arm set to `send`.
   const pinFoldArm = (page: Page) =>
     page.addInitScript(() => {
       (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
         "turn-fold-replies": "replies",
+        "follow-motion": "blocks",
       };
     });
 

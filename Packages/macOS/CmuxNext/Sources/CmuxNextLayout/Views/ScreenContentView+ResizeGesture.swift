@@ -92,9 +92,9 @@ extension ScreenContentView {
         context.requestFrames()
     }
 
-    /// Gives the pane views their frame notices back once no resize drag and no zoom moves them (``FrameNoticeHold``).
+    /// Gives the pane views their frame notices back once no resize drag, zoom or key resize moves them (``FrameNoticeHold``).
     func releasePaneFrameNoticesIfSettled() {
-        guard resizeGesture == .idle, zoomMotion.pane == nil, paneFrameNotices.isHolding else { return }
+        guard resizeGesture == .idle, zoomMotion.pane == nil, !holdsContentForKeyResize, paneFrameNotices.isHolding else { return }
         paneFrameNotices.release()
     }
 

@@ -74,8 +74,17 @@ Pipe values from 1Password; never paste or echo them.
 | `TURN_KEY_API_TOKEN` | same item, field `credential` | for TURN |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | the team's APNs auth key (`.p8`, PKCS#8 PEM), its key id and team `7WLXT3NR37`. Not set yet: no APNs key was found in 1Password (searched 2026-10-13). Until set, `notify` answers `configured:false`. One key signs pushes to every bundle in `APNS_TOPICS` (each push's topic is the bundle its phone registered), so it must be a team-scoped key: a key limited to one bundle gets `TopicDisallowed` for the others, which `notify` reports in `failures` | for push |
 | `STACK_SECRET_SERVER_KEY` | Stack server key of the env's primary project | optional; without it membership and invites use the caller's own token (always the case for the other projects) |
+| `SLACK_BOT_TOKEN` | 1Password `cmux NEXT iOS Alerts Slack bot token` (vault Shared), field `credential`: the Bot User OAuth Token of the Slack app **cmux NEXT iOS Alerts** (app `A0CHSEK85BN`, Manaflow workspace): the app made only for connectivity alerts (`chat:write` only; a member of #cmux-next-ios-alerts). Never another app's token | for connectivity alerts (else they are kept, not sent) |
+
+`CONNECTIVITY_ALERT_CHANNEL` (real team phones) and `CONNECTIVITY_ALERT_TEST_CHANNEL` (simulators, Debug builds,
+agent accounts; their posts say "Test route") are plain `vars` in `wrangler.jsonc`, both `C0CHDSZJYU9`
+(#cmux-next-ios-alerts) on dev and prod: nothing of this feature posts anywhere else. Do not also set them as
+secrets (a var and a secret cannot share a name). `CONNECTIVITY_ALERT_EXCLUDED_EMAILS` (optional) lists extra
+team-domain accounts that are agents or services, comma-separated (`cmux-agent-*` is always excluded).
 
 ```bash
+op read "op://Shared/cmux NEXT iOS Alerts Slack bot token/credential" | tr -d '\n' \
+  | bunx wrangler@4 secret put SLACK_BOT_TOKEN --env prod
 op item get lqvg75d4awzbveq7ny5gyfeyd4 --fields notesPlain | grep -oE '[0-9a-f]{32}' | head -1 | tr -d '\n' \
   | bunx wrangler@4 secret put TURN_KEY_ID --env dev
 op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/credential" | tr -d '\n' \

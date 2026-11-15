@@ -257,7 +257,7 @@ export function alongsideMove(animations: Iterable<Animation> | undefined, dt: n
 /// off, Reduce Motion or a hidden page.
 function speedOf(node: HTMLElement): number {
   const doc = node.ownerDocument;
-  if (motionMode(doc) !== "full") return 0;
+  if (motionMode(doc, node) !== "full") return 0;
   const token = cssTimeMs(doc.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "");
   return token === undefined ? 1 : token / MOTION_MS.standard;
 }

@@ -20,7 +20,7 @@ public import Foundation
 /// - the session daemon connection (`acpmux`, "Connection to the session service"): connected or not,
 ///   answering its heartbeat and its requests or not (`DaemonHealthSink`: the first
 ///   timed-out request shows it at once). Repairs: Retry Now, then a reconnect with a fresh drop budget;
-///   never a kill;
+///   never a kill. A connection that is up and answering also tells `sessionDaemon` its owner is ready;
 /// - the page host (`pageHost`): page loads and the daemon's page listener (asked for when a page
 ///   found no listener credential). Repair: `DaemonService.ensurePageListener()`.
 @MainActor
@@ -172,30 +172,44 @@ public final class AppHealthFeeds {
 @MainActor
 enum AppHealthConnectionFeed {
     enum Link: Equatable, Sendable {
-        case starting, up, down
+        /// Before this launch's first connection: the daemon is still starting.
+        case starting
+        /// Connected and answering; `pid` is the owner's when the handshake named it.
+        case up(pid: Int32?)
+        case down
     }
 
     static func follow(_ daemon: DaemonService, health: AppHealth) -> Task<Void, Never> {
         let links = ObservationStream { [weak daemon] () -> Link in
             guard let daemon else { return .starting }
-            if case .connected = daemon.store.connectionState { return daemon.recovery.daemonNotAnswering ? .down : .up }
+            if case .connected = daemon.store.connectionState {
+                return daemon.recovery.daemonNotAnswering ? .down : .up(pid: daemon.store.identity?.pid)
+            }
             // Before the first connection of this launch the daemon is still starting.
             return daemon.store.connects > 0 ? .down : .starting
         }
         // task-owner: AppHealthFeeds (`connectionFeed`), for the app's life; event driven (Observation).
         return Task {
-            for await link in links {
-                switch link {
-                case .starting:
-                    break
-                case .up:
-                    health.event(AppHealth.acpmuxID, .connected)
-                    health.visibility(AppHealth.acpmuxID, visible: false)
-                case .down:
-                    health.visibility(AppHealth.acpmuxID, visible: true)
-                    health.event(AppHealth.acpmuxID, .disconnected)
-                }
-            }
+            for await link in links { apply(link, to: health) }
+        }
+    }
+
+    /// One change of the connection, told to app health.
+    nonisolated static func apply(_ link: Link, to health: AppHealth) {
+        switch link {
+        case .starting:
+            break
+        case .up(let pid):
+            health.event(AppHealth.acpmuxID, .connected)
+            health.visibility(AppHealth.acpmuxID, visible: false)
+            // An owner that is connected and answers is serving: it is not restoring and not in a
+            // start loop, whatever an earlier ensure or replace left (a progress line seen after its
+            // end, a replace refused after it wrote). Without this a stale restore read as stalled
+            // and showed "Session service isn't responding" until the next launch (2026-11-13).
+            health.noteDaemonReady(pid: pid ?? 0)
+        case .down:
+            health.visibility(AppHealth.acpmuxID, visible: true)
+            health.event(AppHealth.acpmuxID, .disconnected)
         }
     }
 }

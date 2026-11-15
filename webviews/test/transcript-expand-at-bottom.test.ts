@@ -298,12 +298,14 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     }
     return { judged, apart, worst, jumped, seen: seen.join(" ") };
   };
-  const watchOpen = async (page: Page, query: string, ms = 700, click = true) => {
+  const watchOpen = async (page: Page, query: string, frameCount = 45, click = true) => {
     const watching = page.evaluate(
-      ({ selector, duration }) =>
+      ({ selector, frameCount }) =>
         new Promise<Frame[]>((resolve) => {
           const frames: Frame[] = [];
-          const start = performance.now();
+          // Observe a fixed number of painted frames, not a wall-clock window: a loaded runner paints
+          // fewer frames in the same time and can stop between a layout and the paint that settles it.
+          let seen = 0;
           let clicked = Number.NaN;
           addEventListener("click", () => (clicked = performance.now()), { capture: true, once: true });
           // The height animations playing in `row`, the fold's (fold.ts): each with its own clock.
@@ -368,12 +370,13 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
               folds,
               animated,
             });
-            if (performance.now() - start < duration) return;
+            seen += 1;
+            if (seen < frameCount) return;
             resolve(frames);
             return false;
           }, inFrame);
         }),
-      { selector: query, duration: ms },
+      { selector: query, frameCount },
     );
     if (click) await clickLine(page, query);
     return watching;

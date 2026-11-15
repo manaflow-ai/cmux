@@ -211,7 +211,7 @@ mod cisco_install {
         );
         assert_eq!(
             dir_from("macos", env(&[("HOME", "/Users/u")])),
-            Some(PathBuf::from("/Users/u/Library/Application Support/cmux/openh264"))
+            Some(PathBuf::from("/Users/u/Library/Application Support/cmux-next/openh264"))
         );
         assert_eq!(dir_from("linux", env(&[])), None);
         assert_eq!(

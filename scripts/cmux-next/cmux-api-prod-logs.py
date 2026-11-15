@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""cmux-api production Workers Logs for one UTC window, published default-deny.
+"""cmux-api production Workers Logs for one UTC window, stored only in private HQ.
 
 An agent asking why production refused something (prod 2026-11-11: `cmux auth token` refused the app's own
 team as "not a member") reads the Worker's own diagnostic lines here instead of asking a person for a dashboard.
 
-The run log is PUBLIC (the repo is public), so nothing is printed unless it is known safe:
+The run log is PUBLIC: stdout contains only row_count and a private HQ issue pointer.
+The private payload still uses default-deny projection:
 - A Worker console line is printed only when its `msg` is, exactly, one of PUBLIC_MSGS: constant diagnostic
   ids the Worker itself writes. Any other msg is dropped and only counted. That drops every tenant-written line
   (automation `ctx.log`, automation tail logs and exceptions, which carry `source`/`run`/`automation`) and every
@@ -14,11 +15,13 @@ The run log is PUBLIC (the repo is public), so nothing is printed unless it is k
 - Per request: time, kind, outcome, method, status, and the path; a segment prints as is only when it is a fixed
   route word (ROUTE_SEGMENTS), every other segment prints hashed.
 - Never a header, body, query string, free-text error, email, IP, token, or the event's own key names.
-- Needles are read from the dispatch event file, never from the environment (step env is echoed in the log),
+- Account scope is required and matches parsed team/account fields exactly before any counting or projection.
+  Missing, malformed or conflicting identities are dropped. A URL or search term never proves ownership.
+- Account and needles are read from the dispatch event file, never from the environment (step env is echoed in the log),
   and print hashed. They filter the public rows only (never raw event text), and the header says only whether
   any row was kept (`kept_any`), so a dispatcher can't use the run to probe for text.
 
-  python3 -I cmux-api-prod-logs.py --from 2026-11-11T13:20:00Z --minutes 30 [--needles "team_x,/auth/"] < token
+  python3 -I cmux-api-prod-logs.py --from 2026-11-11T13:20:00Z --account team_x --minutes 30 [--needles "/auth/"] < token
 
 stdin: one line, a Cloudflare API token that may read Workers observability. Never printed.
 """
@@ -37,6 +40,8 @@ ACCOUNT = "0c1675e0def6de1ab3a50a4e17dc5656"
 SERVICE = "cmux-api"
 PAGES = 20
 MAX_ROWS = 2000
+HQ_REPO = "manaflow-ai/cmuxterm-hq"
+PRIVATE_PART_CHARS = 50_000
 NEEDLE_OK = re.compile(r"^[A-Za-z0-9_./ :-]{3,80}$")
 
 # Exact msg ids, constant strings the cmux-api Worker writes in backend/apps/api/src. Add one only when it is a
@@ -393,9 +398,43 @@ def matches(row, needles):
     return any(n in text or tag(n) in text for n in needles)
 
 
-def publish(events, needles):
+def unique_identity_fields(pairs):
+    """Reject ambiguous JSON identities instead of silently using the last occurrence."""
+    result = {}
+    for key, value in pairs:
+        if key in ("team", "account") and key in result:
+            raise ValueError("duplicate identity")
+        result[key] = value
+    return result
+
+
+def belongs_to_account(event, account):
+    """Only parsed identity fields establish scope; all supplied identities must agree.
+
+    Check each console source, including conflicting copies, before public_log can drop
+    fields. A request path, free text, or a user id on a team log is not a team identity.
+    """
+    if not isinstance(account, str) or not ID_OK.fullmatch(account):
+        return False
+    identities = []
+    for candidate in (event, dig(event, "$metadata", "message"),
+                      dig(event, "message"), dig(event, "source")):
+        if isinstance(candidate, str):
+            try:
+                candidate = json.loads(candidate, object_pairs_hook=unique_identity_fields)
+            except ValueError:
+                return False
+        if isinstance(candidate, dict):
+            identities.extend(candidate[key] for key in ("team", "account") if key in candidate)
+    return bool(identities) and all(isinstance(value, str) and value == account for value in identities)
+
+
+def publish(events, needles, account=None):
     """(header, rows) for the public log. Needles filter the public rows, never raw event text, so a dispatcher can't
     probe for tenant text; and the header says only whether any row was kept, not how many."""
+    if not needles:
+        raise ValueError("needles: at least one search term is required")
+    events = [event for event in events if belongs_to_account(event, account)]
     counts = {}
     rows = [line(e, counts) for e in events]
     rows.sort(key=lambda r: r.pop("_ts", 0))
@@ -422,30 +461,103 @@ def query(token, frm, to, offset=None):
         sys.exit(f"telemetry query refused: HTTP {e.code}")
 
 
-def event_needles(path):
+def event_input(path, key):
     try:
         with open(path) as f:
-            v = dig(json.load(f), "inputs", "needles")
+            v = dig(json.load(f), "inputs", key)
     except (OSError, ValueError):
         return ""
     return v if isinstance(v, str) else ""
 
 
+def event_needles(path):
+    return event_input(path, "needles")
+
+
+def hq_request(token, method, suffix="", data=None):
+    """Private destination only; never expose an HTTP response/error body in the public log."""
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{HQ_REPO}{suffix}",
+        data=json.dumps(data).encode() if data is not None else None, method=method,
+        headers={"authorization": f"Bearer {token}", "accept": "application/vnd.github+json",
+                 "content-type": "application/json", "user-agent": "cmux-private-worker-logs"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        sys.exit(f"private log store refused: HTTP {error.code}")
+    except (OSError, ValueError):
+        sys.exit("private log store unavailable or returned invalid JSON")
+
+
+def private_destination():
+    """Verify the existing HQ-only token and private repository before querying Workers Logs."""
+    token = os.environ.get("HQ_GH_TOKEN", "").strip()
+    if not token:
+        sys.exit("private log store credential unavailable; nothing queried")
+    repo = hq_request(token, "GET")
+    if not isinstance(repo, dict) or repo.get("private") is not True or repo.get("full_name") != HQ_REPO:
+        sys.exit("private log store is not the expected private repository; nothing queried")
+    return token
+
+
+def private_upload(token, header, rows):
+    """Keep bounded JSON parts in one private issue; return a pointer only after every write succeeds."""
+    lines = [json.dumps({"header": header}, separators=(",", ":"))]
+    lines.extend(json.dumps(row, separators=(",", ":")) for row in rows)
+    parts, current = [], ""
+    for line in lines:
+        if len(line) > PRIVATE_PART_CHARS:
+            sys.exit("private log row exceeds storage limit")
+        if len(current) + len(line) + 1 > PRIVATE_PART_CHARS:
+            parts.append(current)
+            current = ""
+        current += line + "\n"
+    if current:
+        parts.append(current)
+    run = os.environ.get("GITHUB_RUN_ID", "manual")
+    run = run if re.fullmatch(r"[0-9]{1,20}", run) else "manual"
+
+    def body(index):
+        return f"Private diagnostic rows, part {index + 1}/{len(parts)}.\n\n```jsonl\n{parts[index]}```"
+
+    created = hq_request(token, "POST", "/issues", {
+        "title": f"Worker diagnostic rows: run {run}", "body": body(0)})
+    number = created.get("number") if isinstance(created, dict) else None
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        sys.exit("private log store did not return an issue receipt")
+    for index in range(1, len(parts)):
+        receipt = hq_request(token, "POST", f"/issues/{number}/comments", {"body": body(index)})
+        comment = receipt.get("id") if isinstance(receipt, dict) else None
+        if not isinstance(comment, int) or isinstance(comment, bool) or comment <= 0:
+            sys.exit("private log store did not return a comment receipt")
+    return f"https://github.com/{HQ_REPO}/issues/{number}"
+
+
 def main():
+    if os.environ.get("GITHUB_EVENT_NAME") not in (None, "workflow_dispatch"):
+        sys.exit("logs: only workflow_dispatch may query")
     ap = argparse.ArgumentParser()
     ap.add_argument("--from", dest="frm", required=True, help="UTC start, e.g. 2026-11-11T13:20:00Z")
     ap.add_argument("--minutes", type=int, default=30)
     ap.add_argument("--needles", default="")
     ap.add_argument("--needles-from-event", default="", help="read inputs.needles from this workflow event file")
+    ap.add_argument("--account", default="", help="exact parsed team/account id; required")
     args = ap.parse_args()
+    account = args.account or (event_input(args.needles_from_event, "account") if args.needles_from_event else "")
+    if not ID_OK.fullmatch(account):
+        sys.exit("account: an exact team/account id is required")
     raw = args.needles or (event_needles(args.needles_from_event) if args.needles_from_event else "")
     needles = [n.strip() for n in raw.split(",") if n.strip()]
+    if not needles:
+        sys.exit("needles: at least one search term is required")
     if any(not NEEDLE_OK.match(n) for n in needles):
         sys.exit("needles: each 3-80 chars of letters, digits, _ . / : - and space")
     start = datetime.datetime.strptime(args.frm, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
     minutes = max(1, min(60, args.minutes))
     frm = int(start.timestamp() * 1000)
     to = frm + minutes * 60_000
+    private_token = private_destination()
     token = sys.stdin.readline().strip()
     events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
@@ -459,11 +571,11 @@ def main():
         if not offset:
             complete = True
             break
-    head, rows = publish(events, needles)
-    print(json.dumps({"service": SERVICE, "window_utc": [args.frm, minutes], "pages": pages, "truncated": not complete, **head},
-                     indent=1))
-    for r in rows:
-        print(json.dumps(r, separators=(",", ":")))
+    head, rows = publish(events, needles, account=account)
+    pointer = private_upload(private_token, {
+        "service": SERVICE, "account": tag(account), "window_utc": [args.frm, minutes],
+        "truncated": not complete, **head}, rows)
+    print(json.dumps({"row_count": len(rows), "pointer": pointer}))
     return 0
 
 

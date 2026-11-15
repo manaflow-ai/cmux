@@ -237,7 +237,7 @@ impl Supervisor {
         Ok(Target::Host(HostKey { app: app.to_string(), preview: false }, export))
     }
 
-    fn start_run_locked(
+    pub(super) fn start_run_locked(
         &self,
         inner: &mut Inner,
         key: &HostKey,

@@ -106,6 +106,8 @@ pub struct ProcStat {
     pub name: String,
     /// utime + stime in clock ticks.
     pub cpu_ticks: u64,
+    /// starttime: when the process started, in clock ticks since the boot.
+    pub start_ticks: u64,
 }
 
 /// Parse `/proc/<pid>/stat`. The command name is in parentheses and may hold
@@ -114,13 +116,27 @@ pub fn parse_proc_stat(stat: &str) -> Option<ProcStat> {
     let open = stat.find('(')?;
     let close = stat.rfind(')')?;
     let name = stat.get(open + 1..close)?.to_string();
-    // After the name: state(3) ppid(4) ... utime(14) stime(15), so ppid is
-    // index 1 and utime/stime are 11 and 12 of the remaining fields.
+    // After the name: state(3) ppid(4) ... utime(14) stime(15) ...
+    // starttime(22), so ppid is index 1, utime/stime are 11 and 12 and
+    // starttime is 19 of the remaining fields.
     let fields: Vec<&str> = stat.get(close + 1..)?.split_whitespace().collect();
     let ppid = fields.get(1)?.parse().ok()?;
     let utime: u64 = fields.get(11)?.parse().ok()?;
     let stime: u64 = fields.get(12)?.parse().ok()?;
-    Some(ProcStat { ppid, name, cpu_ticks: utime.saturating_add(stime) })
+    let start_ticks = fields.get(19)?.parse().ok()?;
+    Some(ProcStat { ppid, name, cpu_ticks: utime.saturating_add(stime), start_ticks })
+}
+
+/// The stat line of a process, from its file `path` (`/proc/<pid>/stat`).
+///
+/// The line is read as bytes. The system keeps 15 bytes of a program's name
+/// and can cut it inside a character, so the line is not always UTF-8. Each
+/// field after the name is ASCII, and the name's bytes that are no character
+/// become U+FFFD here. A reader of the line finds the fields after the last
+/// `)`.
+pub fn stat_line(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    let stat = std::fs::read(path)?;
+    Ok(String::from_utf8_lossy(&stat).into_owned())
 }
 
 /// Resident pages from `/proc/<pid>/statm` (the second field).
@@ -183,6 +199,35 @@ pub fn sample_process(pid: u32) -> Option<ProcessSample> {
     imp::sample_process(pid)
 }
 
+/// The parent of one process, reading only that process: `None` when the
+/// process is gone, or on a platform where this reads no process. The
+/// daemon's accept loop asks it for the leader of a client's process
+/// session (cmux-tui-core `diagnostics/terminal_seats.rs`), so it must not
+/// scan the processes ([`Sampler::new`] does on Linux).
+pub fn parent_process(pid: u32) -> Option<u32> {
+    imp::parent_process(pid)
+}
+
+/// When one process started, as the system keeps it for the process: on
+/// Linux the clock ticks since the boot (`/proc/<pid>/stat` field 22), on
+/// macOS the time of day in microseconds. It does not change while the
+/// process lives. Two values compare only when one process read both in one
+/// boot of one system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProcessStart(pub u64);
+
+/// The start of one process, reading only that process: `None` when the
+/// process is gone or does not answer, or on a platform where this reads no
+/// process. A later process that has the same process id has another start
+/// (on macOS: while the time of day does not go back).
+pub fn process_start(pid: u32) -> Option<ProcessStart> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let started = imp::process_start(pid);
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let started = None::<u64>.filter(|_| pid != 0);
+    started.map(ProcessStart)
+}
+
 impl Default for Sampler {
     fn default() -> Self {
         Self::new()
@@ -213,9 +258,17 @@ mod imp {
         Sampler { stats: HashMap::from([(pid, stat)]), ..Sampler::empty() }.sample(pid)
     }
 
+    pub(super) fn parent_process(pid: u32) -> Option<u32> {
+        read_stat(pid).map(|stat| stat.ppid)
+    }
+
+    pub(super) fn process_start(pid: u32) -> Option<u64> {
+        read_stat(pid).map(|stat| stat.start_ticks)
+    }
+
     /// One process's parsed `/proc/<pid>/stat`, or None when it is gone.
     fn read_stat(pid: u32) -> Option<ProcStat> {
-        parse_proc_stat(&std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?)
+        parse_proc_stat(&super::stat_line(format!("/proc/{pid}/stat")).ok()?)
     }
 
     pub(super) struct Sampler {
@@ -412,21 +465,7 @@ mod imp {
         }
 
         pub(super) fn parent(&self, pid: u32) -> Option<u32> {
-            let pid = c_int::try_from(pid).ok()?;
-            // SAFETY: proc_bsdinfo is plain old data; all-zero is valid.
-            let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-            let size = c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
-            // SAFETY: `info` is a writable buffer of `size` bytes for this flavor.
-            let written = unsafe {
-                libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
-            };
-            if written == size {
-                return Some(info.pbi_ppid);
-            }
-            // A login(1) PTY child runs setuid root, which proc_pidinfo does
-            // not answer for; the process table does.
-            let pid = u32::try_from(pid).ok()?;
-            crate::kinfo_proc::KinfoProc::read(pid).map(|process| process.parent())
+            parent_process(pid)
         }
 
         pub(super) fn sample(&self, pid: u32) -> Option<ProcessSample> {
@@ -462,6 +501,41 @@ mod imp {
         }
     }
 
+    pub(super) fn parent_process(pid: u32) -> Option<u32> {
+        let pid = c_int::try_from(pid).ok()?;
+        // SAFETY: proc_bsdinfo is plain old data; all-zero is valid.
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+        // SAFETY: `info` is a writable buffer of `size` bytes for this flavor.
+        let written = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
+        };
+        if written == size {
+            return Some(info.pbi_ppid);
+        }
+        // A login(1) PTY child runs setuid root, which proc_pidinfo does
+        // not answer for; the process table does.
+        let pid = u32::try_from(pid).ok()?;
+        crate::kinfo_proc::KinfoProc::read(pid).map(|process| process.parent())
+    }
+
+    /// The start of a process that `proc_pidinfo` answers for (one of this
+    /// user). No other read is tried: a process that does not answer has no
+    /// start here.
+    pub(super) fn process_start(pid: u32) -> Option<u64> {
+        let pid = c_int::try_from(pid).ok()?;
+        // SAFETY: proc_bsdinfo is plain old data; all-zero is valid.
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+        // SAFETY: `info` is a writable buffer of `size` bytes for this flavor.
+        let written = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
+        };
+        (written == size).then(|| {
+            info.pbi_start_tvsec.saturating_mul(1_000_000).saturating_add(info.pbi_start_tvusec)
+        })
+    }
+
     fn pid_path(pid: u32) -> Option<String> {
         let pid = c_int::try_from(pid).ok()?;
         let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
@@ -493,6 +567,12 @@ mod imp {
     /// The full snapshot `Sampler::new` takes (no per-pid read here yet).
     pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
         Sampler::new().sample(pid)
+    }
+
+    /// Not read: a client's process session is not known on Windows, so
+    /// nothing asks (a read here would be the full snapshot).
+    pub(super) fn parent_process(_pid: u32) -> Option<u32> {
+        None
     }
 
     use std::collections::HashMap;
@@ -554,6 +634,10 @@ mod imp {
         Sampler::new().sample(pid)
     }
 
+    pub(super) fn parent_process(_pid: u32) -> Option<u32> {
+        None
+    }
+
     use std::sync::OnceLock;
     use std::time::Instant;
 
@@ -596,3 +680,6 @@ mod imp {
 pub const fn reads_process_trees() -> bool {
     cfg!(any(target_os = "linux", target_os = "macos", windows))
 }
+
+#[cfg(test)]
+mod stat_line_tests;

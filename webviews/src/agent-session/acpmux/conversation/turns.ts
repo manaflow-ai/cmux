@@ -19,7 +19,7 @@ import {
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
-import { findRowIndex } from "./chatFind";
+import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -54,7 +54,7 @@ import { turnCopyParts } from "./turnCopy";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { hidesEveryCall } from "./mcpPresentation";
-import { isQuietThought, isThought, thoughtDuration } from "./thoughts";
+import { isThought, isQuietThought, thoughtDuration } from "./thoughts";
 import { SILENT_MS } from "./thinkingModel";
 import {
   BACKGROUND_TURN,
@@ -205,14 +205,17 @@ const footerSays = (row: AcpmuxRow) =>
 /// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
 /// show over the turn gap below, so nothing moves.
 ///
-/// The chat's last turn (`retryable`: no prompt after it) that spoke and then ended on work, with no
-/// reply after its last call, is not empty: it ends the chat, so its row with Copy (the whole turn,
-/// turnCopy.ts) shows once it ends, as ChatGPT's does under every finished turn (Leo, 2026-11-02:
-/// "the latest copy buttons auto showing when the turn is done like chatgpt"). Before, that footer
-/// drew nothing, so the chat ended on a blank band with no buttons. A footer that is empty never
+/// A finished turn that spoke and then ended on work, with no reply after its last call, is not
+/// empty, whether or not a prompt came after it: its row with Copy (the whole turn, turnCopy.ts)
+/// stays, as ChatGPT's does under every finished turn (Leo, 2026-11-02: "the latest copy buttons auto
+/// showing when the turn is done like chatgpt"). It used to be kept only while the turn was the
+/// chat's last (`retryable`), so the row vanished, and the transcript jumped by its height, the
+/// moment the next prompt went; and a turn paged in from history without its prompt drew none until
+/// the prompt came (Leo, 2026-11-14: "the copy sometimes disappears entirely? which causes big
+/// shifts. it happens often when scrolling up and stuff loads"). A footer that is empty never
 /// carries Retry: the prompt keeps it (`retryPlacement`).
 export const isEmptyFooter = (row: AcpmuxRow) =>
-  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !endsChatOnWork(row);
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !endsOnWork(row);
 
 /// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
 /// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
@@ -291,9 +294,10 @@ function retryTargetAt(rows: readonly AcpmuxRow[], starts: readonly number[]): n
   return -1;
 }
 
-/// The last turn's footer when the turn said something and ended on work (`isEmptyFooter` above).
-/// transcriptGrid.ts rowMark repeats it inline (that module imports nothing).
-export const endsChatOnWork = (row: AcpmuxRow) => row.retryable === true && (row.turnCopy?.length ?? 0) > 0;
+/// A turn's footer when the turn said something and ended on work (`isEmptyFooter` above), the chat's
+/// last turn or not. transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline (those
+/// modules cannot import this one).
+export const endsOnWork = (row: AcpmuxRow) => (row.turnCopy?.length ?? 0) > 0;
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
@@ -678,7 +682,11 @@ export function turnViewFrom(
       const row = rows[index++]!;
       if (!isVisiblyEmptyMessage(row)) out.push(row);
     }
-    out = foldBackgroundRuns(foldBackgroundTurns(out, expanded), expanded);
+    // A turn paged in without its prompt ends on acpmux's bare summary, which carries no answer: its
+    // footer gets its reply and its turn to copy here, as `shapeTurn` gives them once the prompt
+    // pages in, so its action row is there from the start and paging the prompt in moves nothing
+    // (Leo, 2026-11-14: "it happens often when scrolling up and stuff loads").
+    out = foldBackgroundRuns(foldBackgroundTurns(withTailAnswers(out, NO_ENDED_BACKGROUND), expanded), expanded);
     lead = index;
     starts = [];
     times = [];
@@ -1159,8 +1167,16 @@ function shapedTurn(
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
+    // While the turn runs it comes with the prompt the person sent, in the frame the prompt is drawn
+    // (over a steer still waiting, at the body's end), so the prompt never moves down under it when
+    // the agent reads it (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move
+    // up and under your current running tool call or whatever").
+    const runs = foldBackgroundRuns(messaged, expanded);
+    // The person's steer still on its way (the pane's own row, before acpmux's record) is held after the
+    // body; its stretch's footer comes in the frame it is drawn, as for one acpmux recorded.
+    const sending = live ? held.filter(sentSteer) : [];
     const body = sinceAboveWorked(
-      supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson, user.at),
+      supersededFooters(runs, sending.length ? [...turn, ...sending] : turn, endedByPerson, user.at, live),
     );
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
@@ -1194,6 +1210,8 @@ function shapedTurn(
       ...held,
       ...line,
     ];
+    // What was still going when the person sent into the running turn draws after the prompt.
+    if (live) shaped = afterSends(shaped, clockOffset);
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
@@ -1222,7 +1240,62 @@ function shapedTurn(
       endedByPerson,
       rows: shaped,
     });
+  else shaped = steadyLiveRows(user, shaped);
   return shaped;
+}
+
+/// The running turn's drawn rows from its last shaping, by id. That turn is shaped again on every
+/// record (`shapedTurn` keeps no cache for it), and its folds and groups come back as new objects
+/// even where nothing in them changed. Downstream everything keys on row identity: the layout keeps
+/// a row only while it is the same object (`layoutConversation`), the height cache is a WeakMap by
+/// row, and each mounted row re-renders when its object changes. A coordinator's running turn holds
+/// thousands of rows, so every streamed token re-laid, re-measured and re-rendered all of them
+/// (Leo's long chat: 110% renderer CPU, frames every 283 ms). A row equal to the one drawn last
+/// time keeps that object, so a token costs only the rows it changed.
+const liveTurnRows = new WeakMap<AcpmuxRow, Map<string, AcpmuxRow>>();
+
+function steadyLiveRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
+  const before = liveTurnRows.get(user);
+  const next = new Map<string, AcpmuxRow>();
+  let out: AcpmuxRow[] | undefined;
+  for (let at = 0; at < shaped.length; at += 1) {
+    const row = shaped[at]!;
+    const prior = before?.get(row.id);
+    const kept = prior !== undefined && prior !== row && sameShape(prior, row, ROW_COMPARE_DEPTH) ? prior : row;
+    if (kept !== row) (out ??= shaped.slice())[at] = kept;
+    next.set(row.id, kept);
+  }
+  liveTurnRows.set(user, next);
+  return out ?? shaped;
+}
+
+/// How deep `sameShape` compares: a row, its fields' objects and arrays (a group's rows, a tool
+/// call's content), and theirs. Deeper values must be the same object.
+const ROW_COMPARE_DEPTH = 4;
+
+/// `a` and `b` hold the same values: the same object, or plain objects and arrays whose entries are
+/// the same down to `depth` levels. Equal values draw the same, so the older object can stand in.
+export function sameShape(a: unknown, b: unknown, depth: number): boolean {
+  if (a === b) return true;
+  if (depth <= 0 || typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let at = 0; at < a.length; at += 1) if (!sameShape(a[at], b[at], depth - 1)) return false;
+    return true;
+  }
+  if (
+    Array.isArray(b) ||
+    Object.getPrototypeOf(a) !== Object.prototype ||
+    Object.getPrototypeOf(b) !== Object.prototype
+  )
+    return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    if (!sameShape((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key], depth - 1)) return false;
+  }
+  return true;
 }
 
 /// "New since you looked" draws above the "Worked for" that holds or just precedes it, never under
@@ -2070,9 +2143,10 @@ function shapeTurn(
   return shaped;
 }
 
-/// `tail` with each of its summaries carrying the reply of the turn it ends, as `shapeTurn` gives the
-/// prompt's own summary: a reply's footer is a 32 row of its own, never an empty one laid over the
-/// gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary after no reply stays as it came.
+/// `tail` with each of its summaries carrying the reply of the turn it ends and the turn to copy, as
+/// `shapeTurn` gives the prompt's own summary: the footer under a turn that said anything is a 32 row
+/// of its own, never an empty one laid over the gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary
+/// after a turn that said nothing stays as it came.
 function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>, seq?: number): AcpmuxRow[] {
   let from = 0;
   let out: AcpmuxRow[] | undefined;
@@ -2083,19 +2157,22 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>
     from = at + 1;
     if (row.text) continue;
     const answer = body[answerAt(body)];
-    if (!answer) continue;
+    const parts = turnCopyParts(body);
+    if (!answer && !parts) continue;
     out ??= [...tail];
+    // The memoized footer redraws when its turn's rows do.
+    const key = body.reduce((sum, each) => (sum * 31 + each.version) % VERSION_SPAN, body.length);
     out[at] = {
       ...row,
-      text: answer.text,
-      answerId: answer.id,
-      turnCopy: turnCopyParts(body),
+      ...(answer && { text: answer.text, answerId: answer.id }),
+      turnCopy: parts,
       ...withWork(body),
-      version: row.version * VERSION_SPAN + answer.version,
+      version: row.version * VERSION_SPAN + key,
     };
   }
   return backgroundFooters(out ?? tail, endedBackground, seq);
 }
+const NO_ENDED_BACKGROUND: ReadonlySet<string> = new Set();
 
 /// A finished stretch's timed work, for its footer's Timeline (waterfallSpans.ts), when it has any.
 function withWork(rows: readonly AcpmuxRow[]): Pick<AcpmuxRow, "turnWork"> {
@@ -2402,9 +2479,16 @@ function supersededFooters(
   turn: readonly AcpmuxRow[],
   endedByPerson: boolean,
   startedAt: number,
+  live = false,
 ): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   let from = 0;
+  // A running turn's live line drawn below stays its last row: a footer over a waiting steer goes
+  // above it, where the steer is drawn.
+  const bodyEnd = () => {
+    const list = out ?? drawn;
+    return list.at(-1)?.below ? list.length - 1 : list.length;
+  };
   // Settles whether a footer went in over the stretch that ends at `to`.
   const close = (to: number, at: number | undefined, key: string): boolean => {
     const stretch = turn.slice(from, to).filter((row) => row.kind !== "turnSummary");
@@ -2441,10 +2525,20 @@ function supersededFooters(
   let lastSteer = -1;
   for (let index = 0; index < turn.length; index += 1) {
     const row = turn[index]!;
-    if (!personCameIn(row)) continue;
+    // A steer still waiting is the person's too: while the turn runs its footer comes with it (below).
+    // A steer the agent has not read yet: acpmux's record of it (`waiting`), or the pane's own row
+    // still on its way (`sentSteer`).
+    const unread = row.steer === "waiting" ? personCameIn({ ...row, steer: "landed" }) : live && sentSteer(row);
+    if (!personCameIn(row) && !unread) continue;
     const at = (out ?? drawn).findIndex((each) => each.id === row.id);
+    if (unread) {
+      // While the turn runs its footer comes with it, right above where it is drawn (or where the
+      // held rows after the body start).
+      if (live && sentByPerson(row) && !row.failed) close(index, at < 0 ? bodyEnd() : at, steerKey(row));
+      continue;
+    }
     if (at < 0) from = index + 1;
-    else if (close(index, at, row.id)) lastSteer = index;
+    else if (close(index, at, steerKey(row))) lastSteer = index;
   }
   if (endedByPerson && !turn.some((row) => row.kind === "turnSummary"))
     close(turn.length, undefined, turn.at(-1)?.id ?? "end");
@@ -2761,6 +2855,79 @@ function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
 const sentByPerson = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
 
+/// The pane's own row for a steer the person sent into the running turn, before acpmux's record of it.
+const sentSteer = (row: AcpmuxRow) =>
+  row.kind === "user" && row.pending === true && row.delivery?.queued === true && sentByPerson(row) && !row.failed;
+
+/// What a steer's stretch footer is keyed by: its prompt, which the pane's row and acpmux's record of
+/// it share, so the footer stays the same row from the send on (`superseded-<key>`).
+const steerKey = (row: AcpmuxRow) => row.promptId ?? row.delivery?.promptId ?? row.id;
+
+/// When the person sent `row`, on the events' clock (a call's `endedAt`): the pane's send time while
+/// it has one, moved off this computer's clock by `clockOffset` (the snapshot's `clockOffsetMs`,
+/// events' time + offset = this computer's), else its record's.
+const sentTime = (row: AcpmuxRow, clockOffset: number) =>
+  row.delivery?.sentAt !== undefined ? row.delivery.sentAt - clockOffset : row.at;
+
+/// Whether `item` was still going at `sentAt`: a call running now or one that ended after it, a
+/// thought that streamed on past it.
+function goingAt(item: NonNullable<AcpmuxRow["items"]>[number], sentAt: number): boolean {
+  if (item.tool) return isRunning(item.tool) || (item.tool.endedAt !== undefined && item.tool.endedAt > sentAt);
+  return item.kind === "thought" && item.endedAt !== undefined && item.endedAt > sentAt;
+}
+
+/// The id suffix of the part of a run that ended after a prompt the person sent (`afterSends`;
+/// chatFind.ts holds it, as Find reads the split).
+export { AFTER_SEND };
+
+/// A running turn's drawn rows with what was still going when the person sent a prompt drawn after
+/// that prompt: the transcript only appends, and nothing above the prompt moves once it is drawn
+/// (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move up and under your
+/// current running tool call or whatever"; "these animations all slosh around ... i previously sent
+/// the claude code one, just look at how they do it"). A call that ran at the send leaves its run
+/// for a run of its own right under the prompt (`AFTER_SEND`), so it lands below the prompt when it
+/// ends instead of in its run above it. One pass over the turn's rows per prompt the person sent
+/// into it (a few); a turn with none is returned as it is.
+export function afterSends(rows: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
+  let out: AcpmuxRow[] | undefined;
+  const emptied = new Set<AcpmuxRow>();
+  for (let at = 1; at < (out ?? rows).length; at += 1) {
+    const list = out ?? rows;
+    const sent = list[at]!;
+    if (!sentByPerson(sent) || sent.failed) continue;
+    const sentAt = sentTime(sent, clockOffset);
+    const moved: NonNullable<AcpmuxRow["items"]> = [];
+    let source: AcpmuxRow | undefined;
+    // Every row an item came from: Find and a count's reveal still name them (`joined`, chatFind.ts
+    // findRowIndex), and a change in any one of them (a background call ending) changes the run.
+    const members: string[] = [];
+    let version = 0;
+    for (let before = 0; before < at; before += 1) {
+      const row = list[before]!;
+      if (row.kind !== "activity" || !row.items?.some((item) => goingAt(item, sentAt))) continue;
+      out ??= [...rows];
+      const stays = row.items.filter((item) => !goingAt(item, sentAt));
+      moved.push(...row.items.filter((item) => goingAt(item, sentAt)));
+      source ??= row;
+      for (const id of row.joined ?? [row.id]) if (!members.includes(id)) members.push(id);
+      version = mixVersion(version, row.version);
+      const kept = { ...row, items: stays, version: mixVersion(row.version, stays.length) };
+      if (!stays.some((item) => item.tool || item.kind === "thought")) emptied.add(kept);
+      out[before] = kept;
+    }
+    if (!source) continue;
+    out!.splice(at + 1, 0, {
+      ...source,
+      id: `${source.id.split(AFTER_SEND)[0]}${AFTER_SEND}${sent.id}`,
+      joined: members,
+      items: moved,
+      version: mixVersion(version, moved.length),
+      ...(source.toolCount !== undefined && { toolCount: moved.filter((item) => item.tool).length }),
+    });
+  }
+  return out ? (emptied.size ? out.filter((row) => !emptied.has(row)) : out) : rows;
+}
+
 /// When a live turn's current stretch of thinking began and when the turn last heard anything, on
 /// this computer's clock. Every dated moment of the turn's rows is a sign of life: a row's start, a
 /// thought's first and latest chunk, a call's start and end. The stretch begins at the latest sign
@@ -2860,8 +3027,21 @@ type LineCall = { tool: NonNullable<ReturnType<typeof runningCall>>; at: number;
 function lineCall(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LineCall | undefined {
   // A call whose own row stays in its run (one waiting on its permission, or the `row` arm's file
   // changes) is drawn there, never on the line as well.
-  const latest = runningCall(last, (call) => !awaitsPermission(call) && !keepsOwnRow(call));
+  const lineable = (call: NonNullable<AcpmuxActivity["tool"]>) => !awaitsPermission(call) && !keepsOwnRow(call);
+  const latest = runningCall(last, lineable);
   if (latest) return { tool: latest, at: last.at };
+  // The person sent into the turn while a call ran: the call stays on the line under the prompt,
+  // never jumping into its run's row above it (Leo, 2026-11-09: "i hate the way when i send off a
+  // message it seems to move up and under your current running tool call"). Its row comes after
+  // the prompt once it ends (`afterSends`).
+  if (sentByPerson(last))
+    for (let index = drawn.length - 1; index >= 0; index -= 1) {
+      const row = drawn[index]!;
+      if (row.kind === "user") continue;
+      const tool = runningCall(row, lineable);
+      if (tool) return { tool, at: row.at, earlier: true };
+      break;
+    }
   for (let index = drawn.length - 1; index >= 0; index -= 1) {
     const row = drawn[index]!;
     const tool = runningCall(row, (call) => call.kind === "execute" && !call.background && !isDraftCall(call));
@@ -3115,10 +3295,37 @@ function isWorkNarration(text: string): boolean {
       if (!action) return false;
       // An action prefix alone does not make a progress note: "Running two tasks is faster"
       // and "Let me check; the cache is stale" contain answers. Ambiguous clauses stay visible.
-      return !/[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?)\b/i.test(
-        note.slice(action[0].length),
+      const rest = note.slice(action[0].length);
+      return (
+        !/[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?|than)\b/i.test(
+          rest,
+        ) && !hasFiniteVerb(rest)
       );
     })
+  );
+}
+
+/// Words before which an "-ed" word is an adjective ("the failed jobs"), not a verb.
+const ED_ADJECTIVE_AFTER =
+  /^(?:the|a|an|its|this|that|these|those|each|every|all|any|my|your|our|their|some|both|for|of|in|on|from|with|to|at|by|and|or|newly|recently)$/i;
+/// Verbs a gerund subject takes: "Checking the cache found no errors." and "Running both takes 2 s."
+/// report a result, so the sentence is a finding, not narration (#42279 follow-up F1).
+const FINDING_VERBS =
+  /^(?:found|took|made|gave|got|came|went|ran|saw|left|broke|said|told|kept|held|brought|knew|lost|won|beat|fell|grew|stood|meant|cost|finds|takes|makes|gives|gets|works|fails|passes|helps|saves|costs|beats|wins|needs|breaks|returns|stays|matches|fixes|causes|leads|keeps|hides|drops|skips|hangs|crashes|seems|looks|turns|proves|confirms)$/i;
+/// Whether the words after a narration's action hold a finite verb: the action was a gerund
+/// subject and the sentence says what it found. The first word is the action's object, never a verb.
+function hasFiniteVerb(rest: string): boolean {
+  const words = rest
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}'’-]/gu, ""));
+  return words.some(
+    (word, at) =>
+      at > 0 &&
+      (FINDING_VERBS.test(word) ||
+        (/^[\p{L}]{2,}ed$/u.test(word) &&
+          !/(?:eed|need)$/i.test(word) &&
+          !ED_ADJECTIVE_AFTER.test(words[at - 1] ?? ""))),
   );
 }
 /// A personal steer closes the reply before it for the reader, even though the harness continues the

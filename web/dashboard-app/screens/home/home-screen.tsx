@@ -21,12 +21,6 @@ export function HomeView({ vaultEnabled }: { readonly vaultEnabled: boolean }) {
   const t = useTranslations("dashboard.home");
   const products: Product[] = [
     {
-      to: "/dashboard/cloud",
-      name: t("cloudName"),
-      description: t("cloudDescription"),
-      link: t("cloudLink"),
-    },
-    {
       to: "/dashboard/coderouter",
       name: t("coderouterName"),
       description: t("coderouterDescription"),

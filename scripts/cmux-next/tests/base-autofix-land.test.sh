@@ -12,6 +12,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-land.sh"
 tmp="$(mktemp -d)"
 git_fixture_trap_exit 'rm -rf "$tmp"'
+# shellcheck source=scripts/cmux-next/tests/lib/action-parity-stub.sh
+source "$here/lib/action-parity-stub.sh"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fail() { echo "FAIL: $*" >&2; exit 1; }
 manifest=Packages/macOS/CmuxNext/Package.swift
@@ -47,7 +49,7 @@ if [[ -f "$repo/$cap_source" && -f "$repo/$cap" ]]; then
   fi
 fi
 if [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 && "${FAKE_MOVE:-}" == always ]]; then
-  n="$(wc -l < "$FAKE_AGAIN")"
+  n="$(wc -l < "$FAKE_AGAIN" | tr -d ' ')"  # macOS wc pads the count
   (cd "$FAKE_LANE" && git pull -q --ff-only origin feat && echo "manifest moved $n" > Packages/macOS/CmuxNext/Package.swift \
     && git commit -q -am "lane moves the manifest again" && git push -q origin feat)
 fi
@@ -113,7 +115,7 @@ run > "$tmp/out" 2>&1 || fail "the graph was not made again on the moved tip: $(
 [[ "$(git -C "$tmp/remote.git" rev-parse feat^)" == "$moved" ]] || fail "the new repair is not on top of the moved tip"
 git -C "$tmp/remote.git" log -1 --format=%s feat | grep -qE "^chore\(next\): base autofix at ${moved:0:12}$" \
   || fail "the new repair does not name the tip it was made at: $(git -C "$tmp/remote.git" log -1 --format=%s feat)"
-[[ "$(wc -l < "$tmp/again")" == 1 ]] || fail "the repair was made again $(wc -l < "$tmp/again") times, not once"
+[[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 1 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not once"
 grep -q "again on ${moved:0:12}" "$tmp/out" || fail "the run does not say it made the repair again on the tip: $(cat "$tmp/out")"
 
 # The source-derived capability export is also remade on a moved tip.
@@ -136,7 +138,7 @@ lane_commit "lane edits the manifest" "$manifest" "manifest v2"
 if run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1; then
   fail "a repair whose inputs never held still passed: $(cat "$tmp/out")"
 fi
-[[ "$(wc -l < "$tmp/again")" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again") times, not 2 (3 rounds)"
+[[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not 2 (3 rounds)"
 [[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
 grep -q "::error::.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
 
