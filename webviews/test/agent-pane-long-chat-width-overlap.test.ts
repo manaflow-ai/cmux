@@ -139,7 +139,7 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/");
+    await warmViteServer(vite, "/", { timeoutMs: 280_000 });
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
   });
   afterAll(async () => {
