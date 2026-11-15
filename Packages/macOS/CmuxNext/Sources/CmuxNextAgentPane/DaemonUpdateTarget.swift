@@ -44,6 +44,9 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     case updated(build: String?)
     /// It already did; nothing changed.
     case current
+    /// It refused the build and kept its own (``Kept`` says why); nothing changed. Never shown as
+    /// updated. A restart window (``Kept/restartWindow(nextAfter:)``) is asked again like ``busy``.
+    case kept(Kept)
     /// It is not idle, or, asked to update while busy, it cannot now (unreachable, another update
     /// running); nothing changed. The policy asks again later.
     case busy
@@ -69,6 +72,17 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// whatever the app's build (``DaemonUpdateLedger/cannotUpdate``). `reason` says what still works.
     case unsupported(reason: String)
     case failed(reason: String)
+
+    /// Why a target kept its own build (``DaemonUpdateOutcome/kept(_:)``).
+    public enum Kept: Sendable, Equatable {
+        /// It runs a newer build than the app's (acpmux `current`, reason `newerInstalled` or `newer`).
+        case newerInstalled
+        /// It runs a build with local changes, someone's own (acpmux `current`, reason `ownBuild`).
+        case ownBuild
+        /// An update restarted its daemon within the hour (acpmux `busy`, reason `restartWindow`);
+        /// `nextAfter`: when an update may restart it again, UTC `HH:MM` (the CLI's `14:05Z`).
+        case restartWindow(nextAfter: String?)
+    }
 }
 
 /// The commit of a build string (`<hash>[+dirty.x] <date>`, acpmux `build.rs`, or a 40-hex
@@ -147,6 +161,8 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
         /// One quiet line, never a toast.
         case offline
         case updated(build: String)
+        /// It refused the build and kept its own (``DaemonUpdateOutcome/kept(_:)``): never "updated".
+        case kept(DaemonUpdateOutcome.Kept)
         /// `rolledBack`: the target put its previous build back.
         case failed(reason: String, rolledBack: Bool)
         /// The target cannot take a build in place (``DaemonUpdateOutcome/unsupported(reason:)``):

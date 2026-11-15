@@ -28,6 +28,11 @@ nonisolated struct RustActionCatalog: Sendable {
     let folders: [MenuFolder: (title: String, symbol: String, group: MenuGroup)]
     /// The Customize… element map (cmux-action-catalog `customize_elements`).
     let customizeElements: [CustomizeElement]
+    /// Each catalog request row's request (`ActionCatalogRequest`), by id. Kept beside the
+    /// descriptors, which the catalog dump compares field for field with the Swift catalog's.
+    let requests: [ActionID: ActionCatalogRequest]
+    /// Every `op:` suggestion source an argument names, by source name (`op:closed.list`).
+    let listSources: [String: ActionCatalogListSource]
 
     /// In the language the app's own strings resolve to: the bundle negotiates the person's whole
     /// preference list against the localizations it ships (Swedish, Japanese, English gives
@@ -69,6 +74,7 @@ nonisolated struct RustActionCatalog: Sendable {
             if let id = row["id"] as? String, let group = row["group"] as? String { groupOf[ActionID(rawValue: id)] = group }
         }
         self.groupOf = groupOf
+        (requests, listSources) = Self.catalogRequests(actions)
         legacyAliases = Self.idMap(root["legacy_aliases"])
         let defaults = root["key_binding_defaults"] as? [String: Any] ?? [:]
         var bindings: [String: [KeyBinding]] = [:]
@@ -116,6 +122,30 @@ nonisolated struct RustActionCatalog: Sendable {
         }
         self.folders = folders
         customizeElements = (root["customize_elements"] as? [[String: Any]] ?? []).compactMap(CustomizeElement.init(row:))
+    }
+
+    /// The rows' `request` members and their arguments' `suggestions.list` members (the app form
+    /// of the export carries both; a row without them has none).
+    static func catalogRequests(_ actions: [[String: Any]]) -> ([ActionID: ActionCatalogRequest], [String: ActionCatalogListSource]) {
+        var requests: [ActionID: ActionCatalogRequest] = [:]
+        var lists: [String: ActionCatalogListSource] = [:]
+        for row in actions {
+            guard let id = row["id"] as? String else { continue }
+            if row["request"] != nil {
+                if let request = ActionCatalogRequest.decode(row["request"]) {
+                    requests[ActionID(rawValue: id)] = request
+                } else {
+                    log.fault("action catalog row \(id, privacy: .public) has a request that does not decode")
+                }
+            }
+            for argument in row["arguments"] as? [[String: Any]] ?? [] {
+                guard let suggestions = argument["suggestions"] as? [String: Any], let source = suggestions["source"] as? String,
+                      let list = ActionCatalogListSource.decode(suggestions["list"])
+                else { continue }
+                lists[source] = list
+            }
+        }
+        return (requests, lists)
     }
 
     /// `actions` without what only a Debug build has (its handlers are compiled out of Release):
