@@ -29,9 +29,8 @@ const MAX_PID: u32 = 1 << 22;
 /// [`remove`] for the copies the `path.with_extension("tmp-…")` writers leave beside `path`
 /// (`<stem>.tmp-<pid>…`).
 pub(crate) fn remove_beside(path: &Path) {
-    let (Some(dir), Some(name)) = (path.parent(), path.with_extension("tmp-").file_name()) else {
-        return;
-    };
+    let tmp = path.with_extension("tmp-");
+    let (Some(dir), Some(name)) = (path.parent(), tmp.file_name()) else { return };
     remove(dir, &name.to_string_lossy());
 }
 
