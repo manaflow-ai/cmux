@@ -115,7 +115,8 @@ final class TaskLaunchPrototypeCaptureUITests: UIStateCaptureCase {
         XCTAssertEqual(Self.any(app, "proto.agent").value as? String, "Codex")
         XCTAssertEqual(Self.any(app, "proto.effort").value as? String, "High")
         XCTAssertEqual(Self.any(app, "proto.mode").value as? String, "Read only")
-        XCTAssertEqual(app.segmentedControls.buttons["Chat"].firstMatch.isSelected, true)
+        // Chat came back: Start says where it opens.
+        XCTAssertEqual(app.buttons["proto.start"].firstMatch.label, "Start in Chat")
         // Claude keeps its own picks: switching back shows its defaults, not Codex's.
         XCTAssertNil(Self.pickIn(app, "proto.agent", "Claude Code"))
         XCTAssertEqual(Self.any(app, "proto.mode").value as? String, "Ask before edits")
