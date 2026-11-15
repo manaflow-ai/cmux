@@ -42,6 +42,13 @@ struct AgentPaneFolderCompletionTests {
         #expect(completion.folders(in: "/Users/me") == ["code", "fun"])
     }
 
+    /// "/Users/" completes to the home folder: refused as a chat root, yet the way to the projects.
+    @Test func theUsersFolderOffersTheHomeFolder() {
+        let listed = Listed()
+        let completion = Self.completion(listed, ["/Users": [("me", true), ("Shared", true)]])
+        #expect(completion.folders(in: "/Users/") == ["me", "Shared"])
+    }
+
     @Test func aProtectedFolderIsNeverListed() {
         let listed = Listed()
         let completion = Self.completion(listed, ["/Users/me/Documents": [("secret", true)]])

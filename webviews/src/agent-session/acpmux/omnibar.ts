@@ -209,15 +209,18 @@ export function foldedScore(needle: string, hay: string | undefined): number {
   return /[\s/._:@#-]/.test(hay[at - 1]!) ? 2 : 1;
 }
 
-const folded = new WeakMap<object, unknown>();
+const folded = new WeakMap<object, Map<string, unknown>>();
 
-/// `fold(list)` once per list: the omnibar's lists are new objects only when the host sends new
-/// ones, so every key between reads the same folded copy.
-export function foldedTexts<T extends object, F>(list: T, fold: (list: T) => F): F {
-  const known = folded.get(list) as F | undefined;
+/// `fold(list)` once per list and `shape`: the omnibar's lists are new objects only when the host
+/// sends new ones, so every key between reads the same folded copy. `shape` names the fold, so one
+/// list folded two ways keeps both.
+export function foldedTexts<T extends object, F>(list: T, shape: string, fold: (list: T) => F): F {
+  let shapes = folded.get(list);
+  if (!shapes) folded.set(list, (shapes = new Map()));
+  const known = shapes.get(shape) as F | undefined;
   if (known !== undefined) return known;
   const made = fold(list);
-  folded.set(list, made);
+  shapes.set(shape, made);
   return made;
 }
 

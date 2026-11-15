@@ -39,29 +39,36 @@ export type LaunchIntent = {
   path: string;
   /// The agent word as typed ("claude"), absent when the text is a path alone.
   word?: string;
-  /// The text named an agent: its rows lead, above Ask.
+  /// The text named an agent by its whole name: its rows lead, above Ask, and Return takes them.
   named: boolean;
 };
 
 export const MAX_LAUNCH_ROWS = 4;
 export const MAX_CHAT_ROWS = 3;
-/// The shortest agent word that names an agent ("co" is Codex, "c" is nothing).
-const MIN_AGENT_WORD = 2;
+/// The shortest agent word that names an agent ("cod" is Codex; "co" and "c" are nothing).
+const MIN_AGENT_WORD = 3;
 /// The shortest folder name a word alone finds ("cm" asks, "cmux" finds ~/fun/cmux).
 const MIN_FOLDER_WORD = 3;
 /// The shortest text that finds a chat inside a title ("ab" only at a word's start).
 const MIN_SUBSTRING = 3;
 
 /// The agents the first word names: a prefix of the id or of the name's first word ("open" is
-/// OpenCode, "cla" is Claude Code; "code" is Codex, never Claude Code's second word).
-function agentsNamed(word: string, agents: readonly LaunchAgent[]): LaunchAgent[] {
+/// OpenCode, "cla" is Claude Code; "code" is Codex, never Claude Code's second word). `exact` when
+/// the word is a whole id or first name word ("codex", "claude"): only then do its rows lead and
+/// take Return, as Chrome's omnibox enters a keyword only on the whole keyword. A prefix still lists
+/// them, in their section, so the top row does not change on every letter of "clarify".
+function agentsNamed(word: string, agents: readonly LaunchAgent[]): { agents: LaunchAgent[]; exact: boolean } {
   const needle = word.toLocaleLowerCase();
-  if (needle.length < MIN_AGENT_WORD) return [];
-  return agents.filter(
-    (agent) =>
-      agent.id.toLocaleLowerCase().startsWith(needle) ||
-      (agent.name.toLocaleLowerCase().split(/\s+/, 1)[0] ?? "").startsWith(needle),
-  );
+  if (needle.length < MIN_AGENT_WORD) return { agents: [], exact: false };
+  const first = (agent: LaunchAgent) => agent.name.toLocaleLowerCase().split(/\s+/, 1)[0] ?? "";
+  const exact = agents.filter((agent) => agent.id.toLocaleLowerCase() === needle || first(agent) === needle);
+  if (exact.length) return { agents: exact, exact: true };
+  return {
+    agents: agents.filter(
+      (agent) => agent.id.toLocaleLowerCase().startsWith(needle) || first(agent).startsWith(needle),
+    ),
+    exact: false,
+  };
 }
 
 /// A typed path: `~`, `~/…`, `/…`.
@@ -103,7 +110,8 @@ export function launchIntent(
     return name.includes(" ") && (folded === name || folded.startsWith(`${name} `));
   });
   const word = whole ? query.slice(0, whole.name.length) : query.split(/\s+/, 1)[0]!;
-  const named = whole ? [whole] : agentsNamed(word, agents);
+  const found = whole ? { agents: [whole], exact: true } : agentsNamed(word, agents);
+  const named = found.agents;
   if (!named.length) {
     // One word that may name a folder ("cmux"): the default agent there, below the matches.
     const first = agents.find((agent) => agent.id === defaultAgent);
@@ -117,7 +125,7 @@ export function launchIntent(
   // The rest is a folder (a path or one word), else the text is a prompt to the agent.
   if (rest && !looksLikePath(rest) && (/\s/.test(rest) || rest.length < MIN_FOLDER_WORD)) return undefined;
   if (looksLikePath(rest) && /\s/.test(rest)) return undefined;
-  return { agents: named, path: rest, word, named: true };
+  return { agents: named, path: rest, word, named: found.exact };
 }
 
 /// The known folders a typed folder text finds, best first: for a path, the folders under it (the
@@ -164,7 +172,7 @@ export function folderMatches(
   } else {
     const needle = path.trim().toLowerCase();
     // Each folder's name and `~` path lowercased once per list, not on every key (foldedTexts).
-    const folded = foldedTexts(known, (list) =>
+    const folded = foldedTexts(known, "folders", (list) =>
       list.map((folder) => ({
         name: (folder.replace(/\/+$/, "").split("/").pop() ?? folder).toLowerCase(),
         shown: homePath(folder).toLowerCase(),
@@ -254,7 +262,12 @@ export function launchRows(
     for (const agent of others) rows.push(row(agent, best!));
     if (lead) for (const folder of rest) rows.push(row(lead, folder));
   }
-  return { rows: rows.slice(0, MAX_LAUNCH_ROWS), named: intent.named };
+  // A word after the agent's name leads only when it is a folder's whole name ("codex cmux"): a
+  // word that only starts one ("claude tests" with ~/code/tests-e2e) may be a one-word prompt, so
+  // its starts list under Ask and Return still asks.
+  const word = intent.path && !looksLikePath(intent.path) ? intent.path.toLocaleLowerCase() : undefined;
+  const whole = !word || folders.some((folder) => (folder.split("/").pop() ?? "").toLocaleLowerCase() === word);
+  return { rows: rows.slice(0, MAX_LAUNCH_ROWS), named: intent.named && whole };
 }
 
 /// One chat row.
@@ -267,7 +280,7 @@ export function chatRows(query: string, chats: readonly OmnibarChat[], limit = M
   const needle = query.trim().toLowerCase();
   if (!needle || !chats.length) return [];
   // Each title and folder name lowercased once per list, not on every key (foldedTexts).
-  const folded = foldedTexts(chats, (list) =>
+  const folded = foldedTexts(chats, "chats", (list) =>
     list.map((chat) => ({ title: chat.title.toLowerCase(), folder: chat.cwd?.split("/").pop()?.toLowerCase() })),
   );
   const scored: { chat: OmnibarChat; score: number; index: number }[] = [];

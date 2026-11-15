@@ -60,8 +60,14 @@ nonisolated struct AgentPaneFolderCompletion: Sendable {
         let batch = validator.batch()
         // A protected child of the home folder (Documents) is never offered or stat'ed: picking it
         // would open it. Its spelling is enough.
-        guard let names = list(path, { name in !name.hasPrefix(".") && batch.refusal("\(base)/\(name)") == nil })
-        else { return nil }
+        // The home folder itself ("/Users/me" in "/Users/") is refused as a chat root, yet it is
+        // how an absolute path reaches the projects under it: it is offered.
+        let home = validator.home
+        guard let names = list(path, { name in
+            guard !name.hasPrefix(".") else { return false }
+            let child = "\(base)/\(name)"
+            return child == home || batch.refusal(child) == nil
+        }) else { return nil }
         return Array(names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.prefix(Self.maximumNames))
     }
 

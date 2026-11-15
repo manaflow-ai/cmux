@@ -1024,11 +1024,11 @@ export function NewTabScreen(props: Props) {
   // starts. The device index's search and a typed path's folder listing answer later
   // (omnibarReads.ts), never in the keystroke's turn.
   const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
-  const barPushed = useDeviceChats();
+  const pushed = useDeviceChats();
   const barSearched = useChatSearch(barText, props.loadChatsPage);
   const barChats = useMemo(
-    () => omnibarChats(snapshot.sessions, barSearched, barPushed),
-    [snapshot.sessions, barSearched, barPushed],
+    () => omnibarChats(snapshot.sessions, barSearched, pushed),
+    [snapshot.sessions, barSearched, pushed],
   );
   const barFolders = useMemo(
     () => omnibarFolders(props.projects, snapshot.sessions),
@@ -1036,10 +1036,12 @@ export function NewTabScreen(props: Props) {
   );
   const barAgents = useMemo(
     () =>
-      offMachine || remoteTarget
+      // A saved environment or New project picks where the chat starts (askChat), so a start in
+      // another folder would not start there: no start rows then.
+      offMachine || remoteTarget || environment || newProject
         ? []
         : agents.map((agent) => ({ id: agent.id, name: agentName(agent.id, agent.name) })),
-    [agents, offMachine, remoteTarget],
+    [agents, offMachine, remoteTarget, environment, newProject],
   );
   const barListing = useFolderListing(
     barText ? listingWanted(barText, barAgents, home, harness) : undefined,
@@ -1134,7 +1136,6 @@ export function NewTabScreen(props: Props) {
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
-  const pushed = useDeviceChats();
   // Before the daemon lists the chats, the device chats wait with them (at most RESERVE_MS): a cold
   // page fills its list once, not the device chats first and the chats above them after.
   const [chatsReserveOver, setChatsReserveOver] = useState(false);

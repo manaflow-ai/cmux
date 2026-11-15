@@ -109,7 +109,11 @@ export function rowSection(row: ScreenRow): ScreenSection {
 /// or the exact name above it), else the top row alone (``navigationRows``).
 export function leadLength(rows: readonly ScreenRow[]): number {
   const ask = rows.findIndex((row) => row.type === "ask");
-  return ask >= 0 ? ask + 1 : rows.length ? 1 : 0;
+  if (ask >= 0) return ask + 1;
+  // No Ask row: the named starts lead together, else the top row alone.
+  const starts = rows.findIndex((row) => row.type !== "launch");
+  if (starts < 0) return rows.length;
+  return starts > 0 ? starts + 1 : 1;
 }
 
 /// The header to draw above row `index`, when it starts a section after the lead: never in the
@@ -332,7 +336,11 @@ function navigationRows(
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
   // The open tabs and workspaces, then the chats and the agents to start, then the visited pages:
   // each section ranked inside itself (`ranked` keeps tabs, workspaces, pages in that order).
-  const agent = agentRows(query, context);
+  // An agent named with a folder ("codex ~/fun/cmux") leads: what Return starts. Never over an
+  // address or an exact name ("claude" completing to claude.ai, a workspace named "codex"): those
+  // keep Return and the starts list under them.
+  const agentFound = agentRows(query, context);
+  const agent = top && agentFound.named ? { ...agentFound, named: false } : agentFound;
   const fit = (lead: ScreenRow[]) => {
     const kept = ranked(rest, context.omnibar.uses).slice(
       0,
@@ -347,7 +355,6 @@ function navigationRows(
       ...pages,
     ];
   };
-  // An agent named with a folder ("codex ~/fun/cmux") leads: what Return starts.
   const named = agent.named ? agent.launch : [];
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
@@ -385,7 +392,7 @@ export function actionRows(query: string, omnibar: OmnibarContext, limit = MAX_A
   const needle = query.trim().toLowerCase();
   // Every palette action's title and keywords lowercased once per list, not on every key (2,000 of
   // them: the keystroke's largest pass, foldedTexts).
-  const folded = foldedTexts(actions, (list) =>
+  const folded = foldedTexts(actions, "actions", (list) =>
     list.map((action) => [action.title, ...action.keywords].map((text) => text.toLowerCase())),
   );
   const score = (index: number) => {

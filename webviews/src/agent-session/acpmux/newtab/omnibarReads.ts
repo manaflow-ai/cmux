@@ -2,7 +2,7 @@
 // after the keystroke that asked, never inside it. The rows draw from what the page already holds
 // on every key (launchRows.ts); these add every chat the device's index finds and a typed path's
 // subfolders once the field stays still, and a read for older text is dropped when it lands.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AllChatsRow, LoadChatsPage } from "./allChatsListModel";
 import type { FolderListing } from "./launchRows";
 
@@ -24,11 +24,18 @@ export type CompleteFolder = (path: string) => Promise<readonly string[] | undef
 export function useChatSearch(query: string, load: LoadChatsPage | undefined): readonly AllChatsRow[] {
   const [found, setFound] = useState<{ query: string; rows: readonly AllChatsRow[] }>({ query: "", rows: [] });
   const text = query.trim();
+  // `load` may be a new function on every parent render: keep the latest in a ref, so a render
+  // never restarts the wait or drops an answer on its way (as allChatsListModel useChatPages).
+  const latest = useRef(load);
+  latest.current = load;
+  const can = Boolean(load);
   useEffect(() => {
-    if (!text || !load) return undefined;
+    if (!text || !can) return undefined;
     let live = true;
     const timer = setTimeout(() => {
-      Promise.resolve(load({ query: text, limit: CHAT_SEARCH_LIMIT }))
+      const read = latest.current;
+      if (!read) return;
+      Promise.resolve(read({ query: text, limit: CHAT_SEARCH_LIMIT }))
         .then((page) => {
           if (live) setFound({ query: text, rows: page?.chats ?? [] });
         })
@@ -40,7 +47,7 @@ export function useChatSearch(query: string, load: LoadChatsPage | undefined): r
       live = false;
       clearTimeout(timer);
     };
-  }, [text, load]);
+  }, [text, can]);
   // An answer is for its own query only: a newer text shows none of an older one's chats.
   return found.query === text && text ? found.rows : NO_CHATS;
 }
@@ -52,11 +59,17 @@ const NO_CHATS: readonly AllChatsRow[] = [];
 export function useFolderListing(parent: string | undefined, complete: CompleteFolder | undefined) {
   const [listings, setListings] = useState<ReadonlyMap<string, readonly string[]>>(() => new Map());
   const known = parent ? listings.get(parent) : undefined;
+  // `complete` may be a new function on every parent render: the latest, from a ref (see above).
+  const latest = useRef(complete);
+  latest.current = complete;
+  const can = Boolean(complete);
   useEffect(() => {
-    if (!parent || !complete || known) return undefined;
+    if (!parent || !can || known) return undefined;
     let live = true;
     const timer = setTimeout(() => {
-      Promise.resolve(complete(parent))
+      const read = latest.current;
+      if (!read) return;
+      Promise.resolve(read(parent))
         .then((folders) => {
           if (!live) return;
           setListings((before) => {
@@ -73,7 +86,7 @@ export function useFolderListing(parent: string | undefined, complete: CompleteF
       live = false;
       clearTimeout(timer);
     };
-  }, [parent, complete, known]);
+  }, [parent, can, known]);
   return useMemo(
     () => (parent && known ? ({ parent, folders: known } satisfies FolderListing) : undefined),
     [parent, known],

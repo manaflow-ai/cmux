@@ -68,6 +68,50 @@ test("an agent's name alone lists the folders used lately; a prefix and a two-wo
   expect(launchIntent("code", AGENTS)?.agents.map((agent) => agent.id)).toEqual(["codex"]);
 });
 
+test("only a whole agent name leads; a prefix lists the starts under Ask, so typing never jumps the top row", () => {
+  for (const text of ["cla", "clau", "clar", "clarify"]) {
+    const rows = screenRows(text, context());
+    expect(rows[0]?.type).toBe("ask");
+  }
+  // "cla" still offers Claude Code in the recent folders, in the Start section.
+  expect(launches(screenRows("cla", context()))).toEqual([
+    "claude /Users/me/fun/cmux",
+    "claude /Users/me/fun/cmux-tui",
+  ]);
+  expect(launchIntent("cla", AGENTS)).toMatchObject({ named: false });
+  expect(launchIntent("claude", AGENTS)).toMatchObject({ named: true });
+  expect(launchIntent("Codex cmux", AGENTS)).toMatchObject({ named: true, path: "cmux" });
+  // Two letters name nothing.
+  expect(launchIntent("co", AGENTS, "claude")).toBeUndefined();
+});
+
+test("an address or an exact name keeps Return over a whole agent name", () => {
+  // "claude" completes to claude.ai (a top site): the page leads, the starts list under Ask.
+  const site = screenRows("claude", context({ history: [{ url: "https://claude.ai/", title: "Claude" }] }));
+  expect(site[0]?.type).not.toBe("launch");
+  expect(kinds(site).indexOf("launch")).toBeGreaterThan(kinds(site).indexOf("ask"));
+  // A workspace named exactly "codex" leads too.
+  const workspace = screenRows("codex", context({ workspaces: [{ id: "w1", name: "codex" }] }));
+  expect(workspace[0]).toMatchObject({ type: "workspace" });
+  // With nothing else named, the whole agent name leads.
+  expect(screenRows("codex", context())[0]?.type).toBe("launch");
+});
+
+test("a word after the agent's name leads only as a folder's whole name; else it may be a prompt", () => {
+  const folders = [...FOLDERS, "/Users/me/code/tests-e2e"];
+  const prompt = screenRows("claude tests", context({}, { folders }));
+  expect(prompt[0]?.type).toBe("ask");
+  expect(launches(prompt)).toEqual(["claude /Users/me/code/tests-e2e"]);
+  expect(screenRows("claude tests-e2e", context({}, { folders }))[0]).toMatchObject({ type: "launch" });
+});
+
+test("without an Ask row, the named starts lead together, unheaded", () => {
+  const rows = screenRows("codex cmux", { ...context(), ask: undefined });
+  expect(kinds(rows).slice(0, 2)).toEqual(["launch", "launch"]);
+  expect(leadLength(rows)).toBe(3);
+  expect(sectionHeader(rows, 1)).toBeUndefined();
+});
+
 test("a prompt that starts with an agent's name stays a prompt", () => {
   expect(launchIntent("claude why is the build slow", AGENTS)).toBeUndefined();
   const rows = screenRows("claude why is the build slow", context());
