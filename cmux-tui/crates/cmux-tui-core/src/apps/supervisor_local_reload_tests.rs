@@ -189,3 +189,75 @@ fn a_save_in_an_apps_dirs_folder_reloads_the_app_and_its_open_view() {
     });
     assert_eq!(scene["ops"][0]["props"]["text"], "renderAgain", "{scene}");
 }
+
+/// `apps-reload APP` (`cmux ext reload`): a save the watch never reported
+/// (a missed event, a folder on a network volume) is read now, and the open
+/// view draws it (base red: there was no way to reload but a new save or a
+/// restart of cmux).
+#[test]
+fn a_forced_reload_reads_a_save_the_watch_did_not_report() {
+    let f = fixture();
+    f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount("m1", "local/spy", "cmux.section/1", json!({}));
+    let path = f.state.join("apps/local/spy/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["implements"]["cmux.section/1"]["export"] = json!("renderAgain");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    let answer = f.supervisor.reload_local_now(Some("local/spy")).unwrap();
+    assert_eq!(answer["reloaded"], json!(["local/spy"]), "{answer}");
+    assert_eq!(answer["refused"], json!([]), "{answer}");
+    let scene = f.wait("the reloaded view's scene", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "create"
+    });
+    assert_eq!(scene["ops"][0]["props"]["text"], "renderAgain", "{scene}");
+}
+
+/// `apps-reload` with no app (`cmux reload-config`) reruns every local app,
+/// changed or not: an unchanged one starts over and its open view draws
+/// again.
+#[test]
+fn reloading_every_local_app_reruns_an_unchanged_one() {
+    let f = fixture();
+    f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount("m1", "local/spy", "cmux.section/1", json!({}));
+    let answer = f.supervisor.reload_local_now(None).unwrap();
+    let reloaded = answer["reloaded"].as_array().unwrap();
+    assert!(reloaded.contains(&json!("local/spy")), "{answer}");
+    f.wait("the view's scene after the reload", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "create"
+    });
+}
+
+/// A forced reload of a script that does not load keeps the last good view
+/// and answers why, with file and line, so `cmux ext reload` can print it.
+#[test]
+fn a_forced_reload_of_a_broken_script_keeps_the_view_and_names_the_error() {
+    let f = fixture();
+    f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount("m1", "local/spy", "cmux.section/1", json!({}));
+    save_spy_script(&f.state, "const a b = 2 // THROW_AT_INIT");
+    let answer = f.supervisor.reload_local_now(Some("local/spy")).unwrap();
+    assert_eq!(answer["reloaded"], json!([]), "{answer}");
+    assert_eq!(answer["refused"][0]["app"], "local/spy", "{answer}");
+    assert!(answer["refused"][0]["reason"].as_str().unwrap().contains("main.js:2:12"), "{answer}");
+    let event = f.wait("the refusal", |e| {
+        e["event"] == "apps-reload-failed"
+            || (e["event"] == "apps-mount-failed" && e["mount_id"] == "m1")
+    });
+    assert_eq!(event["event"], "apps-reload-failed", "the open view was failed: {event}");
+}
+
+/// A name that is no local app is refused with the local apps listed, and
+/// nothing reloads.
+#[test]
+fn a_forced_reload_of_an_unknown_app_names_the_local_apps() {
+    let f = fixture();
+    f.supervisor.reload_local_apps(&Default::default());
+    let error = f.supervisor.reload_local_now(Some("local/nope")).unwrap_err();
+    assert_eq!(error.code, "apps.local.unknown");
+    assert!(error.message.contains("local/spy"), "{}", error.message);
+}

@@ -117,11 +117,16 @@ extension AppsClient {
         for mount in mounts.values where mount.appID == app { send(mount, keepingScene: true) }
     }
 
-    /// ``reload(app:)`` for every app the person keeps in a local folder (`local/…`: the customize
-    /// folder and the local development apps).
+    /// Reload Custom Views: the supervisor reads every local folder again and reruns each local app
+    /// (`apps.local.reload`, the same read as `cmux ext reload`), restarting its host and sending its
+    /// open views again; a saved script that does not load keeps its last good view. The list that
+    /// follows mounts again the views that had failed (``remountListedFailures()``).
     public func reloadLocalApps() {
-        refresh()
-        for mount in mounts.values where mount.appID.hasPrefix("local/") { send(mount, keepingScene: true) }
+        guard availability.isAvailable else { return }
+        enqueue { [weak self] transport in
+            _ = try? await transport.storeCall("apps.local.reload")
+            self?.refresh()
+        }
     }
 
     /// Sends `mount` to the supervisor. `keepingScene` leaves a drawn (ready) view as it is until

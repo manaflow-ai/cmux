@@ -57,6 +57,15 @@ enum Command {
         #[serde(default)]
         region: Option<cmux_layout_reducer::sidebar_doc::Region>,
     },
+    /// Reads the local app folders again now and reloads `app`, or every
+    /// local app, as a save would (`Supervisor::reload_local_now`). No
+    /// gesture: it changes no install, grant or placement, only reruns
+    /// scripts the person already installed.
+    #[serde(rename = "apps-reload")]
+    Reload {
+        #[serde(default)]
+        app: Option<String>,
+    },
     #[serde(rename = "apps-set")]
     Set {
         idempotency_key: String,
@@ -442,6 +451,7 @@ pub(super) fn try_handle(
         Command::List => Ok(supervisor.list()),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
+        Command::Reload { app } => supervisor.reload_local_now(app.as_deref()),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),

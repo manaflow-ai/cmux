@@ -36,10 +36,19 @@ use serde_json::json;
 
 use super::catalog::{self, CUSTOMIZE_APP, Package};
 use super::mirror::{self, Op, Source};
-use super::supervisor::{Out, Supervisor};
+use super::supervisor::{ApiError, Out, Supervisor};
 
 /// Fingerprints of the local packages (`fingerprint`), by app id.
 type Prints = HashMap<String, u64>;
+
+/// What one reload applied: the apps reloaded, the saves refused (the last
+/// good script keeps running) with their init error, the apps removed.
+#[derive(Default)]
+struct Report {
+    changed: Vec<String>,
+    refused: Vec<(String, String)>,
+    removed: Vec<String>,
+}
 
 /// Files read per package for its fingerprint (a runaway folder costs no more).
 pub(super) const MAX_FILES: usize = 2_000;
@@ -80,10 +89,73 @@ impl Supervisor {
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
+        self.reload_local_apps_reporting(prints, load).0
+    }
+
+    /// `apps-reload` (`cmux ext reload [APP]`, `cmux reload-config`, the
+    /// palette's Reload Custom Views): reads the local folders again now and
+    /// reloads `app`, or every local app, as a save of each would, whether or
+    /// not its files changed (a watch that missed an event, a host to start
+    /// over). A script that does not load keeps the last good view
+    /// (`refused_saves`); the answer names it with its init error:
+    /// `{reloaded, refused: [{app, reason}], removed}`. The reference is
+    /// Herdr's `server reload-config`.
+    pub fn reload_local_now(&self, app: Option<&str>) -> Result<serde_json::Value, ApiError> {
+        if self.safe_mode_on() {
+            return Err(ApiError::new(
+                "apps.safe_mode",
+                "safe mode is on: no extension runs or reloads until it is off (cmux safe-mode off)",
+            ));
+        }
+        let mut prints = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .local_prints
+            .clone();
+        match app {
+            Some(app) if prints.remove(app).is_none() => {
+                let mut known: Vec<&String> = prints.keys().collect();
+                known.sort();
+                let known = known.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", ");
+                return Err(ApiError::new(
+                    "apps.local.unknown",
+                    format!(
+                        "{app} is not an extension in a local folder (local: {})",
+                        if known.is_empty() { "none" } else { &known }
+                    ),
+                ));
+            }
+            Some(_) => {}
+            None => prints.clear(),
+        }
+        let (_, report) = self.reload_local_apps_reporting(&prints, catalog::load);
+        // A forced read of one app still applies the other saves the watch
+        // has not read yet; the answer is about the app asked for.
+        let asked = |id: &str| app.is_none_or(|app| app == id);
+        let mut reloaded: Vec<String> =
+            report.changed.into_iter().filter(|id| asked(id.as_str())).collect();
+        reloaded.sort();
+        let refused: Vec<serde_json::Value> = report
+            .refused
+            .iter()
+            .filter(|(id, _)| asked(id.as_str()))
+            .map(|(id, reason)| json!({ "app": id, "reason": reason }))
+            .collect();
+        let mut removed = report.removed;
+        removed.sort();
+        Ok(json!({ "reloaded": reloaded, "refused": refused, "removed": removed }))
+    }
+
+    fn reload_local_apps_reporting(
+        &self,
+        prints: &Prints,
+        load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+    ) -> (Prints, Report) {
         // Safe mode: nothing reloads. The prints stay as they were, so the
         // saves made meanwhile apply when it ends (`safe_mode.rs`).
         if self.safe_mode_on() {
-            return prints.clone();
+            return (prints.clone(), Report::default());
         }
         let before = PrintsBefore::take(&self.config.sources);
         let catalog = load(&self.config.sources);
@@ -96,9 +168,18 @@ impl Supervisor {
         let removed: Vec<String> =
             prints.keys().filter(|id| !next.contains_key(*id)).cloned().collect();
         if changed.is_empty() && removed.is_empty() {
-            return next;
+            return (next, Report::default());
         }
         let refused = self.refused_saves(&changed, &catalog);
+        let report = Report {
+            changed: changed
+                .iter()
+                .filter(|app| !refused.iter().any(|(r, _)| r == *app))
+                .cloned()
+                .collect(),
+            refused: refused.clone(),
+            removed: removed.clone(),
+        };
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             let mut outs = Vec::new();
@@ -159,7 +240,7 @@ impl Supervisor {
             outs
         };
         self.emit(outs);
-        next
+        (next, report)
     }
 
     /// The changed apps whose live host serves views and whose saved script
