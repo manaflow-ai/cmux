@@ -1434,7 +1434,7 @@ mark {
 .devices-words {
   margin-top: var(--ds-space-1);
   font-size: var(--text-body);
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
   color: var(--text);
 }
 
