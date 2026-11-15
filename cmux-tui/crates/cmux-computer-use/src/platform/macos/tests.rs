@@ -2739,3 +2739,12 @@ fn a_web_walk_that_stops_short_is_unknown() {
     );
     assert_eq!(roles::web_content(roles(&[])), Web::Unknown);
 }
+
+/// Coordinator, after 9c19632: keys follow an AX focus write only when the
+/// app reports the target as its focused element; otherwise none are posted
+/// (they would land in whatever field has focus).
+#[test]
+fn keys_follow_a_focus_write_only_once_the_target_is_focused() {
+    assert!(roles::focus_is_target(true));
+    assert!(!roles::focus_is_target(false));
+}

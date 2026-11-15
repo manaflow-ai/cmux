@@ -1281,51 +1281,21 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
 
 /// Inserts text through Accessibility: at the caret (AXSelectedText), or
 /// appended to the value. `None` when the element takes neither.
-/// Focuses `el` with a posted plain click at its center (web content, whose
-/// AX focus writes may be ignored), aimed and gated like any click.
-fn focus_by_click(d: &MacDesktop, t: &Target, el: &Ax) -> DResult<()> {
-    let frame = el.frame().ok_or_else(|| {
-        DesktopError::Unsupported("the element has no frame to click to focus it".into())
-    })?;
-    let at = roles::center(&frame);
-    let route = d.pointer_route(t, Delivery::Background)?;
-    let pid = t.window.pid;
-    unprimed(route, |p| {
-        input::click(p, at, Button::Left, 1, 0, std::time::Duration::ZERO, super::aimed(pid)?)
-    })
-}
+/// How long the app gets to report an element focused after the AX focus
+/// write, before keys are posted to it.
+const FOCUS_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
-/// set_value on a text field in web content (or where that is unknown): AX
-/// value writes are ignored there, so the field is focused with a click,
-/// its text selected with Command-A and the value typed, all as posted
-/// input, gated as always; read back as the value asked for.
-fn web_set_value(d: &MacDesktop, t: &Target, el: &Ax, value: &str) -> DResult<ActionOutcome> {
-    if value.contains(['\n', '\r', '\t']) {
-        return Err(DesktopError::Unsupported(
-            "set_value in web content types the value; use type_text for newlines and tabs".into(),
-        ));
-    }
-    if d.is_persons_app(t) {
-        return Err(DesktopError::Unsupported(
-            "this field is web content in the app the person is using; setting it types into it, which would move their caret. Use delivery foreground".into(),
-        ));
-    }
-    let check = readback::Check::value(el, readback::Wanted::from_request(value), 0.0);
-    focus_by_click(d, t, el)?;
-    let route = d.key_route(t, Delivery::Background)?;
-    let (a, _) = keymap::key_code(&crate::keys::Key::Char('a'))
-        .ok_or_else(|| DesktopError::Failed("no key for a".into()))?;
-    unprimed(route, |p| input::key(p, a, keymap::FLAG_COMMAND, None))?;
-    for chunk in roles::text_chunks(value, TYPE_CHUNK) {
-        unprimed(route, |p| input::type_text(p, &chunk))?;
-    }
-    let mut out = ActionOutcome::delivered(route.name()).showing("value");
-    out.note = "web content: focused with a click, selected with Command-A and typed".into();
-    out.expect = d.expect(check);
-    if let Some(frame) = el.frame() {
-        out = out.at(roles::center(&frame));
-    }
-    Ok(out)
+/// Whether the app reports `el` as its focused element within
+/// [`FOCUS_WAIT`] (read strictly; an unreadable focus is not focused).
+fn wait_focused(d: &MacDesktop, t: &Target, el: &Ax) -> bool {
+    let Ok((app, _)) = d.ax_window(t) else { return false };
+    let is_target = || {
+        app.try_element("AXFocusedUIElement")
+            .ok()
+            .flatten()
+            .is_some_and(|f| roles::focus_is_target(f.same(el)))
+    };
+    is_target() || super::menus::wait_for(FOCUS_WAIT, is_target)
 }
 
 /// How long an accepted AX insert gets to show in the field's value before
@@ -1496,16 +1466,22 @@ pub(super) fn type_text(
         }
         // Keys go to the focused element: focus this one first (it changes
         // focus inside the app, not which app is in front).
-        if element_id.is_some() && !roles::native_route(in_web_area(el)) {
-            // Web content (or unknown): an AX focus write may be ignored;
-            // a posted click at the element focuses it, gated as any click.
-            focus_by_click(d, &t, el)?;
-        } else if element_id.is_some()
-            && let Some(yes) = Cf::boolean(true)
-        {
+        if element_id.is_some() {
             // Not while another session's scope holds the app.
-            ax_unprimed(t.window.pid, || el.set("AXFocused", &yes))?
-                .map_err(|e| ax_error(e, "focusing the element"))?;
+            let written = ax_unprimed(t.window.pid, || {
+                Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
+            })?;
+            // Keys go only once the app reports the target focused: a write
+            // it ignored would send them to whatever field has focus.
+            let focused = written && wait_focused(d, &t, el);
+            if !focused {
+                let mut out = ActionOutcome::delivered("ax_focus");
+                out.note = format!(
+                    "the element did not take keyboard focus through accessibility within {} ms, so no keys were posted",
+                    FOCUS_WAIT.as_millis()
+                );
+                return Ok(out);
+            }
         }
     }
     if d.menu_open_in(t.window.pid) {
@@ -2210,10 +2186,6 @@ pub(super) fn set_value(
         )));
     }
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
-    // A text field in web content (or unknown): keys, like type_text.
-    if roles::is_text_input(&role) && !secure && !roles::native_route(in_web_area(&el)) {
-        return web_set_value(d, &t, &el, value);
-    }
     let new_count = value.encode_utf16().count() as f64;
     // The baseline, before the write: the value (or a secure field's
     // length) now; unreadable, no read-back. One that already reads the

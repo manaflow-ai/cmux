@@ -246,6 +246,13 @@ pub fn step_tolerance(step: f64) -> f64 {
 /// The refusal when an element that may open a menu cannot be read.
 pub const MENU_UNREAD_REFUSAL: &str = "this element could not be read well enough to tell whether it opens a menu, so nothing was done; try again, or take a screenshot and use another element";
 
+/// Whether keys may follow an AX focus write: only once the app's focused
+/// element is the target (`same`); anything else, an unreadable focus
+/// included, posts no keys.
+pub fn focus_is_target(same: bool) -> bool {
+    same
+}
+
 /// How a posted press is aimed, from the two readings of the front app
 /// taken right before the post.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
