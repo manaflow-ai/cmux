@@ -118,6 +118,8 @@ struct CloudListMachinesTests {
         #expect(Self.members(fields["account"])?["signed_in"] == .bool(false))
         // No list read for this account: none says when it was read, so a sandboxed Run's cleanup never takes it for one.
         #expect(fields["listed_at_ms"] == .null)
+        // Why the app has no list rides beside `loaded`: null here, since no list read failed.
+        #expect(fields["last_error"] == .null)
     }
 
     /// A create the server has not answered yet is listed under `creating` with the name it
