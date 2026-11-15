@@ -678,6 +678,9 @@ pub(in crate::server) fn restart_with(
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct StartRefused(Refusal, Option<Value>);
 
+/// acpmux's `data.reason` for a route that cannot serve a spawn (`routes::RouteError::reason`).
+const ROUTE_REASONS: [&str; 3] = ["route.unavailable", "route.not_found", "route.invalid"];
+
 impl From<Refusal> for StartRefused {
     fn from(refusal: Refusal) -> Self {
         Self(refusal, None)
@@ -712,11 +715,29 @@ impl StartRefused {
             }
             return Self(Refusal::SignInRequired, Some(facts));
         }
+        // A route the agent's profile binds that cannot serve it here (acpmux `route.*` from
+        // `apply_route`): the cmux router harness on a Cloud machine, which runs no signed-in
+        // local router. The route's reason only, never acpmux's message (hq#11225).
+        if let LinkError::Rpc(_, data) = &error
+            && let Some(reason) = data
+                .get("reason")
+                .and_then(Value::as_str)
+                .filter(|reason| ROUTE_REASONS.contains(reason))
+        {
+            return Self(Refusal::RouteUnavailable, Some(json!({"reason": reason})));
+        }
         Refusal::of(error).into()
     }
 
-    /// The start's refusal with `harness`, the agent the start asked for, named in its facts.
-    pub(super) fn naming(self, _harness: Option<&str>) -> Self {
+    /// The start's refusal with `harness`, the agent the start asked for, named in its facts:
+    /// a route refusal, whose acpmux error does not name it. A valid harness id only.
+    pub(super) fn naming(mut self, harness: Option<&str>) -> Self {
+        if let (Refusal::RouteUnavailable, Some(facts), Some(harness)) =
+            (self.0, self.1.as_mut(), harness.filter(|h| validate_harness(h).is_ok()))
+            && facts.get("harness").is_none()
+        {
+            facts.insert("harness", json!(harness));
+        }
         self
     }
 }
@@ -903,9 +924,18 @@ fn catalog_family(catalog: &Value, harness: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The family a start resolves to ([`catalog_family`]).
+/// The family a start resolves to ([`catalog_family`]). An agent the catalog does not have is
+/// not installed on this machine: `harness_missing` naming it (a valid harness id only), never
+/// `not_asking`, which says the agent has no mode that asks first (hq#11225: pi on a Cloud
+/// machine, whose image ships `pi` but not the `pi-acp` adapter acpmux runs it through).
 fn start_family(catalog: &Value, harness: Option<&str>) -> Result<String, StartRefused> {
-    catalog_family(catalog, harness).ok_or_else(|| Refusal::NotAsking.into())
+    catalog_family(catalog, harness).ok_or_else(|| {
+        let mut facts = json!({"reason": "agent.not_installed"});
+        if let Some(harness) = harness.filter(|harness| validate_harness(harness).is_ok()) {
+            facts.insert("harness", json!(harness));
+        }
+        StartRefused(Refusal::HarnessMissing, Some(facts))
+    })
 }
 
 fn refused_family(table: &Value, family: &str) -> bool {
