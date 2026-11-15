@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension AcpmuxEnvironment {
     /// One acpmux method that the compiled action catalog names (a catalog request row or an `op:`
