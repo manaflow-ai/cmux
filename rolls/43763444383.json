@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43763444383",
+  "recorded_at": "2026-11-15T21:32:43Z",
+  "reason": "cmux-tui c735c5c9f35c changes the image's cmux-tui (pinned 6eb08678a946)",
+  "dry_run": false,
+  "cmux_tui": "c735c5c9f35c5506e089cfb1a2f55b6a7f234d82",
+  "fixes": [
+    {
+      "sha": "c735c5c9f35c5506e089cfb1a2f55b6a7f234d82",
+      "mergedAt": "2026-11-15T13:06:59-08:00",
+      "subject": "Agent chat: chat perf names the page code that asks for frames, by file (the 120 fps idle readback was the capture's own loop) (#43659)"
+    },
+    {
+      "sha": "d1673b77b47d36253f9e1ce9aaf13d4fd72d1dc0",
+      "mergedAt": "2026-11-15T12:53:39-08:00",
+      "subject": "acpmux: a churn lab for one peer's session list, and a gauge of the lists waiting for the hub (#43848)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T21:32:43Z",
+    "snapshot_id": "sh-860cdde18f7c4e838fe9408a8d16b85c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43763444383): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "08dece8cf2302467553e6ab58382a8cb0634d430",
+    "image": "cloud-native-auto-c735c5c9-43763444383-1",
+    "revision": "ci-43763444383-1",
+    "at": "2026-11-15T21:32:43Z"
+  },
+  "rolled_back": false
+}
