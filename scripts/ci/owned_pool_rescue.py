@@ -2476,13 +2476,14 @@ class GitHub:
                       if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
                       and run.get("event") == "push" and run.get("conclusion") != "cancelled")
 
-    def newer_head_runs(self, path: str, run_id: int, head_sha: str) -> list[int]:
-        """Ids of `path`'s pull request and dispatch runs at `head_sha` newer than `run_id`, not cancelled and no
-        delivery run (never_fails_over()), finished or not (one request): the runs that supersede `run_id` at its
-        own head (superseded_pull_cancel())."""
+    def newer_head_runs(self, path: str, run_id: int, head_sha: str) -> list[tuple[int, int]]:
+        """(id, attempt) of `path`'s pull request and dispatch runs at `head_sha` newer than `run_id`, not cancelled
+        and no delivery run (never_fails_over()), finished or not, oldest first (one request): the runs that may
+        supersede `run_id` at its own head, once covering_run() shows one runs every job a cancel would end."""
         workflow = path.rsplit("/", 1)[-1]
         data = self.request("GET", f"/actions/workflows/{workflow}/runs?head_sha={head_sha}&per_page=20")
-        return sorted(int(run.get("id") or 0) for run in (data or {}).get("workflow_runs") or []
+        return sorted((int(run.get("id") or 0), int(run.get("run_attempt") or 1))
+                      for run in (data or {}).get("workflow_runs") or []
                       if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
                       and run.get("head_sha") == head_sha
                       and run.get("event") in ("pull_request", "workflow_dispatch")
@@ -4584,6 +4585,32 @@ def superseded_push_cancel(api: GitHub, target: Target, moved: str, sleep: Calla
 SUPERSEDED_PULL_CANCEL = "superseded pull request cancel"
 
 
+# How many of the newest runs at a head covering_run() reads the jobs of: one jobs read each, so a decision stays
+# constant cost however many runs a head has.
+COVERING_RUNS_READ = 2
+
+
+def covering_run(client: GitHub, newer: Sequence[tuple[int, int]], jobs: Sequence[Mapping[str, Any]]) -> int | None:
+    """The newest of the last COVERING_RUNS_READ `newer` runs (GitHub.newer_head_runs()) that has, for every job of
+    `jobs` not finished yet (the ones a cancel would end), a job of the same name that is not cancelled or skipped,
+    else None. A same-tree dispatch (cmux_next_tree_notify.py) runs only the daemon or scheme tiers at a pull
+    request's head, so it never replaces the run's generated files or swift test: cancelling for it would leave
+    those checks cancelled at the head with no newer run of their name (router-review of cmux#43538). A job the
+    newer run has not listed yet counts as missing, so the stall move goes on instead."""
+    ending = {str(job.get("name") or "") for job in jobs if job.get("status") != "completed"}
+    if not ending or "" in ending:
+        return None
+    for run_id, attempt in reversed(list(newer)[-COVERING_RUNS_READ:]):
+        listed = client.jobs(run_id, attempt)
+        if len(listed) >= MAX_JOB_PAGES * 100:
+            continue
+        kept = {str(job.get("name") or "") for job in listed
+                if job.get("conclusion") not in ("cancelled", "skipped")}
+        if ending <= kept:
+            return run_id
+    return None
+
+
 def superseded_pull_cancel(api: GitHub, target: Target, newer: Sequence[int], sleep: Callable[[float], None],
                            log: Callable[[str], None]) -> str:
     """Cancel a stalled cmux-next pull request run, never re-run it, when a newer run of the same workflow at the same
@@ -5352,8 +5379,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
 #   is never re-run), and no nightly, DEV or promote build (never_fails_over(), rescue()'s started_delivery_work());
 # - no job but the stalled ones is running or held by a runner (a cancel would kill it). A job of the attempt that
 #   failed on its own does not keep it (stall_blockers(): its stalled job waited for good, PR #43391, 2026-11-15);
-# - a run a newer run of cmux-next.yml at the same head supersedes (GitHub.newer_head_runs()) is cancelled, never
-#   re-run, and needs no Blacksmith room (superseded_pull_cancel());
+# - a run a newer run of cmux-next.yml at the same head supersedes (GitHub.newer_head_runs(), whose jobs include
+#   every unfinished job of it: covering_run()) is cancelled, never re-run, and needs no Blacksmith room
+#   (superseded_pull_cancel());
 # - each Blacksmith label the move's jobs may end on (stall_destinations()) is listed in the janitor's fresh snapshot, is not
 #   stalled, and has a slot for every owned job the move sends there, counting the jobs this sweeper moved within
 #   STALL_ROOM_WINDOW_SECONDS, which the snapshot may not show yet (stall_room()). On 2026-11-10 that label had 27
@@ -5680,7 +5708,7 @@ def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
 
 def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime], log: Callable[[str], None],
                moved: set[tuple[int, int]], moves: list[tuple[dt.datetime, int]],
-               start: Callable[[Target, list[Stall]], None],
+               start: Callable[..., None],
                destination: tuple[str, ...] | None = (STALL_DESTINATION,)) -> int:
     """One scan of the unfinished cmux-next pull request runs for a stall (see STALL_MOVE). Starts at most
     STALL_MOVES_PER_SCAN moves through `start`, never two for one attempt of a run nor more than STALL_MOVES_PER_RUN
@@ -5723,15 +5751,19 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
             continue
         try:
             newer = client.newer_head_runs(target.path, run_id, target.head_sha)
+            covering = covering_run(client, newer, jobs) if newer else None
         except READ_ERRORS as error:
-            log(f"[run {run_id}] {STALL_MOVE}: could not list the runs at {target.head_sha[:12]} ({error}); next scan")
+            log(f"[run {run_id}] {STALL_MOVE}: could not read the runs at {target.head_sha[:12]} ({error}); next scan")
             continue
-        if newer:
+        if newer and covering is None:
+            log(f"[run {run_id}] {STALL_MOVE}: run {', '.join(str(run) for run, _ in newer)} at the same head runs "
+                "not every job this run waits on, so it supersedes nothing")
+        if covering is not None:
             # Cancelled, not moved: it takes no Blacksmith slot, so no room is needed and none is counted.
             moved.add((run_id, target.attempt))
-            log(f"[run {run_id}] {SUPERSEDED_PULL_CANCEL}: {what}; run {', '.join(map(str, newer))} at the same head "
-                "supersedes it")
-            start(target, stalls, newer)
+            log(f"[run {run_id}] {SUPERSEDED_PULL_CANCEL}: {what}; run {covering} at the same head runs every job "
+                "of it still waiting, so it supersedes it")
+            start(target, stalls, [covering])
             started += 1
             if started >= STALL_MOVES_PER_SCAN:
                 break

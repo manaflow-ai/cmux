@@ -8645,8 +8645,9 @@ class StallAPI:
     seconds counted on the test clock; a cancel settles after `settles_after` seconds."""
 
     def __init__(self, clock, jobs, *, attempt=3, actor="teamleaderleo", head=HEAD, state="open",
-                 settles_after=10, snapshot=None, started=0, newer=()):
+                 settles_after=10, snapshot=None, started=0, newer=(), newer_jobs=None):
         self.newer = list(newer)  # newer runs of cmux-next.yml at the same head (GitHub.newer_head_runs())
+        self.newer_jobs = newer_jobs or {}  # run id -> that newer run's jobs
         self.clock, self.jobs_at, self.attempt, self.actor = clock, jobs, attempt, actor
         self.head, self.state, self.settles_after = head, state, settles_after
         self.snapshot = snapshot or room_snapshot()
@@ -8669,6 +8670,9 @@ class StallAPI:
         return self.record()
 
     def jobs(self, run_id, attempt):
+        if run_id != RUN_ID:
+            self.calls.append(f"newer-jobs:{run_id}")
+            return self.newer_jobs.get(run_id, [])
         self.calls.append(f"jobs:{attempt}")
         found = self.jobs_at(attempt, self.clock.seconds)
         if self.cancelled_at is not None and attempt == self.attempt and \
@@ -8839,7 +8843,9 @@ class StallMove(unittest.TestCase):
             red = stall_job("cmux-next checks", job_id=22, status="completed", conclusion="failure",
                             label="blacksmith-4vcpu-ubuntu-2404", started=30, steps=[("Run", 30, 300)])
             return [stall_job("cmux-next generated files", job_id=21), red]
-        api = StallAPI(clock, jobs, attempt=2, snapshot=room_snapshot(queued=27, running=10), newer=[RUN_ID + 9])
+        full = [stall_job("cmux-next generated files", job_id=91), stall_job("cmux-next checks", job_id=92)]
+        api = StallAPI(clock, jobs, attempt=2, snapshot=room_snapshot(queued=27, running=10),
+                       newer=[(RUN_ID + 9, 1)], newer_jobs={RUN_ID + 9: full})
         started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS + 1)
         self.assertEqual(started, 1, text)
         self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))], ["cancel:2"])
@@ -8847,6 +8853,27 @@ class StallMove(unittest.TestCase):
         self.assertIn(f"cancelled run {RUN_ID}, not re-run", results[0])
         self.assertIn(f"run {RUN_ID + 9} of cmux-next.yml at the same head {HEAD[:12]} supersedes it", results[0])
         self.assertIn(rescue.SUPERSEDED_PULL_CANCEL, text)
+
+    def test_a_newer_run_that_runs_only_some_jobs_supersedes_nothing(self):
+        # A same-tree dispatch (cmux_next_tree_notify.py) runs only the daemon or scheme tiers at the head: the old
+        # run's generated files would be left cancelled with no newer run of its name, so the stall move goes on.
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            if attempt == 3:
+                return [stall_job("cmux-next generated files", job_id=31)]
+            return [stall_job("cmux-next generated files", job_id=41, label=BLACKSMITH, created=seconds)]
+        partial = [stall_job("cmux-next daemon tests", job_id=91),
+                   stall_job("cmux-next generated files", job_id=92, status="completed", conclusion="skipped")]
+        api = StallAPI(clock, jobs, attempt=3, snapshot=room_snapshot(running=2),
+                       newer=[(RUN_ID + 9, 1)], newer_jobs={RUN_ID + 9: partial})
+        started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS + 1)
+        self.assertEqual(started, 1, text)
+        self.assertIn(f"newer-jobs:{RUN_ID + 9}", api.calls)
+        self.assertIn("supersedes nothing", text)
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:3", "rerun-failed:4"])  # the stall move, not a superseded cancel
+        self.assertTrue(results[0].startswith("re-ran the failed jobs"), results)
 
     def test_a_superseded_run_with_a_running_job_is_left_until_it_ends(self):
         clock = Clock()
@@ -8858,7 +8885,8 @@ class StallMove(unittest.TestCase):
                 found.append(stall_job("cmux-next swift test", job_id=23, status="in_progress", runner="mini-2",
                                        started=seconds - 5, steps=[("Run tests", seconds - 5, None)]))
             return found
-        api = StallAPI(clock, jobs, attempt=2, newer=[RUN_ID + 9])
+        api = StallAPI(clock, jobs, attempt=2, newer=[(RUN_ID + 9, 1)],
+                       newer_jobs={RUN_ID + 9: [stall_job("cmux-next generated files", job_id=91)]})
         running[0] = True
         started, results, text = move(api, clock, scan_at=rescue.STALL_QUEUE_SECONDS + 1)
         self.assertEqual((started, results), (0, []))
@@ -8895,7 +8923,9 @@ class StallMove(unittest.TestCase):
                 {"id": RUN_ID, "head_sha": HEAD, "event": "pull_request", "status": "queued"},
                 {"id": RUN_ID - 1, "head_sha": HEAD, "event": "pull_request", "status": "queued"}]
         api.request = lambda method, path, **_: seen.append((method, path)) or {"workflow_runs": runs}
-        self.assertEqual(api.newer_head_runs(rescue.CMUX_NEXT_WORKFLOW_PATH, RUN_ID, HEAD), [RUN_ID + 1, RUN_ID + 2])
+        runs[1]["run_attempt"] = 2
+        self.assertEqual(api.newer_head_runs(rescue.CMUX_NEXT_WORKFLOW_PATH, RUN_ID, HEAD),
+                         [(RUN_ID + 1, 1), (RUN_ID + 2, 2)])
         self.assertEqual(seen, [("GET", f"/actions/workflows/cmux-next.yml/runs?head_sha={HEAD}&per_page=20")])
 
     def test_room_respects_blacksmith_concurrency(self):
