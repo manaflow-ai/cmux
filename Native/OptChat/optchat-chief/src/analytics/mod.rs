@@ -500,8 +500,9 @@ impl Analytics {
             };
             // Still full: the count waits for the next wake, not lost.
             if !self.enqueue(vec![note], now_ms()) && self.is_on() {
+                // `enqueue` counted the refused note itself; count only what it stood for.
                 let mut state = self.lock_state();
-                state.dropped = state.dropped.saturating_add(dropped);
+                state.dropped = state.dropped.saturating_sub(1).saturating_add(dropped);
                 save_state(&self.inner.dir, &state);
             }
         }

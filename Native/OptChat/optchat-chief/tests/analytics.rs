@@ -5,7 +5,8 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use optchat_chief::analytics::catalog::{self, State};
@@ -423,15 +424,31 @@ fn offline_keeps_the_queue_and_sends_it_later() {
     assert!(!root.join("analytics/sending.jsonl").exists());
 }
 
+/// A consent function that reads `on`.
+fn switch(on: &Arc<AtomicBool>) -> impl Fn() -> Consent + Send + 'static {
+    let on = on.clone();
+    move || {
+        if on.load(Ordering::SeqCst) {
+            Consent::Send("dev")
+        } else {
+            Consent::Off("test")
+        }
+    }
+}
+
 #[test]
 fn turning_telemetry_off_deletes_the_queue_and_stops_writing() {
     let dead = "http://127.0.0.1:9/batch/".to_owned();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("optchat");
     let trace = Trace::open(&root.join("traces"), false).unwrap();
-    let analytics = Analytics::open(&root, config(dead), || Consent::Send("dev")).unwrap();
+    // The worker re-reads consent on every wake, so the test's choice is a
+    // switch both read.
+    let on = Arc::new(AtomicBool::new(true));
+    let analytics = Analytics::open(&root, config(dead), switch(&on)).unwrap();
     trace.set_analytics(analytics.clone());
     assert!(root.join("analytics/queue.jsonl").exists());
+    on.store(false, Ordering::SeqCst);
     analytics.apply_consent(Consent::Off("test"));
     assert!(!root.join("analytics/queue.jsonl").exists());
     trace.emit("turn.end", json!({"status": "ok", "ms": 1}));
@@ -446,9 +463,12 @@ fn turning_telemetry_off_deletes_the_queue_and_stops_writing() {
 fn a_host_that_starts_with_telemetry_off_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("optchat");
-    let analytics = Analytics::open(&root, config("http://127.0.0.1:9/batch/".into()), || {
-        Consent::Off("test")
-    })
+    let on = Arc::new(AtomicBool::new(false));
+    let analytics = Analytics::open(
+        &root,
+        config("http://127.0.0.1:9/batch/".into()),
+        switch(&on),
+    )
     .unwrap();
     assert!(!analytics.is_on());
     assert!(
@@ -456,6 +476,7 @@ fn a_host_that_starts_with_telemetry_off_writes_nothing() {
         "no directory, id or state for a host that never sends"
     );
     // Turning it on later starts sending, with a new install id.
+    on.store(true, Ordering::SeqCst);
     analytics.apply_consent(Consent::Send("dev"));
     assert!(analytics.is_on());
     assert!(root.join("analytics/id").exists());
