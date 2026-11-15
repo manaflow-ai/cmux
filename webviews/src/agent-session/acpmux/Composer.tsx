@@ -1524,7 +1524,9 @@ function ComposerFrame({
   };
   /// The chat the composer shows now, for work that answers after an await.
   const shownChat = useRef(sessionId);
-  shownChat.current = sessionId;
+  useLayoutEffect(() => {
+    shownChat.current = sessionId;
+  }, [sessionId]);
   /// The places in the text whose attachment the composer has not drawn: no chip of that id, staged
   /// or still being read. Read against the drawn chips, as the send's `placeInline` reads them.
   const lostPlaces = () =>
@@ -1596,7 +1598,9 @@ function ComposerFrame({
     }
   };
   const recoverLostNow = useRef(recoverLost);
-  recoverLostNow.current = recoverLost;
+  useLayoutEffect(() => {
+    recoverLostNow.current = recoverLost;
+  });
   /// The places already looked up in the host's kept chips for this chat (`recoverLost`).
   const triedLost = useRef(new Set<string>());
   useEffect(() => {
