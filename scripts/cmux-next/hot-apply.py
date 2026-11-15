@@ -659,27 +659,37 @@ def first_status(cli: Path, names: list[str], pid: str, timeout: float = 10) -> 
     """The first of NAMES whose `server status` names PID, every name asked at once; and, when none does, the
     names that never answered in `timeout` seconds. A daemon holds unix sockets that are not its server too
     (a Chief's holds one that never answers): asked one at a time, each cost the full timeout before the
-    daemon's own socket was reached (find took 10.4 s at cmux 7a6e6fb with a Chief running, 0.1 s without)."""
-    running = {name: subprocess.Popen([str(cli), "--socket", name, "--json", "server", "status"],
-                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) for name in names}
-    deadline, hit = time.monotonic() + timeout, None
-    try:
-        while running and hit is None and time.monotonic() < deadline:
-            for name, child in list(running.items()):
-                if child.poll() is None:
-                    continue
-                out = child.stdout.read() if child.stdout else ""
-                del running[name]
-                if re.search(rf'"pid"\s*:\s*{pid}\b', out):
-                    hit = name
-                    break
-            else:
-                time.sleep(0.02)
-    finally:
-        for child in running.values():
-            child.kill()
-            child.wait()
-    return hit, ([] if hit else sorted(running))
+    daemon's own socket was reached (find took 10.4 s at cmux 7a6e6fb with a Chief running, 0.1 s without).
+    Each ask is its own `subprocess.run` with the timeout, which ends its child; one still running when an
+    answer wins is left to that timeout on its daemon thread."""
+    import queue
+    import threading
+    answers: queue.Queue = queue.Queue()
+
+    def ask(name: str) -> None:
+        try:
+            out = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"], capture_output=True,
+                                 text=True, timeout=timeout).stdout
+            answers.put((name, bool(re.search(rf'"pid"\s*:\s*{pid}\b', out or ""))))
+        except subprocess.TimeoutExpired:
+            answers.put((name, None))
+        except OSError:
+            answers.put((name, False))
+
+    for name in names:
+        threading.Thread(target=ask, args=(name,), daemon=True).start()
+    pending, hung, deadline = set(names), [], time.monotonic() + timeout + 1
+    while pending:
+        try:
+            name, hit = answers.get(timeout=max(0.0, deadline - time.monotonic()))
+        except queue.Empty:
+            break
+        pending.discard(name)
+        if hit:
+            return name, []
+        if hit is None:
+            hung.append(name)
+    return None, sorted(hung + list(pending))
 
 
 def find_socket(app: Path, cli: Path) -> str | None:
