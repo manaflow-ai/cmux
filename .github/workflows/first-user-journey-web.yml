@@ -72,15 +72,26 @@ jobs:
         with:
           engines: chromium
 
+      - name: Install webviews packages
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      # The patched headless Chrome the tests use. The helper writes CMUX_CHROME_HEADLESS_SHELL to
+      # $GITHUB_ENV when it fetched one; otherwise the runner falls back to system Chrome. Playwright's
+      # FFmpeg records each cell's video, and the helper skips Playwright when Chrome is current.
+      - name: Set up Chrome and FFmpeg
+        working-directory: webviews
+        run: |
+          set -euo pipefail
+          ../scripts/ci/ensure-system-chrome.sh
+          ./node_modules/.bin/playwright install ffmpeg
+
       - name: Run the journey
         env:
           ONLY: ${{ inputs.only }}
         run: |
           set -euo pipefail
           cd webviews
-          bun install --frozen-lockfile
-          # The patched headless Chrome the tests use (writes CMUX_CHROME_HEADLESS_SHELL).
-          eval "$(../scripts/ci/ensure-system-chrome.sh | tail -1 | sed 's/^/export /')"
           out="$RUNNER_TEMP/first-user-journey-web"
           bun run journey:first-user --out "$out" ${ONLY:+--only "$ONLY"}
           cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
