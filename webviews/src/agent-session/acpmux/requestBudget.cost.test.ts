@@ -43,15 +43,16 @@ function drain(count: number): number {
 }
 
 test("draining the budget's queue costs time in proportion to its length, not its square", () => {
-  drain(2_000); // warm the JIT
+  // Sizes well above timer noise: at 2,000 the small drain took under a millisecond on a CI runner.
+  drain(8_000); // warm the JIT
   const best = (count: number) => Math.min(drain(count), drain(count), drain(count));
-  const small = best(2_000);
-  const large = best(16_000);
+  const small = best(8_000);
+  const large = best(64_000);
   // 8x the requests: about 8x the time when each answer costs the same, 64x when each scans the queue.
   console.error(
-    `[budget] drain 2,000: ${small.toFixed(1)} ms; 16,000: ${large.toFixed(1)} ms (${(large / small).toFixed(1)}x)`,
+    `[budget] drain 8,000: ${small.toFixed(1)} ms; 64,000: ${large.toFixed(1)} ms (${(large / small).toFixed(1)}x)`,
   );
-  expect(large / Math.max(small, 0.5)).toBeLessThan(24);
+  expect(large / small).toBeLessThan(24);
 });
 
 /// A Map that counts the entries every values() walk visits.
