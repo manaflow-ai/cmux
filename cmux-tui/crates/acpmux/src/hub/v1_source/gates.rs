@@ -56,6 +56,26 @@ struct Stretch {
     heap: u64,
     chunks_read: u64,
     bytes_read: u64,
+    syncs: u64,
+    /// The test-only `Counters::sync_waits` buffer's capacity, in bytes.
+    waits_bytes: u64,
+    /// `rows.idx`'s resident pages in this process's mapping, in KiB.
+    idx_rss: u64,
+}
+
+/// Resident KiB of the mappings whose path ends with `suffix`.
+fn mapped_rss_kib(suffix: &str) -> u64 {
+    let Ok(text) = std::fs::read_to_string("/proc/self/smaps") else { return 0 };
+    let (mut inside, mut kib) = (false, 0);
+    for line in text.lines() {
+        let first = line.split_whitespace().next().unwrap_or("");
+        if first.contains('-') && !first.ends_with(':') {
+            inside = line.trim_end().ends_with(suffix);
+        } else if inside && first == "Rss:" {
+            kib += line.split_whitespace().nth(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        }
+    }
+    kib
 }
 
 fn heap_kib() -> u64 {
@@ -120,19 +140,35 @@ struct Measured {
 impl RawSource for Measured {
     fn read_chunk(&mut self, place: u64) -> io::Result<Chunk> {
         if self.chunks.is_multiple_of(STRETCH) {
-            if self.chunks > 0 {
-                let rise = memory_kib("VmHWM:").saturating_sub(self.baseline);
-                self.peak.fetch_max(rise, Ordering::SeqCst);
+            let rise = if self.chunks > 0 {
+                memory_kib("VmHWM:").saturating_sub(self.baseline)
+            } else {
+                0
+            };
+            {
+                if self.chunks > 0 {
+                    self.peak.fetch_max(rise, Ordering::SeqCst);
+                }
                 let n = self.chunks / STRETCH;
+                let counters = &self.inner.counters;
                 let mut s = sample(n, rise);
-                s.chunks_read = self.inner.counters.chunks.load(Ordering::Relaxed);
-                s.bytes_read = self.inner.counters.read.load(Ordering::Relaxed);
+                s.chunks_read = counters.chunks.load(Ordering::Relaxed);
+                s.bytes_read = counters.read.load(Ordering::Relaxed);
+                s.syncs = counters.syncs.load(Ordering::Relaxed);
+                s.idx_rss = mapped_rss_kib("/book/rows.idx");
+                {
+                    let mut waits = counters.sync_waits.lock().unwrap();
+                    s.waits_bytes = (waits.capacity() * 8) as u64;
+                    if std::env::var_os("CATCHUP_DRAIN_WAITS").is_some() {
+                        *waits = Vec::new();
+                    }
+                }
                 let mut stretches = self.stretches.lock().unwrap();
                 if stretches.len() < stretches.capacity() {
                     stretches.push(s);
                 }
                 drop(stretches);
-                if n.is_multiple_of(128) {
+                if n > 0 && n.is_multiple_of(128) {
                     smaps_top(&format!("stretch={n}"), &self.home);
                 }
             }
@@ -217,7 +253,7 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
         let stretches = stretches.lock().unwrap();
         for s in stretches.iter().chain(std::iter::once(&at_end)) {
             eprintln!(
-                "v2.pr03b.catchup_peak_rss stretch msgs={} n={} rise={} d_anon={} d_file={} d_shmem={} d_heap={} chunks={} read={}",
+                "v2.pr03b.catchup_peak_rss stretch msgs={} n={} rise={} d_anon={} d_file={} d_shmem={} d_heap={} chunks={} read={} syncs={} waits_bytes={} idx_rss={}",
                 shape.god_messages,
                 s.n as i64,
                 s.rise,
@@ -226,7 +262,10 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
                 s.shmem as i64 - b.shmem as i64,
                 s.heap as i64 - b.heap as i64,
                 s.chunks_read,
-                s.bytes_read
+                s.bytes_read,
+                s.syncs,
+                s.waits_bytes,
+                s.idx_rss
             );
         }
     }
