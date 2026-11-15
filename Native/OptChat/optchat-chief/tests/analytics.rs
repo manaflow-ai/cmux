@@ -546,3 +546,45 @@ fn catalog_is_pinned() {
         );
     }
 }
+
+/// The Chief answers with its `send` tool and ends its own turn (`stopped`,
+/// `reply: null`): every real turn on 2026-11-15 looked like that, and none
+/// counted as active or replied.
+#[test]
+fn a_turn_the_chief_ends_after_send_is_active_and_replied() {
+    let mut state = State {
+        installed_ms: 1_800_000_000_000,
+        ..State::default()
+    };
+    let turn = "turn:optchat:1:1";
+    let ts = 1_800_000_001_000;
+    let send =
+        json!({"ev": "tool", "turn": turn, "name": "mcp__optchat__send", "ok": true, "ts": ts});
+    let end = json!({"ev": "turn.end", "turn": turn, "status": "stopped", "reply": null, "ts": ts});
+    catalog::map(&send, &mut state, ts);
+    let out = catalog::map(&end, &mut state, ts);
+    let names: Vec<_> = out.iter().map(|e| e.name).collect();
+    assert!(names.contains(&"chief_daily_active"), "{names:?}");
+    let done = out
+        .iter()
+        .find(|e| e.name == "chief_turn_completed")
+        .unwrap();
+    assert_eq!(done.properties["turn_status"], json!("stopped"));
+    assert_eq!(done.properties["replied"], json!(true));
+    assert!(
+        out.iter()
+            .any(|e| e.properties.get("milestone") == Some(&json!("first_reply")))
+    );
+
+    // A refused send, or a send in another turn, is no reply.
+    let mut state = State::default();
+    let refused = json!({"ev": "tool", "turn": turn, "name": "mcp__optchat__send", "ok": false});
+    catalog::map(&refused, &mut state, ts);
+    let out = catalog::map(&end, &mut state, ts);
+    assert!(out.iter().all(|e| e.name != "chief_daily_active"));
+    let other =
+        json!({"ev": "tool", "turn": "turn:optchat:1:0", "name": "mcp__optchat__send", "ok": true});
+    catalog::map(&other, &mut state, ts);
+    let out = catalog::map(&end, &mut state, ts);
+    assert!(out.iter().all(|e| e.name != "chief_daily_active"));
+}
