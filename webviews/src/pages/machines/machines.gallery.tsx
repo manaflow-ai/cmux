@@ -10,7 +10,7 @@ import table from "./generated/strings.json";
 import { MachinesSection, type DialLayout } from "./MachinesSection";
 import { MockMachinesProvider, joinedRows, sampleRows, sampleSnapshot, thisMac } from "./mockProvider";
 import { MachinesStore } from "./store";
-import type { JoinedDialAnswer, MachineRow, MachinesSnapshot } from "./types";
+import type { MachineRow, MachinesSnapshot, JoinedDialAnswer } from "./types";
 
 /** `dial`: New Workspace clicked on that joined Mac's row, the host answering `answers` in turn (the
  * last one repeats); `layout`: where the row says how it stands. */
@@ -116,6 +116,23 @@ export default componentEntry<Props>({
               serverState: "paused",
             },
           ],
+        },
+      },
+    },
+    "device-glyphs": {
+      note: "Each machine draws the device it reported (cmux-device-kind's SF Symbol, in the same 16 px icon box): a Mac mini, a Linux server, a Linux desktop, an offline Mac Studio. Cloud machines keep the cloud.",
+      props: {
+        snapshot: {
+          ...sampleSnapshot,
+          rows: sampleRows.map((row) => {
+            const symbol = {
+              local: "macmini",
+              "fixture-ssh-1": "server.rack",
+              "fixture-ssh-2": "macstudio",
+              "fixture-server-1": "pc",
+            }[row.id];
+            return symbol ? { ...row, symbol } : row;
+          }),
         },
       },
     },

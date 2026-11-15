@@ -70,6 +70,9 @@ export interface MachineRow {
   id: string;
   name: string;
   kind: MachineKind;
+  /** The SF Symbol of the device it is (`macmini`, `server.rack`), as its daemon named it
+   * (cmux-device-kind); absent before it said. */
+  symbol?: string;
   isLocal: boolean;
   isConnected: boolean;
   /** The link is being made, or a resume is on its way (a spinner). Never with a settled serverState. */

@@ -4,6 +4,8 @@
 // line. New Workspace (and a joined machine's "…") show on the row's hover, keyboard focus, or while
 // its menu is open; the menus are the app's native registry menus. Rows past the viewport skip
 // layout and paint (`content-visibility`), so the cost of a frame stays that of the visible rows.
+import { DeviceGlyph } from "../../ui/DeviceGlyph";
+import { deviceKindOfSymbol } from "../../ui/deviceKinds";
 import { memo, useRef, useSyncExternalStore, type MouseEvent } from "react";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
@@ -13,18 +15,18 @@ import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import {
   KIND_ICON,
-  asksFirst,
-  dialStopped,
-  dialText,
   healthHelp,
   isLinked,
   joinedCaption,
   sectionItems,
   showsStateLine,
   stateText,
+  asksFirst,
+  dialStopped,
+  dialText,
 } from "./model";
 import type { MachinesStore } from "./store";
-import type { HostHealth, JoinedDialPhase, JoinedMachineChange, MachineRow } from "./types";
+import type { HostHealth, JoinedMachineChange, MachineRow, JoinedDialPhase } from "./types";
 
 /** Where a joined row says how its New Workspace on another Mac stands (the gallery's variants; the
  * app ships `caption`): in the caption's place with Retry after it, at the trailing edge, or in the
@@ -203,7 +205,7 @@ const MachineRowView = memo(function MachineRowView({
       title={help}
       onContextMenu={(event) => openMenuAt(store, row.id, "row", event)}
     >
-      <Icon name={KIND_ICON[row.kind]} size={ICON} row fit className="machines-icon" />
+      <MachineIcon row={row} />
       <span className="machines-text">
         <span className="machines-name-line">
           <span className="machines-name">{row.name}</span>
@@ -265,7 +267,7 @@ const JoinedRow = memo(function JoinedRow({
       data-dial={dial}
       onContextMenu={(event) => openMenuAt(store, row.id, "joined", event)}
     >
-      <Icon name={KIND_ICON[row.kind]} size={ICON} row fit className="machines-icon" />
+      <MachineIcon row={row} />
       {/* tooltip-allow: the last check's step appears nowhere else on the row. */}
       <span className="machines-text" title={help}>
         <span className="machines-name-line">
@@ -351,6 +353,14 @@ const JoinedRow = memo(function JoinedRow({
     </li>
   );
 });
+
+/** A machine's icon: its device glyph when the app says what device it is (`device`, the kind
+ * acpmux reported; Leo 2026-11-14), in the same icon box; else its kind's pack icon. */
+function MachineIcon({ row }: { row: MachineRow }) {
+  const device = deviceKindOfSymbol(row.symbol);
+  if (!device) return <Icon name={KIND_ICON[row.kind]} size={ICON} row fit className="machines-icon" />;
+  return <DeviceGlyph kind={device} width={ICON} height={ICON} className="machines-icon" />;
+}
 
 /** Add Machine… as the section's last row: its icon in the machines' icon column. The pointer
  * brightens it from the secondary ink to the primary one; only its icon and text take the click. */
