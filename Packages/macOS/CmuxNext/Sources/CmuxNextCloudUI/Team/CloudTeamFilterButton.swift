@@ -24,7 +24,7 @@ final class CloudTeamFilterButton: NSView {
         self.colors = colors
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 5
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         label.font = Typography.caption
         label.lineBreakMode = .byTruncatingTail
         addSubview(label)

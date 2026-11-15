@@ -550,7 +550,13 @@ pub(super) async fn announce(hub: &Arc<Hub>) {
 /// `announce` without holding up the caller's answer.
 pub(super) fn announce_later(hub: &Arc<Hub>) {
     let hub = hub.clone();
-    tokio::spawn(async move { announce(&hub).await });
+    announce_scope().spawn_named("connections announce", async move { announce(&hub).await });
+}
+
+/// The owner of the connection-state announcements [`announce_later`] sends.
+fn announce_scope() -> &'static cmux_scope::Scope {
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    SCOPE.get_or_init(|| cmux_scope::Scope::new("connections announce"))
 }
 
 pub(super) async fn handle(

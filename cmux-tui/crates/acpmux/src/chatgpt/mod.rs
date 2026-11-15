@@ -47,6 +47,12 @@ const ATTEMPT_TTL: Duration = Duration::from_secs(15 * 60);
 /// How long a finished attempt stays readable by `wait`.
 const FINISHED_TTL: Duration = Duration::from_secs(60 * 60);
 
+/// The owner of every sign-in attempt's callback task; an attempt's cancel aborts its own.
+fn sign_in_scope() -> &'static cmux_scope::Scope {
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    SCOPE.get_or_init(|| cmux_scope::Scope::new("chatgpt sign-in"))
+}
+
 /// A sign-in or token failure: a stable `code` (`access_denied`, `no_plan_scope`, ...) the app
 /// shows, and a message with no token in it.
 #[derive(Debug, Clone, PartialEq)]
@@ -182,7 +188,7 @@ impl Service {
             .insert(attempt.clone(), entry.clone());
         let service = self.clone();
         let task_entry = entry.clone();
-        let task = tokio::spawn(async move {
+        let task = sign_in_scope().spawn_named("chatgpt sign-in callback", async move {
             let outcome = tokio::time::timeout(
                 ATTEMPT_TTL,
                 service.oauth.serve_callback(listener, &pending, &places),
