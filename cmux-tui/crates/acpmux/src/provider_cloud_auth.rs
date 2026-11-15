@@ -35,8 +35,10 @@
 //! (`GET <xAI API base>/api-key`) does not call the key unusable. The default base is the public
 //! API, which refuses the placeholder, so `session/new` answered "Authentication required"
 //! (#43857). `GROK_XAI_API_BASE_URL` (its `--xai-api-base-url`) moves the probe, and the title
-//! and turn calls (`/responses`, `/chat/completions`), to the gateway; the gateway answers the
-//! probe's path with a 404, which the probe takes as unknown, so the key method is offered.
+//! and turn calls (`/responses`, `/chat/completions`), to the gateway. The gateway answers the
+//! probe's path with a 404 before it checks the machine token (cmux-platform `ProviderRoute.ts`
+//! `providerTarget`), which the probe takes as unknown, so the key method is offered. A 400, 401
+//! or 403 there would make the probe call the key unusable and bring the refusal back.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
