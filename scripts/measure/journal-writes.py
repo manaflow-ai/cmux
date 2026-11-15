@@ -4,7 +4,7 @@
 macOS filed a "disk writes" resource report against the daemon: 2 GB of file-backed memory dirtied in
 11,502 s, its stack `pwrite` under `cmux_journal::storage::FsFile::append`. The kernel charges a write by
 the pages it dirties: a page that a sync cleaned is charged again in full by the next write into it, so a
-journal that syncs often costs a page (16 KiB on Apple silicon) per sync however few bytes it adds. Goal
+journal that syncs often costs a page (16 KiB on arm64 macOS) per sync however few bytes it adds. Goal
 chats-flat-at-any-length: those bytes per hour stay flat as chats grow and more of them are open.
 
 One release acpmux daemon per case on a scratch home on a real disk (not tmpfs: tmpfs charges no dirtied
@@ -32,7 +32,7 @@ For each case, between the case's start and end (after the daemon is up and the 
   and the same `write_bytes` for the whole daemon (the chats' own events/*.ndjson logs, session.json).
 Write amplification is dirtied over payload. The macOS estimate splits the 4 KiB page charges into the
 pages the bytes fill (logical / 4 KiB) and the pages a sync made clean that a write dirtied again (the
-rest); on Apple silicon the first are the same bytes and each of the second is a 16 KiB page.
+rest); on arm64 macOS the first are the same bytes and each of the second is a 16 KiB page.
 
 Output: JWRITES lines per case, PERF_ROW lines journal_writes.<case>.{payload,dirtied,macos_est}_mb_per_hour
 and journal_writes.<case>.amplification, and --out JSON.

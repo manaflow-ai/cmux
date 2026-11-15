@@ -19,7 +19,7 @@ use crate::{
     Class, Config, Journal, Lsn, OpenMode, SimStorage, Storage, StorageFile, StorageLock, SyncLevel,
 };
 
-/// Apple silicon's page size: what one dirtied page costs there.
+/// The macOS page size on arm64: what one dirtied page costs there.
 const MACOS_PAGE: u64 = 16 * 1024;
 const WAIT: Duration = Duration::from_secs(10);
 
