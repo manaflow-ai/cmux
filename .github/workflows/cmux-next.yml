@@ -132,6 +132,7 @@ on:
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
       - tests/test_cmux_next_base_tier.py
+      - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
       - scripts/ci/deadline_http.py
@@ -472,6 +473,7 @@ on:
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
       - tests/test_cmux_next_base_tier.py
+      - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
       - scripts/ci/deadline_http.py
@@ -701,6 +703,12 @@ on:
         required: false
         default: false
         type: boolean
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-365
+      full:
+        description: "On a working-branch dispatch, also run the scheme compile and the Release compile"
+        required: false
+        default: false
+        type: boolean
 
 run-name: >-
   ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || inputs.tip_swift_suite == true && format('cmux-next tip Swift suite · {0}', github.sha) || inputs.tip_daemon_suite == true && format('cmux-next tip daemon suite · {0}', inputs.same_tree_sha || github.sha) || inputs.base_tier == true && format('cmux-next base tier · {0}', inputs.same_tree_sha || github.sha) || inputs.no_reuse == true && format('cmux-next uncached · {0}', github.sha) || format('cmux-next · {0}', github.sha) }}
@@ -908,6 +916,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-96
           DEV_LANDING_COMPILE: ${{ format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
+          FULL_DISPATCH: ${{ inputs.full || false }}
           GH_TOKEN: ${{ github.token }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-97
           EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
@@ -1105,6 +1114,12 @@ jobs:
               [[ "$DEV_LANDING_COMPILE" == 0 ]] && keep=(--keep scheme)
               python3 scripts/ci/cmux_next_base_tier.py defer "$routed" "${keep[@]}" >> "$GITHUB_OUTPUT"
               echo '- base tier (daemon tests, generated files, scheme compile): left to the cmux-next base tier run on the tip, at most 15 minutes away (cmux-next-base-tier-kick.yml).' >> "$GITHUB_STEP_SUMMARY"
+            fi
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-365
+            if [[ "$EVENT_NAME" == workflow_dispatch && -z "$SAME_TREE_SHA" && "$FULL_DISPATCH" != true \
+              && "$GITHUB_REF" != refs/heads/feat-cmux-next && "$GITHUB_REF" != refs/heads/next-batch/* ]]; then
+              printf 'scheme=false\nnative=false\n' >> "$GITHUB_OUTPUT"
+              echo '- working-branch dispatch: the scheme and Release compiles are skipped (dispatch with full=true to run them).' >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
           # Whether this pull request changes the cmux-tui it would test against:
@@ -1697,6 +1712,8 @@ jobs:
             bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
             [concurrency]
             scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+            # Heavy and blocking work on the main actor, ratcheted (plans/cmux-next/main-thread-guarantee-DESIGN.md).
+            python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
             [overlay-glass]
             python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
             [checks-structure]
@@ -1707,6 +1724,7 @@ jobs:
             [tier-routing]
             python3 tests/test_cmux_next_route.py
             python3 tests/test_cmux_next_base_tier.py
+            python3 tests/test_cmux_next_dispatch_heavy_compiles.py
             python3 tests/test_ci_target_graph.py
             python3 tests/test_ci_swiftpm_build_metrics.py
             python3 tests/test_cmux_next_route_replay.py
@@ -1825,6 +1843,7 @@ jobs:
             bash scripts/cmux-next/tests/fast-tier.test.sh
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
             bash scripts/cmux-next/tests/check-button-radius.test.sh
+            bash scripts/cmux-next/tests/check-pressed-state.test.sh
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-single-omnibar.test.sh
@@ -2080,6 +2099,13 @@ jobs:
         id: button-radius
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-button-radius.py "$GITHUB_WORKSPACE"
+
+      # A held button changes its background and nothing else (Lawrence 2026-11-15): no bold, size, scale,
+      # offset, dimming or icon change on :active, a held frame or a SwiftUI press (design/pressed-state.md).
+      - name: Buttons change only their fill when pressed
+        id: pressed-state
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-pressed-state.py "$GITHUB_WORKSPACE"
 
       # Animation timing comes from the Motion tokens (plans/cmux-next/motion.md),
       # Why: docs/ci/cmux-next-workflow-notes.md#note-143
@@ -2474,6 +2500,7 @@ jobs:
             No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             Scrollbars thin, one style
             Buttons round as tabs
+            Buttons change only their fill when pressed
             Motion tokens
             Overlays are glass, never solid
             Type scale
@@ -2513,6 +2540,7 @@ jobs:
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.button-radius.outcome }}|Buttons round as tabs
+            ${{ steps.pressed-state.outcome }}|Buttons change only their fill when pressed
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.type-scale.outcome }}|Type scale
@@ -3626,7 +3654,7 @@ jobs:
         run: |
           selected=()
           if [[ "$FFI_REPIN" == true ]]; then selected=(--only "app handler coverage"); fi
-          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift "${selected[@]}" --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift ${selected[@]+"${selected[@]}"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-204
       - name: Stop this job's acpmux daemons and remove its home

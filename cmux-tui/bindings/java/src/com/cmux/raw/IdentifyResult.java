@@ -24,9 +24,11 @@ public final class IdentifyResult implements WireValue {
     private final Field<String> launchSnapshotPath;
     private final Field<Boolean> lifecycleReady;
     private final Field<List<String>> machineCapabilities;
+    private final Field<String> machineDevice;
     private final Field<String> machineId;
     private final Field<String> machineName;
     private final Field<MachinePlatform> machinePlatform;
+    private final Field<String> machineSymbol;
     private final Field<Long> minApiRevision;
     private final long pid;
     private final long protocol;
@@ -54,9 +56,11 @@ public final class IdentifyResult implements WireValue {
         this.launchSnapshotPath = builder.launchSnapshotPath;
         this.lifecycleReady = builder.lifecycleReady;
         this.machineCapabilities = builder.machineCapabilities.map(value -> List.copyOf(value));
+        this.machineDevice = builder.machineDevice;
         this.machineId = builder.machineId;
         this.machineName = builder.machineName;
         this.machinePlatform = builder.machinePlatform;
+        this.machineSymbol = builder.machineSymbol;
         this.minApiRevision = builder.minApiRevision;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
@@ -94,9 +98,11 @@ public final class IdentifyResult implements WireValue {
     public Field<String> launchSnapshotPath() { return launchSnapshotPath; }
     public Field<Boolean> lifecycleReady() { return lifecycleReady; }
     public Field<List<String>> machineCapabilities() { return machineCapabilities; }
+    public Field<String> machineDevice() { return machineDevice; }
     public Field<String> machineId() { return machineId; }
     public Field<String> machineName() { return machineName; }
     public Field<MachinePlatform> machinePlatform() { return machinePlatform; }
+    public Field<String> machineSymbol() { return machineSymbol; }
     public Field<Long> minApiRevision() { return minApiRevision; }
     public long pid() { return pid; }
     public long protocol() { return protocol; }
@@ -166,6 +172,10 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawMachineCapabilities)) {
             builder.machineCapabilities(Wire.array(rawMachineCapabilities, "IdentifyResult.machine_capabilities", item -> Wire.string(item, "IdentifyResult.machine_capabilities item")));
         }
+        Object rawMachineDevice = Wire.optional(object, "machine_device");
+        if (!Wire.isMissing(rawMachineDevice)) {
+            builder.machineDevice(Wire.string(rawMachineDevice, "IdentifyResult.machine_device"));
+        }
         Object rawMachineId = Wire.optional(object, "machine_id");
         if (!Wire.isMissing(rawMachineId)) {
             builder.machineId(Wire.string(rawMachineId, "IdentifyResult.machine_id"));
@@ -177,6 +187,10 @@ public final class IdentifyResult implements WireValue {
         Object rawMachinePlatform = Wire.optional(object, "machine_platform");
         if (!Wire.isMissing(rawMachinePlatform)) {
             builder.machinePlatform(MachinePlatform.fromWire(rawMachinePlatform));
+        }
+        Object rawMachineSymbol = Wire.optional(object, "machine_symbol");
+        if (!Wire.isMissing(rawMachineSymbol)) {
+            builder.machineSymbol(Wire.string(rawMachineSymbol, "IdentifyResult.machine_symbol"));
         }
         Object rawMinApiRevision = Wire.optional(object, "min_api_revision");
         if (!Wire.isMissing(rawMinApiRevision)) {
@@ -229,9 +243,11 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "launch_snapshot_path", launchSnapshotPath);
         Wire.put(object, "lifecycle_ready", lifecycleReady);
         Wire.put(object, "machine_capabilities", machineCapabilities);
+        Wire.put(object, "machine_device", machineDevice);
         Wire.put(object, "machine_id", machineId);
         Wire.put(object, "machine_name", machineName);
         Wire.put(object, "machine_platform", machinePlatform);
+        Wire.put(object, "machine_symbol", machineSymbol);
         Wire.put(object, "min_api_revision", minApiRevision);
         Wire.put(object, "pid", pid);
         Wire.put(object, "protocol", protocol);
@@ -249,11 +265,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(buildTime, that.buildTime) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(screenDeviceId, that.screenDeviceId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(buildTime, that.buildTime) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineDevice, that.machineDevice) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(machineSymbol, that.machineSymbol) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(screenDeviceId, that.screenDeviceId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, buildTime, capabilities, cliPath, crateVersion, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, screenDeviceId, session, sessionId, terminalRevision, updateCommand, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, buildTime, capabilities, cliPath, crateVersion, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineDevice, machineId, machineName, machinePlatform, machineSymbol, minApiRevision, pid, protocol, registryId, screenDeviceId, session, sessionId, terminalRevision, updateCommand, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -273,9 +289,11 @@ public final class IdentifyResult implements WireValue {
         private Field<String> launchSnapshotPath = Field.omitted();
         private Field<Boolean> lifecycleReady = Field.omitted();
         private Field<List<String>> machineCapabilities = Field.omitted();
+        private Field<String> machineDevice = Field.omitted();
         private Field<String> machineId = Field.omitted();
         private Field<String> machineName = Field.omitted();
         private Field<MachinePlatform> machinePlatform = Field.omitted();
+        private Field<String> machineSymbol = Field.omitted();
         private Field<Long> minApiRevision = Field.omitted();
         private Long pid;
         private boolean pidSet;
@@ -348,6 +366,10 @@ public final class IdentifyResult implements WireValue {
             this.machineCapabilities = Field.of(value);
             return this;
         }
+        public Builder machineDevice(String value) {
+            this.machineDevice = Field.of(value);
+            return this;
+        }
         public Builder machineId(String value) {
             this.machineId = Field.of(value);
             return this;
@@ -358,6 +380,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder machinePlatform(MachinePlatform value) {
             this.machinePlatform = Field.of(value);
+            return this;
+        }
+        public Builder machineSymbol(String value) {
+            this.machineSymbol = Field.of(value);
             return this;
         }
         public Builder minApiRevision(Long value) {

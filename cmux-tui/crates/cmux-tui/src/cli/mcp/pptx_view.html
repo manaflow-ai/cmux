@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{TITLE}}</title>
+<link rel="icon" href="data:,">
+<style>
+/* The HTML deck template's tokens (cmux-rich-output templates/deck.html), so both viewers match. */
+:root{color-scheme:light dark;--cmux-text:light-dark(#1d1d1f,#f2f2f4);--cmux-muted:light-dark(#6e6e73,#a1a1a6);--cmux-accent:light-dark(#0a64d8,#5aa2ff);--cmux-border:light-dark(#d9d9de,#3a3a3e);--cmux-font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--deck-page:light-dark(#f2f2f4,#111113)}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{display:grid;grid-template:"strip bar" auto "strip stage" 1fr/212px 1fr;overflow:hidden;background:var(--deck-page);color:var(--cmux-text);font:13px/1.4 var(--cmux-font);-webkit-font-smoothing:antialiased}
+#strip{grid-area:strip;overflow-y:auto;padding:12px;border-right:1px solid var(--cmux-border);display:grid;align-content:start;gap:10px}
+#strip button{all:unset;position:relative;margin-left:20px;cursor:pointer}
+#strip .n{position:absolute;left:-22px;top:0;width:16px;text-align:right;font-size:11px;color:var(--cmux-muted)}
+#strip .t{width:168px;aspect-ratio:var(--ar,16/9);overflow:hidden;border-radius:4px;outline:1px solid var(--cmux-border);background:#fff}
+#strip button[aria-current] .t,#strip button:focus-visible .t{outline:2px solid var(--cmux-accent)}
+#bar{grid-area:bar;display:flex;gap:12px;align-items:center;padding:8px 16px;min-width:0}
+#bar b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#pos{margin-left:auto;color:var(--cmux-muted);font-variant-numeric:tabular-nums}
+#stage{grid-area:stage;min-height:0;min-width:0;padding:8px 16px 16px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#stage>*{max-width:100%;max-height:100%}
+#note{margin:auto;padding:24px;color:var(--cmux-muted);text-align:center}
+#strip:empty{display:none}body:has(#strip:empty){grid-template:"bar" auto "stage" 1fr/1fr}
+@media (max-width:640px){body{grid-template:"bar" auto "stage" 1fr/1fr}#strip{display:none}#bar,#stage{padding:8px}}
+</style>
+</head>
+<body>
+<nav id="strip" aria-label="Slides"></nav>
+<header id="bar"><b>{{TITLE}}</b><span id="pos"></span></header>
+<main id="stage"><div id="note">Loading slides…</div></main>
+<script type="module">
+const LIB = "{{LIB_URL}}", SRI = "{{LIB_SRI}}";
+const $ = (id) => document.getElementById(id);
+const note = (t) => { $("stage").innerHTML = ""; const d = document.createElement("div"); d.id = "note"; d.textContent = t; $("stage").append(d); };
+const KEY = "pptx-slide:" + location.pathname;
+async function lib() {
+  const r = await fetch(LIB, { integrity: SRI, mode: "cors", credentials: "omit" });
+  if (!r.ok) throw new Error("renderer " + r.status);
+  const url = URL.createObjectURL(new Blob([await r.arrayBuffer()], { type: "text/javascript" }));
+  try { return await import(url); } finally { URL.revokeObjectURL(url); }
+}
+async function main() {
+  const [mod, deck] = await Promise.all([
+    lib().catch((e) => { throw new Error("Could not load the slide renderer (" + e.message + ")."); }),
+    fetch("deck.pptx", { cache: "no-store" }),
+  ]);
+  if (deck.status === 404) return note(document.title + " was deleted or moved.");
+  if (!deck.ok) return note("Could not read the file (" + deck.status + ").");
+  const stage = $("stage"); stage.innerHTML = "";
+  const v = await mod.PptxViewer.open(await deck.arrayBuffer(), stage, {
+    renderMode: "slide", fitMode: "contain", zipLimits: mod.RECOMMENDED_ZIP_LIMITS,
+    lazySlides: true, lazyMedia: true, externalMedia: "block", pdfjs: false,
+  });
+  const n = v.slideCount;
+  document.documentElement.style.setProperty("--ar", v.slideWidth + "/" + v.slideHeight);
+  const strip = $("strip"), thumbs = [];
+  const io = new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting && !e.target.dataset.done) {
+    e.target.dataset.done = 1; io.unobserve(e.target);
+    try { v.renderThumbnailToContainer(+e.target.dataset.i, e.target, { width: 168 })?.ready?.catch(() => {}); } catch {} } }, { root: strip, rootMargin: "400px" });
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement("button"), s = document.createElement("span"), t = document.createElement("div");
+    s.className = "n"; s.textContent = i + 1; t.className = "t"; t.dataset.i = i; b.append(s, t); b.onclick = () => go(i);
+    strip.append(b); thumbs.push(b); io.observe(t);
+  }
+  // One render at a time, and only the latest slide asked for: a held arrow key never
+  // leaves the stage on a different slide from the strip and the count.
+  let cur = -1, shown = Promise.resolve();
+  function go(i) {
+    i = Math.max(0, Math.min(n - 1, i)); if (i === cur) return shown;
+    thumbs[cur]?.removeAttribute("aria-current"); cur = i;
+    thumbs[i]?.setAttribute("aria-current", "true"); thumbs[i]?.scrollIntoView({ block: "nearest" });
+    $("pos").textContent = (i + 1) + " / " + n;
+    try { sessionStorage.setItem(KEY, i); } catch {}
+    return (shown = shown.then(() => cur === i && v.goToSlide(i)).catch(() => {}));
+  }
+  addEventListener("keydown", (e) => {
+    const d = { ArrowRight: 1, ArrowDown: 1, PageDown: 1, " ": 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 }[e.key];
+    if (d) { e.preventDefault(); go(cur + d); }
+    else if (e.key === "Home") go(0); else if (e.key === "End") go(n - 1);
+  });
+  let start = 0; try { start = +sessionStorage.getItem(KEY) || 0; } catch {}
+  if (!n) return note("This deck has no slides.");
+  await go(start < n ? start : 0);
+  document.body.dataset.ready = "1";
+}
+main().catch((e) => note(e.message || String(e)));
+</script>
+</body>
+</html>
