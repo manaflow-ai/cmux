@@ -53,6 +53,11 @@ export function CustomizeLibraryCard() {
         setRemoving(null);
       });
   };
+  // Opt-in (Leo, 2026-11-15: "these are opt-in settings"): nothing draws until the person has
+  // applied something. An empty library, or a host with no CLI, shows no card; a CLI that answers
+  // with a refusal does, so a library that can't be read says why.
+  const listed = read?.library ?? null;
+  if (!query.isFetched || (!read?.refusal && (listed === null || listed.entries.length === 0))) return null;
   const actions: LibraryActions = {
     onToggle: (name, on) => void run({ verb: on ? "on" : "off", name }),
     onMove: (name, position) => void run({ verb: "order", name, position }),

@@ -109,10 +109,12 @@ test("a refused toggle (a preview is open) shows the CLI's words and changes not
   expect(toggle("night").getAttribute("aria-checked")).toBe("true");
 });
 
-test("an empty library says how entries get there", async () => {
+const listed = () => page!.provider.log.filter((call) => call.op === "cmux.settings.customize.library").length;
+
+test("nothing applied yet: the library was read and no card draws (the person hasn't opted in)", async () => {
   await open({ library: mockEmptyLibrary() });
-  expect(names()).toEqual([]);
-  expect(card()!.querySelector("[data-library-empty]")!.textContent).toContain("Everything you apply");
+  expect(listed()).toBeGreaterThan(0);
+  expect(card()).toBeNull();
 });
 
 test("fifty entries draw as fifty rows in order", async () => {
@@ -122,8 +124,8 @@ test("fifty entries draw as fifty rows in order", async () => {
   expect(names()[49]).toBe("look-50");
 });
 
-test("a host with no CLI draws one Unavailable line, never an error", async () => {
+test("a host with no CLI draws no card and no error", async () => {
   await open({ failing: { "cmux.settings.customize.library": "cmux.page.unavailable" } });
-  expect(names()).toEqual([]);
-  expect(card()!.querySelector("[data-library-unavailable]")!.textContent).toBe("The library could not be read.");
+  expect(listed()).toBeGreaterThan(0);
+  expect(card()).toBeNull();
 });
