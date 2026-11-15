@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43767607773",
+  "recorded_at": "2026-11-15T22:17:02Z",
+  "reason": "cmux-tui f30a8ef81d24 changes the image's cmux-tui (pinned 5ef9e969a0e0)",
+  "dry_run": false,
+  "cmux_tui": "f30a8ef81d24d27d539fd2a43bea46241319e610",
+  "fixes": [
+    {
+      "sha": "f30a8ef81d24d27d539fd2a43bea46241319e610",
+      "mergedAt": "2026-11-15T13:52:08-08:00",
+      "subject": "Agent CLI terminal from acpmux records: Claude Code renderer and parity test (77% / 84% of cells, not at parity) (#43265)"
+    },
+    {
+      "sha": "3d91283a04a5f9d9ea06848fce1332c53f1e02c2",
+      "mergedAt": "2026-11-15T13:37:46-08:00",
+      "subject": "Mac Screen: cmux app mac-screens reads each viewer tab's first frame, fps and round trip in every build (#43923)"
+    },
+    {
+      "sha": "9bfb0345ba8cce41806a75eadb93f846419efc4d",
+      "mergedAt": "2026-11-15T21:27:15Z",
+      "subject": "acpmux: cut the rest of the recorded v1 answer; an uncut session fails it (#43472)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T22:17:02Z",
+    "snapshot_id": "sh-1abdc1240e8844b39dde5ecad609a72e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43767607773): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "14155b6e8bd5ab9f0886ad7fc8ea5d74e14239e8",
+    "image": "cloud-native-auto-f30a8ef8-43767607773-1",
+    "revision": "ci-43767607773-1",
+    "at": "2026-11-15T22:17:02Z"
+  },
+  "rolled_back": false
+}
