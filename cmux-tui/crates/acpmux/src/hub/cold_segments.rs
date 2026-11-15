@@ -24,9 +24,9 @@
 //! lock. A chat is left as it is while it is purged, replaced, moving, being imported or restored:
 //! those read or replace its files as files.
 //!
-//! Stop condition: the worker ends when the daemon shuts down (`shutdown.rs` wakes it, and it
-//! finds the shutdown begun; a pass checks it between segments) or the hub is gone; it holds the
-//! hub weakly between wakes.
+//! Stop condition: the worker is a task of the hub's scope and ends when the daemon shuts down
+//! (the scope's close cancels it; `shutdown.rs` also wakes it, and it finds the shutdown begun; a
+//! round checks it between chats) or the hub is gone; it holds the hub weakly between wakes.
 
 use super::*;
 use crate::store::ColdMoved;
@@ -61,7 +61,8 @@ fn level_now() -> Option<i32> {
 
 impl Hub {
     /// Installs the store's seal hook and starts the worker (module docs).
-    pub fn cold_segments_worker(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+    /// The hub's scope owns it: its close at shutdown ends it, as the shutdown check does.
+    pub fn cold_segments_worker(self: &Arc<Self>) -> tokio::task::JoinHandle<Option<()>> {
         let (set, wake) = (self.cold_sealed.clone(), self.cold_sealed_wake.clone());
         self.store.on_segment_sealed(Arc::new(move |id: &str| {
             set.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned());
@@ -75,7 +76,7 @@ impl Hub {
         self.cold_sealed_wake.notify_one();
         let hub = Arc::downgrade(self);
         let (set, wake) = (self.cold_sealed.clone(), self.cold_sealed_wake.clone());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("cold-segments", async move {
             loop {
                 wake.notified().await;
                 let Some(hub) = hub.upgrade() else { return };
