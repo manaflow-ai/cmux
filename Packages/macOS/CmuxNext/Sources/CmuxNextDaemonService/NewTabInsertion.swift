@@ -79,10 +79,15 @@ public final class NewTabInsertion {
         guard let pane else { return nil }
         let creations = store.creations, closing = store.closingTabIDs // a tab whose close is on its way is no anchor: the daemon may close it first
         let others = pane.tabs.filter { !closing.contains($0.id) && !(ProvisionalTab.isProvisional($0.id) && creations.isUnderway(standIn: $0.id)) }
-        func now(_ tab: TabModel) -> TabModel? { others.first { $0 === tab || $0.id == tab.id } ?? creations.replacement(ofStandIn: tab.id, in: pane) }
-        guard let tab = now(anchor) ?? earlier.lazy.compactMap(now).first,
-              let slot = TabGroupWrites.slot(after: tab, in: others), others.indices.contains(slot - 1) else { return nil }
-        let before = others[slot - 1]
-        return ProvisionalTab.isProvisional(before.id) ? creations.replacementSurface(ofStandIn: before.id) : before.surface
+        func surface(_ tab: TabModel) -> SurfaceID? { ProvisionalTab.isProvisional(tab.id) ? creations.replacementSurface(ofStandIn: tab.id) : tab.surface }
+        // The anchor, else the nearest tab that was on its left: the first one the pane still lists as a tab the daemon knows
+        // (a stand-in the person closed stays in the records for a while and names no daemon tab).
+        for candidate in [anchor] + earlier {
+            guard let tab = others.first(where: { $0 === candidate || $0.id == candidate.id }) ?? creations.replacement(ofStandIn: candidate.id, in: pane),
+                  !closing.contains(tab.id), let own = surface(tab) else { continue }
+            guard let slot = TabGroupWrites.slot(after: tab, in: others), others.indices.contains(slot - 1) else { return own }
+            return surface(others[slot - 1]) ?? own
+        }
+        return nil
     }
 }
