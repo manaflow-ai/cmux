@@ -44,6 +44,8 @@ const cssInputsOnly = rest.includes("--css-inputs-only");
 // for an analyzer: what the page's first script holds and why.
 const metafileIndex = rest.indexOf("--metafile");
 const metafileOut = metafileIndex >= 0 ? rest[metafileIndex + 1] : undefined;
+const artifactMetafileIndex = rest.indexOf("--artifact-metafile");
+const artifactMetafile = artifactMetafileIndex >= 0 ? rest[artifactMetafileIndex + 1] : undefined;
 // --preload-list <file> (with --split) writes the chunks the entry imports statically, directly or
 // through another chunk, one per line relative to <outfile>'s folder: the page names each in a
 // <link rel="modulepreload">, so they load and parse beside the entry instead of after it.
@@ -87,8 +89,19 @@ const result = await build({
       }
     : { outfile }),
   plugins: cssInputsOnly
-    ? [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
-    : [reactCompiler, artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
+    ? [
+        artifactRuntimePlugin({ metafile: artifactMetafile }),
+        tailwindPlugin,
+        jsonParsePlugin,
+        katexStylePlugin({ split }),
+      ]
+    : [
+        reactCompiler,
+        artifactRuntimePlugin({ metafile: artifactMetafile }),
+        tailwindPlugin,
+        jsonParsePlugin,
+        katexStylePlugin({ split }),
+      ],
   metafile: Boolean(cssInputsFile || metafileOut || preloadFile),
 });
 if (metafileOut) await writeFile(metafileOut, JSON.stringify(result.metafile));

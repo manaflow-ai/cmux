@@ -51,7 +51,7 @@ use tokio::net::unix::pipe;
 use tokio::sync::{mpsc, oneshot};
 
 use super::serve_machine::{
-    Caller, ChildId, Effect, Env, Epoch, Event, LinkError, ReadId, ServeMachine, State,
+    Caller, ChildId, Effect, Env, Epoch, Event, LinkError, ReadId, ServeMachine, State, TokenRead,
 };
 use super::supervise_wire::{self as wire, AppLine};
 use super::{contract, serve_policy};
@@ -66,6 +66,14 @@ pub(super) const KILL_AFTER: Duration = Duration::from_secs(5);
 /// The longest a launch waits for another supervisor's child to give up
 /// the socket: its stop grace and SIGTERM.
 pub(super) const LEASE_WAIT: Duration = Duration::from_secs(10);
+/// How long the app has to answer a `read_token` line. The launch waits
+/// for that answer with the socket's lease held and every connect joins it,
+/// so an answer that never comes (lost, or an app read that never returns)
+/// would wedge the session's link for good (2026-11-15: every Cloud chat
+/// start waited 180 s on such a read). Past it the read fails, the connects
+/// resume with that error and the next connect reads again. The app answers
+/// within its own 75 s.
+pub(super) const TOKEN_READ_DEADLINE: Duration = Duration::from_secs(90);
 /// How long a token line may take to go out.
 const WRITE_LIMIT: Duration = Duration::from_secs(5);
 /// How long stderr is still read after the child exited (a process it
@@ -87,6 +95,8 @@ pub(super) struct Config {
     pub stop_grace: Duration,
     pub kill_after: Duration,
     pub lease_wait: Duration,
+    /// How long a `read_token` line waits for the app's answer.
+    pub token_read_deadline: Duration,
     pub refresh_delay: fn(&str) -> Duration,
     pub check: fn(&str) -> Result<(), LinkError>,
 }
@@ -106,6 +116,7 @@ impl Config {
             stop_grace: STOP_GRACE,
             kill_after: KILL_AFTER,
             lease_wait: LEASE_WAIT,
+            token_read_deadline: TOKEN_READ_DEADLINE,
             refresh_delay: wire::refresh_delay,
             check: serve_policy::check,
         }
@@ -223,6 +234,8 @@ enum Msg {
         generation: u64,
         epoch: Epoch,
     },
+    /// A `read_token` line's deadline: the read fails when it is still unanswered.
+    TokenReadDeadline(ReadId),
     Signal(ChildId, i32),
 }
 
@@ -258,7 +271,8 @@ struct Supervisor {
     tx: mpsc::UnboundedSender<Msg>,
     scope: Scope,
     children: HashMap<ChildId, ChildSlot>,
-    reads: HashMap<ReadId, Epoch>,
+    /// Each unanswered `read_token` line: its launch's epoch, and its deadline (dropping it cancels the deadline).
+    reads: HashMap<ReadId, (Epoch, oneshot::Sender<()>)>,
     /// The socket lease and the child that took it over (None: the launch
     /// that claimed it has not spawned yet).
     lease: Option<(FileLock, Option<ChildId>)>,
@@ -304,7 +318,7 @@ impl Supervisor {
                 Some(AppLine::Stop) => self.dispatch(Event::Stop),
                 Some(AppLine::AccountEnded) => self.dispatch(Event::AccountEnded),
                 Some(AppLine::Token { read, result }) => {
-                    if let Some(epoch) = self.reads.remove(&read) {
+                    if let Some((epoch, _deadline)) = self.reads.remove(&read) {
                         self.dispatch(Event::TokenRead { epoch, read, result });
                     }
                 }
@@ -322,6 +336,13 @@ impl Supervisor {
             Msg::ReadyTimer { generation, epoch } => {
                 if generation == self.ready.0 {
                     self.dispatch(Event::ReadyDeadline(epoch));
+                }
+            }
+            Msg::TokenReadDeadline(read) => {
+                if let Some((epoch, _deadline)) = self.reads.remove(&read) {
+                    let reason = "the app did not answer its access token read".to_owned();
+                    let result = TokenRead::Failed(LinkError::HelperNotRunning { reason });
+                    self.dispatch(Event::TokenRead { epoch, read, result });
                 }
             }
             Msg::RefreshTimer { generation, epoch } => {
@@ -376,7 +397,9 @@ impl Supervisor {
         match effect {
             Effect::ClaimSocket(epoch) => self.claim(epoch),
             Effect::ReadToken(epoch, read) => {
-                self.reads.insert(read, epoch);
+                let deadline =
+                    self.timer(self.config.token_read_deadline, Msg::TokenReadDeadline(read));
+                self.reads.insert(read, (epoch, deadline));
                 (self.out)(wire::read_token_line(read));
             }
             Effect::Spawn { child, env } => self.spawn(child, &env),

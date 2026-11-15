@@ -13,6 +13,9 @@
 //!   how a launch signs in, the debug auto sign-in's account pick, the launch
 //!   keys auth keeps, the active team's checks, where sign-in opens, the seat
 //!   facts and invite answers.
+//! - [`device_identity_slots`]: which login Keychain items hold the device
+//!   hub identity, and where a renewal puts the new one when another build's
+//!   items stay.
 //! - [`identity`]: the install identity's rules that are not key calls: the
 //!   `cmux auth token` mint's team, token claims, transient refusals, install
 //!   key names, share install origins.
@@ -28,6 +31,7 @@ pub mod agent_key;
 pub mod auth;
 pub mod capture_auth;
 pub mod config;
+pub mod device_identity_slots;
 pub mod identity;
 pub mod install_key_slots;
 pub mod keychain;
