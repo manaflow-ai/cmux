@@ -24,7 +24,7 @@ enum UpdateHandlers {
         registry.bind("palette.checkForUpdates", run: { [weak registry] _ in
             updater.checkForUpdates()
             guard let registry, registry.isCapturingWork else { return }
-            registry.track(result: result(updater.checkAnswer()))
+            registry.track(result: UpdateCommandAnswer.actionResult(updater.checkAnswer()))
         })
         for id: ActionID in ["palette.applyUpdateIfAvailable", "palette.attemptUpdate"] {
             registry.bind(id, unavailable: { updater.installUnavailableReason }, invoke: { [weak registry] _ in
@@ -33,7 +33,7 @@ enum UpdateHandlers {
                 do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)); return }
                 // A CLI run answers once the update installs, or with why nothing installs (``UpdaterService/installAnswer(after:limit:)``).
                 guard let registry, registry.isCapturingWork else { return }
-                registry.track(result: result(updater.installAnswer(after: baseline)))
+                registry.track(result: UpdateCommandAnswer.actionResult(updater.installAnswer(after: baseline)))
             })
         }
         // The ring return's rollback check reads the same stores as updates.rollback.
@@ -57,24 +57,5 @@ enum UpdateHandlers {
                 registry?.refuse(String(describing: error))
             }
         })
-    }
-
-    /// An update command's answer as the action's result (`action.run` `result`, or its error).
-    static func result(_ answer: Task<UpdateCommandAnswer, Never>) -> ActionResultWork {
-        // task-owner: the action run; ends with `answer`.
-        Task {
-            switch await answer.value {
-            case .answered(let fields):
-                .success(fields.mapValues { field in
-                    switch field {
-                    case .string(let text): .string(text)
-                    case .bool(let flag): .bool(flag)
-                    case .double(let number): .double(number)
-                    }
-                })
-            case .refused(let reason): .failure(ActionWorkFailure(refusal: .unavailable, reason: reason))
-            case .failed(let message): .failure(ActionWorkFailure(message))
-            }
-        }
     }
 }

@@ -99,13 +99,13 @@ import Testing
 
     /// A refusal reaches the CLI as `unavailable` with its reason; a failure as the run's error.
     @Test func anAnswerMapsToTheActionsResult() async throws {
-        guard case .failure(let refused) = await UpdateHandlers.result(Task { .refused("why") }).value else {
+        guard case .failure(let refused) = await UpdateCommandAnswer.actionResult(Task { .refused("why") }).value else {
             Issue.record("a refusal answered success")
             return
         }
         #expect(refused.refusal == .unavailable)
         #expect(refused.message == "why")
-        let fields = try await UpdateHandlers.result(Task { .answered(["pending": .bool(true), "progress": .double(0.5)]) }).value.get()
+        let fields = try await UpdateCommandAnswer.actionResult(Task { .answered(["pending": .bool(true), "progress": .double(0.5)]) }).value.get()
         #expect(fields["pending"] == .bool(true))
         #expect(fields["progress"] == .double(0.5))
     }
@@ -114,7 +114,7 @@ import Testing
     @Test func anInstallStillRunningAnswersItsState() async throws {
         let updater = Self.updater(Self.newer)
         updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.25))
-        let fields = try await UpdateHandlers.result(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value.get()
+        let fields = try await UpdateCommandAnswer.actionResult(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value.get()
         #expect(fields["pending"] == .bool(true))
         #expect(fields["state"] == .string("downloading"))
     }
@@ -124,7 +124,7 @@ import Testing
     @Test func aRepeatedFailureIsTheRunsErrorAtTheLimit() async throws {
         let updater = Self.updater(Self.newer)
         updater.debugIndicatorPhase = .note(.checkFailed)
-        let result = await UpdateHandlers.result(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value
+        let result = await UpdateCommandAnswer.actionResult(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value
         guard case .failure(let failure) = result else {
             Issue.record("a repeated failure answered \(result)")
             return
@@ -135,7 +135,7 @@ import Testing
     /// Nothing happened by the limit (idle, never moved): the run's error, not a pending success.
     @Test func anInstallThatNeverStartedIsTheRunsError() async throws {
         let updater = Self.updater(Self.newer)
-        let result = await UpdateHandlers.result(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value
+        let result = await UpdateCommandAnswer.actionResult(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value
         guard case .failure = result else {
             Issue.record("an install that never started answered \(result)")
             return
@@ -146,7 +146,7 @@ import Testing
     @Test func anInstallFollowsTheGateFromTheRequestOn() async throws {
         let updater = Self.updater(Self.newer)
         updater.debugIndicatorPhase = .note(.upToDate)
-        let result = UpdateHandlers.result(updater.installAnswer(after: updater.settledFlowMoves(), limit: .seconds(10)))
+        let result = UpdateCommandAnswer.actionResult(updater.installAnswer(after: updater.settledFlowMoves(), limit: .seconds(10)))
         await Task.yield()
         updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))
         await Task.yield()
@@ -162,7 +162,7 @@ import Testing
         let updater = Self.updater(Self.newer)
         let baseline = updater.settledFlowMoves()
         updater.debugIndicatorPhase = .note(.checkFailed)
-        guard case .failure(let failure) = await UpdateHandlers.result(updater.installAnswer(after: baseline, limit: .seconds(10))).value else {
+        guard case .failure(let failure) = await UpdateCommandAnswer.actionResult(updater.installAnswer(after: baseline, limit: .seconds(10))).value else {
             Issue.record("a failed install answered success")
             return
         }

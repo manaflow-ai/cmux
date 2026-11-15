@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 import os
 
 /// Settings and help actions (category `settings`, except appearance, see
@@ -69,6 +70,9 @@ enum SettingsHandlers {
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         LiveWebHandlers.bind(into: registry, context: context)
+        // Run a PR as This App… and Undo Last PR Run: `cmux app try` on the bundled CLI (CmuxNextUpdater).
+        AppTryActions.bind(into: registry, cli: { [bundled = context.services.bundledCLI] in bundled.known },
+                           window: { context.activeWindow?.window })
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in
