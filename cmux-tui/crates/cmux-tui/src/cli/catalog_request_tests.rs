@@ -15,7 +15,11 @@ struct Case {
 
 /// One case per catalog row with a request (`every_request_row_has_a_cli_case`).
 fn cases() -> Vec<Case> {
-    vec![]
+    vec![Case {
+        id: "workspace.unpinFromSpace",
+        argv: &["room", "unpin", "--workspace", "ws_1"],
+        values: vec![("target:workspace", json!("ws_1"))],
+    }]
 }
 
 /// What the CLI sends for `argv`: its lane, operation and params. A verb the CLI resolves
