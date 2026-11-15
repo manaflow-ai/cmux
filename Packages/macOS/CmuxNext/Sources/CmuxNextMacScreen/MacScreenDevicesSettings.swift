@@ -222,6 +222,10 @@ public final class MacScreenDevicesSettings {
                          signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
         }
         guard let hub else {
+            if let message = box.startupMessage {
+                return State(available: true, status: .init(text: message, tone: "danger"), signIn: nil,
+                             error: message, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
+            }
             let signIn = canSignIn() ? L.t("devices.signIn", "Sign In to Your Devices") : nil
             let text = signIn == nil ? L.t("devices.status.signedOut", "Sign in to cmux to see your devices.")
                 : L.t("devices.status.removed", "This Mac left your devices.")

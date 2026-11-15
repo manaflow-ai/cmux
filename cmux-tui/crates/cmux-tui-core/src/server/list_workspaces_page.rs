@@ -5,6 +5,10 @@
 
 use super::*;
 
+/// The nodes of the whole tree, built from a copy of the state.
+#[path = "tree_reply_nodes.rs"]
+pub(super) mod tree_reply_nodes;
+
 /// `known` on `list-workspaces`: `{"unchanged": true}` in O(1) when the
 /// client's tree is current, and `tree_revision` on the whole reply.
 pub const LIST_WORKSPACES_KNOWN_CAPABILITY: &str = "list-workspaces-known-v1";
@@ -19,19 +23,12 @@ pub(super) fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
 }
 
-/// [`list_workspaces_reply`] as the tree's text, which the concurrent
-/// readers of its build share (tree_reply_text.rs).
-pub(super) fn list_workspaces_reply_text(
-    mux: &Mux,
-    render: &RenderService,
-) -> anyhow::Result<Arc<tree_reply_text::TreeText>> {
-    mux.tree_reply_flight
-        .read_text(|| list_workspaces_tree(mux), |tree| render.serialize_tree(tree))
-}
-
 pub(super) fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
-    let notifications = mux.tree_decorations();
-    let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
+    // One hold of the state lock, for a copy of the state. The nodes of the whole tree are
+    // built from the copy with no lock held: a request that needs the state does not wait for
+    // the build, which is the long part of this reply in a large session.
+    let (state, notifications) = mux.tree_state_and_decorations();
+    let mut workspaces = tree_reply_nodes::tree_nodes(&state, &notifications);
     let (registry_id, generation) = mux.registry_identity();
     workspaces.set("registry_id", json!(registry_id));
     workspaces.set("generation", json!(generation));
@@ -53,8 +50,9 @@ pub(super) fn list_workspaces_reply_since(
     if let Some(hidden) = remote_view {
         return list_workspaces_reply_seen(mux, known, limit, hidden);
     }
-    // A branch switch has no event: a HEAD past its cache lifetime is read again first, and
-    // one that moved bumps the revision read below (cmux#42895).
+    // A branch switch has no event: each HEAD past its cache lifetime goes to the background
+    // refresh, and one that moved bumps the revision. This request can still answer
+    // `unchanged`; the request after the refresh gets the tree (cmux#42895).
     mux.revalidate_git_heads();
     let tree_revision = mux.tree_revision();
     let (registry_id, generation) = mux.registry_identity();

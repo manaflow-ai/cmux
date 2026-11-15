@@ -11,19 +11,7 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. }
-        | AppCommand::Events { .. }
-        | AppCommand::DebugCall { .. }
-        | AppCommand::Screenshot { .. }
-        | AppCommand::Right { .. }
-        | AppCommand::Renderers { .. }
-        | AppCommand::ChatPerf { .. }
-        | AppCommand::Settings(_)
-        | AppCommand::Nightly(_)
-        | AppCommand::Live(_)
-        | AppCommand::Version => {
-            panic!("expected a call")
-        }
+        other => panic!("expected a call, got {other:?}"),
     }
 }
 
@@ -1210,6 +1198,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
+        | AppCommand::Try(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }

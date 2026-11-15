@@ -61,12 +61,37 @@ fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
     exported.is_null()
 }
 
+/// Actions whose default shortcut this crate dropped and the pinned app FFI still has (step A of
+/// an app FFI change, docs/ci/app-ffi-release.md): until the re-pin the exports still show the
+/// old shortcut. Leo, 2026-11-15, on Toggle Terminal and Chat: "idk if the terminal gui should
+/// even get a hotkey by default".
+const SHORTCUT_REMOVAL_AWAITING_REPIN: &[&str] = &[];
+
+/// Whether `id`'s exported shortcut may still be the pinned app's while the crate has none.
+fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
+    SHORTCUT_REMOVAL_AWAITING_REPIN.contains(&id) && crate_shortcut.is_null()
+}
+
 /// Fields of an existing action that this crate has changed and the pinned app FFI does not have
 /// yet (step A of an app FFI change, docs/ci/app-ffi-release.md), as JSON pointers into the
 /// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
 /// field of the row is still compared. A listed field the dump already shows as this crate has
 /// it fails: the re-pin landed, so take it off.
-const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[];
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[
+    ("machine.joined.check", JOINED_PALETTE_ROW),
+    ("machine.joined.rotate", JOINED_PALETTE_ROW),
+    ("machine.joined.revoke", JOINED_PALETTE_ROW),
+];
+
+/// The fields a joined machine's action changed when it became a palette row that asks which
+/// joined machine (`palette_target_source` `joined`).
+const JOINED_PALETTE_ROW: &[&str] = &[
+    "/surfaces",
+    "/surfacePlan/palette",
+    "/paletteTarget",
+    "/paletteTargetSource",
+    "/computed/is_palette_visible",
+];
 
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.
@@ -100,7 +125,12 @@ fn awaiting_field_repin(rust: &mut Value, swift: &Value) {
 /// Whether `id`'s exported arguments may still be the pinned app's (see
 /// [`FIELDS_AWAITING_REPIN`]).
 fn arguments_await_repin(id: &str) -> bool {
-    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&"/arguments"))
+    field_awaits_repin(id, "/arguments")
+}
+
+/// Whether `id`'s FIELD is on [`FIELDS_AWAITING_REPIN`].
+fn field_awaits_repin(id: &str, field: &str) -> bool {
+    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&field))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -289,7 +319,15 @@ fn action_list_export_matches() {
         let id = action.id;
         assert_eq!(row["id"], id);
         assert_eq!(row["cli_name"], action.cli_name, "{id}");
-        assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
+        if field_awaits_repin(id, "/surfacePlan/palette") {
+            assert_ne!(
+                row["palette"],
+                action.surface_plan.palette.wire(),
+                "action-surfaces.json has {id}'s palette decision: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+            );
+        } else {
+            assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
+        }
         assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
         assert_eq!(
             row["context_menu"],
@@ -314,7 +352,9 @@ fn action_list_export_matches() {
         if action.shortcut_family == Some("digits") && !shortcut.is_null() {
             shortcut["family"] = serde_json::json!("digits");
         }
-        if !shortcut_awaits_repin(id, &row["default_shortcut"]) {
+        if !shortcut_awaits_repin(id, &row["default_shortcut"])
+            && !shortcut_removal_awaits_repin(id, &shortcut)
+        {
             assert_eq!(row["default_shortcut"], shortcut, "{id}");
         }
         let chord = action.default_chord.map_or(Value::Null, |c| {
@@ -408,4 +448,13 @@ fn debug_build_only_entries_exist() {
         };
         assert!(cases.iter().any(|c| c.value == *value), "{id}.{name} has no {value}");
     }
+}
+
+/// Leo, 2026-11-15: "idk if the terminal gui should even get a hotkey by default". Toggle
+/// Terminal and Chat ships unbound (its old Opt-Cmd-` was macOS's "Move focus to the window
+/// drawer"); a person binds one in Settings > Keyboard Shortcuts.
+#[test]
+fn toggle_terminal_and_chat_has_no_default_key() {
+    let action = cmux_action_catalog::find("palette.toggleTerminalChat").expect("an action");
+    assert!(action.default_shortcut.is_none() && action.default_chord.is_none());
 }

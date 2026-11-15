@@ -189,7 +189,7 @@ pub(super) enum Switched {
     Failed(String),
 }
 
-fn switch_build(stream: &mut std::os::unix::net::UnixStream, params: Value) -> Switched {
+pub(super) fn switch_build(stream: &mut std::os::unix::net::UnixStream, params: Value) -> Switched {
     use std::io::{BufRead, BufReader, Read};
     let line = json!({ "id": 1, "method": "updates.switch_build", "params": params });
     if let Err(message) = super::send_line(stream, &line) {

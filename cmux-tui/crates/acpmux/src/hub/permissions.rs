@@ -1332,7 +1332,7 @@ impl Hub {
                     (narrows, proved || signed)
                 })
             };
-            self.web_answer_check(session, control, narrows, proved)?;
+            self.web_answer_check(session, control, narrows, proved, answerer.device)?;
         }
         let cfg = self.config.read().await;
         let (pending, answered_by, annotations) = {

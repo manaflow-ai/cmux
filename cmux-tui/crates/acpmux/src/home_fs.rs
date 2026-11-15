@@ -295,6 +295,25 @@ pub(crate) fn read_dir(path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
     }
 }
 
+/// The names of at most `limit` entries of the folder `path` (no `.` or `..`, nothing stat'ed),
+/// read in the held home when `path` is below it, as [`read_dir`]: a bounded look at one folder.
+pub(crate) fn read_dir_names(
+    path: impl AsRef<Path>,
+    limit: usize,
+) -> io::Result<Vec<std::ffi::OsString>> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::read_dir_names(path, limit)
+    }
+    #[cfg(not(unix))]
+    {
+        held_read(path, || {
+            std::fs::read_dir(path)?.take(limit).map(|entry| Ok(entry?.file_name())).collect()
+        })
+    }
+}
+
 /// `config::private_state_file(path)` (an existing regular file of this user, its final
 /// symlink never followed, opened to read), opened in the held home when `path` is below it:
 /// what a removal decides by is read from the folder it removes from (#41462 review F1).
@@ -621,6 +640,9 @@ fn replace_with<T>(
     if done.is_err() {
         let _ = remove_file(&tmp);
     }
+    if let (Some(dir), Some(name)) = (to.parent(), to.file_name()) {
+        crate::dead_temps::remove(dir, &format!(".{}.tmp-", name.to_string_lossy()));
+    }
     done
 }
 
@@ -801,8 +823,9 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })();
     if written.is_err() {
         let _ = remove_file(&tmp);
-        return written;
     }
+    crate::dead_temps::remove_beside(path);
+    written?;
     let _ = sync_dir(dir);
     Ok(())
 }
@@ -1091,17 +1114,31 @@ mod unix {
                 })
                 .collect();
         }
+        read_dir_fd(&open_folder(path)?, path)
+    }
+
+    pub(super) fn read_dir_names(path: &Path, limit: usize) -> io::Result<Vec<std::ffi::OsString>> {
+        if crate::config::held_home_dir(path).is_none() {
+            return std::fs::read_dir(path)?
+                .take(limit)
+                .map(|entry| Ok(entry?.file_name()))
+                .collect();
+        }
+        list_up_to(&open_folder(path)?, limit)
+    }
+
+    /// The folder at `path`, opened in the held home when it is below it.
+    fn open_folder(path: &Path) -> io::Result<OwnedFd> {
         let at = at(path, None)?;
         // SAFETY: a valid descriptor and a NUL-terminated name. A final symlink is followed, as
         // `std::fs::read_dir` follows it.
-        let folder = owned(unsafe {
+        owned(unsafe {
             libc::openat(
                 at.dirfd(),
                 at.name.as_ptr(),
                 libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
             )
-        })?;
-        read_dir_fd(&folder, path)
+        })
     }
 
     pub(super) fn read_dir_fd(folder: &OwnedFd, path: &Path) -> io::Result<Vec<super::DirEntry>> {
@@ -1217,6 +1254,11 @@ mod unix {
 
     /// The names in `dir`, without `.` and `..`.
     pub(super) fn list(dir: &OwnedFd) -> io::Result<Vec<std::ffi::OsString>> {
+        list_up_to(dir, usize::MAX)
+    }
+
+    /// [`list`], stopping once `limit` names are read.
+    pub(super) fn list_up_to(dir: &OwnedFd, limit: usize) -> io::Result<Vec<std::ffi::OsString>> {
         // fdopendir takes the descriptor it is given; it gets its own copy.
         let copy = dir.as_fd().try_clone_to_owned()?;
         // SAFETY: a valid descriptor whose ownership passes to the stream.
@@ -1228,6 +1270,9 @@ mod unix {
         let mut names = Vec::new();
         let errno = directory_errno();
         let done = loop {
+            if names.len() >= limit {
+                break Ok(names);
+            }
             if let Some(errno) = errno {
                 // SAFETY: this thread's errno slot. Zero distinguishes EOF from a read error.
                 unsafe { *errno = 0 };

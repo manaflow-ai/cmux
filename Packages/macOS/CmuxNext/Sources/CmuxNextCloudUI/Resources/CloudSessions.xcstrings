@@ -568,6 +568,141 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng tác tử của máy thì không (%4$@). Chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
       }
     },
+    "cloud.startSession.agentSignedOut": {
+      "comment": "The machine is up but the agent isn't signed in there. %1$@ name, %2$@ id, %3$@ agent id, %4$@ the agent's name (Cursor). Keep the command as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` started, but %4$@ isn't signed in on that machine. Sign it in there, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` は起動しましたが、そのマシンでは %4$@ にサインインしていません。そこでサインインしてから、`cmux cloud start-session --target machine:%2$@ --agent %3$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine `%1$@` ist gestartet, aber %4$@ ist dort nicht angemeldet. Melde ihn dort an und führe dann `cmux cloud start-session --target machine:%2$@ --agent %3$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` a démarré, mais %4$@ n'y est pas connecté. Connectez-le là-bas, puis relancez `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` se inició, pero %4$@ no tiene la sesión iniciada allí. Inicia su sesión allí y vuelve a ejecutar `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@`، لكن %4$@ غير مسجّل الدخول عليه. سجّل دخوله هناك، ثم شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 그 머신에서 %4$@에 로그인되어 있지 않습니다. 그곳에서 로그인한 다음 `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但 %4$@ 尚未在该机器上登录。请在那里登录，然后再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但 %4$@ 尚未在該機器上登入。請在那裡登入，然後再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali %4$@ nije prijavljen na njoj. Prijavite ga tamo, pa ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men %4$@ er ikke logget ind på den. Log den ind der, og kør `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma %4$@ non ha eseguito l'accesso lì. Esegui l'accesso lì, poi esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែ %4$@ មិនទាន់បានចូលគណនីនៅលើវាទេ។ ចូលគណនីនៅទីនោះ រួចដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men %4$@ er ikke logget på den. Logg den på der, og kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale %4$@ nie jest na niej zalogowany. Zaloguj go tam, a potem uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas o %4$@ não está conectado nela. Conecte-o lá e execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, но %4$@ на ней не выполнил вход. Выполните вход там, затем снова выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่ %4$@ ยังไม่ได้ลงชื่อเข้าใช้ในเครื่องนั้น ลงชื่อเข้าใช้ที่นั่น แล้วเรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama %4$@ orada oturum açmamış. Orada oturum açın, ardından `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, але %4$@ на ній не ввійшов. Увійдіть там, потім знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng %4$@ chưa đăng nhập trên máy đó. Đăng nhập ở đó, rồi chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
+      }
+    },
+    "cloud.startSession.agentSignInExpired": {
+      "comment": "The machine is up but the agent's sign-in there expired. %1$@ name, %2$@ id, %3$@ agent id, %4$@ the agent's name (Grok). Keep the command as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` started, but %4$@'s sign-in expired on that machine. Sign it in again there, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` は起動しましたが、そのマシンでの %4$@ のサインインが期限切れです。そこでもう一度サインインしてから、`cmux cloud start-session --target machine:%2$@ --agent %3$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine `%1$@` ist gestartet, aber die Anmeldung von %4$@ ist dort abgelaufen. Melde ihn dort erneut an und führe dann `cmux cloud start-session --target machine:%2$@ --agent %3$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` a démarré, mais la connexion de %4$@ y a expiré. Reconnectez-le là-bas, puis relancez `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` se inició, pero la sesión de %4$@ caducó allí. Vuelve a iniciarla allí y vuelve a ejecutar `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@`، لكن انتهت صلاحية تسجيل دخول %4$@ عليه. سجّل دخوله مرة أخرى هناك، ثم شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 그 머신에서 %4$@ 로그인이 만료되었습니다. 그곳에서 다시 로그인한 다음 `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但 %4$@ 在该机器上的登录已过期。请在那里重新登录，然后再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但 %4$@ 在該機器上的登入已過期。請在那裡重新登入，然後再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali je prijava za %4$@ na njoj istekla. Ponovo ga prijavite tamo, pa ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men login for %4$@ er udløbet på den. Log den ind igen der, og kør `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma l'accesso di %4$@ lì è scaduto. Esegui di nuovo l'accesso lì, poi esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែការចូលគណនី %4$@ នៅលើវាបានផុតកំណត់។ ចូលគណនីម្ដងទៀតនៅទីនោះ រួចដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men påloggingen for %4$@ er utløpt på den. Logg den på igjen der, og kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale logowanie %4$@ na niej wygasło. Zaloguj go tam ponownie, a potem uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas o login do %4$@ expirou nela. Conecte-o novamente lá e execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, но срок входа %4$@ на ней истёк. Снова выполните вход там, затем снова выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่การลงชื่อเข้าใช้ %4$@ ในเครื่องนั้นหมดอายุแล้ว ลงชื่อเข้าใช้อีกครั้งที่นั่น แล้วเรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama %4$@ oturumunun oradaki süresi doldu. Orada yeniden oturum açın, ardından `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, але термін входу %4$@ на ній сплив. Увійдіть там знову, потім знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng phiên đăng nhập %4$@ trên máy đó đã hết hạn. Đăng nhập lại ở đó, rồi chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
+      }
+    },
+    "cloud.startSession.agentMissing": {
+      "comment": "The machine is up but the agent isn't installed there. %1$@ name, %2$@ id, %3$@ agent id, %4$@ the agent's name (Cursor). Keep the command and AGENT as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` started, but %4$@ (`%3$@`) isn't installed on that machine. Install it there, or run `cmux cloud start-session --target machine:%2$@ --agent AGENT` with another agent."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` は起動しましたが、そのマシンには %4$@ (`%3$@`) がインストールされていません。そこでインストールするか、別のエージェントで `cmux cloud start-session --target machine:%2$@ --agent AGENT` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine `%1$@` ist gestartet, aber %4$@ (`%3$@`) ist dort nicht installiert. Installiere ihn dort oder führe `cmux cloud start-session --target machine:%2$@ --agent AGENT` mit einem anderen Agenten aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` a démarré, mais %4$@ (`%3$@`) n'y est pas installé. Installez-le là-bas, ou lancez `cmux cloud start-session --target machine:%2$@ --agent AGENT` avec un autre agent."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` se inició, pero %4$@ (`%3$@`) no está instalado allí. Instálalo allí o ejecuta `cmux cloud start-session --target machine:%2$@ --agent AGENT` con otro agente."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@`، لكن %4$@ (`%3$@`) غير مثبّت عليه. ثبّته هناك، أو شغّل `cmux cloud start-session --target machine:%2$@ --agent AGENT` بوكيل آخر."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 그 머신에 %4$@ (`%3$@`)이(가) 설치되어 있지 않습니다. 그곳에 설치하거나 다른 에이전트로 `cmux cloud start-session --target machine:%2$@ --agent AGENT`을(를) 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但该机器上没有安装 %4$@ (`%3$@`)。请在那里安装，或使用其他代理运行 `cmux cloud start-session --target machine:%2$@ --agent AGENT`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但該機器上沒有安裝 %4$@ (`%3$@`)。請在那裡安裝，或使用其他代理執行 `cmux cloud start-session --target machine:%2$@ --agent AGENT`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali %4$@ (`%3$@`) nije instaliran na njoj. Instalirajte ga tamo ili pokrenite `cmux cloud start-session --target machine:%2$@ --agent AGENT` s drugim agentom."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men %4$@ (`%3$@`) er ikke installeret på den. Installér den der, eller kør `cmux cloud start-session --target machine:%2$@ --agent AGENT` med en anden agent."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma %4$@ (`%3$@`) non è installato lì. Installalo lì o esegui `cmux cloud start-session --target machine:%2$@ --agent AGENT` con un altro agente."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែ %4$@ (`%3$@`) មិនទាន់បានដំឡើងនៅលើវាទេ។ ដំឡើងវានៅទីនោះ ឬដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent AGENT` ជាមួយភ្នាក់ងារផ្សេង។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men %4$@ (`%3$@`) er ikke installert på den. Installer den der, eller kjør `cmux cloud start-session --target machine:%2$@ --agent AGENT` med en annen agent."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale %4$@ (`%3$@`) nie jest na niej zainstalowany. Zainstaluj go tam lub uruchom `cmux cloud start-session --target machine:%2$@ --agent AGENT` z innym agentem."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas o %4$@ (`%3$@`) não está instalado nela. Instale-o lá ou execute `cmux cloud start-session --target machine:%2$@ --agent AGENT` com outro agente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, но %4$@ (`%3$@`) на ней не установлен. Установите его там или выполните `cmux cloud start-session --target machine:%2$@ --agent AGENT` с другим агентом."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่ยังไม่ได้ติดตั้ง %4$@ (`%3$@`) ในเครื่องนั้น ติดตั้งที่นั่น หรือเรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent AGENT` กับเอเจนต์อื่น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama %4$@ (`%3$@`) orada yüklü değil. Orada yükleyin veya `cmux cloud start-session --target machine:%2$@ --agent AGENT` komutunu başka bir ajanla çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, але %4$@ (`%3$@`) на ній не встановлено. Встановіть його там або виконайте `cmux cloud start-session --target machine:%2$@ --agent AGENT` з іншим агентом."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng %4$@ (`%3$@`) chưa được cài trên máy đó. Cài nó ở đó, hoặc chạy `cmux cloud start-session --target machine:%2$@ --agent AGENT` với tác tử khác."}}
+      }
+    },
+    "cloud.startSession.routeUnavailable": {
+      "comment": "The machine is up but the model route the agent uses can't serve it there. %1$@ name, %2$@ id, %3$@ agent id, %4$@ the agent's name (Cursor). Keep the command as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` started, but %4$@'s model route isn't available on that machine. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again later, or pick another agent."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` は起動しましたが、そのマシンでは %4$@ のモデルルートを利用できません。後で `cmux cloud start-session --target machine:%2$@ --agent %3$@` をもう一度実行するか、別のエージェントを選んでください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine `%1$@` ist gestartet, aber die Modellroute von %4$@ ist dort nicht verfügbar. Führe `cmux cloud start-session --target machine:%2$@ --agent %3$@` später erneut aus oder wähle einen anderen Agenten."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` a démarré, mais la route de modèle de %4$@ n'y est pas disponible. Relancez `cmux cloud start-session --target machine:%2$@ --agent %3$@` plus tard, ou choisissez un autre agent."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` se inició, pero la ruta de modelo de %4$@ no está disponible allí. Vuelve a ejecutar `cmux cloud start-session --target machine:%2$@ --agent %3$@` más tarde o elige otro agente."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@`، لكن مسار النموذج الخاص بـ %4$@ غير متاح عليه. شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى لاحقًا، أو اختر وكيلًا آخر."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 그 머신에서는 %4$@의 모델 경로를 사용할 수 없습니다. 나중에 `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하거나 다른 에이전트를 선택하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但 %4$@ 的模型路由在该机器上不可用。请稍后再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`，或选择其他代理。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但 %4$@ 的模型路由在該機器上無法使用。請稍後再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`，或選擇其他代理。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali ruta modela za %4$@ nije dostupna na njoj. Kasnije ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@` ili odaberite drugog agenta."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men modelruten for %4$@ er ikke tilgængelig på den. Kør `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen senere, eller vælg en anden agent."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma il percorso del modello di %4$@ non è disponibile lì. Esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@` più tardi o scegli un altro agente."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែផ្លូវម៉ូដែលរបស់ %4$@ មិនអាចប្រើបាននៅលើវាទេ។ ដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀតនៅពេលក្រោយ ឬជ្រើសភ្នាក់ងារផ្សេង។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men modellruten for %4$@ er ikke tilgjengelig på den. Kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt senere, eller velg en annen agent."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale trasa modelu %4$@ nie jest na niej dostępna. Uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@` później lub wybierz innego agenta."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas a rota de modelo do %4$@ não está disponível nela. Execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente mais tarde ou escolha outro agente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, но маршрут модели %4$@ на ней недоступен. Выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@` позже или выберите другого агента."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่เส้นทางโมเดลของ %4$@ ใช้ไม่ได้ในเครื่องนั้น เรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้งภายหลัง หรือเลือกเอเจนต์อื่น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama %4$@ model rotası orada kullanılamıyor. `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu daha sonra yeniden çalıştırın veya başka bir ajan seçin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, але маршрут моделі %4$@ на ній недоступний. Виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@` пізніше або виберіть іншого агента."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng tuyến mô hình của %4$@ không khả dụng trên máy đó. Chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@` sau, hoặc chọn tác tử khác."}}
+      }
+    },
+    "cloud.startSession.routerUnavailable": {
+      "comment": "The machine is up but the cmux router can't serve the chat there (a Cloud machine has no local router). %1$@ name, %2$@ id, %3$@ agent id. Keep 'cmux' and the command as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` started, but the cmux router isn't available on that machine. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again later, or pick another agent."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` は起動しましたが、そのマシンでは cmux ルーターを利用できません。後で `cmux cloud start-session --target machine:%2$@ --agent %3$@` をもう一度実行するか、別のエージェントを選んでください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine `%1$@` ist gestartet, aber der cmux-Router ist dort nicht verfügbar. Führe `cmux cloud start-session --target machine:%2$@ --agent %3$@` später erneut aus oder wähle einen anderen Agenten."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` a démarré, mais le routeur cmux n'y est pas disponible. Relancez `cmux cloud start-session --target machine:%2$@ --agent %3$@` plus tard, ou choisissez un autre agent."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` se inició, pero el enrutador de cmux no está disponible allí. Vuelve a ejecutar `cmux cloud start-session --target machine:%2$@ --agent %3$@` más tarde o elige otro agente."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@`، لكن موجّه cmux غير متاح عليه. شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى لاحقًا، أو اختر وكيلًا آخر."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 그 머신에서는 cmux 라우터를 사용할 수 없습니다. 나중에 `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하거나 다른 에이전트를 선택하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但 cmux 路由器在该机器上不可用。请稍后再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`，或选择其他代理。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但 cmux 路由器在該機器上無法使用。請稍後再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`，或選擇其他代理。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali cmux ruter nije dostupan na njoj. Kasnije ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@` ili odaberite drugog agenta."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men cmux-routeren er ikke tilgængelig på den. Kør `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen senere, eller vælg en anden agent."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma il router di cmux non è disponibile lì. Esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@` più tardi o scegli un altro agente."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែរ៉ោតទ័រ cmux មិនអាចប្រើបាននៅលើវាទេ។ ដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀតនៅពេលក្រោយ ឬជ្រើសភ្នាក់ងារផ្សេង។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men cmux-ruteren er ikke tilgjengelig på den. Kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt senere, eller velg en annen agent."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale router cmux nie jest na niej dostępny. Uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@` później lub wybierz innego agenta."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas o roteador do cmux não está disponível nela. Execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente mais tarde ou escolha outro agente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, но маршрутизатор cmux на ней недоступен. Выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@` позже или выберите другого агента."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่เราเตอร์ของ cmux ใช้ไม่ได้ในเครื่องนั้น เรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้งภายหลัง หรือเลือกเอเจนต์อื่น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama cmux yönlendiricisi orada kullanılamıyor. `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu daha sonra yeniden çalıştırın veya başka bir ajan seçin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, але маршрутизатор cmux на ній недоступний. Виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@` пізніше або виберіть іншого агента."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng bộ định tuyến cmux không khả dụng trên máy đó. Chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@` sau, hoặc chọn tác tử khác."}}
+      }
+    },
     "cloud.startSession.needsFolder": {
       "comment": "The agent session needs a folder on the machine. %1$@ name, %2$@ id, %3$@ agent. Keep the command as written.",
       "extractionState": "manual",
@@ -1052,6 +1187,36 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "%2$@ trên %1$@ không có đăng nhập riêng, và lựa chọn đăng nhập là machine. Hãy đăng nhập trên máy, hoặc chạy lại với --login none."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 没有自己的登录，登录选择为 machine。请在机器上登录，或加上 --login none 重新运行。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 沒有自己的登入，登入選擇為 machine。請在機器上登入，或加上 --login none 重新執行。"}}
+      }
+    },
+    "cloud.startSession.codexNotDelivered": {
+      "comment": "A CLI or agent Cloud start whose Codex login from this Mac did not reach the machine. %1$@ machine, %2$@ agent, %3$@ the command, %4$@ why (keep OPENAI_API_KEY and --login in English).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%2$@ on %1$@ didn't get your Codex sign-in from this Mac (%4$@), so the chat didn't start: without it, its first turn fails on a missing OPENAI_API_KEY. Run `%3$@` again. To use your team's Codex instead, run it with --login none."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لم يتلقَّ %2$@ على %1$@ تسجيل دخولك إلى Codex من هذا الـMac (%4$@)، لذا لم تبدأ المحادثة: بدونه يفشل أول دور بسبب غياب OPENAI_API_KEY. شغّل `%3$@` مجددًا. لاستخدام Codex الخاص بفريقك بدلًا من ذلك، شغّله مع --login none."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%2$@ auf %1$@ hat deine Codex-Anmeldung von diesem Mac nicht erhalten (%4$@), daher startete der Chat nicht: ohne sie scheitert der erste Durchgang an einem fehlenden OPENAI_API_KEY. Führe `%3$@` erneut aus. Um stattdessen das Codex deines Teams zu nutzen, führe es mit --login none aus."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%2$@ en %1$@ no recibió tu inicio de sesión de Codex de este Mac (%4$@), así que el chat no empezó: sin él, su primer turno falla por falta de OPENAI_API_KEY. Vuelve a ejecutar `%3$@`. Para usar el Codex de tu equipo, ejecútalo con --login none."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%2$@ sur %1$@ n'a pas reçu ta connexion Codex depuis ce Mac (%4$@), donc le chat n'a pas démarré : sans elle, son premier tour échoue faute d'OPENAI_API_KEY. Relance `%3$@`. Pour utiliser le Codex de ton équipe, lance-le avec --login none."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "%1$@ の %2$@ はこの Mac から Codex のサインインを受け取れなかったため (%4$@)、チャットは開始されませんでした。サインインがないと最初のターンが OPENAI_API_KEY の欠落で失敗します。`%3$@` をもう一度実行してください。チームの Codex を使うには --login none を付けて実行してください。"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@이(가) 이 Mac에서 Codex 로그인을 받지 못해(%4$@) 채팅이 시작되지 않았습니다. 로그인이 없으면 첫 턴이 OPENAI_API_KEY 누락으로 실패합니다. `%3$@`을(를) 다시 실행하세요. 팀의 Codex를 쓰려면 --login none으로 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 没有收到此 Mac 的 Codex 登录（%4$@），因此聊天未启动：没有它，第一轮会因缺少 OPENAI_API_KEY 而失败。请再次运行 `%3$@`。若要改用团队的 Codex，请加上 --login none 运行。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 沒有收到這台 Mac 的 Codex 登入（%4$@），因此聊天未啟動：沒有它，第一輪會因缺少 OPENAI_API_KEY 而失敗。請再次執行 `%3$@`。若要改用團隊的 Codex，請加上 --login none 執行。"}}
+      }
+    },
+    "cloud.startSession.codexNoMacLogin": {
+      "comment": "A CLI or agent Cloud start for Codex when this Mac has no Codex ChatGPT sign-in to give the machine. %1$@ machine, %2$@ agent, %3$@ the command, %4$@ why (keep `codex login` and --login in English).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%2$@ on %1$@ has no sign-in, and this Mac has no Codex ChatGPT sign-in to give it (%4$@). Run `codex login` on this Mac, then run `%3$@` again. To use your team's Codex instead, run it with --login none."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يملك %2$@ على %1$@ تسجيل دخول، ولا يملك هذا الـMac تسجيل دخول Codex عبر ChatGPT ليعطيه إياه (%4$@). شغّل `codex login` على هذا الـMac، ثم شغّل `%3$@` مجددًا. لاستخدام Codex الخاص بفريقك بدلًا من ذلك، شغّله مع --login none."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%2$@ auf %1$@ hat keine Anmeldung, und dieser Mac hat keine Codex-ChatGPT-Anmeldung, die er ihm geben kann (%4$@). Führe `codex login` auf diesem Mac aus, dann `%3$@` erneut. Um stattdessen das Codex deines Teams zu nutzen, führe es mit --login none aus."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%2$@ en %1$@ no tiene inicio de sesión, y este Mac no tiene un inicio de sesión de Codex con ChatGPT que darle (%4$@). Ejecuta `codex login` en este Mac y vuelve a ejecutar `%3$@`. Para usar el Codex de tu equipo, ejecútalo con --login none."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%2$@ sur %1$@ n'a pas de connexion, et ce Mac n'a pas de connexion Codex ChatGPT à lui donner (%4$@). Lance `codex login` sur ce Mac, puis relance `%3$@`. Pour utiliser le Codex de ton équipe, lance-le avec --login none."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "%1$@ の %2$@ にはサインインがなく、この Mac にも渡せる Codex の ChatGPT サインインがありません (%4$@)。この Mac で `codex login` を実行してから、`%3$@` をもう一度実行してください。チームの Codex を使うには --login none を付けて実行してください。"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@에는 로그인이 없고, 이 Mac에도 넘겨줄 Codex ChatGPT 로그인이 없습니다(%4$@). 이 Mac에서 `codex login`을 실행한 뒤 `%3$@`을(를) 다시 실행하세요. 팀의 Codex를 쓰려면 --login none으로 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 没有登录，而此 Mac 也没有可提供给它的 Codex ChatGPT 登录（%4$@）。请在此 Mac 上运行 `codex login`，然后再次运行 `%3$@`。若要改用团队的 Codex，请加上 --login none 运行。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 沒有登入，而這台 Mac 也沒有可提供給它的 Codex ChatGPT 登入（%4$@）。請在這台 Mac 上執行 `codex login`，然後再次執行 `%3$@`。若要改用團隊的 Codex，請加上 --login none 執行。"}}
       }
     },
     "cloud.startSession.consentNeeded": {

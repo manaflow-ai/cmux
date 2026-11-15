@@ -1,5 +1,8 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloudCredentials
+@testable import CmuxNextControl
+import CmuxNextActions
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -12,6 +15,10 @@ import Testing
     /// 2026-11-14T13:00:00Z.
     nonisolated static let reset = "1794661200"
     static let weeklyWords = "Claude's weekly limit is used up until Nov 14, 1pm UTC. Pick Codex, or start after then."
+    /// A used-up limit's refusal with `words`, resetting at ``reset`` (every fixture's reset).
+    static func spent(_ words: String) -> CloudAgentCheck.Refused {
+        .limit(.init(code: "agent.limit_reached", message: words, untilAt: "2026-11-14T13:00:00Z"))
+    }
 
     nonisolated final class Sent: @unchecked Sendable { var requests: [URLRequest] = [] }
 
@@ -57,8 +64,8 @@ import Testing
         // Two starts at once, then a third: one ask, and the answer stands until the reset.
         async let first = refusal(check, user: user)
         async let second = refusal(check, harness: nil, user: user)
-        #expect(await [first, second] == [.limit(Self.weeklyWords), .limit(Self.weeklyWords)])
-        #expect(await refusal(check, user: user) == .limit(Self.weeklyWords))
+        #expect(await [first, second] == [Self.spent(Self.weeklyWords), Self.spent(Self.weeklyWords)])
+        #expect(await refusal(check, user: user) == Self.spent(Self.weeklyWords))
         #expect(sent.requests.count == 1)
         let request = sent.requests[0]
         #expect(request.url?.absoluteString == "https://api.anthropic.com/v1/messages")
@@ -66,6 +73,25 @@ import Testing
         let body = try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
         #expect(body?["max_tokens"] as? Int == 1)
         #expect(body?["model"] as? String == CloudAgentCheck.defaultModel)
+    }
+
+    /// The control socket answers a used-up limit with its code and when it resets, not `unavailable` and the words
+    /// alone (cmuxterm-hq run 43633859557: `cmux cloud start-chat` said only "cloudStartSession unavailable: ...").
+    @Test func aUsedUpLimitReachesTheControlSocketWithItsCodeAndReset() async {
+        guard case .limit(let limit)? = await refusal(check(status: 429, headers: Self.weeklySpent), user: person()) else {
+            Issue.record("no limit refusal")
+            return
+        }
+        let failure: ActionWorkFailure? = limit.failure
+        #expect(failure?.code == "agent.limit_reached")
+        #expect(failure?.details == ["until_at": "2026-11-14T13:00:00Z"])
+        guard let failure else { return }
+        let error = ControlError.actionWork(failure, action: "cloudStartSession", method: "action.run")
+        #expect(error.code == "agent.limit_reached")
+        #expect(error.message == Self.weeklyWords)
+        #expect(error.data == .object(["action": .string("cloudStartSession"), "reason": .string(Self.weeklyWords),
+                                       "until_at": .string("2026-11-14T13:00:00Z")]))
+        #expect(CloudAgentCheck.Refusal(code: "agent.limit_reached", message: "m", untilAt: nil).failure.details.isEmpty)
     }
 
     /// A start's own model is the one asked, and a model's own weekly window stops only that model.
@@ -76,7 +102,7 @@ import Testing
         let check = check(status: 429, headers: opusSpent, sent: sent)
         let user = person()
         #expect(await refusal(check, model: "claude-opus-5-5", user: user)
-            == .limit("Claude's weekly Opus limit is used up until Nov 14, 1pm UTC. Pick Codex, or start after then."))
+            == Self.spent("Claude's weekly Opus limit is used up until Nov 14, 1pm UTC. Pick Codex, or start after then."))
         let body = try? JSONSerialization.jsonObject(with: sent.requests.first?.httpBody ?? Data()) as? [String: Any]
         #expect(body?["model"] as? String == "claude-opus-5-5")
         #expect(await refusal(check, model: "claude-sonnet-5-5", user: user) == nil)
@@ -90,7 +116,7 @@ import Testing
         let words = "Claude's weekly Opus limit is used up until Nov 14, 1pm UTC. Pick Codex, or start after then."
         for model in [nil, "default", "claude-opus-5-5[1m]", "opus", "opus[1m]", "opusplan"] as [String?] {
             let sent = Sent()
-            #expect(await refusal(check(status: 429, headers: opusSpent, sent: sent), model: model, user: person()) == .limit(words))
+            #expect(await refusal(check(status: 429, headers: opusSpent, sent: sent), model: model, user: person()) == Self.spent(words))
             let body = try? JSONSerialization.jsonObject(with: sent.requests.first?.httpBody ?? Data()) as? [String: Any]
             #expect(body?["model"] as? String == "claude-opus-5-5")
         }

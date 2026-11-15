@@ -15744,6 +15744,138 @@
         }
       }
     },
+    "control.authToken.localFailure": {
+      "comment": "auth.token refusal: this Mac could not mint a token (a Keychain refusal, a cancelled mint); the cause follows in parentheses. Keep cmux auth token as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux on this Mac couldn't make a token. Run cmux auth token again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux auf diesem Mac konnte kein Token erstellen. Führe cmux auth token erneut aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux sur ce Mac n'a pas pu créer de jeton. Relancez cmux auth token."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux في هذا الـ Mac إنشاء رمز. شغّل cmux auth token مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux en este Mac no pudo crear un token. Vuelve a ejecutar cmux auth token."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 上的 cmux 無法產生權杖。請再次執行 cmux auth token。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 上的 cmux 无法生成令牌。请再次运行 cmux auth token。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 cmux가 토큰을 만들지 못했습니다. cmux auth token을 다시 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac の cmux はトークンを作成できませんでした。cmux auth token をもう一度実行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux na ovom Macu nije mogao napraviti token. Ponovo pokreni cmux auth token."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux på denne Mac kunne ikke lave et token. Kør cmux auth token igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux su questo Mac non è riuscito a creare un token. Esegui di nuovo cmux auth token."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux នៅលើ Mac នេះមិនអាចបង្កើតថូខឹនបានទេ។ សូមដំណើរការ cmux auth token ម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux på denne Macen kunne ikke lage et token. Kjør cmux auth token igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux na tym Macu nie mógł utworzyć tokenu. Uruchom ponownie cmux auth token."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux neste Mac não conseguiu criar um token. Execute cmux auth token de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux на этом Mac не смог создать токен. Снова запустите cmux auth token."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บน Mac เครื่องนี้สร้างโทเค็นไม่ได้ เรียก cmux auth token อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'teki cmux bir belirteç oluşturamadı. cmux auth token komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux на цьому Mac не зміг створити токен. Знову запустіть cmux auth token."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux trên máy Mac này không tạo được token. Hãy chạy lại cmux auth token."
+          }
+        }
+      }
+    },
     "control.authToken.managed": {
       "comment": "auth.token refusal (cmux auth token): the device is restricted to its organization's managed team.",
       "extractionState": "manual",

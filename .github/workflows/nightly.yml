@@ -2259,7 +2259,7 @@ jobs:
           name: cmux-nightly-unsigned-resume-receipt
           path: unsigned-resume/receipt.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
       - name: Retain unsigned resume provenance (retry)
         if: "!cancelled() && steps.upload-retain-unsigned-resume-provenance.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
@@ -2268,7 +2268,7 @@ jobs:
           name: cmux-nightly-unsigned-resume-receipt
           path: unsigned-resume/receipt.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
           overwrite: true
 
       - *clear-stale-git-locks-self-hos-2
@@ -2679,8 +2679,7 @@ jobs:
           read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
           python3 "$check" "${peers[@]}"
 
-      - &x33
-        name: Build nightly app (Release)
+      - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
@@ -2940,7 +2939,7 @@ jobs:
           name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           path: build-universal/Build/Products/Release/**/*.dSYM
           if-no-files-found: warn
-          retention-days: 21
+          retention-days: 7
           compression-level: 6
           # A failed-jobs re-run recompiles under the same build number; the newest symbols win.
           overwrite: true
@@ -3076,7 +3075,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           # A picker re-run (owned-pool rescue) re-runs this job after it succeeded beside a stuck app build.
           overwrite: true
 
@@ -3088,7 +3087,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
   attest-nightly-remote-daemon:
@@ -4399,7 +4398,7 @@ jobs:
       - &x68
         name: Finish the signed-app checks
         id: signed-app-checks
-        if: always()
+        if: always() && !env.LEFT_SLOT
         timeout-minutes: 15
         run: s=scripts/ci/nightly-steps/sign-finish-signed-app-checks.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
@@ -4608,7 +4607,7 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
             recovery-source-archive/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload pending notarization recovery artifact (retry)
         if: "!cancelled() && steps.upload-pending-notarization-recovery-artifact.outcome == 'failure' && (always() && steps.prepare-notarization-recovery.outcome == 'success')"
@@ -4625,7 +4624,7 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
             recovery-source-archive/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
 
@@ -4752,7 +4751,7 @@ jobs:
           overwrite: true
           path: notary-receipt/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload notary test receipt (retry)
         if: "!cancelled() && steps.upload-notary-test-receipt.outcome == 'failure' && (always() && steps.notary-receipt.outcome == 'success')"
@@ -4761,7 +4760,7 @@ jobs:
           name: cmux-notary-test-receipt-${{ needs.decide.outputs.import_variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: notary-receipt/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
 
@@ -7076,7 +7075,8 @@ jobs:
     timeout-minutes: 300
     permissions:
       contents: write
-      actions: read
+      # The tick ask at notarization. Why: docs/ci/nightly-workflow-notes.md#note-26
+      actions: write
       pull-requests: read
       attestations: write
       id-token: write
@@ -7225,7 +7225,21 @@ jobs:
       - *x30
       - *x31
       - *x32
-      - *x33
+      # Bounded here, not on the anchor (build-nightly-app keeps its own job timeout for a cold compile):
+      # this job's bound is 300 min for the notary and publish-lease waits, so a stalled compile held the push slot and
+      # the next nightly for hours. Run 43673773157's build on ultra1 ran 80+ min against the 6-19 min one-job builds on
+      # cmux15 and ultra1's 7.8 min p50 (hq build-fleet/mini-fleet.json _sizing). 60 min is two cold builds (the script
+      # retries once on a cache failure); past it the step fails, the job ends red and the loop retry builds again.
+      - name: Build nightly app (Release)
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
+        timeout-minutes: 60
+        env:
+          IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
+          SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
+          BUILD_TRACK: ${{ needs.decide.outputs.track }}
+          DECIDE_COLD_CACHE_DISABLE: ${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}
+        run: bash scripts/ci/nightly-steps/app-build-release.sh
       - name: Start the webview checks on the build commit
         if: ${{ !env.LEFT_SLOT }}
         run: python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks -- python3 scripts/ci/fast_gate_webviews_checks.py --repo .
@@ -7298,6 +7312,13 @@ jobs:
           VARIANT: arm64
         run: bash scripts/ci/nightly-steps/sign-start-signed-app-checks.sh
       - *x67
+      # The next run sets up while this one notarizes. Why: docs/ci/nightly-workflow-notes.md#note-26
+      # .publish-tooling is this commit's scripts: an older build tree may predate scripts/ci/timeout.sh.
+      - name: Ask main's nightly-next tick at notarization
+        if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && !env.LEFT_SLOT
+        continue-on-error: true
+        env: {GH_TOKEN: "${{ github.token }}", GH_BUDGET_WAIT_MAX_SECONDS: "0"}
+        run: bash .publish-tooling/scripts/ci/timeout.sh 60 gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
       # As build-sign-notarize-nightly's step: app ticket, staple, the DMG around the stapled app, its ticket and
       # staple. Apple gets 40 minutes; a slower build fails this job and the loop's retry builds again (no hand-off).
       - name: Notarize app ticket through final DMG

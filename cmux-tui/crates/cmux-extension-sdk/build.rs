@@ -21,8 +21,36 @@ fn main() -> Result<()> {
     }
     let out = std::env::var("OUT_DIR").map_err(|e| e.to_string())?;
     let source = api(&json(&events)?, &json(&scopes)?, &json(&signals)?, &text(&runtime)?)?;
-    std::fs::write(PathBuf::from(out).join("api.rs"), source).map_err(|e| e.to_string())
+    std::fs::write(PathBuf::from(&out).join("api.rs"), source).map_err(|e| e.to_string())?;
+    customize_types(Path::new(&manifest_dir), Path::new(&out))
 }
+
+/// The customize schema's types (`cmux_customize::schema`, the one source `cmux customize
+/// schema` prints): the Rust tables into `$OUT_DIR`, and the TypeScript types into the
+/// package's `src/generated/customize.ts` (gitignored), which every build of this crate
+/// writes, so a checkout's copy is never older than its tables. A tree that cannot be
+/// written (a vendored copy) warns; the crate's test then names the stale file.
+fn customize_types(manifest_dir: &Path, out: &Path) -> Result<()> {
+    let schema = cmux_customize::schema::Schema::current();
+    let rust = cmux_customize::schema::rust(&schema);
+    let typescript = cmux_customize::schema::typescript(&schema);
+    std::fs::write(out.join("customize.rs"), rust).map_err(|e| e.to_string())?;
+    std::fs::write(out.join("customize.ts"), &typescript).map_err(|e| e.to_string())?;
+    let file = manifest_dir.join(TYPESCRIPT_TYPES);
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(typescript.as_str()) {
+        let written = file
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&file, &typescript));
+        if let Err(error) = written {
+            println!("cargo::warning=could not write {}: {error}", file.display());
+        }
+    }
+    Ok(())
+}
+
+/// Where the TypeScript types go, relative to this crate (`cmux-extension-sdk/customize`).
+const TYPESCRIPT_TYPES: &str = "typescript/src/generated/customize.ts";
 
 fn text(path: &Path) -> Result<String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))

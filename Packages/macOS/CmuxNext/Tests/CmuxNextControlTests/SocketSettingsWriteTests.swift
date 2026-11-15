@@ -276,6 +276,8 @@ extension SettingDescriptor {
     /// A value `accepts` takes: the default when there is one, else one that fits the kind.
     var sampleValue: JSONValue {
         if let defaultValue, accepts(defaultValue) { return defaultValue }
+        // An app id by the manifest's pattern (`tabs.newTabApp`), not free text.
+        if path == NewTabAppSetting.configPath { return .string("local/showcase-newtab") }
         switch kind {
         case .choice(let choices): return .string(choices.first?.value ?? "")
         case .choiceOrNumber(let choices, let number): return choices.first.map { .string($0.value) } ?? .number(number.range.lowerBound)
@@ -301,6 +303,7 @@ extension SettingDescriptor {
         if path == CustomDensitiesSetting.configPath { return [.array([.object(["id": "my-tight", "name": "My Tight"])])] }
         if path == CommandLabelsSetting().configPath { return [.array(["cmux-fleet"])] }
         if path == ChatSettings.rootsPath { return [.array(["/opt/cmux-test-chats"]), .array([])] }
+        if path == NewTabAppSetting.configPath { return [.string("local/showcase-newtab"), .string("local/web-pane")] }
         switch kind {
         case .choice(let choices): return choices.map { .string($0.value) }
         case .choiceOrNumber(let choices, let number):
