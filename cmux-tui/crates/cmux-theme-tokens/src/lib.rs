@@ -69,6 +69,9 @@ pub use scheme::{
     InstallError, MAX_SCHEME_BYTES, Scheme, SchemeError, SchemeFormat, find_theme_file,
     install_scheme, is_valid_theme_name,
 };
+/// The spec's `design-tokens.json`, as compiled in: `theme.formulas` names every chrome
+/// token and how it derives (`cmux customize schema` lists them).
+pub use spec::DESIGN_TOKENS;
 pub use tokens::*;
 
 /// Loads the process's Ghostty config for `appearance` and derives the
