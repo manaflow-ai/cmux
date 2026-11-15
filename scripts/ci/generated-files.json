@@ -28,6 +28,12 @@
       "status": "build"
     },
     {
+      "id": "extension-sdk-customize-types",
+      "generator": "cmux-tui/crates/cmux-extension-sdk/build.rs",
+      "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/**"],
+      "status": "build"
+    },
+    {
       "id": "feature-tips",
       "generator": "webviews/scripts/pages/gen-feature-tips.mjs",
       "outputs": ["webviews/src/ui/featureTips/tips.generated.json"],
