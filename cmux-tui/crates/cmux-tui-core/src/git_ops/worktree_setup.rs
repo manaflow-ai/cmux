@@ -454,6 +454,13 @@ pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
     })
 }
 
+/// Whether `git_dir` is the git folder that the repository whose git folder
+/// is `common_dir` keeps for the worktree `root` ([`OwnFolder::is_of`]). The
+/// folder is opened here for this one check.
+pub(super) fn keeps(git_dir: &Path, root: &Path, common_dir: &Path) -> bool {
+    OwnFolder::open(git_dir).is_of(root, common_dir)
+}
+
 /// A worktree folder with its links resolved, as the setup and its ports
 /// are kept by it (`~/.cmux/worktrees` is a link on macOS).
 pub(super) fn resolved(root: &Path) -> PathBuf {

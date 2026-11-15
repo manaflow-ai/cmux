@@ -161,7 +161,8 @@ fn plan(
 }
 
 /// Makes the attempt's worktree and records its base, unless a lost
-/// reply's run already made it. `common_dir` is the repository's git folder.
+/// reply's run already made it in the repository whose git folder is
+/// `common_dir` ([`made`]).
 fn create(
     repository: &Repository,
     git: &UserGit<'_>,
@@ -249,10 +250,13 @@ pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
 
 /// The attempt's worktree exists on its branch and git finished making it:
 /// its administrative folder is no longer locked (`git worktree add` locks
-/// it while it checks the files out).
-fn made(attempt: &Attempt, _common_dir: &Path) -> bool {
+/// it while it checks the files out). The worktree is of the repository
+/// whose git folder is `common_dir`, by the check that its setup has
+/// ([`worktree_setup::keeps`]): a folder that is a worktree of a different
+/// repository on the same branch is not the worktree of this create.
+fn made(attempt: &Attempt, common_dir: &Path) -> bool {
     let Some(admin) = admin_dir(&attempt.root) else { return false };
-    if admin.join("locked").exists() {
+    if !worktree_setup::keeps(&admin, &attempt.root, common_dir) || admin.join("locked").exists() {
         return false;
     }
     let arguments = ["symbolic-ref", "--quiet", "--short", "HEAD"];
