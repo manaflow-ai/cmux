@@ -38,6 +38,12 @@ pub const MAX_FRAME_CHANGES: usize = crate::wire::MAX_REPLAY_FRAME_BYTES / MIN_O
 /// frame into units of this size, each with the mark after its last change.
 pub const MAX_UNIT_CHANGES: usize = 512;
 
+/// At most this many mirror changes in one writer turn, all origins together.
+/// Thirty origins each with a unit of [`MAX_UNIT_CHANGES`] queued held a local
+/// row about 60 ms in one turn; past this count the rest of the units wait for
+/// the next turn, so a local row waits behind at most four units, about 8 ms.
+pub const MAX_TURN_UNIT_CHANGES: usize = 4 * MAX_UNIT_CHANGES;
+
 pub enum UnitChange {
     Summary(Box<Summary>),
     Gone { chat_id: String },
@@ -170,6 +176,8 @@ pub(super) struct WriterMirror {
     pub counters: Arc<Counters>,
     units: HashMap<String, RetryUnit>,
     off: HashSet<String>,
+    /// [`MAX_TURN_UNIT_CHANGES`]; a measurement lifts it to compare.
+    pub turn_changes: usize,
     /// Unit appends a test makes fail before they write.
     #[cfg(test)]
     pub fail_appends: usize,
@@ -181,6 +189,7 @@ impl WriterMirror {
             counters,
             units: HashMap::new(),
             off: HashSet::new(),
+            turn_changes: MAX_TURN_UNIT_CHANGES,
             #[cfg(test)]
             fail_appends: 0,
         }

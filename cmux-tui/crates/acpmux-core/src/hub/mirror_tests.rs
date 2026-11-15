@@ -491,3 +491,34 @@ fn the_writer_counts_each_takeover_as_applied_or_held() {
     assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns { applied: 1, held: 1 });
     assert_eq!(hub.source(ORIGIN), Some(Source::Mirror), "the held takeover changed nothing");
 }
+
+/// (e) A turn takes units of at most [`MAX_TURN_UNIT_CHANGES`] changes, all
+/// origins together, and the local row queued behind them: the units past the
+/// cap wait in their slots, and the next turns write them in order.
+#[test]
+fn a_turn_takes_units_up_to_the_cap_and_the_local_row() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let origins = 2 * MAX_TURN_UNIT_CHANGES / MAX_UNIT_CHANGES;
+    for origin in 0..origins {
+        let name = format!("peer-{origin:02}");
+        let changes = (0..MAX_UNIT_CHANGES)
+            .map(|n| UnitChange::Summary(Box::new(row(&name, &format!("c-{n:04}"), 1))))
+            .collect();
+        let unit = MirrorUnit { origin: name, after: None, changes, mark: mark(1) };
+        hub.submit_unit(Source::Mirror, unit).unwrap();
+    }
+    hub.submit(row("local", "mine", 1)).unwrap();
+    writer.process_batch();
+    let index = hub.snapshot();
+    assert!(index.get_row(&RowKey::new("local", "mine")).is_some(), "the local row is written");
+    assert_eq!(index.len(), MAX_TURN_UNIT_CHANGES + 1);
+    let marked = |hub: &Hub| {
+        (0..origins)
+            .filter(|origin| hub.mirror_mark(&format!("peer-{origin:02}")).is_some())
+            .count()
+    };
+    assert_eq!(marked(&hub), MAX_TURN_UNIT_CHANGES / MAX_UNIT_CHANGES);
+    writer.process_batch();
+    assert_eq!(marked(&hub), origins);
+    assert_eq!(hub.snapshot().len(), origins * MAX_UNIT_CHANGES + 1);
+}

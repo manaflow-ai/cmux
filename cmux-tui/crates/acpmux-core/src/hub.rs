@@ -44,7 +44,8 @@ mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
 pub use mirror::{
-    MAX_FRAME_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, TakeoverTurns, UnitChange,
+    MAX_FRAME_CHANGES, MAX_TURN_UNIT_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit,
+    TakeoverTurns, UnitChange,
 };
 pub use origins::{Source, refused_held_rows};
 
@@ -211,20 +212,37 @@ impl UpdateQueue {
 
     #[cfg(test)]
     fn take_batch(&self) -> Vec<(UpdateKey, PendingUpdate)> {
-        self.take_batch_limit(256)
+        self.take_batch_limit(256, MAX_TURN_UNIT_CHANGES)
     }
 
-    fn take_batch_limit(&self, limit: usize) -> Vec<(UpdateKey, PendingUpdate)> {
+    /// At most `limit` updates, and units of at most `unit_changes` changes
+    /// together (one unit at least): an origin's unit past that count waits in
+    /// its slot, with what queued behind it, for the next turn.
+    fn take_batch_limit(
+        &self,
+        limit: usize,
+        unit_changes: usize,
+    ) -> Vec<(UpdateKey, PendingUpdate)> {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
         let mut batch = Vec::new();
+        let mut changes = 0;
+        let mut waiting = Vec::new();
         while batch.len() < limit {
             let Some((key, mut updates)) = pending.controls.pop_first() else { break };
+            if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
+                if changes > 0 && changes + unit.changes.len() > unit_changes {
+                    waiting.push((key, updates));
+                    continue;
+                }
+                changes += unit.changes.len();
+            }
             let Some(update) = updates.pop_front() else { continue };
             if !updates.is_empty() {
                 pending.controls.insert(key.clone(), updates);
             }
             batch.push((key, update));
         }
+        pending.controls.extend(waiting);
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
             pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
