@@ -1,20 +1,13 @@
-// vdisplay: hold a virtual display at a chosen refresh rate until killed (or HOLD seconds).
-// Usage: VDisplay HZ HOLD_SECONDS [main], or VDisplay probe. A copy of cmuxterm-hq's
-// build-fleet/mini-ops/vdisplay.m (`fleet vdisplay`); keep the two in step (this copy adds `main` and
-// `probe`, 2026-10-23).
-// `probe` creates no display: it prints "main DISPLAY_ID p50_ms" for the current main display (its measured
-// CVDisplayLink interval, 0 when it does not tick) and exits. scripts/measure/split-spring.sh runs it after a
-// VDISPLAY-FALLBACK, so the report still says which refresh the real display measured at.
-// `main` makes the virtual display the main display (origin 0,0; every other display moves right of
-// it, keeping its place relative to the others) for this process only (kCGConfigureForAppOnly):
-// the old arrangement comes back when it exits. Without it, a host with any other display keeps
-// that one as main, and apps open there.
-// Prints "ready DISPLAY_ID p50_ms main=MAIN_ID" once CVDisplayLink ticks on it, so callers can
-// check the rate and the main display before measuring anything. Uses the private
-// CGVirtualDisplay API (as BetterDisplay and DeskPad do); the display goes away when this
-// process exits.
+// PROBE COMMIT ONLY (never lands): why a 120 Hz CGVirtualDisplay draws pages at 60 Hz on the measure Macs.
+// split-spring.sh runs `VDisplay HZ HOLD main SIZE`; this copy answers "error: probe" at once so split-spring falls
+// back and runs `VDisplay probe`, whose one "main ..." line the step log prints in full. The probe dumps the
+// CGVirtualDisplay SPI of this macOS, every online display, and for each variant of a virtual display: the mode's
+// refresh, NSScreen.maximumFramesPerSecond, the CVDisplayLink interval, and the CADisplayLink interval of a window
+// drawn on that display every frame (what the compositor actually gives a view).
 #import <AppKit/AppKit.h>
 #import <CoreVideo/CoreVideo.h>
+#import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 #include <mach/mach_time.h>
 
 @interface CGVirtualDisplayDescriptor : NSObject
@@ -38,122 +31,235 @@
 @property (readonly, nonatomic) CGDirectDisplayID displayID;
 @end
 
-static uint64_t stamps[1000];
-static volatile int ticks = 0;
-static CVReturn tick(CVDisplayLinkRef link, const CVTimeStamp *now, const CVTimeStamp *out, CVOptionFlags in, CVOptionFlags *flags, void *context) {
-  if (ticks < 1000) stamps[ticks++] = now->hostTime;
-  return kCVReturnSuccess;
-}
-/// Moves DISPLAY to the origin (the main display) and every other online display to its right.
-static CGError makeMain(CGDirectDisplayID display) {
-  CGDirectDisplayID ids[32];
-  uint32_t count = 0;
-  CGError error = CGGetOnlineDisplayList(32, ids, &count);
-  if (error != kCGErrorSuccess) return error;
-  CGFloat width = CGDisplayBounds(display).size.width, minX = CGFLOAT_MAX;
-  for (uint32_t i = 0; i < count; i++)
-    if (ids[i] != display) minX = MIN(minX, CGDisplayBounds(ids[i]).origin.x);
-  CGDisplayConfigRef config;
-  if ((error = CGBeginDisplayConfiguration(&config)) != kCGErrorSuccess) return error;
-  CGConfigureDisplayOrigin(config, display, 0, 0);
-  for (uint32_t i = 0; i < count; i++) {
-    if (ids[i] == display) continue;
-    CGRect bounds = CGDisplayBounds(ids[i]);
-    CGConfigureDisplayOrigin(config, ids[i], (int32_t)(bounds.origin.x - minX + width), (int32_t)bounds.origin.y);
-  }
-  return CGCompleteDisplayConfiguration(config, kCGConfigureForAppOnly);
+static NSMutableString *outLine;
+static void say(NSString *format, ...) {
+  va_list args; va_start(args, format);
+  [outLine appendString:[[NSString alloc] initWithFormat:format arguments:args]];
+  va_end(args);
 }
 
-/// Whether AppKit's screen list has DISPLAY yet.
+static int compare(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
+static double median(double *xs, int n) { if (n < 1) return 0; qsort(xs, n, sizeof(double), compare); return xs[n / 2]; }
+
+static uint64_t stamps[2000];
+static volatile int ticks = 0;
+static CVReturn tick(CVDisplayLinkRef link, const CVTimeStamp *now, const CVTimeStamp *out, CVOptionFlags in, CVOptionFlags *flags, void *context) {
+  if (ticks < 2000) stamps[ticks++] = now->hostTime;
+  return kCVReturnSuccess;
+}
+static double cvInterval(CGDirectDisplayID display) {
+  CVDisplayLinkRef link;
+  if (CVDisplayLinkCreateWithCGDisplay(display, &link) != kCVReturnSuccess) return -1;
+  ticks = 0;
+  CVDisplayLinkSetOutputCallback(link, tick, NULL);
+  CVDisplayLinkStart(link);
+  [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1.0]];
+  CVDisplayLinkStop(link);
+  CVTime nominal = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(link);
+  CVDisplayLinkRelease(link);
+  say(@" cvnominal=%.2f", nominal.timeScale ? 1000.0 * nominal.timeValue / nominal.timeScale : -1);
+  int n = ticks - 1;
+  mach_timebase_info_data_t base; mach_timebase_info(&base);
+  double xs[2000];
+  for (int i = 0; i < n; i++) xs[i] = (double)(stamps[i + 1] - stamps[i]) * base.numer / base.denom / 1e6;
+  return median(xs, n);
+}
+
+// A view that changes its layer's color on every CADisplayLink callback and records the callbacks' timestamps.
+@interface Painter : NSView
+@property (nonatomic) NSMutableArray<NSNumber *> *times;
+@property (nonatomic) NSMutableArray<NSNumber *> *targets;
+@property (nonatomic) int frameCount;
+@end
+@implementation Painter
+- (void)step:(CADisplayLink *)link {
+  [self.times addObject:@(link.timestamp)];
+  [self.targets addObject:@(link.targetTimestamp - link.timestamp)];
+  self.frameCount++;
+  self.layer.backgroundColor = (self.frameCount & 1) ? NSColor.redColor.CGColor : NSColor.blueColor.CGColor;
+}
+@end
+
 static NSScreen *screenFor(CGDirectDisplayID display) {
   for (NSScreen *screen in [NSScreen screens])
     if ([screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] == display) return screen;
   return nil;
 }
 
-/// Runs the main run loop until AppKit has handled a screen change (NSApplicationDidChangeScreenParametersNotification)
-/// and, when WANT is set, until DISPLAY is in [NSScreen screens] and AppKit's main screen. AppKit refreshes its
-/// screen list only on the main run loop: an NSThread sleep before the read left the new display out of
-/// [NSScreen screens], so "visible=0x0" (2026-10-25: cmux9s, cmuxs-Mac-mini, cmux20-bench). Bounded by SECONDS.
-static void waitForScreens(CGDirectDisplayID display, BOOL wantMain, NSTimeInterval seconds) {
-  __block BOOL changed = NO;
-  id token = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidChangeScreenParametersNotification
-                                                                object:nil queue:nil usingBlock:^(NSNotification *note) { changed = YES; }];
+static void spin(NSTimeInterval seconds) { [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]]; }
+
+static void waitForScreen(CGDirectDisplayID display, BOOL present, NSTimeInterval seconds) {
   NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:seconds];
   while ([deadline timeIntervalSinceNow] > 0) {
-    [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-    NSScreen *screen = screenFor(display);
-    if (changed && screen && (!wantMain || [NSScreen screens].firstObject == screen)) break;
+    spin(0.05);
+    if ((screenFor(display) != nil) == present) break;
   }
-  [[NSNotificationCenter defaultCenter] removeObserver:token];
-  if (!screenFor(display)) fprintf(stderr, "vdisplay: AppKit did not list display %u within %.0f s\n", display, seconds);
 }
 
-static int compare(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
+/// The CADisplayLink interval (median, ms) of a window drawn every frame on DISPLAY, and the link's target duration.
+static void caInterval(CGDirectDisplayID display, double *interval, double *target, int *count) {
+  *interval = -1; *target = -1; *count = 0;
+  NSScreen *screen = screenFor(display);
+  if (!screen) return;
+  if (@available(macOS 14.0, *)) {
+    NSRect frame = NSMakeRect(NSMinX(screen.frame) + 100, NSMinY(screen.frame) + 100, 300, 300);
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskBorderless
+                                                     backing:NSBackingStoreBuffered defer:NO screen:screen];
+    window.level = NSStatusWindowLevel;
+    window.releasedWhenClosed = NO;
+    Painter *view = [[Painter alloc] initWithFrame:NSMakeRect(0, 0, 300, 300)];
+    view.wantsLayer = YES;
+    view.times = [NSMutableArray array];
+    view.targets = [NSMutableArray array];
+    window.contentView = view;
+    [window setFrame:frame display:YES];
+    [window orderFrontRegardless];
+    spin(0.3);
+    CADisplayLink *link = [view displayLinkWithTarget:view selector:@selector(step:)];
+    link.preferredFrameRateRange = (CAFrameRateRange){30, 240, 240};
+    [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    spin(1.2);
+    [link invalidate];
+    [window orderOut:nil];
+    NSArray<NSNumber *> *times = view.times;
+    int n = (int)times.count - 1;
+    double xs[4000], ts[4000];
+    for (int i = 0; i < n && i < 4000; i++) xs[i] = ([times[i + 1] doubleValue] - [times[i] doubleValue]) * 1000;
+    for (int i = 0; i < (int)view.targets.count && i < 4000; i++) ts[i] = [view.targets[i] doubleValue] * 1000;
+    *count = n;
+    *interval = median(xs, MIN(n, 4000));
+    *target = median(ts, MIN((int)view.targets.count, 4000));
+    [window close];
+  }
+}
 
-/// Median CVDisplayLink interval on DISPLAY over one second, in ms (0 when it does not tick).
-static double medianInterval(CGDirectDisplayID display) {
-  CVDisplayLinkRef link;
-  if (CVDisplayLinkCreateWithCGDisplay(display, &link) != kCVReturnSuccess) return 0;
-  ticks = 0;
-  CVDisplayLinkSetOutputCallback(link, tick, NULL);
-  CVDisplayLinkStart(link);
-  [NSThread sleepForTimeInterval:1.0];
-  CVDisplayLinkStop(link);
-  CVDisplayLinkRelease(link);
-  int count = ticks - 1;
-  if (count < 2) return 0;
-  mach_timebase_info_data_t base; mach_timebase_info(&base);
-  double intervals[1000];
-  for (int i = 0; i < count; i++) intervals[i] = (double)(stamps[i + 1] - stamps[i]) * base.numer / base.denom / 1e6;
-  qsort(intervals, count, sizeof(double), compare);
-  return intervals[count / 2];
+static double modeRefresh(CGDirectDisplayID display) {
+  CGDisplayModeRef mode = CGDisplayCopyDisplayMode(display);
+  if (!mode) return -1;
+  double hz = CGDisplayModeGetRefreshRate(mode);
+  CGDisplayModeRelease(mode);
+  return hz;
+}
+
+static NSString *allModes(CGDirectDisplayID display) {
+  NSMutableArray *out = [NSMutableArray array];
+  NSDictionary *options = @{(__bridge NSString *)kCGDisplayShowDuplicateLowResolutionModes: @YES};
+  CFArrayRef modes = CGDisplayCopyAllDisplayModes(display, (__bridge CFDictionaryRef)options);
+  for (CFIndex i = 0; modes && i < CFArrayGetCount(modes) && out.count < 12; i++) {
+    CGDisplayModeRef m = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
+    [out addObject:[NSString stringWithFormat:@"%zux%zu@%.0f", CGDisplayModeGetPixelWidth(m), CGDisplayModeGetPixelHeight(m), CGDisplayModeGetRefreshRate(m)]];
+  }
+  if (modes) CFRelease(modes);
+  return [out componentsJoinedByString:@","];
+}
+
+static void measureDisplay(NSString *label, CGDirectDisplayID display) {
+  NSScreen *screen = screenFor(display);
+  double ca, target; int count;
+  double cv = cvInterval(display);
+  caInterval(display, &ca, &target, &count);
+  NSInteger maxFPS = screen ? screen.maximumFramesPerSecond : -1;
+  NSTimeInterval minUpdate = screen ? screen.minimumRefreshInterval : -1, maxUpdate = screen ? screen.maximumRefreshInterval : -1;
+  say(@" | %@ id=%u mode_hz=%.2f maxfps=%ld refresh_int=%.2f-%.2f cv_ms=%.2f ca_ms=%.2f ca_target_ms=%.2f ca_n=%d main=%d modes=%@",
+      label, display, modeRefresh(display), (long)maxFPS, minUpdate * 1000, maxUpdate * 1000, cv, ca, target, count,
+      CGMainDisplayID() == display, allModes(display));
+}
+
+static NSString *dumpClass(NSString *name) {
+  Class cls = NSClassFromString(name);
+  if (!cls) return [NSString stringWithFormat:@"%@:missing", name];
+  NSMutableArray *names = [NSMutableArray array];
+  unsigned int n = 0;
+  objc_property_t *props = class_copyPropertyList(cls, &n);
+  for (unsigned int i = 0; i < n; i++) [names addObject:[NSString stringWithFormat:@"p.%s", property_getName(props[i])]];
+  free(props);
+  Method *methods = class_copyMethodList(cls, &n);
+  for (unsigned int i = 0; i < n; i++) {
+    NSString *sel = NSStringFromSelector(method_getName(methods[i]));
+    if (![sel hasPrefix:@"."] && ![sel hasPrefix:@"set"] && ![sel isEqualToString:@"dealloc"]) [names addObject:sel];
+  }
+  free(methods);
+  return [NSString stringWithFormat:@"%@{%@}", name, [names componentsJoinedByString:@" "]];
+}
+
+typedef struct { const char *label; unsigned int w, h; double hz; double hz2; unsigned int hiDPI; BOOL main; } Variant;
+
+static void runVariant(Variant v, unsigned int serial) {
+  CGVirtualDisplayDescriptor *descriptor = [CGVirtualDisplayDescriptor new];
+  descriptor.queue = dispatch_get_main_queue();
+  descriptor.name = [NSString stringWithFormat:@"probe %s", v.label];
+  unsigned int scale = v.hiDPI ? 2 : 1;
+  descriptor.maxPixelsWide = v.w * scale;
+  descriptor.maxPixelsHigh = v.h * scale;
+  descriptor.sizeInMillimeters = CGSizeMake(600, 600.0 * v.h / v.w);
+  descriptor.productID = 0x6d70; descriptor.vendorID = 0x6d6f; descriptor.serialNum = serial;
+  CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
+  if (!display) { say(@" | %s no-display", v.label); return; }
+  CGVirtualDisplaySettings *settings = [CGVirtualDisplaySettings new];
+  settings.hiDPI = v.hiDPI;
+  NSMutableArray *modes = [NSMutableArray arrayWithObject:[[CGVirtualDisplayMode alloc] initWithWidth:v.w height:v.h refreshRate:v.hz]];
+  if (v.hz2 > 0) [modes addObject:[[CGVirtualDisplayMode alloc] initWithWidth:v.w height:v.h refreshRate:v.hz2]];
+  settings.modes = modes;
+  if (![display applySettings:settings]) { say(@" | %s apply-failed", v.label); return; }
+  CGDirectDisplayID did = display.displayID;
+  waitForScreen(did, YES, 5);
+  if (v.main) {
+    CGDisplayConfigRef config;
+    if (CGBeginDisplayConfiguration(&config) == kCGErrorSuccess) {
+      CGConfigureDisplayOrigin(config, did, 0, 0);
+      CGDirectDisplayID ids[32]; uint32_t count = 0;
+      CGGetOnlineDisplayList(32, ids, &count);
+      int32_t x = (int32_t)CGDisplayBounds(did).size.width;
+      for (uint32_t i = 0; i < count; i++) if (ids[i] != did) { CGConfigureDisplayOrigin(config, ids[i], x, 0); x += (int32_t)CGDisplayBounds(ids[i]).size.width; }
+      CGCompleteDisplayConfiguration(config, kCGConfigureForAppOnly);
+      spin(1.5);
+    }
+  }
+  measureDisplay([NSString stringWithUTF8String:v.label], did);
+  // Every other display while this one is up (a host display may change its rate when a virtual display is main).
+  if (v.main) {
+    CGDirectDisplayID ids[32]; uint32_t count = 0;
+    CGGetOnlineDisplayList(32, ids, &count);
+    for (uint32_t i = 0; i < count; i++) if (ids[i] != did) say(@" [other did=%u mode_hz=%.2f maxfps=%ld]", ids[i], modeRefresh(ids[i]), (long)(screenFor(ids[i]) ? screenFor(ids[i]).maximumFramesPerSecond : -1));
+  }
+  display = nil;
+  waitForScreen(did, NO, 5);
+  spin(0.5);
 }
 
 int main(int argc, char **argv) {
   @autoreleasepool {
     setvbuf(stdout, NULL, _IONBF, 0);
-    if (argc > 1 && strcmp(argv[1], "probe") == 0) {
-      CGDirectDisplayID mainID = CGMainDisplayID();
-      printf("main %u %.2f\n", mainID, medianInterval(mainID));
-      return 0;
+    if (!(argc > 1 && strcmp(argv[1], "probe") == 0)) {
+      printf("error: probe commit (VDisplay probe measures the variants)\n");
+      return 1;
     }
-    double hz = argc > 1 ? atof(argv[1]) : 120;
-    double hold = argc > 2 ? atof(argv[2]) : 1800;
-    BOOL wantMain = argc > 3 && strcmp(argv[3], "main") == 0;
-    // argv[4] WIDTHxHEIGHT (default 1920x1080). The measure scripts ask for 1920x1200: under the Dock and the
-    // menu bar a 1080-pixel display leaves about 965 pt, and AppKit clamps a 1600 x 1000 STRESS window to it.
-    unsigned int width = 1920, height = 1080;
-    if (argc > 4 && (sscanf(argv[4], "%ux%u", &width, &height) != 2 || width < 640 || height < 480 || width > 3840 || height > 2400)) {
-      printf("error: size %s is not WIDTHxHEIGHT within 640x480..3840x2400\n", argv[4]);
-      return 2;
-    }
+    outLine = [NSMutableString string];
     [NSApplication sharedApplication];
-    CGVirtualDisplayDescriptor *descriptor = [CGVirtualDisplayDescriptor new];
-    descriptor.queue = dispatch_get_main_queue();
-    descriptor.name = [NSString stringWithFormat:@"mini-ops %.0f Hz", hz];
-    descriptor.maxPixelsWide = width;
-    descriptor.maxPixelsHigh = height;
-    descriptor.sizeInMillimeters = CGSizeMake(600, 600.0 * height / width);  // about 81 dpi, as 1920x1080 at 600 x 340
-    descriptor.productID = 0x6d6f; descriptor.vendorID = 0x6d6f; descriptor.serialNum = 1;
-    CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
-    if (!display) { printf("error: CGVirtualDisplay unavailable\n"); return 1; }
-    CGVirtualDisplaySettings *settings = [CGVirtualDisplaySettings new];
-    settings.hiDPI = 0;
-    settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
-    if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
-    waitForScreens(display.displayID, NO, 5.0);
-    if (wantMain && CGMainDisplayID() != display.displayID) {
-      CGError error = makeMain(display.displayID);
-      if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not make display %u main (CGError %d)\n", display.displayID, error);
-      else waitForScreens(display.displayID, YES, 5.0);
-    }
-    // The visible frame (points, under the menu bar and the Dock) of the virtual display: what a window may fill.
-    NSScreen *screen = screenFor(display.displayID);
-    NSRect visible = screen ? screen.visibleFrame : NSZeroRect;
-    printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f\n", display.displayID, medianInterval(display.displayID),
-           CGMainDisplayID(), width, height, visible.size.width, visible.size.height);
-    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:hold]];
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    [NSApp finishLaunching];
+    CGDirectDisplayID mainID = CGMainDisplayID();
+    double mainCV = cvInterval(mainID);
+    NSString *mainNominal = [outLine copy];
+    outLine = [NSMutableString stringWithFormat:@"main %u %.2f PROBE%@ macos=%@", mainID, mainCV, mainNominal,
+                                                [[NSProcessInfo processInfo] operatingSystemVersionString]];
+    say(@" lowpower=%d", [[NSProcessInfo processInfo] isLowPowerModeEnabled]);
+    for (NSString *name in @[@"CGVirtualDisplayDescriptor", @"CGVirtualDisplaySettings", @"CGVirtualDisplayMode", @"CGVirtualDisplay"])
+      say(@" | %@", dumpClass(name));
+    CGDirectDisplayID ids[32]; uint32_t count = 0;
+    CGGetOnlineDisplayList(32, ids, &count);
+    for (uint32_t i = 0; i < count; i++) measureDisplay([NSString stringWithFormat:@"host%u", i], ids[i]);
+    Variant variants[] = {
+      {"v120", 1920, 1200, 120, 0, 0, NO},
+      {"v120main", 1920, 1200, 120, 0, 0, YES},
+      {"v120+60main", 1920, 1200, 120, 60, 0, YES},
+      {"v60+120main", 1920, 1200, 60, 120, 0, YES},
+      {"v120hidpi", 960, 600, 120, 0, 1, YES},
+      {"v240main", 1920, 1200, 240, 0, 0, YES},
+      {"v60main", 1920, 1200, 60, 0, 0, YES},
+    };
+    for (unsigned int i = 0; i < sizeof(variants) / sizeof(variants[0]); i++) runVariant(variants[i], 100 + i);
+    printf("%s\n", outLine.UTF8String);
   }
   return 0;
 }
