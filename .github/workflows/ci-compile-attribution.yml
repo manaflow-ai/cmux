@@ -116,7 +116,7 @@ jobs:
         with:
           name: compile-report
           path: ${{ runner.temp }}/compile-report.json
-          retention-days: 14
+          retention-days: 7
 
   report:
     environment:
