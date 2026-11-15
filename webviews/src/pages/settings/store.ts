@@ -63,6 +63,7 @@ import {
   type HostLists,
   type IntegrationsRun,
   type IntegrationsState,
+  type JoinConsentSurface,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -74,6 +75,7 @@ import {
   type WireError,
   type WorkspaceBackground,
   SETTINGS_SENTENCES,
+  type CustomizeTryOn,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -596,8 +598,8 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
-  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists. */
+  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<void> {
     await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
   }
@@ -790,6 +792,14 @@ export class SettingsStore {
     const state = await this.environments();
     if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
     return { state, error: reply.value?.error ?? null };
+  }
+
+  /** The customization being tried on, after running `verb` (Keep, Revert Now); null when none is,
+   * or the host has no CLI. A status read is also the look that reverts a try-on whose time is up. */
+  async customize(verb: "status" | "keep" | "revert"): Promise<CustomizeTryOn | null> {
+    if (verb !== "status") await this.request("cmux.settings.customize.run", { verb });
+    const reply = await this.request("cmux.settings.customize.run", { verb: "status" });
+    return reply.ok ? (reply.value?.try_on ?? null) : null;
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has

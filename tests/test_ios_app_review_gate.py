@@ -11,6 +11,7 @@ import os
 import plistlib
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -454,7 +455,7 @@ class AppReviewGateTests(unittest.TestCase):
         reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
         report = workflow.split("\n  report:\n", 1)[1]
         self.assertIn("fail-fast: false", reviewer)
-        self.assertIn("        family: [iphone, ipad, duo]\n", reviewer)
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.families) }}\n", reviewer)
         self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", reviewer)
         self.assertNotIn("for family in", reviewer)
         self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
@@ -1026,6 +1027,290 @@ class AgentReviewerPassTests(unittest.TestCase):
         report = workflow.split("\n  report:\n", 1)[1]
         self.assertIn("--expect-agent", report)
         self.assertIn("--agent-skipped", report)
+
+    def test_notes_and_verify_evidence_alone_never_start_the_gate(self) -> None:
+        # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
+        # app and still walked the reviewer path on every device, agent pass included.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        for event in ("push", "pull_request"):
+            patterns = on[event]["paths"]
+            with self.subTest(event=event):
+                for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/alignment/alignscan.swift", "Packages/Shared/README.md"):
+                    self.assertFalse(github_paths_match(patterns, path), path)
+                for path in ("cmux-next-ios/CmuxMobileApp/App.swift", "cmux-next-ios/project.yml",
+                             "cmux-next-ios/AppStoreReview/reviewer-setup.md",
+                             "cmux-next-ios/AppStoreReview/known-blockers.json",
+                             "Packages/Shared/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
+                    self.assertTrue(github_paths_match(patterns, path), path)
+
+    def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
+        # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
+        # app and still ran CmuxMobileKit's tests, then went red on kit tests it never touched.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        for event in ("push", "pull_request"):
+            patterns = on[event]["paths"]
+            with self.subTest(event=event):
+                for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/alignment/alignscan.swift",
+                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
+                    self.assertFalse(github_paths_match(patterns, path), path)
+                for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
+                             "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
+                             "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Resources/notes.md",
+                             "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
+                             "Packages/iOS/CmuxConversation/Sources/X.swift",
+                             ".github/workflows/cmux-next-ios-kit.yml"):
+                    self.assertTrue(github_paths_match(patterns, path), path)
+
+
+def github_paths_match(patterns: list[str], path: str) -> bool:
+    """GitHub's `paths` filter: the last pattern that matches PATH decides; a `!` one excludes it."""
+    def regex(glob: str) -> str:
+        out, i = [], 0
+        while i < len(glob):
+            if glob.startswith("**/", i):
+                out.append("(?:.*/)?")
+                i += 3
+            elif glob.startswith("**", i):
+                out.append(".*")
+                i += 2
+            elif glob[i] == "*":
+                out.append("[^/]*")
+                i += 1
+            else:
+                out.append(re.escape(glob[i]))
+                i += 1
+        return "".join(out)
+
+    included = False
+    for pattern in patterns:
+        negated = pattern.startswith("!")
+        if re.fullmatch(regex(pattern.removeprefix("!")), path):
+            included = not negated
+    return included
+
+
+DEVICES_SCRIPT = ROOT / ".github/scripts/ios_review_gate_devices.py"
+DEVICES_LIST = ROOT / ".github/ios-review-gate-devices.json"
+PINS = ROOT / "scripts/ci/xcode-pins.txt"
+PICKER = ROOT / "cmux-next-ios/scripts/app_review_pick_simulator.py"
+PASSED = {"testNodes": [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]}
+
+# A stand-in `xcrun` for the macOS image's simctl: iPhone and iPad devices,
+# and an iPhone Duo device type only with FAKE_SIM_DUO=1. A `simctl create` is
+# logged to FAKE_SIM_CREATES, so a check that would create a simulator shows.
+FAKE_XCRUN = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+if args[:2] == ["simctl", "create"]:
+    open(os.environ["FAKE_SIM_CREATES"], "a").write(" ".join(args) + "\\n")
+    print("CREATED-UDID")
+    sys.exit(0)
+if os.environ.get("FAKE_SIM_BROKEN") == "1":
+    sys.exit(72)
+types = [{"name": "iPhone 17 Pro Max", "identifier": "t.iphone"}, {"name": "iPad Pro 13-inch (M5)", "identifier": "t.ipad"}]
+if os.environ.get("FAKE_SIM_DUO") == "1":
+    types.append({"name": "iPhone Duo", "identifier": "t.duo"})
+runtime = {"identifier": "r.ios26", "platform": "iOS", "version": "26.0", "isAvailable": True,
+           "supportedDeviceTypes": [{"identifier": t["identifier"]} for t in types]}
+what = args[2]
+if what == "runtimes":
+    print(json.dumps({"runtimes": [runtime]}))
+elif what == "devices":
+    print(json.dumps({"devices": {"r.ios26": [
+        {"name": "iPhone 17 Pro Max", "udid": "U-IPHONE", "isAvailable": True},
+        {"name": "iPad Pro 13-inch (M5)", "udid": "U-IPAD", "isAvailable": True}]}}))
+elif what == "devicetypes":
+    print(json.dumps({"devicetypes": types}))
+else:
+    sys.exit(2)
+"""
+
+
+class DevicePlanTests(unittest.TestCase):
+    """The plan job (Linux) decides which device legs take a Mac: a family the
+    image has no simulator for leaves its skip marker from the plan and never
+    queues, and every leg that does run checks the plan against its image."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def script(self, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+        self.assertTrue(DEVICES_SCRIPT.is_file(), f"{DEVICES_SCRIPT.relative_to(ROOT)} decides the device legs")
+        return subprocess.run([sys.executable, "-I", str(DEVICES_SCRIPT), *args], capture_output=True, text=True,
+                              env=dict(os.environ, **(env or {})))
+
+    def device_list(self) -> dict:
+        self.assertTrue(DEVICES_LIST.is_file(), f"{DEVICES_LIST.relative_to(ROOT)} lists the image's simulators")
+        return json.loads(DEVICES_LIST.read_text())
+
+    def matching_pins(self, devices: dict) -> str:
+        return f"# macOS  Xcode\n{devices['image']['macos']}       {devices['image']['xcode']}\n"
+
+    def plan(self, devices: dict, pins: str, trust: str = "true") -> tuple[subprocess.CompletedProcess, dict, list]:
+        devices_path = self.root / "devices.json"
+        devices_path.write_text(json.dumps(devices))
+        pins_path = self.root / "pins.txt"
+        pins_path.write_text(pins)
+        out = self.root / "planned"
+        shutil.rmtree(out, ignore_errors=True)
+        proc = self.script("plan", "--devices", str(devices_path), "--pins", str(pins_path), "--trust", trust,
+                           "--out-dir", str(out))
+        outputs = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
+        markers = sorted(p.name for p in out.iterdir()) if out.is_dir() else []
+        return proc, outputs, markers
+
+    def report(self, *args: str) -> tuple[int, str]:
+        out = self.root / "report.md"
+        out.unlink(missing_ok=True)
+        code = gate.main(["report", "--asc-skipped", "--expect-device", "iphone", "--expect-device", "ipad",
+                          "--expect-device-or-skipped", "duo", *args, "--out", str(out)])
+        return code, out.read_text()
+
+    def results(self, *families: str) -> list[str]:
+        args = []
+        for family in families:
+            path = self.root / f"{family}.json"
+            path.write_text(json.dumps(PASSED))
+            args += ["--xcresult-json", str(path)]
+        return args
+
+    def test_the_plan_skips_duo_from_the_device_list_and_walks_the_rest(self) -> None:
+        devices = self.device_list()
+        proc, outputs, markers = self.plan(devices, self.matching_pins(devices))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(outputs["families"]), ["iphone", "ipad"])
+        self.assertEqual(json.loads(outputs["skipped"]), ["duo"])
+        self.assertTrue(json.loads(outputs["devices"])["decided"])
+        self.assertEqual(markers, ["duo.skipped.json"])
+        marker = json.loads((self.root / "planned/duo.skipped.json").read_text())
+        self.assertEqual((marker["family"], marker["skipped"], marker["planned"]), ("duo", True, True))
+        self.assertIn("iPhone Duo", marker["reason"])
+        # A pin the list was not checked on, or another repository's image:
+        # every family is walked and the legs' picker decides, as before.
+        for pins, trust in ((f"{devices['image']['macos']}  99.9\n", "true"), (self.matching_pins(devices), "false")):
+            proc, outputs, markers = self.plan(devices, pins, trust)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(json.loads(outputs["families"]), ["iphone", "ipad", "duo"])
+            self.assertFalse(json.loads(outputs["devices"])["decided"])
+            self.assertEqual(markers, [])
+
+    def test_the_checked_in_list_matches_the_pinned_xcode(self) -> None:
+        # The real list against the real pins: Duo takes no Mac today. A pin
+        # bump that leaves the list behind walks every family (above) and
+        # this names the list to check again.
+        devices = self.device_list()
+        proc, outputs, _ = self.plan(devices, PINS.read_text())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        decision = json.loads(outputs["devices"])
+        self.assertTrue(decision["decided"], decision.get("why"))
+        self.assertEqual((decision["walk"], sorted(decision["skip"])), (["iphone", "ipad"], ["duo"]))
+
+    def test_the_plans_duo_marker_stands_in_for_the_duo_leg(self) -> None:
+        devices = self.device_list()
+        proc, _, markers = self.plan(devices, self.matching_pins(devices))
+        self.assertEqual((proc.returncode, markers), (0, ["duo.skipped.json"]), proc.stderr)
+        code, text = self.report(*self.results("iphone", "ipad"), "--skipped", str(self.root / "planned/duo.skipped.json"))
+        self.assertEqual(code, 0, text)
+        self.assertIn("no duo suite result", self.report(*self.results("iphone", "ipad"))[1])
+
+    def test_a_plan_that_drops_iphone_or_ipad_fails(self) -> None:
+        for family, other in (("iphone", "ipad"), ("ipad", "iphone")):
+            devices = self.device_list()
+            devices["families"][family] = {"on_image": False, "reason": "not on this image"}
+            proc, outputs, markers = self.plan(devices, self.matching_pins(devices))
+            self.assertEqual(proc.returncode, 1, family)
+            self.assertIn(f"the report requires {family}", proc.stderr)
+            self.assertNotIn("families", outputs)
+            self.assertEqual(markers, [])
+            # A planned marker for a required family never passes the report.
+            marker = self.root / f"{family}.skipped.json"
+            marker.write_text(json.dumps({"family": family, "skipped": True, "planned": True, "reason": "x"}))
+            duo = self.root / "duo.skipped.json"
+            duo.write_text(json.dumps({"family": "duo", "skipped": True, "planned": True, "reason": "x"}))
+            code, text = self.report(*self.results(other), "--skipped", str(marker), "--skipped", str(duo))
+            self.assertEqual(code, 1)
+            self.assertIn(f"no {family} suite result", text)
+
+    def check(self, duo_on_image: bool, decision: dict,
+              broken: bool = False) -> tuple[subprocess.CompletedProcess, Path, str]:
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        xcrun = bin_dir / "xcrun"
+        xcrun.write_text(FAKE_XCRUN)
+        xcrun.chmod(0o755)
+        creates = self.root / "creates.log"
+        creates.write_text("")
+        out = self.root / "device-plan-mismatch.json"
+        out.unlink(missing_ok=True)
+        proc = self.script("check", "--plan", json.dumps(decision), "--picker", str(PICKER), "--out", str(out),
+                           env={"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                                "FAKE_SIM_DUO": "1" if duo_on_image else "0", "FAKE_SIM_CREATES": str(creates),
+                                "FAKE_SIM_BROKEN": "1" if broken else "0"})
+        return proc, out, creates.read_text()
+
+    def test_a_leg_fails_loudly_when_the_image_disagrees_with_the_plan(self) -> None:
+        skips_duo = {"decided": True, "xcode": "26.6", "walk": ["iphone", "ipad"], "skip": {"duo": "no Duo"}}
+        proc, out, _ = self.check(False, skips_duo)
+        self.assertEqual((proc.returncode, out.exists()), (0, False), proc.stderr)
+        # The image gained the Duo the plan skipped: red, named, and nothing
+        # created (the picker alone would create one).
+        proc, out, creates = self.check(True, skips_duo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("::error::the image has a duo simulator, but the plan skipped it", proc.stderr)
+        self.assertEqual(json.loads(out.read_text())["mismatches"][0]["family"], "duo")
+        self.assertEqual(creates, "")
+        # The reverse: the plan walks Duo and the image has none.
+        walks_duo = {"decided": True, "xcode": "26.6", "walk": ["iphone", "ipad", "duo"], "skip": {}}
+        proc, out, _ = self.check(False, walks_duo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("::error::the image has no duo simulator, but the plan walks it", proc.stderr)
+        # A plan that decided nothing checks nothing.
+        proc, out, _ = self.check(True, {"decided": False, "walk": ["iphone", "ipad", "duo"], "skip": {}})
+        self.assertEqual((proc.returncode, out.exists()), (0, False))
+        # A check that could not read the image is never agreement.
+        proc, out, _ = self.check(False, skips_duo, broken=True)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("check could not read this image's simulators", proc.stderr)
+        self.assertTrue(out.exists())
+        # Nor is a plan or picker the check cannot load.
+        out.unlink()
+        proc = self.script("check", "--plan", "not json", "--picker", str(PICKER), "--out", str(out))
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("::error::the device check could not run", proc.stderr)
+        self.assertTrue(out.exists())
+
+    def test_the_matrix_walks_only_the_plans_families(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        plan = workflow.split("\n  plan:\n", 1)[1].split("\n  lint:\n", 1)[0]
+        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
+        report = workflow.split("\n  report:\n", 1)[1]
+        self.assertIn("families: ${{ steps.devices.outputs.families }}", plan)
+        self.assertIn("devices: ${{ steps.devices.outputs.devices }}", plan)
+        self.assertIn(".github/scripts/ios_review_gate_devices.py plan", plan)
+        self.assertIn("TRUST: ${{ github.repository_owner == 'manaflow-ai' }}", plan)
+        # The planned skips reach the report through its review-gate-* download.
+        self.assertIn("name: review-gate-planned-skips-${{ steps.plan.outputs.lane }}", plan)
+        self.assertIn("${{ runner.temp }}/planned/*.skipped.json", plan)
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.families) }}\n", reviewer)
+        # Every leg checks the plan against its image; a mismatch fails the report.
+        self.assertIn(".github/scripts/ios_review_gate_devices.py check", reviewer)
+        self.assertIn('--out "$RESULTS/device-plan-mismatch.json"', reviewer)
+        self.assertIn("            .github/scripts\n", reviewer)
+        self.assertIn("find in -name 'device-plan-mismatch.json'", report)
+        # The report's rules stay: iPhone and iPad required, only Duo may skip.
+        self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
 
 
 if __name__ == "__main__":
