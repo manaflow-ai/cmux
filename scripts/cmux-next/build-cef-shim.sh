@@ -106,36 +106,34 @@ done
   "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
-# The helper is copied into five helper apps. -dead_strip (as CEF's own CMake
-# links every target) keeps only the wrapper code it reaches; the sandbox is
-# not in this binary: CefScopedSandboxContext (cef_sandbox_mac.h) loads
-# Libraries/libcef_sandbox.dylib first thing in main, before the framework.
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -Wl,-dead_strip \
-  -o "$OUT_DIR/cmux-cef-helper" \
-  "$OUT_DIR/obj/shim/helper_main.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
-# SIZE-EXPERIMENT (removed before review): the same link without -dead_strip.
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
-  -o "$OUT_DIR/cmux-cef-helper.before" \
-  "$OUT_DIR/obj/shim/helper_main.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
-for f in cmux-cef-helper.before cmux-cef-helper; do
-  cp "$OUT_DIR/$f" "$OUT_DIR/$f.stripped" && strip -S -x "$OUT_DIR/$f.stripped"
-  echo "SIZE-EXPERIMENT $ARCH $f linked=$(stat -f %z "$OUT_DIR/$f") stripped=$(stat -f %z "$OUT_DIR/$f.stripped")" >&2
-  size -m "$OUT_DIR/$f" | grep -E 'Section __text|Section __cstring|Section __const' | sed "s/^/SIZE-EXPERIMENT $f /" >&2 || true
-  rm -f "$OUT_DIR/$f.stripped"
+# The helpers are copied into five helper apps each. -dead_strip (as CEF's own
+# CMake links every target) keeps only the wrapper code each one reaches. The
+# sandbox is not in these binaries: CefScopedSandboxContext (cef_sandbox_mac.h)
+# loads Libraries/libcef_sandbox.dylib first thing in main, before the framework.
+link_exe() {
+  local out="$1" main="$2"
+  shift 2
+  "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -Wl,-dead_strip \
+    -o "$OUT_DIR/$out" "$OUT_DIR/obj/shim/$main.o" \
+    "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface "$@"
+}
+link_exe cmux-cef-helper helper_main.mm
+link_exe cmux-rb-host-helper rb_host_helper_main.mm
+link_exe cmux-chromium-host browser_host_main.mm -framework QuartzCore
+# SIZE-EXPERIMENT (removed before review): the same helper links without -dead_strip.
+for pair in cmux-cef-helper:helper_main.mm cmux-rb-host-helper:rb_host_helper_main.mm; do
+  exe="${pair%%:*}" main="${pair#*:}"
+  "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
+    -o "$OUT_DIR/$exe.before" "$OUT_DIR/obj/shim/$main.o" \
+    "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
+  for f in "$exe.before" "$exe"; do
+    { cp "$OUT_DIR/$f" "$OUT_DIR/$f.stripped" && strip -S -x "$OUT_DIR/$f.stripped"; } || true
+    echo "SIZE-EXPERIMENT $ARCH $f linked=$(stat -f %z "$OUT_DIR/$f") stripped=$(stat -f %z "$OUT_DIR/$f.stripped")" >&2
+    size -m "$OUT_DIR/$f" | grep -E 'Section __text|Section __cstring|Section __const' | sed "s/^/SIZE-EXPERIMENT $ARCH $f /" >&2 || true
+    rm -f "$OUT_DIR/$f.stripped"
+  done
+  rm -f "$OUT_DIR/$exe.before"
 done
-rm -f "$OUT_DIR/cmux-cef-helper.before"
-
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
-  -o "$OUT_DIR/cmux-rb-host-helper" \
-  "$OUT_DIR/obj/shim/rb_host_helper_main.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
-
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
-  -o "$OUT_DIR/cmux-chromium-host" \
-  "$OUT_DIR/obj/shim/browser_host_main.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore
 
 rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$OUT_DIR/.build-key"
