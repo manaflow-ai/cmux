@@ -259,6 +259,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     #[cfg(target_os = "linux")]
     crate::host::set_xauthority(opts)?;
     // Capture setup states (a Wayland portal waiting for the person at the screen) reach the app.
+    #[cfg(all(feature = "portal", target_os = "linux"))]
     crate::desktop::set_status_sink(Box::new(|state, message| {
         say(AppLine {
             status: Some(cmux_rd_proto::app_line::LineStatus {

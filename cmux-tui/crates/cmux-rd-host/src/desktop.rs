@@ -42,12 +42,15 @@ pub trait Desktop {
 
 /// Receives capture setup states (`state` code, sentence) while a desktop opens: `cmux-rd serve`
 /// prints them as `{"status":..}` lines for the app. Unset, the portal logs them on stderr.
+/// Only the portal backend (feature `portal`, Linux) has setup states.
+#[cfg(all(feature = "portal", target_os = "linux"))]
 pub type StatusSink = Box<dyn Fn(&str, &str) + Send + Sync>;
 
-#[cfg_attr(not(all(feature = "portal", target_os = "linux")), allow(dead_code))]
+#[cfg(all(feature = "portal", target_os = "linux"))]
 static STATUS_SINK: std::sync::OnceLock<StatusSink> = std::sync::OnceLock::new();
 
 /// Sets the process's status sink (once; later calls are ignored).
+#[cfg(all(feature = "portal", target_os = "linux", feature = "link"))]
 pub fn set_status_sink(sink: StatusSink) {
     let _ = STATUS_SINK.set(sink);
 }

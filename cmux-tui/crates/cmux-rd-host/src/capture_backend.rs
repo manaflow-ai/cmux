@@ -18,13 +18,6 @@ pub enum CaptureBackend {
 }
 
 impl CaptureBackend {
-    pub fn name(self) -> &'static str {
-        match self {
-            CaptureBackend::X11 => "x11",
-            CaptureBackend::Portal => "portal",
-        }
-    }
-
     /// `--capture` (or the setup line's `capture`): `x11` or `portal`.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim() {
@@ -35,7 +28,9 @@ impl CaptureBackend {
     }
 
     /// The backend for a session: the explicit override when given, else `portal` in a
-    /// Wayland session (`XDG_SESSION_TYPE=wayland`) and X11 otherwise.
+    /// Wayland session (`XDG_SESSION_TYPE=wayland`) and X11 otherwise. Device hub sessions
+    /// (`serve`, `linux-host`) choose by session; `cmux-rd host` takes `--capture` alone.
+    #[cfg(feature = "link")]
     pub fn choose(explicit: Option<&str>, session_type: Option<&str>) -> Result<Self, String> {
         if let Some(value) = explicit.filter(|v| !v.trim().is_empty()) {
             return Self::parse(value);
@@ -47,6 +42,7 @@ impl CaptureBackend {
     }
 
     /// [`CaptureBackend::choose`] with this process's `XDG_SESSION_TYPE`.
+    #[cfg(feature = "link")]
     pub fn from_env(explicit: Option<&str>) -> Result<Self, String> {
         Self::choose(explicit, std::env::var("XDG_SESSION_TYPE").ok().as_deref())
     }
@@ -72,6 +68,7 @@ pub const PORTAL_NOT_BUILT_IN: &str =
 /// The X display a Linux session captures: the session's own (`--display`) when it names
 /// an X display, else `$DISPLAY`, else `:0`. `main` and display indexes are the viewer's
 /// display picker words (macOS); on Linux they mean the session's display.
+#[cfg(feature = "link")]
 pub fn x_display(
     requested: Option<&str>,
     option: Option<&str>,
@@ -92,6 +89,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn capture_option_names_x11_or_portal() {
+        assert_eq!(CaptureBackend::parse("x11"), Ok(CaptureBackend::X11));
+        assert_eq!(CaptureBackend::parse(" portal "), Ok(CaptureBackend::Portal));
+        assert!(CaptureBackend::parse("vnc").is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "link")]
     fn wayland_session_picks_portal_and_x11_otherwise() {
         assert_eq!(CaptureBackend::choose(None, Some("wayland")), Ok(CaptureBackend::Portal));
         assert_eq!(CaptureBackend::choose(None, Some("Wayland")), Ok(CaptureBackend::Portal));
@@ -101,6 +106,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "link")]
     fn explicit_override_wins() {
         assert_eq!(CaptureBackend::choose(Some("x11"), Some("wayland")), Ok(CaptureBackend::X11));
         assert_eq!(CaptureBackend::choose(Some("portal"), Some("x11")), Ok(CaptureBackend::Portal));
@@ -124,6 +130,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "link")]
     fn display_defaults_to_the_session_then_display_then_zero() {
         assert_eq!(x_display(Some(":5"), Some(":99"), Some(":1")), ":5");
         assert_eq!(x_display(Some("main"), Some(":99"), Some(":1")), ":99");

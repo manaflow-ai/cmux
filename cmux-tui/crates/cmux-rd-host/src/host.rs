@@ -148,8 +148,13 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
-        // The Cloud host streams its own virtual X display.
-        capture: crate::capture_backend::CaptureBackend::X11,
+        // The Cloud host streams its own virtual X display unless `--capture portal` asks
+        // for the compositor's screen (a Wayland desktop).
+        capture: opts
+            .get("capture")
+            .map(crate::capture_backend::CaptureBackend::parse)
+            .transpose()?
+            .unwrap_or_default(),
     })
 }
 
