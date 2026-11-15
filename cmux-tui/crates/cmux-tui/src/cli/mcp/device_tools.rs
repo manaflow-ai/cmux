@@ -15,7 +15,7 @@ pub(super) fn descriptors() -> Vec<Value> {
         json!({
             "name": SETUP,
             "title": "Set up cmux NIGHTLY on a Mac of yours",
-            "description": "Install or update cmux NIGHTLY on one of the person's own Macs (device) or on every one with an ssh route (all), keep it running with a login item, start it, sign it in and report its Screen Sharing grants, over ssh. It never quits or replaces a running app and grants nobody access: turning Share This Mac on and raising a device's access stay a person's click. Returns one line per step ({device, step, state: ok|changed|warn|fail|skip, detail, fix}) and a summary per device.",
+            "description": "Install cmux NIGHTLY, or bring it to the newest build, on one of the person's own Macs (device) or on every one with an ssh route (all), keep it running with a login item, start it, sign it in and report its Screen Sharing grants, over ssh. It never quits or replaces a running app and grants nobody access: turning Share This Mac on and raising a device's access stay a person's click. Returns one line per step ({device, step, state: ok|changed|warn|fail|skip, detail, fix}) and a summary per device.",
             "inputSchema": {
                 "type": "object",
                 "additionalProperties": false,

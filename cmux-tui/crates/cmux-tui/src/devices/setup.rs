@@ -862,7 +862,7 @@ impl Asking for Here {
         if !cfg!(target_os = "macos") {
             return None;
         }
-        let out = std::process::Command::new("codesign")
+        let out = cmux_process::Command::new("codesign")
             .args(["-dv", "--verbose=2", APP])
             .stdin(Stdio::null())
             .output()
