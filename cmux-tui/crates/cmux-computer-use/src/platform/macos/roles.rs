@@ -198,10 +198,45 @@ pub fn requested_value(current_is_number: bool, value: &str) -> Option<String> {
     Some(if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{n}") })
 }
 
-/// Whether the element is in web content, from the roles from it up to its
-/// window: unknown (a failed read) counts as web content.
-pub fn web_content(roles: Option<Vec<String>>) -> bool {
-    roles.is_none_or(|r| r.iter().any(|r| r == "AXWebArea"))
+/// Whether an element is in web content, from the roles from it up to its
+/// window (`None`: a read failed or the walk ran past its bound). Callers
+/// choose the safe side for `Unknown` themselves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Web {
+    In,
+    Out,
+    Unknown,
+}
+
+/// [`Web`] from the roles walked.
+pub fn web_content(roles: Option<Vec<String>>) -> Web {
+    match roles {
+        None => Web::Unknown,
+        Some(r) if r.iter().any(|r| r == "AXWebArea") => Web::In,
+        Some(_) => Web::Out,
+    }
+}
+
+/// Whether the native AX routes (caret, text drag, slider, scroll, the AX
+/// insert) may run: only outside web content, known; unknown takes the
+/// events or the keys.
+pub fn native_route(web: Web) -> bool {
+    web == Web::Out
+}
+
+/// Whether the menu gate treats an element as web content (which narrows
+/// the roles that open a menu to a pop-up with one). Unknown is not web:
+/// the full gate applies, so nothing that could open a menu passes
+/// ungated.
+pub fn menu_gate_web(web: Web) -> bool {
+    web == Web::In
+}
+
+/// The tolerance a stepper's read-back allows around its target: half a
+/// step (so stopping one step short does not reach it, and one step moved
+/// from one step away is not "already"), and a hair more for rounding.
+pub fn step_tolerance(step: f64) -> f64 {
+    step.abs() / 2.0 + 1e-9
 }
 
 /// How a posted press is aimed, from the two readings of the front app

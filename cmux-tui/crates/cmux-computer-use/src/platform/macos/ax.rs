@@ -407,6 +407,12 @@ fn range_of(v: &Cf) -> Option<CFRange> {
     ok.then_some(r)
 }
 
+/// A value as text (a string, or a number written out); `None` for any
+/// other kind of value.
+pub(super) fn value_as_text(v: &Cf) -> Option<String> {
+    value_text(v)
+}
+
 fn value_text(v: &Cf) -> Option<String> {
     if let Some(s) = v.as_string() {
         return Some(s);

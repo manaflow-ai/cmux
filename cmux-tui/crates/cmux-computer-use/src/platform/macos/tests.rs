@@ -2669,11 +2669,44 @@ fn a_set_value_wants_what_the_write_sets() {
 /// read strictly; an unread walk counts as web content (keys route).
 #[test]
 fn web_content_is_the_element_or_an_ancestor_and_unknown_counts() {
+    use roles::Web;
     let roles = |v: &[&str]| Some(v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-    assert!(roles::web_content(roles(&["AXWebArea", "AXScrollArea", "AXWindow"])), "itself");
-    assert!(roles::web_content(roles(&["AXTextField", "AXGroup", "AXWebArea", "AXWindow"])));
-    assert!(!roles::web_content(roles(&["AXTextField", "AXGroup", "AXWindow"])));
-    assert!(roles::web_content(None), "unknown");
+    assert_eq!(roles::web_content(roles(&["AXWebArea", "AXScrollArea", "AXWindow"])), Web::In);
+    assert_eq!(
+        roles::web_content(roles(&["AXTextField", "AXGroup", "AXWebArea", "AXWindow"])),
+        Web::In
+    );
+    assert_eq!(roles::web_content(roles(&["AXTextField", "AXGroup", "AXWindow"])), Web::Out);
+    assert_eq!(roles::web_content(None), Web::Unknown);
+}
+
+/// Review of 2d96f16 (2): an unknown web walk takes each caller's safe
+/// side: the native AX routes do not run (events and keys instead), and
+/// the menu gate applies in full (unknown is not web, which would narrow
+/// what it gates).
+#[test]
+fn an_unknown_web_walk_takes_the_safe_side_per_caller() {
+    use roles::{Web, menu_gate_web, native_route};
+    assert!(native_route(Web::Out));
+    assert!(!native_route(Web::In));
+    assert!(!native_route(Web::Unknown), "unknown: events or keys");
+    assert!(menu_gate_web(Web::In));
+    assert!(!menu_gate_web(Web::Out));
+    assert!(!menu_gate_web(Web::Unknown), "unknown: the full menu gate");
+    // The full gate: a menu button opens a menu unless known to be web.
+    assert!(roles::opens_menu("AXMenuButton", menu_gate_web(Web::Unknown), false));
+}
+
+/// Review of 2d96f16 (1): a stepper's read-back allows half a step around
+/// its target: one step short does not reach it, one step moved from one
+/// step away is a change.
+#[test]
+fn a_stepper_tolerance_is_half_a_step() {
+    let tol = roles::step_tolerance(1.0);
+    assert!(!readback::value_matches("9", "10", tol), "one step short");
+    assert!(readback::value_matches("10", "10", tol));
+    assert!(readback::value_matches("10.4", "10", tol), "rounding within half a step");
+    assert!(!readback::value_matches("9", "10", roles::step_tolerance(1.0)), "not already");
 }
 
 /// Review of 02ca109 (4): only a clear rejection of an AX insert falls back

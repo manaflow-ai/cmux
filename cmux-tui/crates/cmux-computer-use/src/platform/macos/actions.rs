@@ -382,15 +382,15 @@ fn menu_role(el: &Ax) -> Option<String> {
     if !MENU_CANDIDATES.contains(&role.as_str()) {
         return None;
     }
-    let in_web = in_web_area(el);
+    let in_web = roles::menu_gate_web(in_web_area(el));
     let has_menu = menu_of(el).is_some();
     roles::opens_menu(&role, in_web, has_menu).then_some(role)
 }
 
 /// Whether the element is, or sits inside, web content (an `AXWebArea`),
 /// read strictly: a read that fails on the way, or a walk past its bound,
-/// counts as web content (the AX routes are skipped; the events run).
-fn in_web_area(el: &Ax) -> bool {
+/// is `Unknown`, which each caller takes on its safe side.
+fn in_web_area(el: &Ax) -> roles::Web {
     roles::web_content(web_walk(el))
 }
 
@@ -620,7 +620,7 @@ fn ax_text(el: &Ax) -> bool {
     roles::is_text_input(&role)
         && !roles::is_secure(&role, el.string("AXSubrole").as_deref())
         && el.settable("AXSelectedTextRange")
-        && !in_web_area(el)
+        && roles::native_route(in_web_area(el))
 }
 
 /// Runs AX writes to `pid`'s app while no other session's key-in-app scope
@@ -831,7 +831,9 @@ fn select_drag(
 /// The slider at `p`: the hit element, or the slider its knob belongs to.
 fn slider_at(app: &Ax, win: &Ax, p: Point) -> Option<Ax> {
     let hit = app.element_at(p.x, p.y)?;
-    if !hit.element("AXWindow").is_some_and(|w| w.same(win)) || in_web_area(&hit) {
+    if !hit.element("AXWindow").is_some_and(|w| w.same(win))
+        || !roles::native_route(in_web_area(&hit))
+    {
         return None;
     }
     if hit.string("AXRole").as_deref() == Some("AXSlider") {
@@ -927,7 +929,9 @@ type ScrollPlan = Vec<(Ax, readback::Known<f64>, f64, f64)>;
 fn ax_scroll_plan(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<ScrollPlan> {
     let (app, win) = d.ax_window(t).ok()?;
     let mut el = app.element_at(at.x, at.y)?;
-    if !el.element("AXWindow").is_some_and(|w| w.same(&win)) || in_web_area(&el) {
+    if !el.element("AXWindow").is_some_and(|w| w.same(&win))
+        || !roles::native_route(in_web_area(&el))
+    {
         return None;
     }
     let mut area = None;
@@ -1396,8 +1400,10 @@ pub(super) fn type_text(
         // Web content (and a browser's fields) take an AX insert and ignore
         // it: posted keys go there directly, gated as always, read back at
         // the caret; nothing was written, so nothing can be typed twice.
-        let route =
-            roles::insert_route(in_web_area(el), roles::is_browser(app_bundle(&t).as_deref()));
+        let route = roles::insert_route(
+            !roles::native_route(in_web_area(el)),
+            roles::is_browser(app_bundle(&t).as_deref()),
+        );
         if delivery == Delivery::Background
             && !has_keys
             && route == roles::InsertRoute::Ax
@@ -2161,7 +2167,10 @@ pub(super) fn set_value(
     let holds = if secure {
         readback::secure_count(&el) == Some(new_count)
     } else {
-        read.as_deref().is_some_and(|r| same_value(r, value))
+        let requested =
+            roles::requested_value(el.try_number("AXValue").ok().flatten().is_some(), value)
+                .unwrap_or_else(|| value.to_string());
+        read.as_deref().is_some_and(|r| same_value(r, &requested))
     };
     let mut out = if holds {
         ActionOutcome::confirmed("ax_set_value")
@@ -2170,7 +2179,10 @@ pub(super) fn set_value(
     }
     .showing("value");
     out.expect = d.expect(check);
-    if !secure && read.as_deref().is_some_and(|r| !same_value(r, value)) {
+    let requested =
+        roles::requested_value(el.try_number("AXValue").ok().flatten().is_some(), value)
+            .unwrap_or_else(|| value.to_string());
+    if !secure && read.as_deref().is_some_and(|r| !same_value(r, &requested)) {
         out.note = "the element reads back a different value".into();
     }
     if let Some(frame) = el.frame() {
@@ -2638,7 +2650,7 @@ fn step_to(d: &MacDesktop, el: &Ax, value: &str) -> DResult<Option<ActionOutcome
             el,
             known,
             readback::Wanted::from_request(format!("{target}")),
-            step.max(STEP_EPSILON),
+            roles::step_tolerance(step),
         );
         out.expect = d.expect(Some(check));
     }

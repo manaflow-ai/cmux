@@ -487,6 +487,26 @@ fn a_batch_step_goes_through_the_confirm_rule() {
     assert!(step.get("expect").is_none() && step.get("shows").is_none(), "{}", out.body);
 }
 
+/// Review of 2d96f16 (3): batch steps are read back after the batch's own
+/// adaptive settle (a step that reads back is confirmed); with observe false
+/// there is no settle, so every step is at most delivered.
+#[test]
+fn batch_steps_are_read_back_after_the_batch_settle() {
+    for (observe, evidence) in [(true, "confirmed"), (false, "delivered")] {
+        let d = Arc::new(FakeDesktop::standard());
+        let (e, _) = settling_engine(d);
+        let out = e.call(
+            &ctx(None),
+            "batch",
+            &json!({"window_id": "1", "observe": observe,
+                    "actions": [{"action": "set_value", "element_id": "e1", "value": "x"}]}),
+        );
+        let step = &out.body["results"][0]["result"];
+        assert_eq!(step["evidence"], evidence, "observe {observe}: {}", out.body);
+        assert!(step.get("expect").is_none(), "{}", out.body);
+    }
+}
+
 /// Review of 02ca109 (follow-up): without an adaptive settle (observe false)
 /// nothing is confirmed.
 #[test]

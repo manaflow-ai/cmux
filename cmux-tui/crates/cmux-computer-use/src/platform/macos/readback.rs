@@ -68,9 +68,15 @@ impl<T> Known<T> {
 }
 
 impl Known<String> {
-    /// `el`'s value as text, read now (no value: empty text).
+    /// `el`'s value as text, read now. `None` when the read failed or the
+    /// value is not text or a number (an element, a range: nothing a value
+    /// read-back compares); no value at all reads as empty text.
     pub(super) fn value(el: &Ax) -> Option<Known<String>> {
-        el.try_value_text().ok().map(|v| Known(v.unwrap_or_else(String::new)))
+        match el.attr("AXValue") {
+            Ok(None) => Some(Known(String::new())),
+            Ok(Some(v)) => super::ax::value_as_text(&v).map(Known),
+            Err(_) => None,
+        }
     }
 }
 

@@ -1512,6 +1512,9 @@ impl Engine {
             ));
         }
         let mut results = Vec::new();
+        // Steps that acted, kept whole until the batch's own settle: their
+        // outcomes are decided after it (their index in `results`).
+        let mut acted: Vec<(usize, ToolOutput)> = Vec::new();
         let mut acted_on: Option<TargetApp> = None;
         let mut failed: Option<ToolOutput> = None;
         for (index, action) in actions.iter().enumerate() {
@@ -1562,17 +1565,9 @@ impl Engine {
                         failed = Some(done);
                         break;
                     }
-                    // Every step's result goes through the one confirm rule
-                    // (no settle of its own: a step's confirmed needs its
-                    // read-back to show the change now), and loses the
-                    // route's internal keys.
-                    let mut done = done;
+                    // Its outcome is decided after the batch's settle, below.
                     if done.body.get("evidence").is_some() {
-                        self.attach_outcome(&mut done, Some(0), None, None, None);
-                    }
-                    if let Some(body) = done.body.as_object_mut() {
-                        body.remove("shows");
-                        body.remove("expect");
+                        acted.push((results.len(), done.clone()));
                     }
                     results.push(json!({"action": name, "ok": true, "result": done.body}));
                     acted_on = app.or(acted_on);
@@ -1601,11 +1596,24 @@ impl Engine {
             "stopped": failed.is_some(),
             "results": results,
         }));
+        // The batch's own settle; only an adaptive one is a real settle.
+        let mut settled_ms = None;
         if let Some(app) = &acted_on
             && args.get("observe").and_then(Value::as_bool) != Some(false)
         {
             let mode = self.settle_mode(args);
-            self.attach_state(ctx, &window_id, app, &mut out, mode, false, None);
+            settled_ms = self.attach_state(ctx, &window_id, app, &mut out, mode, false, None);
+        }
+        // Every step through the one confirm rule, its read-back read after
+        // that settle (none: a step is at most delivered); the route's
+        // internal keys go.
+        for (index, mut done) in acted {
+            self.attach_outcome(&mut done, settled_ms, None, None, None);
+            if let Some(body) = done.body.as_object_mut() {
+                body.remove("shows");
+                body.remove("expect");
+            }
+            out.body["results"][index]["result"] = done.body;
         }
         Ok((out, acted_on))
     }
@@ -1718,10 +1726,12 @@ impl Engine {
         // A real settle: the adaptive wait captured more than once. The other
         // modes capture once, right away or after a fixed delay, which proves
         // nothing.
-        // A real settle: the adaptive wait (its floor, then captures until
-        // the window changed and the app went quiet, or the ceiling). The
-        // other modes capture once, right away or after a fixed delay. An
-        // unchanged window (what no_effect needs) took two captures or more.
+        // A real settle: the adaptive wait, its floor and then captures until
+        // the window changed and the app went quiet, or the ceiling (one
+        // capture or more). The other modes capture once, right away or
+        // after a fixed delay, and are no settle. no_effect needs more: an
+        // unchanged window, which the wait shows only after its second
+        // capture (outcome.rs, `pixels` "same").
         let settled =
             (mode == SettleMode::Adaptive && captures >= 1).then_some(elapsed.as_millis() as u64);
         let mut state = shot.body.clone();
