@@ -11,9 +11,11 @@
 //! work with cmux quit and in safe mode.
 
 mod ask;
+mod dir;
 mod library;
 mod pr;
 mod render;
+mod source;
 #[cfg(test)]
 mod tests;
 
@@ -39,10 +41,21 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
   cmux customize revert                       Stop trying it on: put back what was there before
-  cmux customize use pr:N                     Try pull request N on this cmux: on top of your library
-                                              (`library off pr-N` puts back what was under it)
+  cmux customize use CODE                     Try code not in your build: on top of your library, live
+    pr:N                                      a pull request (CI publishes its web layer)
+    branch:NAME | sha:SHA                     a branch's tip or a commit of manaflow-ai/cmux, pushed, no PR
+    dir:PATH [--watch]                        your working copy, built here: no push, no CI; --watch
+                                              builds and applies it again on every save
+    OWNER/REPO@REF                            a fork's branch, from the layer the fork's own CI published
+                                              (cmux-web-layer-fork.yml): it runs that fork's code in your cmux
+                                              (`library off NAME` puts back what was under any of them)
   cmux customize profiles                     The saved profiles
-  cmux customize library [VERB]               Everything you applied, kept as layers: list|on|off|order|export|import|remove
+  cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+
+If a layer broke cmux (no app needed, with cmux quit too):
+  cmux customize library status               Which layers are on, in one line (also in `cmux version`)
+  cmux customize library off --code           Every code layer off (PR, branch, folder, fork); cmux serves its own pages
+  cmux customize library reset                Every layer off: settings, files and web-dev.json as before any
 
 You can also edit the files yourself (`cmux customize paths`): every save shows in cmux at
 once, an agent you ask next keeps your edits, and apply, discard and rollback work the same.
@@ -61,6 +74,11 @@ Ask options:
 Every verb takes --json. Exit codes: 0 ok, 1 refused (the error's code says why), 2 bad arguments.
 Nothing here needs the app but an ask: generations are files, so rollback works with cmux
 quit and in safe mode.
+
+If a layer breaks the window itself, quit cmux and open it once on its built-in web UI:
+  open -a \"cmux NIGHTLY\" --args --no-customizations
+(or CMUX_NO_CUSTOMIZATIONS=1, or hold Option and Shift as it starts). It edits no file. A page that
+does not start from a layer falls back on its own and turns the layer off, saying why.
 ";
 
 /// Every verb, for \"did you mean\".
@@ -124,6 +142,8 @@ pub(super) enum Request {
         note: String,
     },
     Use {
+        /// `--watch` (a `dir:` source only): build and apply again on a save.
+        watch: bool,
         source: String,
     },
     /// A try-on of a profile, or with `None` of what is live now.
@@ -211,12 +231,19 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     .to_owned()),
             }
         }
-        "use" => match rest {
-            [source] if !source.starts_with('-') || pr::pr_number(source).is_some() => {
-                Ok(Request::Use { source: source.clone() })
+        "use" => {
+            let watch = rest.iter().any(|word| word == "--watch");
+            let words: Vec<&String> = rest.iter().filter(|word| *word != "--watch").collect();
+            match words.as_slice() {
+                [source] if watch && !matches!(source::parse(source), Some(source::Source::Dir(_))) => {
+                    Err("--watch is for a folder: cmux customize use dir:PATH --watch".to_owned())
+                }
+                [source] if !source.starts_with('-') || source::parse(source).is_some() => {
+                    Ok(Request::Use { watch, source: (*source).clone() })
+                }
+                _ => Err("customize use needs one profile NAME or FILE, or code: pr:N, branch:NAME, sha:SHA, dir:PATH or OWNER/REPO@REF".to_owned()),
             }
-            _ => Err("customize use needs one profile NAME or FILE, or pr:N".to_owned()),
-        },
+        }
         "brief" => match wish_of(rest)? {
             (wish, options) if options == AskOptions::default() => Ok(Request::Brief { wish }),
             _ => Err("customize brief takes only the wish (it starts no chat)".to_owned()),
@@ -372,6 +399,15 @@ pub(super) fn child_globals(global: &super::GlobalArgs) -> Vec<String> {
 /// terminal sees their own settings, credentials still masked.
 fn reader(origin: &str) -> cmux_customize::Reader {
     if origin == "mcp" { cmux_customize::Reader::Agent } else { cmux_customize::Reader::Person }
+}
+
+/// The web ABI an app's own pages need: `bundle`'s, else the app this CLI is
+/// in (or `CMUX_CUSTOMIZE_APP`). What a web-dev overlay is judged against.
+pub(super) fn app_web_abi(bundle: Option<&std::path::Path>) -> Option<u32> {
+    match bundle {
+        Some(bundle) => pr::web_abi_of(bundle),
+        None => pr::App::find().abi,
+    }
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -537,15 +573,17 @@ pub(super) fn execute(
         Request::Save { name, note } => {
             Answer::Saved(customize.save_profile(&name, &note, now_ms)?)
         }
-        Request::Use { source } if pr::pr_number(&source).is_some() => {
-            let pr = pr::pr_number(&source).unwrap_or_default();
-            pr::use_pr(customize, pr, origin, now_ms)?
-        }
-        Request::Use { source } => {
-            let profile = customize.load_profile(&source)?;
-            let begun = customize.preview_profile(&profile, origin, now_ms)?;
-            Answer::Using { name: profile.name, begun, status: customize.status()? }
-        }
+        Request::Use { source, watch } => match source::parse(&source) {
+            Some(source::Source::Dir(path)) => {
+                dir::use_dir(customize, &path, watch, origin, now_ms)?
+            }
+            Some(code) => pr::use_code(customize, code, origin, now_ms)?,
+            None => {
+                let profile = customize.load_profile(&source)?;
+                let begun = customize.preview_profile(&profile, origin, now_ms)?;
+                Answer::Using { name: profile.name, begun, status: customize.status()? }
+            }
+        },
         Request::Try { source, duration_ms } => {
             let profile =
                 source.as_deref().map(|source| customize.load_profile(source)).transpose()?;

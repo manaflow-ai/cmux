@@ -1189,6 +1189,36 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 沒有自己的登入，登入選擇為 machine。請在機器上登入，或加上 --login none 重新執行。"}}
       }
     },
+    "cloud.startSession.codexNotDelivered": {
+      "comment": "A CLI or agent Cloud start whose Codex login from this Mac did not reach the machine. %1$@ machine, %2$@ agent, %3$@ the command, %4$@ why (keep OPENAI_API_KEY and --login in English).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%2$@ on %1$@ didn't get your Codex sign-in from this Mac (%4$@), so the chat didn't start: without it, its first turn fails on a missing OPENAI_API_KEY. Run `%3$@` again. To use your team's Codex instead, run it with --login none."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لم يتلقَّ %2$@ على %1$@ تسجيل دخولك إلى Codex من هذا الـMac (%4$@)، لذا لم تبدأ المحادثة: بدونه يفشل أول دور بسبب غياب OPENAI_API_KEY. شغّل `%3$@` مجددًا. لاستخدام Codex الخاص بفريقك بدلًا من ذلك، شغّله مع --login none."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%2$@ auf %1$@ hat deine Codex-Anmeldung von diesem Mac nicht erhalten (%4$@), daher startete der Chat nicht: ohne sie scheitert der erste Durchgang an einem fehlenden OPENAI_API_KEY. Führe `%3$@` erneut aus. Um stattdessen das Codex deines Teams zu nutzen, führe es mit --login none aus."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%2$@ en %1$@ no recibió tu inicio de sesión de Codex de este Mac (%4$@), así que el chat no empezó: sin él, su primer turno falla por falta de OPENAI_API_KEY. Vuelve a ejecutar `%3$@`. Para usar el Codex de tu equipo, ejecútalo con --login none."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%2$@ sur %1$@ n'a pas reçu ta connexion Codex depuis ce Mac (%4$@), donc le chat n'a pas démarré : sans elle, son premier tour échoue faute d'OPENAI_API_KEY. Relance `%3$@`. Pour utiliser le Codex de ton équipe, lance-le avec --login none."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "%1$@ の %2$@ はこの Mac から Codex のサインインを受け取れなかったため (%4$@)、チャットは開始されませんでした。サインインがないと最初のターンが OPENAI_API_KEY の欠落で失敗します。`%3$@` をもう一度実行してください。チームの Codex を使うには --login none を付けて実行してください。"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@이(가) 이 Mac에서 Codex 로그인을 받지 못해(%4$@) 채팅이 시작되지 않았습니다. 로그인이 없으면 첫 턴이 OPENAI_API_KEY 누락으로 실패합니다. `%3$@`을(를) 다시 실행하세요. 팀의 Codex를 쓰려면 --login none으로 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 没有收到此 Mac 的 Codex 登录（%4$@），因此聊天未启动：没有它，第一轮会因缺少 OPENAI_API_KEY 而失败。请再次运行 `%3$@`。若要改用团队的 Codex，请加上 --login none 运行。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 沒有收到這台 Mac 的 Codex 登入（%4$@），因此聊天未啟動：沒有它，第一輪會因缺少 OPENAI_API_KEY 而失敗。請再次執行 `%3$@`。若要改用團隊的 Codex，請加上 --login none 執行。"}}
+      }
+    },
+    "cloud.startSession.codexNoMacLogin": {
+      "comment": "A CLI or agent Cloud start for Codex when this Mac has no Codex ChatGPT sign-in to give the machine. %1$@ machine, %2$@ agent, %3$@ the command, %4$@ why (keep `codex login` and --login in English).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%2$@ on %1$@ has no sign-in, and this Mac has no Codex ChatGPT sign-in to give it (%4$@). Run `codex login` on this Mac, then run `%3$@` again. To use your team's Codex instead, run it with --login none."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يملك %2$@ على %1$@ تسجيل دخول، ولا يملك هذا الـMac تسجيل دخول Codex عبر ChatGPT ليعطيه إياه (%4$@). شغّل `codex login` على هذا الـMac، ثم شغّل `%3$@` مجددًا. لاستخدام Codex الخاص بفريقك بدلًا من ذلك، شغّله مع --login none."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%2$@ auf %1$@ hat keine Anmeldung, und dieser Mac hat keine Codex-ChatGPT-Anmeldung, die er ihm geben kann (%4$@). Führe `codex login` auf diesem Mac aus, dann `%3$@` erneut. Um stattdessen das Codex deines Teams zu nutzen, führe es mit --login none aus."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%2$@ en %1$@ no tiene inicio de sesión, y este Mac no tiene un inicio de sesión de Codex con ChatGPT que darle (%4$@). Ejecuta `codex login` en este Mac y vuelve a ejecutar `%3$@`. Para usar el Codex de tu equipo, ejecútalo con --login none."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%2$@ sur %1$@ n'a pas de connexion, et ce Mac n'a pas de connexion Codex ChatGPT à lui donner (%4$@). Lance `codex login` sur ce Mac, puis relance `%3$@`. Pour utiliser le Codex de ton équipe, lance-le avec --login none."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "%1$@ の %2$@ にはサインインがなく、この Mac にも渡せる Codex の ChatGPT サインインがありません (%4$@)。この Mac で `codex login` を実行してから、`%3$@` をもう一度実行してください。チームの Codex を使うには --login none を付けて実行してください。"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@에는 로그인이 없고, 이 Mac에도 넘겨줄 Codex ChatGPT 로그인이 없습니다(%4$@). 이 Mac에서 `codex login`을 실행한 뒤 `%3$@`을(를) 다시 실행하세요. 팀의 Codex를 쓰려면 --login none으로 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 没有登录，而此 Mac 也没有可提供给它的 Codex ChatGPT 登录（%4$@）。请在此 Mac 上运行 `codex login`，然后再次运行 `%3$@`。若要改用团队的 Codex，请加上 --login none 运行。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 沒有登入，而這台 Mac 也沒有可提供給它的 Codex ChatGPT 登入（%4$@）。請在這台 Mac 上執行 `codex login`，然後再次執行 `%3$@`。若要改用團隊的 Codex，請加上 --login none 執行。"}}
+      }
+    },
     "cloud.startSession.consentNeeded": {
       "comment": "A CLI or agent Cloud start in a Release build that waits for the person's one-time consent to copy their Claude login. %1$@ machine, %2$@ agent, %3$@ the command (keep it in backticks). The setting and section names are as the Settings window shows them.",
       "extractionState": "manual",

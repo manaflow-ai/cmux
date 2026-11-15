@@ -270,7 +270,7 @@ export default componentEntry<Props>({
         alternative: "two-step",
       },
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: "Sign in to Cursor…" });
+        await ctx.click({ role: "button", name: "Sign in to Cursor" });
       },
       note: "Alternative, not shipped: a plain Sign in button that only then shows the machine's sign-in card. Rejected: two clicks to the provider's page where the shipped card takes one.",
     },

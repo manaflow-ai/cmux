@@ -840,6 +840,7 @@ import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from ".
 import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 import { dismissFocusRing } from "../../ui/focusModality";
+import { useDraftWaitOver } from "./draftSettleHold";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 
@@ -1149,8 +1150,6 @@ const SCROLL_ANCHOR_READ_MS = 250;
 /// its open failed. A shorter hold showed a busy daemon's chat as an empty page with only its
 /// composer (Leo 2026-10-21: "I LOAD IN AND IT'S A BLACK SCREEN").
 const CHAT_DRAW_HOLD_MS = 10_000;
-/// The longest the last launch's copy waits on the chat's draft read once its rows are in (firstPaint.ts).
-const DRAFT_SETTLE_HOLD_MS = 2_000;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
   const anchor = await Promise.race([
@@ -7024,7 +7023,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The chat whose saved draft the composer read (Composer `onDraftSettled`), and the chat whose
   // wait for it ran out: until one names the chat, its draft is not in the prompt yet.
   const [draftSettled, setDraftSettled] = useState<string>();
-  const [draftWaitOver, setDraftWaitOver] = useState<string>();
+  // A chat read from a kept tail before its connect answers has no draft in its prompt yet: the
+  // copy, which shows the draft, waits for the read, at most DRAFT_SETTLE_HOLD_MS (draftSettleHold.ts).
+  const rowsReadFor = clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
+  const draftWaitOver = useDraftWaitOver(rowsReadFor, draftSettled);
   // A tab opening an existing chat adopted this prewarmed New Tab page (useSessionAdoption, below):
   // the chat it switches to, until that chat is drawn. Until then the page has not drawn what it is.
   const [adoptingSession, setAdoptingSession] = useState<string>();
@@ -7067,15 +7069,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       openRefused: clientSnapshot.connection === "failed",
       chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
     });
-  // A chat read from a kept tail before its connect answers has no draft in its prompt yet: the
-  // copy, which shows the draft, waits for the read, at most DRAFT_SETTLE_HOLD_MS (a composer that
-  // never mounts, a read that never answers).
-  const rowsReadFor = clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
-  useEffect(() => {
-    if (rowsReadFor === undefined) return;
-    const timer = window.setTimeout(() => setDraftWaitOver(rowsReadFor), DRAFT_SETTLE_HOLD_MS);
-    return () => window.clearTimeout(timer);
-  }, [rowsReadFor]);
   // No chat screen before the page knows it is no New Tab page (`contextKnown`).
   const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
   useEffect(() => {
@@ -11717,10 +11710,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       workflowTranscript.rows
                                                                         ? workflowTranscript.loadOlder
                                                                         : !childRows
-                                                                          ? (fill: boolean) =>
+                                                                          ? (fill: boolean, rising: boolean) =>
                                                                               directClient.current?.loadOlder(
                                                                                 undefined,
                                                                                 fill,
+                                                                                rising,
                                                                               ) ?? Promise.resolve()
                                                                           : undefined
                                                                     }
