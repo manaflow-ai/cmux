@@ -105,6 +105,10 @@ CASES = {
                     "    registry.bind(\"renamePane\", effect: { _ in daemon.intentEffect(\"rename-pane\", intent) { try await $0.rename() } })\n}\n"),
     "appkit-index": ("@objc func clicked() {\n    guard let item = browser.item(atRow: browser.clickedRow, inColumn: browser.clickedColumn) else { return }\n}\n",
                      "@objc func clicked() {\n    guard let item = browser.clickedItemIfValid else { return }\n}\n"),
+    "plus-button": ("let add = SidebarIconButton(icon: .actionAdd, label: \"New\")\n"
+                    "let more = TitlebarBandButton(symbol: \"plus\")\n",
+                    "let add = SidebarIconButton(plus: \"New\")\n"
+                    "let row = PaletteCommand(id: \"newTab\", symbol: \"plus.square\") // a menu row's icon, not a control\n"),
     "undo-text-write": ("func build() {\n    textView.allowsUndo = true\n}\n",
                         "func build() {\n    textView.allowsUndo = true // undo-safe: TextBoxTextView.replaceText\n}\n"),
     "raw-observation": ("@MainActor func watch(_ store: Store) {\n    withObservationTracking { _ = store.tabs } onChange: { print(1) }\n}\n",
