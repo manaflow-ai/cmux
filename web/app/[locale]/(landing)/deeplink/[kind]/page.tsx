@@ -10,8 +10,7 @@ import {
   AGENT_REQUIRED_PARAMS,
   agentLink,
   agentLinkModel,
-  agentReference,
-  agentReferenceHref,
+  agentOpenHref,
 } from "./deeplink-agent";
 
 type SearchValue = string | string[] | undefined;
@@ -370,11 +369,11 @@ export default async function DeeplinkPage({
   // or a hint it cannot use, is ignored by name and the session still opens
   // (schemas/deeplinks/agent-link.json). The other kinds carry commands and stay strict.
   const agent = kind === "agent" ? agentLink(resolvedSearchParams) : null;
-  // A public footer's opaque reference (`?id=aid-...`) in place of a session: the page
-  // looks nothing up and hands it to the app as `cmux://agent?id=`, where acpmux opens
-  // the chat only for a reader whose own machines list it.
-  const reference =
-    agent && !agent.model ? agentReference(resolvedSearchParams) : null;
+  // The session's native link, else a public footer's opaque reference handed to the
+  // app as `cmux://agent?id=` (agentOpenHref); null when the link can't open.
+  const agentHref = agent
+    ? agentOpenHref(agent.model, resolvedSearchParams)
+    : null;
   const issues: LinkIssues = agent
     ? {
         unsupported: [],
@@ -386,11 +385,10 @@ export default async function DeeplinkPage({
     : strictIssues(kind, resolvedSearchParams);
   // Never echo unvalidated input into a link.
   const href = agent
-    ? (agent.model?.href ??
-      (reference ? agentReferenceHref(reference) : "cmux://agent"))
+    ? (agentHref ?? "cmux://agent")
     : nativeHref(kind, resolvedSearchParams);
   const canOpen = agent
-    ? agent.model !== null || reference !== null
+    ? agentHref !== null
     : Object.values(issues).every((names) => names.length === 0);
   // Only when the link opens: the sentence says the session still opens, and a
   // link that cannot open shows the one problem the reader has to fix instead.

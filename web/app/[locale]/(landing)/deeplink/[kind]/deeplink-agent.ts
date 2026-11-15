@@ -204,6 +204,20 @@ export function agentReferenceHref(reference: string): string {
   return `cmux://agent?id=${reference}`;
 }
 
+/**
+ * The native link the page opens: the session's own (`model.href`), else a
+ * public footer's opaque reference handed to the app (`agentReferenceHref`).
+ * Null when the link names neither, so the page offers no Open.
+ */
+export function agentOpenHref(
+  model: AgentLinkModel | null,
+  params: SearchParams,
+): string | null {
+  if (model) return model.href;
+  const reference = agentReference(params);
+  return reference ? agentReferenceHref(reference) : null;
+}
+
 // Invariant: this model holds only the URL's own harness/session/host/name/message plus the cmux:// href; no lookups, ever.
 export function agentLinkModel(params: SearchParams): AgentLinkModel | null {
   return agentLink(params).model;
