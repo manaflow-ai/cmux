@@ -324,9 +324,15 @@ mod tests {
         ]);
         let mut overlay = Overlay::new(20, 4);
         let spans = overlay.diff(&drawn, &real);
-        // Only the two rows the records lack, one span each.
-        assert_eq!(spans.len(), 2);
-        assert!(spans.iter().all(|s| matches!(s, Span::Set { row: 2 | 3, col: 0, .. })));
+        // Only the two rows the records lack. The space after the spinner draws the same pixels
+        // as the drawn blank, so it splits that row's span in two.
+        let at: Vec<(u16, u16)> = spans
+            .iter()
+            .map(|s| match s {
+                Span::Set { row, col, .. } | Span::Clear { row, col, .. } => (*row, *col),
+            })
+            .collect();
+        assert_eq!(at, [(2, 0), (3, 0), (3, 2)]);
         overlay.apply(&spans);
         assert_eq!(real.parity(&overlay.compose(&drawn)), (80, 80));
         assert!(overlay.diff(&drawn, &real).is_empty());
