@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43683130226",
+  "recorded_at": "2026-11-15T06:02:50Z",
+  "reason": "cmux-tui ee358a04c995 changes the image's cmux-tui (pinned cba04933e368)",
+  "dry_run": false,
+  "cmux_tui": "ee358a04c995e325925224dd2e1d472ccf7b1447",
+  "fixes": [
+    {
+      "sha": "ee358a04c995e325925224dd2e1d472ccf7b1447",
+      "mergedAt": "2026-11-14T21:39:25-08:00",
+      "subject": "A public PR footer's opaque agent link opens its chat in the app (#43532)"
+    },
+    {
+      "sha": "29cf61ee5aacda67355516d401532c0bf5591d28",
+      "mergedAt": "2026-11-14T21:38:38-08:00",
+      "subject": "test(acpmux): best-of-rounds gates compare each round with the median (#43536)"
+    },
+    {
+      "sha": "fd96149b39d79d8ec68d486d4275bc37acc82b85",
+      "mergedAt": "2026-11-14T21:34:48-08:00",
+      "subject": "cmux customize schema: every customizable key for agents, and the SDK types from it (#43368)"
+    },
+    {
+      "sha": "3953bc3d2564e88b68c93aa94bd2b6a3bf636fff",
+      "mergedAt": "2026-11-14T21:34:27-08:00",
+      "subject": "cmux-tui: a byte viewer can hold a window of the history (attach-replay-history-window-v1) (#43365)"
+    },
+    {
+      "sha": "5adbd079a0b0b46a7f4dd6b0bc37e5ee642b3e19",
+      "mergedAt": "2026-11-14T21:34:21-08:00",
+      "subject": "Cloud start: a used-up Claude limit answers agent.limit_reached with until_at in the CLI's JSON (#43301)"
+    },
+    {
+      "sha": "3d575b6da9be0b840b33f8d4cc471f7b0a14b350",
+      "mergedAt": "2026-11-14T21:33:32-08:00",
+      "subject": "acpmux-book: a page of turns reads its group rows and no row of a fold (#43503)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T06:02:50Z",
+    "snapshot_id": "sh-bc1471942af84a60a8fa73f9b960fcb4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43683130226): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e2d4bec755cda988bc55ebcf230e918700f4036c",
+    "image": "cloud-native-auto-ee358a04-43683130226-1",
+    "revision": "ci-43683130226-1",
+    "at": "2026-11-15T06:02:50Z"
+  },
+  "rolled_back": false
+}
