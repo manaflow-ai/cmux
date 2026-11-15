@@ -73,7 +73,12 @@ export const parseBuildSpace = (value: string | null | undefined): BuildSpace | 
 export const isDevSpace = (space: BuildSpace | undefined): boolean => typeof space === "string" && space.startsWith("dev:")
 
 /** Production serves nightly and stable only: a dev space never exists there. */
-const devSpacesAllowed = (env: Pick<RawEnv, "ENVIRONMENT">) => env.ENVIRONMENT !== "production"
+/**
+ * The environments that serve dev builds, an allow-list: production, and any environment whose name is missing or
+ * misspelled, never builds a dev space. Previews deploy with ENVIRONMENT "development" (scripts/deploy-worker.sh).
+ */
+export const DEV_SPACE_ENVIRONMENTS: ReadonlySet<string> = new Set(["local", "test", "development", "staging"])
+const devSpacesAllowed = (env: Pick<RawEnv, "ENVIRONMENT">) => DEV_SPACE_ENVIRONMENTS.has(env.ENVIRONMENT)
 
 /**
  * The space of a request, from its header. Production ignores the header (base space, so a dev build pointed at
@@ -121,18 +126,55 @@ const spacedNamespace = <T extends Rpc.DurableObjectBranded | undefined>(ns: Dur
   return spaced as unknown as DurableObjectNamespace<T>
 }
 
+/** A principal-shaped RPC argument (`identity` is the one field every principal has). */
+const isPrincipal = (v: unknown): v is Record<string, unknown> & { identity: string } =>
+  typeof v === "object" && v !== null && !Array.isArray(v) && typeof (v as { identity?: unknown }).identity === "string"
+
+/**
+ * A shared (account-wide) namespace reached from a dev space: every principal handed to one of its objects over RPC
+ * carries that space as `build_space`, whoever built it. A shared object keeps its per-build parts apart by it
+ * (TeamDO's host directory), so a principal a per-build object makes for itself (a chief's, a system one) is seen in
+ * the space it acts in without each of them having to say so. The env decides, never the caller: a principal that
+ * names another space is overwritten. HTTP fetches pass unchanged (the Worker sets their principal header).
+ */
+const principalsInSpace = <T extends Rpc.DurableObjectBranded | undefined>(ns: DurableObjectNamespace<T>, space: BuildSpace): DurableObjectNamespace<T> => {
+  const wrap = (stub: DurableObjectStub<T>) =>
+    new Proxy(stub as object, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop) as unknown
+        if (prop === "fetch" || prop === "connect" || typeof value !== "function") return value
+        // Reflect.apply, not value.apply: an RPC stub answers every property, `apply` included, as a remote method.
+        return (...args: Array<unknown>) => Reflect.apply(value as (...a: Array<unknown>) => unknown, target, args.map((a) => (isPrincipal(a) ? { ...a, build_space: space } : a)))
+      }
+    }) as DurableObjectStub<T>
+  const shared = {
+    idFromName: (name: string) => ns.idFromName(name),
+    idFromString: (id: string) => ns.idFromString(id),
+    newUniqueId: (options?: DurableObjectNamespaceNewUniqueIdOptions) => ns.newUniqueId(options),
+    jurisdiction: (j: DurableObjectJurisdiction) => ns.jurisdiction(j),
+    get: (id: DurableObjectId, options?: DurableObjectNamespaceGetDurableObjectOptions) => wrap(ns.get(id, options)),
+    getByName: (name: string, options?: DurableObjectNamespaceGetDurableObjectOptions) => wrap(ns.get(ns.idFromName(name), options))
+  }
+  return shared as unknown as DurableObjectNamespace<T>
+}
+
 /**
  * The env of one build space: every PER_BUILD binding names its objects in `space`; everything else is the raw
  * binding. In the base space the bindings are the raw ones, so nightly and stable reach exactly the objects they
  * reached before build spaces existed.
  */
 export const spacedEnv = (raw: RawEnv, space: BuildSpace): Env => {
-  if (isDevSpace(space) && !devSpacesAllowed(raw)) throw new Error("build space: production has no dev spaces")
+  if (isDevSpace(space) && !devSpacesAllowed(raw)) throw new Error(`build space: environment "${raw.ENVIRONMENT}" serves no dev spaces (production and unknown environments are nightly and stable only)`)
   const out: Record<string, unknown> = { ...raw, BUILD_SPACE: space }
   if (isDevSpace(space)) {
     for (const binding of PER_BUILD_BINDINGS) {
       const ns = raw[binding] as DurableObjectNamespace | undefined
       if (ns) out[binding] = spacedNamespace(ns, space)
+    }
+    // CLOUD_DO is cmux-platform's: its principals are its own contract, and it keeps nothing per build.
+    for (const binding of ACCOUNT_WIDE_BINDINGS.filter((b) => b !== "CLOUD_DO")) {
+      const ns = raw[binding] as DurableObjectNamespace | undefined
+      if (ns) out[binding] = principalsInSpace(ns, space)
     }
   }
   return out as unknown as Env

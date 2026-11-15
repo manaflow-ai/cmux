@@ -42,9 +42,25 @@ export const projectRows = async (env: Env, stream: string, rows: ReadonlyArray<
   // A self-hosted chat server (backend/apps/home-server) has no PlanetScale: its rows are done.
   if ((env.PROJECTION_PRIMARY as string | undefined) === "none") return { sent: rows.map((r) => r.id), dead: [] }
   // Dev build rows (build-space-projection.ts) go to Postgres only, keyed by their space; the rest drain as before.
+  // Postgres takes them as the primary or as the shadow (staging and production run MySQL primary, Postgres shadow):
+  // as the shadow a failure is logged and never holds the batch, as it is for nightly's rows. With no Postgres
+  // target at all they are projected nowhere, and a dev build's home.search finds nothing (AGENTS.md).
   const spaced = spaceRows(spaceOfEnv(env), rows)
   const { primary, shadow } = projectionTargets(env)
-  const dev = spaced.dev.length === 0 ? { sent: [], dead: [] } : primary === "postgres" ? await impl.postgres(env, stream, spaced.dev) : { sent: spaced.dev.map((r) => r.id), dead: [] }
+  const done = { sent: spaced.dev.map((r) => r.id), dead: [] as Array<{ id: number; error: string }> }
+  const dev = spaced.dev.length === 0
+    ? { sent: [], dead: [] }
+    : primary === "postgres"
+      ? await impl.postgres(env, stream, spaced.dev)
+      : shadow === "postgres"
+        ? await impl.postgres(env, stream, spaced.dev).then((r) => {
+            if (r.dead.length > 0) console.error(JSON.stringify({ event: "projection.shadow.dead", level: "error", stream, target: "postgres", space: "dev", rows: r.dead.map((d) => d.id) }))
+            return done
+          }, (e: unknown) => {
+            console.error(JSON.stringify({ event: "projection.shadow.failed", level: "error", stream, target: "postgres", space: "dev", rows: spaced.dev.length, code: String((e as { code?: unknown } | null)?.code ?? "") }))
+            return done
+          })
+        : done
   const base = spaced.base.length === 0 ? { sent: [], dead: [] } : await impl[primary](env, stream, spaced.base)
   const result = { sent: [...base.sent, ...dev.sent, ...spaced.skipped], dead: [...base.dead, ...dev.dead] }
   if (shadow && spaced.base.length > 0) {

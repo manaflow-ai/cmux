@@ -500,7 +500,8 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** RPC from the Worker: team_vm.ssh_cert.challenge, team_vm.ssh_cert, team_vm.ssh_cert.revoke and team_vm.ssh_ca.rotate (the team SSH CA, team-ssh-ca.ts). */
   async sshOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
-    return sshExternal({ ...this.sshDeps(entity), presence: this.presenceOwner(entity) }, principal, frame)
+    // The presence device is the requester's own, so its UserDO is in the requester's build space (build-space.ts).
+    return sshExternal({ ...this.sshDeps(entity), presence: this.presenceOwner(entity, principal.build_space ?? "") }, principal, frame)
   }
 
   /** The daemon confirms only its existing approved reservation; no policy or role is activated. */
@@ -551,10 +552,19 @@ export class TeamDO extends OwnerDO<TeamState> {
   private readonly sshRunning = new Set<string>()
 
   /** The person's UserDO checks presence proofs (keys, nonces, App Attest counters live there); tests replace it. */
-  presenceOwner = (team: string): SshPresence => ({
-    challenge: (user, install, purpose) => this.installUser(user, install).presenceChallenge(user, team, install, purpose),
-    assert: (user, proof, purpose) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).presenceAssert(user, team, proof, purpose)
-  })
+  /** The UserDO that holds a requester's presence device: the one of the requester's build space. */
+  presenceUser = (user: string, space: string) => {
+    const env = envInSpace(this.env, parseBuildSpace(space) ?? BASE_SPACE)
+    return env.USER_DO.get(env.USER_DO.idFromName(user))
+  }
+  presenceOwner = (team: string, space = ""): SshPresence => {
+    // Challenge and assert go to the same UserDO (a challenge made in one space is only provable there).
+    const user = (id: string) => this.presenceUser(id, space)
+    return {
+      challenge: (id, install, purpose) => user(id).presenceChallenge(id, team, install, purpose),
+      assert: (id, proof, purpose) => user(id).presenceAssert(id, team, proof, purpose)
+    }
+  }
 
   /**
    * RPC from UserDO only (S4): `user` revoked `install`. Every unexpired team SSH certificate of

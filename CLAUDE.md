@@ -399,6 +399,10 @@ reason; account-wide is only for what one person shares across builds (team memb
 The pre-push gate's "Build spaces" check (`scripts/cmux-next/check-build-spaces.py`) refuses an unlisted binding and an
 object or entry point that reaches objects outside its space. Why: agents dogfood several dev builds at once under the
 person's own account, and a build under test must not change what another build, or the person's own nightly, shows.
+What does not reach a dev build yet (each lands in nightly's space, because nothing on the request names a build):
+provider webhooks (GitHub, Slack, Linear, Google), OAuth completions from the web, invite links and their landing
+pages, and inbound texts and email. A dev build's Postgres projection rows go to Postgres only (as the primary, or as
+the shadow beside MySQL), never to MySQL; with no Postgres target a dev build's `home.search` finds nothing.
 
 ## Settings on every surface
 
