@@ -136,6 +136,7 @@ pub const MODEL_PLANE_ENV: &[&str] = &[
     "GOOGLE_GEMINI_BASE_URL",
     "GROK_MODELS_BASE_URL",
     "GROK_MODELS_LIST_URL",
+    "GROK_XAI_API_BASE_URL",
 ];
 
 /// The account-home variables pinned on the CLI's command (`Cli::command`), so it

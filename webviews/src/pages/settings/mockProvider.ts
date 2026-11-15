@@ -215,6 +215,9 @@ export class MockSettingsProvider {
   /** Holds `cmux.settings.host.lists` until it settles: a test's host that answers after the values. */
   holdHost: Promise<void> | null = null;
 
+  /** Every catalog action the page ran, with its arguments, in order (tests). */
+  readonly actionsRun: Array<{ action: string; args: Params }> = [];
+
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
     this.managed = new Map(
@@ -660,6 +663,7 @@ export class MockSettingsProvider {
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
+        this.actionsRun.push({ action: String(params.action), args: (params.args ?? {}) as Params });
         if (!this.actionRan) return { ran: false };
         this.runProfileAction(
           params.action as string,

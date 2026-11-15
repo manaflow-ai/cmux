@@ -568,6 +568,60 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng tác tử của máy thì không (%4$@). Chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
       }
     },
+    "cloud.startSession.agentSignedOut": {
+      "comment": "The machine is up but the agent isn't signed in there. %1$@ name, %2$@ id, %3$@ agent id, %4$@ the agent's name (Cursor). Keep the command as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` started, but %4$@ isn't signed in on that machine. Sign it in there, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` は起動しましたが、そのマシンでは %4$@ にサインインしていません。そこでサインインしてから、`cmux cloud start-session --target machine:%2$@ --agent %3$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine `%1$@` ist gestartet, aber %4$@ ist dort nicht angemeldet. Melde ihn dort an und führe dann `cmux cloud start-session --target machine:%2$@ --agent %3$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` a démarré, mais %4$@ n'y est pas connecté. Connectez-le là-bas, puis relancez `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` se inició, pero %4$@ no tiene la sesión iniciada allí. Inicia su sesión allí y vuelve a ejecutar `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@`، لكن %4$@ غير مسجّل الدخول عليه. سجّل دخوله هناك، ثم شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 그 머신에서 %4$@에 로그인되어 있지 않습니다. 그곳에서 로그인한 다음 `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但 %4$@ 尚未在该机器上登录。请在那里登录，然后再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但 %4$@ 尚未在該機器上登入。請在那裡登入，然後再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali %4$@ nije prijavljen na njoj. Prijavite ga tamo, pa ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men %4$@ er ikke logget ind på den. Log den ind der, og kør `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma %4$@ non ha eseguito l'accesso lì. Esegui l'accesso lì, poi esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែ %4$@ មិនទាន់បានចូលគណនីនៅលើវាទេ។ ចូលគណនីនៅទីនោះ រួចដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men %4$@ er ikke logget på den. Logg den på der, og kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale %4$@ nie jest na niej zalogowany. Zaloguj go tam, a potem uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas o %4$@ não está conectado nela. Conecte-o lá e execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, но %4$@ на ней не выполнил вход. Выполните вход там, затем снова выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่ %4$@ ยังไม่ได้ลงชื่อเข้าใช้ในเครื่องนั้น ลงชื่อเข้าใช้ที่นั่น แล้วเรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama %4$@ orada oturum açmamış. Orada oturum açın, ardından `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, але %4$@ на ній не ввійшов. Увійдіть там, потім знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng %4$@ chưa đăng nhập trên máy đó. Đăng nhập ở đó, rồi chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
+      }
+    },
+    "cloud.startSession.agentSignInExpired": {
+      "comment": "The machine is up but the agent's sign-in there expired. %1$@ name, %2$@ id, %3$@ agent id, %4$@ the agent's name (Grok). Keep the command as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` started, but %4$@'s sign-in expired on that machine. Sign it in again there, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` は起動しましたが、そのマシンでの %4$@ のサインインが期限切れです。そこでもう一度サインインしてから、`cmux cloud start-session --target machine:%2$@ --agent %3$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine `%1$@` ist gestartet, aber die Anmeldung von %4$@ ist dort abgelaufen. Melde ihn dort erneut an und führe dann `cmux cloud start-session --target machine:%2$@ --agent %3$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` a démarré, mais la connexion de %4$@ y a expiré. Reconnectez-le là-bas, puis relancez `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` se inició, pero la sesión de %4$@ caducó allí. Vuelve a iniciarla allí y vuelve a ejecutar `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بدأ الجهاز `%1$@`، لكن انتهت صلاحية تسجيل دخول %4$@ عليه. سجّل دخوله مرة أخرى هناك، ثم شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 시작됐지만 그 머신에서 %4$@ 로그인이 만료되었습니다. 그곳에서 다시 로그인한 다음 `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 已启动，但 %4$@ 在该机器上的登录已过期。请在那里重新登录，然后再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 已啟動，但 %4$@ 在該機器上的登入已過期。請在那裡重新登入，然後再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mašina `%1$@` se pokrenula, ali je prijava za %4$@ na njoj istekla. Ponovo ga prijavite tamo, pa ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startede, men login for %4$@ er udløbet på den. Log den ind igen der, og kør `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La macchina `%1$@` si è avviata, ma l'accesso di %4$@ lì è scaduto. Esegui di nuovo l'accesso lì, poi esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន `%1$@` បានចាប់ផ្ដើម ប៉ុន្តែការចូលគណនី %4$@ នៅលើវាបានផុតកំណត់។ ចូលគណនីម្ដងទៀតនៅទីនោះ រួចដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinen `%1$@` startet, men påloggingen for %4$@ er utløpt på den. Logg den på igjen der, og kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maszyna `%1$@` uruchomiła się, ale logowanie %4$@ na niej wygasło. Zaloguj go tam ponownie, a potem uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A máquina `%1$@` iniciou, mas o login do %4$@ expirou nela. Conecte-o novamente lá e execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилась, но срок входа %4$@ на ней истёк. Снова выполните вход там, затем снова выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง `%1$@` เริ่มทำงานแล้ว แต่การลงชื่อเข้าใช้ %4$@ ในเครื่องนั้นหมดอายุแล้ว ลงชื่อเข้าใช้อีกครั้งที่นั่น แล้วเรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi başladı ama %4$@ oturumunun oradaki süresi doldu. Orada yeniden oturum açın, ardından `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` запустилася, але термін входу %4$@ на ній сплив. Увійдіть там знову, потім знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng phiên đăng nhập %4$@ trên máy đó đã hết hạn. Đăng nhập lại ở đó, rồi chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
+      }
+    },
     "cloud.startSession.needsFolder": {
       "comment": "The agent session needs a folder on the machine. %1$@ name, %2$@ id, %3$@ agent. Keep the command as written.",
       "extractionState": "manual",

@@ -5,6 +5,7 @@
 use super::tests::{Wire, link, memory_hub, peers_on, request_frame, row};
 use super::*;
 use crate::rpc::{Message, method};
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -24,17 +25,11 @@ fn emit(
     unit: &str,
     more: Value,
 ) -> (u128, u128) {
-    let p95 = |values: &[u128]| {
-        let mut values = values.to_vec();
-        values.sort_unstable();
-        values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
-    };
-    let best = |rounds: &[Vec<u128>]| rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
-    let all = |rounds: &[Vec<u128>]| p95(&rounds.concat());
-    let (small_p95, god_p95) = (best(small), best(god));
+    gate_rounds::report(name, &[("small", small), ("god", god)]);
+    let (small_p95, god_p95) = (best_p95(small), best_p95(god));
     let mut line = json!({
         "name": name, "small_p95": small_p95, "god_p95": god_p95,
-        "god_p95_all": all(god), "unit": unit,
+        "god_p95_all": all_p95(god), "unit": unit,
     });
     if let (Some(line), Value::Object(more)) = (line.as_object_mut(), more) {
         line.extend(more);

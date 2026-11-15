@@ -122,3 +122,45 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         }
     }
 }
+
+extension AgentTabRemoteClient {
+    /// The tab's surface on its machine as that machine's store lists it now (a new chat's tab may
+    /// have been provisional when its host was made).
+    public typealias TabSurface = @Sendable () async throws -> UInt64
+
+    /// The folder trust question of the tab's machine (cx-1bhjj, ``RemoteAcpmuxWire/Trust``): one
+    /// `agent-session-trust` call on a fresh attachment to `tab()`, gated by `ownerLink` there.
+    public static func trust(tab: @escaping TabSurface, reconnect: AgentSessionAttachClient.Reconnect?,
+                             endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
+                             ownerLink: AgentSessionAttachClient.OwnerLink?) -> RemoteAcpmuxWire.Trust {
+        { cwd, level, home in
+            try await once(tab: tab, reconnect: reconnect, endpoint: endpoint) { client in
+                try await client.trust(cwd: cwd, level: level, homeConfirmed: home, ownerLink: ownerLink)
+            }
+        }
+    }
+
+    /// A new chat's agent sign-in on the tab's machine before it has a session (hq#11225,
+    /// ``RemoteAcpmuxWire/MachineLogin``): one `agent-session-login` step on a fresh attachment to
+    /// `tab()`, gated there as its start is (the same owner answer, `vm_kind: "owner"`).
+    public static func machineLogin(tab: @escaping TabSurface, reconnect: AgentSessionAttachClient.Reconnect?,
+                                    endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
+                                    ownerLink: AgentSessionAttachClient.OwnerLink?) -> RemoteAcpmuxWire.MachineLogin {
+        { op, fields in
+            try await once(tab: tab, reconnect: reconnect, endpoint: endpoint) { client in
+                try await client.machineLogin(op, fields, ownerLink: ownerLink)
+            }
+        }
+    }
+
+    /// `work` on a fresh attachment to `tab()`, closed after, with the daemon's refusal as the pane's.
+    private static func once(tab: TabSurface, reconnect: AgentSessionAttachClient.Reconnect?,
+                             endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
+                             _ work: (AgentSessionAttachClient) async throws -> Data) async throws -> Data {
+        let client = AgentSessionAttachClient(surface: try await tab(), reconnect: reconnect, endpoint: endpoint)
+        let answer: Result<Data, any Error>
+        do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach).mapped { try await work(client) }) } catch { answer = .failure(error) }
+        await client.close()
+        return try answer.get()
+    }
+}

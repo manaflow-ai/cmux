@@ -1799,3 +1799,6 @@ escape for the legacy control protocol and provides no compatibility promise.
 
 #[cfg(test)]
 mod tests;
+// `app` is unix only.
+#[cfg(all(test, unix))]
+mod catalog_request_tests;

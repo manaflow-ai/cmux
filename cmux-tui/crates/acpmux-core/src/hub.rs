@@ -1018,6 +1018,22 @@ impl Hub {
         )
     }
 
+    /// Copies one bounded replay span while holding the history mutex.
+    ///
+    /// This is test-only instrumentation for the replay cause probe: it models
+    /// the old lock-coupled copier so the probe can show the cost of sharing
+    /// the writer's history lock. Production replay never calls this path.
+    #[cfg(test)]
+    pub(crate) fn probe_history_locked_copy(
+        &self,
+        cursor: u64,
+        through: u64,
+        max_bytes: usize,
+    ) -> Option<u64> {
+        let history = self.history.lock().ok()?;
+        history.after_frame(cursor, through, max_bytes).map(|span| span.last_seq)
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);

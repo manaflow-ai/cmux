@@ -2,6 +2,7 @@
 //! driver. Run alone: cargo test -p acpmux --release --test v2_connection -- --ignored --nocapture --test-threads=1
 #![cfg(target_os = "linux")]
 
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::{Summary, SummaryIndex};
 use acpmux_core::conn::{self, ConnectionState, HubSource, Offer};
 use acpmux_core::hub::Hub;
@@ -405,11 +406,7 @@ fn v2_pr04_stopped_readers() {
     report("v2.pr04.credit_without_read_drop", small.drops as f64, god.drops as f64, "notices");
 }
 
-fn percentile(mut values: Vec<u64>) -> u64 {
-    values.sort_unstable();
-    *values.get((values.len() * 95 / 100).min(values.len() - 1)).unwrap()
-}
-fn offer_round(subscriptions: usize) -> Vec<u64> {
+fn offer_round(subscriptions: usize) -> Vec<u128> {
     let mut state = ConnectionState::default();
     for i in 0..subscriptions {
         state.subscribe(format!("sid-{i}"), Cursor(0)).unwrap();
@@ -419,7 +416,7 @@ fn offer_round(subscriptions: usize) -> Vec<u64> {
         let frame = Frame::json(FrameKind::Delta, &json!({"sid":"sid-0","ops":[]})).unwrap();
         let start = Instant::now();
         let result = state.offer("sid-0", std::hint::black_box(frame), Cursor(n));
-        let elapsed = start.elapsed().as_nanos() as u64;
+        let elapsed = start.elapsed().as_nanos();
         assert_eq!(result, Offer::Taken);
         let lease = state.take().unwrap();
         state.written(&lease);
@@ -439,9 +436,10 @@ fn v2_pr04_offer_256_subscriptions() {
         small.push(offer_round(1));
         god.push(offer_round(wire::MAX_SUBSCRIPTIONS));
     }
-    let small_best = small.iter().map(|s| percentile(s.clone())).min().unwrap();
-    let god_best = god.iter().map(|s| percentile(s.clone())).min().unwrap();
-    let god_all = percentile(god.into_iter().flatten().collect());
+    gate_rounds::report("v2.pr04.offer_256_subscriptions", &[("small", &small), ("god", &god)]);
+    let small_best = best_p95(&small);
+    let god_best = best_p95(&god);
+    let god_all = all_p95(&god);
     println!("offer small_best={small_best}ns god_best={god_best}ns god_all_p95={god_all}ns");
     report("v2.pr04.offer_256_subscriptions", small_best as f64, god_best as f64, "ns");
     assert!(god_best as f64 <= small_best as f64 * 1.2);

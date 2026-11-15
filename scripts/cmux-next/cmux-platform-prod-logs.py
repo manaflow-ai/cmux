@@ -374,12 +374,15 @@ def publish(events, needles, ident):
     """(header, rows) for the private store: scope first, then projection, then needles over the projected rows."""
     if not needles:
         raise ValueError("needles: at least one search term is required")
+    scanned = len(events)
     events = [e for e in events if belongs_to(e, ident)]
     counts = {}
     rows = [line(e, counts) for e in events]
     rows.sort(key=lambda r: r.pop("_ts", 0))
     rows = [r for r in rows if base.matches(r, needles)]
-    head = {"needles": [base.tag(n) for n in needles], "events_in_window": len(events), "kept_any": bool(rows),
+    # events_scanned: the window's events before the id filter; events_in_window: the ones this id owns.
+    head = {"needles": [base.tag(n) for n in needles], "events_scanned": scanned, "events_in_window": len(events),
+            "kept_any": bool(rows),
             "rows_cut": len(rows) > MAX_ROWS, **counts}
     return head, rows[:MAX_ROWS]
 
