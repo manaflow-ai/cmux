@@ -82,7 +82,7 @@ pub(crate) struct HolderService {
     /// ([`RELINK_HEALTHY`]): a holder that takes every link and drops it
     /// at once is not reconnected in a tight loop.
     relink: Mutex<crate::backoff::Backoff>,
-    /// The holder could not be reached or started ([`Self::available_link`]):
+    /// The holder could not be reached or started ([`Self::available`]):
     /// until then a new terminal runs on a host of its own without asking
     /// again, so a broken holder costs one start timeout per window and not
     /// one per terminal.
