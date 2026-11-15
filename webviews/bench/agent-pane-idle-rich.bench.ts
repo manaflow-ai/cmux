@@ -366,6 +366,23 @@ try {
                 (report ? `, chat perf frames ${report.frames?.count} (p50 ${report.frames?.interval_p50_ms} ms)` : ""),
             );
             for (const source of quiet!.sources.slice(0, 25)) console.log(`   ${mapSites(source)}`);
+            // What `cmux app chat perf` now reports as the page's frame owners (frameOwners.ts).
+            const owners = (report as { owners?: Record<string, unknown> } | null)?.owners as
+              | { page_frames: number; [kind: string]: unknown }
+              | null
+              | undefined;
+            if (report) {
+              console.log(`   chat perf owners: page asked in ${owners?.page_frames ?? "(none reported)"} frames`);
+              for (const kind of ["frames", "timers", "animate"])
+                for (const site of (
+                  (owners?.[kind] as { at: string; file: string | null; per_s: number }[]) ?? []
+                ).slice(0, 8))
+                  console.log(
+                    `     ${kind} ${site.per_s}/s ${site.file ?? ""} ${site.at.replace(/(assets\/[^:\s]+\.js):(\d+):(\d+)/, (_, file, line, column) => mapper(file.slice(7), Number(line) - 1, Number(column) - 1))}`,
+                  );
+              for (const animation of (owners?.animations as unknown[]) ?? [])
+                console.log(`     animation ${JSON.stringify(animation)}`);
+            }
           }
           await dumpAnimations(page);
         } finally {

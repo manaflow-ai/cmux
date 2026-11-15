@@ -112,7 +112,8 @@ const result = await build({
         katexStylePlugin({ split }),
       ],
   metafile: Boolean(cssInputsFile || metafileOut || preloadFile || frameSitesFile),
-  // External maps carry no comment in the scripts, so the shipped scripts are byte for byte the same.
+  // External maps add no comment to the scripts: they are the same code, and only the chunks'
+  // content hashes (their names) change, as esbuild hashes a chunk with its map.
   ...(frameSitesFile && !cssInputsOnly ? { sourcemap: "external" } : {}),
 });
 if (frameSitesFile && !cssInputsOnly) {
