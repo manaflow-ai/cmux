@@ -101,7 +101,7 @@ fn next_output(outbound: &BoundedOutbound, timeout: Duration) -> Option<Output> 
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(value["data"].as_str().expect("data"))
                 .expect("base64");
-            return Some(Output { at: Instant::now(), line: message.to_string(), bytes });
+            return Some(Output { at: Instant::now(), line: message, bytes });
         }
         if Instant::now() >= deadline {
             return None;
