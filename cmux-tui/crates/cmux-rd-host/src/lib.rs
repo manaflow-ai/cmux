@@ -15,7 +15,8 @@
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
 //!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
-//! The host runs on Linux (X11) and macOS (ScreenCaptureKit, VideoToolbox, CGEvent); the test
+//! The host runs on Linux (X11; Wayland view-only through the ScreenCast portal with feature
+//! `portal`: src/portal.rs) and macOS (ScreenCaptureKit, VideoToolbox, CGEvent); the test
 //! app is Linux only. Design: plans/cmux-next/remote-desktop.md and remote-desktop-mac-host.md.
 //! Wire: crate cmux-rd-proto.
 
@@ -54,6 +55,14 @@ mod marker;
 #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
 mod observe;
 mod permissions;
+// Wayland capture (xdg-desktop-portal ScreenCast + PipeWire), view-only. Unused until the
+// capture-backend seam in serve/host calls `portal::PortalDesktop::open`.
+#[cfg(all(feature = "portal", target_os = "linux"))]
+#[allow(dead_code)]
+mod pipewire_capture;
+#[cfg(all(feature = "portal", target_os = "linux"))]
+#[allow(dead_code)]
+mod portal;
 #[cfg(all(feature = "bench", target_os = "linux"))]
 mod present;
 #[cfg(any(target_os = "linux", target_os = "macos"))]

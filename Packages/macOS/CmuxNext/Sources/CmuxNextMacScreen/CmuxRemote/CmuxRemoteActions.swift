@@ -109,32 +109,40 @@ extension CmuxRemoteActionEnvironment {
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
                 let name = hub.devices.first { $0.id == device }?.name ?? device
                 let window = environment.window()
-                return .followUp {
-                    // The dialog outlives the request: the CLI gives up after 130 s and the request's deadline
-                    // cancels this follow-up, but an Allow after that is still the person's answer. The dialog
-                    // and the change run in their own task, which that cancellation does not reach.
-                    let answer = Task {
-                        try await Self.answerConfirm(action: action, device: device, name: name, scope: scope,
-                                                     hub: hub, window: window, environment: environment)
-                    }
-                    return try await answer.value
+                guard action == "share" else {
+                    let (title, body) = CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
+                    return .followUp(Self.confirmedChange(
+                        confirm: { await Self.confirm(title: title, body: body, in: window) },
+                        apply: { try await Self.applyAccess(device: device, scope: scope, hub: hub) }))
                 }
+                let screenHost = environment.screenHost
+                // The setup sheet asks and turns sharing on itself, so its answer is the change.
+                return .followUp(Self.confirmedChange(
+                    confirm: {
+                        guard let window else { return false }
+                        return try await CmuxRemoteSharingSetup(host: screenHost).confirm(in: window)
+                    },
+                    apply: {}))
             }.withDeadline(.fixed(.seconds(130))),
         ]
     }
 
-    /// The person's answer to one `remote.confirm`, and the change it allows.
-    static func answerConfirm(action: String, device: String, name: String, scope: DeviceScope?, hub: DeviceHub,
-                              window: NSWindow?, environment: CmuxRemoteActionEnvironment) async throws -> CmuxNextSettings.JSONValue {
-        if action == "share" {
-            guard let window else { return ["ok": false, "declined": true] }
-            let shared = try await CmuxRemoteSharingSetup(host: environment.screenHost).confirm(in: window)
-            return ["ok": .bool(shared), "declined": .bool(!shared)]
+    /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.
+    ///
+    /// The dialog outlives the request: the caller gives up after its deadline (the CLI waits
+    /// 130 s), and the request's deadline cancels its follow-up. An Allow after that is still the
+    /// person's answer, so the dialog and the change run in their own task, which the request's
+    /// cancellation does not reach; the request only waits on it.
+    nonisolated static func confirmedChange(confirm: @escaping @MainActor @Sendable () async throws -> Bool,
+                                            apply: @escaping @Sendable () async throws -> Void) -> @Sendable () async throws -> CmuxNextSettings.JSONValue {
+        {
+            let answer = Task { () async throws -> CmuxNextSettings.JSONValue in
+                guard try await confirm() else { return ["ok": false, "declined": true] }
+                try await apply()
+                return ["ok": true]
+            }
+            return try await answer.value
         }
-        let (title, body) = CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
-        guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
-        try await Self.applyAccess(device: device, scope: scope, hub: hub)
-        return ["ok": true]
     }
 
     /// The person's answer to one dialog (false without a window).

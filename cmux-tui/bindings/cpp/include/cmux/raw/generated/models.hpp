@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "f0e17f0a977e580be1c5f94c39d35c6426f0a32242c0da5a3f73912827061df9";
+inline constexpr std::string_view kProtocolIrSha256 = "d20a4715e13a8a5b7d7053b4f80ffb3e9fe841232c9f51d95d1862e647386666";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -951,7 +951,9 @@ struct AttachSurfaceRequest {
     Field<std::string> expected_generation{};
     Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
+    Field<std::uint32_t> output_coalesce_ms{};
     Field<std::uint32_t> replay_history_rows{};
+    Field<std::uint64_t> replay_history_start{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
     std::optional<bool> snapshot_images{};
@@ -4878,6 +4880,7 @@ struct ResizedEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     std::optional<Base64> data{};
+    std::optional<std::uint64_t> history_rows_omitted{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::optional<Base64> replay{};
@@ -6423,6 +6426,7 @@ struct VtStateEvent {
     std::uint16_t cols{};
     Base64 data{};
     std::optional<std::uint64_t> history_rows_omitted{};
+    std::optional<std::uint64_t> history_rows_skipped{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};
