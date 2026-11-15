@@ -181,7 +181,7 @@ fail_host_build() {
   [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py fail-host "$host_root" "$1" || true
 }
 # The stall window for this build: 8 min, not the wrapper's 15. Six healthy nightly-next-one Release builds on
-# 2026-11-15 (cmux15 and ultra1, Xcode 26.6, clean DerivedData, 127 to 367 s) went at most 27 s without an
+# 2026-11-15 (both nightly Macs, Xcode 26.6, clean DerivedData, 127 to 367 s) went at most 27 s without an
 # xcodebuild line; run 43673773157's deadlock went silent about a minute in. The CPU condition still has to hold.
 export CMUX_XCODEBUILD_STALL_SECONDS="${CMUX_XCODEBUILD_STALL_SECONDS:-480}"
 # Where run-xcodebuild-with-diagnostics.sh keeps a stalled build's `sample` of its build service: on the host,

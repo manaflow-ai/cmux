@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The nightly Release build's stall watchdog keeps the build service's stacks and ends only its own processes.
 
-Nightly run 43673773157 (2026-11-15, ultra1): Xcode 26.6's build service deadlocked in libSwiftDriver while
+Nightly run 43673773157 (2026-11-15, the signer Mac): Xcode 26.6's build service deadlocked in libSwiftDriver while
 planning an explicit-module build (every llbuild lane in LibSwiftDriver.createAndPlan, in dispatch_sync ->
 __ulock_wait), SWBBuildService's CPU time frozen at 2:40.45, xcodebuild.log silent from ~1 minute into the step,
 for 2.5 hours. run-xcodebuild-with-diagnostics.sh now ends a build like that with status 124 (#43568). This test
