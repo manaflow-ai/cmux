@@ -107,22 +107,16 @@ public struct ComposerDictationTextMerger: Sendable {
             var removedIndices = Set<Int>()
             var replacementText = String(transcript.drop(while: \.isWhitespace))
             var insertionAfterIndex: Int?
-            // A cumulative result from the beginning of the recording can
-            // include a finalized phrase whose own result had no segment
-            // timing. A final replaces that committed prefix; a partial keeps
-            // it and contributes only the new provisional tail.
-            if startTime <= 0 {
-                let allMatches = phraseMatches(in: transcript)
-                let untimedFinalMatches = allMatches.filter { match in
-                    let phrase = phrases[match.index]
-                    return phrase.isFinal && phrase.endTime == nil
-                }
-                if isUtteranceFinal {
-                    removedIndices.formUnion(untimedFinalMatches.map(\.index))
-                } else if !allMatches.isEmpty {
-                    replacementText = transcriptWithoutMatches(allMatches, in: transcript)
-                    insertionAfterIndex = untimedFinalMatches.last?.index
-                }
+            // A cumulative result can include a finalized phrase whose own
+            // result had no segment timing. A final replaces that committed
+            // phrase; a partial keeps it and contributes only its new tail.
+            let allMatches = phraseMatches(in: transcript)
+            let untimedFinalMatches = allMatches.filter { match in
+                let phrase = phrases[match.index]
+                return phrase.isFinal && phrase.endTime == nil
+            }
+            if isUtteranceFinal {
+                removedIndices.formUnion(untimedFinalMatches.map(\.index))
             }
             // Remove every overlapping timed hypothesis, even when an
             // untimed finalized phrase sits between it and the new result.
@@ -136,6 +130,14 @@ public struct ComposerDictationTextMerger: Sendable {
                 } else if !phrase.isFinal {
                     removedIndices.insert(index)
                 }
+            }
+            if !isUtteranceFinal, !allMatches.isEmpty {
+                let survivingMatches = allMatches.filter { !removedIndices.contains($0.index) }
+                replacementText = transcriptWithoutMatches(survivingMatches, in: transcript)
+                insertionAfterIndex = survivingMatches.last(where: { match in
+                    let phrase = phrases[match.index]
+                    return phrase.isFinal && phrase.endTime == nil
+                })?.index
             }
             if !replacementText.isEmpty {
                 let replacement = Phrase(

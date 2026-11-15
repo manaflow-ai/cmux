@@ -173,6 +173,14 @@ import Testing
                               isUtteranceFinal: true) == "new C")
     }
 
+    @Test func cumulativeFinalAfterInitialSilenceMatchesUntimedPhrase() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A B", startTime: 0.2, endTime: 4,
+                              isUtteranceFinal: true) == "A B")
+    }
+
     @Test func cumulativePartialAfterTimedHistoryKeepsUntimedPhraseOrder() {
         var merger = ComposerDictationTextMerger()
         _ = merger.merged(base: "", transcript: "old", startTime: 0, endTime: 1,
