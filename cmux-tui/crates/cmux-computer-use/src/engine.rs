@@ -480,6 +480,11 @@ impl Engine {
             self.sessions.begin(&ctx.session, call_id);
         }
         let args = if args.is_object() { args.clone() } else { json!({}) };
+        // The target app's windows before an observing action: a sheet,
+        // popover or window it opens is an effect a window capture misses.
+        let windows_before = (tools::OBSERVES.contains(&name) && name != "batch")
+            .then(|| args_str(&args, "window_id").and_then(|id| self.window_ids_over_target(id)))
+            .flatten();
         let raising = self.foreground_begin(tool, &args);
         let mut guard = self.focus_begin(&ctx.session, tool, &args);
         let (mut out, app) = match self.dispatch(tool, ctx, &args) {
@@ -512,7 +517,15 @@ impl Engine {
             && let Some(app) = &app
         {
             let mode = self.settle_mode(&args);
-            self.attach_state(ctx, window_id, app, &mut out, mode, name == "type_text");
+            self.attach_state(
+                ctx,
+                window_id,
+                app,
+                &mut out,
+                mode,
+                name == "type_text",
+                windows_before.as_deref(),
+            );
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
@@ -889,6 +902,13 @@ impl Engine {
     ) -> Option<Refusal> {
         policy::is_blocked(config, app)
             .or_else(|| saved.is_never(&app.id).then_some(Refusal::NeverAllowed))
+    }
+
+    /// The on-screen windows over `window_id`'s window, from any process,
+    /// sorted ids (None when the window or the list cannot be read).
+    fn window_ids_over_target(&self, window_id: &str) -> Option<Vec<String>> {
+        let w = self.window(window_id).ok()?;
+        self.desktop.window_ids_over(&w.frame).ok()
     }
 
     fn windows(&self) -> Result<Vec<Window>, ToolOutput> {
@@ -1282,7 +1302,7 @@ impl Engine {
         let mut out = ToolOutput::ok(json!({"waited_ms": waited.as_millis() as u64}));
         match target {
             Some((id, app)) => {
-                self.attach_state(ctx, &id, &app, &mut out, SettleMode::Openai, false);
+                self.attach_state(ctx, &id, &app, &mut out, SettleMode::Openai, false, None);
                 Ok((out, Some(app)))
             }
             None => {
@@ -1403,7 +1423,7 @@ impl Engine {
             && args.get("observe").and_then(Value::as_bool) != Some(false)
         {
             let mode = self.settle_mode(args);
-            self.attach_state(ctx, &window_id, app, &mut out, mode, false);
+            self.attach_state(ctx, &window_id, app, &mut out, mode, false, None);
         }
         Ok((out, acted_on))
     }
@@ -1425,6 +1445,7 @@ impl Engine {
     /// The window must still be `app`'s and `app` still allowed before every
     /// capture and the tree; a window that closed, changed app or became
     /// denied leaves the action's result as it is, with the reason.
+    #[allow(clippy::too_many_arguments)] // each argument is one fact of the call
     fn attach_state(
         &self,
         ctx: &CallContext,
@@ -1433,6 +1454,7 @@ impl Engine {
         out: &mut ToolOutput,
         mode: SettleMode,
         typed: bool,
+        windows_before: Option<&[String]>,
     ) {
         let s = self.settle;
         let start = (self.clock)();
@@ -1483,6 +1505,18 @@ impl Engine {
                 return;
             }
         };
+        // Only after a real settle: the adaptive wait captured more than once
+        // and the window never changed. The other modes capture once, right
+        // away or after a fixed delay, which proves nothing.
+        mark_no_visible_change(
+            &mut out.body,
+            mode == SettleMode::Adaptive
+                && captures >= 2
+                && shot.body["unchanged"] == json!(true)
+                && windows_before
+                    .is_some_and(|b| self.window_ids_over_target(window_id).as_deref() == Some(b)),
+            elapsed.as_millis() as u64,
+        );
         let mut state = shot.body.clone();
         state["settle"] = json!(mode.as_str());
         state["waited_ms"] = json!(elapsed.as_millis() as u64);
@@ -1796,6 +1830,39 @@ mod focus;
 
 #[path = "engine_menus.rs"]
 mod menus_glue;
+
+/// The note a `delivered` result gets when nothing visible changed through
+/// a real settle wait: the window's pixels, and the windows over it (sheets,
+/// panels, a Save panel another process serves).
+pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
+    format!(
+        "no visible change within {waited_ms} ms: this window and the windows over it looked the same in every capture. If the action should change what it shows, take a screenshot before retrying, then try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An effect outside this window (copy, save, another app) is not seen here."
+    )
+}
+
+/// A result the route only delivered (nothing read back confirms it) whose
+/// window did not change through a real settle wait reports that, so an
+/// agent does not take the input for done when nothing happened. Only when
+/// `observed` (the engine saw it; see the caller): no prior capture, a
+/// redraw, a single capture or a confirmed route leave the result as it is.
+fn mark_no_visible_change(body: &mut Value, observed: bool, waited_ms: u64) {
+    // A result that reports a menu it opened, picked from or closed had a
+    // visible effect, whatever the window's pixels show (a menu window can
+    // fall outside the window's capture).
+    if !observed
+        || body.get("evidence") != Some(&json!("delivered"))
+        || body.get("menu").is_some_and(|m| !m.is_null())
+    {
+        return;
+    }
+    body["evidence"] = json!("no_visible_change");
+    let note = no_visible_change_note(waited_ms);
+    let note = match body.get("note").and_then(Value::as_str) {
+        Some(n) if !n.is_empty() => format!("{n}; {note}"),
+        _ => note,
+    };
+    body["note"] = json!(note);
+}
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]

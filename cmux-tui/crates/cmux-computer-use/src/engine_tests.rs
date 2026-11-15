@@ -232,6 +232,101 @@ fn the_settle_wait_never_passes_the_ceiling() {
     assert_eq!(*d.captures.lock().unwrap(), 1 + 10);
 }
 
+/// Bug 5: input the route only delivered, after which the window looked
+/// exactly as in the agent's last screenshot, says so instead of
+/// `delivered` (agents reported unchanged state as done, 31 of 70 trials).
+#[test]
+fn a_delivered_action_with_no_visible_change_says_so() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d);
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["state"]["unchanged"], true);
+    assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
+    let note = out.body["note"].as_str().unwrap();
+    assert!(note.contains("no visible change within 1000 ms"), "{}", out.body);
+    assert!(note.contains("take a screenshot before retrying"), "{}", out.body);
+}
+
+/// Bug 5 review: the openai and anthropic settle modes capture once (at
+/// once, or after a fixed delay), which proves nothing: an unchanged window
+/// there keeps `delivered`.
+#[test]
+fn single_capture_settle_modes_never_claim_no_visible_change() {
+    for mode in ["openai", "anthropic"] {
+        let (d, e, _) = settled(mode);
+        assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+        let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+        assert_eq!(out.body["state"]["unchanged"], true, "{mode}: {}", out.body);
+        assert_eq!(out.body["evidence"], "delivered", "{mode}: {}", out.body);
+        drop(d);
+    }
+}
+
+/// Review 2 (8): an action that opened a window of the app (a sheet, a
+/// dialog) is not called no_visible_change though the target window's
+/// pixels stayed the same.
+#[test]
+fn a_new_window_of_the_app_is_a_visible_change() {
+    let d = Arc::new(FakeDesktop::standard());
+    let mut sheet = d.windows.iter().find(|w| w.id == "1").unwrap().clone();
+    sheet.id = "77".into();
+    sheet.on_screen = true;
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    *d.opens_on_input.lock().unwrap() = Some(sheet);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
+    assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+}
+
+/// Review 4 (7): a window of another process opening over the target (a
+/// Save panel served by another process) is a visible change too.
+#[test]
+fn a_window_of_another_process_over_the_target_is_a_visible_change() {
+    let d = Arc::new(FakeDesktop::standard());
+    let target = d.windows.iter().find(|w| w.id == "1").unwrap().clone();
+    let mut panel = target.clone();
+    panel.id = "88".into();
+    panel.pid = target.pid + 1000;
+    panel.on_screen = true;
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    *d.opens_on_input.lock().unwrap() = Some(panel);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
+    assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+}
+
+/// A result that reports a menu (a right-click that opened a context menu)
+/// is never marked no_visible_change: the menu is the effect (seen live on
+/// macOS 27.0.1: the menu opened, the window's pixels did not change).
+#[test]
+fn a_result_that_reports_a_menu_is_not_no_visible_change() {
+    let mut body = json!({"evidence": "delivered", "menu": {"items": [{"title": "Copy"}]}});
+    mark_no_visible_change(&mut body, true, 1000);
+    assert_eq!(body["evidence"], "delivered");
+    let mut plain = json!({"evidence": "delivered"});
+    mark_no_visible_change(&mut plain, true, 1000);
+    assert_eq!(plain["evidence"], "no_visible_change");
+}
+
+/// The rule claims only what the engine saw: a redraw, or no capture before
+/// the action to compare with, leaves `delivered`.
+#[test]
+fn a_redraw_or_no_earlier_capture_keeps_delivered() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d.clone());
+    let first = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
+    assert_eq!(first.body["state"]["unchanged"], false);
+    assert_eq!(first.body["evidence"], "delivered");
+    *d.repaint_from.lock().unwrap() = Some((*d.captures.lock().unwrap() + 2, 91));
+    let out = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
+    assert_eq!(out.body["state"]["unchanged"], false, "{}", out.body);
+    assert_eq!(out.body["evidence"], "delivered");
+}
+
 #[test]
 fn observe_false_skips_the_state() {
     let d = Arc::new(FakeDesktop::standard());

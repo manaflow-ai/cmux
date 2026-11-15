@@ -223,6 +223,246 @@ pub fn clamp_into(r: &Rect, p: Point) -> Point {
     }
 }
 
+/// Roles a plain click presses: what AXPress does is what the click does.
+/// Pop-ups, menu buttons and combo boxes open menus (handled before), text
+/// inputs take a caret, and containers hold what was meant.
+const PRESS_ROLES: &[&str] = &[
+    "AXButton",
+    "AXCheckBox",
+    "AXRadioButton",
+    "AXLink",
+    "AXDisclosureTriangle",
+    "AXSwitch",
+    "AXToggle",
+    "AXMenuItem",
+    "AXTab",
+];
+
+pub fn is_press_role(role: &str) -> bool {
+    PRESS_ROLES.contains(&role)
+}
+
+/// A label or picture inside a control: the click is the control's.
+pub fn is_label_role(role: &str) -> bool {
+    matches!(role, "AXStaticText" | "AXImage")
+}
+
+/// How a plain background click on the element the point hits is done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HitClick {
+    /// Refused: the element is a menu item the deny list blocks.
+    Refuse,
+    /// AXPress on it.
+    Press,
+    /// Select its row (a list, table or outline row with no press).
+    Select,
+    /// Post the mouse events (text, canvas, web content, anything else).
+    Events,
+}
+
+/// A text field in a row that is not selected counts as the row: a click in
+/// a row selects it first (Finder's file name is a text field; AppKit tables
+/// edit a cell only on a click in a row already selected, which gets the
+/// events).
+pub fn hit_click(role: &str, has_press: bool, in_unselected_row: bool, blocked: bool) -> HitClick {
+    if blocked {
+        HitClick::Refuse
+    } else if has_press && is_press_role(role) {
+        HitClick::Press
+    } else if !has_press && in_unselected_row {
+        HitClick::Select
+    } else {
+        HitClick::Events
+    }
+}
+
+/// Whether the element a point hits may be acted on through accessibility:
+/// the window is on screen (an off-screen window keeps refusing point
+/// clicks) and the element is inside the target window (the app's hit test
+/// can return a sibling window's element at an overlapping point).
+pub fn hit_usable(on_screen: bool, in_target_window: bool) -> bool {
+    on_screen && in_target_window
+}
+
+/// After a hit-test AXPress that returned `code`: fall back to the mouse
+/// events only when the element did not take the press at all (unsupported
+/// action or attribute, illegal argument). A timeout or "cannot complete"
+/// may come back after the press ran (a modal loop, a menu that popped), so
+/// posting a click too could act twice: that is reported as delivered.
+pub fn press_error_falls_back(code: i32) -> bool {
+    matches!(code, -25201 | -25205 | -25206)
+}
+
+/// Why a disabled background menu item must not be made available, if it
+/// must not (pure, for tests): its place is in a launch list (Services,
+/// Open With, Share, Recent Items, Quick Actions, in AppKit's languages) or
+/// could not be read; a menu above it is an open command (Open Recent's
+/// documents); its title is an open or reveal command (`open_titles`,
+/// English and AppKit's languages); its key equivalent is AppKit's Open
+/// (Command-O) or Finder's Open (Command-Down), which holds in any language;
+/// or its title or key equivalent could not be read (fail closed). The
+/// title list is best effort: an app's own open command under another name
+/// is caught only by its place or its Command-O key equivalent.
+pub fn prime_block(
+    title: Option<&str>,
+    ancestors: Option<&[String]>,
+    opens_by_key: Option<bool>,
+    launch_titles: &[String],
+    open_titles: &[String],
+) -> Option<&'static str> {
+    const LAUNCH: &str = "this menu item is in a launch list (Services, Open With, Share, Recent Items or Quick Actions) or an open command's submenu, or its place could not be read; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    const OPENS: &str = "this menu item opens or reveals documents or apps, which can start another app (a denied one too), or its title or key could not be read; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    let is_open = |t: &str| {
+        let key = submenu_title_key(t);
+        open_titles.iter().any(|o| key == *o || key.starts_with(&format!("{o} ")))
+    };
+    let Some(ancestors) = ancestors else { return Some(LAUNCH) };
+    if ancestors.iter().any(|t| launch_titles.contains(&submenu_title_key(t)) || is_open(t)) {
+        return Some(LAUNCH);
+    }
+    let (Some(title), Some(opens_by_key)) = (title, opens_by_key) else { return Some(OPENS) };
+    if opens_by_key || is_open(title) {
+        return Some(OPENS);
+    }
+    None
+}
+
+/// Whether a menu item's key equivalent is AppKit's Open (Command-O) or
+/// Finder's Open (Command-Down): Command alone (no Shift, Option, Control).
+pub fn is_open_key_equivalent(key: &super::keymap::MenuItemKey, menu_mods: i64) -> bool {
+    use super::keymap::{MENU_CONTROL, MENU_NO_COMMAND, MENU_OPTION, MENU_SHIFT};
+    if menu_mods & (MENU_SHIFT | MENU_OPTION | MENU_CONTROL | MENU_NO_COMMAND) != 0 {
+        return false;
+    }
+    key.printable.is_some_and(|c| c.eq_ignore_ascii_case(&'o')) || key.codes.contains(&125)
+}
+
+/// Whether a menu item is still the one checked before the scope opened
+/// (pure, for tests): its title, read again inside the scope, is the same.
+/// Validation can retitle an item (Undo X, Show/Hide); a changed or
+/// unreadable title is not pressed.
+pub fn same_item(before: Option<&str>, now: Option<&str>) -> Result<(), &'static str> {
+    match (before, now) {
+        (Some(b), Some(n)) if b == n => Ok(()),
+        _ => Err(
+            "the menu item changed while it was being made available (its title is not the one checked), so nothing was pressed; read the menu again",
+        ),
+    }
+}
+
+/// What a click may do inside a key-in-app scope (pure, for tests): only
+/// the item's own press. Without a press action read (it may have timed
+/// out) nothing happens: no row select, no click at its center.
+pub fn primed_click(scope_open: bool, has_press: bool) -> Result<(), &'static str> {
+    if scope_open && !has_press {
+        return Err(
+            "the menu item's press action could not be read while it was being made available, so nothing was pressed",
+        );
+    }
+    Ok(())
+}
+
+/// Whether an item may be pressed inside a key-in-app scope (pure, for
+/// tests): the scope is still live (not stopped, within its bound, the
+/// person did not switch to the app), the app still reports the target as
+/// its focused window, and the item is not one that is never made available
+/// ([`prime_block`]: launch lists, Services, open and reveal commands).
+pub fn primed_press(
+    live: bool,
+    focus_on_target: bool,
+    never_primed: bool,
+) -> Result<(), &'static str> {
+    if !live {
+        return Err(
+            "the target app came to the front, the call was stopped or the app did not answer in time while its menu item was being made available, so nothing was pressed",
+        );
+    }
+    if !focus_on_target {
+        return Err(
+            "the target window stopped being its app's key window before the menu item was pressed (another window of the app took it), so nothing was pressed",
+        );
+    }
+    if never_primed {
+        return Err(
+            "the menu item is a launch-list or open command (Services, Open With, Open...), which is never run from a background app's menu: nothing was pressed",
+        );
+    }
+    Ok(())
+}
+
+/// Text split into chunks of about `n` characters, never inside a
+/// user-perceived character (pure, for tests): a chunk does not end before a
+/// combining mark, variation selector, zero-width joiner, emoji modifier or
+/// tag character, nor right after a joiner, nor between the two regional
+/// indicators of a flag. (A conservative rule instead of full UAX #29.)
+pub fn text_chunks(text: &str, n: usize) -> Vec<String> {
+    let extends = |c: char| {
+        matches!(c as u32,
+            0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF
+            | 0xFE00..=0xFE0F | 0xFE20..=0xFE2F | 0x200D | 0x1F3FB..=0x1F3FF
+            | 0xE0020..=0xE007F | 0xE0100..=0xE01EF)
+            || unicode_category_mark(c)
+    };
+    let regional = |c: char| (0x1F1E6..=0x1F1FF).contains(&(c as u32));
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut count = 0usize;
+    let mut ri_run = 0usize;
+    for (i, &c) in chars.iter().enumerate() {
+        let prev = i.checked_sub(1).map(|j| chars[j]);
+        let joins = extends(c) || prev == Some('\u{200D}') || (regional(c) && ri_run % 2 == 1);
+        if count >= n.max(1) && !joins {
+            out.push(std::mem::take(&mut cur));
+            count = 0;
+        }
+        ri_run = if regional(c) { ri_run + 1 } else { 0 };
+        cur.push(c);
+        count += 1;
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Combining marks outside the ranges above that scripts commonly use
+/// (Devanagari and other Indic vowel signs, Hangul jamo medials and finals,
+/// Thai and Arabic marks): kept with their base.
+fn unicode_category_mark(c: char) -> bool {
+    matches!(c as u32,
+        0x0483..=0x0489 | 0x0591..=0x05BD | 0x0610..=0x061A | 0x064B..=0x065F | 0x0670
+        | 0x06D6..=0x06DC | 0x0900..=0x0903 | 0x093A..=0x094F | 0x0951..=0x0957
+        | 0x0962..=0x0963 | 0x0981..=0x0983 | 0x09BC..=0x09D7 | 0x0E31 | 0x0E34..=0x0E3A
+        | 0x0E47..=0x0E4E | 0x1160..=0x11FF | 0x302A..=0x302F | 0x3099..=0x309A)
+}
+
+/// The refusal when typing stopped part way because the app became primed.
+pub fn partial_typing_refusal(sent: usize, total: usize, why: &str) -> String {
+    if sent == 0 {
+        why.to_string()
+    } else {
+        format!("{why} (the first {sent} of {total} characters were typed before it)")
+    }
+}
+
+/// What a pid-routed mouse event carries to reach its window: the window
+/// number (field 51) and the point inside the window (top-left origin),
+/// when the window's origin is known. AppKit drops a posted mouse event
+/// without both.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PidMouseStamp {
+    pub window_number: i64,
+    pub local: Option<Point>,
+}
+
+pub fn pid_mouse_stamp(window: u32, at: Point, origin: Option<Point>) -> PidMouseStamp {
+    PidMouseStamp {
+        window_number: i64::from(window),
+        local: origin.map(|o| Point { x: at.x - o.x, y: at.y - o.y }),
+    }
+}
+
 /// Points along a drag, excluding `from` and including `to`: one per ~8
 /// points of distance, at least 4 and at most 60.
 pub fn drag_path(from: Point, to: Point) -> Vec<Point> {
@@ -938,6 +1178,13 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
         ServiceCheck::Match => ChordAction::Refuse(REFUSE_SERVICE),
         ServiceCheck::NoMatch => ChordAction::Post,
     }
+}
+
+/// Whether a background chord's menu matches need the app to validate its
+/// menus first: there are matches, none is blocked and none is enabled (an
+/// app with no key window disables every item that acts on one).
+pub fn needs_menu_validation(matches: &[ShortcutMatch]) -> bool {
+    !matches.is_empty() && !matches.iter().any(|m| m.blocked || m.enabled)
 }
 
 /// Whether the rule reads the layout and the Services shortcuts: while

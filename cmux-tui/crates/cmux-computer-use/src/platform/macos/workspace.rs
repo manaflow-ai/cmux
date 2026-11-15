@@ -448,6 +448,57 @@ pub fn launch_submenu_titles() -> &'static [String] {
     })
 }
 
+/// The titles of menu commands that open or reveal documents or apps, in
+/// English and in every language AppKit's own tables give them (normalized:
+/// lowercase, no trailing ellipsis): File > Open, Open Recent, Open in New
+/// Tab or Window, Show or Reveal in Finder, Show Original, Open Enclosing
+/// Folder. A title that starts with one of them followed by a space counts
+/// too (Open in New Tab, Open "x" With).
+pub fn open_item_titles() -> &'static [String] {
+    static TITLES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    TITLES.get_or_init(|| {
+        const KEYS: &[(&str, &str)] = &[
+            ("MenuCommands", "Open…"),
+            ("MenuCommands", "Open"),
+            ("MenuCommands", "Open Recent"),
+            ("MenuCommands", "Show in Finder"),
+        ];
+        const RESOURCES: &str = "/System/Library/Frameworks/AppKit.framework/Resources";
+        let mut out: Vec<String> = Vec::new();
+        let mut add = |t: String| {
+            let t = super::roles::submenu_title_key(&t);
+            if !t.is_empty() && !out.contains(&t) {
+                out.push(t);
+            }
+        };
+        for (table, key) in KEYS {
+            let path = format!("{RESOURCES}/{table}.loctable");
+            let Some(plist) = std::fs::read(&path).ok().and_then(|b| Cf::property_list(&b)) else {
+                continue;
+            };
+            for language in plist.dict_values() {
+                if let Some(title) = language.get(key).and_then(|v| v.as_string()) {
+                    add(title);
+                }
+            }
+        }
+        for english in [
+            "Open",
+            "Open Recent",
+            "Open in New Tab",
+            "Open in New Window",
+            "Open in New Tabs",
+            "Show in Finder",
+            "Reveal in Finder",
+            "Show Original",
+            "Open Enclosing Folder",
+        ] {
+            add(english.to_string());
+        }
+        out
+    })
+}
+
 /// How often the app folders are checked for changes.
 const FOLDER_CHECK: Duration = Duration::from_secs(5);
 /// How long one LaunchServices answer is reused.

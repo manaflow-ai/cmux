@@ -30,6 +30,15 @@ pub const STOPPED_MESSAGE: &str = "The person stopped this agent's Computer Use 
 /// The cursor's caption when a stopped session's call is refused.
 pub const STOPPED_CAPTION: &str = "Stopped";
 
+/// Counts the person's Stops, process-wide: platform code that waits inside
+/// one call (the macOS key-in-app scope) ends its wait when it changes.
+static STOP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The current stop epoch ([`STOP_EPOCH`]).
+pub fn epoch() -> u64 {
+    STOP_EPOCH.load(Ordering::Acquire)
+}
+
 /// The stopped sessions. `is_stopped` is one relaxed load while nothing is
 /// stopped, so the checkpoints cost nothing in the common case.
 #[derive(Default)]
@@ -44,6 +53,7 @@ impl Stops {
         let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         let added = sessions.insert(session.to_string());
         self.any.store(true, Ordering::Release);
+        STOP_EPOCH.fetch_add(1, Ordering::AcqRel);
         added
     }
 

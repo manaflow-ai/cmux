@@ -8,6 +8,7 @@
 //! [`Delivery::Foreground`].
 
 mod actions;
+mod activation;
 mod ax;
 mod capture;
 mod cgwindows;
@@ -475,6 +476,24 @@ impl Desktop for MacDesktop {
         let windows = cgwindows::all();
         let apps = self.apps_of(&windows);
         Ok(self.windows_from(windows, &apps))
+    }
+
+    /// The on-screen windows over `frame` from any process, at the levels
+    /// of normal windows through menus (0..=101: sheets, panels, popovers, a
+    /// Save panel served by another process), in one window server query.
+    fn window_ids_over(&self, frame: &Rect) -> DResult<Vec<String>> {
+        let mut ids: Vec<String> = cgwindows::on_screen()
+            .into_iter()
+            .filter(|w| {
+                (0..=101).contains(&w.layer)
+                    && w.frame.width >= 2.0
+                    && w.alpha > 0.0
+                    && w.frame.intersects(frame)
+            })
+            .map(|w| w.id.to_string())
+            .collect();
+        ids.sort();
+        Ok(ids)
     }
 
     /// One window from the window server and its app alone; the full list

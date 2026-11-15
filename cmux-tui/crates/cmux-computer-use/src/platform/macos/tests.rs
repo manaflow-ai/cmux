@@ -6,6 +6,515 @@ use super::*;
 use crate::desktop::{Button, MenuGuard, Point, Rect};
 use crate::keys::{Key, KeyCombo, Modifier};
 
+/// A pid-routed scroll names its window and carries the point inside it:
+/// global (72, 174) in a window at (60, 80) is (12, 94) there. Before the
+/// fix only fields 91/92 were set and AppKit dropped every scroll posted to a
+/// background window.
+#[test]
+fn pid_mouse_events_name_the_window_and_its_local_point() {
+    let stamp =
+        roles::pid_mouse_stamp(290, Point { x: 72.0, y: 174.0 }, Some(Point { x: 60.0, y: 80.0 }));
+    assert_eq!(stamp.window_number, 290);
+    assert_eq!(stamp.local, Some(Point { x: 12.0, y: 94.0 }));
+    // A window whose origin cannot be read still gets its number.
+    let unknown = roles::pid_mouse_stamp(7, Point { x: 1.0, y: 2.0 }, None);
+    assert_eq!(unknown, roles::PidMouseStamp { window_number: 7, local: None });
+}
+
+/// Bugs 1 and 4: a plain background click presses a control through AX,
+/// selects the row of a list item with no press (Finder's file name, a text
+/// field with only AXConfirm/AXOpen), and posts events for everything else.
+#[test]
+fn background_click_on_a_hit_element() {
+    use roles::{HitClick, hit_click};
+    assert_eq!(hit_click("AXButton", true, false, false), HitClick::Press);
+    assert_eq!(hit_click("AXCheckBox", true, true, false), HitClick::Press);
+    assert_eq!(hit_click("AXLink", true, false, false), HitClick::Press);
+    // Finder list view: the name field in a row, no AXPress.
+    assert_eq!(hit_click("AXTextField", false, true, false), HitClick::Select);
+    assert_eq!(hit_click("AXStaticText", false, true, false), HitClick::Select);
+    // A text area takes the caret from events; a button without AXPress too.
+    assert_eq!(hit_click("AXTextArea", false, false, false), HitClick::Events);
+    assert_eq!(hit_click("AXButton", false, false, false), HitClick::Events);
+    // A web area or group that happens to advertise a press is not a control.
+    assert_eq!(hit_click("AXWebArea", true, false, false), HitClick::Events);
+    assert_eq!(hit_click("AXGroup", true, false, false), HitClick::Events);
+    assert!(roles::is_label_role("AXStaticText") && !roles::is_label_role("AXButton"));
+}
+
+/// Bugs 2 and 3: a background chord whose matches are all disabled (the app
+/// has no key window) gets its menus validated first; a blocked or enabled
+/// match, or none, does not.
+#[test]
+fn a_background_chord_with_only_disabled_matches_needs_validation() {
+    let m = |enabled, blocked| roles::ShortcutMatch {
+        title: "Select All".into(),
+        enabled,
+        blocked,
+        checked: true,
+        unknown: false,
+        unplaced: false,
+    };
+    assert!(roles::needs_menu_validation(&[m(false, false)]));
+    assert!(roles::needs_menu_validation(&[m(false, false), m(false, false)]));
+    assert!(!roles::needs_menu_validation(&[]));
+    assert!(!roles::needs_menu_validation(&[m(true, false)]));
+    assert!(!roles::needs_menu_validation(&[m(false, false), m(true, false)]));
+    assert!(!roles::needs_menu_validation(&[m(false, true)]));
+}
+
+/// Review 9: a hit element that is a menu item the deny list blocks is
+/// refused before anything is pressed, whatever it offers.
+#[test]
+fn a_blocked_hit_element_is_refused_not_pressed() {
+    use roles::{HitClick, hit_click};
+    assert_eq!(hit_click("AXMenuItem", true, false, true), HitClick::Refuse);
+    assert_eq!(hit_click("AXMenuItem", true, false, false), HitClick::Press);
+    assert_eq!(hit_click("AXTextField", false, true, true), HitClick::Refuse);
+}
+
+/// Review 9: the hit-test is used only for an on-screen window and an
+/// element inside the target window (a sibling window's element at an
+/// overlapping point is not acted on).
+#[test]
+fn the_hit_test_keeps_only_the_target_window() {
+    assert!(roles::hit_usable(true, true));
+    assert!(!roles::hit_usable(true, false));
+    assert!(!roles::hit_usable(false, true));
+}
+
+/// Review 3: a hit-test press falls back to events only when the element
+/// did not take it; a timeout or cannot-complete may have run it.
+#[test]
+fn a_press_that_may_have_run_is_not_clicked_again() {
+    assert!(roles::press_error_falls_back(-25206)); // action unsupported
+    assert!(roles::press_error_falls_back(-25205)); // attribute unsupported
+    assert!(roles::press_error_falls_back(-25201)); // illegal argument
+    assert!(!roles::press_error_falls_back(-25204)); // cannot complete (timeout)
+    assert!(!roles::press_error_falls_back(-25200)); // failure
+}
+
+/// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
+/// 27.0.1+; earlier versions and other majors run with it off), and any off
+/// switch that says 0 turns it off, whichever source says it.
+#[test]
+fn the_key_in_app_scope_is_gated() {
+    use activation::gate;
+    assert!(gate("26.6.2", &[]));
+    assert!(gate("26.7", &[]));
+    assert!(gate("27.2", &[]));
+    assert!(gate("27.3.1", &[]));
+    assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
+    // 27.0.1 verified live (the person's macOS): on from 27.0.1, not 27.0.
+    assert!(gate("27.0.1", &[]));
+    assert!(gate("27.0.2", &[]));
+    assert!(!gate("27.0", &[]), "27.0 itself was not verified");
+    assert!(!gate("28.0", &[]));
+    assert!(!gate("15.7", &[]));
+    assert!(!gate("", &[]));
+    assert!(!gate("27.2", &["0"]));
+    assert!(!gate("27.2", &["1", "0"]), "the worker says 1, launchd says 0: off");
+    assert!(!gate("27.2", &["0", "1"]));
+    assert!(gate("27.2", &["1"]));
+}
+
+/// Review 3 (2, 3, 5): a disabled background menu item is never made
+/// available when it sits in a launch list (Services, Open With, ... in
+/// AppKit's languages; or its place cannot be read), is an open or reveal
+/// command by title, or has AppKit's Open key equivalent (any language).
+#[test]
+fn launch_and_open_items_are_never_primed() {
+    let launch = vec!["services".to_string(), "open with".to_string(), "dienste".to_string()];
+    let open = vec!["open".to_string(), "open recent".to_string(), "show in finder".to_string()];
+    let up = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let block = |title: &str, anc: Option<&[String]>, key: bool| {
+        roles::prime_block(Some(title), anc, Some(key), &launch, &open)
+    };
+    assert!(block("Select All", Some(&up(&["Edit"])), false).is_none());
+    assert!(block("Zoom In", Some(&up(&["View"])), false).is_none());
+    // Services in English and German; Open With's submenu.
+    assert!(block("Make New Sticky Note", Some(&up(&["Services", "TextEdit"])), false).is_some());
+    assert!(block("Neue Notiz", Some(&up(&["Dienste", "TextEdit"])), false).is_some());
+    assert!(block("Terminal", Some(&up(&["Open With", "File"])), false).is_some());
+    // Unreadable place: fail closed.
+    assert!(block("Select All", None, false).is_some());
+    // Open commands by title (ellipsis and case ignored) and by key.
+    assert!(block("Open\u{2026}", Some(&up(&["File"])), false).is_some());
+    assert!(block("Open in New Tab", Some(&up(&["File"])), false).is_some());
+    assert!(block("Show in Finder", Some(&up(&["File"])), false).is_some());
+    assert!(block("Öffnen", Some(&up(&["Ablage"])), true).is_some(), "Command-O in any language");
+    assert!(block("Opener", Some(&up(&["View"])), false).is_none(), "not a word prefix");
+    // Review 4 (4): a document under Open Recent (an open command's submenu).
+    assert!(block("report.txt", Some(&up(&["Open Recent", "File"])), false).is_some());
+    // Review 4 (3): an unreadable title or key equivalent blocks.
+    let edit = up(&["Edit"]);
+    assert!(roles::prime_block(None, Some(&edit), Some(false), &launch, &open).is_some());
+    assert!(roles::prime_block(Some("Select All"), Some(&edit), None, &launch, &open).is_some());
+}
+
+/// Review 3 (2, 3): AppKit's Open (Command-O) and Finder's Open
+/// (Command-Down) are recognized by key; with Shift, Option or Control, or
+/// another key, they are not.
+#[test]
+fn the_open_key_equivalent() {
+    use keymap::{MENU_OPTION, MENU_SHIFT, menu_item_key};
+    let o = menu_item_key(Some("O"), None, None);
+    assert!(roles::is_open_key_equivalent(&o, 0));
+    assert!(!roles::is_open_key_equivalent(&o, MENU_SHIFT));
+    assert!(!roles::is_open_key_equivalent(&o, MENU_OPTION));
+    let down = menu_item_key(None, Some(125), None);
+    assert!(roles::is_open_key_equivalent(&down, 0));
+    let a = menu_item_key(Some("A"), None, None);
+    assert!(!roles::is_open_key_equivalent(&a, 0));
+}
+
+/// Review 2 (B, 3): inside a scope an item is pressed only while the scope
+/// is live and focus is on the target window, and never a Services item.
+#[test]
+fn a_primed_press_needs_a_live_scope_on_the_target_and_no_service() {
+    assert_eq!(roles::primed_press(true, true, false), Ok(()));
+    assert!(roles::primed_press(false, true, false).is_err());
+    assert!(roles::primed_press(true, false, false).is_err());
+    assert!(roles::primed_press(true, true, true).unwrap_err().contains("never run"));
+}
+
+/// Review 2 (4): the person's front app is never entered; a scope on the
+/// same window joins; one on another window of the app refuses.
+#[test]
+fn key_in_app_entry_decisions() {
+    use activation::{Entry, entry};
+    assert_eq!(entry(None, 7, true), Entry::Refuse);
+    assert_eq!(entry(Some((7, 1)), 7, true), Entry::Refuse);
+    assert_eq!(entry(None, 7, false), Entry::Post);
+    assert_eq!(entry(Some((7, 2)), 7, false), Entry::Join);
+    assert_eq!(entry(Some((9, 1)), 7, false), Entry::Refuse);
+    assert_eq!(entry(Some((9, 0)), 7, false), Entry::Post);
+}
+
+/// A fake system for the scope's lifecycle.
+#[derive(Default)]
+struct FakeOs {
+    front: std::cell::Cell<Option<i32>>,
+    /// Front pid after this many posts (the person switches mid-scope).
+    front_after_posts: std::cell::Cell<Option<(usize, i32)>>,
+    posts: std::cell::RefCell<Vec<(u8, u32, u8)>>,
+    windows: std::cell::RefCell<Vec<(u32, i32)>>,
+    fail_posts: std::cell::Cell<bool>,
+    epoch: std::cell::Cell<u64>,
+    /// When set, every post records whether the registry still had the pid
+    /// open at that moment (the hand-back's ordering).
+    watch: std::cell::Cell<Option<(&'static activation::Registry, i32)>>,
+    open_at_post: std::cell::RefCell<Vec<bool>>,
+    /// The injected clock: time passed since the fake started.
+    elapsed: std::cell::Cell<std::time::Duration>,
+    /// The front app cannot be read.
+    front_unknown: std::cell::Cell<bool>,
+}
+
+/// The fake clock's origin.
+fn fake_epoch() -> std::time::Instant {
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *T0.get_or_init(std::time::Instant::now)
+}
+
+impl activation::ScopeOs for FakeOs {
+    fn now(&self) -> std::time::Instant {
+        fake_epoch() + self.elapsed.get()
+    }
+    fn front_pid(&self) -> Option<i32> {
+        if self.front_unknown.get() {
+            return None;
+        }
+        if let Some((n, pid)) = self.front_after_posts.get()
+            && self.posts.borrow().len() >= n
+        {
+            return Some(pid);
+        }
+        self.front.get()
+    }
+    fn psn_of(&self, window: u32) -> Option<activation::Psn> {
+        self.windows.borrow().iter().find(|w| w.0 == window).map(|w| [w.1 as u32, 0])
+    }
+    fn post(&self, _psn: &activation::Psn, r: &[u8; 0xF8]) -> bool {
+        if self.fail_posts.get() {
+            return false;
+        }
+        let w = u32::from_le_bytes([r[0x3C], r[0x3D], r[0x3E], r[0x3F]]);
+        self.posts.borrow_mut().push((r[0x08], w, r[0x8A]));
+        if let Some((reg, pid)) = self.watch.get() {
+            self.open_at_post.borrow_mut().push(reg.is_open(pid));
+        }
+        true
+    }
+    fn window_exists(&self, window: u32, pid: i32) -> bool {
+        self.windows.borrow().contains(&(window, pid))
+    }
+    fn any_window(&self, pid: i32) -> Option<u32> {
+        self.windows.borrow().iter().find(|w| w.1 == pid).map(|w| w.0)
+    }
+    fn stop_epoch(&self) -> u64 {
+        self.epoch.get()
+    }
+}
+
+fn fake(windows: &[(u32, i32)]) -> FakeOs {
+    let os = FakeOs::default();
+    os.front.set(Some(1)); // the person's app
+    *os.windows.borrow_mut() = windows.to_vec();
+    os
+}
+
+const IN: (u8, u8) = (activation::RECORD_FOCUS, activation::FOCUS_IN);
+
+/// Entering posts focus-in and the make-key pair for the window; the end
+/// posts one focus-out for it.
+#[test]
+fn a_scope_enters_and_hands_back_once() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    assert!(key.live());
+    assert_eq!(key.end(), activation::Ended::Fine);
+    let posts = os.posts.borrow().clone();
+    assert_eq!(posts.len(), 4, "{posts:?}");
+    assert_eq!((posts[0].0, posts[0].2), IN);
+    assert_eq!(posts[3], (activation::RECORD_FOCUS, 10, activation::FOCUS_OUT));
+}
+
+/// Early returns: the person's front app, an unknown window, a failed post
+/// (then what was posted is handed back).
+#[test]
+fn a_scope_refuses_the_front_app_and_unknown_windows() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    os.front.set(Some(5));
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    assert!(os.posts.borrow().is_empty());
+    os.front.set(Some(1));
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 99, 5).is_none());
+    os.fail_posts.set(true);
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    // Review 4 (5): ended under the app's lock: no scope is left open. Its
+    // hand-back post failed too, so input to the app is held for a moment
+    // (review 6, 3); a new scope may still enter.
+    assert!(!reg.is_open(7));
+    assert!(reg.is_open(5), "input held after the failed hand-back");
+    os.fail_posts.set(false);
+    // Nothing left open: a new scope enters.
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_some());
+}
+
+/// Two sessions on one app: the same window joins (no second records, one
+/// hand-back after the last); another window is refused.
+#[test]
+fn a_join_shares_the_window_and_another_window_is_refused() {
+    let os = fake(&[(10, 5), (11, 5)]);
+    let reg = activation::Registry::new();
+    let a = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("first");
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 11, 5).is_none(), "other window");
+    let b = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("join");
+    assert_eq!(os.posts.borrow().len(), 3);
+    drop(a);
+    assert_eq!(os.posts.borrow().len(), 3, "still open: no hand-back");
+    drop(b);
+    assert_eq!(os.posts.borrow().len(), 4);
+}
+
+/// The person switching to the target app mid-entry aborts it, and no
+/// focus-out goes to the app they are now using; a live scope stops being
+/// live when they switch, or on a Stop.
+#[test]
+fn the_person_switching_to_the_target_aborts_the_scope() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    os.front_after_posts.set(Some((1, 5)));
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    let posts = os.posts.borrow().clone();
+    assert_eq!(posts.len(), 1, "stopped after the first record: {posts:?}");
+    assert!(posts.iter().all(|p| p.2 != activation::FOCUS_OUT));
+    os.front_after_posts.set(None);
+    os.posts.borrow_mut().clear();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    os.front.set(Some(5));
+    assert!(!key.live());
+    assert!(!key.wait_until(std::time::Duration::from_secs(1), &|| true));
+    assert_eq!(key.end(), activation::Ended::Fine);
+    assert!(os.posts.borrow().iter().all(|p| p.2 != activation::FOCUS_OUT));
+    os.front.set(Some(1));
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    os.epoch.set(1); // the person pressed Stop
+    assert!(!key.live());
+}
+
+/// The window closed during the scope (a primed File > Close): the hand-back
+/// names another window of the app, from the full list (off screen
+/// included); with none left it reports the failure.
+#[test]
+fn the_hand_back_names_a_window_that_still_exists() {
+    let os = fake(&[(10, 5), (12, 5)]);
+    let reg = activation::Registry::new();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    os.windows.borrow_mut().retain(|w| w.0 != 10);
+    assert_eq!(key.end(), activation::Ended::Fine);
+    assert_eq!(
+        os.posts.borrow().last(),
+        Some(&(activation::RECORD_FOCUS, 12, activation::FOCUS_OUT))
+    );
+    let key = activation::KeyInApp::enter_with(&os, &reg, 12, 5).expect("entered");
+    os.windows.borrow_mut().clear();
+    assert_eq!(key.end(), activation::Ended::HandBackFailed);
+    // Notes are appended, never replaced.
+    let mut note = "pressed".to_string();
+    activation::append_note(&mut note, activation::HAND_BACK_FAILED);
+    activation::append_note(&mut note, activation::HAND_BACK_FAILED);
+    assert!(note.starts_with("pressed; ") && note.matches("hand-back").count() == 1);
+}
+
+/// Review 4 (1), 5 (1), 6 (1, 5): input is posted to an app only while no
+/// scope is open on it, its own or another session's, and the post runs
+/// under that app's lock, which entering a scope takes (no scope can open
+/// mid-post); another app's lock is separate; a joiner keeps the app primed
+/// after the first scope ended.
+#[test]
+fn input_is_posted_only_while_no_scope_is_open_and_under_the_app_lock() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let short = std::time::Duration::from_millis(60);
+    let held =
+        reg.post_unprimed(5, 10, short, |p| (reg.pid_locked(5), reg.pid_locked(7), p.route()));
+    assert_eq!(held, Some((true, false, input::Route::Pid { pid: 5, window: 10 })));
+    let own = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("own");
+    let other = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("another session joins");
+    let ran = std::cell::Cell::new(false);
+    assert_eq!(reg.post_unprimed(5, 10, short, |_| ran.set(true)), None, "own scope open");
+    assert!(!ran.get(), "nothing posted while primed");
+    assert_eq!(own.end(), activation::Ended::Fine);
+    assert!(reg.is_open(5), "the joiner keeps the app primed");
+    assert_eq!(reg.post_unprimed(5, 10, short, |_| ran.set(true)), None, "still primed");
+    assert!(!ran.get());
+    assert_eq!(reg.post_unprimed(7, 1, short, |_| 1), Some(1), "another app is not held");
+    drop(other);
+    assert_eq!(reg.post_unprimed(5, 10, short, |_| 2), Some(2), "last scope out: input may go");
+}
+
+/// Review 6 (3): after a failed hand-back the app may still take itself for
+/// the active app, so input to it stays refused for a moment.
+#[test]
+fn a_failed_hand_back_keeps_input_refused_for_a_moment() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    os.windows.borrow_mut().clear();
+    assert_eq!(key.end(), activation::Ended::HandBackFailed);
+    assert!(reg.is_open(5));
+    let short = std::time::Duration::from_millis(60);
+    assert_eq!(reg.post_unprimed(5, 10, short, |_| ()), None);
+}
+
+/// Review 6 (4): entry fails closed when the front app cannot be read.
+#[test]
+fn entry_fails_closed_when_the_front_app_is_unreadable() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    os.front_unknown.set(true);
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    assert!(os.posts.borrow().is_empty());
+}
+
+/// Review 6 (8): a joiner shares the first scope's deadline (injected
+/// clock): joins never extend priming past one bound from the first entry.
+#[test]
+fn a_joiner_does_not_extend_the_bound() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let first = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("first");
+    os.elapsed.set(activation::SCOPE_BOUND - std::time::Duration::from_millis(1));
+    let joiner = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("joins");
+    assert!(first.live() && joiner.live());
+    os.elapsed.set(activation::SCOPE_BOUND);
+    assert!(!first.live() && !joiner.live(), "both end one bound after the first entry");
+}
+
+/// Review 6 (1): input reaches an app's process only through
+/// `activation::post_unprimed`: only input.rs calls the post-to-process API,
+/// and only activation.rs builds a `Posting` (its field is private there).
+#[test]
+fn only_post_unprimed_can_post_to_a_process() {
+    let files = [
+        ("actions.rs", include_str!("actions.rs")),
+        ("activation.rs", include_str!("activation.rs")),
+        ("ax.rs", include_str!("ax.rs")),
+        ("capture.rs", include_str!("capture.rs")),
+        ("cgwindows.rs", include_str!("cgwindows.rs")),
+        ("input.rs", include_str!("input.rs")),
+        ("key_focus.rs", include_str!("key_focus.rs")),
+        ("keymap.rs", include_str!("keymap.rs")),
+        ("menus.rs", include_str!("menus.rs")),
+        ("mod.rs", include_str!("mod.rs")),
+        ("roles.rs", include_str!("roles.rs")),
+        ("workspace.rs", include_str!("workspace.rs")),
+    ];
+    let post_to_pid = concat!("CGEvent", "PostToPid(");
+    let build = concat!("Posting", " { route");
+    for (name, src) in files {
+        if name != "input.rs" {
+            assert!(!src.contains(post_to_pid), "{name} posts to a process directly");
+        }
+        if name != "activation.rs" {
+            assert!(!src.contains(build), "{name} builds a Posting");
+        }
+    }
+}
+
+/// Review 5 (1B): the last scope's entry stays in the registry until its
+/// focus-out was posted, so no input reaches the app before it is handed
+/// back.
+#[test]
+fn the_app_counts_as_primed_until_the_focus_out_is_posted() {
+    let reg: &'static activation::Registry = Box::leak(Box::new(activation::Registry::new()));
+    let os = fake(&[(10, 5)]);
+    os.watch.set(Some((reg, 5)));
+    let key = activation::KeyInApp::enter_with(&os, reg, 10, 5).expect("entered");
+    assert_eq!(key.end(), activation::Ended::Fine);
+    let posts = os.posts.borrow().clone();
+    assert_eq!(posts.last(), Some(&(activation::RECORD_FOCUS, 10, activation::FOCUS_OUT)));
+    assert_eq!(os.open_at_post.borrow().last(), Some(&true), "open at the focus-out");
+    assert!(!reg.is_open(5), "removed after it");
+}
+
+/// Review 5 (1), 6 (6): long text is posted in chunks (the lock is held per
+/// chunk), never inside a user-perceived character; a stop part way says how
+/// much was typed.
+#[test]
+fn text_is_posted_in_chunks() {
+    assert_eq!(roles::text_chunks("abcdefgh", 3), vec!["abc", "def", "gh"]);
+    assert!(roles::text_chunks("", 3).is_empty());
+    // e + combining acute stays together.
+    assert_eq!(roles::text_chunks("abe\u{301}c", 3), vec!["abe\u{301}", "c"]);
+    // A ZWJ family emoji is one chunk piece.
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    let chunks = roles::text_chunks(&format!("a{family}b"), 2);
+    assert!(chunks.iter().any(|c| c.contains(family)), "{chunks:?}");
+    // A flag (two regional indicators) is not split.
+    let flag = "\u{1F1EF}\u{1F1F5}";
+    let chunks = roles::text_chunks(&format!("a{flag}"), 2);
+    assert!(chunks.iter().any(|c| c.contains(flag)), "{chunks:?}");
+    // A skin tone modifier stays with its emoji.
+    let wave = "\u{1F44B}\u{1F3FD}";
+    assert!(roles::text_chunks(&format!("x{wave}"), 1).iter().any(|c| c.contains(wave)));
+    assert_eq!(roles::partial_typing_refusal(0, 9, "busy"), "busy");
+    assert!(roles::partial_typing_refusal(4, 9, "busy").contains("first 4 of 9"));
+}
+
+/// Review 5 (2): inside a scope only the item's title is read again; a
+/// changed or unreadable title is not pressed.
+#[test]
+fn a_menu_item_retitled_during_validation_is_not_pressed() {
+    assert_eq!(roles::same_item(Some("Undo Typing"), Some("Undo Typing")), Ok(()));
+    assert!(roles::same_item(Some("Undo Typing"), Some("Redo Typing")).is_err());
+    assert!(roles::same_item(Some("Save"), None).is_err());
+}
+
 #[test]
 fn modifier_flags() {
     assert_eq!(keymap::flags(&[]), 0);

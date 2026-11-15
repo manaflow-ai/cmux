@@ -249,7 +249,9 @@ pub struct ActionOutcome {
     /// `xtest`, `uia_invoke`, `send_input`, `libei`, ...
     pub route: String,
     /// `confirmed` when the target's own state shows the effect,
-    /// `delivered` when the input was delivered but not verified.
+    /// `delivered` when the input was delivered but not verified,
+    /// `no_visible_change` when the engine watched the window through a real
+    /// settle wait and nothing it shows (or of the app's windows) changed.
     pub evidence: String,
     /// Where the agent cursor should be drawn (global points), when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -348,6 +350,20 @@ pub trait Desktop: Send + Sync {
     /// without reading every window. The default filters [`Self::list_windows`].
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         Ok(self.list_windows()?.into_iter().find(|w| w.id == id))
+    }
+    /// The ids of the on-screen windows over `frame`, from any process:
+    /// sheets, panels and popovers included where the platform lists them,
+    /// one served by another process too (to tell whether an action opened
+    /// one). The default filters [`Self::list_windows`].
+    fn window_ids_over(&self, frame: &Rect) -> DResult<Vec<String>> {
+        let mut ids: Vec<String> = self
+            .list_windows()?
+            .into_iter()
+            .filter(|w| w.on_screen && !w.minimized && w.frame.intersects(frame))
+            .map(|w| w.id)
+            .collect();
+        ids.sort();
+        Ok(ids)
     }
     /// Whether the app of `window` is the frontmost app (where the person's
     /// keys go). The default looks it up in [`Self::list_apps`].
