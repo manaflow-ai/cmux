@@ -83,7 +83,7 @@ impl App {
         let abi = std::fs::read(path.join(APP_ABI))
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|value| value["abi"].as_u64())
+            .and_then(|value| value.get("abi").and_then(Value::as_u64))
             .map(|abi| abi as u32);
         App { path: Some(path), commit, abi }
     }
@@ -98,7 +98,7 @@ impl App {
             .get_json(&url)
             .ok()
             .flatten()
-            .and_then(|value| value["sha"].as_str().map(str::to_owned))
+            .and_then(|value| value.get("sha").and_then(Value::as_str).map(str::to_owned))
             .filter(|sha| is_sha(sha) && sha.starts_with(&commit));
     }
 }
@@ -191,8 +191,8 @@ fn pointer(http: &Http, pr: u64, commit: Option<&str>) -> Result<Option<Value>, 
     let base = base_url();
     let latest = http.get_json(&format!("{base}/pr/{pr}/latest.json"))?;
     if let (Some(latest), Some(commit)) = (&latest, commit)
-        && latest["base"].as_str() != Some(commit)
-        && let Some(head) = latest["head"].as_str().filter(|head| is_sha(head))
+        && latest.get("base").and_then(Value::as_str) != Some(commit)
+        && let Some(head) = latest.get("head").and_then(Value::as_str).filter(|head| is_sha(head))
         && let Some(exact) = http.get_json(&format!("{base}/pr/{pr}/{head}-{commit}.json"))?
     {
         return Ok(Some(exact));
@@ -202,9 +202,11 @@ fn pointer(http: &Http, pr: u64, commit: Option<&str>) -> Result<Option<Value>, 
 
 /// What the pointer's live_apply verdict says needs a build, one line each.
 pub(super) fn needs_build(classify: &Value) -> Vec<String> {
-    let files = |kind: &str| classify["files"][kind].as_array().map_or(0, Vec::len);
+    let files = |kind: &str| {
+        classify.pointer(&format!("/files/{kind}")).and_then(Value::as_array).map_or(0, Vec::len)
+    };
     let mut out = Vec::new();
-    if let Some(reasons) = classify["reasons"].as_object() {
+    if let Some(reasons) = classify.get("reasons").and_then(Value::as_object) {
         for (reason, paths) in reasons {
             let first = paths.as_array().and_then(|p| p.first()).and_then(Value::as_str);
             out.push(match first {
@@ -230,16 +232,23 @@ pub(super) fn needs_build(classify: &Value) -> Vec<String> {
 
 /// The layer a pointer describes, for an app with `app`.
 pub(super) fn layer_of(pointer: &Value, app: &App) -> Result<CodeLayer, Failure> {
-    let field = |name: &str| pointer[name].as_str().unwrap_or_default().to_owned();
-    let pr = pointer["pr"].as_u64().ok_or_else(|| failure("the PR pointer has no pr".into()))?;
+    let field =
+        |name: &str| pointer.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let pr = pointer
+        .get("pr")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| failure("the PR pointer has no pr".into()))?;
     let head = field("head");
     if !is_sha(&head) {
         return Err(failure(format!("the pointer for #{pr} names no head")));
     }
-    let classify = &pointer["classify"];
-    let has_web = classify["files"]["web-live"].as_array().is_some_and(|files| !files.is_empty());
+    let classify = pointer.get("classify").unwrap_or(&Value::Null);
+    let has_web = classify
+        .pointer("/files/web-live")
+        .and_then(Value::as_array)
+        .is_some_and(|files| !files.is_empty());
     let key = field("key");
-    let abi = pointer["abi"].as_u64().map(|abi| abi as u32);
+    let abi = pointer.get("abi").and_then(Value::as_u64).map(|abi| abi as u32);
     let mut needs = needs_build(classify);
     let mut web = if has_web && code::valid_key(&key) { key } else { String::new() };
     if !web.is_empty()
@@ -250,7 +259,7 @@ pub(super) fn layer_of(pointer: &Value, app: &App) -> Result<CodeLayer, Failure>
         web.clear();
     }
     Ok(CodeLayer {
-        repo: pointer["repo"].as_str().unwrap_or(REPO).to_owned(),
+        repo: pointer.get("repo").and_then(Value::as_str).unwrap_or(REPO).to_owned(),
         pr,
         title: field("title"),
         head,
@@ -273,8 +282,8 @@ fn install(customize: &Customize, http: &Http, layer: &CodeLayer) -> Result<(), 
     let manifest = http
         .get_json(&manifest_url)?
         .ok_or_else(|| failure(format!("{manifest_url}: not published")))?;
-    let archive = manifest["archive"].as_str().unwrap_or_default();
-    let sha = manifest["sha256"].as_str().unwrap_or_default();
+    let archive = manifest.get("archive").and_then(Value::as_str).unwrap_or_default();
+    let sha = manifest.get("sha256").and_then(Value::as_str).unwrap_or_default();
     if !archive.starts_with("web-bundles-") || !archive.ends_with(".tar.gz") || sha.len() != 64 {
         return Err(failure(format!("{manifest_url}: no archive and sha256")));
     }
@@ -326,7 +335,8 @@ pub(super) fn unpack(bytes: &[u8], dir: &Path, layer: &CodeLayer) -> std::io::Re
             else {
                 continue;
             };
-            let target = part.join(surface).join(&text[prefix.len()..]);
+            let Some(rest) = text.strip_prefix(prefix) else { continue };
+            let target = part.join(surface).join(rest);
             if kind.is_dir() {
                 std::fs::create_dir_all(&target)?;
                 continue;
@@ -346,7 +356,7 @@ pub(super) fn unpack(bytes: &[u8], dir: &Path, layer: &CodeLayer) -> std::io::Re
         }
         // The app reads `abi` and `commit` (WebDevOverride.abiRefusal).
         let manifest = json!({
-            "stamp": format!("pr-{}-{}", layer.pr, &layer.head[..12]),
+            "stamp": format!("pr-{}-{}", layer.pr, layer.head.get(..12).unwrap_or(&layer.head)),
             "commit": layer.head,
             "bundles": surfaces,
             "abi": layer.abi,
@@ -457,7 +467,7 @@ fn dev_server_wins(customize: &Customize) -> bool {
     std::fs::read(customize.roots().config_dir.join(code::WEB_DEV))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .is_some_and(|value| value["server"].is_string())
+        .is_some_and(|value| value.get("server").is_some_and(Value::is_string))
 }
 
 fn short(sha: &str) -> &str {
@@ -468,15 +478,19 @@ fn short(sha: &str) -> &str {
 fn merged(http: &Http, repo: &str, pr: u64) -> Option<String> {
     let value =
         http.get_json(&format!("https://api.github.com/repos/{repo}/pulls/{pr}")).ok()??;
-    value["merged"].as_bool().filter(|merged| *merged)?;
-    value["merge_commit_sha"].as_str().filter(|sha| is_sha(sha)).map(str::to_owned)
+    value.get("merged").and_then(Value::as_bool).filter(|merged| *merged)?;
+    value
+        .get("merge_commit_sha")
+        .and_then(Value::as_str)
+        .filter(|sha| is_sha(sha))
+        .map(str::to_owned)
 }
 
 /// Whether `commit` has `merge` in its history (GitHub compare).
 fn contains(http: &Http, repo: &str, merge: &str, commit: &str) -> Option<bool> {
     let url = format!("https://api.github.com/repos/{repo}/compare/{merge}...{commit}");
     let value = http.get_json(&url).ok()??;
-    Some(matches!(value["status"].as_str(), Some("ahead" | "identical")))
+    Some(matches!(value.get("status").and_then(Value::as_str), Some("ahead" | "identical")))
 }
 
 /// `cmux customize library refresh`: every PR entry against what is
