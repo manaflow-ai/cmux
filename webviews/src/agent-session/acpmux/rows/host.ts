@@ -31,21 +31,25 @@ export function chatRowsNamer(): () => string {
   return () => `${prefix}.${++next}`;
 }
 
-/// A host with no such operation (the browser dev slot, the mock) is `off`, as a host that has it
-/// and says so.
+/// A host that says it has no such operation is `off` for the document (decision 277b): the page
+/// host's `cmux.protocol.unknown_op`, or the old bridge's `unsupported` (the five operations live
+/// in the page host's `cmux.agent.` namespace only).
 export const CHAT_ROWS_OFF = "chat.rows.off";
 /// The page's own code for an open the host did not answer within `OPEN_ANSWER_MS`: that chat
 /// falls to v1 this once; the next open of it asks again.
 export const CHAT_ROWS_LATE = "chat.rows.late";
+/// The page's own code for an open refused with no code (a lost link, decision 277c): that chat
+/// falls to v1 this once; the next open of it asks again.
+export const CHAT_ROWS_LOST = "chat.rows.lost";
 /// The longest a switch waits on the host's answer to an open (decision 276 e). `postNative` has
 /// no deadline of its own, so this is the one timer.
 export const OPEN_ANSWER_MS = 250;
 
 function refusalCode(error: unknown): string {
   const known = error as { code?: unknown; details?: { protocol?: unknown } } | null;
-  if (known?.details?.protocol === "cmux.protocol.unknown_op") return CHAT_ROWS_OFF;
+  if (known?.details?.protocol === "cmux.protocol.unknown_op" || known?.code === "unsupported") return CHAT_ROWS_OFF;
   if (typeof known?.code === "string" && known.code) return known.code;
-  return CHAT_ROWS_OFF;
+  return CHAT_ROWS_LOST;
 }
 
 export class ChatRowsHost {

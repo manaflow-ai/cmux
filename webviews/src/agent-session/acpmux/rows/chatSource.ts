@@ -7,10 +7,12 @@
 // where v1's kept tail would be; the store's first window then replaces it in one step.
 import { type AdaptedChat, ChatAdapter, type ChatRowsContext } from "./adapter";
 import { CHAT_ROWS_OFF, ChatRowsHost, type ChatRowsPost } from "./host";
+import { addChatRowsHost, receiveChatRows, removeChatRowsHost } from "./receiver";
 import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 
-/// What this page knows of the host's switch: `off` once a host said it has no rows for this page
-/// (`chat.rows.off`), and then no open is asked again; `on` once one opened. Page memory only.
+/// What this document knows of the host's switch: `off` once a host said it has no such operation
+/// (`chat.rows.off`: the page host's `unknown_op` or the old bridge's `unsupported`), and then no
+/// open is asked again; `on` once one opened. Page memory only.
 export type ChatRowsState = "unknown" | "off" | "on";
 let state: ChatRowsState = "unknown";
 export const chatRowsState = (): ChatRowsState => state;
@@ -54,6 +56,8 @@ export class ChatSource {
     name?: () => string,
   ) {
     this.host = new ChatRowsHost(post, new ChatRowStore({ onFall: (fall) => this.onFall(fall) }), name);
+    // Before the first open: the host's batches reach this store through the document's receiver.
+    addChatRowsHost(this.host, post);
   }
 
   /// Whether the page asks the switch at all: not once a host said off, and never of a daemon
@@ -150,9 +154,15 @@ export class ChatSource {
     this.host.close(shown.sid);
   }
 
-  /// The host's batch event.
+  /// A batch from the host, as the document's receiver (`window.cmuxChatRows`) takes it.
   receive(event: { batch: number; changes: readonly string[] }): void {
-    this.host.receive(event);
+    receiveChatRows(event);
+  }
+
+  /// The pane client is dropped: its chat on the store is closed and its host takes no more batches.
+  dispose(): void {
+    this.close();
+    removeChatRowsHost(this.host);
   }
 
   private draw(shown: Shown, snapshot: ChatRowsSnapshot): void {

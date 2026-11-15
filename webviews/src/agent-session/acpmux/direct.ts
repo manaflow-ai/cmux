@@ -15507,7 +15507,7 @@ export class AcpmuxDirectClient {
     // it should leave it warm for the next one. The host alone keeps it: this client is going away,
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
-    this.chatRows.close();
+    this.chatRows.dispose();
     this.replayMode = false;
     this.fedMode = false;
     this.closed = true;

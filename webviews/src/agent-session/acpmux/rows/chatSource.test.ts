@@ -6,7 +6,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { ChatSource, HOLD_ATTACH_CAPABILITY, KEPT_WINDOWS, chatRowsState, resetChatRowsState } from "./chatSource";
-import { CHAT_ROWS_LATE, OPEN_ANSWER_MS } from "./host";
+import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, OPEN_ANSWER_MS } from "./host";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
 const HOLDS: ReadonlySet<string> = new Set([HOLD_ATTACH_CAPABILITY]);
@@ -31,7 +31,10 @@ type Post = { method: string; params: Record<string, unknown> };
 
 /// A source whose host answers each open with its sid unless `answer` says otherwise, and names
 /// sids `rows.1`, `rows.2`, ... as the recording does.
-function source(answer?: (post: Post) => Promise<unknown> | undefined) {
+/// Sources made by a test, dropped after it: each one adds its host to the document's receiver.
+const made: ChatSource[] = [];
+
+function source(answer?: (post: Post) => Promise<unknown> | undefined, prefix = "rows") {
   const posts: Post[] = [];
   const drawn: string[] = [];
   const fell: { chat: string; code: string }[] = [];
@@ -49,15 +52,19 @@ function source(answer?: (post: Post) => Promise<unknown> | undefined) {
       rows: (sessionId) => drawn.push(sessionId),
       fell: (sessionId, code) => fell.push({ chat: sessionId, code }),
     },
-    () => `rows.${++next}`,
+    () => `${prefix}.${++next}`,
   );
   let batch = 0;
   const feed = (changes: readonly string[]) => rows.receive({ batch: ++batch, changes });
   const opens = () => posts.filter((post) => post.method === "chat.rows.open").length;
+  made.push(rows);
   return { rows, posts, drawn, fell, feed, opens };
 }
 
-afterEach(() => resetChatRowsState());
+afterEach(() => {
+  for (const rows of made.splice(0)) rows.dispose();
+  resetChatRowsState();
+});
 
 test("no open is asked of a daemon without the hold, and a host's off is remembered", async () => {
   const { rows, opens } = source((post) =>
@@ -215,4 +222,63 @@ test("a chat.rows.limit fall is that chat's alone", async () => {
   expect(await rows.choose("chat-b", HOLDS)).toBe(true);
   feed(renamed(chat.get("window")!, "rows.2"));
   expect(rows.view("chat-b")!.rows.length).toBe(11);
+});
+
+test("the old bridge's unsupported is off for the document; the next select posts no open", async () => {
+  const { rows, opens } = source((post) =>
+    post.method === "chat.rows.open"
+      ? Promise.reject(Object.assign(new Error("no"), { code: "unsupported" }))
+      : undefined,
+  );
+  expect(await rows.choose("chat-a", HOLDS)).toBe(false);
+  expect(chatRowsState()).toBe("off");
+  expect(await rows.choose("chat-b", HOLDS)).toBe(false);
+  expect(opens()).toBe(1);
+});
+
+test("an open refused with no code falls with chat.rows.lost and is not remembered", async () => {
+  let refuse = true;
+  const { rows, opens } = source((post) =>
+    post.method === "chat.rows.open" && refuse ? Promise.reject(new Error("the link went")) : undefined,
+  );
+  const falls: string[] = [];
+  const open = rows.host.open.bind(rows.host);
+  rows.host.open = async (...args) => {
+    const opened = await open(...args);
+    if ("fallen" in opened) falls.push(opened.fallen);
+    return opened;
+  };
+  expect(await rows.choose("chat-a", HOLDS)).toBe(false);
+  expect(falls).toEqual([CHAT_ROWS_LOST]);
+  expect(chatRowsState()).toBe("unknown");
+  refuse = false;
+  expect(await rows.choose("chat-b", HOLDS)).toBe(true);
+  expect(opens()).toBe(2);
+});
+
+test("window.cmuxChatRows routes each change to its store and takes a batch once", async () => {
+  const one = source(undefined, "one");
+  const two = source(undefined, "two");
+  await one.rows.choose("chat-a", HOLDS);
+  await two.rows.choose("chat-b", HOLDS);
+  const receiver = (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!;
+  expect(receiver).toBeDefined();
+  // One batch with a window for each source's sid, and one for a sid neither holds.
+  receiver.receive({
+    batch: 7,
+    changes: [
+      ...renamed(chat.get("window")!, "one.1"),
+      ...renamed(chat.get("window")!, "two.1"),
+      ...renamed(chat.get("window")!, "gone.1"),
+    ],
+  });
+  expect(one.rows.view("chat-a")!.rows.length).toBe(11);
+  expect(two.rows.view("chat-b")!.rows.length).toBe(11);
+  const taken = [...one.posts, ...two.posts].filter((post) => post.method === "chat.rows.taken");
+  expect(taken).toEqual([{ method: "chat.rows.taken", params: { batch: 7 } }]);
+  // A dropped client's sid is closed, and its changes are dropped after.
+  two.rows.dispose();
+  expect(two.posts.at(-1)).toEqual({ method: "chat.rows.close", params: { sid: "two.1" } });
+  receiver.receive({ batch: 8, changes: renamed(chat.get("ops")!, "two.1") });
+  expect(one.posts.filter((post) => post.method === "chat.rows.taken").map((post) => post.params.batch)).toEqual([8]);
 });
