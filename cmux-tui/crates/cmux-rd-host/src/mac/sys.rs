@@ -131,6 +131,7 @@ framework! {
 framework! {
     pub mod cg = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics" {
         static kCGColorSpaceSRGB: CFStringRef;
+        static kCGWindowBounds: CFStringRef;
         fn CGMainDisplayID() -> u32;
         fn CGDisplayBounds(display: u32) -> CGRect;
         fn CGDisplayCopyDisplayMode(display: u32) -> CGDisplayModeRef;
@@ -139,6 +140,7 @@ framework! {
         fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) -> f64;
         fn CGDisplayModeRelease(mode: CGDisplayModeRef);
         fn CGRectMakeWithDictionaryRepresentation(dictionary: CFDictionaryRef, rect: *mut CGRect) -> u8;
+        fn CGWindowListCopyWindowInfo(option: u32, window: u32) -> CFArrayRef;
         fn CGEventSourceCreate(state: i32) -> CGEventSourceRef;
         fn CGEventCreateMouseEvent(source: CGEventSourceRef, kind: u32, point: CGPoint, button: u32) -> CGEventRef;
         fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, code: u16, down: bool) -> CGEventRef;
