@@ -562,13 +562,21 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
             ended: false,
         };
         let mut scope = scope;
-        for (kind, dir) in
+        for (i, (kind, dir)) in
             [(RECORD_FOCUS, FOCUS_IN), (RECORD_MAKE_KEY_DOWN, 0), (RECORD_MAKE_KEY_UP, 0)]
+                .into_iter()
+                .enumerate()
         {
             if front() || !os.post(&psn, &record(kind, window, dir)) {
-                // Handed back (or skipped: the app is in front) before the
-                // lock is let go, so no other scope sees it half entered.
-                scope.finish_locked();
+                if i == 0 {
+                    // Nothing was posted: nothing to hand back, no hold.
+                    scope.abandon();
+                } else {
+                    // Handed back (or skipped: the app is in front) before
+                    // the lock is let go, so no other scope sees it half
+                    // entered.
+                    scope.finish_locked();
+                }
                 drop(posting);
                 return None;
             }
@@ -615,6 +623,19 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         let ended = self.finish_locked();
         drop(posting);
         ended
+    }
+
+    /// Ends a scope that posted nothing (its first record failed): the
+    /// registry entry goes, nothing is handed back, no hold, no report.
+    fn abandon(&mut self) {
+        self.ended = true;
+        let mut map = self.registry.map();
+        if let Some(e) = map.get_mut(&self.pid) {
+            e.1 = e.1.saturating_sub(1);
+            if e.1 == 0 {
+                map.remove(&self.pid);
+            }
+        }
     }
 
     /// [`Self::finish`] with the posting lock already held by the caller.

@@ -435,15 +435,68 @@ fn a_joiner_does_not_extend_the_bound() {
     assert!(!first.live() && !joiner.live(), "both end one bound after the first entry");
 }
 
-/// Review 6 (1), 7: input reaches an app's process only through
-/// `activation::post_unprimed`. Every source file of this directory is read
-/// at test time (a new file is covered too): only input.rs posts events (to
-/// a process, a PSN, or the HID tap; CoreGraphics or SkyLight; called or
-/// looked up as a symbol), sys.rs only declares them, input.rs exposes no
-/// poster that takes a bare Route, and only activation.rs builds a Posting.
+/// The parameter lists of every `pub...fn` in `src` (pub, pub(super),
+/// pub(crate), pub unsafe, extern), each read to its closing parenthesis, so
+/// a signature rustfmt splits across lines is read whole.
+fn pub_fn_params(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = src;
+    while let Some(i) = rest.find("fn ") {
+        let before = &rest[..i];
+        let line_start = before.rfind('\n').map_or(0, |n| n + 1);
+        let head = before[line_start..].trim();
+        let after = &rest[i..];
+        if head.starts_with("pub")
+            && let Some(open) = after.find('(')
+        {
+            let mut depth = 0usize;
+            let mut end = None;
+            for (j, c) in after[open..].char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(open + j);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(end) = end {
+                out.push(after[open..=end].to_string());
+            }
+        }
+        rest = &after[3..];
+    }
+    out
+}
+
+/// Every .rs file under `dir`, subdirectories included.
+fn rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).expect("source directory") {
+        let path = entry.expect("entry").path();
+        if path.is_dir() {
+            rust_sources(&path, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// Reviews 6 (1), 7, 8: input reaches an app's process only through
+/// `activation::post_unprimed`. The posters are declared only in a private
+/// module of input.rs, so nothing else can name them; this test is the
+/// backstop. Every source file under this directory (subdirectories too) is
+/// read at test time: only input.rs names the CoreGraphics and SkyLight
+/// event posters (to a process, a PSN, the HID tap), only activation.rs
+/// names SLPSPostEventRecordTo, sys.rs names none; no public input.rs
+/// function takes a bare Route (signatures read whole, any pub form); only
+/// activation.rs builds a Posting.
 #[test]
 fn only_post_unprimed_can_post_to_a_process() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/platform/macos");
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src/platform/macos"));
     let posters = [
         concat!("CGEvent", "PostToPid"),
         concat!("CGEvent", "PostToPSN"),
@@ -452,34 +505,129 @@ fn only_post_unprimed_can_post_to_a_process() {
         concat!("CGSPost", "Event"),
         concat!("CGEvent", "Post("),
     ];
+    let record_poster = concat!("SLPSPost", "EventRecordTo");
     let build = concat!("Posting", " { route");
+    let mut files = Vec::new();
+    rust_sources(dir, &mut files);
     let mut seen = 0;
-    for entry in std::fs::read_dir(dir).expect("source directory") {
-        let path = entry.expect("entry").path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-            continue;
-        }
+    for path in files {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         if name == "tests.rs" {
             continue;
         }
         seen += 1;
         let src = std::fs::read_to_string(&path).expect("read source");
-        if name != "input.rs" && name != "sys.rs" {
+        if name != "input.rs" {
             for p in posters {
-                assert!(!src.contains(p), "{name} uses {p}: post through input with a Posting");
+                assert!(!src.contains(p), "{name} names {p}: post through input with a Posting");
             }
         }
         if name != "activation.rs" {
+            assert!(!src.contains(record_poster), "{name} names {record_poster}");
             assert!(!src.contains(build), "{name} builds a Posting");
         }
         if name == "input.rs" {
-            for line in src.lines().filter(|l| l.trim_start().starts_with("pub fn ")) {
-                assert!(!line.contains(": Route"), "input.rs exposes a bare-Route poster: {line}");
+            for params in pub_fn_params(&src) {
+                assert!(
+                    !params.contains(": Route") && !params.contains(":Route"),
+                    "input.rs exposes a bare-Route poster: {params}"
+                );
             }
         }
     }
     assert!(seen >= 10, "the macOS sources were found ({seen})");
+}
+
+/// The guard's signature reader sees split signatures and every pub form.
+#[test]
+fn the_guard_reads_whole_signatures() {
+    let src = "pub(super) fn a(\n    route: Route,\n    x: u8,\n) {}\npub unsafe fn b(r: Route) {}\nfn c(route: Route) {}\npub(crate) fn d(p: &Posting) {}";
+    let params = pub_fn_params(src);
+    assert_eq!(params.len(), 3, "{params:?}");
+    assert!(params[0].contains("route: Route"));
+    assert!(params[1].contains("r: Route"));
+    assert!(params[2].contains("&Posting"));
+}
+
+/// Review 8 (4): an action clears the hand-back flag before it runs and
+/// adds a failure during it to its result or refusal, once.
+#[test]
+fn an_action_reports_its_own_failed_hand_back_once() {
+    let fail = || {
+        let os = fake(&[(10, 5)]);
+        let reg = activation::Registry::new();
+        let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+        os.windows.borrow_mut().clear();
+        drop(key);
+    };
+    // A stale flag from before the call is cleared.
+    fail();
+    let ok = actions::reporting_hand_back(|| Ok(crate::desktop::ActionOutcome::delivered("x")));
+    assert!(ok.unwrap().note.is_empty());
+    // A failure during the call: on Ok and on Err, once.
+    let ok = actions::reporting_hand_back(|| {
+        fail();
+        let mut out = crate::desktop::ActionOutcome::delivered("x");
+        activation::append_note(&mut out.note, activation::HAND_BACK_FAILED);
+        Ok(out)
+    })
+    .unwrap();
+    assert_eq!(ok.note.matches(activation::HAND_BACK_FAILED).count(), 1);
+    let err = actions::reporting_hand_back(|| {
+        fail();
+        Err(DesktopError::TargetNotFound("gone".into()))
+    })
+    .unwrap_err();
+    assert!(format!("{err:?}").contains(activation::HAND_BACK_FAILED));
+}
+
+/// Review 8 (6): a scope whose first record failed posted nothing: no
+/// hand-back failure is reported and the app is not held.
+#[test]
+fn a_failure_before_any_post_holds_nothing() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    os.fail_posts.set(true);
+    activation::take_hand_back_failed();
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    assert!(!activation::take_hand_back_failed());
+    assert!(!reg.is_open(5));
+}
+
+/// Review 7, 8 (4, 5): a menu item's place is read up to the menu bar; a
+/// walk that does not reach it is no place (blocked, with its own reason).
+#[test]
+fn a_menu_items_place_must_reach_the_menu_bar() {
+    use roles::{MenuNode, menu_place};
+    let node = |role: Option<&str>, title: Result<Option<&str>, ()>| MenuNode {
+        role: role.map(str::to_string),
+        title: title.map(|t| t.map(str::to_string)),
+    };
+    let yes = || true;
+    let walk = vec![
+        node(Some("AXMenu"), Ok(None)),
+        node(Some("AXMenuItem"), Ok(Some("Font"))),
+        node(Some("AXMenu"), Ok(None)),
+        node(Some("AXMenuBarItem"), Ok(Some("Format"))),
+        node(Some("AXMenuBar"), Ok(None)),
+    ];
+    assert_eq!(menu_place(walk.into_iter(), &yes), Some(vec!["Font".into(), "Format".into()]));
+    // Ends at the application: no place.
+    let walk = vec![node(Some("AXMenu"), Ok(None)), node(Some("AXApplication"), Ok(None))];
+    assert_eq!(menu_place(walk.into_iter(), &yes), None);
+    // Unreadable role or title: no place.
+    assert_eq!(menu_place(vec![node(None, Ok(None))].into_iter(), &yes), None);
+    let walk = vec![node(Some("AXMenuItem"), Err(())), node(Some("AXMenuBar"), Ok(None))];
+    assert_eq!(menu_place(walk.into_iter(), &yes), None);
+    // Deeper than the walk: no place.
+    let deep = (0..roles::MENU_PLACE_DEPTH + 1).map(|_| node(Some("AXMenu"), Ok(None)));
+    assert_eq!(menu_place(deep, &yes), None);
+    // The scope ended: no place.
+    let walk = vec![node(Some("AXMenuBar"), Ok(None))];
+    assert_eq!(menu_place(walk.into_iter(), &|| false), None);
+    // No place is refused with its own reason.
+    let why = roles::prime_block(Some("Select All"), None, Some(false), &[], &[]).unwrap();
+    assert!(why.contains("place in the menus could not be read"), "{why}");
 }
 
 /// Review 5 (1B): the last scope's entry stays in the registry until its

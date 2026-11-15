@@ -310,19 +310,52 @@ pub fn prime_block(
     launch_titles: &[String],
     open_titles: &[String],
 ) -> Option<&'static str> {
-    const LAUNCH: &str = "this menu item is in a launch list (Services, Open With, Share, Recent Items or Quick Actions) or an open command's submenu, or its place could not be read; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    const LAUNCH: &str = "this menu item is in a launch list (Services, Open With, Share, Recent Items or Quick Actions) or an open command's submenu; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
     const OPENS: &str = "this menu item opens or reveals documents or apps, which can start another app (a denied one too), or its title or key could not be read; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
     let is_open = |t: &str| {
         let key = submenu_title_key(t);
         open_titles.iter().any(|o| key == *o || key.starts_with(&format!("{o} ")))
     };
-    let Some(ancestors) = ancestors else { return Some(LAUNCH) };
+    const PLACE: &str = "this menu item's place in the menus could not be read (a submenu deeper than the walk, or a menu that did not answer), so it is not known whether it is a launch or open command; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    let Some(ancestors) = ancestors else { return Some(PLACE) };
     if ancestors.iter().any(|t| launch_titles.contains(&submenu_title_key(t)) || is_open(t)) {
         return Some(LAUNCH);
     }
     let (Some(title), Some(opens_by_key)) = (title, opens_by_key) else { return Some(OPENS) };
     if opens_by_key || is_open(title) {
         return Some(OPENS);
+    }
+    None
+}
+
+/// One parent of a menu item, as read (for [`menu_place`]).
+pub struct MenuNode {
+    /// None: the role could not be read.
+    pub role: Option<String>,
+    /// Err: the title could not be read.
+    pub title: Result<Option<String>, ()>,
+}
+
+/// How far up a menu item's place is walked.
+pub const MENU_PLACE_DEPTH: usize = 10;
+
+/// A menu item's place (pure, for tests): the titles of the menu items and
+/// menu bar items above it, from its parents read one at a time, or None
+/// when the walk does not reach the menu bar: a role or title that cannot be
+/// read, the walk ending elsewhere (the application), deeper than
+/// [`MENU_PLACE_DEPTH`], or `live` turning false (the scope ended).
+pub fn menu_place(parents: impl Iterator<Item = MenuNode>, live: &dyn Fn() -> bool) -> Option<Vec<String>> {
+    let mut titles = Vec::new();
+    for node in parents.take(MENU_PLACE_DEPTH) {
+        if !live() {
+            return None;
+        }
+        match node.role.as_deref()? {
+            "AXMenuItem" | "AXMenuBarItem" => titles.push(node.title.ok()?.unwrap_or_default()),
+            "AXMenuBar" => return Some(titles),
+            "AXApplication" => return None,
+            _ => {}
+        }
     }
     None
 }

@@ -135,8 +135,6 @@ unsafe extern "C" {
     pub fn CGEventSetLocation(event: CFTypeRef, at: CGPoint);
     pub fn CGEventCreate(source: CFTypeRef) -> CFTypeRef;
     pub fn CGEventGetLocation(event: CFTypeRef) -> CGPoint;
-    pub fn CGEventPostToPid(pid: i32, event: CFTypeRef);
-    pub fn CGEventPost(tap: u32, event: CFTypeRef);
     pub fn CGImageGetWidth(image: CFTypeRef) -> usize;
     pub fn CGImageGetHeight(image: CFTypeRef) -> usize;
     pub fn CGColorSpaceCreateDeviceRGB() -> CFTypeRef;

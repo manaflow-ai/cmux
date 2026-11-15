@@ -586,8 +586,7 @@ pub(super) fn click(
     target: &PointerTarget,
     spec: &ClickSpec,
 ) -> DResult<ActionOutcome> {
-    super::activation::take_hand_back_failed();
-    with_hand_back_flag(click_inner(d, target, spec))
+    reporting_hand_back(|| click_inner(d, target, spec))
 }
 
 fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome> {
@@ -868,8 +867,7 @@ pub(super) fn press_keys(
     combo: &KeyCombo,
     delivery: Delivery,
 ) -> DResult<ActionOutcome> {
-    super::activation::take_hand_back_failed();
-    with_hand_back_flag(press_keys_inner(d, window_id, combo, delivery))
+    reporting_hand_back(|| press_keys_inner(d, window_id, combo, delivery))
 }
 
 fn press_keys_inner(
@@ -1178,6 +1176,16 @@ fn unprimed(
     })
 }
 
+/// Runs an action that may open a key-in-app scope: the hand-back flag is
+/// cleared first (no earlier call's failure leaks in) and a failure during
+/// the action is added to its result or refusal, once.
+pub(super) fn reporting_hand_back(
+    action: impl FnOnce() -> DResult<ActionOutcome>,
+) -> DResult<ActionOutcome> {
+    super::activation::take_hand_back_failed();
+    with_hand_back_flag(action())
+}
+
 /// Adds a failed hand-back to an action's result or refusal, however the
 /// scope ended (an explicit end or a drop on an early return).
 fn with_hand_back_flag(res: DResult<ActionOutcome>) -> DResult<ActionOutcome> {
@@ -1195,6 +1203,12 @@ fn with_hand_back_flag(res: DResult<ActionOutcome>) -> DResult<ActionOutcome> {
         }
         Err(DesktopError::Failed(m)) if !m.contains(note) => {
             Err(DesktopError::Failed(with_notes(m, note)))
+        }
+        Err(DesktopError::TargetNotFound(m)) if !m.contains(note) => {
+            Err(DesktopError::TargetNotFound(with_notes(m, note)))
+        }
+        Err(DesktopError::StaleElement(m)) if !m.contains(note) => {
+            Err(DesktopError::StaleElement(with_notes(m, note)))
         }
         other => other,
     }
@@ -1257,38 +1271,18 @@ fn prime_block_of(
     };
     let _short = item.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, restore);
     let live = || scope.is_none_or(|k| k.live());
-    let mut ancestors = Vec::new();
-    let mut complete = true;
+    // The item's place: its menu items' titles up to the menu bar, read one
+    // parent at a time with the short timeout.
     let mut node = item.element("AXParent");
-    // The walk must reach the menu bar; anything short of it (a break, the
-    // depth limit, an unreadable role) leaves the place unread: blocked.
-    let mut reached_bar = false;
-    for _ in 0..10 {
-        let Some(n) = node else { break };
-        if !live() {
-            complete = false;
-            break;
-        }
+    let parents = std::iter::from_fn(|| {
+        let n = node.take()?;
         n.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
-        match n.string("AXRole").as_deref() {
-            Some("AXMenuItem") | Some("AXMenuBarItem") => match n.attr("AXTitle") {
-                Ok(t) => ancestors.push(t.and_then(|t| t.as_string()).unwrap_or_default()),
-                Err(_) => complete = false,
-            },
-            Some("AXMenuBar") => {
-                reached_bar = true;
-                break;
-            }
-            Some("AXApplication") => break,
-            None => {
-                complete = false;
-                break;
-            }
-            _ => {}
-        }
+        let role = n.attr("AXRole").ok().flatten().and_then(|v| v.as_string());
+        let title = n.attr("AXTitle").map(|t| t.and_then(|t| t.as_string())).map_err(|_| ());
         node = n.element("AXParent");
-    }
-    complete &= reached_bar;
+        Some(roles::MenuNode { role, title })
+    });
+    let ancestors = roles::menu_place(parents, &live);
     // Unreadable title or key equivalent: None (blocked).
     let title =
         item.attr("AXTitle").ok().map(|t| t.and_then(|t| t.as_string()).unwrap_or_default());
@@ -1307,7 +1301,7 @@ fn prime_block_of(
     })();
     roles::prime_block(
         title.as_deref(),
-        complete.then_some(ancestors.as_slice()),
+        ancestors.as_deref(),
         opens_by_key,
         workspace::launch_submenu_titles(),
         workspace::open_item_titles(),

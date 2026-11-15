@@ -24,6 +24,19 @@
 //! keys never leak into an agent's event (and the reverse).
 
 use super::activation::Posting;
+
+/// The event posters, declared here and nowhere else: private to this
+/// module, so no other code in the crate can name them. Every post goes
+/// through [`post`], with a [`Posting`] (only `activation::post_unprimed`
+/// makes one for a process).
+mod raw {
+    use super::super::sys::CFTypeRef;
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        pub(super) fn CGEventPostToPid(pid: i32, event: CFTypeRef);
+        pub(super) fn CGEventPost(tap: u32, event: CFTypeRef);
+    }
+}
 use super::keymap;
 use super::roles;
 use super::sys::*;
@@ -114,9 +127,9 @@ fn post(route: Route, event: &Cf) {
                         window as i64,
                     );
                 }
-                CGEventPostToPid(pid, event.ptr());
+                raw::CGEventPostToPid(pid, event.ptr());
             }
-            Route::Hid => CGEventPost(HID_TAP, event.ptr()),
+            Route::Hid => raw::CGEventPost(HID_TAP, event.ptr()),
         }
     }
 }
