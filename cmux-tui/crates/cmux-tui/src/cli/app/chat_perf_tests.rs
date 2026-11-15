@@ -98,3 +98,41 @@ fn summary_says_a_hidden_or_covered_page_measured_nothing() {
     let text = human(&hidden, &english().app_control);
     assert!(text.contains("drew no frames"), "{text}");
 }
+
+/// The summary names the page code that asked for frames, timers and animations, by source file
+/// and bundle position, and says when page code asked for none, so a release readback names the file.
+#[test]
+fn summary_names_frame_owners_by_file() {
+    let mut busy = report();
+    busy["owners"] = json!({
+        "page_frames": 290,
+        "frames": [{"file": "src/agent-session/acpmux/flickerLog.ts", "at": "pane.js:1:48213", "count": 290, "per_s": 58}],
+        "timers": [{"file": "src/ui/pageClock.ts", "at": "timeout pane.js:1:9120", "count": 5, "per_s": 1}],
+        "animate": [],
+        "animations": [{"name": "cmux-spin", "target": "span.cv-spinner__arc", "iterations": "infinite", "count": 2}],
+        "sites_resolved": true
+    });
+    let text = human(&busy, &english().app_control);
+    assert!(text.contains("page code asked for another frame in 290 of 300 frames"), "{text}");
+    assert!(
+        text.contains("  frame 58/s (290): src/agent-session/acpmux/flickerLog.ts pane.js:1:48213"),
+        "{text}"
+    );
+    assert!(text.contains("  timeout 1/s (5): src/ui/pageClock.ts pane.js:1:9120"), "{text}");
+    assert!(
+        text.contains(
+            "  animation cmux-spin on span.cv-spinner__arc: 2 running, infinite iterations"
+        ),
+        "{text}"
+    );
+    let ja = human(&busy, &crate::localization::catalog_for_locale("ja_JP.UTF-8").app_control);
+    assert!(!ja.contains('{'), "{ja}");
+
+    let mut idle = report();
+    idle["owners"] = json!({"page_frames": 0, "frames": [], "timers": [], "animate": [], "animations": [], "sites_resolved": false});
+    let text = human(&idle, &english().app_control);
+    assert!(text.contains("in 0 of 300 frames"), "{text}");
+    assert!(text.contains("no page code asked for frames"), "{text}");
+    // A page from before the owners says so instead of printing nothing.
+    assert!(human(&report(), &english().app_control).contains("does not report them"));
+}

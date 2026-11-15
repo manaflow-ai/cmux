@@ -330,10 +330,9 @@
 2026-11-15T17:16:28.9445160Z [36;1mbrew_bin="$(brew --prefix)/bin"[0m
 2026-11-15T17:16:28.9445300Z [36;1mexport PATH="$brew_bin:$PATH"[0m
 2026-11-15T17:16:28.9445480Z [36;1mecho "$brew_bin" >> "$GITHUB_PATH"[0m
-2026-11-15T17:16:28.9445660Z [36;1mif ! command -v axe >/dev/null 2>&1; then[0m
-2026-11-15T17:16:28.9445840Z [36;1m  brew install cameroncooke/axe/axe[0m
-2026-11-15T17:16:28.9445990Z [36;1mfi[0m
-2026-11-15T17:16:28.9446160Z [36;1mcommand -v axe >/dev/null 2>&1 || {[0m
+2026-11-15T17:16:28.9445660Z [36;1m# Not the Homebrew tap: its formula's install DSL fails on the[0m
+2026-11-15T17:16:28.9445840Z [36;1m# runners' Homebrew (job 132861077367).[0m
+2026-11-15T17:16:28.9445990Z [36;1m./scripts/install-axe-ci.sh || {[0m
 2026-11-15T17:16:28.9446410Z [36;1m  echo "::error::[infra-preflight] axe is missing from the simulator runner"[0m
 2026-11-15T17:16:28.9446660Z [36;1m  exit 1[0m
 2026-11-15T17:16:28.9446800Z [36;1m}[0m
@@ -378,11 +377,9 @@
 2026-11-15T17:16:41.5818640Z 
 2026-11-15T17:16:41.5819070Z 100  123M  100  123M    0     0   149M      0 --:--:-- --:--:-- --:--:--  149M
 2026-11-15T17:16:43.3585090Z Verified and extracted GhosttyKit.xcframework
-2026-11-15T17:16:44.5877760Z [34m==>[0m [1mTapping cameroncooke/axe[0m
-2026-11-15T17:16:44.6115220Z Cloning into '/opt/homebrew/Library/Taps/cameroncooke/homebrew-axe'...
-2026-11-15T17:16:45.5310060Z Tapped 1 formula (13 files, 27.4KB).
-2026-11-15T17:16:46.2734990Z [34m==>[0m [1mTrusted formula cameroncooke/axe/axe[0m
-2026-11-15T17:16:46.2757880Z ##[error]cameroncooke/axe/axe: undefined method 'run' for an instance of Homebrew::InstallSteps::DSL
+2026-11-15T17:16:44.6115220Z /Users/runner/_work/_temp/axe.Qm3xTb/axe.tar.gz: OK
+2026-11-15T17:16:46.2734990Z ##[error][infra-preflight] the AXe archive has no axe executable (https://github.com/cameroncooke/AXe/releases/download/v2.0.4/AXe-macOS-homebrew-v2.0.4.tar.gz)
+2026-11-15T17:16:46.2757880Z ##[error][infra-preflight] axe is missing from the simulator runner
 2026-11-15T17:16:46.2778250Z ##[error]Process completed with exit code 1.
 2026-11-15T17:16:46.5005290Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
 2026-11-15T17:16:46.5005540Z with:
