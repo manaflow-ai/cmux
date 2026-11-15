@@ -262,6 +262,7 @@ mod tests {
             ["brief", "--", "--compact sidebar, please"]
         );
         assert_eq!(w("customize_check", json!({})).unwrap(), ["check"]);
+        assert_eq!(w("customize_recipes", json!({})).unwrap(), ["recipes"]);
         assert_eq!(w("customize_apply", json!({"note": "compact"})).unwrap(), ["apply", "compact"]);
         assert_eq!(w("customize_apply", json!({})).unwrap(), ["apply"]);
         assert_eq!(w("customize_rollback", json!({})).unwrap(), ["rollback"]);
@@ -293,7 +294,7 @@ mod tests {
             .iter()
             .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
             .collect();
-        assert_eq!(names.len(), 12);
+        assert_eq!(names.len(), 13);
         assert!(names.iter().all(|name| name.starts_with("customize_")));
     }
 }
