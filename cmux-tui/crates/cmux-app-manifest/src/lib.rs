@@ -45,7 +45,7 @@ pub use cli::{
     CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
     first_party_cli_owner, is_mcp_tool, is_reserved_cli_name, mcp_tool_name,
 };
-pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES};
+pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, interface_files};
 pub use issue::{Issue, Severity};
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo};

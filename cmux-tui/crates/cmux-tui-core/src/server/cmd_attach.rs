@@ -6,6 +6,7 @@
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;
 
+use super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY;
 use super::AttachWireShape;
 use super::AttachWorkerCommit;
 use super::DetachClientTarget;
@@ -176,8 +177,18 @@ pub(super) fn attach_surface(
     expected_generation: Option<String>,
     expected_terminal_id: Option<String>,
     replay_history_rows: Option<u32>,
+    replay_history_start: Option<u64>,
     snapshot: terminal_snapshot::SnapshotAttachParams,
 ) -> anyhow::Result<Value> {
+    anyhow::ensure!(
+        replay_history_start.is_none() || replay_history_rows.is_some(),
+        "attach-surface replay_history_start needs replay_history_rows"
+    );
+    let history_window =
+        replay_history_rows.map(|rows| crate::surface::history_window::HistoryWindow {
+            start: replay_history_start,
+            rows: u64::from(rows),
+        });
     let initial_size = match (cols, rows) {
         (Some(cols), Some(rows)) => Some((cols, rows)),
         (None, None) => None,
@@ -468,9 +479,11 @@ pub(super) fn attach_surface(
     lifecycle.set_resumes_pending_sequence(
         mux.control_clients.supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
     );
-    let attach = match surface
-        .attach_stream_with_history(lifecycle.clone(), replay_history_rows.map(u64::from))
-    {
+    let attach = match surface.attach_stream_with_window(
+        lifecycle.clone(),
+        history_window,
+        mux.control_clients.supports_capability(client, ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY),
+    ) {
         Ok(attach) => attach,
         Err(error) => {
             lifecycle.cancel();
@@ -502,6 +515,7 @@ pub(super) fn attach_surface(
         colors: terminal_colors_json(attach.colors, shape.color_overrides),
         pending_sequence,
         history_rows_omitted: attach.history_rows_omitted,
+        history_rows_skipped: attach.history_rows_skipped,
     };
     if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
         handle_attach_send_error(&lifecycle, &error);

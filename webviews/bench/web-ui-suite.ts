@@ -155,12 +155,13 @@ export const BENCHES: readonly Bench[] = [
     ownPart: true,
   },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
-  // part, under that part's 30-minute run cap.
+  // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
+  // repeats fit under that cap.
   {
     name: "chat-100k-flat-grown",
     file: "chat-100k-flat.bench.ts",
     args: ["100000", "20"],
-    env: { CASES: "grown-many" },
+    env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
     timeoutMs: 1_770_000,
     ownPart: true,
   },
