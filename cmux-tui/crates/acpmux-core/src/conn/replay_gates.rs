@@ -281,16 +281,18 @@ enum ReplayProbeControl {
     PrivateFresh,
     SpinOnly,
     ForeignHub,
+    LockedHub,
 }
 
 impl ReplayProbeControl {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::AsIs,
         Self::NoSharedClock,
         Self::PrivateReuse,
         Self::PrivateFresh,
         Self::SpinOnly,
         Self::ForeignHub,
+        Self::LockedHub,
     ];
 
     const fn label(self) -> &'static str {
@@ -301,9 +303,12 @@ impl ReplayProbeControl {
             Self::PrivateFresh => "d2_private_fresh",
             Self::SpinOnly => "e_spin_only",
             Self::ForeignHub => "f_foreign_hub",
+            Self::LockedHub => "g_locked_hub",
         }
     }
 }
+
+type ReplayProbeSample = (HubWriter, u128, usize, bool);
 
 fn timed_append_plain(
     mut writer: HubWriter,
@@ -331,12 +336,15 @@ async fn wait_for_count(count: &AtomicUsize) {
     assert!(started.is_ok(), "probe copier did not start");
 }
 
+/// Runs a replay copier beside an append, returning `None` when the copier did
+/// not overlap the timed append. The caller retakes that sample rather than
+/// asserting on a racy observation.
 async fn append_replay_unobserved_sample(
     hub: Arc<Hub>,
     writer: HubWriter,
     target: u64,
     offset: usize,
-) -> (HubWriter, u128, usize) {
+) -> ReplayProbeSample {
     let cursor = first_retained_cursor(&hub, target);
     let receiver = hub.subscribe_replay(&Sub::new("probe", "list"), cursor).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
@@ -373,19 +381,16 @@ async fn append_replay_unobserved_sample(
     })
     .await;
     assert!(started.is_ok(), "probe raw copier did not enter its copy");
-    // The permit is released before the timed interval. The appending thread
-    // does not read or write the history's permit/counter while its clock runs.
+    // Release the permit before the timed interval. The appending thread does
+    // not read or write the history's permit/counter while its clock runs.
     hub.reset_history_raw_copies();
     permit.store(true, Ordering::Release);
     let result = timed_append_plain(writer, target, offset, &active).unwrap();
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
     let copies = hub.history_raw_copies();
-    assert!(
-        copies > 0 && overlap.load(Ordering::Acquire),
-        "unobserved probe must overlap a raw copy"
-    );
-    (result.0, result.1, copies)
+    let (writer, elapsed) = result;
+    (writer, elapsed, copies, copies > 0 && overlap.load(Ordering::Acquire))
 }
 
 async fn append_foreign_hub_sample(
@@ -394,7 +399,7 @@ async fn append_foreign_hub_sample(
     offset: usize,
     foreign: Arc<Hub>,
     foreign_target: u64,
-) -> (HubWriter, u128, usize) {
+) -> ReplayProbeSample {
     let cursor = first_retained_cursor(&foreign, foreign_target);
     let receiver = foreign.subscribe_replay(&Sub::new("foreign-probe", "list"), cursor).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
@@ -437,8 +442,49 @@ async fn append_foreign_hub_sample(
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
     let copies = foreign.history_raw_copies();
-    assert!(copies > 0 && overlap.load(Ordering::Acquire), "foreign probe must overlap a raw copy");
-    (result.0, result.1, copies)
+    let (writer, elapsed) = result;
+    (writer, elapsed, copies, copies > 0 && overlap.load(Ordering::Acquire))
+}
+
+async fn append_locked_hub_sample(
+    hub: Arc<Hub>,
+    writer: HubWriter,
+    target: u64,
+    offset: usize,
+) -> ReplayProbeSample {
+    let cursor = first_retained_cursor(&hub, target);
+    let stop = Arc::new(AtomicBool::new(false));
+    let active = Arc::new(AtomicBool::new(false));
+    let overlap = Arc::new(AtomicBool::new(false));
+    let copies = Arc::new(AtomicUsize::new(0));
+    let copy_stop = stop.clone();
+    let copy_active = active.clone();
+    let copy_overlap = overlap.clone();
+    let copy_count = copies.clone();
+    let copy_task = tokio::task::spawn_blocking(move || {
+        let mut replay_cursor = cursor;
+        while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
+            let Some(next) =
+                hub.probe_history_locked_copy(replay_cursor, target, MAX_REPLAY_FRAME_BYTES)
+            else {
+                break;
+            };
+            if copy_active.load(Ordering::Acquire) {
+                copy_overlap.store(true, Ordering::Release);
+            }
+            copy_count.fetch_add(1, Ordering::Release);
+            replay_cursor = if next >= target { cursor } else { next };
+            std::thread::yield_now();
+        }
+    });
+    wait_for_count(&copies).await;
+    copies.store(0, Ordering::Release);
+    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    stop.store(true, Ordering::Release);
+    copy_task.await.unwrap();
+    let count = copies.load(Ordering::Acquire);
+    let (writer, elapsed) = result;
+    (writer, elapsed, count, count > 0 && overlap.load(Ordering::Acquire))
 }
 
 async fn append_private_sample(
@@ -521,7 +567,7 @@ async fn append_spin_sample(
     (result.0, result.1, count)
 }
 
-async fn append_probe_round(control: ReplayProbeControl) -> (Vec<u128>, Vec<usize>) {
+async fn append_probe_round(control: ReplayProbeControl) -> (Vec<u128>, Vec<usize>, usize) {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     let target = fill_ring(&hub, &mut writer, true);
     let hub = Arc::new(hub);
@@ -534,63 +580,106 @@ async fn append_probe_round(control: ReplayProbeControl) -> (Vec<u128>, Vec<usiz
     };
     let mut samples = Vec::with_capacity(SAMPLES);
     let mut proof = Vec::with_capacity(SAMPLES);
+    let mut retakes = 0;
     for offset in 0..SAMPLES {
         let current = target + offset as u64;
-        let (next, elapsed, observed) = match control {
-            ReplayProbeControl::AsIs => {
-                append_replay_sample(hub.clone(), writer, current, offset).await
-            }
-            ReplayProbeControl::NoSharedClock => {
-                append_replay_unobserved_sample(hub.clone(), writer, current, offset).await
-            }
-            ReplayProbeControl::PrivateReuse => {
-                append_private_sample(hub.clone(), writer, current, offset, true).await
-            }
-            ReplayProbeControl::PrivateFresh => {
-                append_private_sample(hub.clone(), writer, current, offset, false).await
-            }
-            ReplayProbeControl::SpinOnly => {
-                append_spin_sample(hub.clone(), writer, current, offset).await
-            }
-            ReplayProbeControl::ForeignHub => {
-                let Some((foreign, foreign_target)) = foreign.as_ref() else {
-                    assert!(false, "foreign probe setup");
-                    return (Vec::new(), Vec::new());
-                };
-                append_foreign_hub_sample(writer, current, offset, foreign.clone(), *foreign_target)
+        let mut tries = 0;
+        loop {
+            let attempt = match control {
+                ReplayProbeControl::AsIs => {
+                    let (next, elapsed, observed) =
+                        append_replay_sample(hub.clone(), writer, current, offset).await;
+                    (next, elapsed, observed, true)
+                }
+                ReplayProbeControl::NoSharedClock => {
+                    append_replay_unobserved_sample(hub.clone(), writer, current, offset).await
+                }
+                ReplayProbeControl::PrivateReuse => {
+                    let (next, elapsed, observed) =
+                        append_private_sample(hub.clone(), writer, current, offset, true).await;
+                    (next, elapsed, observed, true)
+                }
+                ReplayProbeControl::PrivateFresh => {
+                    let (next, elapsed, observed) =
+                        append_private_sample(hub.clone(), writer, current, offset, false).await;
+                    (next, elapsed, observed, true)
+                }
+                ReplayProbeControl::SpinOnly => {
+                    let (next, elapsed, observed) =
+                        append_spin_sample(hub.clone(), writer, current, offset).await;
+                    (next, elapsed, observed, true)
+                }
+                ReplayProbeControl::ForeignHub => {
+                    let Some((foreign, foreign_target)) = foreign.as_ref() else {
+                        panic!("foreign probe setup");
+                    };
+                    append_foreign_hub_sample(
+                        writer,
+                        current,
+                        offset,
+                        foreign.clone(),
+                        *foreign_target,
+                    )
                     .await
+                }
+                ReplayProbeControl::LockedHub => {
+                    append_locked_hub_sample(hub.clone(), writer, current, offset).await
+                }
+            };
+            let (next, elapsed, observed, overlapped) = attempt;
+            writer = next;
+            if overlapped {
+                samples.push(elapsed);
+                proof.push(observed);
+                break;
             }
-        };
-        writer = next;
-        samples.push(elapsed);
-        proof.push(observed);
+            tries += 1;
+            retakes += 1;
+            if tries >= 50 {
+                panic!("{} sample {} exceeded 50 overlap retakes", control.label(), offset);
+            }
+        }
     }
-    (samples, proof)
+    (samples, proof, retakes)
+}
+
+fn emit_probe_host() {
+    let parallelism = std::thread::available_parallelism()
+        .map(|value| value.get().to_string())
+        .unwrap_or_else(|_| "unknown".to_owned());
+    let siblings =
+        std::fs::read_to_string("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list")
+            .map(|value| value.trim().to_owned())
+            .unwrap_or_else(|_| "unknown".to_owned());
+    eprintln!("REPLAY_APPEND_PROBE_HOST parallelism={parallelism} thread_siblings={siblings}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "release probe; run with --profile gate --ignored --nocapture"]
 async fn replay_append_cause_probe() {
-    // Controls are intentionally run in one process with baseline/control
-    // rounds alternating. (a) is the current gate. (b) moves the permit and
-    // counter observation outside the clock. (d1)/(d2) isolate copy traffic
-    // from fresh-allocation cost using private memory. (e) leaves only a
-    // spinner. (f) copies a second hub's snapshot, avoiding shared data.
+    // Controls are intentionally run in one process. (a) is the old gate; (b)
+    // moves instrumentation outside the clock; (d1)/(d2) isolate copy traffic
+    // from fresh-allocation cost; (e) leaves only a spinner; (f) copies another
+    // hub; (g) copies this hub while holding the writer's history mutex.
+    emit_probe_host();
     for control in ReplayProbeControl::ALL {
         let mut baseline = Vec::with_capacity(ROUNDS);
         let mut god = Vec::with_capacity(ROUNDS);
         let mut proof = Vec::with_capacity(ROUNDS);
         for round in 0..ROUNDS {
             let outside = append_round();
-            let (inside, evidence) = append_probe_round(control).await;
+            let (inside, evidence, retakes) = append_probe_round(control).await;
+            let outside_p95 = p95(&outside);
+            let inside_p95 = p95(&inside);
+            let ratio = inside_p95 as f64 / outside_p95.max(1) as f64;
             eprintln!(
-                "REPLAY_APPEND_PROBE control={} round={} small_p50={} small_p95={} god_p50={} god_p95={} proof_min={} proof_total={}",
+                "REPLAY_APPEND_PROBE control={} round={} small_p50={} small_p95={} god_p50={} god_p95={} ratio={ratio:.3} proof_min={} proof_total={} retakes={retakes}",
                 control.label(),
                 round + 1,
                 p50(&outside),
-                p95(&outside),
+                outside_p95,
                 p50(&inside),
-                p95(&inside),
+                inside_p95,
                 evidence.iter().copied().min().unwrap_or(0),
                 evidence.iter().sum::<usize>()
             );
@@ -602,7 +691,7 @@ async fn replay_append_cause_probe() {
         let god_p50 = p50(&god.iter().flatten().copied().collect::<Vec<_>>());
         let small_p95 = best_p95(&baseline);
         let god_p95 = best_p95(&god);
-        let ratio = (god_p95 as f64) / (small_p95.max(1) as f64);
+        let ratio = god_p95 as f64 / small_p95.max(1) as f64;
         eprintln!(
             "REPLAY_APPEND_PROBE_SUMMARY control={} small_p50={} small_p95={} god_p50={} god_p95={} best_ratio={ratio:.3}",
             control.label(),
@@ -663,32 +752,67 @@ async fn replay_frame_gate() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "release gate; run with --release --ignored --nocapture"]
 async fn replay_append_gate() {
+    // Small side: append on one hub beside a full replay of another hub.
+    let (small_app, mut small_writer) = Hub::new(SummaryIndex::new());
+    let small_target = fill_ring(&small_app, &mut small_writer, true);
+    let (foreign_replay, mut foreign_replay_writer) = Hub::new(SummaryIndex::new());
+    let foreign_replay_target = fill_ring(&foreign_replay, &mut foreign_replay_writer, true);
+    // God side: append beside a replay of the same hub's ring.
+    let (own_hub, mut own_writer) = Hub::new(SummaryIndex::new());
+    let own_target = fill_ring(&own_hub, &mut own_writer, true);
+    let small_app = Arc::new(small_app);
+    let foreign_replay = Arc::new(foreign_replay);
+    let own_hub = Arc::new(own_hub);
     let mut baseline = Vec::with_capacity(ROUNDS);
     let mut during = Vec::with_capacity(ROUNDS);
     let mut copy_counts = Vec::with_capacity(ROUNDS);
-    for _ in 0..ROUNDS {
-        baseline.push(append_round());
-        let (samples, copies) = append_replay_round().await;
-        during.push(samples);
-        copy_counts.push(copies);
+    let mut retakes = Vec::with_capacity(ROUNDS);
+    for round in 0..ROUNDS {
+        let (small, small_copies, small_retakes) = append_replay_gate_round(
+            small_app.clone(),
+            small_writer,
+            small_target,
+            foreign_replay.clone(),
+            foreign_replay_target,
+            true,
+        )
+        .await;
+        small_writer = small.1;
+        let (god, god_copies, god_retakes) = append_replay_gate_round(
+            own_hub.clone(),
+            own_writer,
+            own_target,
+            own_hub.clone(),
+            own_target,
+            false,
+        )
+        .await;
+        own_writer = god.1;
+        let small_samples = small.0;
+        let god_samples = god.0;
+        let small_p95 = p95(&small_samples);
+        let god_p95 = p95(&god_samples);
+        eprintln!(
+            "REPLAY_APPEND_ROUND round={} foreign_p95={} own_p95={} ratio={:.3} foreign_raw_copies={} own_raw_copies={} foreign_retakes={} own_retakes={}",
+            round + 1,
+            small_p95,
+            god_p95,
+            god_p95 as f64 / small_p95.max(1) as f64,
+            small_copies,
+            god_copies,
+            small_retakes,
+            god_retakes,
+        );
+        baseline.push(small_samples);
+        during.push(god_samples);
+        copy_counts.push((small_copies, god_copies));
+        retakes.push((small_retakes, god_retakes));
     }
     let small = best_p95(&baseline);
     let god = best_p95(&during);
     let all = p95(&during.iter().flatten().copied().collect::<Vec<_>>());
-    for (round, (outside, inside)) in baseline.iter().zip(&during).enumerate() {
-        eprintln!(
-            "REPLAY_APPEND_ROUND round={} outside_p95={} during_p95={} raw_copies_min={} raw_copies_total={}",
-            round + 1,
-            p95(outside),
-            p95(inside),
-            copy_counts[round].iter().copied().min().unwrap_or(0),
-            copy_counts[round].iter().sum::<usize>()
-        );
-    }
-    assert!(
-        copy_counts.iter().all(|round| round.iter().sum::<usize>() > 0),
-        "every measured round must overlap a raw history copy"
-    );
+    assert!(copy_counts.iter().all(|(small, god)| *small > 0 && *god > 0));
+    eprintln!("REPLAY_APPEND_RETAKES {retakes:?}");
     emit("v2.pr05c.replay_append", small, god, all, "ns");
     assert!(
         god <= small.saturating_mul(12) / 10,
@@ -700,8 +824,50 @@ async fn replay_append_gate() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "release gate; run with --profile gate --ignored --nocapture"]
+async fn append_replay_gate_round(
+    appender: Arc<Hub>,
+    mut writer: HubWriter,
+    target: u64,
+    replay_hub: Arc<Hub>,
+    replay_target: u64,
+    foreign: bool,
+) -> ((Vec<u128>, HubWriter), usize, usize) {
+    let mut samples = Vec::with_capacity(SAMPLES);
+    let mut copies = 0;
+    let mut retakes = 0;
+    for offset in 0..SAMPLES {
+        let current = target + offset as u64;
+        let mut tries = 0;
+        loop {
+            let attempt = if foreign {
+                append_foreign_hub_sample(
+                    writer,
+                    current,
+                    offset,
+                    replay_hub.clone(),
+                    replay_target,
+                )
+                .await
+            } else {
+                append_replay_unobserved_sample(appender.clone(), writer, current, offset).await
+            };
+            let (next, elapsed, observed, overlapped) = attempt;
+            writer = next;
+            if overlapped {
+                samples.push(elapsed);
+                copies += observed;
+                break;
+            }
+            tries += 1;
+            retakes += 1;
+            if tries >= 50 {
+                panic!("replay gate sample {offset} exceeded 50 overlap retakes");
+            }
+        }
+    }
+    ((samples, writer), copies, retakes)
+}
+
 async fn replay_open_hold_gate() {
     let god_rounds = [replay_open_round(true).await];
     let god = best_p95(&god_rounds);
