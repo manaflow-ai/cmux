@@ -12,7 +12,7 @@ import WebKit
 /// their first open ran four WebContent processes, about 110 MB of footprint. Here every overlay page
 /// shares one data store and joins the first live overlay page's process, up to ``pagesPerProcess``
 /// pages, so they cost one process. None is made at launch: the icon picker and the group editor are
-/// made on the first sign someone may open one (the first menu, a hover over a group header:
+/// made on the first sign someone may open one (the first menu or palette open, a group header hover:
 /// `MenuTracking.onFirstMenu`), so an app idle at Home has made no overlay page. Each page keeps its own
 /// origin (`cmux-page://<page id>/`), so their storage stays apart.
 ///

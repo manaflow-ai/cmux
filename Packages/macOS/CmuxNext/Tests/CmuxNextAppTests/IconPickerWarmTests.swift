@@ -14,4 +14,14 @@ struct IconPickerWarmTests {
         }
         #expect(picker.isWarm)
     }
+
+    /// At launch idle the app loads only the symbol catalog (no WebKit process), so a first open with no earlier sign
+    /// of intent (a socket call, a custom shortcut) waits only for its page, not for the catalog too.
+    @Test func preparingTheCatalogMakesNoPage() async {
+        let picker = IconPickerService(services: nil)
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            picker.prepare(page: false) { done.resume() }
+        }
+        #expect(!picker.isWarm, "loading the catalog made the WebKit page")
+    }
 }

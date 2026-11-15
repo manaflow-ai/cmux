@@ -35,6 +35,8 @@ public final class PaletteController {
     /// of guessing it from the active window, which the palette's own
     /// `relativeTo:` and the key window can both disagree with.
     public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
+    /// Work waiting for the palette's first open (``onFirstShow(_:)``); empty after it.
+    private var firstShowWork: [@MainActor () -> Void] = []
     /// Main-thread phases of each open, request to committed first frame (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
     /// The `systemUptime` timestamp of the input event that opens the palette
@@ -146,6 +148,13 @@ public final class PaletteController {
     }
 
     // MARK: Warm-up
+
+    /// Runs `work` once, at the palette's first open from now on, on the main actor's next turn so the panel's first
+    /// frame is not held up: work made ahead of something a palette row may open next (the app's web overlay pages,
+    /// made on this sign of intent and not at launch, as `MenuTracking.onFirstMenu` does for menus).
+    public func onFirstShow(_ work: @escaping @MainActor () -> Void) {
+        firstShowWork.append(work)
+    }
 
     /// Loads the palette's localized string tables. Pure and thread-safe:
     /// call it off the main thread at launch so the first open does not
@@ -283,6 +292,12 @@ public final class PaletteController {
         isVisible = true
         parentWindow = parent
         onVisibilityChange?(true, parent)
+        if !firstShowWork.isEmpty {
+            let work = firstShowWork
+            firstShowWork = []
+            // task-owner: one ordering hop past the open; it ends with `work`
+            Task { @MainActor in work.forEach { $0() } }
+        }
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
         let size = PaletteLayout.windowSize

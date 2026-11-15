@@ -4,19 +4,16 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
 
-/// Shows the one icon picker (R94) in a floating panel beside its anchor and
-/// reports the outcome. One warm picker (S3 d): the first open loads the page
-/// into its panel; every later open reuses that panel, page
-/// and provider (a session swap, no cold load), and a close only hides the panel.
-/// One picker at a time: a new open cancels the previous one. ``open`` is what
-/// `debug.popups` lists, so preflights prove it opened.
+/// Shows the one icon picker (R94) in a floating panel beside its anchor and reports the outcome. One warm picker (S3 d):
+/// the first open (or sign of intent) loads the page into its panel; every later open reuses that panel, page and provider
+/// (a session swap, no cold load), and a close only hides the panel. One picker at a time: a new open cancels the previous
+/// one. ``open`` is what `debug.popups` lists, so preflights prove it opened.
 @MainActor
 final class IconPickerService {
     /// Eight large square tiles per row (the page derives the tile pitch from its width).
     static let size = NSSize(width: 600, height: 520)
 
-    /// Where the picker opens: a rect in `view`'s coordinates (the sidebar row, or the top
-    /// middle of the window).
+    /// Where the picker opens: a rect in `view`'s coordinates (the sidebar row, or the top middle of the window).
     struct Anchor {
         let view: NSView
         let rect: NSRect
@@ -44,32 +41,32 @@ final class IconPickerService {
     private(set) weak var services: AppServices?
     private lazy var prefs = IconPickerPrefsStore(services: services)
     private let symbols = IconPickerSymbols()
-    /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.
+    /// The system SF Symbol catalog, loaded off the main actor at launch idle (`prepare(page: false)`); nil until then.
     private var catalog: IconPickerSymbolCatalog?
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
     private(set) var open: OpenPicker?
     private var warm: Warm?
     /// Opens and closes the panel like every native popup (POLISH: calm motion).
     private let fade = PopupFade()
+    /// A page made by the open itself shows once drawn, 1 s at most (`PageRevealGate`).
+    private let reveal = PageRevealGate(owner: "IconPickerService.firstLoad"), firstLoadLimit: Duration = .seconds(1)
 
     init(services: AppServices?) {
         self.services = services
     }
 
-    /// Whether the panel, page and provider exist, so an open reuses them.
+    /// Whether the panel, page and provider exist, so an open reuses them; `isPageReady`: its page also drew the picker.
     var isWarm: Bool { warm != nil }
+    var isPageReady: Bool { warm?.provider.isSubscribed == true }
 
     /// Each open's timing (`debug.timings` lists them as `icon_picker_opens`).
     var onOpened: ((IconPickerOpenTiming) -> Void)?
 
-    /// Makes the warm picker ahead of the first open (the app calls it at the first menu, where every
-    /// Set Icon is, never at launch: `MenuTracking.onFirstMenu`); `then` runs when it is ready.
-    func prepare(then: (() -> Void)? = nil) {
-        guard let catalog else {
-            loadCatalog { [weak self] in self?.prepare(then: then) }
-            return
-        }
-        if warm == nil { _ = makeWarm(catalog: catalog) }
+    /// Makes the warm picker ahead of the first open, on a sign of intent (the first menu or palette open), never at
+    /// launch; `page: false` loads only the symbol catalog (no web page: the app does it at launch idle). `then` runs when ready.
+    func prepare(page: Bool = true, then: (() -> Void)? = nil) {
+        guard let catalog else { return loadCatalog { [weak self] in self?.prepare(page: page, then: then) } }
+        if page, warm == nil { _ = makeWarm(catalog: catalog) }
         then?()
     }
 
@@ -93,10 +90,7 @@ final class IconPickerService {
         open?.provider.finish(.cancel)
         prefs.load()
         let createdPage = warm == nil
-        guard let warm = warm ?? makeWarm(catalog: catalog) else {
-            completion(.cancel)
-            return
-        }
+        guard let warm = warm ?? makeWarm(catalog: catalog) else { return completion(.cancel) }
         let pageReady = ContinuousClock.now
         var session = IconPickerSession(id: UUID().uuidString, current: current)
         let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -111,12 +105,12 @@ final class IconPickerService {
         panel.setFrame(IconPickerPanel.frame(size: Self.size, anchor: screenAnchor, visible: parent?.screen?.visibleFrame), display: false)
         panel.onDismiss = { [weak provider = warm.provider] in provider?.finish(.cancel) }
         open = OpenPicker(panel: panel, provider: warm.provider, page: warm.page, target: target, anchor: screenAnchor, parent: parent)
-        // Shown over its window (a child moves with it); never on screen for a window that is not
-        // (tests, windows not ordered in).
+        // Shown over its window (a child moves with it), never for a window not on screen (tests); a page this open made
+        // shows once its document drew the picker, never as a blank card (PageRevealGate).
         if let parent, parent.isVisible {
-            fade.open(panel, over: parent, toward: screenAnchor)
-            panel.makeKey()
-            warm.page.focusPage()
+            reveal.hold(ready: warm.provider.isSubscribed, limit: firstLoadLimit) { [fade] in
+                fade.open(panel, over: parent, toward: screenAnchor); panel.makeKey(); warm.page.focusPage()
+            }
         }
         onOpened?(IconPickerOpenTiming(catalog: started.duration(to: catalogReady), page: catalogReady.duration(to: pageReady),
                                        present: pageReady.duration(to: .now), createdPage: createdPage))
@@ -144,6 +138,7 @@ final class IconPickerService {
         if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
         guard let page = PageWebView(descriptor: .iconPicker, routes: routes, options: Self.engineOptions, dynamicResources: symbols, overlayProcess: services?.overlayProcess) else { return nil }
         symbols.appearanceView = page
+        provider.onSubscribed = { [weak self] in self?.reveal.open() }
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made
         return made
@@ -186,6 +181,7 @@ final class IconPickerService {
 
     /// Fades the panel out; the page stays loaded for the next open.
     private func close() {
+        reveal.cancel()
         guard let open else { return }
         self.open = nil
         open.panel.onDismiss = nil
