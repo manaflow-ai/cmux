@@ -15,10 +15,12 @@
 //   streaming    the same while the shown chat streams a turn of TPS chunks a second for STREAM_S seconds;
 //   renderer MB  the renderers' proportional set size (/proc/PID/smaps_rollup Pss) after a collection on every page.
 // Rows (PERF_ROW, chat_100k_flat.*): each value per launch, each long/empty ratio at x1 and xN, and ratio_max, the
-// worst of the twelve ratios (long and grown, each over empty): the goal's number (NOW benches row chat_100k_flat_ratio_max, target 1.2). A CPU ratio is
+// worst of the ratios a run measured (long and grown, each over empty; CASES below): the goal's number (NOW benches
+// row chat_100k_flat_ratio_max, target 1.2, the worse of ratio_max and grown_many.ratio_max). A CPU ratio is
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise.
-// HIDDEN=0 keeps every chat shown. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 streaming windows.
+// HIDDEN=0 keeps every chat shown. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
+// windows.
 // The fixture's turns are plain prose (no code blocks), so the pane's highlighter, which runs on the main thread on an
 // http: page and in a worker on cmux-page:, does no work here.
 //   bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]
@@ -44,6 +46,13 @@ const CPU_FLOOR_PCT = Number(process.env.CPU_FLOOR_PCT ?? 1);
 const HIDDEN = process.env.HIDDEN !== "0";
 const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
+const CASES = process.env.CASES ?? "all";
+// A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
+const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
+if (!["all", "main", "grown-many"].includes(CASES)) {
+  console.error("chat-100k-flat: CASES is all, main or grown-many");
+  process.exit(2);
+}
 if (!Number.isInteger(ROWS) || ROWS < 2 || !Number.isInteger(CHATS) || CHATS < 2) {
   console.error("usage: bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]");
   process.exit(2);
@@ -335,7 +344,17 @@ try {
         const elapsed = (performance.now() - began) / 1000;
         return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
       };
+      const shownProfiler = pages.at(-1)!.cdp;
+      if (profile) {
+        await shownProfiler.send("Profiler.enable");
+        await shownProfiler.send("Profiler.start");
+      }
       const idlePct = await window(IDLE_S);
+      if (profile) {
+        const { profile: cpu } = (await shownProfiler.send("Profiler.stop")) as { profile: unknown };
+        fs.mkdirSync(profile, { recursive: true });
+        fs.writeFileSync(path.join(profile, `${name}-idle.cpuprofile`), JSON.stringify(cpu));
+      }
       // Streaming: the shown chat (the newest) runs a turn whose reply arrives TPS chunks a second.
       const shown = sessionId(count - 1);
       const shownCdp = pages.at(-1)!.cdp;
@@ -381,15 +400,15 @@ try {
       const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
       const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length };
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
-      perfRow({ name: `chat_100k_flat.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
+      perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
       perfRow({
-        name: `chat_100k_flat.${name}.stream_cpu_pct`,
+        name: `${ROW}.${name}.stream_cpu_pct`,
         p50: streamPct,
         p95: streamPct,
         unit: "pct",
         clock: "cpu",
       });
-      perfRow({ name: `chat_100k_flat.${name}.renderer_mb`, p50: mb, p95: mb, unit: "MB" });
+      perfRow({ name: `${ROW}.${name}.renderer_mb`, p50: mb, p95: mb, unit: "MB" });
       return row;
     } finally {
       await context.close().catch(() => undefined);
@@ -399,31 +418,35 @@ try {
   };
 
   console.log("launch | renderers | idle CPU % | streaming CPU % | renderer MB");
-  const emptyOne = await runLaunch("empty_x1", small, 1);
-  const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
-  const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
+  // CASES=main runs every case but grown xN; CASES=grown-many runs only empty xN and grown xN (20 chats taking 100k rows
+  // each live takes about 28 minutes on a 4-vCPU runner, so the perf cron runs it as a part of its own); CASES=all
+  // runs every case. The grown-many max is chat_100k_flat.grown_many.ratio_max, and the goal reads the worse of the two.
+  const pairs: [string, Launch, Launch][] = [];
+  if (CASES !== "grown-many") {
+    const emptyOne = await runLaunch("empty_x1", small, 1);
+    const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
+    const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
+    pairs.push(["long_x1", longOne, emptyOne], ["grown_x1", grownOne, emptyOne]);
+  }
   const emptyMany = await runLaunch(`empty_x${CHATS}`, small, CHATS);
-  const longMany = await runLaunch(`long_x${CHATS}`, long, CHATS);
-  const grownMany = await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns });
+  if (CASES !== "grown-many") pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS), emptyMany]);
+  if (CASES !== "main")
+    pairs.push([`grown_x${CHATS}`, await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns }), emptyMany]);
   const cpuRatio = (a: number, b: number) => Math.max(a, CPU_FLOOR_PCT) / Math.max(b, CPU_FLOOR_PCT);
   const ratios: [string, number][] = [];
-  for (const [label, big, base] of [
-    ["long_x1", longOne, emptyOne],
-    [`long_x${CHATS}`, longMany, emptyMany],
-    ["grown_x1", grownOne, emptyOne],
-    [`grown_x${CHATS}`, grownMany, emptyMany],
-  ] as const) {
+  for (const [label, big, base] of pairs) {
     ratios.push([`${label}.idle_cpu_ratio`, cpuRatio(big.idlePct, base.idlePct)]);
     ratios.push([`${label}.stream_cpu_ratio`, cpuRatio(big.streamPct, base.streamPct)]);
     ratios.push([`${label}.renderer_mb_ratio`, big.mb / base.mb]);
   }
   for (const [name, value] of ratios) {
     console.log(`chat-100k-flat: ${name} ${value.toFixed(2)}x`);
-    perfRow({ name: `chat_100k_flat.${name}`, p50: value, p95: value, unit: "x", target: 1.2, floor: 0.05 });
+    perfRow({ name: `${ROW}.${name}`, p50: value, p95: value, unit: "x", target: 1.2, floor: 0.05 });
   }
   const [worst, max] = ratios.reduce((a, b) => (b[1] > a[1] ? b : a));
   console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);
-  perfRow({ name: "chat_100k_flat.ratio_max", p50: max, p95: max, unit: "x", target: 1.2, floor: 0.05 });
+  const maxRow = `${ROW}.ratio_max`;
+  perfRow({ name: maxRow, p50: max, p95: max, unit: "x", target: 1.2, floor: 0.05 });
 } finally {
   await release();
 }

@@ -150,7 +150,18 @@ export const BENCHES: readonly Bench[] = [
     name: "chat-100k-flat",
     file: "chat-100k-flat.bench.ts",
     args: ["100000", "20"],
-    timeoutMs: 1_740_000,
+    env: { CASES: "main" },
+    timeoutMs: 1_200_000,
+    ownPart: true,
+  },
+  // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
+  // part, under that part's 30-minute run cap.
+  {
+    name: "chat-100k-flat-grown",
+    file: "chat-100k-flat.bench.ts",
+    args: ["100000", "20"],
+    env: { CASES: "grown-many" },
+    timeoutMs: 1_770_000,
     ownPart: true,
   },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
