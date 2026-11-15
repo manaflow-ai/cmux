@@ -14,6 +14,9 @@
 #                                   (its terminal daemon and helpers outlive the app otherwise)
 #   side-instance.sh env NAME       the exports that point web-overlay.sh at it (eval "$(... env NAME)")
 #   side-instance.sh path NAME      the copy's .app
+#   side-instance.sh socket NAME    the copy's control socket (CMUX_NEXT_SOCKET_PATH in its LSEnvironment), for
+#                                   `cmux --app-socket` and hot-verify.py: NAME/control.sock, or
+#                                   /tmp/cmux-side-<hash>.sock when that is too long for a Unix socket
 #   side-instance.sh list           the side instances and whether each runs
 #   side-instance.sh remove NAME    stop it, then delete the folder make wrote and the state the copy
 #                                   kept under its build key (App Support, ~/.acpmux, ~/.cmux/chief:
@@ -155,6 +158,15 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
+    # A control socket at a path this script names (LaunchIdentity reads CMUX_NEXT_SOCKET_PATH), so a driver
+    # (hot-verify.py, `cmux --app-socket`) finds the copy without reading its process's open files.
+    sock="$dir/control.sock"
+    (( ${#sock} <= 100 )) || sock="/tmp/cmux-side-$(printf %s "$dir" | shasum | cut -c1-12).sock"
+    plist_set "$plist" LSEnvironment:CMUX_NEXT_SOCKET_PATH "$sock"
+    # Chromium's mock keychain (CEFSwitches): the copy has no Keychain group, so the real one only asks for the
+    # login keychain's password ("cmux NAME wants to use the ... keychain") on a host where it is locked, a fleet
+    # mini's, and the dialog covers every shot.
+    plist_set "$plist" LSEnvironment:CMUX_MOCK_KEYCHAIN 1
     # Live web reload (Debug Settings, webDev.override) on in its own tunables file, kept with any
     # other tunable set there; without it the app ignores web-dev.json and shows the bundled pages.
     python3 - "$dir/config/debug-tunables.json" <<'PY'
@@ -209,7 +221,7 @@ tag, own = slug(shipped), suffix and slug(suffix)
 print(bundle + ("--" + tag if tag and tag != own else ""))
 PY
 )"
-    printf 'app=%s\nbundle=%s\nkey=%s\nfrom=%s\nversion=%s\nlive=%s\n' "$app" "$bundle" "$key" "$from" "$version" "$live" >"$marker"
+    printf 'app=%s\nbundle=%s\nkey=%s\nfrom=%s\nversion=%s\nlive=%s\nsocket=%s\n' "$app" "$bundle" "$key" "$from" "$version" "$live" "$sock" >"$marker"
     # The replaced identity's state goes once the new copy is in place (none of its processes run:
     # make refuses while the copy runs, and stop ends what ran from it).
     if [[ -n "$old_bundle" && ( "$old_bundle" != "$bundle" || "${old_key:-$old_bundle}" != "$key" ) ]]; then
@@ -269,6 +281,12 @@ PY
     app_of >/dev/null
     printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
       "$dir/config/cmux-next.json" "$dir/web-overlay" "$dir/web-slot"
+    ;;
+  socket)
+    app_of >/dev/null
+    sock="$(sed -n 's/^socket=//p' "$marker")"
+    [[ -n "$sock" ]] || die "$name was made before side instances named their socket: side-instance.sh make $name again"
+    echo "$sock"
     ;;
   path)
     app_of

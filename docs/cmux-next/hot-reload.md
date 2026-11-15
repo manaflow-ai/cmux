@@ -242,10 +242,12 @@ chat with no folder runs in, so its Home chats see your Home chats' files) and `
 
 `--here` patches your running app instead (web and daemon PRs; `hot-apply.py rollback` puts your
 daemon back) and, for a rebuild, only says where the build is. The rules are in
-`scripts/cmux-next/live_apply.py`. Of the last 1,000 NEXT PRs (#36100 to #37575), 675 touch the
-app; try-pr puts 42% of those into a nightly with no build (105 web, 181 daemon), up from 16% when
-only web went in live (`scripts/measure/try-pr-live-share.py`). 26 more change Rust the app links,
-79 are Swift a live code build takes, and 284 need the dev build.
+`scripts/cmux-next/live_apply.py`. Of the last 300 merged NEXT PRs (2026-11-14 17:28Z to 11-15 08:58Z), 193
+touch the app; 129 of those (67%) go into a running nightly with no build (35 web, 90 daemon, 4 both) and 64 need
+the dev build. Of those 129, 87 had only compile checks before merge, 35 gallery stills of rendered states, 5 a
+full app build and 1 a hot swap; their push-to-in-app p50 was 30 min (p90 108), against 3.9 min (web) and
+20.9 min (daemon) hot. An older sample (#36100 to #37575, 675 app PRs) had 42%, before daemon PRs went in live
+counted fully (`scripts/measure/try-pr-live-share.py`).
 
 A Swift change confined to function bodies can also skip the build when `--from` names a live code build
 ([live-code.md](live-code.md)) and `--live-code` its reload log:
@@ -269,6 +271,44 @@ takes the dev build). At 0f92b5e9 the first PR applied 10.87 s after try-pr star
 70 functions, a 135 ms load into the running copy), and its red went from 6 to 180,171 pixels with no relaunch.
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
+
+### Look first: hot-verify.py
+
+Leo, 2026-11-15: "for, like, visual things, you know, close the 99% important bit of, like, well, what does it
+actually change visually? How does it actually feel to interact with? That kind of thing. Like, front load that.
+Just screenshot it, take a video, touch it, interact with it, click around with it, and then push it through the
+various testing instead of the other way around." And: "maybe the code doesn't even need to be compiled".
+
+An agent's first check of a change it can see is a look at it in a running app, not a build, a gallery job or a
+suite:
+
+```sh
+scripts/cmux-next/hot-verify.py plan --source dir:.                 # layers (web, rust, customize) and needs_build
+scripts/cmux-next/hot-verify.py look --source dir:. --host FLEETMAC # before/after, light and dark, video, steps
+scripts/cmux-next/hot-verify.py look --source dir:. --host FLEETMAC --watch   # then every save, shot again
+```
+
+`look` puts the change onto a side instance of the newest NIGHTLY (side-instance.sh: its own bundle id, data,
+socket and daemon) with no build: `webviews/` served live from the tree through the Vite dev server (hot reload,
+so each later save shows in the running copy), daemon Rust built incrementally (`cargo build -p cmux-tui --bin
+cmux` in the tree) and swapped in (`hot-apply.py apply --binary`, terminals kept), a customize profile applied as
+is (`--source profile:FILE`). It shoots the copy before and after in a light and a dark app theme, records a short
+click-through (the steps follow what changed, or `--state FILE` in pr_capture's nightly_steps format), and writes
+`receipt.json` with each phase's seconds, `edit_to_visible_s` and the marker line a PR comment starts with:
+
+```
+<!-- cmux-hot-verify sha=<head 40> app=<CMUXCommit> layers=web,rust source=worktree -->
+```
+
+Swift, resources, manifests and Rust the app links (FFI) are the only changes that wait for a build: `plan` says
+`needs_build: true` and prints the command (`try-pr.sh N`, the fleet dev build). Then run the compile checks, CI,
+gallery and suites as before. `--host` copies the tree's changed files to a checkout it keeps on the fleet Mac and
+brings the receipt back, so an agent host with no display gets the same receipt; shots come from the pr_capture
+kit (CuaDriver) of cmuxterm-hq, found at `$CMUX_HQ_ROOT` or `~/Projects/cmuxterm-hq`. For a merged PR against an
+app that already has it, `--source sha:MERGE --before-ref MERGE^` shoots the parent's web first, then moves the
+tree: the time from that move to the first changed frame is the hot reload's edit-to-visible.
+
+Measured on a fleet Mac (cmux24) against NIGHTLY b1f76a2: MEASUREMENTS_HERE
 
 ### An agent's loop: apply, probe, roll back
 

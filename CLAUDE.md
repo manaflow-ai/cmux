@@ -317,7 +317,13 @@ Leo and every agent:
   do not watch CI or run speculative reviews by default.
 - Never hand-edit or hand-merge generated files (`settings-schema.json`,
   `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
-- Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
+- Look first, then test. A change you can see (web, daemon Rust, settings, themes, customize) is first
+  hot-applied onto a copy of the NIGHTLY and looked at, before any build, gallery job, CI or suite:
+  `scripts/cmux-next/hot-verify.py look --source dir:. --host FLEETMAC` gives before/after stills (light and
+  dark), a short video and a click-through in minutes, with no build (docs/cmux-next/hot-reload.md, "Look
+  first"). Build only when `hot-verify.py plan` says `needs_build: true` (Swift, resources, FFI Rust). Post
+  the receipt on the PR; its first line is the receipt's `marker`.
+- Webview UI screenshots of fixture states come from the gallery advisory run: add a gallery entry with fixture states.
   For a before/after in a minute or two, push and run `scripts/gallery-compare.sh [--open]`: it prints a
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
   by side (no Swift build).

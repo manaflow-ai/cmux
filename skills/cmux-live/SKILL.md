@@ -21,8 +21,23 @@ need one, take the first row that covers the change:
 
 Only a change none of these takes (a new stored property or type in existing Swift, a resource, a
 manifest, Rust the app links through FFI) needs the dev build. `scripts/cmux-next/live_apply.py
-BASE HEAD` sorts a change the same way try-pr does. Of the last 1,000 NEXT pull requests that touch
-the app, about 42% go into a nightly this way with no build.
+BASE HEAD` sorts a change the same way try-pr does. Of the last 300 merged NEXT pull requests, 193 touch the app
+and 129 of those (67%) go into a nightly this way with no build.
+
+## Look first, then test
+
+For a change you can see, the first check is a look in a hot-applied copy of the app, before any build,
+gallery job, CI or suite (Leo, 2026-11-15: "Just screenshot it, take a video, touch it, interact with it, click
+around with it, and then push it through the various testing instead of the other way around"):
+
+```bash
+scripts/cmux-next/hot-verify.py plan --source dir:.                  # layers and needs_build
+scripts/cmux-next/hot-verify.py look --source dir:. --host FLEETMAC  # receipt: before/after light+dark, video, steps
+```
+
+Read the shots and the video, fix what looks wrong, look again (`--watch` reshoots on every save), then run the
+compile checks and CI. Build only when `plan` says `needs_build: true`. Post the receipt on the PR: its first line
+is the receipt's `marker` (docs/cmux-next/hot-reload.md, "Look first").
 
 `cmux live start` runs a cmux checkout's webviews dev server (Vite) and points the running
 cmux at it. From then on, a saved edit under `webviews/` shows in every open page and agent
