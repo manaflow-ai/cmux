@@ -22,6 +22,11 @@ import Testing
     @Test func aStaleOrUnknownTabWaitsForTheMac() {
         var cache = TabProgramCache()
         cache.record(tabID: "t2", programs: ["python3.14"], at: 10)
+        // No output since the read: the program is still the one running.
+        #expect(cache.programs(of: ["t2"], now: 10 + TabProgramCache.maxAge + 0.1) == ["python3.14"])
+        // The terminal drew output: known for `maxAge` from the read, then unknown.
+        cache.outputSince(tabID: "t2")
+        #expect(cache.programs(of: ["t2"], now: 12) == ["python3.14"])
         #expect(cache.programs(of: ["t2"], now: 10 + TabProgramCache.maxAge + 0.1) == nil)
         #expect(cache.programs(of: ["t2", "t9"], now: 11) == nil)
         let plan = TabClosePromptPlan(closing: [shell], cached: nil)

@@ -60,11 +60,12 @@ import Testing
         design.densityTokens = DensityPreset.cozy.tokens
         #expect(Typography.pageScale == 1)
         design.densityTokens = DensityPreset.spacious.tokens
-        #expect(abs(Typography.pageScale - DensityPreset.spacious.tokens.bodySize / CGFloat(13)) < 0.0001)
+        // Over Default's 14 pt body (the ChatGPT app's, Lucas 2026-11-13).
+        #expect(abs(Typography.pageScale - DensityPreset.spacious.tokens.bodySize / DensityPreset.cozy.tokens.bodySize) < 0.0001)
         #expect(Typography.pageScale > 1)
         #expect(design.interfaceScaleScript().contains("--cmux-interface-scale', '\(Typography.pageScale)'"))
         design.setOverride(.chromeFontSize, 15)
-        #expect(abs(Typography.pageScale - CGFloat(15) / CGFloat(13)) < 0.0001)
+        #expect(abs(Typography.pageScale - CGFloat(15) / DensityPreset.cozy.tokens.bodySize) < 0.0001)
         design.setOverride(.chromeFontSize, 11)
         #expect(Typography.pageScale == 1)
     }
@@ -87,14 +88,15 @@ import Testing
         }
         #expect(sizes[2] == 1)
         #expect(texts[2] == 1)
-        #expect(sizes == sizes.sorted() && Set(sizes).count == sizes.count)
-        #expect(texts == texts.sorted() && Set(texts).count == texts.count)
+        // Ultra-compact and Compact share their 20 pt rows; Default and Comfortable share 14 pt text (Lucas 2026-11-13).
+        #expect(sizes == sizes.sorted() && sizes[0] < sizes[2] && sizes[2] < sizes[4])
+        #expect(texts == texts.sorted() && texts[0] < texts[1] && texts[1] < texts[2] && texts[3] < texts[4])
         #expect(sizes[1] < 1 && texts[1] < 1)
         design.densityTokens = DensityPreset.compact.tokens
         let script = design.interfaceScaleScript()
         #expect(script.contains("--cmux-density-scale', '\(Typography.pageDensityScale)'"))
         #expect(script.contains("--cmux-density-text-scale', '\(Typography.pageDensityTextScale)'"))
         design.setOverride(.chromeFontSize, 15)
-        #expect(abs(Typography.pageDensityTextScale - CGFloat(15) / CGFloat(13)) < 0.0001)
+        #expect(abs(Typography.pageDensityTextScale - CGFloat(15) / DensityPreset.cozy.tokens.bodySize) < 0.0001)
     }
 }

@@ -26,6 +26,14 @@
 //! nothing outranks the person's sign-in and it is never sent to CodeRouter. A signed-out Codex in
 //! own mode then fails at once with its own "sign in" error, which the chat shows as its Sign in
 //! card, instead of hanging.
+//!
+//! [`apply_team`] does what a login shell gives the launcher for team mode: the placeholder
+//! `OPENAI_API_KEY` that the generated `cmux` provider reads (`env_key`), which the machine's edge
+//! swaps for the real credential. A chat the Mac starts on the machine is remote-origin
+//! (`agent/command.rs` clears its env and applies no login env), so without it every Codex with
+//! no sign-in of its own failed its first turn on "Missing environment variable:
+//! `OPENAI_API_KEY`." while Claude, whose team pair goes in the launch env
+//! (`claude_cloud_auth.rs`), replied (Leo's NIGHTLY, vm_e58be1e72a22727f29ef, 2026-11-15).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -233,6 +241,22 @@ pub fn apply(
     env.insert(crate::routes::UNSET_KEY.to_owned(), unset.join(","));
 }
 
+/// Team mode for one codex launch on an owner Cloud machine (module docs): the placeholder key the
+/// generated `cmux` provider reads, in the launch's own env, so it reaches codex whether or not a
+/// login env is applied (a remote-origin chat gets none). Only over a config cmux generated, with
+/// a team plane to send to, and never over a key the launch env already sets. True when it added
+/// the key. Call it only when [`own_reason`] answered team (None).
+pub fn apply_team(env: &mut BTreeMap<String, String>, inputs: &Inputs<'_>) -> bool {
+    if !inputs.owner_cloud_image() || !inputs.cmux_config() || inputs.team_origin().is_none() {
+        return false;
+    }
+    if env.get("OPENAI_API_KEY").is_some_and(|v| !v.is_empty()) {
+        return false;
+    }
+    env.insert("OPENAI_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned());
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,6 +427,31 @@ mod tests {
             vars(&[("OPENAI_BASE_URL", "https://edge/v1"), ("OPENAI_API_KEY", PLACEHOLDER_KEY)]);
         apply(&mut argv, &mut env, &var, true);
         assert_eq!(env[crate::routes::UNSET_KEY], "OPENAI_BASE_URL,OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn team_mode_puts_the_placeholder_key_in_the_launch_env() {
+        let m = machine(Some("owner"), true);
+        let var = vars(TEAM);
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        let mut env = BTreeMap::new();
+        assert!(apply_team(&mut env, &inputs));
+        assert_eq!(env["OPENAI_API_KEY"], PLACEHOLDER_KEY);
+        // A key the launch env already sets stays.
+        let mut own = BTreeMap::from([("OPENAI_API_KEY".to_owned(), "sk-profile".to_owned())]);
+        assert!(!apply_team(&mut own, &inputs));
+        assert_eq!(own["OPENAI_API_KEY"], "sk-profile");
+        // No team plane: nothing to send to.
+        let none = vars(&[]);
+        let bare = Inputs { root: &m.root, home: &m.home, var: &none, broker: false };
+        assert!(!apply_team(&mut BTreeMap::new(), &bare));
+        // A config.toml the person wrote names its own provider and key.
+        std::fs::write(m.home.join(".codex/config.toml"), "model_provider = \"azure\"\n").unwrap();
+        assert!(!apply_team(&mut BTreeMap::new(), &inputs));
+        // Not an owner Cloud image.
+        let team = machine(Some("team"), true);
+        let shared = Inputs { root: &team.root, home: &team.home, var: &var, broker: false };
+        assert!(!apply_team(&mut BTreeMap::new(), &shared));
     }
 
     #[test]

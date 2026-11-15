@@ -1583,9 +1583,17 @@ pub struct Config {
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
-    /// Labs-only transport switches (`transport.wireguard`).
+    /// Labs-only transport switches (`transport.wireguard`, which needs `wireguardStatic`). The
+    /// hub carrier does not need them.
     #[serde(default)]
     pub transport: TransportConfig,
+    /// `remoteDaemon`: the loopback `host:port` of this machine's cmux-tui remote daemon
+    /// (`cmux --headless --remote-ws 127.0.0.1:PORT`), which this person's other machines reach
+    /// through the hub carrier (`cmux remote exec|cp|connect --via-machine`). Unset (the
+    /// default): no circuit reaches it. A joined machine also needs its "control" consent
+    /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_daemon: Option<String>,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -1704,10 +1712,49 @@ impl Config {
     /// Set a host-wide session resource setting from the CLI. `default`,
     /// `none`, and `clear` remove an override and restore the computed default.
     /// `acpmux config --set KEY=VALUE`: a permission-mode key
-    /// (`set_permission_mode`), else a session resource limit
-    /// (`set_session_resource`).
+    /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`),
+    /// `transport.wireguard` (`true`/`false`), else a
+    /// session resource limit (`set_session_resource`).
+    ///
+    /// The whole resulting config must pass the daemon's start check
+    /// ([`Self::start_refusal`], `config/start_check.rs`): otherwise nothing changes and the
+    /// refusal says why, so `config --set` never writes a config the daemon refuses to start with.
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        let before = self.clone();
+        self.apply_setting(key, value)?;
+        if let Err(refused) = self.start_refusal() {
+            *self = before;
+            return Err(refused.context(format!(
+                "not set: the acpmux daemon would refuse to start with {key}={value}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// [`Self::set`]'s change alone, unchecked.
+    fn apply_setting(&mut self, key: &str, value: &str) -> Result<()> {
         if self.set_permission_mode(key, value)? {
+            return Ok(());
+        }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "remote_daemon" | "remotedaemon"
+        ) {
+            let value = value.trim();
+            self.remote_daemon = match value.to_ascii_lowercase().as_str() {
+                "" | "none" | "clear" | "off" => None,
+                _ => Some(loopback_daemon_address(value)?.to_string()),
+            };
+            return Ok(());
+        }
+        // The Labs WireGuard transport. It needs `wireguardStatic` (the start check refuses it
+        // without); the hub carrier does not need it (`hub_carrier.rs`: the node key alone).
+        if matches!(key.trim().to_ascii_lowercase().as_str(), "transport.wireguard") {
+            self.transport.wireguard = match value.trim().to_ascii_lowercase().as_str() {
+                "true" | "on" | "1" => true,
+                "false" | "off" | "0" => false,
+                _ => anyhow::bail!("transport.wireguard must be true or false"),
+            };
             return Ok(());
         }
         self.set_session_resource(key, value)
@@ -2277,6 +2324,7 @@ pub use discover::{
 mod peer;
 pub use peer::PeerConfig;
 mod save_merge;
+mod start_check;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
@@ -2318,3 +2366,16 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) mod startup_seams;
+
+/// A `remoteDaemon` address: a socket address on loopback, the only place a circuit may reach.
+pub fn loopback_daemon_address(value: &str) -> Result<std::net::SocketAddr> {
+    let address: std::net::SocketAddr = value
+        .trim()
+        .parse()
+        .with_context(|| format!("remote_daemon must be a loopback host:port, not `{value}`"))?;
+    anyhow::ensure!(
+        address.ip().is_loopback() && address.port() != 0,
+        "remote_daemon must be a loopback host:port with a port (127.0.0.1:PORT or [::1]:PORT)"
+    );
+    Ok(address)
+}

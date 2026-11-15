@@ -244,7 +244,9 @@ struct PageFactory {
         provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
         provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
-        provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
+        let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
+        let integrations = SettingsAgentIntegrations(cli: cli)
+        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli)]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
@@ -272,6 +274,7 @@ struct PageFactory {
             return services.linkOpener.openFile(URL(fileURLWithPath: override.file), from: services.windows.active?.focusedPane,
                                                 asText: true, at: FilePosition(line: override.line))
         }
+        provider.openThemeFile = SettingsThemeFileOpener(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { settings.file.url }, root: { settings.snapshot.root })
         provider.themeFiles = SettingsThemeFiles(
             folders: {
                 .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,

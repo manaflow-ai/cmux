@@ -1,5 +1,9 @@
 # Neko candidate art notices
 
+This file is the notice for the third-party candidate art below. The app does not bundle any of it,
+so the app's `THIRD_PARTY_LICENSES.md` (generated from `scripts/cmux-next/notices/hand-written.md`)
+does not list it; when a set ships, its notice moves there with it.
+
 These files are gallery candidates only. They are not imported by the shipped icon pack and are not
 approved production artwork. The three third-party representatives are unmodified SVGs fetched at the
 pinned commits in `manifest.json`; the neighboring `LICENSE.txt` and `README.md` files are the complete
@@ -22,3 +26,7 @@ source paths, byte counts, and repository URLs are recorded in `manifest.json`.
 Round 2's nine original monochrome experiments in `round2/` reuse first-party cmux action
 silhouettes, as recorded in that directory's manifest. They are not derived from a third-party cat
 asset and remain gallery-only. No production theme imports these experiments.
+
+Round 3's twelve drawings in `round3/` are original cmux geometry on the shipped pack's action
+silhouettes (`round3/manifest.json`). No third-party SVG was copied, traced or modified for them; the
+licensed sets surveyed for round 3 are recorded, not vendored, in `manifest.json` `surveyed`.

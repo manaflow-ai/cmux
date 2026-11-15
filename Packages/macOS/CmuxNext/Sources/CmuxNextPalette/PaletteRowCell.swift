@@ -54,7 +54,7 @@ final class PaletteKeycapsView: NSView {
 /// clears at once (`ChromeHover.fade`); selection, reuse and redraws paint
 /// at once.
 final class PaletteTableRowView: NSTableRowView {
-    private let fill = CALayer()
+    let fill = CALayer()
     private var fadesNextFill = false
 
     override func prepareForReuse() {
@@ -100,6 +100,8 @@ final class PaletteTableRowView: NSTableRowView {
     override func layout() {
         super.layout()
         fill.frame = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
+        // Read again here, so a density change while the palette is open reshapes a reused row.
+        fill.cornerRadius = PaletteLayout.rowCornerRadius
     }
 
     override func drawBackground(in dirtyRect: NSRect) {

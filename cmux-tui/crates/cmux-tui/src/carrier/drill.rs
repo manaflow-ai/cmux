@@ -9,12 +9,9 @@
 //! the seq the server said it resumed from, else the first seq it sent on
 //! the new carrier (the judge's `failover.replay_not_from_last`). What the
 //! client asked for is beside it, as `after_seq`.
-// The turn's event source over the carriers lands with plan slice S1 (the
-// Cloud dial on the route runner); until then only the tests drive the drill.
-#![cfg_attr(
-    not(test),
-    allow(dead_code, reason = "the event source over the carriers lands with plan slice S1")
-)]
+//!
+//! The event source over a real Cloud dial is `cli/cloud_start_chat/internal/fault_routes.rs`
+//! on [`super::drill_dial`].
 
 use std::time::Duration;
 

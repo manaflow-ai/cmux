@@ -208,9 +208,87 @@ pub fn append_startup_timings(session_dir: &Path, line: &serde_json::Value) -> s
     })
 }
 
+/// Puts `laps` on the line of the start `pid` at `at_ms` as the list `after_ready`: the laps
+/// of work that ended after that start could first answer. The line's other fields do not
+/// change. `false` when the file has no such line (it left the latest [`KEPT_STARTS`]). The
+/// caller serializes this with [`append_startup_timings`] for its own process.
+pub fn add_after_ready(
+    session_dir: &Path,
+    pid: u32,
+    at_ms: u64,
+    laps: &serde_json::Value,
+) -> std::io::Result<bool> {
+    let path = session_dir.join(STARTUP_TIMINGS_FILE);
+    let previous = fs::read_to_string(&path).unwrap_or_default();
+    let mut found = false;
+    let lines = previous
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(line) else {
+                return line.to_string();
+            };
+            let number = |key: &str| value.get(key).and_then(serde_json::Value::as_u64);
+            if found || number("pid") != Some(u64::from(pid)) || number("at_ms") != Some(at_ms) {
+                return line.to_string();
+            }
+            let Some(fields) = value.as_object_mut() else {
+                return line.to_string();
+            };
+            found = true;
+            fields.insert("after_ready".into(), laps.clone());
+            value.to_string()
+        })
+        .collect::<Vec<_>>();
+    if !found {
+        return Ok(false);
+    }
+    let staged = session_dir.join(format!(".{STARTUP_TIMINGS_FILE}.{}", std::process::id()));
+    {
+        let mut file = fs::File::create(&staged)?;
+        for line in &lines {
+            file.write_all(line.as_bytes())?;
+            file.write_all(b"\n")?;
+        }
+    }
+    fs::rename(&staged, &path).inspect_err(|_| {
+        let _ = fs::remove_file(&staged);
+    })?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_laps_after_ready_go_on_the_line_of_their_start_and_change_no_other_field() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-startup-after-ready-{}-{}",
+            std::process::id(),
+            unix_now_ms()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let mut timings = StartupTimings::start();
+        timings.lap("socket.bind");
+        let (other, mine) = (timings.to_line(7, 100), timings.to_line(8, 200));
+        append_startup_timings(&dir, &other).unwrap();
+        append_startup_timings(&dir, &mine).unwrap();
+        let laps = serde_json::json!([{"step":"session.restate.part","ms":1.5,"values":12}]);
+        assert!(add_after_ready(&dir, 8, 200, &laps).unwrap());
+        assert!(!add_after_ready(&dir, 9, 200, &laps).unwrap(), "no line of that start");
+        let text = fs::read_to_string(dir.join(STARTUP_TIMINGS_FILE)).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+        let lines = text
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], other, "the line of another start does not change");
+        assert_eq!(lines[1]["after_ready"], laps);
+        assert_eq!(lines[1]["total_ms"], mine["total_ms"]);
+        assert_eq!(lines[1]["steps"], mine["steps"]);
+    }
 
     #[test]
     fn absorbed_laps_keep_their_order_and_name_the_untimed_rest() {

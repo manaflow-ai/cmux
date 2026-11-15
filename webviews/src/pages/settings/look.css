@@ -31,6 +31,8 @@
   --look-nav-height: var(--cmux-sidebar-row-height, var(--grid-row));
   --look-nav-radius: var(--cmux-sidebar-row-radius, var(--ds-radius-md));
   --look-nav-inset: var(--cmux-sidebar-row-inset, var(--ds-space-3));
+  --look-nav-font-size: var(--cmux-sidebar-row-font-size, var(--text-body));
+  --look-nav-gap: var(--cmux-sidebar-row-gap, calc(var(--ds-space-1) / 2));
   --look-card-fill: color-mix(in srgb, var(--polish-ink) 3%, transparent);
   --look-line: var(--polish-edge);
   --look-row-pad-y: var(--ds-space-3);
@@ -133,11 +135,6 @@
       background: var(--cmux-folder-fill, transparent);
     }
 
-    /* The press sink would lift the tab into its own layer, over the rows its shadow runs under. */
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]:active {
-      transform: none;
-    }
-
     :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]::before {
       content: "";
       position: absolute;
@@ -175,42 +172,25 @@
   }
 }
 
-/* Its rows are the window sidebar's list rows at every density (#39984: Codex's 30 px row, 10 px
-   corner and 8 px content inset at Default), with a small gap so the current row's fill and a
-   hovered one below it never read as one block. The current one fills; its weight stays, so
-   selecting never widens its name. */
+/* Its rows are the window sidebar's list rows at every density (the host's --cmux-sidebar-row-*: height,
+   corner, content inset, title size and the gap between rows; Lucas 2026-11-13). The list keeps its own width and
+   side margin. The current
+   one fills; its weight stays, so selecting never widens its name. */
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: var(--look-nav-height);
   padding: 0 var(--look-nav-inset);
   border-radius: var(--look-nav-radius);
+  font-size: var(--look-nav-font-size);
 }
 
 :root[data-settings-look="refined"] .settings .sidebar-section {
-  gap: calc(var(--ds-space-1) / 2);
+  gap: var(--look-nav-gap);
 }
 
 /* Hover follows the pointer at once, as a native sidebar's does (Lucas 2026-11-11: a quick pass
    over the rows lagged behind the pointer: each fill faded in over the hover duration). A press
-   sinks the row a little and lets it snap back on release, with the timing measured from a
-   recording of Aside's sidebar (Lucas 2026-11-11): in and back over the quick motion token, no
-   overshoot. The sink is shallower than Aside's 97 %, which was still "too much". Only the transform
-   moves, so nothing around the row shifts, and Reduce Motion and the motion settings end it (the
-   page's bootstrap sheet). */
-:root[data-settings-look="refined"] .settings .section-link,
-:root[data-settings-look="refined"] .settings .section-link:hover {
-  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
-}
-
-:root[data-settings-look="refined"] .settings .section-link:active {
-  transform: scale(0.99);
-  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root[data-settings-look="refined"] .settings .section-link:active {
-    transform: none;
-  }
-}
+   changes the row's fill only: no sink, no scale (Lawrence 2026-11-15: a held button changes its
+   background, nothing else; design/pressed-state.md). */
 
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-name {
   font-weight: inherit;

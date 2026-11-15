@@ -11,6 +11,7 @@
 // one value; nothing else owns it.
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "./model";
+import { keptPrefix } from "./conversation/prefixFlatMap";
 
 /// The reply's raw row (the client's), how many chunks it is ahead of the row the pane drew, and
 /// that drawn row's text.
@@ -95,12 +96,14 @@ function sameButText(previous: AcpmuxRow, next: AcpmuxRow): boolean {
 }
 
 /// The index of the one row `next` changes from `previous` when the change is only a streaming
-/// reply's text growing, else -1. Unchanged rows keep their objects (direct.ts `OrderedRows`), so
-/// the scan is one pointer compare per row.
+/// reply's text growing, else -1. Unchanged rows keep their objects (direct.ts `OrderedRows`), and
+/// the client says how many leading rows a snapshot kept (prefixFlatMap.ts `keptPrefix`), so only
+/// the rows past those are compared: a token in a 35,000-row chat compares its own row, not every row.
 export function textOnlyRow(previous: readonly AcpmuxRow[], next: readonly AcpmuxRow[]): number {
   if (previous === next || previous.length !== next.length) return -1;
+  const kept = keptPrefix(previous, next);
   let changed = -1;
-  for (let index = next.length - 1; index >= 0; index -= 1) {
+  for (let index = next.length - 1; index >= kept; index -= 1) {
     const before = previous[index]!;
     const after = next[index]!;
     if (before === after) continue;

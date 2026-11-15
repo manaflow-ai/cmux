@@ -2,7 +2,7 @@
 //! actual 20/11k workloads used by the v2 registry, rather than unit-test fixtures or estimates.
 
 use super::*;
-use acpmux_book::index::SummaryIndex;
+use acpmux_book::index::{SortedSnapshot, SummaryIndex};
 use acpmux_client::wire::{ListKey, ListView, Page, PageResult, PageSide, Sub, Window};
 use acpmux_core::hub::Hub as CoreHub;
 use serde_json::json;
@@ -91,6 +91,33 @@ fn fixture(count: usize) -> Arc<Hub> {
         hub.insert_test_session(meta);
     }
     hub
+}
+
+/// A release-only walk fixture whose metadata is read from the real LocalStore
+/// before reconciliation starts. The directory is retained by the caller for
+/// the duration of the child process.
+async fn disk_fixture(count: usize) -> (Arc<Hub>, u128, tempfile::TempDir) {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Local;
+    let root = tempfile::tempdir().expect("walk store tempdir");
+    let store = crate::store::open(&config.store, root.path()).expect("walk local store");
+    for n in 0..count {
+        let id = crate::god_fixture::chat_id(n);
+        let value = crate::god_fixture::session_meta(
+            &id,
+            &format!("chat-{n}"),
+            "/tmp",
+            &crate::god_fixture::agent_session_id(n),
+            400,
+            1_791_540_000_000 + n as u64,
+        );
+        let meta: crate::store::SessionMeta = serde_json::from_value(value).unwrap();
+        store.save(&meta).expect("write walk session metadata");
+    }
+    let hub = Hub::new_loading(config, store, crate::mailbox::Mailbox::memory());
+    let started = Instant::now();
+    hub.load_store_async().await;
+    (hub, started.elapsed().as_nanos(), root)
 }
 
 async fn eventually(mut predicate: impl FnMut() -> bool) {
@@ -208,19 +235,28 @@ fn rss_bytes() -> u128 {
 }
 
 async fn walk_rss_child(count: usize) -> (u128, u128, u128, u128, usize) {
-    let v1 = fixture(count);
-    let (hub, writer) = CoreHub::new(SummaryIndex::new());
+    let (v1, disk_load_ns, _store_root) = disk_fixture(count).await;
+    // Keep a populated stale index so reconciliation reads real page-sized
+    // slices. An empty index would exercise only the unseen-id pass and report
+    // zero page bytes.
+    let index_root = tempfile::tempdir().expect("walk index tempdir");
+    let stale = index_for(&v1, 0);
+    SortedSnapshot::write(index_root.path().join("index.snap"), &stale)
+        .expect("write walk index snapshot");
+    let (hub, writer) = CoreHub::open(index_root.path(), 1, || 7).expect("open walk index");
     let v2 = Arc::new(V2::new(hub, writer));
     let (handle, task) = start_v2_tee(v1.clone(), v2.clone());
+    let metrics = handle.clone();
     v1.install_v2_tee(handle);
     let before = rss_bytes();
     let scope = cmux_scope::Scope::new("list-tee-gate");
     let writer_task = scope.spawn(v2.take_writer().unwrap().run());
     let tee_task = scope.spawn(task);
+    metrics.mark_all();
     let mut peak = before;
     let mut observed = 0;
     let deadline = Instant::now() + Duration::from_secs(30);
-    while v2.hub.snapshot().len() < count {
+    while !metrics.state.walk_finished() {
         assert!(Instant::now() < deadline, "startup walk did not publish every fixture row");
         let len = v2.hub.snapshot().len();
         if len != observed {
@@ -238,8 +274,23 @@ async fn walk_rss_child(count: usize) -> (u128, u128, u128, u128, usize) {
     peak = peak.max(rss_bytes());
     let after = rss_bytes();
     let retained = v2.hub.snapshot().iter().map(|row| serde_json::to_vec(row).unwrap().len()).sum();
+    let (walk_page_bytes, walk_cold_bytes, walk_page_total_bytes, walk_id_bytes) =
+        metrics.state.walk_peak_memory();
+    let (store_load_ns, mark_all_ns) = metrics.state.load_and_mark_all_ns();
     tee_task.abort();
     let _ = tee_task.await;
+    eprintln!(
+        "WALK_MEMORY_CHILD label={:?} page_slots_bytes={} cold_row_bytes={} id_bytes={} additive={}",
+        if count == 20 { "small" } else { "god" },
+        walk_page_bytes,
+        walk_cold_bytes,
+        walk_id_bytes,
+        walk_page_total_bytes.saturating_add(walk_id_bytes),
+    );
+    eprintln!(
+        "WALK_TIMING_CHILD store_load_ns={} tee_wait_store_ns={} mark_all_ns={}",
+        disk_load_ns, store_load_ns, mark_all_ns
+    );
     (before, peak, peak.saturating_sub(before), after, retained)
 }
 
@@ -294,6 +345,15 @@ async fn walk_rss_gate() {
     let small_measure =
         parse(&small.stderr).expect("small RSS child omitted a complete diagnostic");
     let god_measure = parse(&god.stderr).expect("god RSS child omitted a complete diagnostic");
+    for output in [&small.stderr, &god.stderr] {
+        for prefix in ["WALK_MEMORY_CHILD ", "WALK_TIMING_CHILD "] {
+            if let Some(line) =
+                String::from_utf8_lossy(output).lines().find(|line| line.starts_with(prefix))
+            {
+                eprintln!("{line}");
+            }
+        }
+    }
     eprintln!(
         "row=v2.pr05c.walk_rss walk RSS additive diagnostic: small baseline={} peak={} increment={} after={} retained={}, god baseline={} peak={} increment={} after={} retained={}",
         small_measure.0,
@@ -393,7 +453,7 @@ fn keyed_page_samples(count: usize) -> Vec<Vec<u128>> {
     // Use the protocol's default reply budget, as an ordinary client does.
     let mut request = Page::new("gate", "list", PageSide::After, 0);
     request.after = None;
-    request.keys = Some(ids);
+    request.keys = Some(ids.into_iter().map(Into::into).collect());
     let mut samples = Vec::with_capacity(5);
     for _ in 0..5 {
         let mut round = Vec::with_capacity(200);
@@ -419,4 +479,198 @@ async fn keyed_page_gate() {
     let god = keyed_page_samples(11_000);
     let measured = emit("v2.pr05c.keyed_page", &small, &god, "ns");
     assert_bounds("v2.pr05c.keyed_page", measured, Some(200));
+}
+
+/// One side of the hub row gate: a v1 hub whose book lists `book_rows` rows of one machine, and
+/// a v2 index already holding them and `closed` closed rows of this daemon's.
+struct HubRowSide {
+    v1: Arc<Hub>,
+    v2: Arc<V2>,
+    state: Arc<TeeState>,
+    expiries: Expiries,
+    sessions: Vec<crate::mesh::BookSession>,
+    writer: tokio::task::JoinHandle<Result<(), acpmux_core::hub::HubError>>,
+    _scope: cmux_scope::Scope,
+}
+
+fn hub_book_session(n: usize, state: &str) -> crate::mesh::BookSession {
+    crate::mesh::BookSession {
+        name: format!("chat-{n}"),
+        session_id: crate::god_fixture::chat_id(n),
+        host: "machine-b".into(),
+        daemon_id: "d-machine-b".into(),
+        harness: "claude".into(),
+        state: state.into(),
+        last_seen_at: 5,
+    }
+}
+
+fn hub_book(
+    sessions: Vec<crate::mesh::BookSession>,
+) -> (std::collections::BTreeMap<String, u64>, Vec<crate::mesh::BookSession>) {
+    (std::collections::BTreeMap::from([("machine-b".to_owned(), 5)]), sessions)
+}
+
+impl HubRowSide {
+    async fn new(book_rows: usize, closed: usize) -> Self {
+        let index = if closed == 0 { SummaryIndex::new() } else { index_for(&fixture(closed), 0) };
+        let v1 = memory_hub();
+        let (hub, writer) = CoreHub::new(index);
+        let v2 = Arc::new(V2::new(hub, writer));
+        let state = Arc::new(TeeState::default());
+        v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+        state.remote_ready();
+        let scope = cmux_scope::Scope::new("hub-row-gate");
+        let writer = scope.spawn(v2.take_writer().unwrap().run());
+        let sessions: Vec<_> = (0..book_rows).map(|n| hub_book_session(n, "ready")).collect();
+        let (hosts, rows) = hub_book(sessions.clone());
+        v1.set_mesh_book(hosts, rows);
+        let mut expiries = Expiries::default();
+        while state.has_pending() {
+            drain_marks(&v1, &v2, &state, &mut expiries);
+        }
+        eventually(|| v2.hub.snapshot().len() == closed + book_rows).await;
+        // The setup submitted every book row; a round counts only its own.
+        state.remote_submits.store(0, Ordering::Relaxed);
+        Self { v1, v2, state, expiries, sessions, writer, _scope: scope }
+    }
+
+    /// The tee's turn for one changed hub row: the book read marks it (not timed), then the tee
+    /// drains the mark, finds the row and submits it. The index's publish that follows is the
+    /// writer's turn, waited for untimed so each sample is one apply; the `v2.pr05d` and `v2.pr05`
+    /// gates bound it. Timed with the publish, the turn read 25-43 us at either size on one host
+    /// (2026-11-14), the writer thread's wake, while the drain read 9.7-11.2 us at every size.
+    async fn round(&mut self, round: u64) -> Vec<u128> {
+        self.round_parts(round).await.1
+    }
+
+    /// The whole turn (drain and publish) and the tee's drain alone, per sample.
+    async fn round_parts(&mut self, round: u64) -> (Vec<u128>, Vec<u128>) {
+        let (mut samples, mut drains) = (Vec::with_capacity(200), Vec::with_capacity(200));
+        for n in 0..200_u64 {
+            let next = if (round * 200 + n).is_multiple_of(2) { "running" } else { "ready" };
+            self.sessions[0] = hub_book_session(0, next);
+            let (hosts, rows) = hub_book(self.sessions.clone());
+            self.v1.set_mesh_book(hosts, rows);
+            // The book read (v1's, not timed) frees its rows; the next large allocation pays the
+            // allocator for them, whoever makes it. One here, on both sides, so the turn is the
+            // tee's own: at 2,048 book rows the summary's build took 103 us after the read and
+            // 11.6 us after this (`hub_row_drain_steps`, 2026-11-14).
+            std::hint::black_box(vec![1_u8; 1 << 20]);
+            let before = self.v2.hub.snapshot().seq();
+            let started = Instant::now();
+            drain_marks(&self.v1, &self.v2, &self.state, &mut self.expiries);
+            drains.push(started.elapsed().as_nanos());
+            eventually(|| self.v2.hub.snapshot().seq() > before).await;
+            samples.push(started.elapsed().as_nanos());
+            assert_eq!(self.state.remote_submits.load(Ordering::Relaxed), 1);
+            self.state.remote_submits.store(0, Ordering::Relaxed);
+        }
+        (samples, drains)
+    }
+
+    async fn close(self) {
+        self.v2.hub.close();
+        let _ = self.writer.await;
+    }
+}
+
+#[ignore = "Linux release gate: one changed hub row, 2,048 book rows and 11,000 closed rows vs one"]
+#[tokio::test]
+async fn hub_row_submit_gate() {
+    let mut small_side = HubRowSide::new(1, 0).await;
+    let mut god_side = HubRowSide::new(2_048, 11_000).await;
+    let (mut small, mut god) = (Vec::with_capacity(5), Vec::with_capacity(5));
+    // The two sides alternate their rounds: a slow minute of the host lands on both.
+    for round in 0..5_u64 {
+        small.push(small_side.round(round).await);
+        god.push(god_side.round(round).await);
+    }
+    small_side.close().await;
+    god_side.close().await;
+    let measured = emit("v2.pr05h.hub_row_submit", &small, &god, "ns");
+    assert_bounds("v2.pr05h.hub_row_submit", measured, Some(200));
+}
+
+/// Where a hub row's turn goes: the tee's drain and the whole turn, at 1 or 2,048 book rows and
+/// 0 or 11,000 closed rows in the index. Prints only; the gate above is the bound.
+#[ignore = "Linux release breakdown of the hub row gate"]
+#[tokio::test]
+async fn hub_row_submit_breakdown() {
+    let mut sides = Vec::new();
+    for (book, closed) in [(1, 0), (2_048, 0), (1, 11_000), (2_048, 11_000)] {
+        sides.push(((book, closed), HubRowSide::new(book, closed).await, Vec::new(), Vec::new()));
+    }
+    for round in 0..5_u64 {
+        for (_, side, turns, drains) in &mut sides {
+            let (turn, drain) = side.round_parts(round).await;
+            turns.push(turn);
+            drains.push(drain);
+        }
+    }
+    for ((book, closed), side, turns, drains) in sides {
+        let line = json!({
+            "breakdown": "hub_row_submit",
+            "book_rows": book,
+            "closed_rows": closed,
+            "turn_p95": measures(&turns).0,
+            "drain_p95": measures(&drains).0,
+        });
+        eprintln!("{line}");
+        side.close().await;
+    }
+}
+
+impl HubRowSide {
+    /// One changed hub row's drain, step by step after the book read: an optional 1 MiB
+    /// allocation (`settle`), the book lookup, the summary and the submit. p95 of each.
+    async fn steps(&mut self, settle: bool) -> [u128; 5] {
+        let mut times: [Vec<u128>; 5] = Default::default();
+        let id = crate::god_fixture::chat_id(0);
+        for n in 0..400_u64 {
+            let next = if n.is_multiple_of(2) { "running" } else { "ready" };
+            self.sessions[0] = hub_book_session(0, next);
+            let (hosts, rows) = hub_book(self.sessions.clone());
+            let started = Instant::now();
+            self.v1.set_mesh_book(hosts, rows);
+            times[0].push(started.elapsed().as_nanos());
+            let _ = self.state.take_remote(BATCH);
+            let before = self.v2.hub.snapshot().seq();
+            let started = Instant::now();
+            if settle {
+                std::hint::black_box(vec![1_u8; 1 << 20]);
+            }
+            times[1].push(started.elapsed().as_nanos());
+            let started = Instant::now();
+            let row = self.v1.mesh_book_row(&format!("machine-b/{id}")).unwrap();
+            times[2].push(started.elapsed().as_nanos());
+            let started = Instant::now();
+            let summary = summary_from_remote("machine-b", &row.summary).unwrap();
+            times[3].push(started.elapsed().as_nanos());
+            let started = Instant::now();
+            self.v2.hub.submit_from(Source::V1, summary).unwrap();
+            times[4].push(started.elapsed().as_nanos());
+            eventually(|| self.v2.hub.snapshot().seq() > before).await;
+        }
+        times.map(|samples| p95(&samples))
+    }
+}
+
+/// [`hub_row_submit_breakdown`]'s drain, step by step, at 1 and 2,048 book rows.
+#[ignore = "Linux release breakdown of the hub row drain"]
+#[tokio::test]
+async fn hub_row_drain_steps() {
+    for book in [1, 2_048] {
+        let mut side = HubRowSide::new(book, 0).await;
+        for settle in [false, true] {
+            let [read, alloc, lookup, summary, submit] = side.steps(settle).await;
+            eprintln!(
+                "{}",
+                json!({"steps": "hub_row_drain", "book_rows": book, "settle": settle,
+                    "book_read_p95": read, "alloc_p95": alloc, "lookup_p95": lookup,
+                    "summary_p95": summary, "submit_p95": submit})
+            );
+        }
+        side.close().await;
+    }
 }

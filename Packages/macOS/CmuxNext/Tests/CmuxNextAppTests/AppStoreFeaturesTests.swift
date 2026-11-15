@@ -75,7 +75,7 @@ import Testing
             "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
             "chief.suggestedTasks": .chief, "chief.githubFeed": .chief, "chat.needsYou": .chief,
             "editor.splitDiff": .editor, "editor.minimap": .editor,
-            "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
+            "devices.globalHotKey": .devices,
         ]
         let bridge = SettingsAppFeatures(settings: { nil })
         for (id, category) in expected {

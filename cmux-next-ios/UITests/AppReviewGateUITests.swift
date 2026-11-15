@@ -250,7 +250,7 @@ final class AppReviewGateUITests: XCTestCase {
         var dead = walkControls(screen: "settings", reach: settings, skip: destructive)
         dead += walkControls(screen: "settings-bottom", reach: {
             let app = settings()
-            for _ in 0..<6 { app.swipeUp(velocity: .fast) }
+            for _ in 0..<6 { self.surface(app).swipeUp(velocity: .fast) }
             return app
         }, skip: destructive)
         dead += walkControls(screen: "settings-account", reach: {
@@ -282,7 +282,7 @@ final class AppReviewGateUITests: XCTestCase {
         if cancel.exists {
             cancel.tap()
         } else {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+            surface(app).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
         }
         XCTAssertTrue(ask.waitForNonExistence(timeout: 5), "the deletion dialog must close on Cancel")
         XCTAssertTrue(delete.exists, "cancelling must leave the account in place")
@@ -372,9 +372,9 @@ final class AppReviewGateUITests: XCTestCase {
         if device.localizedCaseInsensitiveContains("Duo") {
             gateNote("fold-unjudged", "XCUITest cannot fold the simulator; fold and unfold were not walked on \(device)")
         }
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        if isIPad {
             gateNote("ipad-multitasking-unjudged",
-                     "XCUITest cannot drive Split View or Stage Manager; the iPhone app was judged full screen on iPad")
+                     "XCUITest cannot drive Split View or Stage Manager; the iPhone app was judged in its default compatibility window on iPad")
         }
     }
 
@@ -549,6 +549,14 @@ final class AppReviewGateUITests: XCTestCase {
         for (key, value) in environment {
             app.launchEnvironment[key] = value
         }
+        // A link the walk tapped hands off to Safari. On iPad Safari then
+        // stays in front of the relaunched iPhone app, so the next steps
+        // judge Safari's page, and every runner kill on iPad (runs
+        // 43002601165 and 43050303670, "Test crashed with signal kill")
+        // came at the first launch after such a handoff. Each launch starts
+        // with Safari closed.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        if safari.state != .notRunning { safari.terminate() }
         app.launch()
         if signedIn && setupComplete {
             // The first mock run may still ask for a team.
@@ -628,22 +636,63 @@ final class AppReviewGateUITests: XCTestCase {
         print("GATE-NOTE \(name): \(message)")
     }
 
+    /// What gestures and coordinate taps go to: the app's window, not the
+    /// app element. On iPad the iPhone app runs in a compatibility window
+    /// that does not start at the screen's corner (run 43002601165: the
+    /// window was (234, 0, 635, 1376) in portrait), but the app element's
+    /// frame is the app's own (0, 0, 390, 844), so `app.swipeUp()` pressed
+    /// at (195, 522) in screen points, on the wallpaper left of the window,
+    /// and nothing scrolled. The window's frame is in screen points like
+    /// every other element's.
+    @MainActor
+    private func surface(_ app: XCUIApplication) -> XCUIElement {
+        let window = app.windows.firstMatch
+        return window.exists ? window : app
+    }
+
+    /// The iPad simulator. The test runner is an iPhone app too, so in
+    /// compatibility mode `UIDevice.userInterfaceIdiom` says phone on iPad.
+    private var isIPad: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return (environment["SIMULATOR_MODEL_IDENTIFIER"] ?? "").hasPrefix("iPad")
+            || (environment["SIMULATOR_DEVICE_NAME"] ?? "").hasPrefix("iPad")
+    }
+
+    /// Scrolls until the element is on screen or the content stops moving
+    /// (its end). A fixed swipe count measured "reachable" by screen size:
+    /// on iPad the iPhone app shows 390 x 844 points, fewer rows per swipe
+    /// than a Pro Max, and 12 slow swipes at the largest text size ended in
+    /// the Developer section above Sign out (run 43050303670).
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<12 where !(element.exists && element.isHittable) {
-            app.swipeUp(velocity: .slow)
+        var last = ""
+        for _ in 0..<40 where !(element.exists && element.isHittable) {
+            surface(app).swipeUp(velocity: .slow)
+            let now = app.debugDescription.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
+            if now == last { break }
+            last = now
         }
     }
 
     @MainActor
     private func assertNothingOffscreen(_ app: XCUIApplication, step: String) {
-        let window = app.windows.firstMatch.frame
+        let appWindow = app.windows.firstMatch
+        let window = appWindow.frame
         guard !window.isEmpty else { return }
-        let buttons = app.buttons
+        // The system keyboard (its keys, shortcut bar and predictions) is not
+        // the app's: iOS draws it in its own window, across the whole screen.
+        // On iPad the iPhone app's compatibility window is narrower than the
+        // screen, so every key would read as "outside the window" (2026-11-11,
+        // run 43002601165: tab, Return, shift, assistantUndo on iPad only).
+        // Only controls in the app's own window are judged, and any that sit
+        // inside a keyboard's frame are the keyboard's.
+        let keyboards = app.keyboards.allElementsBoundByIndex.map(\.frame).filter { !$0.isEmpty }
+        let buttons = appWindow.buttons
         for index in 0..<min(buttons.count, 40) {
             let button = buttons.element(boundBy: index)
             guard button.exists, button.isHittable else { continue }
             let frame = button.frame
+            if keyboards.contains(where: { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) }) { continue }
             // A row of a scrolling list may run past the bottom edge; a
             // control cut off at the sides is a layout glitch.
             XCTAssertTrue(
@@ -655,8 +704,10 @@ final class AppReviewGateUITests: XCTestCase {
 
     @MainActor
     private func capture(_ name: String, _ app: XCUIApplication) {
-        let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "gate-\(UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone")-\(name)"
+        // The whole screen: on iPad the app's own screenshot is cropped to the
+        // phone-sized frame at the screen's corner, not to its window.
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "gate-\(isIPad ? "ipad" : "iphone")-\(name)"
         shot.lifetime = .keepAlways
         add(shot)
     }

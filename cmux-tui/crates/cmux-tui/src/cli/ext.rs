@@ -56,6 +56,9 @@ cmux ext: make a cmux extension and watch it change as you work.
                                one reload, then what it rendered: the view's outline and a
                                picture of the cmux window that shows it; exit 6 no picture
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
+  cmux ext capabilities [--op NAME] [--json]
+                               what an extension can read and do: each op's scope, risk class
+                               and consent text, from the running cmux (--json adds the types)
 
 ext dev options: --build CMD (run instead of the packer), --build-timeout SECS (default 120),
   --remove-on-exit, --no-install.
@@ -79,11 +82,21 @@ pub(super) struct DevOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Request {
     Help,
-    New { name: String, kind: String, dir: Option<PathBuf> },
+    New {
+        name: String,
+        kind: String,
+        dir: Option<PathBuf>,
+    },
     Dev(DevOptions),
     Shot(shot::ShotOptions),
     List,
-    Remove { app: String },
+    Remove {
+        app: String,
+    },
+    /// The running cmux's capability manifest, or one op's row.
+    Capabilities {
+        op: Option<String>,
+    },
 }
 
 /// Parses the words after `ext` (`--json` already taken out).
@@ -207,6 +220,13 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             }
         }
         "list" if rest.is_empty() => Ok(Request::List),
+        "capabilities" => match rest {
+            [] => Ok(Request::Capabilities { op: None }),
+            [flag, op] if flag == "--op" && !op.starts_with('-') => {
+                Ok(Request::Capabilities { op: Some(op.clone()) })
+            }
+            _ => Err(usage("ext capabilities takes --op NAME and --json")),
+        },
         "remove" => match rest {
             [app] if app.strip_prefix("local/").is_some_and(scaffold::valid_name) => {
                 Ok(Request::Remove { app: app.clone() })
@@ -324,7 +344,114 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             shot::run(global, &options, &globals, json_out)
         }
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
+        Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
     }
+}
+
+/// `ext capabilities`: the running daemon's capability manifest
+/// (`apps-capabilities`), so the answer is the API that cmux serves.
+fn capabilities(global: &GlobalArgs, op: Option<&str>, json_out: bool) -> i32 {
+    let (sender, wakes) = channel();
+    let mut daemon = match daemon::Daemon::connect(global, sender, wakes) {
+        Ok(daemon) => daemon,
+        Err(message) => {
+            eprintln!("cmux: {message}");
+            return exit::NO_DAEMON;
+        }
+    };
+    let request = match op {
+        Some(op) => json!({ "cmd": "apps-capabilities", "op": op }),
+        None => json!({ "cmd": "apps-capabilities" }),
+    };
+    let data = match daemon.call(request) {
+        Ok(Ok(data)) => data,
+        Ok(Err(message)) => {
+            eprintln!("cmux: {message}");
+            return 1;
+        }
+        Err(_) => {
+            eprintln!("cmux: the cmux daemon did not answer");
+            return exit::NO_DAEMON;
+        }
+    };
+    if data.field("ops").as_array().is_none() {
+        eprintln!(
+            "cmux: the running daemon has no capability manifest (it is older than cmux ext capabilities); restart it with this cmux: {}",
+            super::fix_command::restart_routed_daemon()
+        );
+        return 1;
+    }
+    if json_out {
+        println!("{data}");
+    } else {
+        print!("{}", capabilities_table(&data));
+    }
+    exit::OK
+}
+
+/// The text form: one line per op (op, scope, class, risk, gesture or
+/// escalation), then the never list's size and the API version.
+pub(super) fn capabilities_table(data: &Value) -> String {
+    let rows: Vec<[String; 4]> = data
+        .field("ops")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            let text = |key: &str| row.field(key).as_str().unwrap_or("-").to_string();
+            if row.field("never").as_bool() == Some(true) {
+                return [text("op"), "never".into(), "-".into(), text("consent")];
+            }
+            let mut notes = Vec::new();
+            if row.field("gesture").as_bool() == Some(true) {
+                notes.push("needs a user gesture".to_string());
+            }
+            if let Some(scope) = row.field("escalation").field("scope").as_str() {
+                notes.push(format!("with a command: {scope}"));
+            }
+            if row.field("external").as_bool() == Some(true) {
+                notes.push("refused when sandboxed".to_string());
+            }
+            let risk = row.field("risk").as_str().unwrap_or("no grant");
+            [text("op"), text("scope"), format!("{} {risk}", text("class")), notes.join("; ")]
+        })
+        .collect();
+    const HEADERS: [&str; 4] = ["OP", "SCOPE", "CLASS RISK", "NOTES"];
+    let mut widths = HEADERS.map(str::len);
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
+    let mut out = String::new();
+    let mut line = |cells: [&str; 4]| {
+        let text = format!(
+            "{:w0$}  {:w1$}  {:w2$}  {}",
+            cells[0],
+            cells[1],
+            cells[2],
+            cells[3],
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2]
+        );
+        out.push_str(text.trim_end());
+        out.push('\n');
+    };
+    line(HEADERS);
+    for row in &rows {
+        line([&row[0], &row[1], &row[2], &row[3]]);
+    }
+    if let Some(never) = data.field("never").as_array() {
+        out.push_str(&format!(
+            "{} ops no app may call (cmux ext capabilities --op NAME says why one is refused)\n",
+            never.len()
+        ));
+    }
+    if let Some(version) = data.field("apiVersion").as_str() {
+        out.push_str(&format!("cmux app API {version}\n"));
+    }
+    out
 }
 
 /// `ext list` (the `local/` apps the daemon loads) and `ext remove ID` (drops

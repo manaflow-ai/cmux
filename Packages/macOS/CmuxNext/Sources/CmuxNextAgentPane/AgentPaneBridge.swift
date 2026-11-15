@@ -74,6 +74,9 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             return
         }
+        if let body = message.body as? [String: Any], let method = body["method"] as? String {
+            AgentPaneTailCache.keepHandOver(of: method, params: body["params"] as? [String: Any], pageGeneration: tailGeneration)
+        }
         let request = AgentPaneRequest(body: message.body)
         if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
            let json = JSONValue(foundation: value), let view {

@@ -309,7 +309,7 @@ final class BrowserHibernation {
     }
 
     func forget(_ key: String) {
-        agentPages?.forget(key)
+        agentPages?.pages.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
         agentUsedAt[key] = nil
