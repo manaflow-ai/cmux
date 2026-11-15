@@ -323,6 +323,7 @@ pub(super) fn needs_build(classify: &Value) -> Vec<String> {
 /// The layer a pointer describes, for an app with `app`. A PR pointer names
 /// its `pr`; a branch or commit pointer its `kind` and `ref`; a fork's pointer
 /// is read as `source` says, whatever it claims.
+#[cfg(test)]
 pub(super) fn layer_of(pointer: &Value, app: &App) -> Result<CodeLayer, Failure> {
     layer_from(pointer, app, None)
 }
