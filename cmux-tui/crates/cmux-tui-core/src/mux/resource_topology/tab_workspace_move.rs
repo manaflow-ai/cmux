@@ -75,6 +75,7 @@ impl Mux {
                     self.move_tab_as(actor, surface, pane, index),
                     "tab could not be moved"
                 );
+                self.refresh_terminal_size_policy(surface);
                 return Ok(());
             }
         }
@@ -595,6 +596,7 @@ impl Mux {
                 let _ = surface_handle.persist_host_workspace(&key);
             }
         }
+        self.refresh_terminal_size_policy(surface);
         self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);
         Ok(())
     }

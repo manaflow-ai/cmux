@@ -640,6 +640,60 @@ fn terminal_size_policy_changes_publish_size_state() {
     assert_eq!(surface.size(), (118, 30));
 }
 
+#[test]
+fn moving_a_terminal_between_workspaces_refreshes_the_workspace_size_policy() {
+    let mux = test_mux();
+    let source = mux.new_workspace(Some("source".into()), Some((80, 24))).unwrap();
+    let source_workspace = mux.surface_workspace(source.id).unwrap();
+    mux.resize_surface_for_client(source.id, 0, 120, 40).unwrap();
+    mux.set_workspace_size_policy(
+        source_workspace,
+        Some(TerminalSizingPolicy::new(
+            crate::sizing_policy::TerminalSizingMode::Fixed,
+            Vec::new(),
+            Some(TerminalGridSize::new(90, 20)),
+        )),
+    )
+    .unwrap();
+    assert_eq!(source.size(), (90, 20));
+
+    let destination = mux.create_empty_workspace(Some("destination".into()), None, None).unwrap();
+    mux.move_tab_to_workspace(source.id, Some(destination.workspace)).unwrap();
+    assert_eq!(source.size(), (120, 40), "moving out drops the old fixed default immediately");
+
+    mux.set_workspace_size_policy(
+        destination.workspace,
+        Some(TerminalSizingPolicy::new(
+            crate::sizing_policy::TerminalSizingMode::Fixed,
+            Vec::new(),
+            Some(TerminalGridSize::new(70, 18)),
+        )),
+    )
+    .unwrap();
+    assert_eq!(source.size(), (70, 18));
+
+    mux.move_tab_to_workspace(source.id, Some(source_workspace)).unwrap();
+    assert_eq!(
+        source.size(),
+        (90, 20),
+        "moving back adopts the destination workspace default immediately"
+    );
+
+    let occupied = mux.new_workspace(Some("occupied".into()), Some((80, 24))).unwrap();
+    let occupied_workspace = mux.surface_workspace(occupied.id).unwrap();
+    mux.set_workspace_size_policy(
+        occupied_workspace,
+        Some(TerminalSizingPolicy::new(
+            crate::sizing_policy::TerminalSizingMode::Fixed,
+            Vec::new(),
+            Some(TerminalGridSize::new(60, 16)),
+        )),
+    )
+    .unwrap();
+    mux.move_tab_to_workspace(source.id, Some(occupied_workspace)).unwrap();
+    assert_eq!(source.size(), (60, 16), "moving into an occupied workspace refreshes too");
+}
+
 // Resize audit (2026-10-19), bug A: `apply_terminal_grid` records the
 // engine decision in `applied` before it resizes and ignores the error. A
 // failed grow-back after a viewer leaves therefore never retries: the owner's
