@@ -316,11 +316,18 @@ fn action_list_export_matches() {
         assert_eq!(row["cli_name"], action.cli_name, "{id}");
         assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
         assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
-        assert_eq!(
-            row["context_menu"],
-            action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
-            "{id}"
-        );
+        // A context-menu field awaiting the re-pin (FIELDS_AWAITING_REPIN) keeps the pinned
+        // app's decision in this export too.
+        let context_menu_awaits = FIELDS_AWAITING_REPIN
+            .iter()
+            .any(|(i, f)| *i == id && f.iter().any(|p| p.starts_with("/surfacePlan/contextMenu")));
+        if !context_menu_awaits {
+            assert_eq!(
+                row["context_menu"],
+                action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
+                "{id}"
+            );
+        }
         assert_eq!(
             row["mcp"],
             action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),
