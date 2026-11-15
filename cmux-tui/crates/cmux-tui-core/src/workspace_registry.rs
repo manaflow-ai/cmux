@@ -16,9 +16,9 @@ pub(crate) use session_guard::session_guard_components;
 #[cfg(test)]
 pub(crate) use session_guard::start_session_guard_for_test;
 use session_guard::{
-    SESSION_GUARD_DIR, acquire_existing_session_guard, acquire_existing_session_reset_guard,
-    acquire_session_guard, open_session_lock_file, prepare_session_guard_dir,
-    session_guard_coordinator_path, session_guard_coordinator_waiter_dir, session_guard_lock_path,
+    SESSION_GUARD_DIR, SessionCoordinatorWaiter, acquire_existing_session_guard,
+    acquire_existing_session_reset_guard, acquire_session_guard, open_session_lock_file,
+    prepare_session_guard_dir, session_guard_coordinator_path, session_guard_lock_path,
     validate_session_lock_file,
 };
 pub(crate) use session_guard::{
@@ -54,7 +54,6 @@ use std::path::{Path, PathBuf};
 pub(crate) use terminal_snapshot_read::{SessionRows, read_session_rows};
 
 use anyhow::Context;
-use fs4::FileExt;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

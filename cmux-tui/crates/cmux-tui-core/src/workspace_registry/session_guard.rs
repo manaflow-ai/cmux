@@ -353,7 +353,7 @@ fn session_coordinator_busy(path: &Path) -> anyhow::Result<SessionLease> {
         .with_context(|| format!("workspace session coordinator is busy: {}", path.display()))
 }
 
-struct SessionCoordinatorWaiter {
+pub(super) struct SessionCoordinatorWaiter {
     #[cfg(unix)]
     signal_reader: File,
     #[cfg(unix)]
@@ -366,7 +366,7 @@ struct SessionCoordinatorWaiter {
 }
 
 impl SessionCoordinatorWaiter {
-    fn register(coordinator_path: &Path) -> anyhow::Result<Self> {
+    pub(super) fn register(coordinator_path: &Path) -> anyhow::Result<Self> {
         use std::sync::atomic::Ordering;
 
         let waiter_dir = session_guard_coordinator_waiter_dir(coordinator_path);
@@ -480,7 +480,7 @@ impl SessionCoordinatorWaiter {
         }
     }
 
-    fn wait_until(&self, deadline: std::time::Instant) -> std::io::Result<bool> {
+    pub(super) fn wait_until(&self, deadline: std::time::Instant) -> std::io::Result<bool> {
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd;
