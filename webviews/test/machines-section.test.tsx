@@ -65,10 +65,10 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-async function mount(snapshot: MachinesSnapshot = sampleSnapshot) {
+async function mount(snapshot: MachinesSnapshot = sampleSnapshot, options: { recheck?: readonly number[] } = {}) {
   act(() => root?.unmount());
   const provider = new MockMachinesProvider(snapshot);
-  const store = new MachinesStore(provider);
+  const store = new MachinesStore(provider, options);
   root = createRoot(host);
   await act(async () => {
     root!.render(<MachinesSection store={store} strings={strings} />);
@@ -121,15 +121,110 @@ test("New Workspace runs only on a connected row; Add Machine… runs device.add
   expect(ops(provider, "cmux.machines.addMachine")).toHaveLength(1);
 });
 
-test("a joined machine needs a link for New Workspace", async () => {
+const add = (row: HTMLElement) => [...row.querySelectorAll<HTMLButtonElement>(".machines-action")].at(-1)!;
+const settle = () => act(async () => new Promise<void>((resolve) => setTimeout(resolve, 5)));
+
+test("a joined machine needs a link for New Workspace, except an online Mac, which asks first", async () => {
   await mount();
   const linked = rowNamed("lane-vm-3");
-  const mesh = rowNamed("studio-mini");
-  const add = (row: HTMLElement) => [...row.querySelectorAll<HTMLButtonElement>(".machines-action")].at(-1)!;
+  const mac = rowNamed("studio-mini");
+  const linux = rowNamed("gpu-west");
   expect(add(linked).disabled).toBe(false);
-  expect(add(mesh).disabled).toBe(true);
-  expect(add(mesh).title).toBe(strings.t("machines.joined.noWorkspace"));
-  expect(mesh.querySelector(".machines-state")?.textContent).toBe("Online · macOS · added by you@example.com");
+  expect(add(mac).disabled).toBe(false);
+  expect(add(mac).title).toBe("New Workspace on This Machine");
+  expect(add(linux).disabled).toBe(true);
+  expect(add(linux).title).toBe(strings.t("machines.joined.noWorkspace"));
+  expect(mac.querySelector(".machines-state")?.textContent).toBe("Online · macOS · added by you@example.com");
+});
+
+test("New Workspace on a signed-in Mac asks it, waits on the row with no dialog, and opens once it allows", async () => {
+  const { provider } = await mount(sampleSnapshot, { recheck: [0, 0] });
+  provider.dialAnswers = [{ state: "consent_required" }, { state: "consent_required" }, { state: "opened" }];
+  await act(async () => add(rowNamed("studio-mini")).click());
+  await settle();
+  const calls = ops(provider, "cmux.machines.openJoined").map((call) => call.params);
+  // The person's click, then the row's own asks while the other Mac shows its card.
+  expect(calls).toEqual([
+    { row: "joined:m_mini" },
+    { row: "joined:m_mini", again: true },
+    { row: "joined:m_mini", again: true },
+  ]);
+  expect(host.ownerDocument.querySelector('[role="dialog"]')).toBeNull();
+  expect(ops(provider, "cmux.machines.newWorkspace")).toHaveLength(0);
+  // Opened: the row shows its caption again, with nothing left asking.
+  const row = rowNamed("studio-mini");
+  expect(row.hasAttribute("data-dial")).toBe(false);
+  expect(row.querySelector(".machines-state")?.textContent).toBe("Online · macOS · added by you@example.com");
+});
+
+test("while the other Mac shows its card the row says so, with a spinner in New Workspace's place", async () => {
+  const { provider } = await mount(sampleSnapshot, { recheck: [60_000] });
+  provider.dialAnswers = [{ state: "consent_required" }];
+  await act(async () => add(rowNamed("studio-mini")).click());
+  const row = rowNamed("studio-mini");
+  expect(row.getAttribute("data-dial")).toBe("waiting");
+  expect(row.querySelector(".machines-state")?.textContent).toBe("Waiting for studio-mini to allow");
+  expect(row.querySelector('[role="status"]')?.textContent).toBe("Waiting for studio-mini to allow");
+  expect(row.querySelector(".machines-dial-spinner")).not.toBeNull();
+  expect(row.querySelector(".machines-new")).toBeNull();
+  expect(row.querySelector(".machines-retry")).toBeNull();
+  expect(row.getAttribute("aria-label")).toContain("Waiting for studio-mini to allow");
+});
+
+test("Not now on the other Mac stops the row with Retry; nothing asks again until Retry", async () => {
+  const { provider } = await mount(sampleSnapshot, { recheck: [0, 0, 0] });
+  provider.dialAnswers = [{ state: "consent_declined" }];
+  await act(async () => add(rowNamed("studio-mini")).click());
+  await settle();
+  const row = rowNamed("studio-mini");
+  expect(row.getAttribute("data-dial")).toBe("declined");
+  expect(row.querySelector(".machines-state")?.textContent).toBe("Not allowed on studio-mini");
+  expect(ops(provider, "cmux.machines.openJoined")).toHaveLength(1);
+  const retry = row.querySelector<HTMLButtonElement>(".machines-retry")!;
+  expect(retry.textContent).toBe("Retry");
+  await act(async () => retry.click());
+  await settle();
+  // Retry is the person's click again (no `again`), and it is asked once.
+  expect(ops(provider, "cmux.machines.openJoined").map((call) => call.params)).toEqual([
+    { row: "joined:m_mini" },
+    { row: "joined:m_mini" },
+  ]);
+});
+
+test("no answer within the wait stops asking and offers Retry", async () => {
+  const { provider } = await mount(sampleSnapshot, { recheck: [0] });
+  await act(async () => add(rowNamed("studio-mini")).click());
+  await settle();
+  await settle();
+  const row = rowNamed("studio-mini");
+  expect(row.getAttribute("data-dial")).toBe("unanswered");
+  expect(row.querySelector(".machines-state")?.textContent).toBe("No answer from studio-mini");
+  expect(row.querySelector(".machines-retry")).not.toBeNull();
+  expect(ops(provider, "cmux.machines.openJoined")).toHaveLength(2);
+  await settle();
+  expect(ops(provider, "cmux.machines.openJoined")).toHaveLength(2);
+});
+
+test("a Mac with an older cmux says to update it; an unreachable one says so", async () => {
+  const { provider } = await mount();
+  provider.dialAnswers = [
+    { state: "unavailable", reason: "service.unknown" },
+    { state: "unavailable", reason: "carrier.off" },
+  ];
+  await act(async () => add(rowNamed("studio-mini")).click());
+  await settle();
+  expect(rowNamed("studio-mini").querySelector(".machines-state")?.textContent).toBe("Update cmux on studio-mini");
+  await act(async () => rowNamed("studio-mini").querySelector<HTMLButtonElement>(".machines-retry")!.click());
+  await settle();
+  expect(rowNamed("studio-mini").querySelector(".machines-state")?.textContent).toBe("Could not reach studio-mini");
+});
+
+test("a second click while the ask runs asks nothing more", async () => {
+  const { provider } = await mount(sampleSnapshot, { recheck: [60_000] });
+  await act(async () => add(rowNamed("studio-mini")).click());
+  await act(async () => rowNamed("studio-mini").querySelector<HTMLElement>(".machines-dial-spinner")?.click());
+  await act(async () => rowNamed("studio-mini").querySelector<HTMLButtonElement>(".machines-new")?.click());
+  expect(ops(provider, "cmux.machines.openJoined")).toHaveLength(1);
 });
 
 test("the more button and a right-click open the native menus on their row, which stays revealed while open", async () => {
