@@ -86,7 +86,6 @@ type MarkedRow = {
   status?: string;
   resumable?: boolean;
   below?: boolean;
-  retryable?: boolean;
   turnCopy?: readonly unknown[];
   plan?: unknown;
   turnEnded?: boolean;
@@ -104,7 +103,7 @@ export function rowMark(row: MarkedRow): number {
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     return row.status !== "failed" &&
       row.status !== "error" &&
-      ((row.text?.length ?? 0) > 0 || (row.retryable === true && (row.turnCopy?.length ?? 0) > 0))
+      ((row.text?.length ?? 0) > 0 || (row.turnCopy?.length ?? 0) > 0)
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;
   return MARK_OTHER;
@@ -130,7 +129,7 @@ export function transcriptGap(previous: number, next: number): number {
   // turn gap follows it, by the rules below.
   if ((next === MARK_FOOTER_ROW || next === MARK_FOOTER_SLOT) && previous === MARK_MESSAGE)
     return TRANSCRIPT_FOOTER_GAP;
-  // The last turn that ended on work (turns.ts endsChatOnWork): its footer row sits the same 8 under
+  // A turn that ended on work (turns.ts endsOnWork): its footer row sits the same 8 under
   // the run's last line, never a block gap away (Leo, 2026-11-02: "this spacing would be good", on
   // ChatGPT's row right under the turn's last line).
   if (next === MARK_FOOTER_ROW && (previous === MARK_STEP || previous === MARK_STATUS)) return TRANSCRIPT_FOOTER_GAP;

@@ -31,6 +31,7 @@ pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
+pub use bg_tasks::{BgScope, bg_owner_words};
 mod bounded;
 mod btw;
 mod workflow_activity;
@@ -2123,7 +2124,7 @@ impl Hub {
         self.events.row_changed(session);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
