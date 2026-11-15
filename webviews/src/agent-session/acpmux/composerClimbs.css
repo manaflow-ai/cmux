@@ -1,0 +1,157 @@
+/* The composer look climbs' arms (composer/shellLook, footerControls and emptyHeight .experiment.ts).
+   Each rule needs its experiment's attribute on the composer, which Composer.tsx sets only off the
+   shipped arm, so the shipped composer draws exactly as before. The `:root:root:root` and doubled
+   class prefix outranks the composer's own surface, ring and grid rules (up to (0,6,0) under a
+   queue) whatever the sheet order. */
+
+/* ---------- composer-shell-look: the box ---------- */
+
+/* Every arm: the box and the new chat's strip take the arm's fill, ring and shadow; the queued
+   prompts keep the stack's own tint (their muted actions hold their contrast there) and take the
+   arm's corner and edge. Under a queue the box's top corners stay square, as they ship. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look] > :is(.acpmux-composer-box, .acpmux-composer-strip) {
+  --glass-tint: var(--climb-shell-fill);
+  --acpmux-card-ring: var(--climb-shell-ring);
+  --acpmux-composer-rim: 0 0 0 0 transparent;
+  --acpmux-composer-shadow: 0 0 transparent;
+  background: var(--climb-shell-fill);
+  box-shadow: var(--climb-shell-ring), var(--climb-shell-shadow);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look] > .acpmux-composer-queue {
+  box-shadow: var(--climb-shell-ring), var(--climb-shell-shadow);
+  border-top-left-radius: var(--climb-shell-radius);
+  border-top-right-radius: var(--climb-shell-radius);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look] > .acpmux-composer-box {
+  --acpmux-composer-radius: var(--climb-shell-radius);
+  border-radius: var(--climb-shell-radius);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look] > .acpmux-composer-box::before {
+  box-shadow: none;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look] {
+  --climb-shell-ring: 0 0 0 0 transparent;
+  --climb-shell-shadow: 0 0 transparent;
+}
+
+/* Codex's box: a big round corner, a clearly lighter filled surface, no visible border, roomier. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="codex"] {
+  --climb-shell-fill: light-dark(
+    color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-composer-solid)),
+    color-mix(in srgb, var(--agent-text) 6%, var(--acpmux-composer-solid))
+  );
+  --climb-shell-radius: 26px;
+  --acpmux-strip-radius: 20px;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="codex"] > .acpmux-composer-box {
+  --acpmux-composer-inset: calc(14px * var(--acpmux-density, 1));
+}
+
+/* Claude Code's card: a tighter corner, a plain 1 px border in the text's ink, the page inside. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="claude"] {
+  --climb-shell-fill: var(--agent-page-bg, var(--acpmux-composer-solid));
+  --climb-shell-ring: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 30%, transparent);
+  --climb-shell-radius: 12px;
+  --acpmux-strip-radius: 10px;
+}
+
+/* Floating: no border, a raised surface over a soft wide shadow, a mid corner. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="floating"] {
+  --climb-shell-fill: light-dark(#fff, color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-solid)));
+  --climb-shell-shadow: 0 1px 3px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.4)),
+    0 10px 30px light-dark(rgb(0 0 0 / 0.1), rgb(0 0 0 / 0.6));
+  --climb-shell-radius: 16px;
+  --acpmux-strip-radius: 14px;
+}
+
+/* ---------- composer-footer-controls: +, the pickers, the mic and Send ---------- */
+
+/* Text chips: the mode and model on a faint 6 px rect with their chevron; Send a solid accent circle. */
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"]
+  :is(.acpmux-access-trigger, .acpmux-model .acpmux-picker-button) {
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 10%, transparent);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"] .acpmux-send {
+  border-radius: 50%;
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, #fff);
+}
+
+/* Grouped segment: +, the mic and Send stand in one 8 px bordered segment with hairline dividers. */
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions {
+  gap: 0;
+  padding: 2px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions > * + * {
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions .acpmux-send {
+  border-radius: 6px;
+  background: none;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-plus .acpmux-picker-button {
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-access-trigger {
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+
+/* Codex disc: 32 px controls, + on a round soft disc, the model in primary ink, Send a filled
+   text-color circle with the page's ink for its arrow. */
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] {
+  --acpmux-composer-control: calc(32px * var(--acpmux-density, 1));
+  --acpmux-composer-glyph: calc(18px * var(--acpmux-density, 1));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-composer-plus .acpmux-picker-button {
+  width: var(--acpmux-composer-control);
+  height: var(--acpmux-composer-control);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  color: var(--agent-text);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] :is(.acpmux-model, .acpmux-access-trigger) {
+  color: var(--agent-text);
+  font-weight: 500;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-send {
+  width: var(--acpmux-composer-control);
+  height: var(--acpmux-composer-control);
+  border-radius: 50%;
+  background: var(--agent-text);
+  color: var(--agent-page-bg, var(--acpmux-base));
+}
+
+/* ---------- composer-empty-height: the resting height and placeholder ---------- */
+
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height="hero"] {
+  --climb-rest-lines: 7;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height="tall"] {
+  --climb-rest-lines: 4;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height="large"] {
+  --climb-rest-lines: 2;
+  --text-content: calc(var(--cv-font-size, 14px) * 1.2 * max(1, var(--acpmux-density-text)));
+  --text-content--line-height: calc(var(--cv-line-height, 22.75px) * 1.2 * max(1, var(--acpmux-density-text)));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height] {
+  --acpmux-codex-editor-min: calc(var(--climb-rest-lines) * var(--text-content--line-height));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height] .acpmux-md-field > .acpmux-md-root {
+  min-height: calc(var(--climb-rest-lines) * var(--text-content--line-height));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height="hero"] .acpmux-md-placeholder {
+  color: color-mix(in srgb, var(--agent-text) 52%, transparent);
+}
