@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import importlib.util
 import io
+import os
 import json
 import sys
 import tarfile
@@ -100,7 +101,7 @@ class Step(unittest.TestCase):
         self.assertFalse(any(key.endswith("url") for key in unpack_inputs(chunks)))
 
     def test_pack_refuses_more_than_sixteen_chunks(self) -> None:
-        noise = base64.b64encode(bytes(range(256)) * 200).decode()
+        noise = base64.b64encode(os.urandom(60000)).decode()
         with self.assertRaises(hv.Refused):
             hv.pack({"mode": "hot-verify", "state": noise})
 
@@ -285,10 +286,10 @@ class Workflow(unittest.TestCase):
 
     def test_the_workflow_runs_this_script_from_the_protected_branch(self) -> None:
         text = WORKFLOW.read_text()
-        for command in ("hot-verify-ci.py verdict", "hot-verify-ci.py hq-ref", "hot-verify-ci.py pack",
-                        "hot-verify-ci.py unpack", "hot-verify-ci.py stage", "hot-verify-ci.py render",
-                        "hot-verify-ci.py post"):
-            self.assertIn(command, text)
+        self.assertIn("tool=scripts/cmux-next/hot-verify-ci.py", text)
+        for command in ("verdict", "hq-ref", "pack", "unpack", "stage", "render", "post"):
+            with self.subTest(command=command):
+                self.assertTrue(f"hot-verify-ci.py {command} " in text or f'"$tool" {command} ' in text)
         self.assertIn("environment: pr-media", text)
         self.assertIn("uses: ./.github/actions/pr-media-publish", text)
         self.assertIn("uses: ./.github/workflows/cmux-next-web-bundle-publish.yml", text)
