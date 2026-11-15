@@ -91,16 +91,23 @@ public final class TerminalProjectingSession: TerminalSession {
         guard !shownAlternate, handler != nil else { return inner.loadOlderHistory() }
         if projection.olderRows() > 0 {
             let started = CFAbsoluteTimeGetCurrent()
-            // One chunk per replay: the page keeps calling while its reset is parsed.
-            if let last = lastOlderLoad, started - last < 0.5 { return true }
+            // One chunk per replay: the page keeps calling while its reset is
+            // parsed. Inside the throttle, the answer is the last load's: true
+            // only while a reset it sent is still on its way.
+            if let last = lastOlderLoad, started - last < 0.5 { return lastOlderLoadReset }
             lastOlderLoad = started
             let segments = projection.loadOlder(hostRows: Self.olderChunkRows)
             log.notice("projection: \(Self.olderChunkRows, privacy: .public) older rows re-wrapped in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000), privacy: .public) ms, \(self.projection.olderRows(), privacy: .public) left")
             emit(segments)
-            return segments.contains { if case .reset = $0 { true } else { false } }
+            lastOlderLoadReset = segments.contains { if case .reset = $0 { true } else { false } }
+            return lastOlderLoadReset
         }
         return inner.loadOlderHistory()
     }
+
+    /// A claim on the Mac (alternate screen) keeps its lease: the page renews
+    /// it on leaving and coming back. The primary screen claims nothing.
+    public func renewSizeClaim() { if macClaims { inner.renewSizeClaim() } }
 
     /// The Mac holds the scrollback the projection re-wraps: it asks for the
     /// reader's rows. Phone rows are never fewer than the host rows they wrap.
@@ -111,6 +118,8 @@ public final class TerminalProjectingSession: TerminalSession {
     }
 
     private var lastOlderLoad: CFAbsoluteTime?
+    /// Whether the last ``loadOlderHistory()`` re-wrap sent a reset.
+    private var lastOlderLoadReset = false
 
     /// Mac scrollback rows each ``loadOlderHistory()`` re-wraps.
     static let olderChunkRows: UInt32 = 2_000

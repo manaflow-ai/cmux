@@ -478,6 +478,9 @@ impl View {
             // not written; rows past its bottom are, so it scrolls.
             let physical_end = old_shown_end.max(self.rows as u64);
             let new_end = from + tail.len() as u64;
+            // `i` is a row of `tail` (the loop above stops inside it), so
+            // `tail.len() - 1 - i` cannot underflow and `i + last` is in range.
+            debug_assert!(i < tail.len(), "paint row {i} past the tail ({})", tail.len());
             let last = if new_end > physical_end {
                 tail.len() - 1 - i
             } else {
