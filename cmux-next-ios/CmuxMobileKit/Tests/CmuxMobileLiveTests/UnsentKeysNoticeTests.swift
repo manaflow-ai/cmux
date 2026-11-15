@@ -93,6 +93,12 @@ final class UnsentKeysClock {
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let channels = ChannelLog()
         let session = DaemonTerminalSession(surface: 7) {
+            // The first attach lands after the size claimer's 1 s delay, as
+            // it does in the kit-test job, where every suite starts at once
+            // and the attach waits seconds for the main actor.
+            if channels.last == nil {
+                try await Task.sleep(for: .seconds(2)) // test: a slow first attach
+            }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             channels.append(channel)
             return DaemonClient(channel: channel)
