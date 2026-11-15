@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43710942441",
+  "recorded_at": "2026-11-15T11:59:12Z",
+  "reason": "cmux-tui da0edaeb5a09 changes the image's cmux-tui (pinned e238ea548682)",
+  "dry_run": false,
+  "cmux_tui": "da0edaeb5a09f6f97637c0768df687ecb68f5dda",
+  "fixes": [
+    {
+      "sha": "2d6af90a99a396e7ac61133cd4b4430e872566ad",
+      "mergedAt": "2026-11-15T03:34:20-08:00",
+      "subject": "customize: recover from a layer that breaks the UI (auto-revert, --no-customizations) (#43642)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T11:59:12Z",
+    "snapshot_id": "sh-2af9b9c998f74ad38ac88a7381e3f580",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43710942441): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3c6c6c013ab23c2b97b4ab61265d3db5589d53a9",
+    "image": "cloud-native-auto-da0edaeb-43710942441-1",
+    "revision": "ci-43710942441-1",
+    "at": "2026-11-15T11:59:12Z"
+  },
+  "rolled_back": false
+}
