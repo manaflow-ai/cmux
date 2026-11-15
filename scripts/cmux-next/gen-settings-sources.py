@@ -25,7 +25,8 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a section source needs a group.
 - schemas/settings/source/row-facts.json: the keys Reset All keeps and cmux-browser shares, and each
   row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with the app id
-  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id.
+  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id
+  (also webviews/src/apps/appIdPattern.generated.ts for the web page).
 - schemas/settings/source/samples.json: the values per row kind and validation domain a validator
   must accept and refuse (Swift: SettingsSchema+Samples.generated.swift; the export's accepts/refuses).
 
@@ -1108,6 +1109,8 @@ FACTS_SOURCE = "schemas/settings/source/row-facts.json"
 FACTS_SWIFT = SCHEMA_DIR + "/SettingsSchema+RowFacts.generated.swift"
 # The app manifest schema: its `properties.id.pattern` is the one app id rule (domain:app_id rows).
 APP_MANIFEST_SCHEMA = "cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json"
+# The web copy of that pattern (webviews/src/apps/appId.ts reads it; the web build sees no cmux-tui/).
+APP_ID_TS = "webviews/src/apps/appIdPattern.generated.ts"
 SAMPLES_SOURCE = "schemas/settings/source/samples.json"
 SAMPLES_SWIFT = SCHEMA_DIR + "/SettingsSchema+Samples.generated.swift"
 # The export's row kinds, plus choice_list (a string_list row with choices).
@@ -1277,6 +1280,14 @@ def app_id_pattern():
     return pattern
 
 
+def app_id_ts():
+    return """// {header}
+
+/** The id an app manifest may have: `properties.id.pattern` of the app manifest schema. */
+export const APP_ID_PATTERN = {pattern};
+""".format(header=HEADER.format(c="//", src=APP_MANIFEST_SCHEMA), pattern=json.dumps(app_id_pattern()))
+
+
 def row_facts_swift(data):
     def table(mapping):
         return "\n".join(wrap(["%s: %s" % (swift_string(k), swift_string(v)) for k, v in mapping.items()], "        "))
@@ -1405,6 +1416,7 @@ def row_fact_outputs():
     facts = load_row_facts()
     outputs = agent_policy_swift(load_agent_policy())
     outputs.update({FACTS_SWIFT: row_facts_swift(facts), SAMPLES_SWIFT: samples_swift(load_samples(facts))})
+    outputs[APP_ID_TS] = app_id_ts()
     return outputs
 
 

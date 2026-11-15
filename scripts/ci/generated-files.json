@@ -44,9 +44,10 @@
       "generator": "scripts/cmux-next/gen-settings-sources.py",
       "outputs": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift"
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift",
+        "webviews/src/apps/appIdPattern.generated.ts"
       ],
-      "inputs": ["schemas/settings/**"],
+      "inputs": ["schemas/settings/**", "cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json"],
       "check": ["--check"],
       "status": "committed"
     },
