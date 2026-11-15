@@ -1004,8 +1004,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "8",
         name: "v2.pr08.dial_resume",
-        done_when: "A dial's resume after one change made while the link was down, from the dial to the change in the index: a peer with 11k rows against 20, two hubs over a pipe, the serving side the real connection in peer role.",
-        measured: false,
+        done_when: "A dial's resume with nothing missed into a hub reopened from its store, from the dial to the frame that ends it, and the link's bytes: a peer of 500 live rows with 11k closed beside them against none, rounds alternating, two hubs over a pipe, the serving side the real connection in peer role. One empty frame marked end, no walk; bytes equal but for the cursor's digits.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -1013,8 +1013,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "8",
         name: "v2.pr08.edition_walk",
-        done_when: "A walk in a new edition, from the dial to whole, 11k live rows against 20: no index the writer publishes in the walk lacks a live row or holds it closed.",
-        measured: false,
+        done_when: "A walk in a new edition, from the dial to whole, and the link's bytes: 500 live rows with 11k closed beside them against none, bytes under 200 KB; no index the writer publishes in the walk lacks a live row or holds it closed.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
