@@ -80,6 +80,7 @@ impl AttachBuilder {
             expected_terminal_id: Optional::Missing,
             replay_history_rows: Optional::Missing,
             output_coalesce_ms: Optional::Missing,
+            replay_history_start: Optional::Missing,
             snapshot: Optional::Missing,
             snapshot_images: None,
             snapshot_local_history: None,

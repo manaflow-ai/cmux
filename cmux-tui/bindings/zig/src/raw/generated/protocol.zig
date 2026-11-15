@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "db25a2d78f931e2d73188cd254598e523c2cc2aa91f72c7b8a4254aa82103672";
+pub const ir_sha256 = "b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3741,6 +3741,7 @@ pub const AttachSurfaceRequest = struct {
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
     output_coalesce_ms: wire.Field(u32) = .absent,
     replay_history_rows: wire.Field(u32) = .absent,
+    replay_history_start: wire.Field(u64) = .absent,
     rows: wire.Field(u16) = .absent,
     snapshot: wire.Field([]const u8) = .absent,
     snapshot_images: ?bool = null,
@@ -3771,6 +3772,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "mode", .since = 7, .capability = null },
                 .{ .name = "output_coalesce_ms", .since = null, .capability = "attach-output-coalesce-v1" },
                 .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
+                .{ .name = "replay_history_start", .since = null, .capability = "attach-replay-history-window-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
                 .{ .name = "snapshot_images", .since = null, .capability = "terminal-snapshot-images-v1" },
@@ -11481,6 +11483,7 @@ pub const ResizedEvent = struct {
     /// Protocol 6 compatibility field.
     data: ?Base64 = null,
     event: []const u8,
+    history_rows_omitted: ?u64 = null,
     kitty_graphics_state: ?KittyGraphicsState = null,
     kitty_image_aliases: ?[]const KittyImageAlias = null,
     replay: ?Base64 = null,
@@ -11490,6 +11493,7 @@ pub const ResizedEvent = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
         "data",
+        "history_rows_omitted",
         "kitty_graphics_state",
         "kitty_image_aliases",
         "replay",
@@ -11736,6 +11740,7 @@ pub const VtStateEvent = struct {
     data: Base64,
     event: []const u8,
     history_rows_omitted: ?u64 = null,
+    history_rows_skipped: ?u64 = null,
     kitty_graphics_state: ?KittyGraphicsState = null,
     kitty_image_aliases: ?[]const KittyImageAlias = null,
     rows: u16,
@@ -11744,6 +11749,7 @@ pub const VtStateEvent = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "colors",
         "history_rows_omitted",
+        "history_rows_skipped",
         "kitty_graphics_state",
         "kitty_image_aliases",
     };

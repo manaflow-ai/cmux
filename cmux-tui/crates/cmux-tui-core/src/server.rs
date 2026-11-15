@@ -428,6 +428,13 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
+/// `replay_history_start` with `replay_history_rows` on a bytes
+/// `attach-surface`: the `vt-state` replay holds that many history rows from
+/// that row (0: the oldest kept), then the screen, and says how many rows it
+/// left out above (`history_rows_omitted`) and between them
+/// (`history_rows_skipped`). The viewer keeps a bounded window anywhere in a
+/// long history. Its `resized` replays carry `history_rows_omitted` too.
+pub const ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY: &str = "attach-replay-history-window-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 /// A client that declares this in `set-client-info` gets the public ids
 /// (`terminal_resource_id`, `tab_id`, `pane_id`, `screen_id`,
@@ -2462,6 +2469,11 @@ enum Command {
         /// connection that did not declare the capability.
         #[serde(default)]
         output_coalesce_ms: Option<u32>,
+        /// Bytes mode, with `replay_history_rows`: the replay holds that many
+        /// history rows from this row (0: the oldest kept), then the screen
+        /// (`attach-replay-history-window-v1`); omitted, the newest rows.
+        #[serde(default)]
+        replay_history_start: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR db25a2d78f931e2d73188cd254598e523c2cc2aa91f72c7b8a4254aa82103672. */
+/* cmux-tui mux protocol 12, IR b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2. */
 
 
 import type * as T from "./types.js";
@@ -469,6 +469,7 @@ export type ResizedEvent = { event: "resized" } & {
   "cols": number;
   /** Protocol 6 compatibility field. */
   "data"?: T.Base64;
+  "history_rows_omitted"?: bigint;
   "kitty_graphics_state"?: T.KittyGraphicsState;
   "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "replay"?: T.Base64;
@@ -674,6 +675,7 @@ export type VtStateEvent = { event: "vt-state" } & {
   "cols": number;
   "data": T.Base64;
   "history_rows_omitted"?: bigint;
+  "history_rows_skipped"?: bigint;
   "kitty_graphics_state"?: T.KittyGraphicsState;
   "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "rows": number;

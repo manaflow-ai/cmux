@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR db25a2d78f931e2d73188cd254598e523c2cc2aa91f72c7b8a4254aa82103672. */
+/* cmux-tui mux protocol 12, IR b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2. */
 
 
 import type * as T from "./types.js";
@@ -67,6 +67,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "mode"?: ("bytes" | "render") | null;
   "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
+  "replay_history_start"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;

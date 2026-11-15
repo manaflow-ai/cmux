@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR db25a2d78f931e2d73188cd254598e523c2cc2aa91f72c7b8a4254aa82103672.
+// cmux-tui mux protocol 12, IR b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -654,6 +654,8 @@ pub struct ResizedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub data: Option<T::Base64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_rows_omitted: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_graphics_state: Option<T::KittyGraphicsState>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
@@ -916,6 +918,8 @@ pub struct VtStateEvent {
     pub data: T::Base64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub history_rows_omitted: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_rows_skipped: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_graphics_state: Option<T::KittyGraphicsState>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

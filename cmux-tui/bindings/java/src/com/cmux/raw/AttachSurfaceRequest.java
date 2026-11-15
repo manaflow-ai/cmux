@@ -18,6 +18,7 @@ public final class AttachSurfaceRequest implements WireValue {
     private final Field<AttachSurfaceRequestMode> mode;
     private final Field<Long> outputCoalesceMs;
     private final Field<Long> replayHistoryRows;
+    private final Field<UInt64> replayHistoryStart;
     private final Field<Integer> rows;
     private final Field<String> snapshot;
     private final Field<Boolean> snapshotImages;
@@ -33,6 +34,7 @@ public final class AttachSurfaceRequest implements WireValue {
         this.mode = builder.mode;
         this.outputCoalesceMs = builder.outputCoalesceMs;
         this.replayHistoryRows = builder.replayHistoryRows;
+        this.replayHistoryStart = builder.replayHistoryStart;
         this.rows = builder.rows;
         this.snapshot = builder.snapshot;
         this.snapshotImages = builder.snapshotImages;
@@ -50,6 +52,7 @@ public final class AttachSurfaceRequest implements WireValue {
     public Field<AttachSurfaceRequestMode> mode() { return mode; }
     public Field<Long> outputCoalesceMs() { return outputCoalesceMs; }
     public Field<Long> replayHistoryRows() { return replayHistoryRows; }
+    public Field<UInt64> replayHistoryStart() { return replayHistoryStart; }
     public Field<Integer> rows() { return rows; }
     public Field<String> snapshot() { return snapshot; }
     public Field<Boolean> snapshotImages() { return snapshotImages; }
@@ -84,6 +87,10 @@ public final class AttachSurfaceRequest implements WireValue {
         Object rawReplayHistoryRows = Wire.optional(object, "replay_history_rows");
         if (!Wire.isMissing(rawReplayHistoryRows)) {
             builder.replayHistoryRows(rawReplayHistoryRows == null ? null : Wire.uint32(rawReplayHistoryRows, "AttachSurfaceRequest.replay_history_rows"));
+        }
+        Object rawReplayHistoryStart = Wire.optional(object, "replay_history_start");
+        if (!Wire.isMissing(rawReplayHistoryStart)) {
+            builder.replayHistoryStart(rawReplayHistoryStart == null ? null : Wire.uint64(rawReplayHistoryStart, "AttachSurfaceRequest.replay_history_start"));
         }
         Object rawRows = Wire.optional(object, "rows");
         if (!Wire.isMissing(rawRows)) {
@@ -125,6 +132,7 @@ public final class AttachSurfaceRequest implements WireValue {
         Wire.put(object, "mode", mode);
         Wire.put(object, "output_coalesce_ms", outputCoalesceMs);
         Wire.put(object, "replay_history_rows", replayHistoryRows);
+        Wire.put(object, "replay_history_start", replayHistoryStart);
         Wire.put(object, "rows", rows);
         Wire.put(object, "snapshot", snapshot);
         Wire.put(object, "snapshot_images", snapshotImages);
@@ -138,11 +146,11 @@ public final class AttachSurfaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AttachSurfaceRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(mode, that.mode) && Objects.equals(outputCoalesceMs, that.outputCoalesceMs) && Objects.equals(replayHistoryRows, that.replayHistoryRows) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotImages, that.snapshotImages) && Objects.equals(snapshotLocalHistory, that.snapshotLocalHistory) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
+        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(mode, that.mode) && Objects.equals(outputCoalesceMs, that.outputCoalesceMs) && Objects.equals(replayHistoryRows, that.replayHistoryRows) && Objects.equals(replayHistoryStart, that.replayHistoryStart) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotImages, that.snapshotImages) && Objects.equals(snapshotLocalHistory, that.snapshotLocalHistory) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, mode, outputCoalesceMs, replayHistoryRows, rows, snapshot, snapshotImages, snapshotLocalHistory, snapshotVersion, surface, viewerBacklogBytes); }
+    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, mode, outputCoalesceMs, replayHistoryRows, replayHistoryStart, rows, snapshot, snapshotImages, snapshotLocalHistory, snapshotVersion, surface, viewerBacklogBytes); }
 
     @Override
     public String toString() { return "AttachSurfaceRequest" + toWire(); }
@@ -154,6 +162,7 @@ public final class AttachSurfaceRequest implements WireValue {
         private Field<AttachSurfaceRequestMode> mode = Field.omitted();
         private Field<Long> outputCoalesceMs = Field.omitted();
         private Field<Long> replayHistoryRows = Field.omitted();
+        private Field<UInt64> replayHistoryStart = Field.omitted();
         private Field<Integer> rows = Field.omitted();
         private Field<String> snapshot = Field.omitted();
         private Field<Boolean> snapshotImages = Field.omitted();
@@ -184,6 +193,10 @@ public final class AttachSurfaceRequest implements WireValue {
         }
         public Builder replayHistoryRows(Long value) {
             this.replayHistoryRows = Field.ofNullable(value);
+            return this;
+        }
+        public Builder replayHistoryStart(UInt64 value) {
+            this.replayHistoryStart = Field.ofNullable(value);
             return this;
         }
         public Builder rows(Integer value) {
