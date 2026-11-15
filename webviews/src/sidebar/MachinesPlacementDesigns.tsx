@@ -136,7 +136,7 @@ export function MachinesPlacementDesigns({ placement, collapsed = false }: Machi
         <Sidebar>
           <Tiles machines={false} />
           <div className="mpd-header mpd-disclosure">
-            <Icon name={collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+            <Icon name={collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={12} />
             Machines
           </div>
           {!collapsed && (

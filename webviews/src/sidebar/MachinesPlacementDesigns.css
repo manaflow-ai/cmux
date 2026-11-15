@@ -4,7 +4,8 @@
    tiles in one row (Zen's essentials). The Machines list inside is the real page. */
 .mpd-window {
   display: flex;
-  height: 520px;
+  /* The stage frame's height (the gallery entry's 520). */
+  height: 100vh;
   min-width: 0;
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -31,7 +32,7 @@
 .mpd-tile {
   display: grid;
   place-items: center;
-  height: 36px;
+  height: 32px;
   border: 0;
   border-radius: 8px;
   color: var(--page-text-2, GrayText);
@@ -45,8 +46,8 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
-  padding: 0 14px;
+  height: 24px;
+  padding: 0 16px;
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--cmux-text-tertiary, GrayText);
@@ -60,8 +61,8 @@
   display: flex;
   align-items: center;
   height: 32px;
-  margin: 0 8px 2px;
-  padding: 0 6px;
+  margin: 0 8px;
+  padding: 0 8px;
   border-radius: 8px;
   white-space: nowrap;
   overflow: hidden;
@@ -70,7 +71,7 @@
 .mpd-row[data-selected] { background: color-mix(in srgb, currentColor 14%, transparent); }
 .mpd-footer {
   margin-top: auto;
-  padding: 0 14px;
+  padding: 0 16px;
   color: var(--page-text-2, GrayText);
 }
 /* The section: the page at its compact layout, at most about eight rows tall, scrolling inside. */
@@ -94,7 +95,9 @@
 .mpd-page .machines {
   height: 100%;
   box-sizing: border-box;
-  padding: var(--ds-space-40) max(var(--ds-space-6), calc((100% - 560px) / 2)) var(--ds-space-6);
+  padding: var(--ds-space-40) var(--ds-space-6) var(--ds-space-6);
+  max-width: 560px;
+  margin: 0 auto;
 }
 .mpd-strip {
   display: flex;
@@ -105,7 +108,7 @@
 .mpd-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 0 12px;
   border-radius: 8px 8px 0 0;
   font-size: var(--text-detail);
@@ -145,11 +148,11 @@
 }
 .mpd-settings-title {
   margin: 0 0 16px;
-  font-size: var(--text-title, 20px);
+  font-size: var(--text-title);
   font-weight: 600;
 }
 .mpd-settings-group {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--cmux-text-tertiary, GrayText);
@@ -157,6 +160,6 @@
 .mpd-settings-card {
   flex: 1;
   min-height: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: color-mix(in srgb, currentColor 4%, transparent);
 }
