@@ -116,13 +116,17 @@ run_group acpmux-lib acpmux_lib_gates
 
 # cmux-tui-core links libghostty-vt (ghostty-vt-sys): its build needs the ghostty-next
 # submodule's source and zig, which neither the nightly's Rust setup nor a plain `cmux-ci test`
-# checkout holds (`cmux-ci test --setup rust` does). The group gets both itself, the way
-# fast-checks.yml's "Initialize Rust native dependencies" step does, and a machine where either
-# cannot be had fails the group with that reason, never a build panic. Run from cmux-tui/.
+# checkout holds (`cmux-ci test --setup rust` does). Under CI the group gets both itself, the way
+# fast-checks.yml's "Initialize Rust native dependencies" step does (decision 282); off CI, or where
+# an input cannot be had, the group fails with a line naming it, never a build panic. Run from cmux-tui/.
 tui_core_native_ready() {
   local root
   root=$(git rev-parse --show-toplevel) || return 1
   if [[ -z "${CMUX_GHOSTTY_SRC:-}" && ! -f "$root/ghostty-next/build.zig" ]]; then
+    if [[ -z "${CI:-}" ]]; then
+      echo "v2 gates: the ghostty-next submodule is empty; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
+      return 1
+    fi
     echo "v2 gates: the ghostty-next submodule is empty; initializing it for cmux-tui-core"
     (cd "$root" && bash scripts/ci/init-submodule.sh ghostty-next) || {
       echo "v2 gates: cannot initialize ghostty-next; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
@@ -130,6 +134,10 @@ tui_core_native_ready() {
     }
   fi
   if ! command -v zig >/dev/null 2>&1 && [[ -z "${CMUX_ZIG:-}" ]]; then
+    if [[ -z "${CI:-}" ]]; then
+      echo "v2 gates: no zig on PATH; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
+      return 1
+    fi
     echo "v2 gates: no zig on PATH; installing the pinned zig for cmux-tui-core"
     # The installer exports CMUX_ZIG only to a GitHub job's later steps; this shell reads it back.
     local zig_env
