@@ -86,6 +86,19 @@ names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
 stream's state, mode and frame counts). It carries no credential and no
 screen content. Connect and Take over stay the person's clicks in the pane.
 
+`app mac-screens [--tab <tab>]` works with every build: it reads the app's
+`mac_screen.state`, one row per Mac Screen tab showing one of your devices
+(or the one `--tab` names) with `tab`, `device_id`, `device`, `phase`
+(`connecting`, `connected`, `failed`, `ended`, null with no session),
+`connected`, `has_frame`, `path`, `connect_started_at` (ISO 8601) and
+`first_frame_ms` (connect start to the first decoded frame on screen), `fps`,
+`target_fps`, `rtt_ms`, `frames_decoded`, `frames_dropped` (frames the other
+Mac numbered that never showed), `frame`, and `rtt_ms_window`,
+`frame_interval_ms` and `present_ms` (decoded to shown) as `{count, p50, p95,
+max}` over the last 60 round trips and 120 frames. It is read-only: it never
+connects, disconnects or sends input, and carries no credential or screen
+content.
+
 `app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
 app's `agent.chat.perf` runs the chat page's own capture for that many
 seconds (default 5) and returns `{tab, seconds, duration_ms, measured,

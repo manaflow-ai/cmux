@@ -2335,6 +2335,13 @@ CmuxNextApp	extension	NewTabWeather	0	LOGIC	100	0	Packages/macOS/CmuxNext/Source
 CmuxNextApp	enum	NewTerminalStart	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTerminalStart.swift	cwd rule for a new terminal start
 CmuxNextApp	struct	NewWorkspaceFocus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewWorkspaceFocus.swift	how a new workspace takes focus
 CmuxNextApp	enum	DebugNotifications	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/DebugNotifications.swift	DEBUG notifications probe
+CmuxNextKeys	class	KeyRequests	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextKeys/KeyRequests.swift	keys.request pending list (bounded, replace by name, end once, early abandon); in memory, candidate to move into the Rust key broker
+CmuxNextKeys	struct	KeysCLI	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextKeys/KeysCLI.swift	Runs the Rust `cmux keys` CLI and reads its JSON answers
+CmuxNextKeys	class	SettingsKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextKeys/SettingsKeys.swift	Settings > Keys page ops and stream: thin bridge to KeysCLI and KeyRequests
+CmuxNextKeys	extension	KeyRequests	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextKeys/KeyRequests+Control.swift	keys.request control method wiring
+CmuxNextKeys	struct	KeyRequestParams	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextKeys/KeyRequests+Control.swift	keys.request params as the Rust CLI sends them
+CmuxNextKeys	extension	KeyRequests	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextKeys/KeyRequests+Control.swift	Key request banners: post, withdraw, click route, who asked
+CmuxNextKeys	extension	KeyRequests.Request	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextKeys/KeyRequests+Control.swift	Key request banner text
 CmuxNextNotifications	extension	DesktopNotifier	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/DesktopNotifier+Incognito.swift	Incognito banner text (moved to CmuxNextNotifications by #32438)
 CmuxNextNotifications	class	DesktopNotifier	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/DesktopNotifier.swift	from class DesktopNotifier:23: UNUserNotificationCenter banners (moved to CmuxNextNotifications by #32438)
 CmuxNextNotifications	extension	DesktopNotifier	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/DesktopNotifier.swift	UNUserNotificationCenter banners (moved to CmuxNextNotifications by #32438)
