@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample try-ons), not shipped UI.
-// The try-on bar's looks, side by side for the pick (rulebook: more than two versions). References:
-// cmux-design-references `cursor/live/diff-last-agent-turn` (inline Undo / Keep beside the change,
-// no card) and `claude/live/sidebar-mobile-promo-banner` (one quiet line, one action).
+// The try-on bar's looks, side by side for the pick (rulebook: more than two versions). From the
+// cmux-design-references: an inline Undo / Keep beside the change with no card, and a small banner
+// of one quiet line with one action.
 // Shipped: `row`. It sits on the page's own hairline like the read-only banner, so Settings keeps
 // one surface (no gray card in the content, the folder-tab join), and its meter is the hairline
 // itself running down to the revert, which says "this goes away by itself" without a word.
