@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields } from "./cloud-journey";
+import { JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
 const journeyOnly = (name: string) => (JOURNEY_ONLY_STEPS as readonly string[]).includes(name);
@@ -39,13 +39,21 @@ describe("probe.json says whether the row was a spare hit", () => {
     expect(probe.claimed_spare).toBe(true);
   });
 
+  test("value.claim.behind (cmux-platform#1429) and the notice every create writes", () => {
+    const behind = spareFields({ spare_fallback: null, spare_skips: { image: 1 }, claim: { id: "vm_x", behind: true } });
+    expect(behind.claimed_behind).toBe(true);
+    expect(spareFields({ spare_fallback: null, spare_skips: {}, claim: { id: "vm_x" } }).claimed_behind).toBe(false);
+    expect(spareNotice("staging", "after", behind)).toBe('::notice title=Cloud journey spare::backend=staging phase=after fallback=null behind=true skips={"image":1}');
+    expect(spareNotice("prod", "", spareFields({ spare_fallback: "all_skipped", spare_skips: { image: 2 } }))).toBe('::notice title=Cloud journey spare::backend=prod phase=- fallback=all_skipped behind=null skips={"image":2}');
+  });
+
   test("only counts and reason tokens get through", () => {
     expect(publicError('exec: HTTP 503 "vm_unavailable" on vm_01JABCDEF9 at https://x.invalid/v1 from 10.1.2.3')).toBe('exec: HTTP 503 "vm_unavailable" on <id> at <url> from <addr>');
     // A guest's stderr names hosts with no scheme; daemon versions (1.0.0+abc) are not hosts.
     expect(publicError("exit 1 dial relay.example-host.internal: refused (daemon 1.0.0)")).toBe("exit 1 dial <host>: refused (daemon 1.0.0)");
-    expect(spareFields({ spare_fallback: "no_spare", spare_skips: { restarting: 2, "vm_abc host": 1, image: -1, stale: 1.5 } })).toEqual({ spare_fallback: "no_spare", spare_skips: { restarting: 2 } });
-    expect(spareFields({ spare_fallback: "vm_0123 was lost", spare_skips: ["restarting"] })).toEqual({ spare_fallback: null, spare_skips: null });
-    expect(spareFields({ spare_fallback: null, spare_skips: {} })).toEqual({ spare_fallback: null, spare_skips: {} });
+    expect(spareFields({ spare_fallback: "no_spare", spare_skips: { restarting: 2, "vm_abc host": 1, image: -1, stale: 1.5 } })).toEqual({ spare_fallback: "no_spare", spare_skips: { restarting: 2 }, claimed_behind: null });
+    expect(spareFields({ spare_fallback: "vm_0123 was lost", spare_skips: ["restarting"] })).toEqual({ spare_fallback: null, spare_skips: null, claimed_behind: null });
+    expect(spareFields({ spare_fallback: null, spare_skips: {} })).toEqual({ spare_fallback: null, spare_skips: {}, claimed_behind: null });
     expect(publicMachineFacts({ id: "vm_x", host: "h.internal", status: "running", ready: false, team: "team_1", image: { daemon_version: "0.9.1", id: "img_1" }, updater: { flip: "pending", target: "vm_y" } }))
       .toEqual({ status: "running", ready: false, daemon_version: "0.9.1", updater_flip: "pending" });
   });

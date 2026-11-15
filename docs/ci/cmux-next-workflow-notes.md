@@ -379,8 +379,11 @@ run_attempt too; a carried reading, whoever re-ran the run, sends it to the movi
 (vars.MACOS_RUNNER_26, else RUNNER_POOLS.macos_26), as a push Release compile's fallback does.
 cmux#38484's run 42728317341 (2026-11-10) kept `cmux app scheme compile (Debug)` on
 glaeda-side-std-xcode-26.6 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
-(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs only on attempt 1 and the
-rescue's attempts 2 and 3, so attempt 4 and later never take an owned label; fast-tier-handback-placement's
+(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs on attempt 1 and on every
+rescue bot attempt, placed afresh (next_macos_cascade.bot_rerun()); a person's re-run past attempt 1 carries
+attempt 1's reading and never takes an owned label. Run 43716323834's attempt 5 (#43733, 2026-11-15) queued
+on glaeda-side-std-xcode-26.6 while glaeda-gui-std-xcode-26.6 had nothing queued, because placement then ran only
+up to the bot's attempt 3; fast-tier-handback-placement's
 reading is gated on its own placed_attempt the same way.
 
 ## note-20
@@ -3110,6 +3113,18 @@ On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807) sat 
 placement, so the runs-on fell through to `fromJSON(vars.RUNNER_POOLS).macos_26`.
 `tests/test_ci_next_macos_cascade.py` `test_every_blacksmith_macos_job_is_behind_the_off_switch` refuses a
 Mac job whose runs-on can name a Blacksmith macOS label while the switch is off.
+
+The scoped value `pr-rescue` (hq#11523, 2026-11-15: `glaeda-side-std-xcode-26.6` had 76 jobs queued, the oldest
+150 min, and no owned Mac was free) is Blacksmith macOS for this workflow's pull-request jobs only. Its
+placement (`next_macos_cascade.pr_rescue()`, `rescue_open()`) opens the Blacksmith labels only when the event is
+`pull_request`, `GITHUB_WORKFLOW_REF` is this file, and the owned route's oldest queued job has waited
+`RESCUE_ROUTE_MINUTES` (45); the slots then go through the same cascade, `CAPACITY` and `MAX_PER_RUN` caps as `on`.
+In runs-on, a placement-listed Blacksmith job reads `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue'` (no fromJSON, so tests/runs_on_labels.py resolves it), and every
+owned fallback reads `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' ||
+github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on'`: a pull request's re-run (the bot's stall-move or
+refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; attempt 1 stays owned. Every other
+workflow compares the variable with exactly `on`, so nightly, promote, signing and release read `pr-rescue` as
+off; `BlacksmithPrRescue` in `tests/test_ci_next_macos_cascade.py` proves both. Unset or `on` behave as before.
 
 The repository's generic `vars.MACOS_RUNNER_26` is a Blacksmith macOS read too, and it sat ahead of the switch: a
 bot re-run past an attempt cap (`run_attempt <= 3`, #22565), or one carrying attempt 1's placement, took it. On
