@@ -96,6 +96,12 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     package static var idleReleaseUnderWarning: Double { 30 }
     /// This planner's idle wait at normal pressure, ``idleRelease`` (tests of the freeze alone set it past their clock).
     package var idleWait: Double = HiddenChatPages<Host>.idleRelease
+    /// Tab `key` is the chat face of a session whose terminal face its pane draws now (Toggle Terminal and Chat): its
+    /// page neither freezes nor goes, so the swap back shows it at once (Leo, 2026-11-12: two live views of one
+    /// session, instant both ways). The App sets it; at most one page per pane that draws such a terminal.
+    package var pairedFace: (String) -> Bool = { _ in false }
+    /// Hidden chats that were the chat face of a drawn terminal at the last plan.
+    private var pairedFaces: Set<String> = []
 
     /// The App's side; it owns this planner (weak: no cycle).
     private weak var host: Host?
@@ -245,6 +251,9 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
             let visible = isRendering(key)
             if visible != shown.contains(key) { pageVisibility(key, visible: visible) }
         }
+        // A terminal face started or stopped drawing (the panes changed, no chat did): its chat thaws at once, so the
+        // swap to it is warm, or gets its idle clock back.
+        if !hiddenAt.isEmpty, Set(hiddenAt.keys.filter { pairedFace($0) }) != pairedFaces { replan() }
     }
 
     /// Tab `key`'s page started or stopped drawing.
@@ -289,6 +298,11 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         let livePages = Set(pages.values.map(ObjectIdentifier.init))
         awakeSince = awakeSince.filter { livePages.contains($0.key) }
         startUnseenClocks(pages)
+        // A chat face whose terminal face stopped drawing counts as hidden from now, not from when the swap hid it:
+        // a look at another tab and back to the terminal keeps the chat awake and loaded for the next swap.
+        let paired = Set(hiddenAt.keys.filter { pairedFace($0) })
+        for key in pairedFaces.subtracting(paired) where hiddenAt[key] != nil { hiddenAt[key] = host.pageClock() }
+        pairedFaces = paired
         replanFreeze()
         // A hidden idle chat's wait: its own, or the setting's when that lets chats go sooner on its own.
         let chatThreshold = max(min(settingThreshold ?? idleThreshold, idleThreshold), Self.minimumHidden)
@@ -338,6 +352,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         if !setting.isEnabled, isExcessNewTab(key) { return .disabled }
         if heldAwake { return .keepsState }
         guard let host, host.pageMayRelease(key, onScreen: onScreen) else { return .unsupported }
+        if pairedFace(key) { return .pairedFace }
         if host.pagePinned(key), !setting.includesPinnedTabs { return .pinned }
         // No watch, no known turn: a chat that looks idle may be working.
         if !host.pageTurnsKnown() { return .agentTurnsUnknown }
@@ -493,6 +508,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     package func keepsAwake(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? {
         guard setting.isEnabled, setting.freezeSeconds != nil, !heldAwake else { return .disabled }
         guard let host, host.pageMayFreeze(key, onScreen: onScreen) else { return .unsupported }
+        if pairedFace(key) { return .pairedFace }
         if host.pagePinned(key), !setting.includesPinnedTabs { return .pinned }
         // No watch, no known turn: a chat that looks idle may be working.
         if !host.pageTurnsKnown() { return .agentTurnsUnknown }
