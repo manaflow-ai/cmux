@@ -1,5 +1,20 @@
 //! Exact-PID benchmark accounting. No process scans or permission changes.
-use crate::process_cpu::{interval, Sample};
+use crate::process_cpu::{interval, ticks_to_ns, Sample};
+use std::sync::OnceLock;
+
+/// The host's Mach timebase. `proc_pid_rusage` reports user and system time in Mach
+/// ticks, which are nanoseconds only on Intel. The timebase call is deprecated in favour of
+/// the `mach2` crate, which cmux-rd-host does not depend on; it is not defective.
+#[allow(deprecated)]
+fn timebase() -> (u32, u32) {
+    static BASE: OnceLock<(u32, u32)> = OnceLock::new();
+    *BASE.get_or_init(|| {
+        let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
+        // SAFETY: mach_timebase_info writes into a valid struct.
+        unsafe { libc::mach_timebase_info(&mut base) };
+        (base.numer, base.denom.max(1))
+    })
+}
 
 fn sample(pid: i32) -> Result<Sample, &'static str> {
     if pid <= 0 {
@@ -27,10 +42,14 @@ fn sample(pid: i32) -> Result<Sample, &'static str> {
     Ok(Sample {
         pid,
         start_abstime: usage.ri_proc_start_abstime,
-        cpu_ns: usage
-            .ri_user_time
-            .checked_add(usage.ri_system_time)
-            .ok_or("cpu_counter_overflow")?,
+        cpu_ns: {
+            let ticks = usage
+                .ri_user_time
+                .checked_add(usage.ri_system_time)
+                .ok_or("cpu_counter_overflow")?;
+            let (numer, denom) = timebase();
+            ticks_to_ns(ticks, numer, denom).ok_or("cpu_counter_overflow")?
+        },
         sampled_ns: crate::clock::now_ns(),
     })
 }
@@ -83,5 +102,22 @@ mod tests {
         assert_eq!(usage.expect("child usage").pid, pid);
         assert!(sample(pid).is_err());
         assert!(sample(-1).is_err());
+    }
+
+    #[test]
+    fn process_cpu_native_one_busy_thread_reads_about_one_core() {
+        // One thread spinning for 300 ms is close to 100% of one core. Raw Mach ticks on
+        // Apple Silicon read about 4% here, so this catches a missing timebase scale.
+        let pid = std::process::id() as i32;
+        let before = sample(pid).expect("self usage");
+        let start = std::time::Instant::now();
+        let mut spin = 0u64;
+        while start.elapsed() < std::time::Duration::from_millis(300) {
+            spin = std::hint::black_box(spin.wrapping_add(1));
+        }
+        let after = sample(pid).expect("self usage");
+        let pct = interval(Ok(before), Ok(after)).cpu_pct.expect("cpu interval");
+        // Other test threads may run too, so allow headroom above one core.
+        assert!((40.0..=400.0).contains(&pct), "one busy thread read {pct:.1}% of a core");
     }
 }

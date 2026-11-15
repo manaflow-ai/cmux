@@ -15,6 +15,13 @@ pub struct Interval {
     pub reason: Option<&'static str>,
 }
 
+/// Mach absolute-time ticks to nanoseconds with the host timebase (`numer / denom`). On
+/// Apple Silicon a tick is 125/3 ns, so the raw counters are never nanoseconds there.
+pub fn ticks_to_ns(ticks: u64, numer: u32, denom: u32) -> Option<u64> {
+    let ns = u128::from(ticks) * u128::from(numer) / u128::from(denom.max(1));
+    u64::try_from(ns).ok()
+}
+
 pub fn interval(
     before: Result<Sample, &'static str>,
     after: Result<Sample, &'static str>,
@@ -76,5 +83,14 @@ mod tests {
             Some("permission_denied")
         );
         assert_eq!(interval(Ok(before), Err("process_gone")).reason, Some("process_gone"));
+    }
+    #[test]
+    fn process_cpu_ticks_scale_by_the_timebase() {
+        // Apple Silicon: 125/3 ns per tick, so 24 ticks are 1000 ns, not 24.
+        assert_eq!(ticks_to_ns(24, 125, 3), Some(1000));
+        // Intel: 1/1.
+        assert_eq!(ticks_to_ns(24, 1, 1), Some(24));
+        assert_eq!(ticks_to_ns(24, 1, 0), Some(24));
+        assert_eq!(ticks_to_ns(u64::MAX, 125, 3), None);
     }
 }
