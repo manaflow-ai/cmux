@@ -1307,6 +1307,78 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
 /// write, before keys are posted to it.
 const FOCUS_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
+/// Typing into web content whose focus the guard could not prove: the text
+/// goes into the field's value at its selection through accessibility (no
+/// keystrokes, so the page's key handlers do not run), read back as exactly
+/// the value it should make. Text with control characters (Enter, Tab) is
+/// refused: those are keys, and no keys are sent this way. An unreadable
+/// value or selection writes nothing.
+fn web_value_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<ActionOutcome> {
+    if text.chars().any(char::is_control) {
+        return Err(DesktopError::Unsupported(
+            "this web field could not be focused for keys, and the text has Enter, Tab or other keys, which are never typed into its value; send the plain text, then press the keys with delivery foreground".into(),
+        ));
+    }
+    let unread = || {
+        let mut out = ActionOutcome::delivered("ax_web_value");
+        out.note = "the web field's value or selection could not be read, so nothing was written and no keys were posted".into();
+        Ok(out)
+    };
+    if !el.settable("AXValue") {
+        return unread();
+    }
+    let (Some(before), Ok(Some(range))) = (readback::Known::value(el), el.try_selected_range())
+    else {
+        return unread();
+    };
+    let Some(new_value) = roles::insert_at(before.get(), text, range.location, range.length) else {
+        return unread();
+    };
+    let caret = super::sys::CFRange {
+        location: range.location + text.encode_utf16().count() as isize,
+        length: 0,
+    };
+    let check = readback::Check::value_from(
+        el,
+        &before,
+        readback::Wanted::from_request(new_value.clone()),
+        0.0,
+    );
+    let Some(cf) = Cf::string(&new_value) else { return unread() };
+    gated_value_write(d, t, el, &cf, caret)?;
+    let read = el.try_value_text().ok().flatten();
+    let mut out = if read.as_deref() == Some(new_value.as_str()) {
+        ActionOutcome::confirmed("ax_web_value")
+    } else {
+        ActionOutcome::delivered("ax_web_value")
+    }
+    .showing("text");
+    out.note = "web content: the text was written into the field's value through accessibility, with no keystrokes, so the page's key handlers did not run".into();
+    out.expect = d.expect(Some(check));
+    if let Some(frame) = el.frame() {
+        out = out.at(roles::center(&frame));
+    }
+    Ok(out)
+}
+
+/// Writes `value` into `el` and then its caret, under the app's input lock
+/// (never inside another session's scope).
+fn gated_value_write(
+    d: &MacDesktop,
+    t: &Target,
+    el: &Ax,
+    value: &Cf,
+    caret: super::sys::CFRange,
+) -> DResult<()> {
+    let _ = d;
+    ax_unprimed(t.window.pid, || {
+        el.set("AXValue", value).map_err(|e| ax_error(e, "writing the value"))?;
+        // The caret after the text; a field that refuses it keeps the value.
+        let _ = el.set_selected_range(caret);
+        Ok::<(), DesktopError>(())
+    })?
+}
+
 /// The facts the focus guard reads before the focus write.
 struct FocusBefore {
     /// The target's own AXFocused.
@@ -1593,6 +1665,11 @@ pub(super) fn type_text(
             // Keys go only once focus is on the target, by the guard's rules:
             // a write the app ignored would send them to whatever has focus.
             let focused = written && before.is_some_and(|b| wait_focused(d, &t, el, &b));
+            // Web content the guard refused: no keys; a settable value takes
+            // the text through accessibility instead.
+            if !focused && delivery == Delivery::Background && in_web_area(el) == roles::Web::In {
+                return web_value_insert(d, &t, el, text);
+            }
             if !focused {
                 let mut out = ActionOutcome::delivered("ax_focus");
                 out.note = format!(

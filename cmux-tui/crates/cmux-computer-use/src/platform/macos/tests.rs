@@ -2796,3 +2796,25 @@ fn keys_follow_a_focus_write_only_on_the_guards_rules() {
         FocusFacts { in_web: false, web_areas: 0, host_focused: None, ..safari_bg.clone() };
     assert!(focus_guard(&native), "outside web content no host is needed");
 }
+
+/// Coordinator, after 8a4399f: typing into web content without proven focus
+/// writes before[..start] + text + before[end..] (UTF-16) into the value;
+/// a range outside the value writes nothing.
+#[test]
+fn web_typing_inserts_into_the_value_at_the_selection() {
+    assert_eq!(roles::insert_at("", "Zed", 0, 0).as_deref(), Some("Zed"));
+    assert_eq!(roles::insert_at("ab", "Z", 1, 0).as_deref(), Some("aZb"));
+    assert_eq!(
+        roles::insert_at("aXXb", "Z", 1, 2).as_deref(),
+        Some("aZb"),
+        "replaces the selection"
+    );
+    assert_eq!(roles::insert_at("é1", "Z", 1, 0).as_deref(), Some("éZ1"), "UTF-16 offsets");
+    assert_eq!(
+        roles::insert_at("😀", "Z", 2, 0).as_deref(),
+        Some("😀Z"),
+        "a surrogate pair counts two"
+    );
+    assert_eq!(roles::insert_at("ab", "Z", 3, 0), None, "past the end");
+    assert_eq!(roles::insert_at("ab", "Z", -1, 0), None);
+}

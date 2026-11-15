@@ -287,6 +287,21 @@ pub fn focus_guard(f: &FocusFacts) -> bool {
     }
 }
 
+/// `before` with `text` inserted at the UTF-16 range (`location`, `length`)
+/// it replaces; `None` when the range lies outside `before`.
+pub fn insert_at(before: &str, text: &str, location: isize, length: isize) -> Option<String> {
+    let b: Vec<u16> = before.encode_utf16().collect();
+    let (start, len) = (usize::try_from(location).ok()?, usize::try_from(length).ok()?);
+    let end = start.checked_add(len)?;
+    if end > b.len() {
+        return None;
+    }
+    let mut out: Vec<u16> = b[..start].to_vec();
+    out.extend(text.encode_utf16());
+    out.extend(&b[end..]);
+    String::from_utf16(&out).ok()
+}
+
 /// How a posted press is aimed, from the two readings of the front app
 /// taken right before the post.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
