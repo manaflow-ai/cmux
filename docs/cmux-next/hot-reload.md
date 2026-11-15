@@ -8,6 +8,26 @@ Chromium, and it's on by default. The feature is called **cmux Live**.
 For a tagged Debug app with separate chat and pages servers, use
 [live chat editing](live-chat-editing.md). It includes the chat scenario workbench and source checks.
 
+## The loop
+
+Write the code, put it into the cmux you are running, use it, then test it. Leo, 2026-11-15: "imagine if you
+could just write the code and then the code goes into your app and then you can just use it." Screenshot it, take
+a video, click through it; compile checks, CI and suites come after the look. Of the newest 300 merged NEXT PRs, 70% of those that change the Mac app could go in live; almost none were looked at in a running app before merging:
+
+| Layer | Put it in | Take it out |
+|---|---|---|
+| Web, a PR | `cmux customize use pr:N` | `cmux customize library off pr-N` |
+| Web, your checkout | `cmux live start` ([below](#start-in-30-seconds)) | `cmux live stop` |
+| Terminal daemon and acpmux Rust | `scripts/cmux-next/hot-apply.py apply SHA` ([below](#a-merged-commit-in-the-running-app-before-the-nightly)), about 2.7 s | `hot-apply.py rollback` |
+| A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
+| Swift, Rust the app links, resources | a build: `hot-apply.py plan SHA` says which | |
+
+`cmux customize use branch:`, `sha:` and `dir:` are coming. A tree build is not Team-signed, so Rust hot-apply from
+it into a Developer ID NIGHTLY is held back for now. Agents follow the same loop through the
+[cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
+cmuxterm-hq [docs/design/cmux-next-hot-swap-layers.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/design/cmux-next-hot-swap-layers.md)
+(team only).
+
 ### Is cmux Live the same as Live Web Reload?
 
 Yes. It is one feature, and Live Web Reload was its old name. The setting Settings > General >
