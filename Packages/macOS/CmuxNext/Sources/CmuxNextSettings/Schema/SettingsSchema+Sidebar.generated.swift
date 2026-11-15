@@ -41,6 +41,8 @@ extension SidebarSectionsSetting {
     /// `sidebar.sessionTree`.
     public nonisolated static let sessionTreePath = ["sidebar", "sessionTree"]
     public nonisolated static let sessionTreeDefault = false
+    /// `sidebar.workspaceListApp`.
+    public nonisolated static let workspaceListAppPath = ["sidebar", "workspaceListApp"]
     /// `sidebar.showProjects`.
     public nonisolated static let showProjectsPath = ["sidebar", "showProjects"]
     public nonisolated static let showProjectsDefault = true

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextApps
+import CmuxNextDesign
 import CmuxNextSidebar
 
 /// One window's app sections for its sidebar: the platform's
@@ -16,27 +17,22 @@ final class SidebarAppSections: SidebarAppSectionProvider {
     }
 
     /// A section left the window's layout: its app mount ends on the supervisor.
-    func release(_ contribution: String) {
-        provider.release(contribution)
-    }
+    func release(_ contribution: String) { provider.release(contribution) }
 
-    /// Unmounts every app section of this window on the supervisor.
-    func releaseAll() {
-        provider.releaseAll()
-    }
+    /// Unmounts every app section of this window, and its workspace list, on the supervisor.
+    func releaseAll() { provider.releaseAll() }
+
+    /// This window's own workspace list (`cmux.sidebar/1`, opt-in; the built-in list otherwise).
+    var workspaceList: (any SidebarListReplacement)? { provider.workspaceList }
 
     var onContentChange: (() -> Void)? {
         get { provider.onContentChange }
         set { provider.onContentChange = newValue }
     }
 
-    func title(for contribution: String) -> String? {
-        provider.title(for: contribution)
-    }
+    func title(for contribution: String) -> String? { provider.title(for: contribution) }
 
-    func makeView(for contribution: String) -> NSView? {
-        provider.makeView(for: contribution)
-    }
+    func makeView(for contribution: String) -> NSView? { provider.makeView(for: contribution) }
 
     func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat {
         provider.preferredHeight(for: contribution, width: width)
