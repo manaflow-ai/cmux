@@ -2160,29 +2160,55 @@ def runs_tests(script: str) -> bool:
 
 
 # The steps before a workflow's tests that run a script of the repository and still run no code the PR can change, by
-# workflow file: {step name: the repository paths it runs}. Excused only while the PR changes none of those paths.
+# workflow file: {step name: every repository path it reads}: the scripts it runs, the files and submodules they
+# source, run or read, and the toolchain pins it runs under. Excused only while the PR changes none of them. PR
+# #43876's second review (FIX FIRST at f5c717cd260, issuecomment-6899360740): listing only the scripts let a PR that
+# bumps .xcode-version past its pool's Xcode fail 'Select Xcode' with the same masked floor line a runner image
+# missing the pin prints, and be excused. tests/test_base_red_excuse.py's SetupOnlyStepsReadNothingUnlisted scans the
+# scripts for the repository paths they read and fails on one no entry lists.
+XCODE_PINS = (".xcode-version", "scripts/ci/xcode-pins.txt")  # select-ci-xcode.sh's: the Xcode every later step runs
 SETUP_ONLY_STEPS = {
     ".github/workflows/ios-e2e.yml": {
-        # Installs build tools: zig (install-zig-ci.sh), the prebuilt GhosttyKit for the pinned ghostty submodule
-        # (download-prebuilt-ghosttykit.sh, else ensure-ghosttykit.sh) and Homebrew's axe. No app, worker or test code.
-        "Install build prerequisites": ("scripts/install-zig-ci.sh", "scripts/download-prebuilt-ghosttykit.sh",
-                                        "scripts/ensure-ghosttykit.sh", "ghostty"),
-        # Picks the runner's Xcode (toolchain setup).
-        "Select Xcode": ("scripts/select-ci-xcode.sh",),
-        # xcrun and xcodebuild only: the runner's simulator runtime (toolchain setup).
-        "Ensure iOS simulator runtime": (),
+        # Installs build tools: zig (install-zig-ci.sh: its version from ghostty-zig-version.sh and the submodules'
+        # build.zig.zon, the reviewed versions from toolchains.json and the Zig SDK's build.zig.zon, the tarball's
+        # sha256 from zig-tarballs.sha256), the prebuilt GhosttyKit for the pinned ghostty submodule
+        # (download-prebuilt-ghosttykit.sh, else ensure-ghosttykit.sh: the checksum manifest, the archive validator,
+        # ghostty.h, ensure-metal-toolchain.sh) and Homebrew's axe, under the selected Xcode. No app, worker or test
+        # code.
+        "Install build prerequisites": (
+            "scripts/install-zig-ci.sh", "scripts/ghostty-zig-version.sh", "scripts/ci/zig-tarballs.sha256",
+            "cmux-tui/build-support/notices/toolchains/toolchains.json", "cmux-tui/bindings/zig/build.zig.zon",
+            "scripts/download-prebuilt-ghosttykit.sh", "scripts/ensure-ghosttykit.sh",
+            "scripts/ghosttykit-checksums.txt", "scripts/validate-xcframework-archive.py",
+            "scripts/ensure-metal-toolchain.sh", "ghostty.h", "ghostty", "ghostty-next", ".gitmodules", *XCODE_PINS),
+        # Picks the runner's Xcode from the pins (toolchain setup).
+        "Select Xcode": ("scripts/select-ci-xcode.sh", *XCODE_PINS),
+        # xcrun and xcodebuild only, of the selected Xcode: the runner's simulator runtime (toolchain setup).
+        "Ensure iOS simulator runtime": XCODE_PINS,
     },
 }
+# The checkout action fetches the submodules .gitmodules names at the commits the PR pins: a PR that changes either
+# can fail it on its own (a pin that cannot be fetched), so its red is then never excused (runs_no_pr_code).
+CHECKOUT_ACTION = "actions/checkout@"
 
 
-def runs_no_pr_code(spec: dict, path: str, title: str, changed: set[str]) -> str | None:
+def gitmodule_paths(text: str | None) -> frozenset[str]:
+    """The submodule paths a .gitmodules TEXT names (None: none)."""
+    return frozenset(match[1] for match in re.finditer(r"(?m)^[ \t]*path[ \t]*=[ \t]*(\S+)[ \t]*$", text or ""))
+
+
+def runs_no_pr_code(spec: dict, path: str, title: str, changed: set[str],
+                    submodules: Callable[[], frozenset[str]]) -> str | None:
     """None when workflow step SPEC (TITLE, of workflow PATH, as declared at the merge-base) runs no code a PR with
-    CHANGED paths can change: a `uses:` action outside the repository, or a SETUP_ONLY_STEPS step whose paths are
-    unchanged; else why it runs the PR's code."""
+    CHANGED paths can change: a `uses:` action outside the repository (the checkout action only while the PR changes
+    neither .gitmodules nor a submodule SUBMODULES() names), or a SETUP_ONLY_STEPS step whose paths are unchanged;
+    else why it runs the PR's code."""
     uses = spec.get("uses")
     if isinstance(uses, str):
         if uses.strip().startswith("./"):
             return f"its failed step '{title}' runs the PR's code (the local action {uses.strip()})"
+        if uses.strip().startswith(CHECKOUT_ACTION) and (pins := sorted(changed & ({".gitmodules"} | submodules()))):
+            return f"its failed step '{title}' checks out submodules this PR changes ({', '.join(pins)[:300]})"
         return None
     listed = SETUP_ONLY_STEPS.get(path, {})
     if title not in listed:
@@ -2214,8 +2240,8 @@ def completed(job: dict) -> datetime | None:
     return when if when.tzinfo is not None else None
 
 
-def setup_red_steps(job: dict, names, path: str, changed: set[str]
-                    ) -> "tuple[list[str], str | None] | str":
+def setup_red_steps(job: dict, names, path: str, changed: set[str],
+                    submodules: Callable[[], frozenset[str]] = frozenset) -> "tuple[list[str], str | None] | str":
     """(the names of JOB's failed steps, in order, and its first test step after them or None) when each is a setup
     step that runs no PR code (runs_no_pr_code, PATH its workflow, CHANGED the PR's paths) by the rule above, NAMES
     the workflow's step names at the merge-base; else why not."""
@@ -2239,7 +2265,7 @@ def setup_red_steps(job: dict, names, path: str, changed: set[str]
                 return f"its failed step '{title}' runs tests"
             if first_test is not None:
                 return f"its failed step '{title}' runs after its test step '{first_test}'"
-            if (why := runs_no_pr_code(spec, path, title, changed)) is not None:
+            if (why := runs_no_pr_code(spec, path, title, changed, submodules)) is not None:
                 return why
             failed.append(title)
         if testing and first_test is None:
@@ -2282,7 +2308,8 @@ def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "He
         return False, f"this PR changes its workflow ({path}), so no step of it is known to be the base's setup"
     # The workflow as the base declares it, at the merge-base: its step order and each step's `uses:` or script.
     setup = setup_red_steps(job, workflow_step_names(repo, dict(job, head_sha=merge_base), path, github, run_reads),
-                            path, changed)
+                            path, changed,
+                            lambda: gitmodule_paths(source_text_if_present(repo, merge_base, ".gitmodules", github)))
     if isinstance(setup, str):
         return False, setup
     steps, first_test = setup

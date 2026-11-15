@@ -13877,6 +13877,7 @@ SCANNERS = {
     "base_red_excuse.signature": lambda f: (excuse.signature(f.view), excuse.signature(f.base_view)),
     "base_red_excuse.owned_unnamed": lambda f: excuse.owned_unnamed(TR.Result(), f.view),
     "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
+    "base_red_excuse.gitmodule_paths": lambda f: excuse.gitmodule_paths(f.log),
     "base_red_excuse.setup_errors": lambda f: excuse.setup_errors(
         f.view, excuse.unplaced_signature(f.job, f.log),
         [step["name"] for step in f.job["steps"] if step.get("conclusion") == "failure"]),
@@ -14894,6 +14895,11 @@ class OtherPrSetupRed(unittest.TestCase):
                 assert path == case.PATH, path
                 return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text()
 
+            def blob_if_present(self, repo, ref, path):
+                assert path == ".gitmodules", path
+                self.refs.append(ref)
+                return case.GITMODULES
+
             def log(self, repo, job):
                 return logs[job["id"]]
 
@@ -15097,6 +15103,159 @@ class OtherPrSetupRed(unittest.TestCase):
     def test_a_completed_time_without_its_zone_is_skipped(self):
         self.assertIsNone(excuse.completed({"completed_at": "2026-11-15T17:16:57"}))
         self.assertIsNotNone(excuse.completed({"completed_at": "2026-11-15T17:16:57Z"}))
+
+    # PR #43876's second review (FIX FIRST at f5c717cd260): an allow-listed step whose input the PR changes is the PR's
+    # red. select-ci-xcode.sh:98's floor line, digits masked, is the same for a PR that bumps .xcode-version past its
+    # pool's Xcode and for a runner image that lacks the pin.
+    XCODE_FLOOR = ("##[error]Found Xcode 26.0 at /Applications/Xcode_26.0.app; cmux requires Xcode 26.1 "
+                   "(.xcode-version). This runner's image does not carry the Xcode pinned for its pool in "
+                   "scripts/ci/xcode-pins.txt")
+    NOT_OUR_REF = ("##[error]fatal: remote error: upload-pack: not our ref "
+                   "0123456789abcdef0123456789abcdef01234567")
+    GITMODULES = ('[submodule "ghostty"]\n\tpath = ghostty\n\turl = https://github.com/manaflow-ai/ghostty.git\n'
+                  '[submodule "ghostty-next"]\n\tpath = ghostty-next\n\turl = https://github.com/manaflow-ai/ghostty\n')
+
+    def test_a_pr_that_changes_the_xcode_pin_is_not_excused_by_select_xcode(self):
+        edit = self.moved("mac-ios-e2e", "Select Xcode", self.XCODE_FLOOR)
+        self.assertIn("excused 'mac-ios-e2e'", self.judge(self.github(edit=edit), checks=["mac-ios-e2e"]))
+        for pin in (".xcode-version", "scripts/ci/xcode-pins.txt"):
+            with self.subTest(pin), self.assertRaisesRegex(
+                    excuse.Refused, f"its failed step 'Select Xcode' runs files this PR changes \\("
+                    f"{re.escape(pin)}\\)"):
+                self.judge(self.github(edit=edit, changed=[pin]), checks=["mac-ios-e2e"])
+        # The steps that run under the selected Xcode read the pins too.
+        with self.assertRaisesRegex(excuse.Refused, "'Install build prerequisites' runs files this PR changes"):
+            self.judge(self.github(changed=[".xcode-version"]), checks=["mac-ios-e2e"])
+
+    def test_a_checkout_red_is_the_prs_own_when_it_changes_a_submodule(self):
+        edit = self.moved("mac-ios-e2e", "Checkout cmux", self.NOT_OUR_REF)
+        self.assertIn("excused 'mac-ios-e2e'", self.judge(self.github(edit=edit), checks=["mac-ios-e2e"]))
+        for pin in ("ghostty", "ghostty-next", ".gitmodules"):
+            with self.subTest(pin), self.assertRaisesRegex(
+                    excuse.Refused, "its failed step 'Checkout cmux' checks out submodules "
+                    f"this PR changes \\({pin}\\)"):
+                self.judge(self.github(edit=edit, changed=[pin]), checks=["mac-ios-e2e"])
+
+    LANE, PARENT = "lane/parent", "c" * 40
+
+    def stacked(self, github):
+        """GITHUB as the head stacked on lane branch LANE, which heads open PR #43000 at PARENT (stacked_parent)."""
+        real, lane = github.json, self.LANE
+
+        def answer(route, *, paginate=False):
+            if f"/pulls?head=manaflow-ai:{lane}&" in route:
+                return [{"number": 43000, "state": "open",
+                         "head": {"ref": lane, "sha": self.PARENT, "repo": {"full_name": REPO}}}]
+            if route.endswith(f"/branches/{lane}"):
+                return {"commit": {"sha": self.PARENT}}
+            if f"/compare/{lane}...{self.HEAD_SHA}" in route:
+                return dict(real(route.replace(lane, "feat-cmux-next"), paginate=paginate),
+                            merge_base_commit={"sha": self.PARENT})
+            return real(route.replace(f"branch={lane}", "branch=feat-cmux-next"), paginate=paginate)
+        github.json = answer
+        return github
+
+    def test_a_stacked_pr_is_judged_by_its_parents_head_never_by_another_pr(self):
+        # Into a lane branch heading an open PR, the parent's head is the base (stacked_parent, Evidence.merge_base):
+        # its checks there are the only verdicts, and a parent with no run of the workflow refuses the red before this
+        # rule is asked, so no other PR's run, no workflow read at another commit, can excuse a stacked child's red.
+        # The parent is judged on its own when it lands, by this rule at feat-cmux-next's merge-base.
+        def judge(gh):
+            with unittest.mock.patch.object(excuse, "datetime", wraps=excuse.datetime) as clock:
+                clock.now.return_value = excuse.datetime.fromisoformat(self.NOW)
+                return "\n".join(excuse.judge(REPO, self.LANE, self.HEAD_SHA, [], gh, checks=["backend"]))
+        for changed in ((), (self.PATH,)):
+            github = self.stacked(self.github(changed=changed))
+            with self.subTest(changed=changed), self.assertRaisesRegex(
+                    excuse.Refused, f"{self.LANE} is PR #43000's head; "
+                    f"its head {self.PARENT[:12]} has no completed run"):
+                judge(github)
+            self.assertFalse([route for route in github.routes if "event=pull_request" in route], github.routes)
+            self.assertLessEqual(set(github.refs), {self.HEAD_SHA})  # only read_head's own placing of its log
+
+
+class SetupOnlyStepsReadNothingUnlisted(unittest.TestCase):
+    """Detector (PR #43876's second review, f5c717cd260): each SETUP_ONLY_STEPS step lists every repository path it
+    reads. From the step's `run:` in the real workflow, every script it runs is scanned, and every script those name,
+    for the repository paths they source, run or read ($SCRIPT_DIR/..., $REPO_ROOT/..., $PROJECT_DIR/..., a Python
+    `root / "..."`, `git -C <dir>`, `cd <dir>`); a path no listed entry covers fails it. A step after 'Select Xcode' in
+    its job runs under the Xcode the pins select, so it lists them too."""
+
+    SCRIPT_DIR = re.compile(r"\$\{?(?:SCRIPT_DIR|SELECT_XCODE_SCRIPT_DIR)\}?/([\w./$-]+)")
+    ROOT_DIR = re.compile(r"\$\{?(?:REPO_ROOT|PROJECT_DIR|SELECT_XCODE_REPO_ROOT|repo_root)\}?/([\w./$-]+)")
+    PY_ROOT = re.compile(r"\broot / \"([^\"]+)\"")
+    SUBDIR = re.compile(r"(?:\bgit -C|^\s*cd|[;&|]\s*cd) \"?([A-Za-z][\w.-]*)\"?(?=[\s;)&|]|$)")
+    RUN_SCRIPT = re.compile(r"(?<![\w/$.-])\.?/?(scripts/[\w./-]+\.(?:sh|py))")
+    # A path whose first part is a variable: the repository paths it can be.
+    DYNAMIC = {"$source/build.zig.zon": ("ghostty/build.zig.zon", "ghostty-next/build.zig.zon")}
+
+    def reads(self, text, script=True):
+        found = set()
+        for line in text.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            if not script:
+                found.update(self.RUN_SCRIPT.findall(line))
+                continue
+            found.update(path if path.startswith("..") else "scripts/" + path
+                         for path in self.SCRIPT_DIR.findall(line))
+            for pattern in (self.ROOT_DIR, self.PY_ROOT, self.SUBDIR):
+                found.update(pattern.findall(line))
+        out = set()
+        for path in found:
+            if path.startswith(".."):  # the script's own root ($SCRIPT_DIR/..), no file
+                continue
+            path = path.rstrip("/")
+            if "$" in path:
+                fixed = path.split("$", 1)[0].rstrip("/")
+                out.update(self.DYNAMIC.get(path, (path,)) if not fixed else (fixed,))
+            else:
+                out.add(path)
+        return out
+
+    def unlisted(self, workflow, step, listed):
+        """The paths step STEP of WORKFLOW (its job's spec) reads that LISTED does not cover."""
+        def covered(path):
+            return any(path == own or path.startswith(own + "/") for own in listed)
+        todo = sorted(self.reads(step.get("run") or "", script=False))
+        seen, missing = set(), set()
+        while todo:
+            path = todo.pop()
+            if path in seen:
+                continue
+            seen.add(path)
+            if not covered(path):
+                missing.add(path)
+            if path.endswith((".sh", ".py")) and (ROOT / path).is_file():
+                todo.extend(sorted(self.reads((ROOT / path).read_text())))
+        return missing
+
+    def test_every_allow_listed_step_lists_what_it_reads(self):
+        yaml = excuse.yaml_module()
+        for path, steps in excuse.SETUP_ONLY_STEPS.items():
+            jobs = yaml.safe_load((ROOT / path).read_text())["jobs"]
+            for job_id, job in jobs.items():
+                declared = [step.get("name") for step in job.get("steps") or []]
+                for k, step in enumerate(job.get("steps") or []):
+                    if step.get("name") not in steps:
+                        continue
+                    listed = steps[step["name"]]
+                    with self.subTest(job=job_id, step=step["name"]):
+                        self.assertEqual(self.unlisted(path, step, listed), set())
+                        if "Select Xcode" in declared[:k]:
+                            self.assertLessEqual(set(excuse.XCODE_PINS), set(listed))
+
+    def test_the_detector_finds_what_a_script_reads(self):
+        text = "\n".join(['SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"', 'source "$SCRIPT_DIR/lib.sh"',
+                          'cat "$REPO_ROOT/.xcode-version"', 'git -C ghostty rev-parse HEAD',
+                          'zon = root / "cmux-tui/x.zon"', '# "$REPO_ROOT/commented.txt"',
+                          'manifest="$repo_root/$source/build.zig.zon"'])
+        self.assertEqual(self.reads(text), {"scripts/lib.sh", ".xcode-version", "ghostty", "cmux-tui/x.zon",
+                                            "ghostty/build.zig.zon", "ghostty-next/build.zig.zon"})
+        # The scripts the first review's list named, without what they read, are found short.
+        step = {"run": "./scripts/select-ci-xcode.sh"}
+        self.assertEqual(self.unlisted(".github/workflows/ios-e2e.yml", step, ("scripts/select-ci-xcode.sh",)),
+                         set(excuse.XCODE_PINS))
 
 
 if __name__ == "__main__":
