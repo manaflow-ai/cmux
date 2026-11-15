@@ -2350,3 +2350,55 @@ mod lock;
 #[cfg(unix)]
 #[path = "host_self_update_tests.rs"]
 mod self_update;
+
+/// The line of `script` that has a `case` inside a `$( )`, if any. macOS's
+/// `/bin/sh` (bash 3.2) reads a case pattern's `)` there as the end of the
+/// substitution and refuses the whole script ("syntax error near unexpected
+/// token `;;'"), while dash and newer bash take it, so a parse on Linux
+/// misses it. Single-quoted text is skipped.
+fn case_in_substitution(script: &str) -> Option<&str> {
+    let bytes = script.as_bytes();
+    let (mut open, mut quoted) = (Vec::new(), false);
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if quoted {
+            quoted = b != b'\'';
+        } else if b == b'\'' {
+            quoted = true;
+        } else if b == b'(' {
+            let subst = i > 0 && bytes[i - 1] == b'$' && bytes.get(i + 1) != Some(&b'(');
+            open.push(subst);
+        } else if b == b')' {
+            open.pop();
+        } else if script[i..].starts_with("case ")
+            && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'))
+            && open.contains(&true)
+        {
+            let start = script[..i].rfind('\n').map_or(0, |n| n + 1);
+            let end = script[i..].find('\n').map_or(script.len(), |n| i + n);
+            return Some(&script[start..end]);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Every script an update, setup or enroll runs on a host parses under
+/// macOS's `/bin/sh`: nightly 2b74e78's restart window check had a `case`
+/// in a `$( )`, so every push to a Mac failed before it changed anything
+/// (`machine enroll`'s install step: "syntax error near unexpected token").
+#[test]
+fn the_host_scripts_keep_case_out_of_command_substitutions() {
+    assert!(case_in_substitution("x=$(case a in a) echo;; esac)").is_some(), "the detector");
+    assert!(case_in_substitution("case \"$(uname)\" in Linux*) x=$(date);; esac").is_none());
+    for (name, script) in [
+        ("restart window", restart_window_check()),
+        ("downgrade", downgrade_check()),
+        ("probe", probe_script(false, false)),
+        ("probe if idle", probe_script(true, false)),
+        ("install pushed", INSTALL_PUSHED.to_owned()),
+    ] {
+        assert_eq!(case_in_substitution(&script), None, "{name}");
+    }
+}
