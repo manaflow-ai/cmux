@@ -193,6 +193,7 @@ const TOOLS: &[CustomizeTool] = &[
             "Only one part: settings, theme, views or extensions. Omit for all of them.",
         )),
         note: None,
+        minutes: false,
         mutation: false,
     },
     CustomizeTool {
