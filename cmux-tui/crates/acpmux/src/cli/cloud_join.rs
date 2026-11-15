@@ -959,6 +959,9 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     out["helperConsent"] =
         json!({"state":"unknown","reason":"running helper consent support has not been verified"});
     out["lastRefusal"] = consent_status()["lastRefusal"].clone();
+    // As the account this machine is joined as now reads it, as the app and the session gate do
+    // (`for_this_account`): no other account's signedInMachines grant, answer or ask.
+    out = for_this_account(out);
     if !record.credential.is_empty() && !cloned {
         // GET is read-only: doctor must never replace the daemon's live sessions.
         let hub = origin(Some(record.hub_origin.clone()))?;
