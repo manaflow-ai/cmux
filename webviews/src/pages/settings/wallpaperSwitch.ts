@@ -102,13 +102,15 @@ export function writesFor(
   context: { choices: readonly PictureChoice[]; lastFixed: string | null },
 ): WallpaperWrite[] {
   const fixed = fixedPicture(values, context.lastFixed);
+  // A mode's seed must be a picture: from no background, Light & Dark and Time of Day start on the desktop's.
+  const seed = fixed === "none" ? "desktop" : fixed;
   const dynamicOff: WallpaperWrite[] = values.dynamic === "time" ? [[DYNAMIC_KEY, null]] : [];
   switch (mode) {
     case "off":
       return [...(values.background === fixed ? [] : [[BACKGROUND_KEY, fixed] as const]), ...dynamicOff];
     case "appearance":
       return [
-        ...(values.light === null && values.dark === null ? [[LIGHT_KEY, fixed] as const] : []),
+        ...(values.light === null && values.dark === null ? [[LIGHT_KEY, seed] as const] : []),
         [BACKGROUND_KEY, FOLLOW_APPEARANCE],
         ...dynamicOff,
       ];
@@ -116,7 +118,7 @@ export function writesFor(
       return [
         ...(values.schedule && Object.keys(values.schedule).length > 0
           ? []
-          : [[SCHEDULE_KEY, { sunrise: fixed, sunset: fixed }] as const]),
+          : [[SCHEDULE_KEY, { sunrise: seed, sunset: seed }] as const]),
         [BACKGROUND_KEY, FOLLOW_SCHEDULE],
         ...dynamicOff,
       ];

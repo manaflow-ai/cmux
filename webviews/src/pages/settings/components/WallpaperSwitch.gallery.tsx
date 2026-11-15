@@ -101,7 +101,12 @@ export default componentEntry<Props>({
   height: 520,
   widths: { narrow: 420, normal: 680 },
   covers: ["pages/settings/components/WallpaperSwitch.tsx#WallpaperSwitch"],
-  load: async () => WallpaperSwitchFixture,
+  load: async () => {
+    // The control's labels come from the Settings catalog, which this component host does not load.
+    const { installCatalog } = await import("../strings");
+    installCatalog((await import("../generated/strings.json")).default);
+    return WallpaperSwitchFixture;
+  },
   styles: () => import("../page.css"),
   variants: {
     "segmented-off": {

@@ -397,6 +397,6 @@ fn every_write_passes_the_settings_schema() {
         assert_eq!(validate(&plan.edits), Ok(()), "{line}");
     }
     let missing = validate(&[Edit::Set("appearance.noSuchWallpaperKey", json!(1))]).unwrap_err();
-    assert!(missing.contains("update cmux"), "{missing}");
+    assert!(missing.contains("appearance.noSuchWallpaperKey"), "{missing}");
     assert!(validate(&[Edit::Set(BACKGROUND, json!("folder:relative"))]).is_err());
 }
