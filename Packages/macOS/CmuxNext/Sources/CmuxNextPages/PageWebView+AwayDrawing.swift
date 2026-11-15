@@ -34,7 +34,7 @@ extension PageWebView {
     /// Whether the page lies out of sight in its window: wholly outside the window's content, or in an
     /// off-screen parking (``PageOffscreenParking``).
     var inOffscreenParking: Bool {
-        sequence(first: superview, next: \.superview).contains { $0 is PageOffscreenParking }
+        sequence(first: self as NSView, next: \.superview).dropFirst().contains { $0 is PageOffscreenParking }
     }
 
     /// Whether a page out of sight draws now: until it painted and drew at the size it waits at, while
