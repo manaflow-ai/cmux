@@ -4257,6 +4257,25 @@ jobs:
         # no credentials) after listing this commit's window.
         run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
 
+      # This commit's hot keys (scripts/cmux-next/hot-apply.py keys): hot-apply plans an app's commit against
+      # a newer one by comparing these, with no checkout, diff or key computation of its own. A publication,
+      # not a check: a failure here only makes hot-apply fall back to diffing, so it never reds the job.
+      - name: Publish this commit's hot keys
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/hot-keys.json"
+          python3 scripts/cmux-next/hot-apply.py keys "$GITHUB_SHA" --repo . > "$out"
+          cat "$out"
+          python3 scripts/ci/upload-r2-object.py --write-once --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+            --cache-control "public, max-age=31536000, immutable" --file "$out" \
+            --key "cmux-next/hot-keys/$GITHUB_SHA.json" --content-type application/json
+
   # The post-publish 404 detector (review of #42580, F1). A run that deferred
   # to its key's owner and was still in progress when the owner published was
   # not re-run (GitHub refuses a live run), so its commit kept no manifest.
