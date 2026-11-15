@@ -47,7 +47,7 @@ public final class SettingsAgentIntegrations: PageProvider {
     @ObservationIgnored private let cli: @MainActor () async -> URL?
     @ObservationIgnored private let runCLI: @Sendable (URL, [String]) async throws -> (Int32, Data, Data)
     @ObservationIgnored private var generation = 0
-    /// Settings > Agents > Agents with cmux Tools beside it (``SettingsAgentTools``): its ops reach it through this host.
+    /// Settings > Agents > Agents on This Mac beside it (``SettingsAgentTools``): its ops reach it through this host.
     @ObservationIgnored private let agentTools: SettingsAgentTools?
 
     public init(cli: @escaping @MainActor () async -> URL?, agentTools: (any AgentToolsSource)? = nil,

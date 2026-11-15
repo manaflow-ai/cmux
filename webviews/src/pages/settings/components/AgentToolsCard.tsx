@@ -1,14 +1,15 @@
 // Settings > Agents > Agents on This Mac, under the `agents.cmuxMcp` choice row (the onboarding step's
 // question): each coding agent found on this Mac and whether it gets cmux's MCP server when cmux starts
 // it (its terminals and agent chats), read with `cmux setup mcp` (nothing is written). Turn On answers
-// yes, only on a click (the host refuses a page script). Below, the manual lines a person runs
-// themselves to use cmux's tools in agents started elsewhere, each with Copy: cmux never runs them and
-// never changes an agent's own settings.
+// yes, only on a click (the host refuses a page script). An agent whose own settings still hold a
+// `cmux` entry an older cmux wrote shows a notice with the exact line that removes it and a Remove
+// button: only the person's click runs it. Below, the manual lines a person runs themselves to use
+// cmux's tools in agents started elsewhere, each with Copy: cmux never runs them.
 import { useCallback, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useStore } from "../context";
-import type { AgentToolsCardState } from "../ops";
+import type { AgentToolsCardRun, AgentToolsCardState } from "../ops";
 import { t } from "../strings";
 
 export function AgentToolsCard() {
@@ -25,10 +26,10 @@ export function AgentToolsCard() {
     },
     [store],
   );
-  const turnOn = async () => {
+  const run = async (gesture: AgentToolsCardRun) => {
     setBusy(true);
     try {
-      const next = await store.runAgentTools({ action: "turnOn" });
+      const next = await store.runAgentTools(gesture);
       if (next) setState(next);
     } finally {
       setBusy(false);
@@ -60,8 +61,27 @@ export function AgentToolsCard() {
                 </span>
                 <div className="row-label">
                   <div className="row-title">{row.name}</div>
+                  {row.leftover && (
+                    <div className="row-help selectable" data-agent-tools-leftover="">
+                      {t("settingsWindow.agentTools.leftover")}{" "}
+                      <code className="font-mono" data-agent-tools-leftover-line="">
+                        {row.leftover}
+                      </code>
+                    </div>
+                  )}
                 </div>
                 <div className="row-control">
+                  {row.leftover && (
+                    <Button
+                      type="button"
+                      className="button"
+                      data-agent-tools-action="removeLeftover"
+                      disabled={working}
+                      onClick={() => void run({ action: "removeLeftover", id: row.id })}
+                    >
+                      {t("settingsWindow.agentTools.leftover.remove")}
+                    </Button>
+                  )}
                   <span className={row.state === "failed" ? "badge badge-warning" : "badge"}>
                     {t(`settingsWindow.agentTools.state.${row.state}`)}
                   </span>
@@ -79,7 +99,7 @@ export function AgentToolsCard() {
             className="button"
             data-agent-tools-action="turnOn"
             disabled={working || state === null}
-            onClick={() => void turnOn()}
+            onClick={() => void run({ action: "turnOn" })}
           >
             {t("settingsWindow.agentTools.add")}
           </Button>

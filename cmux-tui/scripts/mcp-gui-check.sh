@@ -17,7 +17,14 @@
 #   3. a Codex chat over the person's own global `cmux` entry with
 #      `enabled = false` still runs this build's server, never theirs;
 #   4. a Codex chat over the person's own HTTP `cmux` entry gets no `cmux`
-#      (Codex would refuse a command beside a url) and still starts.
+#      (Codex would refuse a command beside a url) and still starts;
+#   5. a Codex chat over the entry `cmux acp desktop link --app codex` writes (acpmux's
+#      server in guest mode, ACPMUX_MCP_GUEST=codex): Codex merges it into
+#      cmux's, which still runs this build's server with ACPMUX_MCP_GUEST empty,
+#      and the chat keeps its acpmux tools;
+#   6. agents.cmuxMcp off beside a `cmux` entry an older cmux wrote into Claude
+#      Code's own settings: `cmux setup mcp` names it and its remove line, and
+#      the server it runs for a chat (CMUX_AGENT_SESSION set) is the off server.
 # Needs `node`, `claude` and `codex` on PATH; no sign-in. Never run it on a
 # person's laptop. Prints PASS or FAIL per check and exits 1 on any FAIL.
 set -u
@@ -95,7 +102,8 @@ done
 # under a codex app-server), as "<count> <settings file of the first>".
 cat > "$D/codex-servers.py" <<'PY'
 import subprocess, sys
-cmux, session = sys.argv[1:]
+cmux, session = sys.argv[1:3]
+want = sys.argv[3] if len(sys.argv) > 3 else None
 procs = {}
 for line in subprocess.run(["ps", "-Ao", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines():
     pid, ppid, cmd = line.strip().split(None, 2)
@@ -112,11 +120,12 @@ for pid, (_, cmd) in procs.items():
     env = subprocess.run(["ps", "eww", "-o", "command=", "-p", pid], capture_output=True, text=True).stdout
     if f"CMUX_AGENT_SESSION={session}" in env:
         found.append(pid)
-        settings = next((w.split("=", 1)[1] for w in env.split() if w.startswith("CMUX_NEXT_CONFIG_FILE=")), "-")
+        key = want or "CMUX_NEXT_CONFIG_FILE"
+        settings = next((w.split("=", 1)[1] or "(empty)" for w in env.split() if w.startswith(key + "=")), "-")
 print(len(found), settings)
 PY
 session_id() { acp --json session info "$1" 2>/dev/null | python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("sessionId",""))'; }
-codex_servers() { python3 "$D/codex-servers.py" "$CMUX" "$(session_id "$1")"; }
+codex_servers() { python3 "$D/codex-servers.py" "$CMUX" "$(session_id "$1")" ${2:+"$2"}; } # NAME [ENV KEY]
 got=$(codex_servers gui-codex-on)
 [ "$got" = "1 $CMUX_NEXT_CONFIG_FILE" ]
 check "agent chat [codex]: its app-server runs this build's cmux mcp serve with the app's settings file ($got)" $?
@@ -189,6 +198,23 @@ running=$(codex_servers gui-codex-http)
 [ "$started" = True ] && [ "$running" = "0 -" ] && case "$names" in *acpmux*) true ;; *) false ;; esac || ok=1
 check "agent chat [codex] over an HTTP cmux entry: no cmux (running: $running), the chat starts (thread: $started), its other servers stay (tool rows | harness: $names)" $ok
 cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
+# 5. A Codex chat over the entry `cmux acp desktop link --app codex` writes into the (scratch) Codex
+# config: acpmux's own server in guest mode. Codex merges it key by key into the `cmux` the chat
+# passes, so the server is this build's `cmux mcp serve`, and ACPMUX_MCP_GUEST is sent empty.
+acp desktop link --app codex > "$D/link.out" 2>&1
+grep -q ACPMUX_MCP_GUEST "$CODEX_HOME/config.toml"
+check "desktop link codex wrote its guest-mode cmux entry into the scratch Codex config ($(tr '\n' ' ' < "$D/link.out" | cut -c1-120))" $?
+start_chat gui-codex-link codex
+for _ in $(seq 1 40); do [ "$(codex_servers gui-codex-link)" != "0 -" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
+got=$(codex_servers gui-codex-link)
+guest=$(codex_servers gui-codex-link ACPMUX_MCP_GUEST)
+names=$(servers_of gui-codex-link)
+ok=0
+[ "$got" = "1 $CMUX_NEXT_CONFIG_FILE" ] && [ "$guest" = "1 (empty)" ] || ok=1
+case " ${names%% | *} " in *" cmux "*) ;; *) ok=1 ;; esac
+case "$names" in *acpmux*) ;; *) ok=1 ;; esac
+check "agent chat [codex] over a desktop-link cmux entry: this build's server ($got), ACPMUX_MCP_GUEST sent empty ($guest), cmux and acpmux tools listed ($names)" $ok
+cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
 
 # 2. Off and unanswered
 for value in off ask; do
@@ -202,5 +228,40 @@ for value in off ask; do
     check "agent chat [$harness, agents.cmuxMcp $value]: no cmux (tool rows | harness: $names)" $ok
   done
 done
+
+# 6. Off, beside a `cmux` entry an older cmux wrote into Claude Code's own (scratch) settings.
+answer off
+printf '{"mcpServers": {"cmux": {"type": "stdio", "command": "%s", "args": ["mcp", "serve"], "env": {}}}}\n' \
+  "$CMUX" > "$CLAUDE_CONFIG_DIR/.claude.json"
+"$CMUX" setup mcp > "$D/setup.json" 2>&1
+python3 - "$D/setup.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+row = next(c for c in report["clients"] if c["id"] == "claude")
+left = row["leftover"]
+print(left)
+assert left and left["remove"] == "claude mcp remove --scope user cmux", left
+PY
+check "cmux setup mcp names the old cmux entry in Claude Code's settings and its remove line" $?
+python3 - "$CMUX" <<'PY'
+import json, os, subprocess, sys
+env = dict(os.environ, CMUX_AGENT_SESSION="gui-check-chat")
+p = subprocess.Popen([sys.argv[1], "mcp", "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                     stderr=subprocess.DEVNULL, env=env, text=True)
+def ask(i, method, params):
+    p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n"); p.stdin.flush()
+    while True:
+        m = json.loads(p.stdout.readline())
+        if m.get("id") == i: return m
+init = ask(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "gui-check", "version": "1"}})
+p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"); p.stdin.flush()
+tools = [t["name"] for t in ask(2, "tools/list", {})["result"]["tools"]]
+p.kill()
+text = init["result"].get("instructions", "")
+print(f"tools {tools}; instructions {text[:160]!r}")
+assert len(tools) == 1 and "agents.cmuxMcp on --confirm" in text, (tools, text)
+PY
+check "agents.cmuxMcp off: the old entry's cmux mcp serve, started for an agent chat, is the off server" $?
+rm -f "$CLAUDE_CONFIG_DIR/.claude.json"
 echo "scratch: $D"
 exit $failed

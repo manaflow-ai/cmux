@@ -701,7 +701,7 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
-  /** Settings > Agents > Agents with cmux Tools: one gesture (a refresh reads), and the card as it is
+  /** Settings > Agents > Agents on This Mac: one gesture (a refresh reads), and the card as it is
    * after it; null when the host has none. */
   async runAgentTools(run: AgentToolsCardRun): Promise<AgentToolsCardState | null> {
     const reply = await this.request("cmux.settings.agentTools.run", run);

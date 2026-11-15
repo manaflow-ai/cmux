@@ -1071,6 +1071,9 @@ export type AgentToolsCardRow = {
   name: string;
   /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
   state: "ready" | "terminals" | "failed";
+  /** The line that removes a `cmux` entry an older cmux wrote into the agent's own settings (it runs
+   * `cmux mcp serve`); null or absent for none. Remove runs it only on the person's click. */
+  leftover?: string | null;
 };
 
 /** Agents on This Mac (`SettingsAgentTools.state`). */
@@ -1089,8 +1092,8 @@ export type AgentToolsCardState = {
   manual?: string[];
 };
 
-/** One Agents on This Mac gesture; `turnOn` runs only on a click. */
-export type AgentToolsCardRun = { action: "refresh" | "turnOn" };
+/** One Agents on This Mac gesture; `turnOn` and `removeLeftover` run only on a click. */
+export type AgentToolsCardRun = { action: "refresh" | "turnOn" } | { action: "removeLeftover"; id: string };
 
 /** The Agent integrations part (`SettingsAgentIntegrations.state`). */
 export type IntegrationsState = {
@@ -1272,7 +1275,7 @@ export type SettingsOps = {
   "cmux.settings.integrations.run": [IntegrationsRun, unknown];
   /** Native: the coding agents and whether their configs hold cmux's MCP server (Settings > Agents). */
   "cmux.settings.agentTools.state": [Record<string, never>, AgentToolsCardState];
-  /** Native: Add Now (`agents.cmuxMcp` on, then `cmux setup mcp`), Remove (`--remove`) or a refresh. */
+  /** Native: Turn On (`agents.cmuxMcp` on), Remove an agent's old cmux entry (`cmux setup mcp --remove ID`) or a refresh. */
   "cmux.settings.agentTools.run": [AgentToolsCardRun, AgentToolsCardState];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];

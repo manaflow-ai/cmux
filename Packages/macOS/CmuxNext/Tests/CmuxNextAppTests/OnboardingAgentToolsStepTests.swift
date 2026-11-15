@@ -157,8 +157,9 @@ import Testing
 
     // MARK: First run
 
-    /// The step is asked at launch, a first run or an existing installation, once: while nobody
-    /// answered and an agent is there; an answer, no agent, or an earlier showing keeps it quiet.
+    /// The step is asked at launch, a first run or an existing installation (an upgrade too), once
+    /// under the launch-only rule: while the answer is not `on`; a yes or an earlier showing keeps
+    /// it quiet.
     @Test func launchAsksOnceWhileNobodyAnsweredAndAnAgentIsThere() async throws {
         func presenter() -> (OnboardingWindowPresenter, () -> [OnboardingModel.Step]) {
             var shown: [OnboardingModel.Step] = []
@@ -178,11 +179,22 @@ import Testing
         let (again, shownAgain) = presenter()
         await again.askAgentToolsOnce(source: Source(), defaults: defaults)
         #expect(shownAgain().isEmpty)
-        for source in [Source(choice: .on), Source(choice: .off), Source(agents: [])] {
-            let (quiet, shown) = presenter()
-            await quiet.askAgentToolsOnce(source: source, defaults: try fresh())
-            #expect(shown().isEmpty, "answer \(source.choice), \(source.agents.count) agents")
+        // Only a yes keeps it quiet: a no is asked once more under the launch-only rule, and so is a
+        // Mac with no coding agent's CLI on the PATH (agent chats need none).
+        let (quiet, shownOn) = presenter()
+        await quiet.askAgentToolsOnce(source: Source(choice: .on), defaults: try fresh())
+        #expect(shownOn().isEmpty)
+        for source in [Source(choice: .off), Source(agents: [])] {
+            let (asking, shown) = presenter()
+            await asking.askAgentToolsOnce(source: source, defaults: try fresh())
+            #expect(shown() == [.agentTools], "answer \(source.choice), \(source.agents.count) agents")
         }
+        // An install asked under the old rule (its old flag set) is asked once more.
+        let upgraded = try fresh()
+        upgraded.set(true, forKey: "cmux.onboarding.agentToolsAsked")
+        let (again2, shownUpgraded) = presenter()
+        await again2.askAgentToolsOnce(source: Source(choice: .off), defaults: upgraded)
+        #expect(shownUpgraded() == [.agentTools])
         let (none, shown) = presenter()
         await none.askAgentToolsOnce(source: nil, defaults: try fresh())
         #expect(shown().isEmpty)

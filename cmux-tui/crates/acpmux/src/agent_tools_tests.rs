@@ -540,19 +540,22 @@ fn the_cmux_server_goes_only_with_the_persons_yes() {
 
 #[test]
 fn the_cmux_server_definition_names_the_settings_file() {
-    let server =
-        super::cmux_server(std::path::Path::new("/A/cmux"), false, Some("/h/cmux-next-x.json"));
+    let settings = std::path::Path::new("/h/cmux-next-x.json");
+    let server = super::cmux_server(std::path::Path::new("/A/cmux"), false, settings);
     assert_eq!(server.name, "cmux");
     assert_eq!(server.command, std::path::PathBuf::from("/A/cmux"));
     assert_eq!(server.args, ["mcp", "serve"]);
+    // Always the resolved settings file, and the acpmux guest mode always off: Codex merges these
+    // keys into a person's own `cmux` entry, one `cmux acp desktop link` wrote among them.
     assert_eq!(
         server.env,
-        [("CMUX_NEXT_CONFIG_FILE".to_owned(), "/h/cmux-next-x.json".to_owned())]
+        [
+            ("CMUX_NEXT_CONFIG_FILE".to_owned(), "/h/cmux-next-x.json".to_owned()),
+            (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
+        ]
     );
-    let all = super::cmux_server(std::path::Path::new("/A/cmux"), true, None);
+    let all = super::cmux_server(std::path::Path::new("/A/cmux"), true, settings);
     assert_eq!(all.args, ["mcp", "serve", "--all-tools"]);
-    assert!(all.env.is_empty());
-    assert!(super::cmux_server(std::path::Path::new("/A/cmux"), false, Some("")).env.is_empty());
 }
 
 /// A Codex chat whose config layers hold the person's own HTTP server named `cmux` gets no `cmux`
@@ -603,4 +606,47 @@ fn a_codex_chat_beside_an_http_cmux_entry_gets_no_cmux_server() {
     )
     .unwrap();
     assert_eq!(names(tools.without_cmux_beside_an_http_entry(&work, &env)), ["acpmux"]);
+}
+
+/// The servers a Codex chat's session start and fork send (`acp_servers_with`, which
+/// `hub/spawn.rs` `acp_params` and `hub/fork.rs` use): no `cmux` beside the person's own HTTP
+/// `cmux` entry, the others standalone; another harness, or no such entry, keeps `cmux` with the
+/// others folded behind it.
+#[test]
+fn a_codex_session_start_or_fork_beside_an_http_cmux_entry_sends_no_cmux() {
+    let root = tempfile::tempdir().unwrap();
+    let (codex_home, work) = (root.path().join("codex-home"), root.path().join("work"));
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "/x".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let env = std::collections::BTreeMap::from([(
+        "CODEX_HOME".to_owned(),
+        codex_home.to_string_lossy().into_owned(),
+    )]);
+    let names = |codex: Option<&std::path::Path>| {
+        super::acp_servers_with(tools.clone(), &env, "s-1", false, codex)
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(Some(&work)), ["cmux"]);
+    std::fs::write(
+        codex_home.join("config.toml"),
+        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
+    )
+    .unwrap();
+    assert_eq!(names(Some(&work)), ["acpmux"]);
+    assert_eq!(names(None), ["cmux"], "not Codex: the person's Codex config does not matter");
 }

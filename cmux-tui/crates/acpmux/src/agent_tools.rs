@@ -163,21 +163,28 @@ pub fn agents_get_cmux(settings: Option<&str>) -> bool {
 
 /// The `cmux` server every agent cmux starts gets: this cmux CLI's `mcp
 /// serve` (`--all-tools` lists every tool instead of code mode) under the
-/// name [`CMUX_SERVER`], with `settings_file` (`CMUX_NEXT_CONFIG_FILE` of the
-/// launch) in its env, so the server reads the settings the app runs on even
-/// where the harness passes a stdio server no env of its own (Codex). The
-/// one definition for acpmux's sessions and cmux-tui's terminal shims; each
-/// adds only its own routing env.
-pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: Option<&str>) -> McpServer {
+/// name [`CMUX_SERVER`]. Its env always names `settings_file`, the settings
+/// file the launch resolved (`CMUX_NEXT_CONFIG_FILE`, the default file
+/// too), so the server reads the settings the app runs on even where the
+/// harness passes a stdio server no env of its own (Codex). It also always
+/// sends [`crate::desktop_link::GUEST_ENV`] empty: Codex merges these keys
+/// into a person's own `[mcp_servers.cmux]`, and one `cmux acp desktop link`
+/// wrote carries the acpmux server's guest mode there, which would reach the
+/// acpmux server folded behind this one and hide its tools. The one
+/// definition for acpmux's sessions and cmux-tui's terminal shims; each adds
+/// only its own routing env.
+pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: &Path) -> McpServer {
     let mut args = vec!["mcp".to_owned(), "serve".to_owned()];
     if all_tools {
         args.push("--all-tools".to_owned());
     }
-    let env = settings_file
-        .filter(|file| !file.is_empty())
-        .map(|file| (crate::user_settings::CONFIG_OVERRIDE.to_owned(), file.to_owned()))
-        .into_iter()
-        .collect();
+    let env = vec![
+        (
+            crate::user_settings::CONFIG_OVERRIDE.to_owned(),
+            settings_file.to_string_lossy().into_owned(),
+        ),
+        (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
+    ];
     McpServer { name: CMUX_SERVER.into(), command: cmux.to_path_buf(), args, env }
 }
 
@@ -501,13 +508,8 @@ pub fn is_claude_code(name: &str, profile: &crate::config::HarnessProfile) -> bo
         || crate::config::derive_family(name, profile).starts_with("claude")
 }
 
-/// `mcpServers` for acpmux session `session_id`'s ACP harness; `all_tools`
-/// from [`lists_all_tools`]. `codex_cwd` is the session's folder when the
-/// harness is Codex: cmux-codex-acp gives Codex these servers as its thread's
-/// `mcp_servers.<name>` override, which Codex merges into the person's own
-/// entry of that name, and where that is an HTTP server named `cmux` the
-/// merged entry has a command and a url, which Codex refuses
-/// ([`without_cmux_beside_an_http_entry`]).
+/// `mcpServers` for acpmux session `session_id`'s ACP harness: [`acp_servers_with`] over
+/// [`current`], none for a session [`left_out`].
 pub fn acp_servers_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
@@ -516,15 +518,44 @@ pub fn acp_servers_for(
     codex_cwd: Option<&Path>,
 ) -> Value {
     if left_out(remote_origin, env, &[]) {
-        json!([])
-    } else {
-        let tools = current().scoped(env);
-        let tools = match codex_cwd {
-            Some(cwd) => tools.without_cmux_beside_an_http_entry(cwd, env),
-            None => tools,
-        };
-        tools.for_session(session_id).listing(all_tools).folded().acp_servers()
+        return json!([]);
     }
+    acp_servers_with(current(), env, session_id, all_tools, codex_cwd)
+}
+
+/// `mcpServers` from `tools` for acpmux session `session_id`'s ACP harness; `all_tools`
+/// from [`lists_all_tools`]. `codex_cwd` is the session's folder when the
+/// harness is Codex: cmux-codex-acp gives Codex these servers as its thread's
+/// `mcp_servers.<name>` override, which Codex merges into the person's own
+/// entry of that name, and where that is an HTTP server named `cmux` the
+/// merged entry has a command and a url, which Codex refuses
+/// ([`without_cmux_beside_an_http_entry`]).
+pub fn acp_servers_with(
+    tools: AgentTools,
+    env: &BTreeMap<String, String>,
+    session_id: &str,
+    all_tools: bool,
+    codex_cwd: Option<&Path>,
+) -> Value {
+    let tools = tools.scoped(env);
+    let tools = match codex_cwd {
+        Some(cwd) => tools.without_cmux_beside_an_http_entry(cwd, env),
+        None => tools,
+    };
+    tools.for_session(session_id).listing(all_tools).folded().acp_servers()
+}
+
+/// Whether `meta`'s harness is Codex: its family as recorded, else as `profile` derives it (a
+/// session an older build recorded has none). Its MCP servers become Codex config overrides
+/// ([`acp_servers_for`]).
+pub fn is_codex(
+    meta: &crate::store::SessionMeta,
+    profile: Option<&crate::config::HarnessProfile>,
+) -> bool {
+    meta.family
+        .clone()
+        .or_else(|| profile.map(|p| crate::config::derive_family(&meta.harness, p)))
+        .is_some_and(|family| family.starts_with("codex"))
 }
 
 /// Extra Claude Code flags for session `session_id` whose command line is
@@ -692,8 +723,7 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
-        let settings_file = std::env::var(crate::user_settings::CONFIG_OVERRIDE).ok();
-        servers.push(cmux_server(&cmux, false, settings_file.as_deref()));
+        servers.push(cmux_server(&cmux, false, &crate::user_settings::resolved_path()));
     }
     if let Some(chief) = executable("optchat-chief")
         && inputs.cmux_json.as_deref().is_some_and(memory_enabled)
@@ -944,16 +974,16 @@ impl AgentTools {
     /// Without the `cmux` server for a Codex chat in `cwd` whose config layers hold the person's
     /// own HTTP server named `cmux` (`codex_cmux_entry`, the rule the `codex` terminal shim
     /// follows): Codex would refuse the merged entry and the chat would not start. The person's
-    /// server keeps the name; the session's other servers stay, standalone. `env` is the session's
-    /// (its `CODEX_HOME` wins over this daemon's).
+    /// server keeps the name; the session's other servers stay, standalone. `CODEX_HOME` and
+    /// `HOME` are the ones the Codex child gets: this daemon's, the login shell's over them, then
+    /// the session's `env` (`login_env::effective_for`).
     pub fn without_cmux_beside_an_http_entry(
         mut self,
         cwd: &Path,
         env: &BTreeMap<String, String>,
     ) -> Self {
-        let getenv = |key: &str| {
-            env.get(key).map(std::ffi::OsString::from).or_else(|| std::env::var_os(key))
-        };
+        let effective = crate::login_env::effective_for(Some("codex"), env);
+        let getenv = |key: &str| effective.get(key).map(std::ffi::OsString::from);
         if crate::codex_cmux_entry::http_cmux_entry(&[], cwd, &getenv) {
             self.servers.retain(|s| s.name != CMUX_SERVER);
         }

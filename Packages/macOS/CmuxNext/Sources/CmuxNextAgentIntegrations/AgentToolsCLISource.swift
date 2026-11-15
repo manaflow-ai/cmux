@@ -37,21 +37,28 @@ public final class AgentToolsCLISource: AgentToolsSource {
     }
 
     public func agentToolsAgents() async -> [AgentToolsAgent] {
-        guard let cli = await cli(), let report = await Self.setupMCP(cli) else { return [] }
-        return AgentToolsAgent.agents(setupReport: report) ?? []
+        await agentToolsReport()?.agents ?? []
     }
 
-    public func agentToolsManualCommands() async -> [String] {
-        guard let cli = await cli(), let report = await Self.setupMCP(cli) else { return [] }
-        return AgentToolsAgent.manualCommands(setupReport: report)
+    public func agentToolsReport() async -> AgentToolsReport? {
+        guard let cli = await cli(), let report = await Self.setupMCP(cli, []),
+              let agents = AgentToolsAgent.agents(setupReport: report) else { return nil }
+        return AgentToolsReport(agents: agents, manual: AgentToolsAgent.manualCommands(setupReport: report))
     }
 
-    /// `cmux --json setup mcp` off the main thread; its stdout (a failed run prints its report there
-    /// too), or nil when it did not run.
-    @concurrent nonisolated static func setupMCP(_ cli: URL) async -> Data? {
+    public func removeLeftoverEntry(_ id: String) async -> Bool {
+        guard ["claude", "codex"].contains(id), let cli = await cli(),
+              let data = await Self.setupMCP(cli, ["--remove", id]),
+              let report = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return ["changed", "ok"].contains(report["state"] as? String ?? "")
+    }
+
+    /// `cmux --json setup mcp <arguments>` off the main thread; its stdout (a failed run prints its
+    /// report there too), or nil when it did not run.
+    @concurrent nonisolated static func setupMCP(_ cli: URL, _ arguments: [String]) async -> Data? {
         var environment = ProcessInfo.processInfo.environment
         if let path = LoginEnvironment.shared.rememberedPath() { environment["PATH"] = path }
-        let result = try? await ProcessRunner.run(executable: cli, arguments: ["--json", "setup", "mcp"],
+        let result = try? await ProcessRunner.run(executable: cli, arguments: ["--json", "setup", "mcp"] + arguments,
                                                   environment: environment, timeout: .seconds(90), clock: ContinuousClock())
         return result?.stdout
     }

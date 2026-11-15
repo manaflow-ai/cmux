@@ -606,8 +606,16 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.run": (params) => {
         const run = params as AgentToolsCardRun;
         if (run.action === "refresh") return this.agentTools;
-        // Like the host: Turn On sets the choice to on; every agent found then gets cmux's tools in cmux.
         this.agentToolsRuns.push(run);
+        // Like the host: Remove takes out that agent's old cmux entry.
+        if (run.action === "removeLeftover") {
+          this.agentTools = {
+            ...this.agentTools,
+            rows: this.agentTools.rows.map((row) => (row.id === run.id ? { ...row, leftover: null } : row)),
+          };
+          return this.agentTools;
+        }
+        // Like the host: Turn On sets the choice to on; every agent found then gets cmux's tools in cmux.
         this.values.set("agents.cmuxMcp", "on");
         this.agentTools = {
           ...this.agentTools,

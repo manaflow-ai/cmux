@@ -36,4 +36,12 @@ struct AgentToolsTerminalsTests {
         ])
         #expect(AgentToolsAgent.manualCommands(setupReport: Data(#"{"clients": []}"#.utf8)).isEmpty)
     }
+
+    /// A `cmux` entry an older cmux wrote into an agent's own config comes through with the exact
+    /// line that removes it; none, no line.
+    @Test func aLeftoverEntryCarriesItsRemoveLine() throws {
+        let report = #"{"clients": [{"id": "claude", "name": "Claude Code", "installed": true, "state": "terminals", "leftover": {"command": "/Applications/cmux.app/Contents/Resources/bin/cmux", "args": ["mcp", "serve"], "remove": "claude mcp remove --scope user cmux"}}, {"id": "codex", "name": "Codex", "installed": true, "state": "terminals", "leftover": null}]}"#
+        let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
+        #expect(agents.map(\.leftover) == ["claude mcp remove --scope user cmux", nil])
+    }
 }

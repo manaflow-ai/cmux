@@ -22,7 +22,11 @@
 //! itself.
 //!
 //! Every other field of a person's `cmux` entry merges into this build's
-//! server for that launch (module docs of agent_computer_use.rs).
+//! server for that launch: extra `env` keys, `env_vars`, timeouts,
+//! `enabled_tools`/`disabled_tools`, `environment_id` (a remote executor),
+//! `required` and `scopes` (module docs of cmux-tui agent_computer_use.rs).
+//! The acpmux guest mode of a `cmux acp desktop link` entry is sent empty
+//! (`agent_tools::cmux_server`).
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
@@ -41,6 +45,8 @@ pub struct ConfigArgs {
     pub cd: Option<PathBuf>,
     /// `-p NAME` / `--profile NAME`.
     pub profile: Option<OsString>,
+    /// Each `-c KEY=VALUE` / `--config KEY=VALUE`, as given.
+    pub overrides: Vec<String>,
 }
 
 /// The value of option `long` (or its `short` letter) when `arg` is one: the
@@ -74,15 +80,15 @@ pub fn config_args(args: &[OsString]) -> ConfigArgs {
         if arg == "--" {
             break;
         }
-        for (short, long) in [('C', "cd"), ('p', "profile")] {
+        for (short, long) in [('C', "cd"), ('p', "profile"), ('c', "config")] {
             let Some(value) = option_value(arg, short, long) else { continue };
             let Some(value) = value.map(OsString::from).or_else(|| args.next().cloned()) else {
                 break;
             };
-            if short == 'C' {
-                found.cd = Some(PathBuf::from(value));
-            } else {
-                found.profile = Some(value);
+            match short {
+                'C' => found.cd = Some(PathBuf::from(value)),
+                'p' => found.profile = Some(value),
+                _ => found.overrides.extend(value.to_str().map(str::to_owned)),
             }
             break;
         }
@@ -133,6 +139,25 @@ fn names_http_cmux(file: &Path) -> bool {
         .is_some_and(|entry| HTTP_ONLY.iter().any(|field| entry.contains_key(*field)))
 }
 
+/// Whether one of the person's own `-c` values gives the server named `cmux`
+/// an HTTP-only field (`-c mcp_servers.cmux.url=…`, or a whole table
+/// `-c mcp_servers.cmux={url=…}`).
+fn names_http_cmux_override(overrides: &[String]) -> bool {
+    overrides.iter().any(|value| {
+        let Some((key, raw)) = value.split_once('=') else { return false };
+        let key: Vec<&str> = key.trim().split('.').collect();
+        match key.as_slice() {
+            ["mcp_servers", name, field, ..] if *name == SERVER => HTTP_ONLY.contains(field),
+            ["mcp_servers", name] if *name == SERVER => format!("v = {raw}")
+                .parse::<toml::Table>()
+                .ok()
+                .and_then(|t| t.get("v").and_then(toml::Value::as_table).cloned())
+                .is_some_and(|entry| HTTP_ONLY.iter().any(|f| entry.contains_key(*f))),
+            _ => false,
+        }
+    })
+}
+
 /// Whether a config Codex may load for this launch has the person's own HTTP
 /// server named `cmux` (module docs): then this build's server cannot take
 /// the name, and the shim passes none. `args` are the person's Codex
@@ -143,6 +168,9 @@ pub fn http_cmux_entry(
     getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> bool {
     let config = config_args(args);
+    if names_http_cmux_override(&config.overrides) {
+        return true;
+    }
     let home = home_dir(getenv);
     let codex_home = getenv("CODEX_HOME")
         .filter(|value| !value.is_empty())
@@ -185,6 +213,30 @@ mod tests {
         // After `--`, and inside a prompt: not an option.
         assert_eq!(config_args(&os(&["--", "-p", "a"])), ConfigArgs::default());
         assert_eq!(config_args(&os(&["fix -p bug"])), ConfigArgs::default());
+    }
+
+    /// The person's own `-c` naming an HTTP field of `cmux`, in any form, counts as an HTTP
+    /// entry; their other `-c` values do not.
+    #[test]
+    fn an_http_cmux_override_on_the_command_line_counts() {
+        let none = |_: &str| None;
+        let cwd = Path::new("/");
+        for args in [
+            &["-c", "mcp_servers.cmux.url=\"http://x\""][..],
+            &["--config=mcp_servers.cmux.bearer_token_env_var=\"T\"", "exec", "hi there"],
+            &["-cmcp_servers.cmux.http_headers={a=\"b\"}"],
+            &["-c", "mcp_servers.cmux={url=\"http://x\"}"],
+        ] {
+            assert!(http_cmux_entry(&os(args), cwd, &none), "{args:?}");
+        }
+        for args in [
+            &["-c", "mcp_servers.cmux.cwd=\"/w\""][..],
+            &["-c", "mcp_servers.other.url=\"http://x\""],
+            &["-c", "model=\"o3\""],
+            &["exec", "--", "-c", "mcp_servers.cmux.url=x"],
+        ] {
+            assert!(!http_cmux_entry(&os(args), cwd, &none), "{args:?}");
+        }
     }
 
     #[test]

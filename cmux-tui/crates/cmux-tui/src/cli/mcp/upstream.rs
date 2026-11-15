@@ -352,7 +352,11 @@ impl Upstream {
             .args(&self.spec.args)
             // This server's own folding and allowlist stay with it.
             .env_remove(ENV)
-            .env_remove(super::TERMINAL_AGENT_ENV);
+            .env_remove(super::TERMINAL_AGENT_ENV)
+            // A guest mode this server inherited (a person's own `cmux` entry that `cmux acp
+            // desktop link` wrote, merged by Codex into this server) never reaches a folded
+            // server: the acpmux server would list no tools inside a chat.
+            .env_remove(acpmux::desktop_link::GUEST_ENV);
         // The Computer Use bridge names its caller on the person's approval
         // cards by its MCP client, which is this server ("cmux"): the agent's
         // own name goes in its env instead, unless the spec names one.

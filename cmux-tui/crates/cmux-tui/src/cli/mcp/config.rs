@@ -1,8 +1,8 @@
 //! The MCP server's switch: `mcp.enabled` in the settings file, owned by the config
 //! layer (the app writes the file; this only reads it). Off unless the file
 //! says `true`, or leaves it unset while the person answered yes to cmux's
-//! tools in their coding agents (`agents.cmuxMcp` `on`, the onboarding step's
-//! Add to My Agents): that answer is the same opt-in.
+//! tools for agents in cmux (`agents.cmuxMcp` `on`, the onboarding step's
+//! Turn On): that answer is the same opt-in.
 
 use std::path::{Path, PathBuf};
 

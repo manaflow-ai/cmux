@@ -74,9 +74,9 @@ nonisolated enum AgentDefaultsSettingsSchema {
         ]
     }
 
-    /// Settings > Agents > cmux Tools in Your Coding Agents: the onboarding step's question (may cmux add its MCP server to the person's coding agents?) and its answer, beside the card that adds or removes the server now.
+    /// Settings > Agents > cmux Tools: the onboarding step's question (do agents the person starts in cmux, its terminals and agent chats, get cmux's MCP server?) and its answer, beside the card that lists the agents on this Mac, an old cmux entry in one's own config (with Remove) and the manual lines for agents started elsewhere.
     static var toolsDescriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.agentTools", "cmux Tools in Your Coding Agents")
+        let group = SettingsText.keyed("settings.group.agentTools", "cmux Tools")
         return [
             SettingDescriptor(
                 AgentDefaultsSettingsSchema.cmuxMcpPath,

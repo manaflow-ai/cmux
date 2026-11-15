@@ -22,6 +22,7 @@ use cmux_json::JsonSet as _;
 
 mod browser_import;
 mod cloud_machine;
+mod cmux_serve;
 mod computer_use;
 mod harness;
 mod machine;

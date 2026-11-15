@@ -50,7 +50,7 @@ impl Hub {
             let tools = crate::agent_tools::current().scoped(&profile.env);
             // The list a Codex chat gets (`spawn.rs` `acp_params`): no `cmux` beside the
             // person's own HTTP `cmux` entry.
-            if super::spawn::is_codex(meta.family.as_deref()) {
+            if crate::agent_tools::is_codex(&meta, Some(profile)) {
                 tools.without_cmux_beside_an_http_entry(&meta.cwd, &profile.env)
             } else {
                 tools

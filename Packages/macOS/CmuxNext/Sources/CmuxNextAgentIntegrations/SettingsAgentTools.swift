@@ -6,8 +6,9 @@ import Foundation
 /// whether it gets cmux's MCP server when cmux starts it, beside the `agents.cmuxMcp` choice row
 /// (the onboarding step's question), and the manual lines a person runs themselves to use cmux's
 /// tools in agents started elsewhere (`cmux setup mcp`'s `manual`; cmux never runs them). Turn On is
-/// the person's yes: it sets the choice to `on`, only on their own click or key in the page.
-/// Reading runs `cmux setup mcp`, which writes nothing.
+/// the person's yes: it sets the choice to `on`. Remove takes out a `cmux` entry an older cmux wrote
+/// into an agent's own config (`cmux setup mcp --remove ID`). Both run only on the person's own click
+/// or key in the page. Reading runs `cmux setup mcp` once, which writes nothing.
 @MainActor
 final class SettingsAgentTools: PageProvider {
     private let source: any AgentToolsSource
@@ -36,17 +37,33 @@ final class SettingsAgentTools: PageProvider {
         [
             "loaded": .bool(loaded), "applying": .bool(applying), "failed": .bool(failed),
             "choice": .string(source.agentToolsChoice().rawValue),
-            "rows": .array(rows.map { ["id": .string($0.id), "name": .string($0.name), "state": .string($0.state.rawValue)] }),
+            "rows": .array(rows.map {
+                ["id": .string($0.id), "name": .string($0.name), "state": .string($0.state.rawValue),
+                 "leftover": $0.leftover.map(JSONValue.string) ?? .null]
+            }),
             "manual": .array(manual.map { .string($0) }),
         ]
     }
 
-    /// `refresh` reads (a page may ask); `turnOn` writes the person's answer and runs only on their
-    /// own click or key (`context.userGesture`) or a call they approved.
+    /// `refresh` reads (a page may ask); `turnOn` writes the person's answer and `removeLeftover`
+    /// (`id`) takes out an agent's old `cmux` entry, each only on their own click or key
+    /// (`context.userGesture`) or a call they approved.
     func run(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
         switch action {
         case "refresh":
+            await read()
+        case "removeLeftover":
+            guard context.userGesture || context.isConfirmedUser else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) needs a click in the page")
+            }
+            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id && $0.leftover != nil }) else {
+                throw PageError.invalidParams("no old cmux entry to remove for that agent")
+            }
+            guard !applying else { return state }
+            applying = true
+            defer { applying = false }
+            failed = !(await source.removeLeftoverEntry(id))
             await read()
         case "turnOn":
             guard context.userGesture || context.isConfirmedUser else {
@@ -63,15 +80,14 @@ final class SettingsAgentTools: PageProvider {
         return state
     }
 
-    /// Reads the agents and the manual lines; only the newest read lands.
+    /// Reads the agents and the manual lines, one `cmux setup mcp` run; only the newest read lands.
     private func read() async {
         generation += 1
         let mine = generation
-        let agents = await source.agentToolsAgents()
-        let commands = await source.agentToolsManualCommands()
+        let report = await source.agentToolsReport()
         guard mine == generation else { return }
-        rows = agents
-        manual = commands
+        rows = report?.agents ?? []
+        manual = report?.manual ?? []
         loaded = true
     }
 }

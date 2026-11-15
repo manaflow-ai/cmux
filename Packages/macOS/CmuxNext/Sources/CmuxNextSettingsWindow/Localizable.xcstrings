@@ -1585,6 +1585,270 @@
         }
       }
     },
+    "settingsWindow.agentTools.leftover": {
+      "comment": "Settings > Agents > Agents on This Mac: an agent's own settings still hold a cmux entry an older cmux wrote; followed by the exact command the Remove button runs",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its own settings still have a cmux entry an older cmux added. Inside cmux it is replaced; elsewhere it still starts. Remove runs:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال إعداداته الخاصة تحتوي على إدخال cmux أضافه إصدار أقدم من cmux. داخل cmux يُستبدل؛ وفي أماكن أخرى لا يزال يبدأ. يشغّل زر الإزالة:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Njegove postavke još imaju cmux unos koji je dodao stariji cmux. U cmuxu se zamjenjuje; drugdje se i dalje pokreće. Ukloni pokreće:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dens egne indstillinger har stadig en cmux-post, som en ældre cmux tilføjede. I cmux erstattes den; andre steder starter den stadig. Fjern kører:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seine eigenen Einstellungen enthalten noch einen cmux-Eintrag, den ein älteres cmux hinzugefügt hat. In cmux wird er ersetzt, anderswo startet er weiterhin. Entfernen führt aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sus propios ajustes aún tienen una entrada de cmux que añadió un cmux anterior. Dentro de cmux se reemplaza; en otros sitios sigue iniciándose. Quitar ejecuta:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ses propres réglages contiennent encore une entrée cmux ajoutée par une ancienne version de cmux. Dans cmux, elle est remplacée ; ailleurs, elle démarre encore. Supprimer exécute :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le sue impostazioni hanno ancora una voce cmux aggiunta da un cmux precedente. In cmux viene sostituita; altrove si avvia ancora. Rimuovi esegue:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェント自身の設定に、以前の cmux が追加した cmux の項目が残っています。cmux 内では置き換えられますが、それ以外では起動します。「削除」で実行するコマンド:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការកំណត់ផ្ទាល់ខ្លួនរបស់វានៅតែមានធាតុ cmux ដែល cmux ចាស់បានបន្ថែម។ ក្នុង cmux វាត្រូវបានជំនួស ប៉ុន្តែកន្លែងផ្សេងវានៅតែចាប់ផ្ដើម។ ការលុបនឹងដំណើរការ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트 자체 설정에 이전 cmux가 추가한 cmux 항목이 아직 있습니다. cmux 안에서는 대체되지만 다른 곳에서는 여전히 시작됩니다. 제거 시 실행:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dens egne innstillinger har fortsatt en cmux-oppføring som en eldre cmux la til. I cmux erstattes den; andre steder starter den fortsatt. Fjern kjører:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jego własne ustawienia wciąż mają wpis cmux dodany przez starszą wersję cmux. W cmux jest zastępowany, gdzie indziej nadal się uruchamia. Usuń wykonuje:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As configurações dele ainda têm uma entrada do cmux adicionada por um cmux antigo. Dentro do cmux ela é substituída; em outros lugares ainda inicia. Remover executa:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В его собственных настройках всё ещё есть запись cmux, добавленная старой версией cmux. В cmux она заменяется, в других местах по-прежнему запускается. «Удалить» выполняет:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตั้งค่าของเอเจนต์นี้ยังมีรายการ cmux ที่ cmux รุ่นเก่าเพิ่มไว้ ใน cmux รายการนี้จะถูกแทนที่ แต่ที่อื่นยังเริ่มทำงานอยู่ ลบจะรัน:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi ayarlarında eski bir cmux’un eklediği bir cmux girdisi hâlâ var. cmux içinde yerine başkası geçer; başka yerlerde hâlâ başlar. Kaldır şunu çalıştırır:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У його власних налаштуваннях досі є запис cmux, доданий старою версією cmux. У cmux він замінюється, деінде все ще запускається. «Вилучити» виконує:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài đặt riêng của nó vẫn có một mục cmux do bản cmux cũ thêm vào. Trong cmux mục này được thay thế; ở nơi khác nó vẫn khởi chạy. Xóa sẽ chạy:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它自己的设置中仍有旧版 cmux 添加的 cmux 条目。在 cmux 中会被替换，在其他地方仍会启动。“移除”会运行："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它自己的設定中仍有舊版 cmux 新增的 cmux 項目。在 cmux 中會被取代，在其他地方仍會啟動。「移除」會執行："
+          }
+        }
+      }
+    },
+    "settingsWindow.agentTools.leftover.remove": {
+      "comment": "Settings > Agents > Agents on This Mac: removes the old cmux entry from that agent's own settings (the person's click only)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukloni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លុប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вилучити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
     "settingsPage.chiefPet.about.mochi": {
       "comment": "Chief pet character Mochi (an animated mochi cat): one-line description.",
       "extractionState": "manual",

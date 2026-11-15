@@ -17,8 +17,8 @@
 //!
 //! Both agents get it under the name `cmux`, so an agent never has two cmux
 //! servers, also where the person's own config has an entry named `cmux` (a
-//! global entry another cmux wrote with `cmux setup mcp --global`, or a
-//! server of their own), checked live with Claude Code 2.1.310 and Codex
+//! global entry an older cmux wrote, one `cmux acp desktop link` wrote, or
+//! a server of their own), checked live with Claude Code 2.1.310 and Codex
 //! 0.160.1 and 0.169.0 (cmux-tui/scripts/mcp-launch-check.sh):
 //!
 //! - Claude Code: a `--mcp-config` server replaces a server of the same name
@@ -31,7 +31,10 @@
 //!   build's server starts. Fields of the person's entry the shim does not
 //!   send stay for that launch: other `env` keys, `env_vars`,
 //!   `startup_timeout_sec`, `tool_timeout_sec`, `enabled_tools` and
-//!   `disabled_tools` (a list there limits this build's tools too). A
+//!   `disabled_tools` (a list there limits this build's tools too),
+//!   `environment_id` (which sends the server to a remote executor),
+//!   `required` and `scopes`. The acpmux guest mode a `cmux acp desktop
+//!   link` entry carries in its env is sent empty (`cmux_server`). A
 //!   person's own HTTP server named `cmux` (`url` or another HTTP-only
 //!   field) cannot merge: Codex refuses a command with a url, so there the
 //!   shim passes no server and the person's keeps the name
@@ -42,7 +45,9 @@
 //! started in cmux (`agents.cmuxMcp` on), this build's server takes the name
 //! `cmux` for the launch; outside cmux terminals, and with the answer off,
 //! the person's configs are untouched. cmux never writes them on its own:
-//! only `cmux setup mcp --global`, which the person runs, does.
+//! only `cmux acp desktop link` and `cmux acp bridge connect` do, when the
+//! person runs them, and Settings' Remove takes out an old `cmux` entry an
+//! older cmux wrote (`cmux setup mcp --remove`), on the person's click.
 //!
 //! "Always allow" on a tool of the shim's server is not written to any
 //! config: Codex 0.160.1 persists an MCP tool approval only for a server a
@@ -107,10 +112,12 @@ fn server(
 ) -> Option<acpmux::agent_tools::McpServer> {
     let socket = socket.to_str()?;
     let all_tools = getenv(CODE_MODE_ENV).is_some_and(|v| v.to_str().map(str::trim) == Some("0"));
-    let settings_file =
-        getenv(cmux_tui_core::user_settings::CONFIG_OVERRIDE).and_then(|v| v.into_string().ok());
-    let mut server =
-        acpmux::agent_tools::cmux_server(executable, all_tools, settings_file.as_deref());
+    // The pane's settings file, else the one this CLI resolves (the shared file): always named.
+    let settings_file = getenv(cmux_tui_core::user_settings::CONFIG_OVERRIDE)
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(cmux_tui_core::user_settings::config_path);
+    let mut server = acpmux::agent_tools::cmux_server(executable, all_tools, &settings_file);
     let mut bridge_env = serde_json::Map::new();
     bridge_env.insert("CMUX_TUI_SOCKET".into(), json!(socket));
     if let Some(session) = session(getenv, std::process::id()) {
@@ -287,6 +294,10 @@ mod tests {
         assert_eq!(env["CMUX_TUI_TERMINAL_ID"].as_str(), Some("term_7"));
         assert_eq!(env["CMUX_SOCKET_PATH"].as_str(), Some("/tmp/app.sock"));
         assert!(env.get("CMUX_TAG").is_none(), "an unset pane env is left out");
+        // The acpmux guest mode always off (a desktop-link `cmux` entry would merge it in), and
+        // the settings file always named.
+        assert_eq!(env[acpmux::desktop_link::GUEST_ENV].as_str(), Some(""));
+        assert!(env["CMUX_NEXT_CONFIG_FILE"].as_str().is_some_and(|f| !f.is_empty()));
         assert_upstreams(env[UPSTREAMS_ENV].as_str().unwrap(), "/A pp/cmux", "/tmp/s \"q\".sock");
     }
 

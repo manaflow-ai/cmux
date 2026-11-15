@@ -1,6 +1,7 @@
 //! `cmux setup mcp [claude|codex ...]`: which coding agents get cmux's MCP
 //! server (`cmux mcp serve`, Computer Use behind it) when cmux starts them,
-//! and the lines a person can run to use it elsewhere. It writes nothing.
+//! and the lines a person can run to use it elsewhere. It writes nothing,
+//! but for `--remove CLIENT` (below).
 //!
 //! cmux gives its server to the agents it starts, and only through their
 //! launch: a Claude Code or Codex typed into a cmux terminal gets it from the
@@ -15,6 +16,15 @@
 //! cmux's server in agents started elsewhere runs the `manual` lines this
 //! report names themselves, and removes them the same way.
 //!
+//! An older cmux wrote a `cmux` entry into the person's own config
+//! (`~/.claude.json`, `$CODEX_HOME/config.toml`) that runs `cmux mcp serve`
+//! (`cmux_serve.rs`): each client row names one it finds (`leftover`, with
+//! the exact line that removes it). Inside cmux the agent's own `cmux`
+//! replaces or overrides it; outside cmux it still starts. Nothing takes it
+//! out on its own: `cmux setup mcp --remove CLIENT` does, when the person asks
+//! (Settings' Remove button), only for such an entry, and names the line that
+//! puts it back.
+//!
 //! The only cmux commands that write an agent's own config are two other
 //! features the person runs themselves, each with its own server name:
 //! `cmux acp desktop link` (an `acpmux-mcp` guest entry named `cmux` for
@@ -28,11 +38,12 @@
 //! it). The result is `needs_user` while the person has not answered, or
 //! said yes with `mcp.enabled` false (the server would refuse cmux's tools).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::super::agents_doctor::on_path;
+use super::super::agents_doctor::{on_path, read_json, read_text};
 use super::super::fix_command::quote_arg;
 use super::{Outcome, Refusal};
 use cmux_json::JsonSet as _;
@@ -42,6 +53,9 @@ const TASK: &str = "mcp";
 
 /// The name the cmux server has in every agent cmux starts.
 const SERVER: &str = crate::agent_computer_use::SERVER;
+
+/// The longest `claude mcp remove` or `codex mcp remove` may take.
+const CLI_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Client {
@@ -71,6 +85,107 @@ impl Client {
         }
     }
 
+    /// The person's own config file the agent's CLI writes (user scope).
+    fn config(self) -> Option<PathBuf> {
+        let dir = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from);
+        match self {
+            Self::Claude => {
+                dir("CLAUDE_CONFIG_DIR").or_else(|| dir("HOME")).map(|d| d.join(".claude.json"))
+            }
+            Self::Codex => dir("CODEX_HOME")
+                .or_else(|| dir("HOME").map(|home| home.join(".codex")))
+                .map(|d| d.join("config.toml")),
+        }
+    }
+
+    /// The `mcp remove` arguments for the entry named `cmux`.
+    fn remove_args(self) -> Vec<String> {
+        let scope: &[&str] = match self {
+            Self::Claude => &["--scope", "user"],
+            Self::Codex => &[],
+        };
+        ["mcp", "remove"].iter().chain(scope).chain(&[SERVER]).map(|a| (*a).to_owned()).collect()
+    }
+
+    /// `args` as the shell line a person runs.
+    fn line(self, args: &[String]) -> String {
+        std::iter::once(self.id().to_owned())
+            .chain(args.iter().map(|arg| quote_arg(arg)))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// The `cmux` entry in the person's own config, when it runs cmux's server
+    /// (an older cmux wrote it). `Err` for a config it cannot read.
+    fn leftover(self) -> Result<Option<Leftover>, String> {
+        let Some(file) = self.config() else { return Ok(None) };
+        let shown = file.display();
+        let entry: Option<Value> = match self {
+            Self::Claude => read_json(&file)
+                .map_err(|error| format!("{shown}: {error}"))?
+                .and_then(|config| config.pointer(&format!("/mcpServers/{SERVER}")).cloned()),
+            Self::Codex => {
+                let Some(text) = read_text(&file).map_err(|error| format!("{shown}: {error}"))?
+                else {
+                    return Ok(None);
+                };
+                let config: toml::Table =
+                    text.parse().map_err(|error| format!("{shown}: {error}"))?;
+                config
+                    .get("mcp_servers")
+                    .and_then(|servers| servers.get(SERVER))
+                    .map(|entry| serde_json::to_value(entry).unwrap_or(Value::Null))
+            }
+        };
+        let Some(entry) = entry.as_ref().and_then(Value::as_object) else { return Ok(None) };
+        let Some(command) = entry.get("command").and_then(Value::as_str) else { return Ok(None) };
+        let args: Vec<String> = entry
+            .get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|a| a.as_str().map(str::to_owned))
+            .collect();
+        let Some(runs) = super::cmux_serve::cmux_serve(command, &args) else { return Ok(None) };
+        let runs = match runs {
+            super::cmux_serve::CmuxServe::Path(path) => path.to_owned(),
+            super::cmux_serve::CmuxServe::Published => "a published cmux package".to_owned(),
+        };
+        let env: Vec<(String, String)> = entry
+            .get("env")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+            .collect();
+        let kept = ["type", "command", "args", "env"];
+        let mut extra: Vec<String> =
+            entry.keys().filter(|k| !kept.contains(&k.as_str())).cloned().collect();
+        if entry
+            .get("env")
+            .and_then(Value::as_object)
+            .is_some_and(|env| env.values().any(|v| !v.is_string()))
+        {
+            extra.push("env".into());
+        }
+        Ok(Some(Leftover { config: file, command: command.to_owned(), args, env, extra, runs }))
+    }
+
+    /// The line that adds `leftover` back, as it was.
+    fn add_back(self, leftover: &Leftover) -> String {
+        let mut args = vec!["mcp".to_owned(), "add".to_owned()];
+        for (key, value) in &leftover.env {
+            args.push("--env".to_owned());
+            args.push(format!("{key}={value}"));
+        }
+        if self == Self::Claude {
+            args.extend(["--scope".to_owned(), "user".to_owned()]);
+        }
+        args.extend([SERVER.to_owned(), "--".to_owned(), leftover.command.clone()]);
+        args.extend(leftover.args.iter().cloned());
+        self.line(&args)
+    }
+
     /// The line a person runs to give this agent cmux's server everywhere,
     /// in its own config, with its own CLI. cmux never runs it.
     fn manual(self, cli: &str) -> String {
@@ -82,8 +197,35 @@ impl Client {
     }
 }
 
+/// A `cmux` entry in the person's own config that runs cmux's server.
+struct Leftover {
+    config: PathBuf,
+    command: String,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+    /// Fields cmux would not put back if it removed it.
+    extra: Vec<String>,
+    /// The cmux CLI or launcher it runs, or that it fetches a published one.
+    runs: String,
+}
+
+impl Leftover {
+    fn json(&self, client: Client) -> Value {
+        json!({
+            "config": self.config,
+            "command": self.command,
+            "args": self.args,
+            "runs": self.runs,
+            "remove": client.line(&client.remove_args()),
+        })
+    }
+}
+
 pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let request = parse(args)?;
+    if let Some(client) = request.remove {
+        return Ok(remove(client));
+    }
     let cli = this_cli()?;
     let (settings, enabled) = super::super::mcp::outside_chats();
     let choice = AgentsCmuxMcp::from_config_file(&settings);
@@ -103,9 +245,19 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                 "name": client.name(),
                 "installed": here,
                 "manual": client.manual(&cli),
+                "leftover": Value::Null,
                 "user_action": Value::Null,
                 "error": Value::Null,
             });
+            match client.leftover() {
+                Ok(Some(leftover)) => {
+                    row.set("leftover", leftover.json(client));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    row.set("error", json!(error));
+                }
+            }
             let state = match () {
                 _ if here && serves => "terminals",
                 _ if here => "planned",
@@ -220,17 +372,125 @@ struct Request {
     /// The clients named on the command line.
     named: Vec<Client>,
     dry_run: bool,
+    /// `--remove CLIENT`: take that agent's leftover `cmux` entry out.
+    remove: Option<Client>,
+}
+
+/// `--remove CLIENT`: takes out the `cmux` entry an older cmux wrote into
+/// `client`'s own config, through its own `mcp remove`, and names the line
+/// that puts it back. Only an entry that runs `cmux mcp serve` with nothing
+/// cmux would not put back; any other is left, and the line to run is named.
+fn remove(client: Client) -> Outcome {
+    let mut report = json!({
+        "schema_version": 1,
+        "task": TASK,
+        "action": "remove",
+        "client": client.id(),
+        "state": "ok",
+        "undo": Value::Null,
+        "user_action": Value::Null,
+        "error": Value::Null,
+    });
+    let line = client.line(&client.remove_args());
+    match client.leftover() {
+        Err(error) => {
+            report.set("state", json!("failed"));
+            report.set("error", json!(error));
+            return Outcome { report, failed: true };
+        }
+        Ok(None) => {}
+        Ok(Some(leftover)) if !leftover.extra.is_empty() => {
+            report.set("state", json!("needs_user"));
+            report.set(
+                "user_action",
+                json!({
+                    "kind": "keep",
+                    "text": format!(
+                        "{}'s cmux entry has settings cmux would not put back ({}), so it is left \
+                         as it is. Keep what you need from it, then run `{line}`",
+                        client.name(),
+                        leftover.extra.join(", ")
+                    ),
+                    "command": line,
+                    "url": Value::Null,
+                }),
+            );
+        }
+        Ok(Some(leftover)) => match run_cli(client, &client.remove_args()) {
+            Ok(()) => {
+                report.set("state", json!("changed"));
+                report.set("undo", json!(client.add_back(&leftover)));
+            }
+            Err(error) => {
+                report.set("state", json!("failed"));
+                report.set("error", json!(error));
+                return Outcome { report, failed: true };
+            }
+        },
+    }
+    Outcome { report, failed: false }
+}
+
+/// Runs `client`'s CLI with `args`, within [`CLI_TIMEOUT`].
+fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
+    use std::io::Read;
+    let line = client.line(args);
+    let mut child = std::process::Command::new(client.id())
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("`{line}`: {error}"))?;
+    // Read on its own thread, so a CLI that writes more than the pipe holds
+    // never blocks on it.
+    let stderr = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = pipe.read_to_string(&mut text);
+            text
+        })
+    });
+    let deadline = Instant::now() + CLI_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                // A bounded wait for one child, polled in 20 ms steps: std
+                // has no wait with a timeout.
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("`{line}` did not finish in {}s", CLI_TIMEOUT.as_secs()));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("`{line}`: {error}"));
+            }
+        }
+    };
+    if status.success() {
+        return Ok(());
+    }
+    let text = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
+    let text: String = text.trim().chars().take(2000).collect();
+    Err(format!("`{line}` failed ({status}): {text}"))
 }
 
 fn parse(args: &[String]) -> Result<Request, Refusal> {
     let mut request = Request::default();
+    let mut removing = false;
     for arg in args {
         match arg.as_str() {
+            "--remove" => removing = true,
             // Accepted for `cmux setup local --dry-run`: nothing is written either way.
             "--dry-run" => request.dry_run = true,
             flag if flag.starts_with('-') => {
                 return Err(Refusal::Usage(format!(
-                    "cmux: setup mcp: unknown option {flag:?}; cmux never changes an agent's own \
+                    "cmux: setup mcp: unknown option {flag:?}; cmux adds nothing to an agent's own \
                      settings (the report's `manual` lines are for the person to run)"
                 )));
             }
@@ -245,6 +505,16 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
                 }
             }
         }
+    }
+    if removing {
+        let [client] = request.named.as_slice() else {
+            return Err(Refusal::Usage(
+                "cmux: setup mcp: --remove takes one agent, claude or codex: it takes out the \
+                 cmux entry an older cmux wrote into that agent's own settings"
+                    .into(),
+            ));
+        };
+        request.remove = Some(*client);
     }
     request.clients = request.named.clone();
     Ok(request)

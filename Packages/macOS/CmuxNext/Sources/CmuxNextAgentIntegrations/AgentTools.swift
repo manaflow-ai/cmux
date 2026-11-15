@@ -33,11 +33,16 @@ public struct AgentToolsAgent: Sendable, Equatable {
     /// The product's own name ("Claude Code"), never translated.
     public let name: String
     public let state: State
+    /// The line that removes a `cmux` entry an older cmux wrote into this agent's own config (it
+    /// runs `cmux mcp serve`), when there is one: Settings names it and offers Remove, which only the
+    /// person's click runs. Nil for none.
+    public let leftover: String?
 
-    public init(id: String, name: String, state: State) {
+    public init(id: String, name: String, state: State, leftover: String? = nil) {
         self.id = id
         self.name = name
         self.state = state
+        self.leftover = leftover
     }
 }
 
@@ -55,7 +60,8 @@ public extension AgentToolsAgent {
             case "failed": .failed
             default: .ready
             }
-            return AgentToolsAgent(id: id, name: name, state: state)
+            let leftover = (client["leftover"] as? [String: Any])?["remove"] as? String
+            return AgentToolsAgent(id: id, name: name, state: state, leftover: leftover)
         }
     }
 
@@ -84,11 +90,29 @@ public protocol AgentToolsSource: AnyObject {
     /// The installed coding agents and whether each gets cmux's tools in cmux (`cmux setup mcp`,
     /// which writes nothing). Empty when none is installed or the CLI did not answer.
     func agentToolsAgents() async -> [AgentToolsAgent]
-    /// The manual lines (`cmux setup mcp`'s `manual.commands`) a person runs themselves to use
-    /// cmux's tools in agents started elsewhere. Empty when the CLI did not answer.
-    func agentToolsManualCommands() async -> [String]
+    /// One `cmux setup mcp` run: the agents and the manual lines a person runs themselves to use
+    /// cmux's tools in agents started elsewhere. Nil when the CLI did not answer.
+    func agentToolsReport() async -> AgentToolsReport?
+    /// Takes out the `cmux` entry an older cmux wrote into agent `id`'s own config (`cmux setup mcp
+    /// --remove ID`), on the person's click only; true when it is gone.
+    func removeLeftoverEntry(_ id: String) async -> Bool
+}
+
+/// One `cmux setup mcp` report: the installed agents and the manual lines.
+public struct AgentToolsReport: Sendable, Equatable {
+    public let agents: [AgentToolsAgent]
+    public let manual: [String]
+
+    public init(agents: [AgentToolsAgent], manual: [String]) {
+        self.agents = agents
+        self.manual = manual
+    }
 }
 
 public extension AgentToolsSource {
-    func agentToolsManualCommands() async -> [String] { [] }
+    func agentToolsReport() async -> AgentToolsReport? {
+        AgentToolsReport(agents: await agentToolsAgents(), manual: [])
+    }
+
+    func removeLeftoverEntry(_ id: String) async -> Bool { false }
 }

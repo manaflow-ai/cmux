@@ -385,7 +385,7 @@ impl Hub {
             tool_servers: tool_servers(
                 crate::agent_tools::current(),
                 &spawn.env,
-                super::spawn::is_codex(draft.family.as_deref()).then_some(draft.cwd.as_path()),
+                crate::agent_tools::is_codex(draft, Some(profile)).then_some(draft.cwd.as_path()),
             ),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })

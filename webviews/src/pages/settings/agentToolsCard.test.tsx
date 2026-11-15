@@ -79,3 +79,33 @@ test("an older host without the choice or manual lines still lists the agents", 
   expect(element.querySelector("[data-agent-tools-manual]")).toBeNull();
   page.unmount();
 });
+
+test("an old cmux entry in an agent's own settings shows its remove line, and only a click removes it", async () => {
+  const page = await renderPage({
+    path: "/settings/agents",
+    setup: (provider) => {
+      provider.agentTools = {
+        ...provider.agentTools,
+        rows: [
+          { id: "claude", name: "Claude Code", state: "ready", leftover: "claude mcp remove --scope user cmux" },
+          { id: "codex", name: "Codex", state: "ready", leftover: null },
+        ],
+      };
+    },
+  });
+  await settle();
+  const element = card(page.container);
+  const notice = element.querySelectorAll<HTMLElement>("[data-agent-tools-leftover]");
+  expect(notice.length).toBe(1);
+  expect(notice[0]!.textContent).toContain("an older cmux");
+  expect(element.querySelector("[data-agent-tools-leftover-line]")!.textContent).toBe(
+    "claude mcp remove --scope user cmux",
+  );
+  // Showing removes nothing.
+  expect(page.provider.agentToolsRuns).toEqual([]);
+  await act(async () => button(element, "removeLeftover")!.click());
+  await settle();
+  expect(page.provider.agentToolsRuns).toEqual([{ action: "removeLeftover", id: "claude" }]);
+  expect(element.querySelector("[data-agent-tools-leftover]")).toBeNull();
+  page.unmount();
+});
