@@ -130,6 +130,7 @@ def main() -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--pid-file", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--prefetch", action="store_true", help="run `hot-apply.py prefetch SHA` before the apply")
     args = parser.parse_args()
     app, out = Path(args.app), Path(args.out)
     cli = (app / hot.BIN / "cmux").resolve()
@@ -172,6 +173,11 @@ def main() -> int:
             and t["marker"] in s and shell_pid(s, "PID0") and s)
         t["shell_pid"] = shell_pid(screen, "PID0")
 
+    if args.prefetch:
+        # As once CI publishes SHA: everything apply needs is fetched and checked first, so the apply only swaps.
+        code, fetched = run_hot("prefetch", args.sha, "--app", str(app))
+        receipt["prefetch"] = {"exit": code, "seconds": (fetched or {}).get("seconds"),
+                               "phases": (fetched or {}).get("phases")}
     code, applied = run_hot("apply", args.sha, "--app", str(app), "--socket", sock, "--parts", "rust")
     receipt["apply"] = applied
     rust = (applied or {}).get("steps", {}).get("rust", {})

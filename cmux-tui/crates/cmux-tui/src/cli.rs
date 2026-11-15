@@ -91,6 +91,8 @@ mod codex_app_server;
 mod command;
 mod completion;
 #[cfg(unix)]
+mod key_broker;
+#[cfg(unix)]
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
@@ -824,6 +826,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
