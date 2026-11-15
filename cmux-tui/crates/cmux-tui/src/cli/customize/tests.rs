@@ -427,3 +427,48 @@ fn a_try_on_says_its_time_and_reverts_at_the_first_look_after_it() {
     let none = run(Request::Try { source: None, duration_ms: 60_000 }, 202_000).err().unwrap();
     assert_eq!(none.code, "customize.nothing_to_try");
 }
+
+#[test]
+fn schema_lists_what_can_change_and_needs_no_store() {
+    use super::SchemaFormat;
+    use cmux_customize::schema::Section;
+    assert_eq!(
+        parse(&words(&["schema"])),
+        Ok(Request::Schema { section: None, format: SchemaFormat::Schema })
+    );
+    assert_eq!(
+        parse(&words(&["schema", "views"])),
+        Ok(Request::Schema { section: Some(Section::Views), format: SchemaFormat::Schema })
+    );
+    assert_eq!(
+        parse(&words(&["schema", "--typescript"])),
+        Ok(Request::Schema { section: None, format: SchemaFormat::TypeScript })
+    );
+    assert!(parse(&words(&["schema", "colours"])).unwrap_err().contains("settings, theme"));
+    assert!(parse(&words(&["schema", "views", "--rust"])).is_err());
+    assert!(parse(&words(&["schema", "--yaml"])).is_err());
+
+    // The MCP path answers from this build's tables before it opens the store.
+    let views = super::run_json(&words(&["schema", "views"]), "mcp").expect("views");
+    let slots = views["views"].as_array().expect("a list of view slots");
+    assert!(slots.iter().any(|slot| slot["interface"] == "cmux.section/1"));
+    assert!(views.get("settings").is_none());
+    let all = super::run_json(&words(&["schema"]), "mcp").expect("the whole schema");
+    let accent = all["settings"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["key"] == "appearance.accent"))
+        .expect("appearance.accent is listed");
+    assert!(accent.get("default").is_some() && accent.get("schema").is_some());
+    let ts = super::run_json(&words(&["schema", "--typescript"]), "mcp").expect("typescript");
+    assert!(ts["source"].as_str().is_some_and(|s| s.contains("export interface CmuxSettings")));
+
+    let human = Answer::Schema(
+        cmux_customize::schema::Schema::current(),
+        Some(Section::Views),
+        SchemaFormat::Schema,
+    )
+    .human(0);
+    assert!(human.starts_with("View slots"), "{human}");
+    assert!(human.contains("cmux.section/1") && human.contains("defaultRegion: top|middle|bottom"));
+    assert!(human.contains("\nNext:\n"));
+}

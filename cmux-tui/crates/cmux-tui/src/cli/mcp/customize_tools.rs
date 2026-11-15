@@ -183,6 +183,19 @@ const TOOLS: &[CustomizeTool] = &[
         mutation: true,
     },
     CustomizeTool {
+        name: "customize_schema",
+        verb: "schema",
+        description: "Every key you can customize, from this build's own tables, so you never guess one: each setting with its type (JSON Schema), choices, range, default and whether you may set it; what a theme file holds and the theme tokens; the view slots and where each goes; and every extension point with its options. Reads only.",
+        argument: Some((
+            "part",
+            false,
+            Kind::Text,
+            "Only one part: settings, theme, views or extensions. Omit for all of them.",
+        )),
+        note: None,
+        mutation: false,
+    },
+    CustomizeTool {
         name: "customize_profiles",
         verb: "profiles",
         description: "The saved profiles: name, description, how many settings and files each holds.",
@@ -316,6 +329,8 @@ mod tests {
             ["brief", "--", "--compact sidebar, please"]
         );
         assert_eq!(w("customize_check", json!({})).unwrap(), ["check"]);
+        assert_eq!(w("customize_schema", json!({})).unwrap(), ["schema"]);
+        assert_eq!(w("customize_schema", json!({"part": "views"})).unwrap(), ["schema", "views"]);
         assert_eq!(w("customize_apply", json!({"note": "compact"})).unwrap(), ["apply", "compact"]);
         assert_eq!(w("customize_apply", json!({})).unwrap(), ["apply"]);
         assert_eq!(w("customize_rollback", json!({})).unwrap(), ["rollback"]);
@@ -339,6 +354,7 @@ mod tests {
             ("customize_save", json!({"name": "--help"})),
             ("customize_use", json!({"profile": "-x"})),
             ("customize_status", json!({"extra": 1})),
+            ("customize_schema", json!({"part": "--rust"})),
             ("customize_discard", json!({"note": "x"})),
         ] {
             assert!(w(name, bad.clone()).is_err(), "{name} {bad}");
@@ -357,7 +373,7 @@ mod tests {
         assert!(w("customize_try", json!({"minutes": 0})).is_err());
         assert!(w("customize_try", json!({"minutes": "5"})).is_err());
         assert!(w("customize_keep", json!({"minutes": 5})).is_err());
-        assert_eq!(names.len(), 15);
+        assert_eq!(names.len(), 16);
         assert!(names.iter().all(|name| name.starts_with("customize_")));
     }
 }
