@@ -41,6 +41,7 @@ the keys every list in NEXT takes.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -316,12 +317,30 @@ def root_scopes(text: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def root_commands(text: str) -> list[str]:
+    """The commands `cmux help` names by a usage line (`cmux attach`, `cmux wg hub|dial`), not by a scope row:
+    root_scopes skips those lines, so without this their verbs are never read (#38553 review F1)."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"\s+(?:usage:?\s*)?cmux\s+([a-z][a-z0-9-]*)(?:\s|$)", line, re.I)
+        if m and m.group(1) != "help":
+            out.append(m.group(1))
+    return list(dict.fromkeys(out))
+
+
 SCOPE_ALIASES = {"vm": "cloud"}
 
 
+class HelpFailed(RuntimeError):
+    """A help page could not be read: refresh writes nothing rather than drop the verbs it lists (#38553 F2)."""
+
+
 def read_cli(binary: str) -> list[str]:
+    # English headings (`USAGE`, `Commands:`) are what the parser reads: a translated help lists no verbs (F3).
+    env = {**os.environ, "LC_ALL": "C", "LANG": "C", "LANGUAGE": "C"}
+
     def run(*args: str) -> tuple[int, str]:
-        p = subprocess.run([binary, *args], capture_output=True, text=True, timeout=60)
+        p = subprocess.run([binary, *args], capture_output=True, text=True, timeout=60, env=env)
         return p.returncode, p.stdout + p.stderr
 
     # A verb that is an app action's CLI name is the action list's, not a grammar verb (`vm rename-machine` is
@@ -333,12 +352,23 @@ def read_cli(binary: str) -> list[str]:
         words = verb.split(" ", 1)
         return verb in actions or (words[0] in SCOPE_ALIASES and f"{SCOPE_ALIASES[words[0]]} {words[-1]}" in actions)
 
+    code, root = run("help")
+    scopes, commands = root_scopes(root), root_commands(root)
+    if code or not scopes:
+        raise HelpFailed(f"`{binary} help` exited {code} with {len(scopes)} scopes")
     verbs: list[str] = []
-    for scope in root_scopes(run("help")[1]):
+    for scope in dict.fromkeys(scopes + commands):
         code, text = run("help", scope)
         if code or "unknown resource scope" in text:
-            text = run(scope, "--help")[1]
-        verbs += scope_verbs(scope, text)
+            code, text = run(scope, "--help")
+        got = scope_verbs(scope, text)
+        if scope in commands:
+            got += scope_verbs(scope, root)  # the root's own usage line for it (`cmux relay`, `cmux wg hub|dial`)
+        if not got and scope in scopes and code:
+            raise HelpFailed(f"`{binary} help {scope}` and `{scope} --help` failed (exit {code}) and list no verbs")
+        verbs += got
+    if not verbs:
+        raise HelpFailed(f"`{binary}` help listed no verbs")
     return sorted(v for v in set(verbs) if not is_action(v))
 
 
@@ -352,7 +382,12 @@ def merge_cli(keep: dict, verbs: list[str]) -> tuple[dict, list[str], list[str]]
 
 def refresh_cli(binary: str, source: str | None) -> int:
     keep = json.loads(KEEP.read_text())
-    merged, added, removed = merge_cli(keep, read_cli(binary))
+    try:
+        verbs = read_cli(binary)
+    except (HelpFailed, OSError, subprocess.SubprocessError) as e:
+        print(f"refresh-cli: {e}; {KEEP.name} is unchanged", file=sys.stderr)
+        return 2
+    merged, added, removed = merge_cli(keep, verbs)
     if source is None:
         code, info = 0, ""
         try:
@@ -479,6 +514,38 @@ Prose: cmux workspace close --all closes them.
         self.assertEqual(sorted(scope_verbs("vm", mixed)), ["vm ls", "vm run", "vm stop"])
         root = "USAGE\n  cmux attach\n\nAGENT\n  workspace     Create\n  tab           Tabs\nGLOBAL\n  --json  x\n"
         self.assertEqual(root_scopes(root), ["workspace", "tab"])
+        # The root's own usage lines are commands too (#38553 review F1): `cmux attach`, `cmux wg hub|dial`.
+        root2 = "USAGE\n  cmux attach\n  cmux wg hub|dial [--port <p>]\n  cmux --machine <m> tab list\n  cmux help\n"
+        self.assertEqual(root_commands(root2), ["attach", "wg"])
+        self.assertEqual(sorted(scope_verbs("wg", root2)), ["wg dial", "wg hub"])
+
+    def fake_cli(self, script: str) -> str:
+        import tempfile
+        d = tempfile.mkdtemp()
+        path = Path(d) / "cmux"
+        path.write_text("#!/bin/sh\n" + script)
+        path.chmod(0o755)
+        self.addCleanup(lambda: __import__("shutil").rmtree(d))
+        return str(path)
+
+    def test_read_cli_reads_root_commands_and_refuses_failed_help(self):
+        ok = self.fake_cli('case "$*" in\n'
+                           '  help) printf "USAGE\\n  cmux attach\\n  cmux wg hub|dial\\n\\nAGENT\\n  tab   Tabs\\n";;\n'
+                           '  "help tab") printf "  cmux tab pin\\n  cmux tab LANG=$LC_ALL\\n";;\n'
+                           '  *) exit 2;;\nesac\n')
+        got = read_cli(ok)
+        self.assertTrue({"attach", "wg hub", "wg dial", "tab pin"} <= set(got), got)
+        self.assertNotIn("tab LANG=", " ".join(got))  # LC_ALL=C reaches the binary (F3): LANG=C is no verb word
+        failing = self.fake_cli('case "$*" in\n  help) printf "AGENT\\n  tab   Tabs\\n";;\n  *) exit 3;;\nesac\n')
+        with self.assertRaises(HelpFailed):  # F2: a scope whose help fails stops the refresh
+            read_cli(failing)
+        with self.assertRaises(HelpFailed):
+            read_cli(self.fake_cli("exit 1\n"))
+
+    def test_refresh_writes_nothing_when_help_fails(self):
+        before = KEEP.read_bytes()
+        self.assertEqual(refresh_cli(self.fake_cli("exit 1\n"), "test"), 2)
+        self.assertEqual(KEEP.read_bytes(), before)
 
     def test_cli_merge_keeps_mappings(self):
         keep = {"cli_verbs": [{"verb": "a", "palette": "x"}, {"verb": "gone", "reason": "keep: y"}]}
