@@ -120,7 +120,7 @@ def where():
 
 
 LAST_POINT = {}
-ROUTE = None  # the real pointer route that moved the pointer: "posted" (pointer-probe) or "cua" (CuaDriver)
+ROUTE = None  # the real pointer route: "helper" (cmux Computer Use), "posted" (pointer-probe) or "cua" (CuaDriver)
 CUA_CANDIDATES = (os.path.expanduser("~/.local/bin/cua-driver"),
                   "/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
 CUA_PATH = next((p for p in CUA_CANDIDATES if os.access(p, os.X_OK)), None)
@@ -212,18 +212,23 @@ def helper_glide(x0, y0, x1, y1, steps):
     macOS). RuntimeError with the helper's answer when it posted nothing."""
     with tempfile.TemporaryDirectory(prefix="hover-glide-") as tmp:
         out, err = os.path.join(tmp, "out"), os.path.join(tmp, "err")
-        subprocess.run(["open", "-g", "-n", "-W", "--stdout", out, "--stderr", err, HELPER_APP, "--args",
-                        "--pointer-glide", *[f"{v:.1f}" for v in (x0, y0, x1, y1)], str(steps)],
-                       capture_output=True, text=True, timeout=30)
-        text = open(out).read().strip() if os.path.exists(out) else ""
+        opened = subprocess.run(["open", "-g", "-n", "-W", "--stdout", out, "--stderr", err, HELPER_APP, "--args",
+                                 "--pointer-glide", *[f"{v:.1f}" for v in (x0, y0, x1, y1)], str(steps)],
+                                capture_output=True, text=True, timeout=30)
+        text = open(out, errors="replace").read().strip() if os.path.exists(out) else ""
         try:
             answer = json.loads(text.splitlines()[-1]) if text else {}
         except ValueError:
             answer = {}
-        if not answer.get("ok") or not answer.get("last_post_uptime_ns"):
-            stderr = open(err).read().strip()[-200:] if os.path.exists(err) else ""
-            raise RuntimeError(f"helper --pointer-glide: {text[-300:] or 'no answer'} {stderr}".strip())
-        return answer["last_post_uptime_ns"] / 1e9
+        if not isinstance(answer, dict):
+            answer = {}
+        posted = answer.get("last_post_uptime_ns")
+        # A partial glide still landed its last post then: time from it, never from now (later, so too fast).
+        if isinstance(posted, int) and posted > 0 and answer.get("posted"):
+            return posted / 1e9
+        stderr = open(err, errors="replace").read().strip()[-200:] if os.path.exists(err) else ""
+        raise RuntimeError(f"helper --pointer-glide: {text[-300:] or 'no answer'} {stderr} "
+                           f"(open exit {opened.returncode}: {opened.stderr.strip()[-200:]})".strip())
 
 
 def cua_move(x, y):
@@ -392,20 +397,33 @@ def sample(count, index, key, point, frame):
     move_path(off, start, 3)
     before = cards()
     cold = bool(cold) and before.get("card_showing") != "true"
-    last = move_path(start, point, 6)  # onto the row from its right edge, as a hand comes off the content
-    pending = shown = None
+    # The glide onto the row from its right edge, as a hand comes off the content. It runs beside the reads: the
+    # helper route returns only after its process ends (tens of ms past its last post), and a card that shows in
+    # that gap must still be timed from the post, not from the first read after the exit.
+    glide = {}
+    mover = threading.Thread(target=lambda: glide.setdefault("last", move_path(start, point, 6)), daemon=True)
+    mover.start()
+    pending_at = shown_at = None
     report = {}
-    deadline = last + 2.0
     target = row_target(key)
-    while cold and time.monotonic() < deadline:  # bounded: 2 s per sample
+    began = time.monotonic()
+    while cold:  # bounded: 2 s past the last move, and 32 s for a glide that never returns (its timeout is 30 s)
         report = cards()
         now = time.monotonic()
-        if pending is None and report.get("pending_target", "-") == target:
-            pending = (now - last) * 1000
+        if pending_at is None and report.get("pending_target", "-") == target:
+            pending_at = now
         if report.get("card_showing") == "true" and report.get("shown_target") == target:
-            shown = (now - last) * 1000  # only this row's card, opened after the sample began cold
+            shown_at = now  # only this row's card, opened after the sample began cold
+        if not mover.is_alive() and (shown_at is not None or now > glide.get("last", began) + 2.0):
+            break
+        if now - began > 32:
             break
         time.sleep(0.005)  # test harness: about one read per frame
+    mover.join(timeout=1)
+    last = glide.get("last", time.monotonic())
+    # A card seen before the last post landed counts as 0 ms: it showed while the hand was still arriving.
+    pending = None if pending_at is None else max(0.0, (pending_at - last) * 1000)
+    shown = None if shown_at is None or shown_at - last > 2.0 else max(0.0, (shown_at - last) * 1000)
     focus = rpc("debug.focus") or {}
     run = {"workspaces": count, "round": index, "row": key, "pending_ms": pending and round(pending, 1),
            "shown_ms": shown and round(shown, 1), "target": report.get("shown_target"),
