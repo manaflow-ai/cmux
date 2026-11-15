@@ -11,8 +11,8 @@ import Observation
 /// The Action Button, Siri and Shortcuts intents call ``handle(_:)``: the
 /// screen comes up and recording starts at once; a second press while
 /// recording ends the call. The finished note is transcribed on the phone and
-/// sent to the default Chief (``ChiefSources/primary``) as text; the Chief
-/// session keeps it in its own outbox while the Chief is not connected.
+/// sent to the default Chief (``ChiefSources/primary``) as text, through its
+/// conversation store.
 @MainActor
 @Observable
 public final class ChiefVoiceController {

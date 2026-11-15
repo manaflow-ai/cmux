@@ -1,21 +1,25 @@
 import Foundation
 
 /// The one-time move off the storage names builds up to 1.2.0 used (the app was called
-/// cnx then), so an update keeps the account, team, settings and Chief outboxes.
+/// cnx then), so an update keeps the account, team and settings.
 ///
 /// Runs at launch before anything reads them. Settings: every `cnx.` UserDefaults key
 /// becomes the same key under `cmuxMobile.` unless that key is already set; the old key
-/// is removed. Files in Application Support: the Chief outboxes and the live snapshot
-/// folder are renamed unless the new name exists. The Keychain device ids move in
+/// is removed. Files in Application Support: the live snapshot folder is renamed unless
+/// the new name exists, and the files of the removed Chief outbox are deleted. The Keychain device ids move in
 /// `DeviceIdentity` (CmuxMobileLive). Idempotent: a second run finds nothing to move.
 public enum LegacyStorage {
     static let legacyPrefix = "cnx."
     static let prefix = "cmuxMobile."
     /// Application Support names: old to new.
     static let files: [(String, String)] = [
-        ("cnx-chief-outbox.json", "cmux-mobile-chief-outbox.json"),
-        ("cnx-cloud-chief-outbox.json", "cmux-mobile-cloud-chief-outbox.json"),
         ("cnx-live", "cmux-mobile-live"),
+    ]
+    /// Application Support files of features that are gone: the Chief outbox (messages
+    /// held until Chief connected), under its old and new names.
+    static let removedFiles = [
+        "cnx-chief-outbox.json", "cnx-cloud-chief-outbox.json",
+        "cmux-mobile-chief-outbox.json", "cmux-mobile-cloud-chief-outbox.json",
     ]
 
     public static func migrate(defaults: UserDefaults = .standard,
@@ -56,6 +60,11 @@ public enum LegacyStorage {
             let to = directory.appending(path: new)
             guard fileManager.fileExists(atPath: from.path), !fileManager.fileExists(atPath: to.path) else { continue }
             try? fileManager.moveItem(at: from, to: to)
+        }
+        for name in removedFiles {
+            let file = directory.appending(path: name)
+            guard fileManager.fileExists(atPath: file.path) else { continue }
+            try? fileManager.removeItem(at: file)
         }
     }
 }

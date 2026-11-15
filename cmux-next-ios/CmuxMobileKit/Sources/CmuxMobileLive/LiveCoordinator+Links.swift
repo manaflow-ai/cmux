@@ -696,7 +696,7 @@ extension LiveCoordinator {
                 chiefOffline()
             } else {
                 // Name the Mac first: what is written to its cloud copy is for this Mac
-                // (the outbox's target), not for whichever Mac connects next.
+                // (the session's Chief target), not for whichever Mac connects next.
                 ChiefSession.shared.macID = owner.macID
                 useChiefCloudCopy(macName: owner.name)
             }

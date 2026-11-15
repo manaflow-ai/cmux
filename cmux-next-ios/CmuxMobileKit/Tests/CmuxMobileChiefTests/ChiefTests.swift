@@ -640,25 +640,6 @@ let waitBackstop: Duration = .seconds(600)
     }
 }
 
-/// Audit B9: a message written to Chief before it connects is kept and sent
-/// once it does, never dropped.
-@Suite @MainActor struct ChiefOutboxTests {
-    @Test func waitsOnDiskAndSendsOnConnect() async throws {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
-        let outbox = ChiefOutbox(file: file)
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox)
-        session.send(ConversationComposeMessage(text: "run the tests"))
-        #expect(session.outbox.count == 1)
-        #expect(outbox.load().map(\.message.text) == ["run the tests"])
-        // A relaunch keeps it.
-        #expect(ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox).outbox.count == 1)
-        session.use(ChiefMockBackend(sleep: { _ in }))
-        try await waitUntil("the outbox message to go out") { session.store.messages.contains(where: { $0.text == "run the tests" && $0.seq != nil }) }
-        #expect(session.outbox.isEmpty)
-        #expect(outbox.load().isEmpty)
-    }
-}
-
 @Suite struct ChiefMockBackendTests {
     @Test func repliesWithTypingAndTapback() async throws {
         let backend = ChiefMockBackend(sleep: { _ in })

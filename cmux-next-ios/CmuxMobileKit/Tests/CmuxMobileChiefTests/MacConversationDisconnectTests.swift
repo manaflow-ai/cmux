@@ -11,7 +11,7 @@ import Testing
     struct Offline: Error {}
 
     private func session() -> ChiefSession {
-        ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
     }
 
     @Test func aDroppedLinkKeepsTheOpenConversationOnScreen() async {
@@ -95,13 +95,11 @@ import Testing
         #expect(loader.session === open)
     }
 
-    @Test func reconnectingReplacesTheKeptConversationAndCarriesWhatWasWritten() async {
+    @Test func reconnectingReplacesTheKeptConversation() async {
         let loader = MacConversationLoader()
         let open = session()
         await loader.load { open }
         await loader.load({ throw Offline() }, tryAgain: {})
-        open.send(ConversationComposeMessage(text: "Run the tests again"), asksForAlerts: false)
-        #expect(open.outbox.map(\.text) == ["Run the tests again"])
 
         let live = session()
         await loader.load { live }
@@ -109,9 +107,6 @@ import Testing
         #expect(loader.session === live)
         #expect(!loader.isStale)
         #expect(!loader.failed)
-        // Nothing written while the Mac was away is lost.
-        #expect(live.outbox.map(\.text) == ["Run the tests again"])
-        #expect(open.outbox.isEmpty)
         // The stale marks go with it.
         #expect(open.unavailableTitle == nil)
         #expect(live.unavailableTitle == nil)

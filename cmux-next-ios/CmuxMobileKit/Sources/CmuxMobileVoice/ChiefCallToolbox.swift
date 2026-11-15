@@ -70,7 +70,7 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
         }
         guard chief.isConnected else {
             let reason = chief.unavailableReason ?? "not connected"
-            return "Runs on the user's Mac; \(reason). Messages wait in the outbox and send when Chief connects."
+            return "Runs on the user's Mac; \(reason). Messages send when Chief connects."
         }
         let mac = chief.macName.map { "on \($0)" } ?? "on the user's Mac"
         return "Runs \(mac) and is connected\(chief.isWorking ? "; it is working on something now" : "")."
@@ -85,7 +85,7 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
         return VoiceCallToolResult(
             object: ["status": connected ? "sent" : "queued",
                      "note": connected ? "Chief got the message; its reply will arrive as a system message."
-                         : "Chief isn't connected; the message waits and sends when it connects."],
+                         : "Chief isn't connected; the message sends if it connects while the app stays open."],
             activity: connected ? String(localized: "Sent to Chief: “\(text)”") : String(localized: "Queued for Chief: “\(text)”"))
     }
 

@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite struct ChiefUnavailableTests {
     @Test func aRefusedChiefShowsWhyAndTryAgain() {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         // Before the link says anything, nothing is shown (the link may still come up).
         #expect(session.barItem == nil)
         var retries = 0
@@ -32,18 +32,8 @@ import Testing
         #expect(session.barItem == .unavailable(reason: "Chief isn't running on Studio.", retrying: false))
     }
 
-    @Test func aMessageWrittenWhileChiefIsUnavailableIsKept() {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
-        session.status = "Chief isn't running on Studio."
-        // The conversation's own send drops a message before Chief ever connected.
-        #expect(!session.acceptsSendsNow)
-        session.send(ConversationComposeMessage(text: "Hello Chief"))
-        #expect(session.outbox.map(\.text) == ["Hello Chief"])
-        #expect(session.preview.contains("Hello Chief"))
-    }
-
     @Test func withoutRefusalOrReconnectHookNoTryAgain() {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         session.status = "No Mac"
         #expect(session.barItem == .unavailable(reason: "No Mac", retrying: false))
         // No hook: Try Again does nothing and never shows as trying.

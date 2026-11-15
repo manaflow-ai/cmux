@@ -137,7 +137,6 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "chief-initial-loading", args: ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-slow-history"], settle: 2.2),
             Scene(group: g, id: "chief-live-bubble", args: ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-live"], settle: 5),
-            Scene(group: g, id: "chief-outbox-unsent", args: ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-outbox-demo"], settle: 5),
             Scene(group: g, id: "chief-stale-try-again", args: ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-stale-demo"], settle: 5),
             Scene(group: g, id: "chief-settings-page", args: ["-cmux-mobile-demo", "chief-settings"], settle: 7),
             Scene(group: g, id: "chief-settings-scrolled", args: ["-cmux-mobile-demo", "chief-settings"], settle: 7) { app in

@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxMobileModel
 
 /// An update from a pre-rename build (1.2.0, when the app was called cnx) keeps its
-/// settings, account, team and Chief outboxes.
+/// settings, account and team.
 @Suite struct LegacyStorageTests {
     @Test func preRenameSettingsMoveToTheNewKeys() throws {
         let suite = "LegacyStorageTests.\(UUID().uuidString)"
@@ -52,23 +52,21 @@ import Testing
         #expect(defaults.string(forKey: "cmuxMobile.live.mac.team-1") == "mac-1")
     }
 
-    @Test func preRenameOutboxesAndSnapshotsAreRenamed() throws {
+    @Test func preRenameSnapshotsAreRenamedAndChiefOutboxFilesDeleted() throws {
         let fm = FileManager.default
         let dir = fm.temporaryDirectory.appending(path: "LegacyStorageTests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: dir) }
-        try Data("[1]".utf8).write(to: dir.appending(path: "cnx-chief-outbox.json"))
         try fm.createDirectory(at: dir.appending(path: "cnx-live"), withIntermediateDirectories: true)
         try Data("s".utf8).write(to: dir.appending(path: "cnx-live/snapshot.json"))
-        // The new build already has a cloud outbox: the old one is left alone, never merged over it.
-        try Data("[old]".utf8).write(to: dir.appending(path: "cnx-cloud-chief-outbox.json"))
-        try Data("[new]".utf8).write(to: dir.appending(path: "cmux-mobile-cloud-chief-outbox.json"))
+        // The Chief outbox is gone: what an earlier build queued there is deleted, never sent.
+        let outboxes = ["cnx-chief-outbox.json", "cnx-cloud-chief-outbox.json",
+                        "cmux-mobile-chief-outbox.json", "cmux-mobile-cloud-chief-outbox.json"]
+        for name in outboxes { try Data("[1]".utf8).write(to: dir.appending(path: name)) }
 
         LegacyStorage.migrateFiles(in: dir)
 
-        #expect(try Data(contentsOf: dir.appending(path: "cmux-mobile-chief-outbox.json")) == Data("[1]".utf8))
         #expect(try Data(contentsOf: dir.appending(path: "cmux-mobile-live/snapshot.json")) == Data("s".utf8))
-        #expect(try Data(contentsOf: dir.appending(path: "cmux-mobile-cloud-chief-outbox.json")) == Data("[new]".utf8))
-        #expect(!fm.fileExists(atPath: dir.appending(path: "cnx-chief-outbox.json").path))
+        for name in outboxes { #expect(!fm.fileExists(atPath: dir.appending(path: name).path), "\(name) kept") }
     }
 }

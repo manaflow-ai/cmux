@@ -108,8 +108,8 @@ import Testing
     private func sourcesWithTheBrainOff() -> (ChiefSources, CloudChief) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Service.self]
-        let mac = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
-        let cloud = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let mac = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
+        let cloud = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         let sources = ChiefSources(mac: mac, cloud: cloud,
                                    selection: UserDefaults(suiteName: "ChiefOffCardTests.\(UUID().uuidString)") ?? .standard)
         sources.http = ChiefCloudHTTP(base: URL(string: "https://cloud-api-staging.cmux.dev")!, // crash-allow: test literal

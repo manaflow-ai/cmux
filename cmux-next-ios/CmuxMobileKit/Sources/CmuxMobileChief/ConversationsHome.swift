@@ -167,7 +167,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private var fallbackMacChief: ChiefSession? {
         guard feed.rows == nil, query.isEmpty else { return nil }
         let mac = sources.mac
-        let holds = !mac.outbox.isEmpty || mac.unreadCount > 0 || mac.openQuestion != nil
+        let holds = mac.unreadCount > 0 || mac.openQuestion != nil
         guard mac.macName != nil || holds || !sources.isCloudReady else { return nil }
         if unreadOnly, mac.unreadCount == 0 { return nil }
         return mac

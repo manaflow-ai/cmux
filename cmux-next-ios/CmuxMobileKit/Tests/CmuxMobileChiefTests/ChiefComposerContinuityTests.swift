@@ -17,7 +17,7 @@ import UIKit
     /// Reopening Chief: the carried text is in the field as the screen starts
     /// to appear, not once the push animation has finished.
     @Test func theDraftIsInTheFieldBeforeTheScreenAppears() throws {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         session.carryComposerText("Draft kept across visits")
         let conversation = ConversationViewController(store: session.store, options: .chief)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
@@ -36,7 +36,7 @@ import UIKit
     /// Back from the background the link reconnects and Chief's screen is rebuilt
     /// on the new store: the field keeps its text and its keyboard.
     @Test func aScreenRebuiltOnANewStoreKeepsTheTextAndTheKeyboard() throws {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         window.rootViewController = UIHostingController(rootView: NavigationStack { ChiefConversationScreen(session: session) })
         window.makeKeyAndVisible()
@@ -60,7 +60,7 @@ import UIKit
 
     /// A Chief screen that was never focused gets no keyboard from a rebuild.
     @Test func aRebuildNeverRaisesTheKeyboardUnasked() throws {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let session = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         window.rootViewController = UIHostingController(rootView: NavigationStack { ChiefConversationScreen(session: session) })
         window.makeKeyAndVisible()
