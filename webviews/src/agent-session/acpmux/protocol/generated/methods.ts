@@ -23,6 +23,7 @@ export interface AcpmuxRequests {
   "catalog.get": { params: unknown; result: unknown };
   "catalog.refresh": { params: unknown; result: unknown };
   "_acpmux/v2": { params: unknown; result: unknown };
+  "_acpmux/remote.pipe": { params: unknown; result: unknown };
   "_acpmux/tailnet/login": { params: unknown; result: unknown };
   "_acpmux/tailnet/logout": { params: unknown; result: unknown };
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
@@ -305,6 +306,8 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_set": { params: unknown; result: unknown };
   "_acpmux/machine_consent_get": { params: unknown; result: unknown };
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
+  "_acpmux/machine_routes": { params: unknown; result: unknown };
+  "_acpmux/machine_route_probe": { params: unknown; result: unknown };
   "_acpmux/machine_enroll": { params: unknown; result: unknown };
   "_acpmux/machine_leave_if_auto": { params: unknown; result: unknown };
   "_acpmux/machine_signed_in": { params: unknown; result: unknown };
@@ -387,6 +390,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "catalog.refresh", kind: "request", acp: false, typed: false },
   { name: "catalog.changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/v2", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/remote.pipe", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/login", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/logout", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
@@ -675,6 +679,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_routes", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_route_probe", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_leave_if_auto", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_signed_in", kind: "request", acp: false, typed: false },
