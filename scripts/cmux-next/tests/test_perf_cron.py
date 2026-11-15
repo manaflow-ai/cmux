@@ -101,6 +101,30 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
         self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
 
+    def test_a_measurement_that_gave_the_bench_host_up_still_asks_it_while_github_is_busy(self):
+        # 2026-11-15 00:54Z: the measurement gave cmux20-bench up after 2 h without a part (two results were lost to
+        # the rate limit and the host ran other steps). The give-up kept the bench host from the "only on the bench
+        # host" rule for 2 h, a dev build waited for a Mac at every tick, and so no Mac part was asked for at all
+        # (01:13Z plan: "none"). Giving a host up is for trying another host; while only the bench host may be
+        # asked, it is asked.
+        busy = "cmux-next.yml waits for a Mac runner"
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, busy)
+        state["current"]["host"] = cron.BENCH_WORKER
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
+        late = at(1 + cron.HOST_WAIT_HOURS + 0.1)
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
+        self.assertEqual(state["current"]["gave_up"][0]["host"], cron.BENCH_WORKER)
+        self.assertEqual((d["action"], d.get("part"), d.get("worker")), ("part", "build", cron.BENCH_WORKER))
+        # Without a waiting build the measurement goes to any idle measure host, as before.
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, None)
+        self.assertEqual((d["action"], d.get("worker")), ("part", ""))
+        # A bench host the fleet check reported offline is not asked.
+        cron.mark_host(state, cron.BENCH_WORKER, unreachable_since=cron.iso(late))
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
+        self.assertEqual(d["action"], "none")
+
     def test_the_measurement_in_flight_goes_on_before_a_newer_tip(self):
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion", "sidebar"], None)
