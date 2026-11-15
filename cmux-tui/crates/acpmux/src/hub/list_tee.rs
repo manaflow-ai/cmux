@@ -1,4 +1,5 @@
 //! One v1 list mark queue and one summary builder, until chat actors own rows.
+mod refused;
 mod summary;
 use super::*;
 #[cfg(test)]
@@ -80,6 +81,10 @@ struct TeeState {
     remote_submits: AtomicU64,
     origin_writes: AtomicU64,
     all: AtomicBool,
+    /// The remote origins the index refused past its bound (`refused.rs`), and whether it holds
+    /// any: an admitted origin's submit reads the flag alone.
+    refused: std::sync::Mutex<refused::Refused>,
+    refused_any: AtomicBool,
     #[cfg(test)]
     walk_peak_page_bytes: AtomicU64,
     #[cfg(test)]
@@ -447,7 +452,7 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
         }
     }
     for (peer, id) in state.take_remote(BATCH.saturating_sub(used)) {
-        if submit_remote_id(v1, v2, &peer, &id, state.remote_ready.load(Ordering::Acquire)) {
+        if submit_remote_id(v1, v2, state, &peer, &id) {
             state.remote_submits.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -466,12 +471,23 @@ fn remote_row_summary(v1: &Hub, peer: &str, id: &str) -> Option<std::io::Result<
 }
 
 /// Submits or removes `(peer, id)`; answers whether it wrote to the index's queue.
-fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool) -> bool {
-    if v2.hub.source(peer) == Some(Source::Mirror) {
+fn submit_remote_id(v1: &Hub, v2: &V2, state: &TeeState, peer: &str, id: &str) -> bool {
+    let source = v2.hub.source(peer);
+    if source == Some(Source::Mirror) {
         return false;
+    }
+    if source.is_some() && state.refused_any.load(Ordering::Acquire) {
+        let mut refused = state.refused.lock().unwrap_or_else(|e| e.into_inner());
+        refused.admitted(peer);
+        state.refused_any.store(!refused.is_empty(), Ordering::Release);
     }
     match remote_row_summary(v1, peer, id) {
         Some(Ok(summary)) => {
+            if source.is_none() {
+                let mut refused = state.refused.lock().unwrap_or_else(|e| e.into_inner());
+                refused.note(&v2.hub, peer);
+                state.refused_any.store(!refused.is_empty(), Ordering::Release);
+            }
             if let Err(error) = v2.hub.submit_from(Source::V1, summary) {
                 tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote summary");
             }
@@ -481,7 +497,7 @@ fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool)
             tracing::warn!(peer, session_id = id, %error, "v2 list tee could not build a remote summary");
             false
         }
-        None if remote_ready => {
+        None if state.remote_ready.load(Ordering::Acquire) => {
             if let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
                 tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote removal");
             }

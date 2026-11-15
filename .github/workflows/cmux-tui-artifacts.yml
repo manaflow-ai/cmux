@@ -3243,9 +3243,12 @@ jobs:
 
       # As notify-unpublished-tree's hand-off: a rate-limited workflow token
       # moves to the cmux-bot App's (HANDOFF_NEVER_SILENT).
+      # Every push of this repository, lane branches included (lw#5184: lane
+      # push run 43652238618 read its markers with a spent github.token and no
+      # spare, and failed; this job runs only on push, never for a fork).
       - name: Mint the hand-off's spare token
         id: cmux-bot-token
-        if: (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && vars.CMUX_BOT_APP_ID != ''
+        if: github.repository == 'manaflow-ai/cmux' && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -3483,10 +3486,10 @@ jobs:
     name: macOS cross-compile run-time check (x86_64 under Rosetta, compare only)
     needs: [macos-cross-shadow]
     if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
-    # A literal Blacksmith 6 vCPU label, not vars.MACOS_RUNNER_26: that names the
-    # nightly app build's blacksmith-12vcpu-macos-26, which no cmux-tui job may take
-    # (tests/test_ci_tui_routes_avoid_nightly_label.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # Pin pushes have their own daemon pool and must not join the PR side lane.
+    # When that pool is unset, the light owned lane is the safe shared fallback;
+    # Blacksmith 6 vCPU remains the final overflow route only while its switch is on.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && ((vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != vars.CI_NEXT_DAEMON_POOL && vars.CI_PIN_DAEMON_POOL != vars.CI_NEXT_PROMOTE_POOL && vars.CI_PIN_DAEMON_POOL) || (vars.CI_LIGHT_LANE_RUNNER != vars.CI_SIDE_LANE_RUNNER && vars.CI_LIGHT_LANE_RUNNER != vars.CI_NEXT_DAEMON_POOL && vars.CI_LIGHT_LANE_RUNNER != vars.CI_NEXT_PROMOTE_POOL && vars.CI_LIGHT_LANE_RUNNER) || (vars.CI_BLACKSMITH_MACOS != 'on' && 'glaeda-root-std-xcode-26.6' || fromJSON(vars.RUNNER_POOLS).macos_26)) || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 20
     continue-on-error: true
     permissions:
@@ -4040,13 +4043,47 @@ jobs:
       # cmux-next runs that probed this tree before it was published left a
       # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner
       # waited). Start them now: cmux-next.yml same-tree mode.
+      # NOTIFY_NEVER_LOST (lw#5184): a spent github.token moves the notify to
+      # the cmux-bot App's token (SPARE_TOKEN_SWITCH), and a notify GitHub
+      # still refuses leaves a cmux-next-tree-notify-pending record that the
+      # next feat-cmux-next push's sweep-commit-manifests makes again.
+      - name: Mint the tree notify's spare token
+        id: notify-spare-token
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && github.repository == 'manaflow-ai/cmux' && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-pull-requests: read
+
       - name: Start the cmux-next tree jobs that waited for this tree
+        id: tree-notify
         if: env.CMUX_TUI_PUBLISH_PASS == 'unix'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.notify-spare-token.outputs.token }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
-        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready
+        run: |
+          pending="$RUNNER_TEMP/tree-notify-pending/pending.json"
+          python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state ready \
+            --pending-file "$pending"
+          if [[ -f "$pending" ]]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record the tree notify GitHub refused
+        if: always() && env.CMUX_TUI_PUBLISH_PASS == 'unix' && steps.tree-notify.outputs.pending == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-next-tree-notify-pending
+          path: ${{ runner.temp }}/tree-notify-pending/pending.json
+          retention-days: 7
+          overwrite: true
 
       # This commit's tree-commit marker, the one nightly-next promotion
       # needs, written here as soon as the tree is verified instead of one
@@ -4248,6 +4285,8 @@ jobs:
     permissions:
       actions: write
       contents: read
+      # the tree notify sweep reads a waiting pull request's head (is_current)
+      pull-requests: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -4266,12 +4305,25 @@ jobs:
           app-id: ${{ vars.CMUX_BOT_APP_ID }}
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: write
+          permission-pull-requests: read
 
       - name: Re-run the runs of commits whose tree is published and manifest missing
         env:
           GH_TOKEN: ${{ github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
         run: python3 scripts/ci/cmux_tui_manifest_sweep.py --repo "$GITHUB_REPOSITORY" --window 40 --tip-branch feat-cmux-next
+
+      # NOTIFY_NEVER_LOST (lw#5184, scripts/ci/cmux_next_tree_notify.py): a
+      # publish whose same-tree notify GitHub refused left a
+      # cmux-next-tree-notify-pending record; make that notify again here, on
+      # every feat-cmux-next push, so no deferred same-tree run is lost to one
+      # refused call. One artifacts read when nothing is pending; no wait.
+      - name: Start the cmux-next tree jobs a refused tree notify left
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token && github.token || '' }}
+        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --sweep-pending
 
   # Cloud machines keep their cmux-tui and cmux-tui-hook on the newest
   # feat-cmux-next build by themselves (the updater role of `cmux host run`,
