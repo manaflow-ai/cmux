@@ -143,6 +143,28 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
+  // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
+  // part runs it, under that part's 30-minute run cap.
+  {
+    name: "chat-100k-flat",
+    file: "chat-100k-flat.bench.ts",
+    args: ["100000", "20"],
+    env: { CASES: "main" },
+    timeoutMs: 1_200_000,
+    ownPart: true,
+  },
+  // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
+  // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
+  // repeats fit under that cap.
+  {
+    name: "chat-100k-flat-grown",
+    file: "chat-100k-flat.bench.ts",
+    args: ["100000", "20"],
+    env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
+    timeoutMs: 1_770_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {

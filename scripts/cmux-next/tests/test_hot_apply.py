@@ -16,6 +16,7 @@ import platform
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 import importlib.util  # noqa: E402
@@ -318,6 +319,347 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(receipt["applied"], [])
         self.assertIn("the app already contains SHA", receipt["notes"])
         self.assertEqual(self.sha(), self.old)
+
+    def test_the_receipt_times_each_phase_and_stderr_prints_them(self):
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        phases = receipt["phases"]
+        for name in ("plan", "key", "fetch", "verify", "backup", "swap"):
+            self.assertIn(name, phases)
+        # Exclusive phases: together they never exceed the run.
+        self.assertLessEqual(sum(phases.values()), receipt["seconds"] + 0.01)
+        self.assertRegex(err, r"hot-apply: apply \d+\.\d s: ")
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertIn("rollback", receipt["phases"])
+
+    def test_a_dry_run_fetches_and_verifies_and_changes_nothing(self):
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["action"], "dry-run")
+        self.assertEqual(receipt["steps"]["rust"]["to"], self.new)
+        self.assertIn("fetch", receipt["phases"])
+        self.assertNotIn("swap", receipt["phases"])
+        self.assertEqual(self.sha(), self.old)
+        state = self.tmp / "state"
+        self.assertFalse((state / "last.json").exists())  # `rollback` never reads a dry run
+        self.assertEqual(json.loads((state / "history.jsonl").read_text().splitlines()[-1])["action"], "dry-run")
+        self.assertTrue((state / "builds" / self.new / "cmux").is_file())
+
+    def test_base_stands_in_for_an_app(self):
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base,
+                               "--app", str(self.tmp / "no such app")], capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["parts"], ["rust"])
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app), "--base", self.base)
+        self.assertEqual(code, 2, err)  # a real apply reads the app's own commit
+
+
+    def test_after_a_prefetch_apply_fetches_nothing(self):
+        code, receipt, err = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["action"], "prefetch")
+        self.assertEqual(self.sha(), self.old)
+        # files.cmux.com goes away: everything apply needs is in the state folder, by content.
+        subprocess.run(["rm", "-rf", str(self.tmp / "tree"), str(self.tmp / "commits")], check=True)
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["applied"], ["rust"])
+        self.assertNotIn("fetch", receipt["phases"])
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_kept_build_that_no_longer_hashes_is_fetched_again(self):
+        code, _, err = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        (self.tmp / "state" / "builds" / self.new / "cmux").write_bytes(b"#!/bin/sh\necho rot\n")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertIn("fetch", receipt["phases"])
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_completion_without_this_host_s_binary_is_not_kept(self):
+        (self.tmp / "tree" / self.key / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {}}))
+        code, _, _ = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 1)
+        self.publish(self.new_body, self.new)  # the build for this host lands later
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_build_the_app_already_runs_is_skipped(self):
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["applied"], [])
+        self.assertEqual(receipt["unchanged"], ["rust"])
+        self.assertNotIn("swap", receipt["phases"])
+        # The rollback still puts back the build that ran before the first apply.
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.old)
+
+
+SHIM = "a3bead27e6599480e2d2654816f9ecdff99ecaf2"  # cmux#43239's remote browser host: Rust plus csrc/rb_shim.mm and .h
+
+
+class NativeSources(unittest.TestCase):
+    """C, Objective-C and Zig inside cmux-tui ride the Rust part: the tree build compiles them."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [SHIM], depth=2)
+
+    def test_a_companion_s_objective_c_shim_is_not_left_for_a_nightly(self):
+        tmp = Path(tempfile.mkdtemp(prefix="hot-apply-native-"))
+        try:
+            env = dict(os.environ, CMUX_HOT_APPLY_STATE_DIR=str(tmp / "state"),
+                       CMUX_HOT_APPLY_TUI_BASE=(tmp / "tree").as_uri())  # nothing published: plan only
+            base = run_git("rev-parse", f"{SHIM}^").stdout.strip()
+            done = subprocess.run([sys.executable, str(SCRIPT), "plan", SHIM, "--base", base, "--app", str(tmp / "none")],
+                                  capture_output=True, text=True, env=env)
+            plan = json.loads(done.stdout)
+            self.assertEqual(plan["parts"], ["rust"], done.stderr)
+            left = [p for paths in plan["left"].values() for p in paths]
+            self.assertFalse([p for p in left if p.endswith((".mm", ".h"))], plan["left"])
+        finally:
+            subprocess.run(["rm", "-rf", str(tmp)])
+
+    def test_only_cmux_tui_native_sources_count(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_native_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_native_under_test"] = hot
+        spec.loader.exec_module(hot)
+        self.assertTrue(hot.NATIVE_IN_TUI.match("cmux-tui/crates/cmux-remote-browser-host/csrc/rb_shim.mm"))
+        self.assertTrue(hot.NATIVE_IN_TUI.match("cmux-tui/bindings/zig/src/resource.zig"))
+        self.assertFalse(hot.NATIVE_IN_TUI.match("ghostty/src/main.zig"))
+        self.assertFalse(hot.NATIVE_IN_TUI.match("Sources/CmuxNextApp/Bridge.m"))
+
+
+
+class OtherSessions(unittest.TestCase):
+    """--restart-sessions: another session's daemon from the app's bin (a Chief's) is handed to the new build
+    with `server restart` on its socket, as the app's own is handed off; without it, it is named and left."""
+
+    APP_SOCK, CHIEF_SOCK = "/tmp/cmux-app-test.sock", "/tmp/cmux-chief-test.sock"
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_sessions_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_sessions_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-sessions-"))
+        self.target = self.tmp / "cmux NIGHTLY.app/Contents/Resources/bin/cmux"
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(b"old")
+        self.target.with_name("cmux-tui").symlink_to("cmux")
+        self.new = self.tmp / "new"
+        self.new.write_bytes(b"new")
+        self.want = hashlib.sha256(b"new").hexdigest()
+        self.pids = {self.APP_SOCK: 100, self.CHIEF_SOCK: 200}
+        self.restarted, self.restart_works, self.surfaces = [], True, []
+        test = self
+
+        class Swapper:
+            def __init__(self, _cli, socket, state=None):
+                self.socket = socket
+
+            def owner(self, _cli, timeout=60):
+                return (test.pids[self.socket], test.target) if self.socket in test.pids else None
+
+            @staticmethod
+            def app_file(exe):
+                return exe
+
+            def app_handoff(self, new, _pid, target):
+                target.write_bytes(new.read_bytes())
+                test.pids[self.socket] += 1
+
+        real_run = self.hot.subprocess.run
+
+        def run(argv, **kwargs):
+            if argv[-2:] == ["server", "restart"]:
+                sock = argv[argv.index("--socket") + 1]
+                test.restarted.append(sock)
+                test.surfaces.append(Path(argv[0]).name)
+                if test.restart_works:
+                    test.pids[sock] += 1
+                return subprocess.CompletedProcess(argv, 0 if test.restart_works else 1, "{}", "")
+            return real_run(argv, **kwargs)
+
+        self.hot.load = lambda name, file: type("rust_live", (), {"Swapper": Swapper})
+        self.hot.find_sockets = lambda app, cli: [self.APP_SOCK, self.CHIEF_SOCK]
+        self.hot.subprocess.run = run
+        self.addCleanup(setattr, self.hot.subprocess, "run", real_run)
+        self.hot.outside_login_session = lambda: False
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def swap(self, sessions):
+        return self.hot.swap_cmux(self.target.parents[3], self.new, self.want, None, self.tmp / "state", sessions)
+
+    def test_not_asked_names_the_chief_s_daemon_and_leaves_it(self):
+        step = self.swap(False)
+        self.assertEqual(step["left_on_old_build"], [self.CHIEF_SOCK])
+        self.assertIn("not asked", step["left_on_old_build_why"])
+        self.assertEqual(self.restarted, [])
+        self.assertEqual(self.pids[self.CHIEF_SOCK], 200)
+
+    def test_asked_hands_the_chief_s_daemon_over_too(self):
+        step = self.swap(True)
+        self.assertNotIn("left_on_old_build", step)
+        self.assertEqual(self.restarted, [self.CHIEF_SOCK])
+        # On `cmux`, `server` is the machine server and refuses --socket: the cmux-tui link keeps the lifecycle.
+        self.assertEqual(self.surfaces, ["cmux-tui"])
+        self.assertEqual([(s["socket"], s["old_pid"], s["new_pid"]) for s in step["sessions"]],
+                         [(self.CHIEF_SOCK, 200, 201)])
+        self.assertEqual((step["old_pid"], step["new_pid"]), (100, 101))  # the app's own, as before
+
+    def test_from_ssh_on_macos_it_is_left_and_says_why(self):
+        self.hot.outside_login_session = lambda: True
+        step = self.swap(True)
+        self.assertEqual(step["left_on_old_build"], [self.CHIEF_SOCK])
+        self.assertIn("ssh", step["left_on_old_build_why"])
+        self.assertEqual(self.restarted, [])
+
+    def test_a_restart_that_leaves_no_new_owner_raises_so_the_apply_puts_back(self):
+        self.restart_works = False
+        with self.assertRaises(RuntimeError) as caught:
+            self.swap(True)
+        self.assertIn(self.CHIEF_SOCK, str(caught.exception))
+
+
+class FirstStatus(unittest.TestCase):
+    """find_sockets asks every socket of a daemon at once: one that never answers (a Chief's holds one) no longer
+    costs the full timeout before the daemon's own socket answers."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_first_status_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_first_status_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-first-status-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        self.cli = self.tmp / "cmux"
+        # `--socket NAME --json server status`: a name ending in hang.sock never answers, the rest name pid 42.
+        self.cli.write_text('#!/bin/sh\ncase "$2" in *hang.sock) exec sleep 30 ;; esac\necho \'{"pid": 42}\'\n')
+        self.cli.chmod(0o755)
+
+    def test_the_answering_socket_wins_without_waiting_on_the_hung_one(self):
+        t0 = time.monotonic()
+        name, unanswered = self.hot.first_status(self.cli, ["/tmp/a-hang.sock", "/tmp/b-daemon.sock"], "42")
+        self.assertEqual((name, unanswered), ("/tmp/b-daemon.sock", []))
+        self.assertLess(time.monotonic() - t0, 5)
+
+    def test_only_hung_sockets_are_reported_unanswered(self):
+        name, unanswered = self.hot.first_status(self.cli, ["/tmp/a-hang.sock"], "42", timeout=0.5)
+        self.assertEqual((name, unanswered), (None, ["/tmp/a-hang.sock"]))
+
+    def test_another_pid_is_no_match(self):
+        name, unanswered = self.hot.first_status(self.cli, ["/tmp/b-daemon.sock"], "7")
+        self.assertEqual((name, unanswered), (None, []))
+
+
+ADOPTED = "b6236a4e4ea648236cef9d0ca2ffa4ed78fe0693"  # before #43477 added a tree input
+ADOPTED_KEY = "b3a5a6a29766bec348f384673782f35495bc794b"  # files.cmux.com/cmux-tui/<ADOPTED>/manifest.json treeKey
+
+
+class TreeKey(unittest.TestCase):
+    """A commit's tree key is the one CI published it under: its own key script over its own inputs list,
+    whatever this checkout's say. With this checkout's (#43477 added an input), ADOPTED keyed to a tree
+    nothing was published under, and hot-apply found no build for any commit before it."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [ADOPTED], depth=2)
+
+    def test_a_commit_before_an_inputs_change_keys_as_ci_published_it(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_key_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_key_under_test"] = hot
+        spec.loader.exec_module(hot)
+        self.assertEqual(hot._tree_key(ROOT, ADOPTED), ADOPTED_KEY)
+
+
+class WebCache(unittest.TestCase):
+    """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-web-test-"))
+        os.environ["CMUX_HOT_APPLY_STATE_DIR"] = str(self.tmp / "state")
+        spec = importlib.util.spec_from_file_location("hot_apply_web_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_web_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.fetched = []
+
+        def fetch_web(key, out):
+            self.fetched.append(key)
+            (out / "pages").mkdir(parents=True)
+            (out / "pages/index.html").write_text(f"<p>{key}</p>")
+        self.hot.fetch_web = fetch_web
+
+    def tearDown(self):
+        os.environ.pop("CMUX_HOT_APPLY_STATE_DIR", None)
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def test_a_key_is_fetched_once_and_again_when_its_files_change(self):
+        key = "a" * 64
+        state = self.tmp / "state"
+        root = self.hot.web_bundles(key, state)
+        self.assertEqual(self.hot.web_bundles(key, state), root)
+        self.assertEqual(self.fetched, [key])
+        (root / "pages/index.html").write_text("tampered")
+        self.hot.web_bundles(key, state)
+        self.assertEqual(self.fetched, [key, key])
+        self.assertEqual((root / "pages/index.html").read_text(), f"<p>{key}</p>")
+
+    def test_only_the_newest_keys_stay(self):
+        state = self.tmp / "state"
+        for i in range(self.hot.WEB_KEEP + 3):
+            root = self.hot.web_bundles(f"{i:064x}", state)
+            os.utime(root, (1000 + i, 1000 + i))
+        self.hot.prune_web(state)
+        kept = sorted(p.name for p in (state / "web").iterdir() if not p.name.startswith("."))
+        self.assertEqual(len(kept), self.hot.WEB_KEEP)
+        self.assertNotIn(f"{0:064x}", kept)
+
+    def test_an_overlay_holding_the_key_is_unchanged(self):
+        commit = "c" * 40
+        key = "d" * 64
+
+        class Live:
+            def overlay_paths(inner):
+                return self.tmp / "overlay", None
+        (self.tmp / "overlay").mkdir()
+        (self.tmp / "overlay/manifest.json").write_text(json.dumps({"commit": commit}))
+        self.assertFalse(self.hot.web_unchanged(Live(), key))  # its key was never computed here
+        keys = self.tmp / "state/keys/web"
+        keys.mkdir(parents=True)
+        (keys / commit).write_text(key + "\n")
+        self.assertTrue(self.hot.web_unchanged(Live(), key))
+        self.assertFalse(self.hot.web_unchanged(Live(), "e" * 64))
+
+
+class Phases(unittest.TestCase):
+    def test_an_inner_phase_pauses_the_outer_one(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_phases_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_phases_under_test"] = hot
+        spec.loader.exec_module(hot)
+        clock = iter([0.0, 1.0, 3.0, 4.0, 10.0])
+        real = hot.time.monotonic
+        hot.time.monotonic = lambda: next(clock)
+        try:
+            phases = hot.Phases()  # 0
+            with phases("plan"):  # 1
+                with phases("key"):  # 3
+                    pass  # 4
+            # 10: plan ran 1-3 and 4-10, key 3-4
+        finally:
+            hot.time.monotonic = real
+        self.assertEqual(phases.rounded(), {"plan": 8.0, "key": 1.0})
 
 
 class Fetch(unittest.TestCase):

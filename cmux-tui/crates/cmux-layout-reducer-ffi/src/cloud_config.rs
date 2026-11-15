@@ -26,6 +26,10 @@ fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
+        b"cloud_auth_capture_next" => {
+            let request: cmux_cloud_config::capture_auth::Request = read(request)?;
+            json!(cmux_cloud_config::capture_auth::next(&request))
+        }
         // The build's Cloud from the runtime selection, with its token store's names.
         b"cloud_config_from_selection" => {
             let inputs: config::Inputs = read(request)?;
@@ -179,6 +183,23 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 "isTeam": request.team.as_deref().map(identity::is_team),
                 "transient": request.refusal_code.as_deref().map(identity::is_transient),
             })
+        }
+        // The device hub identity's items (`device_identity_slots`): `{accounts, current}` from
+        // the accounts the Keychain listed, and `replacement`, the generation a new identity goes
+        // in from the statuses of the deletes a renewal made (none made: generation 1).
+        b"cloud_identity_device_slots" => {
+            use cmux_cloud_config::device_identity_slots as slots;
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                accounts: Vec<String>,
+                #[serde(default)]
+                deletes: Vec<slots::Delete>,
+            }
+            let request: Request = read(request)?;
+            let mut answer = json!(slots::slots(&request.accounts));
+            answer["replacement"] = json!(slots::replacement(&request.deletes));
+            answer
         }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
