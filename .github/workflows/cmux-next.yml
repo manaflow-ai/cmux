@@ -3664,7 +3664,7 @@ jobs:
           name: cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-42
       - name: Record this pass for the same inputs
@@ -3681,7 +3681,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-205
@@ -3879,7 +3879,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
   # The CmuxNext test targets the change reaches: path_route's swift_filter
@@ -4557,7 +4557,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-55
@@ -5406,7 +5406,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-63
@@ -5806,7 +5806,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-70
@@ -6513,7 +6513,7 @@ jobs:
           name: ${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' || 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}
           path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-326
   crash-ends-app:
@@ -6971,7 +6971,7 @@ jobs:
           name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}
           path: ${{ runner.temp }}/cmux-next-dev-handoff/receipt.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           compression-level: 0
       - name: Dispatch the exact source run to the publisher
         id: app-dispatch

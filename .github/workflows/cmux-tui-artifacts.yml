@@ -4082,8 +4082,6 @@ jobs:
         with:
           name: cmux-next-tree-notify-pending
           path: ${{ runner.temp }}/tree-notify-pending/pending.json
-          # Every feat-cmux-next push's sweep-commit-manifests reads it, so 3
-          # days outlives any refusal (test_ci_upload_artifact_retention).
           retention-days: 3
           overwrite: true
 
