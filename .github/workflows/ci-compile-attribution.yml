@@ -116,7 +116,7 @@ jobs:
         with:
           name: compile-report
           path: ${{ runner.temp }}/compile-report.json
-          retention-days: 14
+          retention-days: 7
 
   report:
     environment:
@@ -181,7 +181,7 @@ jobs:
           # The PR pool's root label (compile admission's), then the Blacksmith
           # pool whose seeds match its width.
           OWNED: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_PROBE_POOL || 'glaeda-root-std-xcode-26.6' }}
-          OVERFLOW: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+          OVERFLOW: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-12vcpu-macos-26') }}
         run: |
           set -euo pipefail
           since="$(date -u -d '-30 seconds' +%Y-%m-%dT%H:%M:%SZ)"

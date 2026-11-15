@@ -766,6 +766,27 @@ struct Incoming {
     allowed: Arc<RwLock<HashSet<[u8; 32]>>>,
 }
 
+impl Incoming {
+    /// The connection to this machine's cmux-tui remote daemon on `port`, as its gate admits.
+    async fn cmux_tui(&self, port: u16) -> Result<tokio::net::TcpStream, ServiceRefusal> {
+        let gate = self.carrier.cmux_tui_gate().ok_or_else(|| {
+            ServiceRefusal::new(
+                "service.off",
+                "this machine does not serve its cmux-tui remote daemon to its other machines",
+            )
+        })?;
+        let target = gate.admit(port).await?;
+        let daemon = tokio::net::TcpStream::connect(target).await.map_err(|e| {
+            ServiceRefusal::new(
+                "service.unreachable",
+                format!("the cmux-tui remote daemon at {target} is not listening: {e}"),
+            )
+        })?;
+        let _ = daemon.set_nodelay(true);
+        Ok(daemon)
+    }
+}
+
 #[async_trait]
 impl RelayIncoming for Incoming {
     async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>) {
@@ -796,17 +817,29 @@ impl RelayIncoming for Incoming {
             .find(|key| public_key_fingerprint(key) == accepted.grant.device_id)
             .map(|key| base64::engine::general_purpose::STANDARD.encode(key));
         let link = accepted.link;
+        // The acpmux listener is reached at once, as before services were named: a circuit with
+        // no hello may send nothing for a while, and its listener counts it from the start.
+        let mut local = match tokio::net::TcpStream::connect(self.websocket).await {
+            Ok(local) => local,
+            Err(_) => {
+                let _ = link.close().await;
+                return;
+            }
+        };
+        let _ = local.set_nodelay(true);
         // The first record says which service the circuit is for: a hello names one, anything
         // else is the acpmux listener's own first bytes (a WebSocket upgrade).
-        let first = match tokio::time::timeout(self.carrier.timings.handshake, link.receive()).await
-        {
-            Ok(Ok(Some(first))) => first,
+        let first = match link.receive().await {
+            Ok(Some(first)) => first,
             _ => {
                 let _ = link.close().await;
                 return;
             }
         };
         if named_service(&first) == Some(Ok(CircuitService::CmuxTuiSession)) {
+            // A session circuit reaches the cmux-tui session socket; the acpmux listener's
+            // connection closes unused.
+            drop(local);
             let admitted = match (self.carrier.session_gate(), from) {
                 (Some(gate), Some(from)) => gate.admit(&from).await,
                 (None, _) => Err(ServiceRefusal::new(
@@ -844,51 +877,32 @@ impl RelayIncoming for Incoming {
             pump(Box::new(link), local, &self.carrier.stats).await;
             return;
         }
-        let target = match named_service(&first) {
-            None => Ok(self.websocket),
-            Some(Err(refusal)) => Err(refusal),
-            Some(Ok(CircuitService::Acpmux)) => Ok(self.websocket),
-            // Served above; never reaches a TCP target.
-            Some(Ok(CircuitService::CmuxTuiSession)) => {
-                Err(ServiceRefusal::new("service.unknown", "no such service"))
-            }
-            Some(Ok(CircuitService::CmuxTui { port })) => match self.carrier.cmux_tui_gate() {
-                Some(gate) => gate.admit(port).await,
-                None => Err(ServiceRefusal::new(
-                    "service.off",
-                    "this machine does not serve its cmux-tui remote daemon to its other machines",
-                )),
-            },
-        };
-        let target = match target {
-            Ok(target) => target,
-            Err(refusal) => {
-                tracing::info!("hub carrier: a circuit's service was refused: {refusal}");
-                let _ = link.send(service_answer(&Err(refusal))).await;
-                let _ = link.close().await;
-                return;
-            }
-        };
-        let mut local = match tokio::net::TcpStream::connect(target).await {
-            Ok(local) => local,
-            Err(e) => {
-                if named_service(&first).is_some() {
-                    let refusal = ServiceRefusal::new(
-                        "service.unreachable",
-                        format!("the cmux-tui remote daemon at {target} is not listening: {e}"),
-                    );
-                    let _ = link.send(service_answer(&Err(refusal))).await;
+        let started = match named_service(&first) {
+            None => local.write_all(&first).await.map_err(|e| e.to_string()),
+            Some(named) => {
+                let reached = match named {
+                    Ok(CircuitService::Acpmux) => Ok(local),
+                    Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
+                    // Served above; never reaches a TCP target.
+                    Ok(CircuitService::CmuxTuiSession) => {
+                        Err(ServiceRefusal::new("service.unknown", "no such service"))
+                    }
+                    Err(refusal) => Err(refusal),
+                };
+                match reached {
+                    // For cmux-tui, the acpmux listener's connection closes unused.
+                    Ok(reached) => {
+                        local = reached;
+                        link.send(service_answer(&Ok(()))).await.map_err(|e| e.to_string())
+                    }
+                    Err(refusal) => {
+                        tracing::info!("hub carrier: a circuit's service was refused: {refusal}");
+                        let _ = link.send(service_answer(&Err(refusal))).await;
+                        let _ = link.close().await;
+                        return;
+                    }
                 }
-                let _ = link.close().await;
-                return;
             }
-        };
-        let _ = local.set_nodelay(true);
-        // A hello is answered; the acpmux listener's first bytes go on to it.
-        let started = if named_service(&first).is_some() {
-            link.send(service_answer(&Ok(()))).await.map_err(|e| e.to_string())
-        } else {
-            local.write_all(&first).await.map_err(|e| e.to_string())
         };
         if started.is_err() {
             let _ = link.close().await;
