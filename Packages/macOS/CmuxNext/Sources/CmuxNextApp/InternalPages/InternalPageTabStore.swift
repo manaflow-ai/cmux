@@ -172,7 +172,7 @@ final class InternalPageTabStore {
     /// app tab, `app-screens-v1`), made on first show under a provider key of
     /// its own. A tab this app did not open shows its route
     /// (`page-tab-route-v1`) only from this Mac's daemon (`local`): another
-    /// machine's daemon never names a file or folder for this Mac to read.
+    /// machine's daemon never names a file or folder for this Mac to read. A closed tab (a strip may ask in the frame after) gets none: it would hold its page and pool host for good.
     func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
               window: WindowController?) -> InternalPageView? {
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)) else { return nil }
@@ -181,13 +181,12 @@ final class InternalPageTabStore {
             if let window { windows[key] = window }
             return view
         }
-        guard let provider = providers[page] else { return nil }
+        guard let provider = providers[page], storeKeys[tab.id] != nil || store.liveTreeLists(tab: tab.id) != false else { return nil }
         let key = storeKeys[tab.id] ?? LocalPageTab.makeKey(page)
         // A tab this app did not open (Reopen Closed, relaunch, another app): its route says what it shows.
         if local, storeKeys[tab.id] == nil, let route = tab.pageRoute { provider.restore(route, for: key) }
         track(tab.id, key: key, in: store, window: window)
-        // A pane lists it: the tree has it.
-        seenLive.insert(tab.id)
+        seenLive.insert(tab.id) // A pane lists it: the tree has it.
         let content = provider.makeView(for: key, in: windows[key])
         let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
