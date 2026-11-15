@@ -2051,6 +2051,7 @@ impl Hub {
             applied: StdMutex::new(session::Applied::default()),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
+            purging: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
@@ -3093,6 +3094,10 @@ impl Hub {
     /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
     /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
     pub(super) fn reopen(&self, session: &Session, stops: u64) -> bool {
+        // A chat being deleted stays closed (`Session::purging`).
+        if session.purging.load(Ordering::SeqCst) {
+            return false;
+        }
         let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
         if reopened {
             self.append(session, "mux", "reopened", json!({}));

@@ -195,7 +195,9 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3c",
         name: "v2.pr03c.queue_window",
-        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 1 KB (the head's bound, so both windows carry the same bytes): 1.2x. Window time and bytes read of the lines.",
+        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 16 KB (the head read's bound, so both sides fill each head's one read and both windows carry the same bytes), each on a cold actor: 1.2x. Window time and bytes read. A probe prints the 1 KB and 1 MB sides.",
+        // Best p95 time ratio 0.984, 0.965 and 0.945 in three runs, bytes read 1.000; the probe
+        // (`queue_window_sizes_probe`) has 1 MB within 1.013 of 16 KB on time and 1.000 on bytes.
         measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
@@ -240,7 +242,7 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3b",
         name: "v2.pr03b.catchup_peak_rss",
-        done_when: "The god chat caught up from nothing over the v1 source: the most bytes the actor's thread holds at once (the test allocator's count, over its first chunk's, in any stretch of the same length or at the end) within 1.2x of small, after one catch-up nobody measures; one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives. Resident size's rise is printed, not gated: glibc's held free pages and rows.idx's page cache move it.",
+        done_when: "The god chat caught up from nothing over the v1 source: the most bytes the actor's thread holds at once (the test allocator's count, over its first chunk's, in any stretch of the same length or at the end) within 1.2x of small, after one catch-up nobody measures; god's resident anonymous bytes grow at most 64 KiB from the stretch a quarter of the way through to its last (no small side: what the thread count cannot see); one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives. Resident size's rise is printed, not gated: glibc's held free pages and rows.idx's page cache move it.",
         measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,

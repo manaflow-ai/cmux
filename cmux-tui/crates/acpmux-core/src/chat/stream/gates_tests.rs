@@ -894,7 +894,10 @@ struct QueueSide {
     read: Vec<u64>,
 }
 
-/// From `sub` to the window's bytes at the client, and the bytes read on the way.
+/// From `sub` on a cold chat to the window's bytes at the client, and the bytes read on the way.
+/// Outside the clock: the actor is closed and joined after, so the next window reads its heads
+/// again and not the ones the actor kept, and each window read at least its 64 heads: each head
+/// one read of its line or of `HEAD_READ` bytes, the smaller.
 fn queue_sample(rt: &Runtime, side: &mut QueueSide) -> u64 {
     let sid = side.reader.sid("q");
     let client = &mut side.reader.client;
@@ -913,17 +916,21 @@ fn queue_sample(rt: &Runtime, side: &mut QueueSide) -> u64 {
     assert_eq!(window.queue.count as usize, QUEUED);
     assert_eq!(window.queue.entries.len(), QUEUED);
     assert!(window.queue.entries.iter().all(|entry| entry.len == side.text_bytes as u64));
+    assert!(side.reader.fixture.chat.registry.evict("chat"), "the window's actor ran");
+    let heads = (QUEUED * side.text_bytes.min(queue::HEAD_READ)) as u64;
+    assert!(read >= heads, "a window read {read} bytes, under the {heads} of its {QUEUED} heads");
     side.read.push(read);
     elapsed
 }
 
-/// 64 prompts of 100 KB waiting against 64 of 1 KB: the small side's prompts are the head's
-/// bound (`HEAD_TEXT`), so both windows carry the same bytes and only the lines differ.
+/// 64 prompts of 100 KB waiting against 64 of 16 KB: the small side's prompts are the head
+/// read's bound (`HEAD_READ`), so both sides fill each head's one read, both windows carry the
+/// same bytes, and each window reads at least `QUEUED * HEAD_READ` bytes.
 #[test]
 #[ignore]
 fn v2_pr03c_queue_window() {
     let rt = runtime();
-    let mut sides = [100 * 1024, queue::HEAD_TEXT].map(|text_bytes| QueueSide {
+    let mut sides = [100 * 1024, queue::HEAD_READ].map(|text_bytes| QueueSide {
         reader: Reader::new(&rt, queue_chat(text_bytes)),
         text_bytes,
         read: Vec::new(),
@@ -939,6 +946,20 @@ fn v2_pr03c_queue_window() {
         || queue_sample(&rt, small),
         || queue_sample(&rt, god),
     );
+    // Each round's timed samples, after its warm-ups, as `paired` takes them.
+    let rounds = |read: &[u64]| -> Vec<u64> {
+        read.chunks(WARMUP + SAMPLES)
+            .map(|round| percentile(round.get(WARMUP..).unwrap()))
+            .collect()
+    };
+    for (number, (small_round, god_round)) in
+        rounds(&small.read).into_iter().zip(rounds(&god.read)).enumerate()
+    {
+        println!(
+            "{name} mode=queue round={} small_read_p95={small_round} god_read_p95={god_round}",
+            number + 1
+        );
+    }
     let (small_read, god_read) = (percentile(&small.read), percentile(&god.read));
     println!("{name} mode=queue small_read_p95={small_read} god_read_p95={god_read}");
     emit(name, measures, "ns");
@@ -947,6 +968,48 @@ fn v2_pr03c_queue_window() {
         god_read as f64 <= small_read as f64 * 1.2 + READ_NOISE as f64,
         "{name}: god reads {god_read} bytes of the lines a window against {small_read}"
     );
+}
+
+/// The queue window at prompts of 1 KB, 16 KB (`HEAD_READ`), 100 KB and 1 MB, each window on a
+/// cold actor as the gate's: the window's time p95 (best round and all samples) and bytes read
+/// p95 at each. Judges nothing; it says whether the window's cost is flat from the head read's
+/// bound up, and what a prompt under it costs.
+#[test]
+#[ignore]
+fn queue_window_sizes_probe() {
+    let rt = runtime();
+    let mut sides = [1024, queue::HEAD_READ, 100 * 1024, 1024 * 1024].map(|text_bytes| {
+        (
+            QueueSide {
+                reader: Reader::new(&rt, queue_chat(text_bytes)),
+                text_bytes,
+                read: Vec::new(),
+            },
+            Vec::new(),
+            u64::MAX,
+        )
+    });
+    let name = "queue_window_sizes_probe";
+    for _ in 0..ROUNDS {
+        for (side, times, best) in &mut sides {
+            for _ in 0..WARMUP {
+                std::hint::black_box(queue_sample(&rt, side));
+            }
+            let start = times.len();
+            for _ in 0..SAMPLES {
+                times.push(queue_sample(&rt, side));
+            }
+            *best = (*best).min(percentile(times.get(start..).unwrap()));
+        }
+    }
+    for (side, times, best) in &sides {
+        println!(
+            "{name} text_bytes={} time_p95_best={best} time_p95_all={} read_p95={}",
+            side.text_bytes,
+            percentile(times),
+            percentile(&side.read)
+        );
+    }
 }
 
 // ---- v2.pr03c.prompt_blob_next ----

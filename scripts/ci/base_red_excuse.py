@@ -1873,16 +1873,20 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
 # step's own: UNPLACED) has no section per step, so no line can be charged to the step that failed. Seen on
 # 2026-11-11 on 'cmux-next checks (god files, concurrency, crash safety, l10n)' (cmux#40954) and 'CmuxMobileKit tests
 # (macOS swift test, iOS simulator)' (cmux#40598, #40664): every red in those jobs was refused, the base's own too.
-# Such a red is compared whole instead, on both sides alike, and excused only on identity with one red base verdict
+# Such a red is compared whole instead, on both sides alike, and excused only when it is within one red base verdict
 # for the job: the newest, or an older one in the window the placed comparison reads (BASE_WINDOW, BASE_WINDOW_HOURS;
-# a green verdict ends it), each alone: exactly the head's failed steps (by the jobs API), exactly the same failing-test
-# lines and error lines (numbers masked) the same number of times each, read from the whole log less the runner's echo
-# of each script, with at least one. Counts, not sets: a whole log may take in a passing step's expected `✘ Test` or
-# error line (#40542's Codex BLOCKs), so a head whose failing step newly prints a line the base printed only from a
-# passing step prints it once more than the base, and is refused. Any line the head prints more or less often than
-# the base breaks identity: a subset either way is never enough. Not covered by counts: a PR that both stops a passing
-# step's line and makes its failing step print that same line; it must change two steps to look the same, and the
-# failed steps must still be the base's. Failing tests are counted by name with their digits (test2() is not test3()).
+# a green verdict ends it), each alone: every failed step of the head (by the jobs API, (name, conclusion)), every
+# failing-test line and every error line (numbers masked), each as often as that verdict has it or less, read from the
+# whole log less the runner's echo of each script, with at least one. Counts, not sets: a whole log may take in a
+# passing step's expected `✘ Test` or error line (#40542's Codex BLOCKs), so a head whose failing step newly prints a
+# line the base printed only from a passing step prints it once more than the base, and is refused. A line the head
+# prints more often than the base, or that the base never prints, is the head's own. The base may fail more: a verdict
+# that fails the head's reds and others besides still proves the head's are the base's (cmux#43251 at fe4918f2 on
+# 2026-11-15: 'cmux-next checks' failed 2 script tests, base run 43676446747 those 2 and 3 more, and identity refused
+# it). Not covered by counts: a PR that both stops a passing step's line and makes its failing step print that same
+# line; it must change two steps to look the same, and the failed steps must still be the base's. Failing tests are
+# counted by name with their digits (test2() is not test3()). A log that says tests failed and names none (unnamed) is
+# never compared, on either side.
 # The app FFI pin's red (FFI_PIN_ERROR) is never excused by identity: its rules read the PR's paths, which a whole-log
 # identity cannot stand in for, and its error masks the pinned sha. ffi_pin_step_a judges it first, from this
 # signature as from a placed one (#40542 left every unplaced pin red refused, the base's own too: cmux#41086 on
@@ -1987,18 +1991,25 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
         if said:
             raise Refused(f"'{name}': {why}; compared whole, {side} log reports more failed tests than it names "
                           f"({said[0][:200]}), so no failure can be told from another")
-    if head.steps != found.steps:
+    # Within, not equal (the rule above): each of the head's counts at most the base's; what the base fails besides
+    # is the base's.
+    if head.steps - found.steps:
         raise Refused(f"'{name}': {why}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
                       f"not {where}'s ({step_keys_text(found.steps)})")
     for what, mine, theirs in (("failing tests", head.tests, found.tests), ("error lines", head.errors, found.errors)):
-        if mine != theirs:
-            more, fewer = sorted((mine - theirs).elements()), sorted((theirs - mine).elements())
+        if more := sorted((mine - theirs).elements()):
+            fewer = sorted((theirs - mine).elements())
             raise Refused(f"'{name}': {why}; compared whole, its {what} are not {where}'s"
-                          + (f": more on this head: {'; '.join(more)[:500]}" if more else "")
+                          f": more on this head: {'; '.join(more)[:500]}"
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
     said_why = ("its log does not map onto its steps" if why == UNPLACED_WHY
                 else "its failed steps name no failing test or error line")
+    besides = sum(((found.steps - head.steps) + (found.tests - head.tests) + (found.errors - head.errors)).values())
+    if besides:
+        return (f"excused '{name}': {said_why}, so it was compared whole: its failed steps "
+                f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, each as often or less, are "
+                f"within those of {where}, which fails {besides} more besides: {'; '.join(said)[:400]}")
     return (f"excused '{name}': {said_why}, so it was compared whole: the same failed steps "
             f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, as often each, as {where}: "
             f"{'; '.join(said)[:400]}")
@@ -7093,7 +7104,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         why_whole = UNPLACED_WHY if view is UNPLACED else BARE_WHY
         if view is UNPLACED or bare:
             # An unplaced head is read per step first (update-branch alone: by_step refuses a land), then compared
-            # whole with the base (#41129, carried forward): identity with one red base verdict. So is a placed head
+            # whole with the base (#41129, carried forward): within one red base verdict. So is a placed head
             # whose failed sections name nothing to compare (BARE_WHY).
             try:
                 audit.append(by_step())
@@ -7103,7 +7114,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             except Refused as why:
                 per_step = why
             try:
-                # Why: UnplacedSignature (compared whole, excused only on identity with the newest red base verdict)
+                # Why: UnplacedSignature (compared whole, excused only within one red base verdict of the window)
                 if got.unplaced is None:
                     raise Refused(f"'{name}': {why_whole}; nothing is compared with the base")
                 # A pin red ffi_pin_step_a did not excuse or set aside raised there; one it set aside leaves the
@@ -7114,7 +7125,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     raise Refused(f"'{name}': {UNPLACED_WHY}, and its app FFI pin is red where no pin rule covers it; "
                                   "nothing is compared with the base")
                 # The window the placed comparison reads (BASE_WINDOW verdicts within BASE_WINDOW_HOURS of the newest,
-                # a green one ends it): identity with any one red verdict in it, never a mix of several. cmux#41086 at
+                # a green one ends it): within any one red verdict in it, never a mix of several. cmux#41086 at
                 # 5d0fb077: the newest base run had one more failing test than the head (a pre-push gate flake).
                 newest, read, seen, newest_job = created(base_run), 1, [], base_job
                 while True:
