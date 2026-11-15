@@ -1131,6 +1131,7 @@ CLI_AGENTS = {
     "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
+CHAT_AT_QUIT = {}  # --record-launch: the shown chat page's size and copy writes just before each quit, by variant
 LONG_CHAT = {}  # --record-launch: the chat shown at each quit, with a long transcript (show_long_chat)
 TAGENTS = []  # {"label", "provider", "terminal", "tab", "session", "flags", "account"}
 ACPMUX = {}  # {"home", "client"}: the tag's acpmux, configured once for the run
@@ -2625,6 +2626,13 @@ def journey(base):
         if opts.record_launch:
             at_quit = long_chat_shown()
             RESULTS.append((f"{variant}: the long chat is the tab shown at the quit", at_quit is True, str(at_quit), "launch frames"))
+            # The shown chat page's size and its copy writes so far, just before the quit: a copy refused on size at
+            # the relaunch ("size A, drawn at B") is told apart as written by the quit itself (its write on hide, at a
+            # size the page had only then) or left by an earlier write (`snapshot.served_cause` names that one).
+            watched = page(None, "layout_watch", ms=100) or {}
+            CHAT_AT_QUIT[variant] = {"view": (watched.get("snapshot") or {}).get("view"),
+                                     "writes": (watched.get("snapshot") or {}).get("writes")}
+            say(f"  {variant}: chat at the quit {json.dumps(CHAT_AT_QUIT[variant])}")
         started = SINCE = time.time()
         if sampler:
             sampler.start(started)
@@ -2803,6 +2811,7 @@ def launch_shift_rows(variant, record, launched, chat_watch):
         summary["chat"] = {k: chat_watch.get(k) for k in ("first_content_ms", "first_rows", "elements", "shifts", "appeared",
                                                           "scroll_jumps", "asked_s", "error", "snapshot", "first_from_copy", "swap_ms", "first_parts", "swap_parts",
                                                           "grew") if k in chat_watch}
+        summary["chat"]["at_quit"] = CHAT_AT_QUIT.get(variant.split("-", 1)[-1])
     dump(f"launch-shift-{variant}.json", summary)
     say(f"  LAUNCH-SHIFT {variant} {json.dumps(total)}")
     say(launch_shift.table(summary))

@@ -46,7 +46,10 @@ export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | 
 }
 
 /// This page's writes: how many, and what the host said to the last (`{kept}`), for the report.
-const writes = { count: 0, last: "none" as string };
+/// `sizes`: the last few writes' viewport, page visibility and cause ("868x712 visible quiet"), newest
+/// last, so a copy refused on size at the next launch names which write left it.
+const writes = { count: 0, last: "none" as string, sizes: [] as string[] };
+const WRITE_SIZES_KEPT = 6;
 
 /// The chat's copy as this document saw it, for `debug.agent_pane layout_watch` and the chat-open
 /// trace: when it drew and the live page took over, else why nothing drew and why the host served
@@ -57,7 +60,9 @@ export function chatSnapshotReport(): Record<string, unknown> {
     ...chatSnapshotTimes(),
     miss: globals[SNAPSHOT_MISS_GLOBAL] ?? null,
     served: globals[`${SNAPSHOT_GLOBAL}Why`] ?? null,
-    writes: { ...writes },
+    served_cause: (globals[SNAPSHOT_GLOBAL] as { cause?: unknown } | undefined)?.cause ?? null,
+    writes: { ...writes, sizes: [...writes.sizes] },
+    view: typeof window === "undefined" ? null : `${Math.round(window.innerWidth)}x${Math.round(window.innerHeight)}`,
     swap_diff: swapDiff() ?? null,
   };
 }
@@ -238,7 +243,7 @@ export function watchChatSnapshot(
   let changedAt = 0;
   let wroteAt = 0;
   let stopped = false;
-  const write = () => {
+  const write = (cause: string) => {
     timer = undefined;
     // No theme heard yet: nothing to key a copy by, and the one kept stays.
     if (stopped || !chatTheme) return;
@@ -247,9 +252,15 @@ export function watchChatSnapshot(
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows
     // what this chat is, and keeps why, which the next document's record reads.
     writes.count += 1;
+    writes.sizes.push(`${Math.round(view.innerWidth)}x${Math.round(view.innerHeight)} ${doc.visibilityState} ${cause}`);
+    if (writes.sizes.length > WRITE_SIZES_KEPT) writes.sizes.shift();
     const miss = captureMiss();
     // A miss carries when it was taken too, so the host orders it with the copies (`savedAt`).
-    void put(snapshot ? { sessionId, ...snapshot } : { sessionId, miss, savedAt: Date.now() }).then(
+    // `cause` rides along (the host keeps the copy opaque) so the next document's record names the
+    // write that left the copy it got.
+    void put(
+      snapshot ? { sessionId, ...snapshot, cause: writes.sizes.at(-1) } : { sessionId, miss, savedAt: Date.now() },
+    ).then(
       (reply) => {
         const kept = (reply as { kept?: unknown } | null)?.kept;
         writes.last = !snapshot ? `forgot: ${miss}` : kept === true ? "kept" : "refused";
@@ -268,7 +279,7 @@ export function watchChatSnapshot(
         timer = undefined;
         const late = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
         if (late > 1) schedule();
-        else write();
+        else write("quiet");
       },
       Math.max(0, due),
     );
@@ -292,19 +303,20 @@ export function watchChatSnapshot(
     resizeTimer = view.setTimeout(() => {
       resizeTimer = undefined;
       if (timer !== undefined) view.clearTimeout(timer);
-      write();
+      write("resize");
     }, RESIZE_QUIET_MS);
   };
   view.addEventListener("resize", resized);
-  const now = () => {
+  const now = (cause: string) => {
     if (timer !== undefined) view.clearTimeout(timer);
-    write();
+    write(cause);
   };
   const hidden = () => {
-    if (doc.visibilityState === "hidden") now();
+    if (doc.visibilityState === "hidden") now("hidden");
   };
+  const asked = () => now("asked");
   doc.addEventListener("visibilitychange", hidden);
-  view.addEventListener(SNAPSHOT_WRITE_EVENT, now);
+  view.addEventListener(SNAPSHOT_WRITE_EVENT, asked);
   changedAt = performance.now();
   wroteAt = -WRITE_GAP_MS;
   schedule();
@@ -315,6 +327,6 @@ export function watchChatSnapshot(
     view.clearTimeout(resizeTimer);
     if (timer !== undefined) view.clearTimeout(timer);
     doc.removeEventListener("visibilitychange", hidden);
-    view.removeEventListener(SNAPSHOT_WRITE_EVENT, now);
+    view.removeEventListener(SNAPSHOT_WRITE_EVENT, asked);
   };
 }
