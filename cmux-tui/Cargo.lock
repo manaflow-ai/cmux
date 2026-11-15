@@ -2211,6 +2211,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-customize",
+ "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
@@ -2317,6 +2318,9 @@ dependencies = [
 name = "cmux-tui-core"
 version = "1.0.0"
 dependencies = [
+ "acpmux",
+ "acpmux-client",
+ "acpmux-list-types",
  "anyhow",
  "arc-swap",
  "base64",

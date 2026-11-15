@@ -165,6 +165,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
+pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod placement;
@@ -247,6 +249,9 @@ mod test_exec;
 mod test_hooks_tree;
 #[cfg(test)]
 mod test_stack;
+/// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub mod test_support;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
