@@ -590,14 +590,24 @@ final class AppReviewGateUITests: XCTestCase {
     /// the walk started on, the navigation bar's back button, an alert's or
     /// a sheet's Cancel, Close or Done, then a switch tapped back. After each
     /// it compares the whole tree with `start`; a control in `skip` is never
-    /// tapped. nil when only a relaunch helps (the app is not in front: a
-    /// link opened Safari) or nothing here leads anywhere; false when the
-    /// ways back were tried and the screen still differs.
+    /// tapped. A link that opened Safari is undone by closing Safari and
+    /// bringing the app back. nil when only a relaunch helps (the app quit
+    /// or would not come back) or nothing here leads anywhere; false when
+    /// the ways back were tried and the screen still differs.
     @MainActor
     private func returnToStart(
         _ start: StartPoint, in app: XCUIApplication, skip: Set<String>, flipBack: XCUIElement?
     ) -> Bool? {
-        guard app.state == .runningForeground else { return nil }
+        if app.state != .runningForeground {
+            // A link handed off to Safari: close it (as launch() does before
+            // every launch, so Safari never stays in front on iPad) and bring
+            // the app back, then compare as for any other way back.
+            let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+            if safari.state != .notRunning { safari.terminate() }
+            guard app.state != .notRunning else { return nil }
+            app.activate()
+            guard app.wait(for: .runningForeground, timeout: 5) else { return nil }
+        }
         if waitForLayout(start.layout, in: app, timeout: 1) { return true }
         var tried = false
         for round in 0..<3 {
