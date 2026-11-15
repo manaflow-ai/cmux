@@ -281,7 +281,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        .acpmux(connection(try await endpoint(startsDaemon: true)), sessionId: sessionId)
+        if let kept = prewarmed.take(at: .now) { return .acpmux(connection(kept), sessionId: sessionId) }
+        return .acpmux(connection(try await endpoint(startsDaemon: true)), sessionId: sessionId)
     }
 
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -296,7 +297,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     public func prewarm() async throws {
-        _ = try await endpoint(startsDaemon: true)
+        let restarts = prewarmed.restarts
+        let found = try await endpoint(startsDaemon: true)
+        prewarmed.keep(found, at: .now, unlessRestartedSince: restarts)
     }
 
     public func chatPeers() async throws -> [AgentChatPeer] {
@@ -342,6 +345,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         guard startsDaemons else { return false }
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached, owner.socketPath == environment.socketPath else { return false }
+        prewarmed.drop()
         return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: daemons)
     }
 
@@ -353,6 +357,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         guard startsDaemons, !inFlight.isEmpty else { return false }
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached else { return false }
+        prewarmed.drop()
         return await daemonStop.restart(environment)
     }
 
@@ -367,6 +372,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
               AcpmuxVersionHandoff.keepsItsChats(agentHosts: status.agentHosts, chatsOnDisk: status.chatsOnDisk),
               let daemon = await daemonStop.daemon(environment), daemons.claimStop(daemon.pid) else { return nil }
         let pid = daemon.pid
+        prewarmed.drop()
         Self.logger.info("acpmux \(pid, privacy: .public) lacks a request the app made; restarting it on the app's build")
         // Gone already (it exited on its own meanwhile) counts as stopped: the bundled one starts below.
         let stopped = daemonStop.terminate(daemon) ? await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) : !agentPaneProcessIsRunning(pid)
