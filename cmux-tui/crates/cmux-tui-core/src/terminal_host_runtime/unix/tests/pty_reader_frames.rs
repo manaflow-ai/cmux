@@ -290,6 +290,15 @@ fn host_parser_frame_breakdown_bench() {
     }
     report("metadata_observe_output", started.elapsed().as_secs_f64());
 
+    // What the parser runs instead of the two scans above: one walk.
+    let mut metadata = crate::terminal_metadata::TerminalMetadata::default();
+    let mut titles = crate::terminal_title::TitleTracker::default();
+    let started = Instant::now();
+    for frame in &frames {
+        std::hint::black_box(metadata.observe_output_rewriting_titles(&mut titles, frame));
+    }
+    report("shared_scan", started.elapsed().as_secs_f64());
+
     let term = terminal();
     let started = Instant::now();
     for _ in &frames {

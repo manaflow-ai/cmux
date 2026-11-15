@@ -77,7 +77,21 @@ fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
 /// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
 /// field of the row is still compared. A listed field the dump already shows as this crate has
 /// it fails: the re-pin landed, so take it off.
-const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[];
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[
+    ("machine.joined.check", JOINED_PALETTE_ROW),
+    ("machine.joined.rotate", JOINED_PALETTE_ROW),
+    ("machine.joined.revoke", JOINED_PALETTE_ROW),
+];
+
+/// The fields a joined machine's action changed when it became a palette row that asks which
+/// joined machine (`palette_target_source` `joined`).
+const JOINED_PALETTE_ROW: &[&str] = &[
+    "/surfaces",
+    "/surfacePlan/palette",
+    "/paletteTarget",
+    "/paletteTargetSource",
+    "/computed/is_palette_visible",
+];
 
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.
@@ -111,7 +125,12 @@ fn awaiting_field_repin(rust: &mut Value, swift: &Value) {
 /// Whether `id`'s exported arguments may still be the pinned app's (see
 /// [`FIELDS_AWAITING_REPIN`]).
 fn arguments_await_repin(id: &str) -> bool {
-    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&"/arguments"))
+    field_awaits_repin(id, "/arguments")
+}
+
+/// Whether `id`'s FIELD is on [`FIELDS_AWAITING_REPIN`].
+fn field_awaits_repin(id: &str, field: &str) -> bool {
+    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&field))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -300,7 +319,15 @@ fn action_list_export_matches() {
         let id = action.id;
         assert_eq!(row["id"], id);
         assert_eq!(row["cli_name"], action.cli_name, "{id}");
-        assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
+        if field_awaits_repin(id, "/surfacePlan/palette") {
+            assert_ne!(
+                row["palette"],
+                action.surface_plan.palette.wire(),
+                "action-surfaces.json has {id}'s palette decision: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+            );
+        } else {
+            assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
+        }
         assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
         assert_eq!(
             row["context_menu"],
