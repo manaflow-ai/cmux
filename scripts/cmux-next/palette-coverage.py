@@ -531,11 +531,11 @@ Prose: cmux workspace close --all closes them.
     def test_read_cli_reads_root_commands_and_refuses_failed_help(self):
         ok = self.fake_cli('case "$*" in\n'
                            '  help) printf "USAGE\\n  cmux attach\\n  cmux wg hub|dial\\n\\nAGENT\\n  tab   Tabs\\n";;\n'
-                           '  "help tab") printf "  cmux tab pin\\n  cmux tab LANG=$LC_ALL\\n";;\n'
+                           # F3: like a translated build, this help lists its verbs only in the C locale
+                           '  "help tab") [ "$LC_ALL" = C ] && printf "  cmux tab pin\\n" || printf "  cmux tab-ja\\n";;\n'
                            '  *) exit 2;;\nesac\n')
         got = read_cli(ok)
         self.assertTrue({"attach", "wg hub", "wg dial", "tab pin"} <= set(got), got)
-        self.assertNotIn("tab LANG=", " ".join(got))  # LC_ALL=C reaches the binary (F3): LANG=C is no verb word
         failing = self.fake_cli('case "$*" in\n  help) printf "AGENT\\n  tab   Tabs\\n";;\n  *) exit 3;;\nesac\n')
         with self.assertRaises(HelpFailed):  # F2: a scope whose help fails stops the refresh
             read_cli(failing)
