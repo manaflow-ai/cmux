@@ -102,12 +102,27 @@ fi
 #   pin always has an owner. Two runs never hold for each other: the app-ffi-repin group runs one re-pin job at a
 #   time, so the one that ran first is completed when the other reads it (a cancelled pending job is completed too,
 #   and the newer one that cancelled it re-pins later);
-# - it was created at most REPIN_PENDING_MAX_MIN ago: a run stuck waiting for a runner never holds for days.
+# - it was created at most REPIN_PENDING_MAX_MIN ago: a run stuck waiting for a runner never holds for long. The
+#   hold plus the build's timeout-minutes (45) stays under the 120 min "Check the app FFI pin" grace
+#   (cmux-next.yml --stale-grace 7200), so a held release never waits on a newer run that cannot publish inside the
+#   grace. It was 180 min, longer than the grace itself (2026-11-14, hq#10943: ead26e75 held for a run queued on a
+#   stalled Blacksmith label). test_app_ffi_release_workflow.py test_the_re_pin_hold_ends_inside_the_pin_grace keeps
+#   the sum under the grace.
+# Nothing holds once this release's own commit is older than REPIN_PENDING_MAX_MIN: the base's oldest unpinned FFI
+# commit is at least that old, so waiting for a newer run would run it past the grace, while pinning this release now
+# restarts the clock at the next FFI commit, which the newer run then covers.
 # A failed read re-pins as before. When the holding run's re-pin job fails, its failure step starts app-ffi-repin.yml.
-pending_max_min="${REPIN_PENDING_MAX_MIN:-180}"
+pending_max_min="${REPIN_PENDING_MAX_MIN:-60}"
 read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh api "$@"; }
 pending_newer() {
-  local runs id head age jobs
+  local runs id head age jobs pin_time pin_age
+  if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
+    pin_age=$(( ($(date +%s) - pin_time) / 60 ))
+    if (( pin_age > pending_max_min )); then
+      echo "$TAG's commit is $pin_age min old (bound $pending_max_min min): no newer run holds its re-pin" >&2
+      return 1
+    fi
+  fi
   if ! runs="$(read_runs \
       "repos/$GITHUB_REPOSITORY/actions/workflows/app-ffi-release.yml/runs?branch=feat-cmux-next&per_page=100" \
       --jq '.workflow_runs[] | select(.status != "completed")

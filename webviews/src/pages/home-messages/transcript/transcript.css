@@ -541,7 +541,7 @@
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--mt-caption);
 }

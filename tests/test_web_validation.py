@@ -241,8 +241,8 @@ class WebValidationTests(unittest.TestCase):
         dev-server files four at a time for 18-26 min each (p50 24.4 min, 2026-10-31), the
         long pole from ask to merge for a webview fix, so they were eight. At eight the split
         balanced each shard to about 1000 s of tests (2026-11-13), past a 20 min verdict, so
-        they are twelve (about 690 s each). The base replay (react-apps-base-check) takes one
-        shard per head shard's results artifact."""
+        they are twelve (about 690 s each). The base replay (react-apps-base-check) is one
+        job that joins every head shard's results artifact (one job a head shard before #42540)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
@@ -256,7 +256,9 @@ class WebValidationTests(unittest.TestCase):
         base_start = workflow.index("  react-apps-base-check:")
         base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
         base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
-        self.assertEqual([int(n) for n in re.findall(r"^          - shard: (\d+)$", base, re.MULTILINE)], shards)
+        self.assertNotIn("strategy:", base)
+        self.assertIn(f'HEAD_SHARDS: "{len(shards)}"', base)
+        self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
                      "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
                      "Check PR-scoped webview rules"):

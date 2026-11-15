@@ -383,29 +383,18 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
     "Run the tray tests",
   ]) {
-    test(`a click on a line expands it in place, never navigating (${name.slice(0, 16)})`, async () => {
+    // #42247 (Codex parity) made a subagent's tray line open its chat on a click, with no detail
+    // under it (TrayLineDetail.tsx: "subagent rows open their chat directly"). A command's line and
+    // a subagent's command still expand in place (the tests below).
+    test(`a click on a subagent's line opens its chat and expands nothing (${name.slice(0, 16)})`, async () => {
       const page = await rows();
       try {
         const opened = () => page.evaluate(() => [...(window as unknown as { __opened: string[] }).__opened]);
         await lineOf(page, name).click();
         await settle(page);
-        expect(await opened()).toEqual([]);
-        expect(await lineOf(page, name).getAttribute("aria-expanded")).toBe("true");
-        const detail = page.locator(".acpmux-running-tray [data-line-detail]");
-        await detail.waitFor();
-        await page.waitForFunction(() => {
-          const node = document.querySelector<HTMLElement>(".acpmux-running-tray [data-line-detail]");
-          return !!node && node.getBoundingClientRect().height > 10 && node.style.overflow === "";
-        });
-        expect(await detail.textContent()).toContain(name);
-        // The way to the subagent is an explicit button in the detail.
-        await page.click(".acpmux-running-tray [data-line-detail] button");
         expect(await opened()).toEqual([`agent:${name === "Run the tray tests" ? "done" : "long"}`]);
-        // A second click folds it, on the same fold.
-        await lineOf(page, name).click();
-        await settle(page);
-        await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray [data-line-detail]"));
-        expect(await lineOf(page, name).getAttribute("aria-expanded")).toBe("false");
+        expect(await lineOf(page, name).getAttribute("aria-expanded")).toBeNull();
+        expect(await page.locator(".acpmux-running-tray [data-line-detail]").count()).toBe(0);
       } finally {
         await page.close();
       }

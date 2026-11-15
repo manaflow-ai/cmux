@@ -625,6 +625,8 @@ pub const DEPLOY: Argument = Argument { name: "deploy", title: t("AppStoreAction
 #[rustfmt::skip]
 pub const COMMAND_4: Argument = Argument { name: "command", title: t("AppStoreActions", "argument.app.command", "Command"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const MENU_ITEM: Argument = Argument { name: "item", title: t("AppStoreActions", "argument.app.menuItem", "Menu Item"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const DEVICE_2: Argument = Argument { name: "device", title: t("PhoneActions", "argument.phone.device", "Phone"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const PATH_5: Argument = Argument { name: "path", title: t("PhoneActions", "argument.phone.path", "File"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

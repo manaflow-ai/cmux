@@ -133,5 +133,51 @@ class PerfBudgetManifestTests(unittest.TestCase):
                       pb.incomplete_rows([], {row: 16.7}, manifest, ["sidebar"]))
 
 
+class PerfBudgetBenchOutputTests(unittest.TestCase):
+    """A bench whose --out is its report file (home-perf.py) gets that file, not a folder at its path (cmux#24569:
+    every perf cron home-idle part since 2026-10-23 ended "manifest row not measured" for both home rows)."""
+
+    HOME_BENCH = (
+        "import json, sys\n"
+        "out = sys.argv[sys.argv.index('--out') + 1]\n"
+        "json.dump({'typing': {'key_dispatch_ms': {'count': 88, 'p50': 4.76, 'p95': 5.64}},\n"
+        "           'scroll': {'p50_ms': 8.33, 'p95_ms': 8.33}}, open(out, 'w'))\n"
+    )
+
+    def run_home(self, out, leftover_dir=False):
+        script = Path(out, "fake-home-perf.py")
+        script.write_text(self.HOME_BENCH)
+        report = Path(out, "home.json")
+        if leftover_dir:
+            report.mkdir()  # what an earlier run of the old runner left on a warm checkout
+        plan = {"home": ([sys.executable, str(script), "--tag", "t", "--out", str(report)], "home.json", pb.rows_home)}
+        opts = types.SimpleNamespace(out=out, bench_timeout=60)
+        runs, values = {}, {}
+        pb.run_phase("", ["home"], plan, opts, runs, values)
+        return runs, values
+
+    def check_home_rows(self, leftover_dir):
+        with tempfile.TemporaryDirectory() as out:
+            runs, values = self.run_home(out, leftover_dir)
+            self.assertEqual(runs["home"]["exit"], 0, Path(runs["home"]["log"]).read_text())
+            self.assertEqual(values["home.typing.key_dispatch"], (4.76, 5.64))
+            self.assertEqual(values["home.scroll.frame"], (8.33, 8.33))
+            rows = [{"name": name, "p95": p95} for name, (_, p95) in values.items()]
+            manifest = json.loads((ROOT / "scripts/cmux-next/perf-budgets.json").read_text())["expected"]
+            self.assertEqual(pb.incomplete_rows(rows, {}, manifest, ["home"]), [])
+
+    def test_home_report_file_is_written_and_read(self):
+        self.check_home_rows(leftover_dir=False)
+
+    def test_empty_folder_left_at_the_report_path_is_replaced(self):
+        self.check_home_rows(leftover_dir=True)
+
+    def test_folder_outs_are_still_made(self):
+        with tempfile.TemporaryDirectory() as out:
+            folder = Path(out, "sidebar")
+            pb.prepare_outputs(["py", "bench.py", "--out", str(folder)], str(folder / "results.json"))
+            self.assertTrue(folder.is_dir())
+
+
 if __name__ == "__main__":
     unittest.main()

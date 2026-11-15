@@ -73,6 +73,7 @@ public final class Events {
     public static final EventMetadata SCREEN_ADDED = new EventMetadata("screen-added", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_CHANGED = new EventMetadata("screen-changed", 12, "screen-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata SCREEN_DEVICE_CHANGED = new EventMetadata("screen-device-changed", 12, "screen-device-identity-v1", List.of("subscribe"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata SELECTION_CHANGED = new EventMetadata("selection-changed", 12, "tree-selection-deltas-v1", List.of("subscribe-deltas"), true);
@@ -170,6 +171,7 @@ public final class Events {
         values.put("screen-added", SCREEN_ADDED);
         values.put("screen-changed", SCREEN_CHANGED);
         values.put("screen-closed", SCREEN_CLOSED);
+        values.put("screen-device-changed", SCREEN_DEVICE_CHANGED);
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("scroll-changed", SCROLL_CHANGED);
         values.put("selection-changed", SELECTION_CHANGED);

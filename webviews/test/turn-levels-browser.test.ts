@@ -71,7 +71,10 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
             expect(runs).toEqual(["Ran 4 commands and read a file", "Ran 3 commands"]);
             const outer = (await page.locator(".cv-worked").textContent())?.trim() ?? "";
             expect(outer).toBe("Worked for 2m 17s");
-            expect(await page.locator(".cv-tool-note").count()).toBeGreaterThanOrEqual(1);
+            // Every commentary paragraph ends a run and draws as its own paragraph, never a note
+            // folded into a run (turns.ts, Codex parity #42247).
+            expect(await page.locator(".cv-tool-note").count()).toBe(0);
+            expect(await page.locator(".cv-md", { hasText: "Another short aside" }).count()).toBe(1);
           }
           // Toggle the later line: it keeps the reader's state (the outer stays open around it). An
           // ended and running turn's run lines both keep a reader's choice.

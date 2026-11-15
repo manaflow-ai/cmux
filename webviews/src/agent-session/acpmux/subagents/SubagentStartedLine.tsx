@@ -9,6 +9,8 @@ import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { useSenderIconLook } from "./senderIconLook";
 import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import { subagentTaskLabel } from "./subsessions";
+import { SubagentChipPreview } from "./SubagentPreview";
+import "./SubagentStartedLine.css";
 
 export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const t = useT();
@@ -43,11 +45,18 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
     taggedNames.push(
       <Fragment key={agent.id}>
         {at > 0 && identity(at)}
-        <AgentTag
-          name={part.value}
-          ariaLabel={t("subagents.open", { name: part.value })}
-          onClick={open && (() => open(agent.id))}
-        />
+        {/* Its preview names it whole, with its state and task: a group's chips are cut to a
+            letter or two (Leo, 2026-11-14: "there's no hover preview on these"). */}
+        <SubagentChipPreview agent={agent} name={part.value}>
+          <AgentTag
+            name={part.value}
+            // A name that opens the sentence ("{name} started working") starts its words on the rows'
+            // text column, its chip's inset hanging into the gap after the icon (SubagentStartedLine.css).
+            className={at === 0 && !before ? "cv-subagent-started__lead" : undefined}
+            ariaLabel={t("subagents.open", { name: part.value })}
+            onClick={open && (() => open(agent.id))}
+          />
+        </SubagentChipPreview>
       </Fragment>,
     );
   }

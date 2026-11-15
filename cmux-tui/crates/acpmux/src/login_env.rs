@@ -1175,24 +1175,41 @@ pub fn effective_for(
     family: Option<&str>,
     profile: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
+    let (vault, machine) = (crate::vault::env_for_children(), machine_values());
+    effective_with(family, profile, daemon_values(), vault, machine)
+}
+
+/// [`effective_for`] over a given daemon env (less `machine.env`'s names), vault entries
+/// (`vault::env_for_children`) and `machine.env` values, as one launch reads them once.
+pub(crate) fn effective_with(
+    family: Option<&str>,
+    profile: &BTreeMap<String, String>,
+    daemon: Vec<(String, String)>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
     let nested = std::env::var_os("CLAUDECODE").is_some();
-    let (vault, machine) = (crate::vault::env_for_children(), machine::read());
     // A launch's scrub removes the nested keys, then puts back the login
     // values, the vault's and `machine.env`'s (`restore_machine_tokio`).
     let mut restored = nested_overrides(family);
     restored.extend(nested_local(vault.clone(), machine.clone()));
     let local = pairs_with(family, Some(profile), vault, machine);
-    let names = machine::names();
-    let mut env = layered(
-        std::env::vars().filter(|(key, _)| !names.contains(key)),
-        nested,
-        local,
-        restored,
-        profile,
-    );
+    let mut env = layered(daemon, nested, local, restored, profile);
     // A launch adds the Cloud machine's route where nothing set one; a check sees the same.
     crate::cloud_model_plane::fill_map(&mut env);
     env
+}
+
+/// `machine.env`'s values now (`machine.rs`), for [`effective_with`].
+pub(crate) fn machine_values() -> BTreeMap<String, String> {
+    machine::read()
+}
+
+/// The daemon's own env less `machine.env`'s names, for [`effective_with`]; call after
+/// [`machine_values`], which records those names.
+pub(crate) fn daemon_values() -> Vec<(String, String)> {
+    let names = machine::names();
+    std::env::vars().filter(|(key, _)| !names.contains(key)).collect()
 }
 
 /// `effective_for`'s layering, pure: `daemon` (its nested Claude keys

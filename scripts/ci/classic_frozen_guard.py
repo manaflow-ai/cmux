@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Fail a pull request that changes a classic-frozen path (.github/classic-frozen.txt) without `classic-migration`.
 
-The files classic cmux customers depend on are frozen until Leo decides the migration. A pull request into
-feat-cmux-next or main whose diff touches one of them fails unless it carries the label `classic-migration`, which
-is Leo's to add. A rule's scope is `all` (both bases) or `main` (main only). NEXT Cloud backend code goes to
-manaflow-ai/cmux-platform.
+The files classic cmux customers depend on are frozen into main until Leo decides the migration. A pull request into
+main whose diff touches one of them fails unless it carries the label `classic-migration`, which is Leo's to add. A
+pull request into feat-cmux-next passes: it may change or delete classic paths (FROZEN_INTO). A rule's scope (`all`
+or `main`) is what reads skip on each branch. NEXT Cloud backend code goes to manaflow-ai/cmux-platform.
+
+Leo, 2026-11-14, on a feat-cmux-next PR this refused: "if it's on the next branch, classic cloud is irrelevant. it's
+only relevant on main rn".
 
 Leo, 2026-11-04: "is it possible to HARD MARK certain files or whatever as like "classic, don't touch until we
 decide to do the migration"".
@@ -24,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / ".github" / "classic-frozen.txt"
 LABEL = "classic-migration"
 SCOPES = ("all", "main")
+# The bases a pull request that changes a frozen path is held from (Leo, 2026-11-14: "if it's on the next branch,
+# classic cloud is irrelevant. it's only relevant on main rn").
+FROZEN_INTO = ("main",)
 
 
 def glob_regex(pattern: str) -> re.Pattern[str]:
@@ -83,7 +89,10 @@ def frozen(rules: list[dict], base: str, paths: list[str]) -> list[tuple[str, di
 def check(rules: list[dict], base: str, labels: list[str], paths: list[str],
           expected_files: int | None = None, listed_records: int | None = None) -> tuple[int, list[str]]:
     """(exit code, annotation lines). A listing shorter than the PR's changed-file count may hide a frozen path past
-    GitHub's 3,000-file end, so it fails too unless the label is on."""
+    GitHub's 3,000-file end, so it fails too unless the label is on. A base outside FROZEN_INTO always passes."""
+    if base not in FROZEN_INTO:
+        return 0, [f"::notice::Into {base}, classic-frozen paths may change: only a pull request into "
+                   f"{' or '.join(FROZEN_INTO)} is held (.github/classic-frozen.txt)."]
     migration = LABEL in labels
     hits = frozen(rules, base, paths)
     listed = listed_records if listed_records is not None else len(set(paths))

@@ -77,7 +77,7 @@ MAC_COMMON = (
     WORKFLOW, ".github/actions", "scripts/cmux-next", "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py",
     "scripts/ci/reset-stale-submodules.sh", "scripts/ci/owned_spm_scratch.py",
-    "scripts/ci/e2e_warm_derived_data.py",
+    "scripts/ci/e2e_warm_derived_data.py", "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
     "scripts/ci/swiftpm_build_metrics.py", "scripts/ci/build_metrics.py",
     "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/job_reuse.py", "schemas", "plans/cmux-next",
@@ -166,7 +166,9 @@ class Job:
 
 
 JOBS = {
-    "fast-tier": Job(MAC_TOOLCHAIN),
+    # A pure FFI re-pin runs handler coverage only. Never reuse that pass for
+    # the full registry, even when the source tree and toolchain are identical.
+    "fast-tier": Job(MAC_TOOLCHAIN + ("suite_scope",)),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
     # generated_base: the base commit when swift-test checks the generated files on its own build
     # (cmux-next.yml CMUX_NEXT_FOLD_GENERATED, which compares them with the base), else ''.

@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::network::{NetworkNode, NetworkStatus};
+use cmux_device_kind::DeviceKind;
 
 /// What the stores said, as their own `--json` printed it.
 #[derive(Clone, Debug, Default)]
@@ -91,6 +92,11 @@ pub(crate) struct Device {
     pub id: String,
     pub name: String,
     pub kind: Kind,
+    /// What the device is (`mac-mini`, `linux-server`, `iphone`): what it reports of itself
+    /// (`host_health` `device`), else what its record's source or OS tells.
+    pub device: DeviceKind,
+    /// The glyph every view of this device draws: [`DeviceKind::symbol`], an SF Symbol name.
+    pub symbol: &'static str,
     pub roles: Vec<Role>,
     pub state: State,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,13 +169,70 @@ pub(crate) struct Invite {
     pub expires_at: String,
 }
 
+/// Short-lived machines of one autoscaled pool (`ci-linux-pool-1114-162023-3fa17bde`):
+/// one line, never one row each, since each lives minutes and none is a computer to add.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct Pool {
+    /// The name before the generated part (`ci-linux-pool`).
+    pub stem: String,
+    pub count: usize,
+}
+
 /// `cmux device list --json`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Listing {
     pub network: NetworkStatus,
     pub devices: Vec<Device>,
     pub available: Vec<Available>,
+    /// Network computers left out of `available` as members of a short-lived pool.
+    pub pools: Vec<Pool>,
     pub invites: Vec<Invite>,
+}
+
+/// The pool stem of a machine name that ends in a generated id: a last part of 6 or more hex
+/// characters with both a digit and a letter (`3fa17bde`), with any all-digit parts before it
+/// (a timestamp) dropped too. `swarm-01` and `release-20261114` have no generated id.
+fn pool_stem(name: &str) -> Option<&str> {
+    let (rest, last) = name.rsplit_once('-')?;
+    let generated = last.len() >= 6
+        && last.chars().all(|c| c.is_ascii_hexdigit())
+        && last.chars().any(|c| c.is_ascii_digit())
+        && last.chars().any(|c| c.is_ascii_alphabetic());
+    if !generated {
+        return None;
+    }
+    let mut stem = rest;
+    while let Some((head, part)) = stem.rsplit_once('-') {
+        if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
+            break;
+        }
+        stem = head;
+    }
+    (!stem.is_empty()).then_some(stem)
+}
+
+/// Splits `available` network computers into the ones to list and pools: a stem two or more
+/// machines share is a pool.
+fn fold_pools(available: Vec<(bool, Available)>) -> (Vec<(bool, Available)>, Vec<Pool>) {
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for (_, a) in &available {
+        if let Some(stem) = pool_stem(&a.name) {
+            *counts.entry(stem.to_owned()).or_default() += 1;
+        }
+    }
+    counts.retain(|_, n| *n >= 2);
+    let kept = available
+        .into_iter()
+        .filter(|(_, a)| !pool_stem(&a.name).is_some_and(|s| counts.contains_key(s)))
+        .collect();
+    (kept, counts.into_iter().map(|(stem, count)| Pool { stem, count }).collect())
+}
+
+/// What a peer down for over a day says: it is not failing now, it is gone.
+fn parked_detail(name: &str) -> String {
+    format!(
+        "Not reachable for over a day; tried again hourly. If it is gone for good: cmux device remove {name}"
+    )
 }
 
 /// Merges the stores and the network's nodes into one row per device.
@@ -193,17 +256,25 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         let node = url_host(&url).and_then(|host| nodes.iter().find(|n| n.answers_to(&host)));
         let error = text(peer, "error").filter(|e| !e.is_empty());
         let connected = peer["connected"].as_bool().unwrap_or(false);
+        // acpmux's `parked`: down a day or more. Gone quiet, not a failure a person can act
+        // on now, so it never sits at the top as "not working".
+        let parked = !connected && peer["parked"].as_bool() == Some(true);
         let state = if connected {
             State::Connected
+        } else if parked {
+            State::Offline
         } else if error.is_some() {
             State::Error
         } else {
             State::Offline
         };
+        let device = peer_device(peer, &url, node);
         devices.push(Device {
             id: format!("peer:{name}"),
             name: name.clone(),
             kind: kind_of(node.map(|n| n.os.as_str())),
+            device,
+            symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state,
             os: node.map(|n| n.os.clone()).filter(|os| !os.is_empty()),
@@ -215,7 +286,13 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             }),
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
-            detail: if state == State::Error { error } else { None },
+            detail: if parked {
+                Some(parked_detail(&name))
+            } else if state == State::Error {
+                error
+            } else {
+                None
+            },
             full_access: None,
         });
     }
@@ -235,12 +312,15 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             continue;
         }
         let open = paired["connections"].as_u64().unwrap_or(0) > 0;
+        let device = paired_device(paired, &role);
         devices.push(Device {
             id: format!("paired:{id}"),
             name,
             // A phone's own record (acpmux role `phone`): the Mac app lists the phone and joins
             // this row to it for its Full-access setting.
             kind: if role == "phone" { Kind::Phone } else { Kind::Computer },
+            device,
+            symbol: device.symbol(),
             roles: vec![match role.as_str() {
                 "read-only" => Role::WatchOnly,
                 "daemon" => Role::RunsAgents,
@@ -263,10 +343,14 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         if state == "revoked" {
             continue;
         }
+        let device = reported(row)
+            .unwrap_or_else(|| DeviceKind::from_os(&text(row, "platform").unwrap_or_default()));
         devices.push(Device {
             id: format!("joined:{id}"),
             name: text(row, "name").unwrap_or_else(|| id.clone()),
             kind: Kind::Computer,
+            device,
+            symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state: if state == "online" { State::Connected } else { State::Offline },
             os: text(row, "platform"),
@@ -328,7 +412,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
     let taken = |n: &NetworkNode| {
         devices.iter().any(|d| d.reach.as_ref().is_some_and(|r| r.address == n.address()))
     };
-    let mut available: Vec<(bool, Available)> = nodes
+    let available: Vec<(bool, Available)> = nodes
         .iter()
         .filter(|n| n.online && kind_of(Some(&n.os)) == Kind::Computer && !taken(n))
         .map(|n| {
@@ -344,6 +428,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             )
         })
         .collect();
+    let (mut available, pools) = fold_pools(available);
     available.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
     let known = |host: &str| {
         let host = host.trim_end_matches('.').to_ascii_lowercase();
@@ -394,6 +479,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         network,
         devices,
         available: available.into_iter().map(|(_, a)| a).chain(ssh).collect(),
+        pools,
         invites,
     }
 }
@@ -411,6 +497,8 @@ fn login_row(
         id,
         name: login.to_owned(),
         kind: Kind::Computer,
+        device: DeviceKind::Generic,
+        symbol: DeviceKind::Generic.symbol(),
         roles: vec![role],
         state,
         os: None,
@@ -430,6 +518,30 @@ fn rank(state: State) -> u8 {
         State::Connected => 2,
         State::Offline => 3,
     }
+}
+
+/// The kind a record says its device reported (`device`), when it names one.
+fn reported(record: &Value) -> Option<DeviceKind> {
+    record["device"].as_str().map(DeviceKind::parse)
+}
+
+/// An acpmux peer's kind: a Cloud machine (a `ws://`/`wss://` peer, as the app's location picker
+/// tells them apart) by its source; else what the peer reported in its health; else its OS.
+fn peer_device(peer: &Value, url: &str, node: Option<&NetworkNode>) -> DeviceKind {
+    if url.starts_with("ws://") || url.starts_with("wss://") {
+        return DeviceKind::Cloud;
+    }
+    reported(&peer["health"])
+        .or_else(|| reported(peer))
+        .unwrap_or_else(|| node.map_or(DeviceKind::Generic, |n| DeviceKind::from_os(&n.os)))
+}
+
+/// A pairing's kind: what the device reported, else its OS, else an iPhone for a phone pairing.
+fn paired_device(paired: &Value, role: &str) -> DeviceKind {
+    reported(paired)
+        .or_else(|| text(paired, "os").map(|os| DeviceKind::from_os(&os)))
+        .filter(|k| *k != DeviceKind::Generic)
+        .unwrap_or(if role == "phone" { DeviceKind::IPhone } else { DeviceKind::Generic })
 }
 
 fn kind_of(os: Option<&str>) -> Kind {

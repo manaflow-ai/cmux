@@ -12,8 +12,29 @@ impl Terminal {
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<Option<ReplayText>> {
+        self.vt_replay_text_range_skipping(range, None, placement_rows, max_bytes, include_palette)
+    }
+
+    /// The rows of `range` without the rows of `skip`, a run strictly inside
+    /// it: the rows above the gap, a line break, then the rows below it, so a
+    /// mirror holds both runs one under the other
+    /// (`Terminal::vt_replay_window_theme_portable_with_aliases`).
+    pub(super) fn vt_replay_text_range_skipping(
+        &mut self,
+        range: ReplayRowRange,
+        skip: Option<ReplayRowRange>,
+        placement_rows: &KittyReplayRowIndex,
+        max_bytes: usize,
+        include_palette: bool,
+    ) -> Result<Option<ReplayText>> {
+        if let Some(skip) = skip
+            && (skip.start <= range.start || skip.end >= range.end || skip.start > skip.end)
+        {
+            return Err(Error::InvalidValue);
+        }
         match self.vt_replay_text_range_bounded_with(
             range,
+            skip,
             placement_rows,
             max_bytes,
             include_palette,
@@ -24,6 +45,7 @@ impl Terminal {
             Err(Error::InvalidValue) if self.cols() != 0 && range.start <= range.end => self
                 .vt_replay_text_range_bounded_with(
                     range,
+                    skip,
                     placement_rows,
                     max_bytes,
                     include_palette,
@@ -119,6 +141,7 @@ impl Terminal {
     fn vt_replay_text_range_bounded_with(
         &mut self,
         range: ReplayRowRange,
+        skip: Option<ReplayRowRange>,
         placement_rows: &KittyReplayRowIndex,
         max_bytes: usize,
         include_palette: bool,
@@ -144,8 +167,21 @@ impl Terminal {
         segment_ends.insert(range.end);
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
+        // The gap's rows (none without `skip`) are never formatted, and a row
+        // below it counts its line breaks without them.
+        let in_skip = |row: u64| skip.is_some_and(|skip| skip.start <= row && row <= skip.end);
+        let skipped_rows = skip.map_or(0, |skip| skip.end - skip.start + 1);
+        let skipped_before = |row: u64| match skip {
+            Some(skip) if row > skip.end => skipped_rows,
+            _ => 0,
+        };
+        if let Some(skip) = skip {
+            // The row above the gap ends a segment; no row of the gap does.
+            segment_ends.retain(|row| !in_skip(*row));
+            segment_ends.insert(skip.start - 1);
+        }
         let mut segment_start = range.start;
-        let replay_rows = range.end - range.start + 1;
+        let replay_rows = range.end - range.start + 1 - skipped_rows;
         let screen_rows = u64::from(self.rows().max(1));
         // A replay with retained scrollback can contain exactly one viewport
         // of rows while still carrying a sparse history prefix in Ghostty's
@@ -170,7 +206,9 @@ impl Terminal {
         // range starts on its own physical row of the target.
         let row_exact = history_bearing || joining;
         let joins = if joining {
-            let (mut joins, breaks) = self.replay_soft_wrap_rows(range);
+            let (mut joins, mut breaks) = self.replay_soft_wrap_rows(range);
+            joins.retain(|row| !in_skip(*row));
+            breaks.retain(|row| !in_skip(*row));
             segment_ends.extend(breaks);
             joins.retain(|row| !segment_ends.contains(row));
             joins
@@ -212,9 +250,10 @@ impl Terminal {
                 .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
             bytes.extend_from_slice(&chunk);
             if row_exact {
-                let expected_breaks = usize::try_from(segment_end - range.start)
-                    .unwrap_or(usize::MAX)
-                    .saturating_sub(joins_before(segment_end));
+                let expected_breaks =
+                    usize::try_from(segment_end - range.start - skipped_before(segment_end))
+                        .unwrap_or(usize::MAX)
+                        .saturating_sub(joins_before(segment_end));
                 if joining && emitted_breaks > expected_breaks {
                     return Err(Error::InvalidValue);
                 }
@@ -237,7 +276,12 @@ impl Terminal {
                 }
                 bytes.extend_from_slice(b"\r\n");
                 emitted_breaks = emitted_breaks.saturating_add(1);
-                segment_start = segment_end.saturating_add(1);
+                segment_start = match skip {
+                    Some(skip) if segment_end.saturating_add(1) == skip.start => {
+                        skip.end.saturating_add(1)
+                    }
+                    _ => segment_end.saturating_add(1),
+                };
             }
         }
         if row_exact {

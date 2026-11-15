@@ -126,13 +126,16 @@ import Testing
             let pinInk = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin)
             let loose = try Self.row(list, Self.loose)
             let titleX = Self.x(list, loose.title.frame.minX, in: loose)
+            // Each glyph snaps to the window's pixel grid on its own, so on a 1x screen an edge or a center can land one
+            // device pixel off a column that starts on a half point (as PinnedRowsShareHomeColumnTests allows).
+            let pixel = max(Self.tolerance, 1 / max(1, window.backingScaleFactor))
             // Home's house fills the column's width, so its ink starts on the column's edge, where a text-only title starts.
-            #expect(abs(homeInk.minX - homeColumn.minX) <= Self.tolerance,
+            #expect(abs(homeInk.minX - homeColumn.minX) <= pixel,
                     "\(c.testDescription): Home's glyph starts at \(homeInk.minX), its icon column at \(homeColumn.minX)")
-            #expect(abs(homeInk.minX - titleX) <= Self.tolerance,
+            #expect(abs(homeInk.minX - titleX) <= pixel,
                     "\(c.testDescription): Home's glyph starts at \(homeInk.minX), a text-only title at \(titleX)")
             // The pin is a narrow mark: it centers under the house (https://github.com/manaflow-ai/cmux/issues/42431).
-            #expect(abs(pinInk.midX - homeInk.midX) <= Self.tolerance,
+            #expect(abs(pinInk.midX - homeInk.midX) <= pixel,
                     "\(c.testDescription): the pin centers at \(pinInk.midX), Home's glyph at \(homeInk.midX)")
         }
     }

@@ -11,7 +11,14 @@ parsing) is `plans/feat-ios-instant-list/DESIGN.md` in manaflow-ai/cmuxterm-hq.
 ## The rules
 
 - **Budget**: small and god each at most 3x the target. The target is the goal;
-  3x keeps shared CI runners from flaking.
+  3x keeps shared CI runners from flaking. The small case's budget is a bare
+  wall-clock number with nothing to compare against, so on a shared runner it
+  measures the runner (a GitHub macOS runner took 20 ms for the 4 ms
+  `home_list_one_row_update` target, 11-10, code unchanged). It fails the run only
+  with `CMUX_INSTANT_PERF_STRICT=1` (`TEST_RUNNER_CMUX_INSTANT_PERF_STRICT=1` under
+  xcodebuild), on a quiet harness; elsewhere a miss is listed in the JSON line's
+  `failing` and printed as `INSTANTPERF warning:`. The god budget and the ratio
+  always assert.
 - **Ratio (1.2x)**: god at most 1.2x small, computed as
   `god / max(small, 1 ms)`. Below 1 ms nobody sees a difference, and a
   sub-millisecond small would make any ratio noise; the floor keeps "god costs
@@ -43,7 +50,7 @@ on every PR that touches `cmux-next-ios/**`):
 | `chat_older_page` | one scroll-up page of older history (`loadEarlier`) | 450-record chat | 50,000 records | 50 ms |
 | `chat_scroll_fill` | a fling up the chat's history at 60 Hz (flicks of 8,000 pt/s at UIScrollView's normal deceleration, an 800 pt viewport, each turn at the height the list draws it near enough), over a phone's link (50 ms round trip, 4 MB/s, one reply after another): each frame timed to a filled viewport (its own work, an older page landing on the main actor, and the wait for rows when the top went blank, every frame of that wait at its own wait); the p95 of a fling's frames. The note has the frames with a blank top, which must be none | 450-record chat | 50,000 records | 16.7 ms (one frame) |
 | `chat_scroll_fill_ui` (iOS) | the `chat_scroll_fill` fling on `ChatTranscriptList` itself at 390 x 800 pt: the collection view's offset moved each frame (its delegate reads ahead as the app does), laid out with its real cells and heights; each frame timed to a filled viewport (its scroll and layout, the store taking an older page in and the list's reloads since the last frame, and every frame of a wait at the list's top while older history remains). The note has blank-top frames (must be none), rows in the viewport with no cell, and the same harness with the read-ahead off (the oldest row's display asks, as before #41982) | 450-record chat | 50,000 records | 16.7 ms (one frame) |
-| `home_list_first_screen_under_load` | the first window as in `home_list_first_screen`, while every core but one parses the whole god list at the feed's priority for it (`MacHomeReply.wholeListPriority`, `.utility`): the first screen always wins. Small and god are timed under the same load, so the ratio judges size; the load's own cost is held to the budget, and the note has the god window with no load and under the same load at `.userInitiated`, the feed's priority before | 20 rows, loaded | 20 of 5,000 rows, loaded | 16 ms |
+| `home_list_first_screen_under_load` | the first window as in `home_list_first_screen`, while every core but one parses the whole god list at the feed's priority for it (`MacHomeReply.wholeListPriority`, `.utility`): the first screen always wins. Small and god are timed under one load, their runs in turn, so the ratio judges size; the load's own cost is held to the budget, and the note has the god window with no load and under the same load at `.userInitiated`, the feed's priority before | 20 rows, loaded | 20 of 5,000 rows, loaded | 16 ms |
 | `workspaces_cold_paint_from_cache` | a cold launch with no link: the Workspaces cache read from disk (`LiveSnapshotStore.loadFirstScreen`, what `LiveCoordinator.restoreSnapshot` reads on the main actor) to the inbox the first screen draws (`WorkspaceInbox` over the restored rows, marked cached) | 20 workspaces | 5,000 workspaces | 16 ms |
 
 The Workspaces cache (`LiveSnapshotStore`, format 2) keeps each Mac's first 40 rows in list
@@ -67,9 +74,12 @@ The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
 working, one preview in ten a long Markdown reply, six months of dates; the chat
 has tool outputs up to 2 MB (logs and diffs), subagents nested 5 deep, 200 image
 parts and six months of timestamps. Its last 2 MB log sits about 60 records
-before the end: the open (capped at 128 KiB of whole records) stops short of it,
-so `chat_open_last_messages` shows the cap holding, and the first scroll-up page
-(`chat_older_page`) is the one that reads it.
+before the end. The phone's pages ask acpmux to cut a tool output past 64 KiB
+(`toolOutputMaxBytes`, cmux-tui acpmux `hub/tool_output_cut.rs`): such a record goes with its
+output's head and `_meta.acpmux.cut {bytes, seq}`, and opening the output reads that one record
+whole. So the log's head fits the open (capped at 128 KiB of records), and no page carries 2 MB
+past its cap; `OlderPageToolOutputTests` checks both on this fixture. Before the cut, the open
+stopped short of the log and the first scroll-up page (`chat_older_page`) carried it whole.
 Scrolling up (`chat_scroll_fill`, since the read-ahead): the list asks for the page before the
 oldest turn shown when the reader is within four screens of it (`AgentChatStore.readAhead`,
 from `ChatTranscriptList`'s every scroll step and reload), not when the oldest row draws. The
@@ -91,8 +101,9 @@ long it took in the note.
 Fixtures are seeded generators (`InstantPerfFixtures.swift`), built in memory;
 nothing large is checked in. The fake acpmux pages as acpmux does (`limit`,
 `maxBytes` of whole records, `beforeSeq` / `afterSeq`: the newest records between them, or
-oldest first after `afterSeq` alone) with index arithmetic, so
-its own cost does not grow with the log.
+oldest first after `afterSeq` alone, and `toolOutputMaxBytes`) with index arithmetic, so
+its own cost does not grow with the log. A cut record's line is made once per log and kept,
+as every other record is a prebuilt line.
 
 UI level (`cmux-next-ios/UITests/InstantListPerfUITests.swift`, wired; runs on
 owned simulators):

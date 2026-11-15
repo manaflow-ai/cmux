@@ -15,6 +15,7 @@ import type { TurnFile } from "../diff";
 import { codePath, linkPath } from "../chips/paths";
 import { contentsUnknown, pathKey, type AcpmuxRow } from "../model";
 import { homePath } from "../sessionList";
+import { PrefixFold } from "../conversation/prefixFlatMap";
 
 /// What a reply's link makes an output: a document.
 const LINKED = new Set(["docx", "pdf", "pptx", "tex", "xlsx"]);
@@ -144,6 +145,33 @@ export function chatOutputs(
   cwd: string | undefined,
   created?: readonly Pick<TurnFile, "path" | "created" | "deleted">[],
 ): OutputFile[] {
+  if (created) return outputsOf(rows.map(rowOutputs), cwd, created);
+  // Read on every update while Session Info shows: the rows again only past the prefix an update
+  // kept, and the files listed again only when what the rows found changed (PrefixFold), one fold
+  // per folder.
+  const key = cwd ?? "";
+  let fold = folds.get(key);
+  if (!fold) {
+    // A page shows a few folders' chats: the folds stay few, and each holds its rows weakly.
+    if (folds.size >= 8) folds.clear();
+    folds.set(key, (fold = new PrefixFold(rowFound, (found) => outputsOf(found, cwd))));
+  }
+  return fold.read(rows);
+}
+const folds = new Map<string, PrefixFold<AcpmuxRow, RowOutputs, OutputFile[]>>();
+const NOTHING: readonly RowOutputs[] = [];
+/// A row's outputs when it has any, as the fold's one item for it.
+function rowFound(row: AcpmuxRow): readonly RowOutputs[] {
+  if (row.kind !== "activity" && row.kind !== "assistant") return NOTHING;
+  const found = rowOutputs(row);
+  return found.pointed.length || found.changes.length ? [found] : NOTHING;
+}
+
+function outputsOf(
+  each: readonly RowOutputs[],
+  cwd: string | undefined,
+  created?: readonly Pick<TurnFile, "path" | "created" | "deleted">[],
+): OutputFile[] {
   const seen = new Set<string>();
   const out: OutputFile[] = [];
   const add = (path: string) => {
@@ -151,7 +179,6 @@ export function chatOutputs(
     seen.add(path);
     out.push({ path, displayPath: shown(path, cwd) });
   };
-  const each = rows.map(rowOutputs);
   for (const row of each) for (const path of row.pointed) if (LINKED.has(extension(path))) add(absolute(path, cwd));
   for (const file of created ?? changedFiles(each))
     if (file.created && !file.deleted && DELIVERABLE.has(extension(file.path))) add(absolute(file.path, cwd));

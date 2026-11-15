@@ -10,7 +10,7 @@ the same way. The goal: every cmux cell at a tenth of the best other browser.
 ## Run it (fleet mini only, never a laptop)
 
 ```sh
-cmux-ci run --class exclusive --measurement --pool perf-lead --label measure \
+cmux-ci run --class exclusive --measurement --label bench \
   --script scripts/measure/perf-bench.sh --ref <40-char sha> \
   --artifact artifacts/perf-bench/results.json \
   [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] \
@@ -55,7 +55,7 @@ process (pid, kind, command, footprint, RSS, CPU %, wakeups/s), so a PR can quot
 per process from the same measurement.
 
 ```sh
-cmux-ci run --class exclusive --measurement --pool perf-lead --label bench --target-worker cmux20-bench \
+cmux-ci run --class exclusive --measurement --label bench --target-worker cmux20-bench \
   --script scripts/measure/perf-bench.sh --ref <40-char sha> --artifact artifacts/perf-bench/results.json \
   --arg=browsers=cmux-budget --arg=launches=0 --arg=rounds=1 --arg=tabswitch=off --arg=palette=off
 ```
@@ -113,8 +113,8 @@ The step needs a logged-in console user: `open` fails on the AWS workers (aws-m4
 login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The bench host is **cmux20-bench** (cmux20, Apple M6,
 macOS 27.0, user `cmux` at the console): a controller worker that advertises only `bench`, so it takes
 no CI step and no build (hq `build-fleet/mini-ops/bench-worker/bench-worker.sh`). Submit with
-`--measurement --pool perf-lead --label bench --target-worker cmux20-bench`; the nightly job does (cmux20 is
-owner-only for pool perf-lead, so the controller refuses any other `--label bench` step). It has bun and node under
+`--measurement --label bench` (add `--target-worker cmux20-bench` to pin it); the nightly job does. No `--pool`: the
+perf-lead reservation was lifted 2026-11-06 and the controller refuses a job whose pool reserves no worker. It has bun and node under
 `~cmux` for the Debug build. The owned M4 Pro minis (cmux7s-13s) can open apps too, but they are busy
 CI hosts; `baseline/apple-m4-pro-macos27.json` came from one (cmuxs-Mac-mini 6, load 3 to 8). The aws-m4pro
 minis start the app but its control socket never appears (a252), so they cannot run xbench.
@@ -137,8 +137,11 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
   contentful paint, visibility changes (+2 rAF) and video playback to the harness.
   The scroll page scrolls itself 4 px per frame; the video page records a 720p
   clip from a canvas and loops it (no downloaded media, any engine). No network rows.
-- **Profiles**: one template per browser (one launch, 45 s settle, quit); every
-  launch runs on its own APFS clone. HOME and CFFIXED_USER_HOME point into the run
+- **Profiles**: one template per browser (one launch, quit once its first-run writes
+  end: at least 75 s, past Chromium's 60 s component-updater check, then 30 s with
+  no file written, at most 150 s; `settle_template`); every launch runs on its own
+  APFS clone. The old 45 s template left the component downloads (23 to 62 MB) to
+  every measured launch's Home window. HOME and CFFIXED_USER_HOME point into the run
   folder. cmux runs with `CMUX_NEXT_NO_ACTIVATE=1`, a scratch config with updates off.
 - **Driving**: Chromium browsers over CDP's HTTP endpoints (`/json/new`,
   `/json/activate`, `/json/close`) with `--remote-debugging-port --no-first-run

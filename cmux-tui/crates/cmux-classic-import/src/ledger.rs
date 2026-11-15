@@ -83,6 +83,11 @@ pub struct Ledger {
     pub app_version: Option<String>,
     #[serde(rename = "updatedAt")]
     pub updated_at: f64,
+    /// When the person cancelled the launch's import preview (seconds since
+    /// 1970): later launches stop asking; a manual run still imports, and a
+    /// run that begins or finishes clears it.
+    #[serde(rename = "declinedAt", default, skip_serializing_if = "Option::is_none")]
+    pub declined_at: Option<f64>,
 }
 
 impl Default for Ledger {
@@ -102,6 +107,7 @@ impl Ledger {
             runs: 0,
             app_version: None,
             updated_at: 0.0,
+            declined_at: None,
         }
     }
 }

@@ -18,8 +18,7 @@ struct CloudConnectRefusedStartTests {
 
         func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
             opens += 1
-            throw CloudCarrierDial.serveStartError(code: "handshake", detail: "the Keychain refused the carrier key (-128)",
-                                                   socket: "/tmp/cmux-link-0123456789ab.sock")
+            throw CloudLinkError.helperRefused(code: "handshake", message: "handshake: the Keychain refused the carrier key (-128)")
         }
 
         func close(_ key: CloudLinkKey) async {}

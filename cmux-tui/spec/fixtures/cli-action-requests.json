@@ -800,6 +800,17 @@
     },
     {
       "params": {
+        "action": "tab new-mac-screen",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new-mac-screen --device /tmp/contract"
+    },
+    {
+      "params": {
         "action": "tab new-webkit",
         "args": {
           "url": "/tmp/contract"

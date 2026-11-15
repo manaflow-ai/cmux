@@ -164,9 +164,10 @@ export type MarkdownFieldHandle = {
   /// The ids of the attachments placed in the text, from its nodes alone (text shaped like a token
   /// is text), in order, each once; undefined before the editor is made.
   inlineIds(): string[] | undefined;
-  /// Writes `/name ` over the `/word` the caret ends (composer/slashTokens.ts), the text around it
+  /// Writes `/name ` (or an extension command's `insert`) over the `/word` the caret ends
+  /// (composer/slashTokens.ts), the text around it
   /// kept, as one undoable edit; false when there is no such word or no editor yet.
-  insertCommand(name: string): boolean;
+  insertCommand(name: string, insert?: string): boolean;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -1698,9 +1699,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         plainPaste: () => {
           plainPasteAt.current = performance.now();
         },
-        insertCommand: (name) => {
+        insertCommand: (name, insert) => {
           const current = view.current;
-          const tr = current && commandEdit(current.state, name);
+          const tr = current && commandEdit(current.state, name, insert);
           if (!current || !tr) return false;
           refocus.current = null;
           current.dispatch(tr);

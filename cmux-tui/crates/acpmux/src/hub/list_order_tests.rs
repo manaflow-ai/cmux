@@ -26,7 +26,9 @@ fn paged(hub: &Hub, limit: u64) -> Vec<String> {
     loop {
         let params = json!({"limit": limit, "cursor": cursor});
         let (rows, next) = hub.session_page_rows(&params, false).unwrap();
-        ids.extend(rows.iter().filter_map(|r| r["sessionId"].as_str().map(str::to_owned)));
+        ids.extend(
+            rows.iter().map(|r| super::super::session_pages::PageRow::session_id(r).to_owned()),
+        );
         cursor = next.unwrap_or(Value::Null);
         if cursor.is_null() {
             return ids;
@@ -76,7 +78,7 @@ async fn the_kept_order_is_every_chat_sorted_after_every_kind_of_change() {
     hub.sessions.lock().unwrap().remove("s4");
     check(&hub, "a session taken out with no position");
     hub.edit_test_meta(s0, |m| m.updated_at = 1_000);
-    hub.events.changed();
+    hub.events.changed(None);
     check(&hub, "a barrier");
 }
 

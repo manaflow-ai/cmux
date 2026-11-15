@@ -396,6 +396,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-login`: a Cloud chat's own sign-in on that machine (the failed turn's
     /// sign-in card), as acpmux's `_acpmux/agent_login/*` on the tab's own session.
     case agentSessionLogin = "agent-session-login-v1"
+    /// `agent-session-login` for a new chat with no session yet (an unbound tab of that machine's
+    /// store): its agent's sign-in runs on that machine itself, gated there as a start is
+    /// (`vm_kind: "owner"` on a Cloud VM). Without it a new chat's failed start says to sign in there.
+    case agentSessionLoginMachine = "agent-session-login-machine-v1"
     /// Owner-only context inventory and cmux-added overrides for an attached session.
     case agentSessionContext = "agent-session-context-v1"
     /// `agent-session-prompt` takes `steer`: the owner's and a Cloud team member's prompt steers
@@ -581,6 +585,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// reports already-gone ids as `gone_ids` and skips a tab that left before the commit
     /// (`WorkspaceClose.close` sends every workspace of a daemon in one request then).
     case layoutBulkBare = "layout-bulk-bare-v1"
+    /// The one-time move from classic cmux: `classic_import.*` (`ClassicImportClient`).
+    case classicImport = "classic-import-v1"
+    /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
+    /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
+    case diffCommentsSend = "diff-comments-send-v1"
+    /// `git.fingerprint`: digits that stay while one scope's diff stays, made from the changed
+    /// files with no patch. The diff tab asks them every few seconds; a session host without the
+    /// read gets no request for it (DiffPageProvider+Git.swift).
+    case gitFingerprint = "git-fingerprint-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -618,7 +631,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -630,7 +643,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
+             .classicImport, .diffCommentsSend, .gitFingerprint:
             return .optional
         }
     }

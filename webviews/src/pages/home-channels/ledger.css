@@ -1118,7 +1118,7 @@
   display: inline;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
@@ -1151,7 +1151,7 @@
   padding: 0 var(--grid-half-step);
   margin: 0 calc(-1 * var(--grid-half-step));
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
@@ -2211,7 +2211,7 @@
 }
 .lg-presentation button {
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   padding: var(--ds-space-1);
   background: transparent;
   color: var(--page-text-3);

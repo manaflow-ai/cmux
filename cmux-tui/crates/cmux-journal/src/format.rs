@@ -28,7 +28,8 @@
 //!
 //! A sync marker (flags 1, kind 0, class 0, no payload) says that every record of its segment
 //! before it is synced; its LSN field is the LSN of the last of them, and it takes no LSN of its
-//! own. The writer writes one after each successful sync, before anything else it writes there.
+//! own. The writer writes one after each successful sync, before anything else it writes there
+//! (with the next records, or at a seal or rotation: `writer.rs`).
 //! Recovery re-writes a segment's records after its last marker (`recovery.rs`, step 4).
 //!
 //! A run of zero bytes never reads as an entry: the CRC of a zero header is not zero.

@@ -1732,7 +1732,7 @@ test("New project: the name follows the prompt until edited; the send makes that
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-test("New project refused: the reason shows above the card, no chat starts and the prompt stays", async () => {
+test("New project refused: plain words show above the card, no chat starts and the prompt stays", async () => {
   const asks: unknown[][] = [];
   const names: string[] = [];
   const reason = "a folder named habit-tracker can't be made";
@@ -1747,9 +1747,8 @@ test("New project refused: the reason shows above the card, no chat starts and t
 
   expect(names).toEqual(["habit-tracker"]);
   expect(asks).toHaveLength(0);
-  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-    translate("project.new.failedBecause", { reason }),
-  );
+  // acpmux's own words go to the log, never the notice.
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(translate("project.new.failed"));
   expect(promptValue()).toBe("a habit tracker web app");
   // Still New project, so a second send tries again.
   expect(projectNameField()?.value).toBe("habit-tracker");

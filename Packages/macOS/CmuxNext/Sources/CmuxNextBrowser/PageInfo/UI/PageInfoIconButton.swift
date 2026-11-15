@@ -17,7 +17,7 @@ final class PageInfoIconButton: NSButton {
         image = PageInfoStyle.symbol(symbol, size: PageInfoStyle.iconSize - 2)
         setAccessibilityLabel(label)
         wantsLayer = true
-        layer?.cornerRadius = PageInfoStyle.itemCornerRadius
+        layer?.cornerRadius = PageInfoStyle.buttonCornerRadius
         target = self
         action = #selector(press)
         let side = PageInfoStyle.rowHeight - 4

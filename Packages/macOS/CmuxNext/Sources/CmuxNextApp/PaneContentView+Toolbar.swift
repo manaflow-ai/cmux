@@ -1,6 +1,6 @@
 import AppKit
 
-// The pane's "…" (`PaneToolbar`) sits at the strip's trailing end, as wide as it needs: in frame
+// The pane's trailing controls (`PaneToolbar`: pins, Exit Zoom) sit at the strip's trailing end, as wide as they need: in frame
 // layout the strip gives up that width (`layout()`); pinned to a browser's band (R109) it pins
 // beside it.
 extension PaneContentView {
@@ -14,10 +14,10 @@ extension PaneContentView {
         needsLayout = true
     }
 
-    /// "…"'s width beside a strip `shown` tall (`layout()` hides it with the strip); `sharing`: beside a chat's tools in the row.
+    /// The trailing controls' width beside a strip `shown` tall (`layout()` hides it with the strip); `sharing`: beside a chat's tools in the row.
     func toolbarWidth(shown: CGFloat, sharing: Bool = false) -> CGFloat { shown > 0 ? toolbar?.view.paneWidth(in: bounds.width, sharing: sharing) ?? 0 : 0 }
 
-    /// "…"'s pins beside a strip pinned to a browser's band.
+    /// The trailing controls' constraints beside a strip pinned to a browser's band.
     func toolbarBandPins() -> [NSLayoutConstraint] {
         guard let view = toolbar?.view else { return [] }
         view.translatesAutoresizingMaskIntoConstraints = false

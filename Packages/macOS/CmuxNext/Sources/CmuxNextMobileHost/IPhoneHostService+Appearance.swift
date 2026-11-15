@@ -28,13 +28,28 @@ enum ThemePhone {
 
     /// The appearance of `input` and `tokens` (the app store's), with the tint the windows lay
     /// over a picture. Under Art Color the accent the windows show is sent as the theme's own.
-    static func appearance(input: ThemeInput, tokens: ThemeTokens, accentFollowsArt: Bool, tint: Double) -> MobileHostAppearance {
+    /// `terminal`: the Ghostty config's terminal theme lines (``ThemeStore/terminalConfigLines``),
+    /// which the phone's terminals load whatever the chrome shows.
+    static func appearance(input: ThemeInput, tokens: ThemeTokens, accentFollowsArt: Bool, tint: Double,
+                           terminal: [String] = []) -> MobileHostAppearance {
         MobileHostAppearance(
             background: hex(input.background), foreground: hex(input.foreground), palette: input.palette.map(hex),
             selectionBackground: input.selectionBackground.map(hex), selectionForeground: input.selectionForeground.map(hex),
             cursor: input.cursor.map(hex), accent: accentFollowsArt ? "art" : input.accent.rawValue,
             accentColor: accentFollowsArt ? hex(tokens.accent) : input.accentColor.map(hex),
-            backgroundOpacity: input.backgroundOpacity, wallpaperTintOpacity: tint)
+            backgroundOpacity: input.backgroundOpacity, wallpaperTintOpacity: tint, terminal: terminal)
+    }
+
+    /// The look beyond the colors as the windows show it: the scope's tuning (hue, saturation,
+    /// glass), the window style and sidebar surface, the terminals' font, the Home chat bubble
+    /// colors and the sidebar's group colors. hostd checks every field (`appearance.rs`).
+    static func look(tuning: AppearanceTuning, design: DesignSettings) -> MobileHostAppearance.Look {
+        MobileHostAppearance.Look(
+            chromeStyle: design.chromeStyle.rawValue, hue: tuning.hue, saturation: tuning.saturation,
+            glassTransparency: tuning.glassTransparency, sidebarSurface: design.sidebarSurface.rawValue,
+            terminalFontFamily: design.effectiveTerminalFontFamily, terminalFontSize: design.terminalFontSize,
+            chatColors: design.homeBubbleColors, groupPalette: design.sidebarSections.groupPalette.rawValue,
+            groupGradient: design.sidebarSections.groupGradient.rawValue)
     }
 
     /// What the app's scope shows now (observed: the store's colors and its picture's revision).
@@ -44,7 +59,9 @@ enum ThemePhone {
         let tokens = store.tokens
         let selection = scope.backdropSelection
         let tint = scope.backdropTintOpacity ?? tokens.wallpaperTintOpacity
-        let appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint)
+        var appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint,
+                                    terminal: store.terminalConfigLines)
+        appearance.look = look(tuning: scope.appearanceTuning, design: DesignSettings.shared)
         let picture = selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) }
         return Shown(appearance: appearance, picture: picture, dark: tokens.isDark)
     }

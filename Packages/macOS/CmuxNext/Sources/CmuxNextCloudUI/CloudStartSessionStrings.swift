@@ -110,6 +110,42 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.agentFailed", defaultValue: "Machine `%1$@` started but its agent didn't (%4$@). Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent, reason)
     }
 
+    /// The machine is up and its agent is not signed in there (`agent_session.sign_in_required`,
+    /// hq#11225); `agentName` is the agent as a person reads it (Cursor). `expired`: its sign-in there expired.
+    public static func agentSignedOut(_ name: String, id: String, agent: String, agentName: String, expired: Bool) -> String {
+        expired
+            ? String(format: String(localized: "cloud.startSession.agentSignInExpired", defaultValue: "Machine `%1$@` started, but %4$@'s sign-in expired on that machine. Sign it in again there, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent, agentName)
+            : String(format: String(localized: "cloud.startSession.agentSignedOut", defaultValue: "Machine `%1$@` started, but %4$@ isn't signed in on that machine. Sign it in there, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent, agentName)
+    }
+
+    /// The `agent-session-start` refusals that name their cause (cmux-tui agent_session_start.rs, hq#11225): an agent
+    /// not signed in, an agent the machine lacks, a model route that can't serve the start.
+    public static let namedRefusals: Set<String> = ["agent_session.sign_in_required", "agent_session.harness_missing", "agent_session.route_unavailable"]
+
+    /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:
+    /// its sign-in expired; `harness`: the refused harness id (`cmux`, the cmux router, is named as the router).
+    public static func namedRefusal(_ code: String, _ name: String, id: String, agent: String, agentName: String, expired: Bool, harness: String) -> String {
+        switch code {
+        case "agent_session.harness_missing": agentMissing(name, id: id, agent: agent, agentName: agentName)
+        case "agent_session.route_unavailable": routeUnavailable(name, id: id, agent: agent, agentName: agentName, router: harness == "cmux")
+        default: agentSignedOut(name, id: id, agent: agent, agentName: agentName, expired: expired)
+        }
+    }
+
+    /// The machine is up and the agent isn't installed there (`agent_session.harness_missing`, hq#11225);
+    /// `agentName` is the agent as a person reads it (Cursor).
+    public static func agentMissing(_ name: String, id: String, agent: String, agentName: String) -> String {
+        String(format: String(localized: "cloud.startSession.agentMissing", defaultValue: "Machine `%1$@` started, but %4$@ (`%3$@`) isn't installed on that machine. Install it there, or run `cmux cloud start-session --target machine:%2$@ --agent AGENT` with another agent.", table: "CloudSessions", bundle: .module), name, id, agent, agentName)
+    }
+
+    /// The machine is up and the agent's model route can't serve it there (`agent_session.route_unavailable`,
+    /// hq#11225). `router`: the agent is the cmux router, named as the router.
+    public static func routeUnavailable(_ name: String, id: String, agent: String, agentName: String, router: Bool) -> String {
+        router
+            ? String(format: String(localized: "cloud.startSession.routerUnavailable", defaultValue: "Machine `%1$@` started, but the cmux router isn't available on that machine. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again later, or pick another agent.", table: "CloudSessions", bundle: .module), name, id, agent)
+            : String(format: String(localized: "cloud.startSession.routeUnavailable", defaultValue: "Machine `%1$@` started, but %4$@'s model route isn't available on that machine. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again later, or pick another agent.", table: "CloudSessions", bundle: .module), name, id, agent, agentName)
+    }
+
     /// The start found no folder it may use (none in the workspace, or the home folder).
     public static func needsFolder(_ name: String, id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd FOLDER` again with a folder that exists there.", table: "CloudSessions", bundle: .module), name, id, agent)

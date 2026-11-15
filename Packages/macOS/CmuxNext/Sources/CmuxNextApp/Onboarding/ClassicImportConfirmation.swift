@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextOnboarding
 
@@ -8,7 +9,7 @@ struct ClassicImportConfirmation {
     static let importButton = "import"
     static let identifier = "cmux.dialog.classicImport"
 
-    let plan: ClassicImportPlan
+    let preview: ClassicImportPreview
     let services: AppServices
 
     func ask() async -> ClassicImportAnswer {
@@ -23,7 +24,7 @@ struct ClassicImportConfirmation {
     func spec() -> CmuxDialogSpec {
         return CmuxDialogSpec(
             title: ClassicImportStrings.previewTitle,
-            lines: ClassicImportStrings.previewLines(plan),
+            lines: ClassicImportStrings.previewLines(preview),
             buttons: [
                 .cancel(ConfirmationStrings.cancel),
                 CmuxDialogButton(id: Self.importButton, title: ClassicImportStrings.previewButton, role: .default),

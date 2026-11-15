@@ -113,6 +113,17 @@ struct ServerUpdateNoticeTests {
     }
 
     /// Reporting skew never restarts anything: only a confirmed restart does.
+    /// A failed restart says so plainly with Try Again; the error's own text (a Swift Debug
+    /// string) is for the log, never the toast.
+    @Test func aFailedRestartSaysSoPlainlyWithTryAgain() {
+        let failed = ServerRestartOutcome.failed(#"command(cmd: "restart", message: "socket closed", code: Optional("io"))"#)
+        let text = failed.message(serverLabel: "cmux-tui")
+        #expect(text == "Couldn't restart cmux-tui. Try again.")
+        #expect(!text.contains("socket closed"))
+        #expect(failed.retryTitle == "Try Again")
+        #expect(ServerRestartOutcome.restarted(gained: []).retryTitle == nil)
+    }
+
     @Test func skewAloneNeverRestarts() {
         let restarter = FakeRestarter(next: Self.newDaemon())
         let center = Self.coordinator(restarter)

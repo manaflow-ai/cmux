@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
+/* cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5. */
 
 
 import type * as T from "./types.js";
@@ -469,6 +469,7 @@ export type ResizedEvent = { event: "resized" } & {
   "cols": number;
   /** Protocol 6 compatibility field. */
   "data"?: T.Base64;
+  "history_rows_omitted"?: bigint;
   "kitty_graphics_state"?: T.KittyGraphicsState;
   "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "replay"?: T.Base64;
@@ -498,6 +499,12 @@ export type ScreenClosedEvent = { event: "screen-closed" } & {
   "index": bigint;
   "screen": T.Id;
   "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ScreenDeviceChangedEvent = { event: "screen-device-changed" } & {
+  /** The authenticated worker screen UUID, or null when the worker is unavailable. */
+  "screen_device_id": (string) | null;
 };
 
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
@@ -674,6 +681,7 @@ export type VtStateEvent = { event: "vt-state" } & {
   "cols": number;
   "data": T.Base64;
   "history_rows_omitted"?: bigint;
+  "history_rows_skipped"?: bigint;
   "kitty_graphics_state"?: T.KittyGraphicsState;
   "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "rows": number;
@@ -819,6 +827,7 @@ export type KnownCmuxEvent =
   | ScreenAddedEvent
   | ScreenChangedEvent
   | ScreenClosedEvent
+  | ScreenDeviceChangedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
   | SelectionChangedEvent
@@ -906,6 +915,7 @@ export type KnownSubscribeEvent =
   | ScreenAddedEvent
   | ScreenChangedEvent
   | ScreenClosedEvent
+  | ScreenDeviceChangedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
   | SelectionChangedEvent

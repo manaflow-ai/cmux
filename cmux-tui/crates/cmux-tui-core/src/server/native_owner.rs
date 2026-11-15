@@ -140,6 +140,7 @@ const CAPABILITIES: &[&str] = &[
     crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
     conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
     "machine-identity-v1",
+    SCREEN_DEVICE_IDENTITY_CAPABILITY,
     AGENT_SESSION_ATTACH_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY,
@@ -315,7 +316,7 @@ fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyho
 pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
     match command {
         Command::Subscribe { surface: None, .. }
-        | Command::ListWorkspaces
+        | Command::ListWorkspaces { .. }
         | Command::CreateWorkspace { .. }
         | Command::CreateTerminal { .. }
         | Command::SetDefaultColors { .. }

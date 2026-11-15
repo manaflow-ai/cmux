@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1406,
-    "shortcuts": 190
+    "entries": 1409,
+    "shortcuts": 192
   },
   "sections": [
     {
@@ -132,6 +132,12 @@
         {
           "id": "home.conversationInfo",
           "title": "Conversation Info…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "customize.open",
+          "title": "Customize…",
           "shortcut": null,
           "command": null
         },
@@ -1260,7 +1266,7 @@
         {
           "id": "space.new",
           "title": "New Space",
-          "shortcut": null,
+          "shortcut": "⌃⌥⌘N",
           "command": null
         },
         {
@@ -3658,6 +3664,12 @@
           "command": null
         },
         {
+          "id": "macScreen.stopViewing",
+          "title": "Stop Viewing Shared Screen",
+          "shortcut": null,
+          "command": "cmux tab stop-mac-screen-viewing"
+        },
+        {
           "id": "tabGroup.color.blue",
           "title": "Tab Group Color: Blue",
           "shortcut": null,
@@ -5530,6 +5542,12 @@
           "command": null
         },
         {
+          "id": "sidebar.customize",
+          "title": "Customize Sidebar…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "palette.disableMinimalMode",
           "title": "Disable Minimal Mode",
           "shortcut": null,
@@ -6148,6 +6166,12 @@
           "command": "cmux notification preview-sound"
         },
         {
+          "id": "toasts.showHidden",
+          "title": "Show Hidden Toasts Again",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "showNotifications",
           "title": "Show Notifications",
           "shortcut": null,
@@ -6229,6 +6253,12 @@
           "id": "chief.importMemories",
           "title": "Bring Your History",
           "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "palette.captureScreenshotToChat",
+          "title": "Capture Screenshot to Chat",
+          "shortcut": "⌃⌥⌘S",
           "command": null
         },
         {
@@ -6752,6 +6782,12 @@
           "title": "Share Screen with Chief",
           "shortcut": null,
           "command": "cmux chief share-screen"
+        },
+        {
+          "id": "agentBoard.show",
+          "title": "Show Agent Board",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "stats.show",
@@ -7726,6 +7762,12 @@
           "command": null
         },
         {
+          "id": "debug.densityOverlayPlayground",
+          "title": "Density Overlay Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.density.comfortable",
           "title": "Density: Comfortable",
           "shortcut": null,
@@ -8330,6 +8372,18 @@
           "title": "Thick Pane Borders",
           "shortcut": null,
           "command": "cmux settings toggle-thick-pane-borders"
+        },
+        {
+          "id": "debug.toastPlayground",
+          "title": "Toast Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.toastTuning",
+          "title": "Toast Tuning",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "debug.actionLatencyHUD",

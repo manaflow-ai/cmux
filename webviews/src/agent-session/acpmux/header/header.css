@@ -108,7 +108,7 @@
 /* The pill's popover (cx-lyqio.4): the branch, what it is a worktree of, then Apply and where it stands. */
 .acpmux-worktree-status{width:280px}
 .acpmux-worktree-apply{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-worktree-apply button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-worktree-apply button{height:24px;padding:0 10px;border:0;border-radius:var(--ds-radius-control);background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-worktree-apply button:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-worktree-apply button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:-2px}
 .acpmux-worktree-apply button:disabled{color:var(--agent-muted)}
@@ -145,7 +145,7 @@
 /* Sticky, so Merge stays in reach under a long check list. */
 .acpmux-pr-merge{position:sticky;bottom:-6px;display:flex;flex-direction:column;gap:6px;margin:6px 0 -6px;padding:8px 6px 8px;background:var(--surface-popup);border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-merge-buttons{display:flex;justify-content:flex-end;gap:6px}
-.acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:var(--ds-radius-control);background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-pr-merge button:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-pr-merge button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-pr-merge button[aria-disabled=true]{opacity:.6}
@@ -322,7 +322,11 @@
   position: fixed;
   z-index: var(--layer-tooltip, 1000);
   box-sizing: border-box;
-  padding: 8px;
+  /* Its width (HeaderToolPreview.tsx) and insets follow Text Size as its type does (--ui-px,
+     ui/popupSurface.css); it never runs past the window and nothing in it escapes its frame. */
+  max-width: calc(100vw - 16 * var(--ui-px, 1px));
+  overflow: hidden;
+  padding: calc(8 * var(--ui-px, 1px));
   border-radius: 8px;
   background: var(--agent-surface-elevated, Canvas);
   color: var(--agent-text);
@@ -417,12 +421,18 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: calc(8 * var(--ui-px, 1px));
+  min-width: 0;
 }
 .acpmux-header-preview-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: var(--weight-emphasis);
 }
 .acpmux-header-preview-key {
+  flex: none;
   font: inherit;
   color: var(--agent-muted);
 }

@@ -37,7 +37,7 @@ import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import { retryParts, WRITING_MS, liveLead } from "./thinkingModel";
+import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
@@ -67,6 +67,17 @@ function useQuiet(key: string | undefined, ms: number, since?: number, now: () =
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `since` only seeds the mounted key
   }, [key, ms]);
   return quiet;
+}
+
+/// When `key` last changed while the line was mounted (on `now`'s clock), or undefined while it is
+/// still the key the line mounted with: the moment the line saw a new event or a new state, for
+/// what carries no time of its own (a streamed reply's chunks, a state the line itself derives).
+function useChangedAt(key: string | undefined, now: () => number): number | undefined {
+  const [seen, setSeen] = useState<{ key: string | undefined; at?: number }>({ key });
+  if (seen.key === key) return seen.at;
+  const next = { key, at: now() };
+  setSeen(next);
+  return next.at;
 }
 
 /// The words the live line said before its latest change, and how many changes it has rolled.
@@ -292,7 +303,9 @@ export function Thinking({
   liveState,
   liveAgents = 0,
   liveCompaction,
-  thoughtMs,
+  phaseAt,
+  heardAt,
+  heardKey,
   turnTotal = false,
   untimed = false,
   verbKey,
@@ -329,8 +342,12 @@ export function Thinking({
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
   liveCompaction?: AcpmuxCompaction;
-  /// "Thinking" past the first step: the turn's summed thinking time, shown beside the word.
-  thoughtMs?: number;
+  /// "Thinking" past the first step: when this stretch of thinking began (turns.ts `liveClock`), the
+  /// time beside the word ticking from it; and when the turn last heard anything (`heardAt`, and
+  /// `heardKey`, which changes with every event), after which SILENT_MS of nothing reads "Waiting".
+  phaseAt?: number;
+  heardAt?: number;
+  heardKey?: string;
   /// Past the turn's first step the clock reads as the turn's whole time ("2s · 4m"), after the
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
@@ -367,7 +384,10 @@ export function Thinking({
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
   const from = untimed || replied ? undefined : since;
   const timed = !waiting && from !== undefined;
-  const time = useTicking(timed, now);
+  // The clock also runs on a line with no time of its own (the turn's clock over the work,
+  // liveTurnClock.experiment.ts `top`) while it could fall silent, so it can say "Waiting".
+  const listening = !waiting && turnTotal && heardAt !== undefined && doing === undefined;
+  const time = useTicking(timed || listening, now);
   const statusVerbConfig = useStatusVerbConfig();
   const thinkingVerbs = useContext(ThinkingVerbsContext);
   const verbs = useMemo(
@@ -384,7 +404,22 @@ export function Thinking({
   const compactLook = compacting ? experimentArm(compactingLine) : undefined;
   const elapsedMs = timed ? Math.max(0, time - from) : 0;
   const turnVerb = thinkingVerb(thinkingVerbs, verbKey);
-  const decorative = doing === undefined && !waitsOnAgents && !writing && !compacting;
+  // The line's state is the live one, read on the page's clock each second, never the last event's
+  // kind: a turn past its first step that has heard nothing for SILENT_MS is not seen thinking, so
+  // it says "Waiting" with the time since it last heard, never a stale "Thinking 683ms" (Leo,
+  // 2026-11-12: "the whatever ms gets stuck and becomes false really quickly.... or else gets
+  // stale?"). It last heard at the rows' latest dated moment, or when a new event reached the line.
+  const heardChanged = useChangedAt(heardKey, now);
+  const heard = heardAt === undefined ? undefined : Math.max(heardAt, heardChanged ?? heardAt);
+  const thinkingNow = doing === undefined && !waitsOnAgents && !writing && !compacting;
+  const silent = thinkingNow && listening && heard !== undefined && time - heard >= SILENT_MS;
+  // How long it has heard nothing: the one time on a waiting line, whichever clock the turn shows.
+  const silentFor = silent && heard !== undefined ? formatDuration(Math.max(0, time - heard)) : undefined;
+  // This stretch of thinking began when the turn's rows say (`phaseAt`), or later, when the line
+  // itself turned to Thinking (a reply gone quiet, a silence that ended).
+  const stateChanged = useChangedAt(silent ? "waiting" : thinkingNow ? "thinking" : "other", now);
+  const thinkingFrom = phaseAt === undefined ? stateChanged : Math.max(phaseAt, stateChanged ?? phaseAt);
+  const decorative = thinkingNow && !silent;
   const label =
     doing === undefined
       ? compacting
@@ -399,8 +434,12 @@ export function Thinking({
           ? t("turn.live.waitingOnSubagents", { n: liveAgents })
           : writing
             ? t("turn.live.writing")
-            : (turnVerb ??
-              (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")))
+            : silent
+              ? t("turn.live.waiting")
+              : (turnVerb ??
+                (statusVerbConfig.mode === "custom"
+                  ? statusVerbAt(elapsedMs, { mode: "custom", verbs })
+                  : t("thinking")))
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
@@ -424,30 +463,39 @@ export function Thinking({
   // that keeps ticking from the prompt.
   const total = turnTotal && turnTime !== undefined;
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
-  // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
+  // "it should just keep going"): a finished step's own start to end, the time since this stretch of thinking began, or since a
+  // silent turn last heard anything ("Waiting 12s").
   const compactMs = compacting && timed && doingAt !== undefined ? Math.max(0, time - doingAt) : undefined;
   const ownMs = compacting
     ? compactLook === "turn"
       ? compactMs
       : undefined
     : doing === undefined
-      ? waitsOnAgents || writing
-        ? undefined
-        : thoughtMs
+      ? silent && heard !== undefined
+        ? Math.max(0, time - heard)
+        : waitsOnAgents ||
+            writing ||
+            from === undefined ||
+            thinkingFrom === undefined ||
+            thinkingFrom - from < 1_000 ||
+            time - thinkingFrom < 1_000
+          ? undefined
+          : time - thinkingFrom
       : done
         ? doneMs
         : undefined;
-  // Under a second it says its milliseconds, as the step's own row does ("856ms"), never "0s".
+  // A finished step's time under a second says its milliseconds, as the step's own row does
+  // ("856ms"), never "0s"; a live clock ticks in whole seconds, like the turn's beside it.
   // Two bare durations never stand side by side: each is named, "step 3s · turn 21s" (Leo's capture,
   // 2026-11-07, of "python3 - <<'EOF' 3s · 21s · 549 tokens"; liveLineTimes.experiment.ts).
   const timesLook = experimentArm(liveLineTimes);
   const ownTime =
     timesLook !== "turn" && total && ownMs !== undefined
-      ? compacting
+      ? compacting || doing === undefined
         ? formatDuration(ownMs)
         : spanDuration(t, ownMs)
       : undefined;
-  // Only a finished step's time is named "step": the summed thinking beside "Thinking" (or a
+  // Only a finished step's time is named "step": the thinking time beside "Thinking" (or a
   // compaction's clock beside its words) already reads as that word's.
   const own =
     ownTime && timesLook === "labelled" && doing !== undefined ? t("turn.live.stepTime", { time: ownTime }) : ownTime;
@@ -464,7 +512,9 @@ export function Thinking({
       : compactLook === "turn"
         ? (own ?? turnTime)
         : undefined
-    : (own ?? turnTime);
+    : silentFor !== undefined && own === undefined
+      ? silentFor
+      : (own ?? turnTime);
   // Background-work counts remain available when the running tray is off.
   const counts = useContext(WorkingCountsContext);
   // The label already names the subagents it waits on: no second count of them.
@@ -482,6 +532,8 @@ export function Thinking({
     .join(" · ");
   const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
   const lineRef = useRef<HTMLDivElement>(null);
+  // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
+  const calm = compactLook === "calm" || silent;
   useRollOutWidth(lineRef, roll.turns);
   useCountGlide(lineRef, roll.turns);
   // The question card already asks for an answer above the composer.
@@ -574,12 +626,12 @@ export function Thinking({
             />
           )}
           <output
-            className={`cv-thinking${compactLook === "calm" ? "" : " is-shimmer"}`}
+            className={`cv-thinking${calm ? "" : " is-shimmer"}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >
-            {compactLook === "calm" ? (
+            {calm ? (
               label
             ) : (
               <LiveWords

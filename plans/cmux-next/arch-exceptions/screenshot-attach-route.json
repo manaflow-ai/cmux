@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-14",
+  "row": "app_lines",
+  "allow": 48,
+  "why": "ask-a862e90c70 (Leo: images from another app into a chat): the route, its target choice, readback and the Service's pasteboard helpers live in CmuxNextAgentPane (AgentPaneExternalAttach, AgentPaneDroppedPaths). The App keeps only the wiring that needs App types: the attachImages case in ExternalOpenController.deliver (PaneController focus history, openAgentTab, tab.focus), attachToChat, the sendToChat: service selector on CmuxServicesProvider, PaneController.shownChat and the control-method registration in AppControl.",
+  "author": "lane/screenshot-attach-route (claude opus)",
+  "owner": "lane/screenshot-attach-route",
+  "receipt": "Review (subagent claude opus 5.5, correctness first): SHIP at 02ea24ba98c442e0d1b855946a5fab7e184f42e9",
+  "expiry": "2026-12-14"
+}

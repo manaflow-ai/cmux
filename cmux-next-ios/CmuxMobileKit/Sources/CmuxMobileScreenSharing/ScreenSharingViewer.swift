@@ -39,7 +39,13 @@ public final class ScreenSharingViewer: Identifiable {
     public nonisolated var id: String { hostID }
     public nonisolated let hostID: String
     public let hostName: String
-    public private(set) var phase: Phase = .idle
+    public private(set) var phase: Phase = .idle {
+        didSet { phaseChanged() }
+    }
+    /// Whether this viewer went full screen: once the Mac was asked, approved or streaming. A
+    /// request from the list stays in the list until then (its row spins), and a refusal
+    /// before then is the list's alert, never a full-screen card (user 2026-11-13).
+    public private(set) var shown = false
     /// The stream while approved (nil before the ticket and after the end).
     public private(set) var screen: ScreenSession?
     public private(set) var lastScope: SessionScope = .full
@@ -60,6 +66,8 @@ public final class ScreenSharingViewer: Identifiable {
     @ObservationIgnored var reattachSession: @MainActor (DeviceHub, String) async throws -> SessionTicket = { hub, id in
         try await hub.reattachSession(id)
     }
+    /// The hub refused before this viewer went full screen (the service shows the alert).
+    @ObservationIgnored var refusedBeforeShown: @MainActor (ScreenSharingRefusal, SessionScope) -> Void = { _, _ in }
     /// Starts the stream (tests replace it: no WebRTC there).
     @ObservationIgnored var startStream: @MainActor (ScreenSession) -> Void = { $0.connect() }
     /// Every session this viewer ended or left on the hub (the service ignores later tickets for them).
@@ -75,6 +83,14 @@ public final class ScreenSharingViewer: Identifiable {
         self.hostName = hostName
         self.hub = hub
         self.preferences = preferences
+    }
+
+    private func phaseChanged() {
+        if phase.goesFullScreen {
+            shown = true
+        } else if case let .refused(refusal, requested) = phase, !shown {
+            refusedBeforeShown(refusal, requested)
+        }
     }
 
     /// The session id the hub knows this viewer by, once it answered.
@@ -342,6 +358,18 @@ public final class ScreenSharingViewer: Identifiable {
         // task-owner: one /end call; the hub's push (or its absence) settles the state
         return Task { await end(hub, id, reason) }
     }
+}
+
+extension ScreenSharingViewer.Phase {
+    /// Past asking the hub: the Mac was asked, approved, streaming, or it said no or ended.
+    var goesFullScreen: Bool {
+        switch self {
+        case .idle, .requesting, .refused: false
+        case .waitingForApproval, .approved, .streaming, .reconnecting, .declined, .ended: true
+        }
+    }
+
+    var isRequesting: Bool { if case .requesting = self { true } else { false } }
 }
 
 /// Why the hub refused a request, as the viewer's card says it.

@@ -2,7 +2,7 @@
 // within the speed limit, never past its rest, and the frame loop ends at rest. The live browser
 // behaviour at 120 Hz is in test/send-stream-motion.test.ts.
 import { expect, test } from "bun:test";
-import { MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../../motion/scale.generated";
+import { MOTION_SEND_CURVE } from "../../../motion/scale.generated";
 import { bezierAt } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import {
@@ -19,7 +19,9 @@ import {
 import type { FollowMotionArm } from "./followMotion.experiment";
 
 /// A thread with a stand-in window whose frames the test runs one at a time (8.33 ms apart).
-function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optOut?: boolean; look?: string } = {}) {
+function fixture(
+  motion: { off?: boolean; reduce?: boolean; token?: string; send?: string; optOut?: boolean; look?: string } = {},
+) {
   let callbacks = new Map<number, FrameRequestCallback>();
   let id = 0;
   let now = 1000;
@@ -28,7 +30,12 @@ function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optO
   const view = {
     matchMedia: (query: string) => ({ matches: Boolean(motion.reduce) && query.includes("reduce") }),
     getComputedStyle: () => ({
-      getPropertyValue: (name: string) => (name === "--agent-motion-move" ? (motion.token ?? "") : ""),
+      getPropertyValue: (name: string) =>
+        name === "--agent-motion-move"
+          ? (motion.token ?? "")
+          : name === "--agent-motion-send"
+            ? (motion.send ?? "")
+            : "",
     }),
     requestAnimationFrame: (callback: FrameRequestCallback) => {
       callbacks.set(++id, callback);
@@ -462,9 +469,15 @@ test("in the earlier looks a row that arrived holds all of its move back, and is
 // played the share of its move that the bubble's entrance has of its own (the send motion, 180 ms on
 // MOTION_SEND_CURVE), and both rest in the same frame. On base a 60 px send's spring rested at
 // 258 ms and trailed the bubble's clock by up to 27 px.
+/// The product's send step is 0 (Leo, 2026-11-11: "that slow settle animation is just so bad. Like,
+/// just do it."): a send lands at once. These read the rise a page that sets its own send clock (the
+/// galleries) still plays, on the 180 ms it had.
+const GALLERY_SEND_MS = 180;
+const GALLERY_SEND = `${GALLERY_SEND_MS}ms`;
+
 test.each([60, 100])("a send's %d px rise plays on the bubble's send clock and rests with it", (px) => {
   const chase = createFollowChase("blocks");
-  const { node, frame, drawn, pending } = fixture();
+  const { node, frame, drawn, pending } = fixture({ send: GALLERY_SEND });
   expect(chase.shift(node, -px, Number.POSITIVE_INFINITY, false, false, true)).toBe(true);
   expect(drawn()).toBeCloseTo(px);
   let frames = 0;
@@ -472,18 +485,18 @@ test.each([60, 100])("a send's %d px rise plays on the bubble's send clock and r
   while (pending() > 0 && frames < 240) {
     const at = frame();
     frames += 1;
-    const bubble = px * (1 - bezierAt(MOTION_SEND_CURVE, Math.min(1, (frames * 1000) / 120 / MOTION_SEND_MS)));
+    const bubble = px * (1 - bezierAt(MOTION_SEND_CURVE, Math.min(1, (frames * 1000) / 120 / GALLERY_SEND_MS)));
     worst = Math.max(worst, Math.abs(at - bubble));
   }
   expect(worst).toBeLessThanOrEqual(currentChatMetrics().lineHeight / 3);
-  expect(frames).toBeLessThanOrEqual(Math.ceil((MOTION_SEND_MS * 120) / 1000));
+  expect(frames).toBeLessThanOrEqual(Math.ceil((GALLERY_SEND_MS * 120) / 1000));
   expect(drawn()).toBe(0);
 });
 
 test("a long send's rise moves no frame more than a line and still rests with the bubble", () => {
   const line = currentChatMetrics().lineHeight;
   const chase = createFollowChase("blocks");
-  const { node, frame, drawn, pending } = fixture();
+  const { node, frame, drawn, pending } = fixture({ send: GALLERY_SEND });
   chase.shift(node, -300, Number.POSITIVE_INFINITY, false, false, true);
   let previous = drawn();
   let frames = 0;
@@ -494,12 +507,12 @@ test("a long send's rise moves no frame more than a line and still rests with th
     previous = at;
     frames += 1;
   }
-  expect(frames).toBeLessThanOrEqual(Math.ceil((MOTION_SEND_MS * 120) / 1000));
+  expect(frames).toBeLessThanOrEqual(Math.ceil((GALLERY_SEND_MS * 120) / 1000));
 });
 
 test("the thinking row landing during a send's rise joins it and keeps its end", () => {
   const chase = createFollowChase("blocks");
-  const { node, frame, drawn, pending } = fixture();
+  const { node, frame, drawn, pending } = fixture({ send: GALLERY_SEND });
   chase.shift(node, -60, Number.POSITIVE_INFINITY, false, false, true);
   for (let index = 0; index < 8; index += 1) frame();
   // The thinking row's room lands a pass later, as the composer's room does: not marked sent.
@@ -510,7 +523,7 @@ test("the thinking row landing during a send's rise joins it and keeps its end",
     frame();
     frames += 1;
   }
-  expect(frames).toBeLessThanOrEqual(Math.ceil((MOTION_SEND_MS * 120) / 1000));
+  expect(frames).toBeLessThanOrEqual(Math.ceil((GALLERY_SEND_MS * 120) / 1000));
   expect(drawn()).toBe(0);
 });
 
@@ -518,14 +531,14 @@ test("a move joining a send's rise stays on the bubble's clock: no second fast s
   // Restarting the send curve from its steep start at the join played a second lurch while the
   // bubble was already settling. Joined, the rest of the rise keeps the bubble's share left.
   const chase = createFollowChase("blocks");
-  const { node, frame, drawn, pending } = fixture();
+  const { node, frame, drawn, pending } = fixture({ send: GALLERY_SEND });
   chase.shift(node, -60, Number.POSITIVE_INFINITY, false, false, true);
   const joinAt = 8;
   for (let index = 0; index < joinAt; index += 1) frame();
   chase.shift(node, -20, 200);
   const joined = drawn();
   const share = (frames: number) =>
-    1 - bezierAt(MOTION_SEND_CURVE, Math.min(1, (frames * 1000) / 120 / MOTION_SEND_MS));
+    1 - bezierAt(MOTION_SEND_CURVE, Math.min(1, (frames * 1000) / 120 / GALLERY_SEND_MS));
   let frames = joinAt;
   let worst = 0;
   while (pending() > 0 && frames < 240) {

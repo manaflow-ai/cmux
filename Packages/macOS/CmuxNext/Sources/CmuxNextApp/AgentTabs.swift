@@ -13,6 +13,7 @@ import CmuxNextHomeEngine
 import CmuxNextRemote
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextWindowRules
 import Observation
 
 /// Makes an agent chat tab in a pane of a daemon, in a new split on that side of it when given (``AgentTabStore/open(in:of:session:seed:newTab:spare:linked:adopt:host:idempotencyKey:split:)``).
@@ -209,9 +210,9 @@ final class AgentTabStore {
     /// this Mac's acpmux, so such a chat gets its own page.
     var chiefKeepsSession: @MainActor (String) -> Bool = { _ in false }
     /// Tab `key` got a page (built or adopted from the spare), drawn or not: a page built while its
-    /// tab does not draw starts its hidden clock (`AgentPageHibernation.pageBuilt`).
+    /// tab does not draw starts its hidden clock (`HiddenChatPages.pageBuilt`).
     var onPageBuilt: ((String) -> Void)?
-    /// Every page is asked what it holds now (true), or that ended (false) (`AgentPageHibernation.holdAwake`).
+    /// Every page is asked what it holds now (true), or that ended (false) (`HiddenChatPages.holdAwake`).
     var onCollectingPages: ((Bool) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer { BenchSpans.measure($0, $1) }
@@ -297,6 +298,8 @@ final class AgentTabStore {
             }
         }
     }
+    /// Toggle Terminal and Chat's hand-offs of a chat's session to a new terminal, by `harness:agentSessionId`.
+    var terminalHandOffs: [String: WindowRules.HandOff] = [:]
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
     private var shortcutObservation: Task<Void, Never>?

@@ -25,6 +25,7 @@ use crate::{KeyPair, LinkError, Role};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
 use std::io;
+use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
 use std::sync::mpsc;
@@ -40,6 +41,9 @@ const MAX_STUN_SERVERS: usize = 8;
 const LATER_POLL_US: u64 = 50_000;
 /// Largest UDP payload read.
 const MAX_PACKET: usize = 65_535;
+/// Room for a burst of media datagrams before the driver can drain the socket.
+/// Linux doubles this request when reporting the effective buffer size.
+const UDP_BUFFER_SIZE: i32 = 4 << 20;
 /// How long `CandidatesDone` waits for TURN allocations.
 const RELAY_GATHER_US: u64 = 3_000_000;
 /// Most TURN servers used.
@@ -260,10 +264,30 @@ fn now_us(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
 
+/// Grow both queues so a keyframe burst is not dropped before the driver can
+/// read it. The kernel may cap the request; the default is still useful on
+/// platforms that accept the larger value.
+fn grow_udp_buffers(socket: &UdpSocket) {
+    for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&UDP_BUFFER_SIZE as *const i32).cast(),
+                size_of_val(&UDP_BUFFER_SIZE) as libc::socklen_t,
+            );
+        }
+    }
+}
+
 impl Net {
     /// Binds the socket, starts the driver thread and begins gathering candidates.
     pub fn start(config: NetConfig) -> Result<Self, LinkError> {
         let socket = UdpSocket::bind(config.bind).map_err(|e| LinkError::Io(e.to_string()))?;
+        grow_udp_buffers(&socket);
         socket.set_nonblocking(true).map_err(|e| LinkError::Io(e.to_string()))?;
         let local_addr = socket.local_addr().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut endpoint =
@@ -768,5 +792,59 @@ impl Driver {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set_socket_buffer(socket: &UdpSocket, option: libc::c_int, value: i32) {
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        let result = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&value as *const i32).cast(),
+                size_of_val(&value) as libc::socklen_t,
+            )
+        };
+        assert_eq!(result, 0, "setsockopt failed: {}", io::Error::last_os_error());
+    }
+
+    fn socket_buffer(socket: &UdpSocket, option: libc::c_int) -> i32 {
+        let mut value = 0i32;
+        let mut length = size_of_val(&value) as libc::socklen_t;
+        // SAFETY: the descriptor is open, and the kernel writes at most the
+        // size of `value` bytes to the pointer and length supplied.
+        let result = unsafe {
+            libc::getsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&mut value as *mut i32).cast(),
+                &mut length,
+            )
+        };
+        assert_eq!(result, 0, "getsockopt failed: {}", io::Error::last_os_error());
+        value
+    }
+
+    #[test]
+    fn grow_udp_buffers_expands_both_queues() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // Use a small starting point so the assertion does not depend on the
+        // host's default buffers already being larger than our request.
+        set_socket_buffer(&socket, libc::SO_SNDBUF, 4096);
+        set_socket_buffer(&socket, libc::SO_RCVBUF, 4096);
+        let before =
+            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
+        grow_udp_buffers(&socket);
+        let after =
+            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
+        assert!(after[0] > before[0], "send buffer did not grow: {before:?} -> {after:?}");
+        assert!(after[1] > before[1], "receive buffer did not grow: {before:?} -> {after:?}");
     }
 }

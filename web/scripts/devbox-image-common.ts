@@ -93,6 +93,37 @@ export const devboxTerminfoInstallCommand =
  * test state.
  */
 export function cmuxTuiWebsocketSmokeCommand(session = "cloud", binary?: string): string {
+  const encoded = Buffer.from(cmuxTuiWebsocketSmokeScript(session), "utf8").toString("base64");
+  const script = "/tmp/cmux-tui-websocket-smoke.sh";
+  return (
+    `printf %s ${encoded} | base64 -d >${script} && chmod 755 ${script} && ` +
+    `${cmuxTuiLayoutSelector()} && ` +
+    // `binary` overrides only the client: the reachability check drives a
+    // freshly downloaded build against the daemon the image baked. HOME still
+    // comes from the layout, because enrollment reads the daemon's own state.
+    `${cmuxTuiAsDaemonUser(`CMUX_TUI_BIN=${binary ? shellQuote(binary) : '"$CMUX_TUI_BIN"'} bash ${script}`)}`
+  );
+}
+
+/** Seconds the smoke waits, after approving its device, for the connector to record the daemon. */
+export const CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS = 60;
+
+/**
+ * The guest-side script behind {@link cmuxTuiWebsocketSmokeCommand}. Exported
+ * so a test can run it against a fake cmux-tui; CMUX_TUI_SMOKE_ROOT and
+ * CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS exist for that test only.
+ *
+ * After the approval it waits until the connector has recorded the daemon in
+ * its state dir (`remote known-daemons`), the record every later `remote rpc`
+ * looks the route up in. It used to sleep a fixed 2 s and kill the connector:
+ * a connector that had not recorded the daemon by then left an empty state
+ * dir, and the first RPC failed with "no known daemon matches this route"
+ * (derive runs 42548063748, 42653440036, 42697598946, 42968041813,
+ * 43402345356). The wait is bounded; when it runs out, or the connector exits
+ * first, the error names that and carries the timeline and the connector's
+ * stderr. The success line carries the same timeline.
+ */
+export function cmuxTuiWebsocketSmokeScript(session = "cloud"): string {
   const identity = `${DEVBOX_WORK_USER}@${DEVBOX_HOSTNAME}`;
   // Runs as the daemon's own user with the daemon's HOME: enrollment reads and
   // writes the session state the daemon owns, and as root that state dir is a
@@ -100,14 +131,19 @@ export function cmuxTuiWebsocketSmokeCommand(session = "cloud", binary?: string)
   // The layout is selected by the caller (as root, the only user that can drop
   // privileges) and handed in: re-running the selector here, already dropped to
   // the daemon's user, would fail every probe and fall back to root's path.
-  const shell = `#!/usr/bin/env bash
+  return `#!/usr/bin/env bash
 set -euo pipefail
 BIN="\${CMUX_TUI_BIN:?cmux-tui binary not provided}"
 : "\${HOME:?home not provided}"
 SESSION=${session}
-ROOT=/tmp/cmux-tui-websocket-smoke
+ROOT="\${CMUX_TUI_SMOKE_ROOT:-/tmp/cmux-tui-websocket-smoke}"
+PIN_TIMEOUT_SECONDS="\${CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS:-${CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS}}"
 ROUTE='ws://[::1]:1337/v1/link'
 MARKER="CMUX_WS_SMOKE_${session}_$$"
+DEVICE_NAME="snapshot-websocket-smoke-$$"
+T0="$(date +%s%3N)"
+TIMELINE=""
+mark() { TIMELINE="$TIMELINE $1=+$(( $(date +%s%3N) - T0 ))ms"; }
 CONNECT_PID=""
 INVITATION_ID=""
 DEVICE_FINGERPRINT=""
@@ -145,18 +181,54 @@ trap cleanup EXIT
 jq -r '.. | strings | select(startswith("cmux://enroll/"))' "$ROOT/create.json" | head -1 >"$ROOT/invitation"
 test -s "$ROOT/invitation"
 chmod 600 "$ROOT/invitation"
-("$BIN" remote connect --invite-file "$ROOT/invitation" --device-name "snapshot-websocket-smoke" --state-dir "$ROOT/state" --session "$SESSION" --headless --json --lanes single --connect-timeout-seconds 60 --reconnect-attempts 2 >"$ROOT/connect.out" 2>"$ROOT/connect.err") &
+("$BIN" remote connect --invite-file "$ROOT/invitation" --device-name "$DEVICE_NAME" --state-dir "$ROOT/state" --session "$SESSION" --headless --json --lanes single --connect-timeout-seconds 60 --reconnect-attempts 2 >"$ROOT/connect.out" 2>"$ROOT/connect.err") &
 CONNECT_PID=$!
+mark connector
+# This connector's own request: another pending one (a stale or concurrent
+# enrollment) must not be the one approved. A daemon whose pending rows carry
+# no device name is matched only when it lists exactly one.
+PENDING_ROW='(if type == "array" then . else (.pending // .invitations // []) end) as $rows | ([$rows[] | select(.device_name == $name)] + (if ($rows | length) == 1 and ($rows[0].device_name == null) then $rows else [] end)) | .[0] // empty'
 for attempt in $(seq 1 90); do
   PENDING="$("$BIN" remote enroll pending --session "$SESSION" --json 2>/dev/null || true)"
-  INVITATION_ID="$(printf '%s' "$PENDING" | jq -r 'if type == "array" then (.[0].invitation_id // empty) else (.pending[0].invitation_id // .invitations[0].invitation_id // empty) end' 2>/dev/null || true)"
-  DEVICE_FINGERPRINT="$(printf '%s' "$PENDING" | jq -r 'if type == "array" then (.[0].device_fingerprint // empty) else (.pending[0].device_fingerprint // .invitations[0].device_fingerprint // empty) end' 2>/dev/null || true)"
+  INVITATION_ID="$(printf '%s' "$PENDING" | jq -r --arg name "$DEVICE_NAME" "$PENDING_ROW | .invitation_id // empty" 2>/dev/null || true)"
+  DEVICE_FINGERPRINT="$(printf '%s' "$PENDING" | jq -r --arg name "$DEVICE_NAME" "$PENDING_ROW | .device_fingerprint // empty" 2>/dev/null || true)"
   if [ -n "$INVITATION_ID" ]; then break; fi
+  if ! kill -0 "$CONNECT_PID" 2>/dev/null; then break; fi
   sleep 1
 done
-test -n "$INVITATION_ID"
+if [ -z "$INVITATION_ID" ]; then
+  mark gave-up
+  echo "cmux-tui websocket smoke: the connector's enrollment request never appeared in the daemon's pending list (timeline:$TIMELINE); connector stderr: $(tail -c 600 "$ROOT/connect.err" 2>/dev/null | tr '\\n' ' ')" >&2
+  exit 1
+fi
+mark pending
 "$BIN" remote enroll approve "$INVITATION_ID" --session "$SESSION" --json >/dev/null
-sleep 2
+mark approved
+# Ready means the connector recorded the daemon: the record \`remote rpc\` reads.
+pinned() { "$BIN" remote known-daemons --state-dir "$ROOT/state" --json 2>/dev/null | jq -e 'length > 0' >/dev/null 2>&1; }
+PINNED=0
+for attempt in $(seq 1 $(( PIN_TIMEOUT_SECONDS * 5 ))); do
+  if pinned; then PINNED=1; break; fi
+  if ! kill -0 "$CONNECT_PID" 2>/dev/null; then
+    if pinned; then PINNED=1; fi
+    break
+  fi
+  sleep 0.2
+done
+if [ "$PINNED" != 1 ]; then
+  if kill -0 "$CONNECT_PID" 2>/dev/null; then
+    REASON="not within \${PIN_TIMEOUT_SECONDS}s of the approval"
+  else
+    CONNECT_STATUS=0
+    wait "$CONNECT_PID" 2>/dev/null || CONNECT_STATUS=$?
+    CONNECT_PID=""
+    REASON="the connector exited (status $CONNECT_STATUS) first"
+  fi
+  mark gave-up
+  echo "cmux-tui websocket smoke: the connector never recorded the daemon in its state dir, $REASON (timeline:$TIMELINE); connector stderr: $(tail -c 600 "$ROOT/connect.err" 2>/dev/null | tr '\\n' ' ')" >&2
+  exit 1
+fi
+mark pinned
 kill "$CONNECT_PID" 2>/dev/null || true
 wait "$CONNECT_PID" 2>/dev/null || true
 CONNECT_PID=""
@@ -183,18 +255,9 @@ SECOND="$(rpc "$SNAPSHOT_REQUEST")"
 echo "$SECOND" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
 SECOND_SEQUENCE="$(echo "$SECOND" | jq -r '.snapshot.through_sequence // .result.Ok.snapshot.through_sequence')"
 test "$SECOND_SEQUENCE" -ge "$FIRST_SEQUENCE"
-echo "websocket-smoke-ok marker=$MARKER through_sequence=$FIRST_SEQUENCE->$SECOND_SEQUENCE"
+mark done
+echo "websocket-smoke-ok marker=$MARKER through_sequence=$FIRST_SEQUENCE->$SECOND_SEQUENCE timeline:$TIMELINE"
 `;
-  const encoded = Buffer.from(shell, "utf8").toString("base64");
-  const script = "/tmp/cmux-tui-websocket-smoke.sh";
-  return (
-    `printf %s ${encoded} | base64 -d >${script} && chmod 755 ${script} && ` +
-    `${cmuxTuiLayoutSelector()} && ` +
-    // `binary` overrides only the client: the reachability check drives a
-    // freshly downloaded build against the daemon the image baked. HOME still
-    // comes from the layout, because enrollment reads the daemon's own state.
-    `${cmuxTuiAsDaemonUser(`CMUX_TUI_BIN=${binary ? shellQuote(binary) : '"$CMUX_TUI_BIN"'} bash ${script}`)}`
-  );
 }
 
 
@@ -1814,6 +1877,34 @@ export const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
 
 export function devboxSettleBeforeSnapshotCommand(): string {
   return `sync && sleep ${DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS} && sync && echo "settled $(cut -d' ' -f1-3 /proc/loadavg)"`;
+}
+
+/**
+ * The seeded Claude team config (`<home>/.config/cmux/claude-team/.claude.json`,
+ * claude-onboarding.py) is still the seed in every home: onboarding done, the
+ * dark theme, "/" trusted, the placeholder key approved, mode 0600. A Claude
+ * Code start with that config dir rewrites the file without `theme` (Claude
+ * drops values equal to its defaults) and adds per-install ids
+ * (firstStartTime, machineID, userID) every clone would then share. The bake
+ * runs it right before the snapshot and the verifier on the clone, so a start
+ * during the bake fails the bake, not the verify after it.
+ */
+export function devboxClaudeTeamOnboardingCheckCommand(homes: readonly string[] = ["/root", DEVBOX_WORK_HOME]): string {
+  return `python3 -c 'import json, pathlib; homes = ${JSON.stringify(homes)}; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("theme") == "dark" and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []) and "firstStartTime" not in j for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`;
+}
+
+/**
+ * The work user's `~/.config/cmux`, made before the acpmux daemon starts. The
+ * daemon watches `~/.config/cmux/harnesses` and cmux.json; while that folder
+ * is missing it watches the nearest existing ancestor (`~/.config`) for the
+ * folder on the way, and making it reloads the harness catalog, whose live
+ * model probe starts `claude`. With no `~/.config/cmux`, the bake's own seed
+ * of the team config (claude-onboarding) made it after the model-plane env
+ * existed, so that probe ran Claude in team mode on the fresh seed and
+ * rewrote it. Made here, the seed creates nothing the daemon reloads for.
+ */
+export function devboxWorkUserCmuxConfigDirCommand(): string {
+  return `sudo -n -u ${DEVBOX_WORK_USER} mkdir -p ${DEVBOX_WORK_HOME}/.config/cmux && [ "$(stat -c %U ${DEVBOX_WORK_HOME}/.config ${DEVBOX_WORK_HOME}/.config/cmux | sort -u)" = ${DEVBOX_WORK_USER} ] && echo cmux-config-dir-ok`;
 }
 
 /**

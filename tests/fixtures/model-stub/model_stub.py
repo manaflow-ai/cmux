@@ -22,6 +22,8 @@ the same answer. Past the last step the last step repeats. A step is one of:
                                      "error": {...}}, OpenAI {"error": {"type", "code", "message"}}), with Retry-After.
 Any step may also carry "delay_ms": N, a pause before the answer, so a test can hold a turn open (steer, transfer or
 revoke access while it runs).
+Any step may also carry "pause": S (0 to 10 seconds): the stub waits that long before it answers with the step, so a
+turn of tool calls with no shell in them (a Read, which no policy asks a person about) still runs at a set pace.
 
 Faults (the Cloud self-test, plans/cmux-next/cloud-selftest-DESIGN.md) are queued at run time, for the requests that
 offer tools (turns; side requests never take one): POST /__stub/faults {"faults": [{"status": 401, "type":
@@ -69,7 +71,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 # Bump on any change a script or a test could notice (wire shapes, template grammar, log fields).
-STUB_VERSION = 4  # 2: {{prompt}} templates; 3: per-turn scripts ("turns"); 4: error steps, delay_ms, /__stub/faults
+STUB_VERSION = 5  # 2: {{prompt}} templates; 3: per-turn scripts ("turns"); 4: a step's "pause"; 5: error steps, delay_ms, /__stub/faults
 
 DEFAULT_SCRIPT: dict[str, Any] = {"version": 1, "steps": [{"text": "Stub reply {{nonce}}."}]}
 # Codex's exec_command result starts with a header (Chunk ID, Wall time, exit code, token count) before "Output:";
@@ -157,6 +159,9 @@ def check_steps(path: str, steps: list[Any]) -> None:
             raise ValueError(f"{path}: step {i}: a tool step is {{\"tool\": {{\"name\": ..., \"input\": {{...}}}}}}")
         if ("text" in step and not isinstance(step["text"], str)) or ("shell" in step and not isinstance(step["shell"], str)):
             raise ValueError(f"{path}: step {i}: text and shell are strings")
+        pause = step.get("pause", 0)
+        if isinstance(pause, bool) or not isinstance(pause, (int, float)) or not 0 <= pause <= 10:
+            raise ValueError(f"{path}: step {i}: pause is a number of seconds from 0 to 10")
         for m in _TEMPLATE.finditer(json.dumps(step)):
             if m.group(3) is not None:
                 try:
@@ -477,6 +482,7 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
 
         def anthropic(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             i, step, results, turn = stub.step(anthropic_results(body), row["tools"])
+            time.sleep(step.get("pause", 0))
             if self.scripted("/v1/messages", i, step, row, results):
                 return
             content, stop = self.anthropic_content(i, step, row["tools"], results)
@@ -520,6 +526,7 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
 
         def openai(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             i, step, results, turn = stub.step(openai_results(body), row["tools"])
+            time.sleep(step.get("pause", 0))
             if self.scripted("/v1/responses", i, step, row, results):
                 return
             item = self.openai_item(i, step, row["tools"], results)

@@ -36,6 +36,35 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_gone(&self) -> bool {
         false
     }
+    /// Waits until a read will not block: data, the end or an error is
+    /// waiting. The socket's read timeout still bounds the wait, which then
+    /// fails as the read would (`WouldBlock`). The default does not wait.
+    /// The daemon's line reader calls it before every read (server
+    /// line_connection.rs, `LineSocket`), with the one `waiter` it owns.
+    fn wait_readable(&self, waiter: &mut ReadWaiter) -> io::Result<()> {
+        let _ = waiter;
+        Ok(())
+    }
+}
+
+/// What one reader keeps between its waits in [`Stream::wait_readable`]. On
+/// macOS: a kqueue that holds the socket's read filter, made at the first
+/// wait and closed when the waiter drops (a kqueue is not inherited by a
+/// forked child). With 10 clients at once a wait in kevent() cost about
+/// 18 us less than one in poll() for each request and reply (opt-tools
+/// probes/read_fill_cost.rs); both saw every half-close
+/// (probes/shutdown_wake.rs). Elsewhere it holds nothing and the wait polls.
+#[derive(Default)]
+pub struct ReadWaiter {
+    /// The kqueue and the descriptor whose read filter it holds.
+    #[cfg(target_os = "macos")]
+    queue: Option<(std::os::fd::OwnedFd, std::os::fd::RawFd)>,
+}
+
+impl ReadWaiter {
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 pub struct Listener {
@@ -76,9 +105,129 @@ mod imp {
     use std::io;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::Path;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
-    use super::Stream;
+    use super::{ReadWaiter, Stream};
+
+    /// When a read of `stream` with its read timeout must give up.
+    fn read_deadline(stream: &UnixStream) -> io::Result<Option<Instant>> {
+        Ok(stream.read_timeout()?.map(|timeout| Instant::now() + timeout))
+    }
+
+    /// Waits until a read of `stream` will not block, for at most its read
+    /// timeout (then `WouldBlock`, as the read would fail). On macOS 26 and
+    /// 27 a thread blocked in recv() can miss the wake of the peer's shutdown
+    /// (the daemon line reader with 8 clients at once: 1 in 7,000 to 1 in
+    /// 17,000); one waiting in kevent() or poll() saw every one (opt-tools
+    /// probes/shutdown_wake.rs).
+    /// Every event returns (data, the end, an error): the read then takes the
+    /// waiting bytes, the end or the error, so bytes sent before a hang-up
+    /// are still read. EINTR waits again for the time left.
+    #[cfg(target_os = "macos")]
+    fn wait_readable(stream: &UnixStream, waiter: &mut ReadWaiter) -> io::Result<()> {
+        let deadline = read_deadline(stream)?;
+        let queue = waiter.queue_for(std::os::fd::AsRawFd::as_raw_fd(stream))?;
+        loop {
+            let left = deadline.map(|deadline| {
+                let left = deadline.saturating_duration_since(Instant::now());
+                libc::timespec {
+                    tv_sec: libc::time_t::try_from(left.as_secs()).unwrap_or(libc::time_t::MAX),
+                    tv_nsec: libc::c_long::from(left.subsec_nanos()),
+                }
+            });
+            let timeout = left.as_ref().map_or(std::ptr::null(), |left| left as *const _);
+            // SAFETY: an all-zero kevent is a valid value of this plain C
+            // struct; it is only written by the call below.
+            let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+            // SAFETY: `queue` is the waiter's open kqueue; one event slot
+            // owned by this frame; `timeout` is null or points at `left`,
+            // which lives across the call.
+            let ready = unsafe { libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, timeout) };
+            if ready > 0 {
+                return Ok(());
+            }
+            if ready == 0 {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    impl ReadWaiter {
+        /// The kqueue that holds `fd`'s read filter (level-triggered: it
+        /// reports while bytes, the end or an error wait). Made at the first
+        /// wait; a waiter moved to another descriptor gets a new one.
+        fn queue_for(&mut self, fd: std::os::fd::RawFd) -> io::Result<std::os::fd::RawFd> {
+            use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+            if let Some((queue, watched)) = &self.queue
+                && *watched == fd
+            {
+                return Ok(queue.as_raw_fd());
+            }
+            self.queue = None;
+            // SAFETY: kqueue() has no preconditions.
+            let raw = unsafe { libc::kqueue() };
+            if raw < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: `raw` is a new descriptor nothing else owns.
+            let queue = unsafe { OwnedFd::from_raw_fd(raw) };
+            // SAFETY: an all-zero kevent is a valid value of this plain C
+            // struct; the fields that matter are set next.
+            let mut change: libc::kevent = unsafe { std::mem::zeroed() };
+            change.ident = fd as libc::uintptr_t;
+            change.filter = libc::EVFILT_READ;
+            change.flags = libc::EV_ADD;
+            // SAFETY: one change for an open descriptor, no event list.
+            let added =
+                unsafe { libc::kevent(raw, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+            if added < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            self.queue = Some((queue, fd));
+            Ok(raw)
+        }
+    }
+
+    /// The same wait in poll() where there is no kqueue.
+    #[cfg(not(target_os = "macos"))]
+    fn wait_readable(stream: &UnixStream, _waiter: &mut ReadWaiter) -> io::Result<()> {
+        let deadline = read_deadline(stream)?;
+        let mut poll = libc::pollfd {
+            fd: std::os::fd::AsRawFd::as_raw_fd(stream),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        loop {
+            let timeout_ms = match deadline {
+                None => -1,
+                Some(deadline) => {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    // Rounded up: a 0 ms poll for the last 0.4 ms would spin.
+                    libc::c_int::try_from(left.as_micros().div_ceil(1000))
+                        .unwrap_or(libc::c_int::MAX)
+                }
+            };
+            poll.revents = 0;
+            // SAFETY: one pollfd for a descriptor `stream` owns while it is
+            // borrowed here.
+            let ready = unsafe { libc::poll(&mut poll, 1, timeout_ms) };
+            if ready > 0 {
+                return Ok(());
+            }
+            if ready == 0 {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
 
     pub(super) struct Listener {
         inner: UnixListener,
@@ -143,6 +292,10 @@ mod imp {
 
         fn peer_gone(&self) -> bool {
             hung_up(self, libc::POLLOUT)
+        }
+
+        fn wait_readable(&self, waiter: &mut ReadWaiter) -> io::Result<()> {
+            wait_readable(self, waiter)
         }
     }
 
@@ -210,5 +363,60 @@ mod imp {
         fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
             UnixStream::shutdown(self, how)
         }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod read_waiter_tests {
+    use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixStream;
+    use std::time::{Duration, Instant};
+
+    use super::{ReadWaiter, Stream};
+
+    fn queue(waiter: &ReadWaiter) -> Option<(i32, i32)> {
+        waiter.queue.as_ref().map(|(queue, watched)| (queue.as_raw_fd(), *watched))
+    }
+
+    /// A reader keeps one kqueue for all its waits: no descriptor is made or
+    /// added for each read.
+    #[test]
+    fn one_kqueue_serves_every_wait_of_a_reader() {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        let mut waiter = ReadWaiter::new();
+        assert_eq!(queue(&waiter), None);
+        let mut first = None;
+        for round in 0..100u8 {
+            (&theirs).write_all(&[round]).unwrap();
+            Stream::wait_readable(&ours, &mut waiter).unwrap();
+            let mut byte = [0];
+            (&ours).read_exact(&mut byte).unwrap();
+            assert_eq!(byte, [round]);
+            let now = queue(&waiter).unwrap();
+            assert_eq!(now.1, ours.as_raw_fd());
+            assert_eq!(*first.get_or_insert(now), now);
+        }
+    }
+
+    /// A waiter given another socket waits for that socket only: bytes on
+    /// the first one do not end its wait.
+    #[test]
+    fn a_waiter_moved_to_another_socket_waits_for_that_socket() {
+        let (first, first_peer) = UnixStream::pair().unwrap();
+        let (second, second_peer) = UnixStream::pair().unwrap();
+        let mut waiter = ReadWaiter::new();
+        (&first_peer).write_all(b"x").unwrap();
+        Stream::wait_readable(&first, &mut waiter).unwrap();
+
+        second.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        let started = Instant::now();
+        let error = Stream::wait_readable(&second, &mut waiter).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        assert!(started.elapsed() >= Duration::from_millis(100), "{:?}", started.elapsed());
+        assert_eq!(queue(&waiter).unwrap().1, second.as_raw_fd());
+
+        (&second_peer).write_all(b"y").unwrap();
+        Stream::wait_readable(&second, &mut waiter).unwrap();
     }
 }

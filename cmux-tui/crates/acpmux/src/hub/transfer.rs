@@ -493,6 +493,11 @@ impl Hub {
             tracing::warn!(session = %meta.id, "a failed import's staged durable state waits for the next start to roll it back");
         } else {
             self.remove_cached_closed_summary(&meta.id);
+            // The book tee (`book_tee.rs`) needs no `forget` here, as a purge does: it holds no
+            // actor for this chat. Its hook runs in `write_record_locked`, which an import's
+            // lines never pass (`copy_bundle_events` appends to the store), and its drain and
+            // pass act only on chats in `sessions`, which an import joins after its last
+            // rollback.
             let _ = self.store.delete(&meta.id);
         }
     }

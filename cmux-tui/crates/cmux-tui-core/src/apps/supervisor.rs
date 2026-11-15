@@ -166,6 +166,8 @@ pub(super) struct Mount {
     pub context: Value,
     /// The next scene batch starts a fresh tree (after a host restart).
     pub reset: bool,
+    /// Its op-batch rate and coalescing (`budget.rs`).
+    pub budget: super::budget::MountBudget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,6 +207,9 @@ pub(super) struct Host {
     /// mount without an error keeps those files as the last good version
     /// (`rollback.rs`). `None` for other apps.
     pub print: Option<u64>,
+    /// Kept up by the manifest's `activation` (`activation.rs`): stopped
+    /// when the app may no longer run in the background.
+    pub background: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -264,6 +269,9 @@ pub(super) struct Inner {
     /// last tried, so one version is copied once.
     pub last_good: HashMap<String, super::rollback::Good>,
     pub good_tried: HashMap<String, u64>,
+    /// Each app's budget ladder (`budget.rs`): its VM kills and whether it
+    /// is paused. Absent: Normal with nothing counted.
+    pub ladders: HashMap<String, super::budget::AppLadder>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -423,6 +431,7 @@ impl Supervisor {
                 local_prints: local_prints.clone(),
                 last_good,
                 good_tried: HashMap::new(),
+                ladders: HashMap::new(),
             }),
             config,
             router,
@@ -445,6 +454,7 @@ impl Supervisor {
         }
         supervisor.reconcile_sidebar();
         supervisor.start_always_servers();
+        supervisor.activate_background(&BTreeSet::new());
         supervisor.start_local_watch(local_prints);
         supervisor
     }
@@ -497,6 +507,10 @@ impl Supervisor {
                     row.set("run_state", json!(run_state));
                 }
                 row.set("can_rollback", json!(can_rollback));
+                row.set("budget", json!(Self::budget_step_locked(&inner, id).as_str()));
+                if let Some(ladder) = inner.ladders.get(id.as_str()) {
+                    row.set("scene_batches", ladder.batches_json());
+                }
                 row
             })
             .collect();
@@ -579,6 +593,10 @@ impl Supervisor {
                 vec![]
             }
             Effect::StopHost(app) => {
+                // Off is the ladder's last step: on again starts Normal.
+                inner.ladders.remove(app);
+                // Turned on again, a background app gets a new try.
+                inner.failed.remove(app);
                 let mut outs = self.terminal_access_changed_locked(inner, app);
                 outs.extend(self.stop_app_locked(inner, app, "disabled"));
                 outs.extend(self.stop_server_locked(inner, app, "disabled"));
@@ -701,6 +719,7 @@ impl Supervisor {
         {
             self.reconcile_sidebar();
         }
+        let activate = background_triggers(&outs);
         for out in outs {
             match out {
                 Out::Client(client, value) => {
@@ -736,6 +755,11 @@ impl Supervisor {
                     }));
                 }
             }
+        }
+        // After the outs above: a client hears `apps-changed` before the
+        // `apps-host` of a background host it started.
+        if let Some(retry) = activate {
+            self.activate_background(&retry);
         }
     }
 
@@ -801,6 +825,31 @@ impl Drop for Supervisor {
             server.process.kill();
         }
     }
+}
+
+/// Whether `outs` may change which apps run in the background
+/// (`activation.rs`): an `apps-changed` (install, enable, grant, safe mode,
+/// local reload) or an `apps-budget` (pause, resume). `Some` holds the apps
+/// a local reload saved, which get a new try after a failure.
+fn background_triggers(outs: &[Out]) -> Option<BTreeSet<String>> {
+    let mut triggered = false;
+    let mut saved = BTreeSet::new();
+    for out in outs {
+        let Out::Broadcast(value) = out else { continue };
+        match value["event"].as_str() {
+            Some("apps-changed") => {
+                triggered = true;
+                if value["transaction"] == "local-reload"
+                    && let Some(app) = value["app"].as_str()
+                {
+                    saved.insert(app.to_string());
+                }
+            }
+            Some("apps-budget") => triggered = true,
+            _ => {}
+        }
+    }
+    triggered.then_some(saved)
 }
 
 fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {

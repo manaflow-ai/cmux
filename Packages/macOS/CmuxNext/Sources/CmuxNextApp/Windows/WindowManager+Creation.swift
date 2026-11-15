@@ -56,10 +56,12 @@ extension WindowManager {
         return windowID
     }
 
-    /// Dock click, Show cmux: the last closed window comes back with its
-    /// workspaces; with none registered, a new window with a new workspace.
+    /// Dock click, Show cmux, an open of the running app (a launcher, `open -a`, a hand-off): a window it has comes forward, else the
+    /// last closed one, else one new window, never a second while it opens (Leo 2026-11-11: "double clicking from [a launcher], caused this").
     func reopenOrCreateWindow() {
-        if !reopenClosedWindow() { newWindow() }
+        if let shown = active { if NSApp.isHidden { NSApp.unhide(nil) }; return bringToFront(shown) }
+        guard !reopenClosedWindow(), !reopenCreating else { return }
+        reopenCreating = true; Task { _ = await createWorkspace(into: UUID().uuidString.lowercased(), newTabPage: true); reopenCreating = false }
     }
 
     /// `preferred` when that window is open (the launch window is, before the restore: `awaitsRestore`),
