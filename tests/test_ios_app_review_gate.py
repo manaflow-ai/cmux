@@ -454,7 +454,7 @@ class AppReviewGateTests(unittest.TestCase):
         reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
         report = workflow.split("\n  report:\n", 1)[1]
         self.assertIn("fail-fast: false", reviewer)
-        self.assertIn("        family: [iphone, ipad, duo]\n", reviewer)
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.families) }}\n", reviewer)
         self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", reviewer)
         self.assertNotIn("for family in", reviewer)
         self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
