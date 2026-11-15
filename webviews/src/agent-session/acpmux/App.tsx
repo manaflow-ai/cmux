@@ -243,6 +243,7 @@ import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
+import { TerminalPickersNote } from "./TerminalPickersNote";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
@@ -1450,15 +1451,6 @@ function DefaultComposerChips(props: {
 }) {
   if (!props.startsChat && props.snapshot.summary?.terminal === true) return <TerminalPickersNote />;
   return <PickerChips {...props} />;
-}
-
-function TerminalPickersNote() {
-  const t = useT();
-  return (
-    <span className="acpmux-terminal-pickers" data-terminal-pickers="">
-      {t("watch.terminalPickers")}
-    </span>
-  );
 }
 
 function PickerChips({

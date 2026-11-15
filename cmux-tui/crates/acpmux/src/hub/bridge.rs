@@ -270,6 +270,13 @@ pub(super) fn fail_delivery(uuid: &str, why: &str) {
     }
 }
 
+/// [`fail_delivery`], answering the prompt id of the delivery that failed (none when it was gone).
+pub(super) fn fail_delivery_of(uuid: &str, why: &str) -> Option<String> {
+    let p = deliveries().by_uuid.remove(uuid)?;
+    p.turn.send_replace(Some(Err(why.to_owned())));
+    Some(p.prompt_id)
+}
+
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
 pub(super) fn answered(session_id: &str, prompt_id: &str, turn_id: &str) {
     if let Some((_, p)) = deliveries().of_prompt(session_id, prompt_id) {
@@ -523,6 +530,9 @@ impl Hub {
                 return Some(Ok(reply));
             }
         }
+        // Attachments reach a terminal's harness only (Write to a chat a terminal runs); a chat the
+        // desktop bridge listed takes text alone, as before.
+        let to_terminal = terminal.is_some();
         let target = match terminal {
             Some(driver) => match terminal_target(&family, &agent_session_id, driver.clone()).await
             {
@@ -552,6 +562,16 @@ impl Hub {
             return (registered && retried_client(client))
                 .then(|| Err(not_running(&session.meta().name)));
         };
+        let text_only =
+            blocks.iter().all(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                && blocks.iter().any(|b| {
+                    b.get("text").and_then(Value::as_str).is_some_and(|t| !t.trim().is_empty())
+                });
+        if !to_terminal && !text_only {
+            return Some(Err(RpcError::invalid_params(
+                "only text reaches a session another app runs: send it without attachments, or take the chat over",
+            )));
+        }
         let content = match content_of(blocks) {
             Ok(content) => content,
             Err(why) => {

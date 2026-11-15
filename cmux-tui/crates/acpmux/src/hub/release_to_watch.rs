@@ -375,6 +375,9 @@ impl Hub {
         if cleared {
             self.save_meta(session);
             self.unmark_terminal_driven(session);
+            // What acpmux itself still held to type into the terminal goes, with why: once off,
+            // nothing is written into that terminal.
+            self.drop_typed(session);
         }
     }
 

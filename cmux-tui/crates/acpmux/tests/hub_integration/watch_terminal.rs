@@ -134,14 +134,16 @@ async fn handed_to_terminal_with(
     cmux: bool,
     no_inbox: bool,
 ) -> (Arc<Hub>, String, std::path::PathBuf, Terminal, std::path::PathBuf, String) {
-    handed_to_terminal_as(turn_ms, true).await
+    handed_to_terminal_as(turn_ms, true, cmux, no_inbox).await
 }
 
-/// [`handed_to_terminal`], with Write to a chat a terminal runs (`agents.chats.terminalChatWritable`)
-/// `writable` or off (its default).
+/// [`handed_to_terminal_with`], with Write to a chat a terminal runs
+/// (`agents.chats.terminalChatWritable`) `writable` or off (its default).
 async fn handed_to_terminal_as(
     turn_ms: u64,
     writable: bool,
+    cmux: bool,
+    no_inbox: bool,
 ) -> (Arc<Hub>, String, std::path::PathBuf, Terminal, std::path::PathBuf, String) {
     let (hub, sid, file, gate, turn, text, root) = chat_mid_turn().await;
     hub.set_terminal_chat_writable(writable).await;
@@ -587,7 +589,8 @@ fn terminal_tags(hub: &Arc<Hub>, sid: &str) -> (Value, Value) {
 /// harness, and what the person types in the terminal still shows in the chat.
 #[tokio::test]
 async fn with_the_setting_off_a_chat_handed_to_a_terminal_is_view_only() {
-    let (hub, sid, _file, mut terminal, root, first) = handed_to_terminal_as(300, false).await;
+    let (hub, sid, _file, mut terminal, root, first) =
+        handed_to_terminal_as(300, false, false, false).await;
     assert!(hub.resolve(&sid).unwrap().meta().watching.unwrap().terminal.is_none(), "bound");
     assert_eq!(terminal_tags(&hub, &sid), (Value::Null, Value::Null));
     let mut c = connect(&hub).await;
@@ -637,6 +640,46 @@ async fn turning_the_setting_off_mid_turn_makes_the_chat_view_only_and_loses_not
     let started = k.iter().filter(|k| *k == "turn_started").count();
     let ended = k.iter().filter(|k| *k == "turn_end").count();
     assert_eq!(started, ended, "a turn left open: {k:?}");
+    drop(terminal);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Turning the setting off while acpmux itself still holds chat sends to type into a terminal
+/// with no inbox (they wait for the person's running turn): none is typed later behind the
+/// person's back. Each is dropped with why: its sender's call fails with
+/// `terminal.writable_off` (the pane keeps it as Not sent, with Retry), every client gets a
+/// `prompt_refused` notice, and the terminal's own turn runs to its end, uncut.
+#[tokio::test]
+async fn turning_the_setting_off_drops_what_waits_to_be_typed_with_why() {
+    let (hub, sid, _file, mut terminal, root, first) =
+        handed_to_terminal_with(1200, true, true).await;
+    terminal.type_line("the person's own");
+    assert_eq!(terminal.until("RUN", 1).await, ["the person's own"]);
+    let waits = send(&hub, &sid, "waits to be typed", "w-1");
+    // Held by acpmux: the terminal's agent is busy.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!waits.is_finished(), "typed or refused while the turn ran");
+    hub.set_terminal_chat_writable(false).await;
+    let waits = tokio::time::timeout(Duration::from_secs(5), waits).await.unwrap().unwrap();
+    assert!(waits.as_ref().is_err_and(|e| e.contains("turned off")), "{waits:?}");
+    let refused: Vec<Value> = hub
+        .events(&sid, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "prompt_refused")
+        .map(|e| e.msg)
+        .collect();
+    assert!(
+        refused
+            .iter()
+            .any(|m| m["promptId"] == "w-1" && m["data"]["reason"] == "terminal.writable_off"),
+        "{refused:?}"
+    );
+    // The person's turn ends as it would; nothing is typed after it.
+    assert_eq!(terminal.until("END", 1).await.len(), 1);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert_eq!(terminal.texts("RUN"), ["the person's own"], "typed after the setting went off");
+    assert_eq!(prompts(&hub, &sid), [first.as_str(), "the person's own"]);
     drop(terminal);
     let _ = std::fs::remove_dir_all(&root);
 }

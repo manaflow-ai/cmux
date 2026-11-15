@@ -218,7 +218,31 @@ pub(super) fn turn_ended() {
     TURN_ENDED.notify_waiters();
 }
 
+/// Why a prompt that waited to be typed was dropped (`drop_typed`).
+pub(super) const WRITABLE_OFF: &str = "Write to a Chat a Terminal Runs was turned off before the \
+     terminal's turn ended, so this message was not typed into the terminal; send it there, or \
+     take the chat over";
+
 impl super::Hub {
+    /// Drops the prompts waiting to be typed into `session`'s terminal (the setting went off,
+    /// `release_to_watch.rs`): each one's sender gets the failure with why (the pane keeps the
+    /// prompt as a Not sent row with Retry), and every other client a `prompt_refused` notice.
+    /// None was typed, so none runs later behind the person's back.
+    pub(super) fn drop_typed(&self, session: &super::Session) {
+        let dropped = waiting().remove(&session.id).unwrap_or_default();
+        for (uuid, _) in dropped {
+            let Some(prompt_id) = super::bridge::fail_delivery_of(&uuid, WRITABLE_OFF) else {
+                continue;
+            };
+            let error = format!("terminal.writable_off: {WRITABLE_OFF}");
+            let data = json!({"reason": "terminal.writable_off"});
+            let msg = json!({"promptId": prompt_id, "error": error, "data": data});
+            self.append(session, "mux", "prompt_refused", msg);
+        }
+        // The typing loop wakes, finds nothing left and ends.
+        turn_ended();
+    }
+
     /// Types delivery `uuid` (`wire`) into the terminal `d` drives `session` from: now when its
     /// agent waits at its prompt, else once its turn ends, behind any prompt already waiting, so
     /// none is lost or reordered. `Err` only when nothing was or will be typed.
@@ -264,7 +288,7 @@ impl super::Hub {
         session: &super::Session,
     ) -> Option<Result<(), crate::rpc::RpcError>> {
         let w = session.meta().watching?;
-        let d = w.terminal?;
+        let d = w.terminal.filter(|_| self.terminal_chat_writable())?;
         if w.open.is_none() {
             // No turn runs there: an Esc would only clear what the person is typing.
             return Some(Ok(()));
