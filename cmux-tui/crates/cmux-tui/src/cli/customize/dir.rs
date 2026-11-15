@@ -326,6 +326,7 @@ pub(super) fn use_dir(
 ) -> Result<Answer, Failure> {
     let dir = checkout(path)?;
     let app = App::find();
+    clear_stale_builds(customize);
     let (layer, seconds) = build_layer(customize, &dir, &app, true)?;
     let name = layer.name();
     let lines = vec![format!("built here in {seconds:.0} s; nothing was pushed")];
@@ -337,7 +338,50 @@ pub(super) fn use_dir(
         print!("{human}");
     }
     println!("watching {} for saves (ctrl-c stops; {name} stays on)", dir.display());
+    // main's handlers only note a signal for loops that look; this one waits
+    // on the folder, so ctrl-c and SIGTERM end it the plain way.
+    #[cfg(unix)]
+    if crate::restore_default_termination_signals().is_err() {
+        return Ok(answer);
+    }
     watch_folder(customize, &dir, &app, layer, origin)
+}
+
+/// Scratch build folders (`.build-<pid>-<ms>`) of a CLI that is gone: a watch
+/// stopped mid-build leaves one, and nothing else would remove it.
+fn clear_stale_builds(customize: &Customize) {
+    let Some(layers) = customize.layer_dir("build").parent().map(Path::to_path_buf) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&layers) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(pid) = name
+            .strip_prefix(".build-")
+            .and_then(|rest| rest.split('-').next())
+            .and_then(|pid| pid.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        if pid != i32::try_from(std::process::id()).unwrap_or(0) && !alive(pid) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+#[cfg(unix)]
+fn alive(pid: i32) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: signal 0 only asks whether `pid` exists; nothing is sent.
+    let asked = unsafe { libc::kill(pid, 0) };
+    asked == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn alive(_pid: i32) -> bool {
+    true
 }
 
 /// The changed paths in `paths` that are worth a build: not install or build
@@ -511,6 +555,22 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".log"))
             .collect();
         assert!(logs.is_empty(), "{logs:?}");
+    }
+
+    #[test]
+    fn a_dead_clis_scratch_build_is_cleared_and_a_live_ones_kept() {
+        let home = tempfile::tempdir().unwrap();
+        let customize = Customize::open(cmux_customize::Roots::under(home.path()));
+        let layers = customize.layer_dir("build").parent().unwrap().to_path_buf();
+        let mine = layers.join(format!(".build-{}-1", std::process::id()));
+        let dead = layers.join(".build-999999999-1");
+        let layer = layers.join("a".repeat(64));
+        for dir in [&mine, &dead, &layer] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        clear_stale_builds(&customize);
+        assert!(mine.is_dir() && layer.is_dir());
+        assert!(!dead.exists());
     }
 
     #[test]
