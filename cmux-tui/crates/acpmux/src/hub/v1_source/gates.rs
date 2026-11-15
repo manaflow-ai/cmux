@@ -24,6 +24,12 @@ use serde::{Deserialize, Serialize};
 /// Chunks in one measured stretch: 2 MiB of log, all of the small chat.
 const STRETCH: u64 = 8;
 
+/// How far god's resident anonymous bytes may grow from the stretch a quarter of the way through
+/// to the last: three runs read 0, 0 and 0 KiB (stretches 157 to 624), and the same run with the
+/// test-only sync wait record kept whole read 524. 64 KiB is one early-stretch step of the
+/// allocator's (the probe saw 60) and an eighth of that leak.
+const GOD_ANON_ALLOWANCE_KIB: i64 = 64;
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct CatchUp {
     /// The probe: the largest rise of resident size over the baseline in any stretch, in KiB.
@@ -423,5 +429,10 @@ fn v2_pr03b_catchup_peak_rss() {
         "god's actor held {} KiB at most against small's {} KiB",
         god.held_kib,
         small.held_kib
+    );
+    assert!(
+        growth <= GOD_ANON_ALLOWANCE_KIB,
+        "god's resident anonymous bytes grew {growth} KiB from stretch {quarter_n} to {last_n} \
+         (allowance {GOD_ANON_ALLOWANCE_KIB} KiB)"
     );
 }
