@@ -137,7 +137,7 @@ fn kin_table_change_gate() {
     assert_eq!(writes.load(AtomicOrdering::Relaxed), 1);
     assert_eq!(
         unchanged
-            .folder_rows(&FolderKey::new("local", "release-gate"))
+            .folder_rows(&FolderKey::new("local", "other-folder-00000"))
             .and_then(|rows| rows.values().next())
             .map(|row| row.title.as_str()),
         Some("changed title")
