@@ -16,6 +16,7 @@ import platform
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 import importlib.util  # noqa: E402
@@ -451,11 +452,12 @@ class OtherSessions(unittest.TestCase):
         self.target = self.tmp / "cmux NIGHTLY.app/Contents/Resources/bin/cmux"
         self.target.parent.mkdir(parents=True)
         self.target.write_bytes(b"old")
+        self.target.with_name("cmux-tui").symlink_to("cmux")
         self.new = self.tmp / "new"
         self.new.write_bytes(b"new")
         self.want = hashlib.sha256(b"new").hexdigest()
         self.pids = {self.APP_SOCK: 100, self.CHIEF_SOCK: 200}
-        self.restarted, self.restart_works = [], True
+        self.restarted, self.restart_works, self.surfaces = [], True, []
         test = self
 
         class Swapper:
@@ -479,6 +481,7 @@ class OtherSessions(unittest.TestCase):
             if argv[-2:] == ["server", "restart"]:
                 sock = argv[argv.index("--socket") + 1]
                 test.restarted.append(sock)
+                test.surfaces.append(Path(argv[0]).name)
                 if test.restart_works:
                     test.pids[sock] += 1
                 return subprocess.CompletedProcess(argv, 0 if test.restart_works else 1, "{}", "")
@@ -507,6 +510,8 @@ class OtherSessions(unittest.TestCase):
         step = self.swap(True)
         self.assertNotIn("left_on_old_build", step)
         self.assertEqual(self.restarted, [self.CHIEF_SOCK])
+        # On `cmux`, `server` is the machine server and refuses --socket: the cmux-tui link keeps the lifecycle.
+        self.assertEqual(self.surfaces, ["cmux-tui"])
         self.assertEqual([(s["socket"], s["old_pid"], s["new_pid"]) for s in step["sessions"]],
                          [(self.CHIEF_SOCK, 200, 201)])
         self.assertEqual((step["old_pid"], step["new_pid"]), (100, 101))  # the app's own, as before
@@ -523,6 +528,38 @@ class OtherSessions(unittest.TestCase):
         with self.assertRaises(RuntimeError) as caught:
             self.swap(True)
         self.assertIn(self.CHIEF_SOCK, str(caught.exception))
+
+
+class FirstStatus(unittest.TestCase):
+    """find_sockets asks every socket of a daemon at once: one that never answers (a Chief's holds one) no longer
+    costs the full timeout before the daemon's own socket answers."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_first_status_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_first_status_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-first-status-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        self.cli = self.tmp / "cmux"
+        # `--socket NAME --json server status`: a name ending in hang.sock never answers, the rest name pid 42.
+        self.cli.write_text('#!/bin/sh\ncase "$2" in *hang.sock) exec sleep 30 ;; esac\necho \'{"pid": 42}\'\n')
+        self.cli.chmod(0o755)
+
+    def test_the_answering_socket_wins_without_waiting_on_the_hung_one(self):
+        t0 = time.monotonic()
+        name, unanswered = self.hot.first_status(self.cli, ["/tmp/a-hang.sock", "/tmp/b-daemon.sock"], "42")
+        self.assertEqual((name, unanswered), ("/tmp/b-daemon.sock", []))
+        self.assertLess(time.monotonic() - t0, 5)
+
+    def test_only_hung_sockets_are_reported_unanswered(self):
+        name, unanswered = self.hot.first_status(self.cli, ["/tmp/a-hang.sock"], "42", timeout=0.5)
+        self.assertEqual((name, unanswered), (None, ["/tmp/a-hang.sock"]))
+
+    def test_another_pid_is_no_match(self):
+        name, unanswered = self.hot.first_status(self.cli, ["/tmp/b-daemon.sock"], "7")
+        self.assertEqual((name, unanswered), (None, []))
+
 
 ADOPTED = "b6236a4e4ea648236cef9d0ca2ffa4ed78fe0693"  # before #43477 added a tree input
 ADOPTED_KEY = "b3a5a6a29766bec348f384673782f35495bc794b"  # files.cmux.com/cmux-tui/<ADOPTED>/manifest.json treeKey

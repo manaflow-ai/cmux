@@ -679,21 +679,54 @@ def find_sockets(app: Path, cli: Path) -> list[str]:
     hung, found = [], []
     for pid in app_pids(app, DAEMON_NAMES):
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
-        for name in sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}):
-            try:
-                status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
-                                        capture_output=True, text=True, timeout=10)
-            except subprocess.TimeoutExpired:
-                hung.append(name)
-                continue
-            if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
-                found.append(name)
-                break
+        names = sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")})
+        name, unanswered = first_status(cli, names, pid)
+        if name:
+            found.append(name)
+        else:
+            hung.extend(unanswered)
     # The app's own session must answer: a hung one is not passed over for another session's.
     if hung and (not found or any(Path(name).name.startswith("cmux-app") for name in hung)):
         raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
                            f"from {app} is not known; nothing changed (--socket names it)")
     return sorted(found, key=lambda name: not Path(name).name.startswith("cmux-app"))
+
+
+def first_status(cli: Path, names: list[str], pid: str, timeout: float = 10) -> tuple[str | None, list[str]]:
+    """The first of NAMES whose `server status` names PID, every name asked at once; and, when none does, the
+    names that never answered in `timeout` seconds. A daemon holds unix sockets that are not its server too
+    (a Chief's holds one that never answers): asked one at a time, each cost the full timeout before the
+    daemon's own socket was reached (find took 10.4 s at cmux 7a6e6fb with a Chief running, 0.1 s without).
+    Each ask is its own `subprocess.run` with the timeout, which ends its child; one still running when an
+    answer wins is left to that timeout on its daemon thread."""
+    import queue
+    import threading
+    answers: queue.Queue = queue.Queue()
+
+    def ask(name: str) -> None:
+        try:
+            out = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"], capture_output=True,
+                                 text=True, timeout=timeout).stdout
+            answers.put((name, bool(re.search(rf'"pid"\s*:\s*{pid}\b', out or ""))))
+        except subprocess.TimeoutExpired:
+            answers.put((name, None))
+        except OSError:
+            answers.put((name, False))
+
+    for name in names:
+        threading.Thread(target=ask, args=(name,), daemon=True).start()
+    pending, hung, deadline = set(names), [], time.monotonic() + timeout + 1
+    while pending:
+        try:
+            name, hit = answers.get(timeout=max(0.0, deadline - time.monotonic()))
+        except queue.Empty:
+            break
+        pending.discard(name)
+        if hit:
+            return name, []
+        if hit is None:
+            hung.append(name)
+    return None, sorted(hung + list(pending))
 
 
 def find_socket(app: Path, cli: Path) -> str | None:
@@ -716,7 +749,10 @@ def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict
         with PHASES("find"):
             before = swapper.owner(target, timeout=10)
         with PHASES("reload"):
-            ran = subprocess.run([str(target), "--socket", name, "--json", "server", "restart"],
+            # The cmux-tui surface keeps `server` for the daemon's lifecycle in every build (the nightly's too, for
+            # the rollback); on `cmux`, `server` is the machine server and refuses --socket (cmux 7a6e6fb, a Chief's).
+            surface = target.with_name("cmux-tui") if target.with_name("cmux-tui").exists() else target
+            ran = subprocess.run([str(surface), "--socket", name, "--json", "server", "restart"],
                                  capture_output=True, text=True, timeout=180)
             now = swapper.owner(target, timeout=30)
         step = {"socket": name, "old_pid": before[0] if before else None, "new_pid": now[0] if now else None,
