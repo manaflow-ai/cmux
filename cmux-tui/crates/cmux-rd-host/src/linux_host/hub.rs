@@ -313,5 +313,8 @@ mod tests {
             hub.session_socket("wss://elsewhere.example/v1/sessions/s/ws", "a.b.c").err().unwrap();
         assert!(err.to_string().contains("not on"), "{err}");
         assert!(hub.session_socket("wss://hub.example/v1/sessions/s/ws", "a b").is_err());
+        let err =
+            hub.session_socket("wss://hub.example:8443/v1/sessions/s/ws", "a.b.c").err().unwrap();
+        assert!(err.to_string().contains("not on"), "{err}");
     }
 }

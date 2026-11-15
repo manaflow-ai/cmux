@@ -936,4 +936,17 @@ mod tests {
         assert!(line.contains("(key \u{e9})"), "{line}");
         assert!(request_line(&request("Ann", None)).contains("(key -)"));
     }
+
+    #[test]
+    fn a_deleted_consent_file_admits_nothing_and_stops_the_view_session() {
+        let dir = consent_dir("deleted");
+        LocalConsent { view: true, full: false }.save(&dir).unwrap();
+        let (current, stop) = serving("view");
+        assert_eq!(withdraw_unconsented(&current, LocalConsent::load(&dir)), None);
+        std::fs::remove_file(dir.join("consent.json")).unwrap();
+        assert_eq!(admit(&dir, "view"), None);
+        assert_eq!(withdraw_unconsented(&current, LocalConsent::load(&dir)).as_deref(), Some("s1"));
+        assert!(stop.load(Ordering::SeqCst));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
