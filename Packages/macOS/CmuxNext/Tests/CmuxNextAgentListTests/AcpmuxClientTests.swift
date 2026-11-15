@@ -11,6 +11,11 @@ private func fixture(_ name: String) throws -> Data {
     try Data(contentsOf: agentListFixtures.appendingPathComponent(name))
 }
 
+private final class LockedData: @unchecked Sendable {
+    let lock = NSLock()
+    var value = Data()
+}
+
 /// The recorded JSONL wraps each client change in {"change": ...}. The C
 /// client emits the inner object, so preserve its bytes instead of parsing and
 /// re-encoding it (key order is part of this receipt).
@@ -32,13 +37,12 @@ private func replay(_ bytes: Data, chunkSize: Int, expected: Data) -> Data {
     _ = client.connected()
     let driver = AcpmuxClientByteConnection(client: client)
     let done = DispatchSemaphore(value: 0)
-    let lock = NSLock()
-    var received = Data()
+    let received = LockedData()
     driver.beginForTesting {
-        lock.lock()
-        received.append(contentsOf: $0)
-        let complete = received == expected
-        lock.unlock()
+        received.lock.lock()
+        received.value.append(contentsOf: $0)
+        let complete = received.value == expected
+        received.lock.unlock()
         driver.acknowledgeBatch()
         if complete { done.signal() }
     }
@@ -49,9 +53,9 @@ private func replay(_ bytes: Data, chunkSize: Int, expected: Data) -> Data {
         offset = end
     }
     _ = done.wait(timeout: .now() + 20)
-    lock.lock()
-    defer { lock.unlock() }
-    return received
+    received.lock.lock()
+    defer { received.lock.unlock() }
+    return received.value
 }
 
 @Test("the wrapper requires the ABI-3 header")
