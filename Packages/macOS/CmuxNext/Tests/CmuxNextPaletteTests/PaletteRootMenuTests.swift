@@ -31,8 +31,8 @@ struct PaletteRootMenuTests {
         let visible = try items(in: palette.commandsPage()).filter { !$0.hidesWhenQueryEmpty }
         let direct = Set(visible.compactMap(\.actionID))
         // 131 since New Column Left joined New Column on the root (698b3ef64cf); 132 since Run Last Command Again
-        // joined the terminal intents (9f430ff0949b).
-        #expect(direct.count == 132)
+        // joined the terminal intents (9f430ff0949b); 131 again since #41102 removed the right sidebar's actions.
+        #expect(direct.count == 131)
         for id: ActionID in ["newTab", "newTab.default", "newSurface", "closeTab", "renameTab", "splitRight", "openSettings",
                              "terminal.runLastCommandAgain"] {
             #expect(direct.contains(id), "\(id) remains a direct root intent")

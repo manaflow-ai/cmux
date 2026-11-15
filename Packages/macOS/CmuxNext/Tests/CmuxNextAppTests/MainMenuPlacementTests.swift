@@ -80,7 +80,8 @@ import Testing
         #expect(counts[.app] == 11)
         #expect(counts[.file] == 15)
         #expect(counts[.edit] == 7)
-        #expect(counts[.view] == 12)
+        // View lost Toggle Right Sidebar and Focus Right Sidebar when #41102 removed the right sidebar's actions.
+        #expect(counts[.view] == 10)
         #expect(counts[.server] == 2)
         #expect(counts[.window] == 10) // Merge All Windows (Leo 2026-10-29)
         #expect(counts[.help] == 5)
