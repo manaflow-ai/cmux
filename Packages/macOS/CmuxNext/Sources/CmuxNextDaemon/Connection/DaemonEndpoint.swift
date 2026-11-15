@@ -395,6 +395,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-login`: a Cloud chat's own sign-in on that machine (the failed turn's
     /// sign-in card), as acpmux's `_acpmux/agent_login/*` on the tab's own session.
     case agentSessionLogin = "agent-session-login-v1"
+    /// `agent-session-login` for a new chat with no session yet (an unbound tab of that machine's
+    /// store): its agent's sign-in runs on that machine itself, gated there as a start is
+    /// (`vm_kind: "owner"` on a Cloud VM). Without it a new chat's failed start says to sign in there.
+    case agentSessionLoginMachine = "agent-session-login-machine-v1"
     /// Owner-only context inventory and cmux-added overrides for an attached session.
     case agentSessionContext = "agent-session-context-v1"
     /// `agent-session-btw`: the composer's `/btw` on a Cloud chat, as acpmux's inline
@@ -617,7 +621,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionContext, .agentSessionBtw, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,

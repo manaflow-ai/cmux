@@ -1764,11 +1764,17 @@ class Excusing(unittest.TestCase):
             out = subprocess.run(code, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout
             return [line.replace("::error::", "##[error]", 1) for line in out.splitlines() if line.startswith("::error::")]
 
-        registered = set()
+        registered, run_rollups = set(), set()
         for workflow, job_id, check, step, what, kind in whats:
             if excuse.routed_rollup(check) is not None:
                 registered.add(check)
                 continue
+            # A run rollup named as its check (ios-e2e-status) is judged by its run's failed children (head_jobs):
+            # here none is under its needs, so it is refused for that, never on its own red line.
+            said = ("no failed job under its needs" if check in excuse.rollups()["run"]
+                    else "summary red.*compare its failed children")
+            if check in excuse.rollups()["run"]:
+                run_rollups.add(check)
             for head_child, base_child in (("child-a", "child-b"), ("child-a", "child-a")):
                 with self.subTest(workflow=workflow, job=job_id, what=what, head=head_child, base=base_child):
                     self.gh.jobs = {1: failed_job(1, 10, HEAD, name=check, step=step),
@@ -1776,9 +1782,10 @@ class Excusing(unittest.TestCase):
                     self.gh.logs = {
                         1: log(check, step, *red_line(kind, what, head_child), "##[error]Process completed with exit code 1."),
                         2: log(check, step, *red_line(kind, what, base_child), "##[error]Process completed with exit code 1.")}
-                    with self.assertRaisesRegex(excuse.Refused, "summary red.*compare its failed children"):
+                    with self.assertRaisesRegex(excuse.Refused, said):
                         self.judge()
         self.assertEqual(registered, {"Guard status"})
+        self.assertEqual(run_rollups, {"ios-e2e-status"})
 
     def test_generated_shared_build_real_stale_error_is_still_compared(self):
         name = excuse.GENERATED_VERDICT_JOB
@@ -2840,6 +2847,15 @@ jobs:
     steps: []
   web-status: {name: Web status, needs: [web-tests, react-apps-check-shard], runs-on: x, steps: []}
 """
+# ios-e2e.yml's shape: a pull-request-only workflow whose ios-e2e-status rolls up its backend and Mac jobs.
+IOS_E2E_YML = """
+on: {pull_request: {branches: [feat-cmux-next]}}
+jobs:
+  route: {runs-on: x, steps: []}
+  backend: {needs: route, runs-on: x, steps: []}
+  mac-ios-e2e: {needs: route, runs-on: x, steps: []}
+  ios-e2e-status: {needs: [route, backend, mac-ios-e2e], if: always(), runs-on: x, steps: []}
+"""
 GUARDS_YML = """
 on:
   workflow_call:
@@ -3549,9 +3565,10 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
 
-    def derive(self, ci=CI_YML, guards=GUARDS_YML, web=CI_WEB_YML):
+    def derive(self, ci=CI_YML, guards=GUARDS_YML, web=CI_WEB_YML, ios=IOS_E2E_YML):
         with tempfile.TemporaryDirectory() as root:
-            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards), ("ci-web.yml", web)):
+            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards), ("ci-web.yml", web),
+                               ("ios-e2e.yml", ios)):
                 if text is not None:
                     (Path(root) / file).write_text(text)
             return excuse.derive_rollups(Path(root))
@@ -3569,6 +3586,7 @@ class RollupsFromNeeds(unittest.TestCase):
             (Path(root) / "ci.yml").write_text(CI_YML)
             (Path(root) / "ci-guards.yml").write_text(GUARDS_YML)
             (Path(root) / "ci-web.yml").write_text(CI_WEB_YML)
+            (Path(root) / "ios-e2e.yml").write_text(IOS_E2E_YML)
             probe = (
                 "import importlib.abc, importlib.machinery, importlib.util, json, sys\n"
                 "from pathlib import Path\n"
@@ -3607,6 +3625,9 @@ class RollupsFromNeeds(unittest.TestCase):
             "scope": {"exact": ["web / scope"], "prefixes": []},
             "web-tests": {"exact": ["web / Web tests (1/2)", "web / Web tests (2/2)"], "prefixes": []}})
         self.assertNotIn("Web status", got["run"])
+        # iOS E2E's aggregate is judged by its jobs (OtherPrSetupRed).
+        self.assertEqual(got["run"]["ios-e2e-status"]["under"], {
+            job: {"exact": [job], "prefixes": []} for job in ("backend", "mac-ios-e2e", "route")})
         self.assertEqual(got["routed"]["Guard status"]["routes"], {
             "workflow-guard-submodule-forward-only": {
                 "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
@@ -10390,7 +10411,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "owned_unnamed", "cited_red", "compile_errors_verdict"})
+    "owned_unnamed", "cited_red", "compile_errors_verdict", "setup_errors"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -10420,7 +10441,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -10514,6 +10535,7 @@ ROLES = {
     ("base_red_excuse", "guard_routes_view"): (False,),  # validate_guard_routes: the head's routed rollup guard
     ("base_red_excuse", "base_evidence"): (True,),  # a compared base run's job
     ("base_red_excuse", "compile_base_evidence"): (True,),  # a red base job compile_errors_verdict compares
+    ("base_red_excuse", "other_pr_setup_verdict"): (True,),  # another PR's red job, evidence like a base's
     ("next_batch", "probe_base"): (True, True),  # the base probe's run, then its rerun
     ("next_batch", "failing_on_base"): (True,),  # the base's newest push run
     ("next_batch", "base_tier_failures"): (True,),  # the base tier's runs
@@ -13855,6 +13877,10 @@ SCANNERS = {
     "base_red_excuse.signature": lambda f: (excuse.signature(f.view), excuse.signature(f.base_view)),
     "base_red_excuse.owned_unnamed": lambda f: excuse.owned_unnamed(TR.Result(), f.view),
     "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
+    "base_red_excuse.gitmodule_paths": lambda f: excuse.gitmodule_paths(f.log),
+    "base_red_excuse.setup_errors": lambda f: excuse.setup_errors(
+        f.view, excuse.unplaced_signature(f.job, f.log),
+        [step["name"] for step in f.job["steps"] if step.get("conclusion") == "failure"]),
     "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
     "base_red_excuse.compile_errors": lambda f: excuse.compile_errors(f.lines, f.job),
     "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
@@ -14769,6 +14795,467 @@ class HeadCheckNamedAnotherWay(unittest.TestCase):
         # A status no Actions job gave, with no base to compare: refused as the status, never judged as the check run.
         with self.assertRaisesRegex(excuse.Refused, "a status"):
             self.found("Web tests (2/4)", statuses=[status])
+
+
+OTHER_PR_SETUP_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_other_pr_setup"
+
+
+class OtherPrSetupRed(unittest.TestCase):
+    """2026-11-15, cmux#41892 at d1631b27 (run 43737949394, attempt 2): ios-e2e.yml runs on pull requests only, so its
+    reds had no feat-cmux-next verdict and were refused ("no feat-cmux-next run of its workflow has a verdict"; its
+    ios-e2e-status as "a summary red"), though 'backend' failed 'Join tailnet' (hq#10808) and 'mac-ios-e2e' failed
+    'Install build prerequisites' (cmux#43820) before any test ran, as cmux#43755's run 43737950292 did 22 minutes
+    earlier. The fixtures are those four jobs and logs as GitHub served them, and ios-e2e.yml at d1631b27
+    (other_pr_setup_verdict)."""
+
+    HEAD_SHA = "d1631b27a9049fd96e59da717aa1b988f301aaed"
+    PATH = ".github/workflows/ios-e2e.yml"
+    WORKFLOW = 9001
+    HEAD_RUN, OTHER_RUN = 43737949394, 43737950292
+    HEAD_JOBS = {"backend": 132891012731, "mac-ios-e2e": 132891012539}
+    OTHER_JOBS = {"backend": 132884782234, "mac-ios-e2e": 132884782268}
+    NOW = "2026-11-15T17:30:00+00:00"
+    AXE = "##[error]cameroncooke/axe/axe: undefined method 'run' for an instance of Homebrew::InstallSteps::DSL"
+
+    def fixture(self, job_id):
+        job = json.loads((OTHER_PR_SETUP_FIXTURES / f"job-{job_id}.json").read_text())
+        return job, (OTHER_PR_SETUP_FIXTURES / f"job-{job_id}.log").read_text()
+
+    def github(self, *, other_pulls=(43755,), other_branch="lane/perf-cmux-571-restore-chat", edit=None,
+               changed=(), related="diverged"):
+        """A fake serving the head run, the other PR's run (OTHER_PULLS, OTHER_BRANCH) and no base run; EDIT(jobs,
+        logs) changes the recorded jobs and logs first. CHANGED: the paths the PR changes; RELATED: GitHub's compare
+        status of the other run's head with this head."""
+        case = self
+        jobs, logs = {}, {}
+        for job_id in (*self.HEAD_JOBS.values(), *self.OTHER_JOBS.values()):
+            jobs[job_id], logs[job_id] = self.fixture(job_id)
+        for run, sha, base_id in ((self.HEAD_RUN, self.HEAD_SHA, 1), (self.OTHER_RUN, jobs[self.OTHER_JOBS["backend"]]
+                                                                     ["head_sha"], 3)):
+            # The two jobs around them: route passed, and ios-e2e-status only rolls up backend and mac-ios-e2e.
+            jobs[base_id] = {"id": base_id, "run_id": run, "head_sha": sha, "name": "route", "status": "completed",
+                             "conclusion": "success", "steps": []}
+            jobs[base_id + 1] = {
+                "id": base_id + 1, "run_id": run, "head_sha": sha, "name": "ios-e2e-status", "status": "completed",
+                "conclusion": "failure", "completed_at": "2026-11-15T17:16:57Z", "steps": [
+                    {"name": "Set up job", "number": 1, "status": "completed", "conclusion": "success"},
+                    {"name": "Aggregate", "number": 2, "status": "completed", "conclusion": "failure"},
+                    {"name": "Complete job", "number": 3, "status": "completed", "conclusion": "success"}]}
+        if edit is not None:
+            edit(jobs, logs)
+        record = {self.HEAD_RUN: {"head_branch": "lane/chat-output-scroll-box", "pull_requests": [{"number": 41892}],
+                                  "created_at": "2026-11-15T16:52:56Z"},
+                  self.OTHER_RUN: {"head_branch": other_branch,
+                                   "pull_requests": [{"number": n} for n in other_pulls],
+                                   "head_sha": jobs[self.OTHER_JOBS["backend"]]["head_sha"],
+                                   "created_at": "2026-11-15T16:52:56Z"}}
+
+        class Fake:
+            def __init__(self):
+                self.routes: list[str] = []
+                self.refs: list[str] = []
+
+            def json(self, route, *, paginate=False):
+                self.routes.append(route)
+                if f"/compare/feat-cmux-next...{case.HEAD_SHA}" in route:
+                    return {"merge_base_commit": {"sha": BASE_SHA}, "files": [{"filename": f} for f in changed],
+                            "commits": [{"sha": case.HEAD_SHA}], "total_commits": 1}
+                if f"...{case.HEAD_SHA}?per_page=1" in route:  # the other run's head with this one (shares_commits)
+                    return {"status": related, "merge_base_commit": {"sha": BASE_SHA}}
+                if f"/actions/workflows/{case.WORKFLOW}/runs?" in route:
+                    if "event=pull_request" not in route:
+                        return {"workflow_runs": []}  # it never runs on feat-cmux-next
+                    return {"workflow_runs": [
+                        {"id": run, "event": "pull_request", "status": "completed", "conclusion": "failure",
+                         "path": case.PATH, "workflow_id": case.WORKFLOW, "updated_at": "2026-11-15T17:17:00Z",
+                         "html_url": f"https://github.com/{REPO}/actions/runs/{run}", **record[run]}
+                        for run in (case.OTHER_RUN, case.HEAD_RUN)]}
+                if "/actions/runs/" in route and "/jobs?" in route:
+                    run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+                    return [{"jobs": [copy.deepcopy(job) for job in jobs.values() if job["run_id"] == run]}]
+                if route.endswith(f"commits/{case.HEAD_SHA}/check-runs?filter=all&per_page=100"):
+                    return [{"check_runs": [
+                        {"id": job["id"], "name": job["name"], "status": "completed", "conclusion": job["conclusion"],
+                         "app": {"slug": "github-actions"},
+                         "details_url": f"https://github.com/{REPO}/actions/runs/{job['run_id']}/job/{job['id']}"}
+                        for job in jobs.values() if job["head_sha"] == case.HEAD_SHA]}]
+                if "/actions/jobs/" in route:
+                    return copy.deepcopy(jobs[int(route.rsplit("/", 1)[1])])
+                if "/actions/runs?head_sha=" in route:
+                    return [{"total_count": 1, "workflow_runs": [{"id": case.HEAD_RUN, "workflow_id": case.WORKFLOW,
+                                                                  "head_sha": case.HEAD_SHA, "path": case.PATH}]}]
+                if "/actions/runs/" in route:
+                    run = int(route.rsplit("/", 1)[1])
+                    return {"id": run, "workflow_id": case.WORKFLOW, "path": case.PATH, "event": "pull_request",
+                            "name": "iOS E2E", "head_sha": case.HEAD_SHA, **record[run]}
+                raise AssertionError(route)
+
+            def blob(self, repo, ref, path):
+                self.refs.append(ref)
+                assert path == case.PATH, path
+                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text()
+
+            def blob_if_present(self, repo, ref, path):
+                assert path == ".gitmodules", path
+                self.refs.append(ref)
+                return case.GITMODULES
+
+            def log(self, repo, job):
+                return logs[job["id"]]
+
+        return Fake()
+
+    def judge(self, github, checks=(), now=NOW):
+        with unittest.mock.patch.object(excuse, "datetime", wraps=excuse.datetime) as clock:
+            clock.now.return_value = excuse.datetime.fromisoformat(now)
+            return "\n".join(excuse.judge(REPO, "feat-cmux-next", self.HEAD_SHA, [] if checks else [self.HEAD_RUN],
+                                          github, checks=list(checks)))
+
+    def test_41892s_setup_reds_are_excused_by_43755s_run(self):
+        said = self.judge(self.github())
+        self.assertIn("excused 'backend': not this PR (a setup red other PRs share)", said)
+        self.assertIn("(Join tailnet), before any test step (the job runs none), runs no code this PR changes and "
+                      "failed the "
+                      "same way in PR #43755's "
+                      f"run {self.OTHER_RUN}", said)
+        self.assertIn("'Join tailnet': sudo failed with exit code #", said)
+        self.assertIn("(Install build prerequisites), before its first test step 'Run iOS E2E', runs no code this PR "
+                      "changes and failed the same way "
+                      f"in PR #43755's run {self.OTHER_RUN}", said)
+        self.assertIn(f"job {self.OTHER_JOBS['mac-ios-e2e']}", said)
+        self.assertIn(self.AXE.removeprefix("##[error]"), said)
+
+    def test_the_aggregate_is_excused_through_its_children(self):
+        said = self.judge(self.github(), checks=["ios-e2e-status"])
+        self.assertIn("excused 'backend'", said)
+        self.assertIn("excused 'mac-ios-e2e'", said)
+
+    def test_the_aggregate_is_refused_when_one_child_is_not(self):
+        def edit(jobs, logs):
+            mac = self.OTHER_JOBS["mac-ios-e2e"]
+            logs[mac] = logs[mac].replace(self.AXE, "##[error]Error: No available formula with the name \"axe\".")
+        with self.assertRaisesRegex(excuse.Refused, "'mac-ios-e2e': no feat-cmux-next run"):
+            self.judge(self.github(edit=edit), checks=["ios-e2e-status"])
+
+    def test_a_different_error_on_the_other_pr_is_refused(self):
+        def edit(jobs, logs):
+            backend = self.OTHER_JOBS["backend"]
+            logs[backend] = logs[backend].replace("##[error]sudo failed with exit code 1",
+                                                  "##[error]tailscale up: context deadline exceeded")
+        with self.assertRaisesRegex(excuse.Refused, "'backend': no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(self.github(edit=edit), checks=["backend"])
+
+    def test_a_match_on_the_same_pr_only_is_refused(self):
+        # Attempt 1 of the same PR's run, or another run of its branch: never evidence that the red is not its own.
+        for pulls, branch in (((41892,), "lane/chat-output-scroll-box"), ((41892,), "lane/other"),
+                              ((43755,), "lane/chat-output-scroll-box"), ((), "lane/perf-cmux-571-restore-chat")):
+            with self.subTest(pulls=pulls, branch=branch):
+                with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+                    self.judge(self.github(other_pulls=pulls, other_branch=branch), checks=["backend"])
+
+    def test_a_match_older_than_a_day_is_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(self.github(), checks=["mac-ios-e2e"], now="2026-11-16T17:00:00+00:00")
+        self.assertIn("excused 'mac-ios-e2e'", self.judge(self.github(), checks=["mac-ios-e2e"],
+                                                           now="2026-11-16T16:50:00+00:00"))
+
+    def test_a_failure_in_a_test_step_or_after_one_is_refused(self):
+        job, _ = self.fixture(self.HEAD_JOBS["mac-ios-e2e"])
+        names = excuse.workflow_step_names(REPO, job, self.PATH, self.github(), {})
+        self.assertEqual(excuse.setup_red_steps(job, names, self.PATH, set()),
+                         (["Install build prerequisites"], "Run iOS E2E"))
+
+        def failing(*steps):
+            changed = copy.deepcopy(job)
+            for step in changed["steps"]:
+                if step["conclusion"] == "failure" or step["name"] in steps:
+                    step["conclusion"] = "failure" if step["name"] in steps else "success"
+            return changed
+        self.assertEqual(excuse.setup_red_steps(failing("Run iOS E2E"), names, self.PATH, set()),
+                         "its failed step 'Run iOS E2E' runs tests")
+        self.assertEqual(excuse.setup_red_steps(failing("Upload E2E evidence"), names, self.PATH, set()),
+                         "its failed step 'Upload E2E evidence' runs tests")
+        self.assertEqual(excuse.setup_red_steps(failing("Stop tagged Mac app"), names, self.PATH, set()),
+                         "its failed step 'Stop tagged Mac app' runs after its test step 'Run iOS E2E'")
+        # A script that runs a test runner is a test step whatever its name.
+        self.assertTrue(excuse.runs_tests("./scripts/e2e/ios-e2e-run.sh --tag x"))
+        self.assertTrue(excuse.runs_tests("python3 -m pytest tests/"))
+        self.assertFalse(excuse.runs_tests("./scripts/e2e/require-fresh-tailnet-host.sh"))
+
+        # And judged end to end: the same red moved into the test step on both sides is the PR's own.
+        def edit(jobs, logs):
+            for job_id in (self.HEAD_JOBS["mac-ios-e2e"], self.OTHER_JOBS["mac-ios-e2e"]):
+                for step in jobs[job_id]["steps"]:
+                    if step["name"] in ("Install build prerequisites", "Select Xcode"):
+                        step["conclusion"] = "success"
+                    elif step["name"] == "Run iOS E2E":
+                        step["conclusion"] = "failure"
+        with self.assertRaises(excuse.Refused):
+            self.judge(self.github(edit=edit), checks=["mac-ios-e2e"])
+
+    def test_a_crash_a_timeout_or_a_cancelled_step_is_refused(self):
+        lines = {"timed out": ("##[error]The job running on runner blacksmith has exceeded the maximum execution time "
+                               "of 5 minutes."),
+                 "crash": "Fatal error: Unexpectedly found nil while unwrapping an Optional value"}
+        for what, line in lines.items():
+            def edit(jobs, logs, line=line):
+                mac = self.HEAD_JOBS["mac-ios-e2e"]
+                logs[mac] = logs[mac].replace(self.AXE, self.AXE + "\n2026-11-15T17:16:46.2760000Z " + line)
+            with self.subTest(what), self.assertRaisesRegex(excuse.Refused, "never a base red"):
+                self.judge(self.github(edit=edit), checks=["mac-ios-e2e"])
+
+        def cancelled(jobs, logs):
+            for step in jobs[self.HEAD_JOBS["mac-ios-e2e"]]["steps"]:
+                if step["conclusion"] == "failure":
+                    step["conclusion"] = "cancelled"
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(self.github(edit=cancelled), checks=["mac-ios-e2e"])
+
+        def other_timed_out(jobs, logs):
+            mac = self.OTHER_JOBS["mac-ios-e2e"]
+            logs[mac] = logs[mac].replace(self.AXE, self.AXE + "\n2026-11-15T16:54:52.3430000Z " + lines["timed out"])
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(self.github(edit=other_timed_out), checks=["mac-ios-e2e"])
+
+    def test_no_pr_text_is_read(self):
+        # Only the step names and error lines match: a run's title or branch never stands in for them.
+        github = self.github()
+        self.judge(github)
+        self.assertFalse([route for route in github.routes if "/pulls" in route or "/issues" in route], github.routes)
+        # The reads are bounded: one failed-run list, a job list per other run read, at most OTHER_PR_LOGS logs.
+        self.assertEqual(len([route for route in github.routes if "event=pull_request" in route]), 1)
+
+    # PR #43876's review (FIX FIRST at b7f6aff6c64): a step before the tests that runs the PR's own code fails on a
+    # line an outage prints too, so the same line on another PR is no evidence. Each red below is moved, on both PRs,
+    # into such a step, with the line that step prints (scripts/e2e/backend-up.sh:104, mobile-dev-launch.sh:396-399,
+    # `bun install --frozen-lockfile`).
+    HEALTH = ("##[error][infra-preflight] backend health: iroh-v2 never answered at "
+              "https://cmux-e2e-backend.tail137216.ts.net:8443/health")
+    SIGN_IN = ("error: dev.cmux.ios.ci-e2e never published a signed-in app receipt for profile agent (waited 120 "
+               "seconds)")
+    LOCKFILE = "error: lockfile had changes, but lockfile is frozen"
+
+    def move_red(self, jobs, logs, job_id, to_step, line):
+        """JOBS[JOB_ID] and its log with its red moved from the step that failed into TO_STEP, which prints LINE:
+        each step between them now ran and passed (a header of its own, as the runner opens it), TO_STEP failed."""
+        job = jobs[job_id]
+        steps = sorted(job["steps"], key=lambda step: step["number"])
+        was = next(step for step in steps if step["conclusion"] == "failure")
+        to = next(step for step in steps if step["name"] == to_step)
+        declared = excuse.yaml_module().safe_load((OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text())
+        specs = {spec["name"]: spec for spec in declared["jobs"][job["name"]]["steps"]}
+
+        def header(name):
+            spec = specs[name]
+            said = spec["uses"] if "uses" in spec else spec["run"].strip().splitlines()[0].split("${{", 1)[0]
+            return f"##[group]Run {said.strip()}"
+        lines = logs[job_id].split("\n")
+        at = next(k for k, text in enumerate(lines) if "##[error]" in text)
+        stamp = lines[at].split(" ", 1)[0]
+        lines = [text for text in lines if "##[error]" not in text]
+        red = [f"{stamp} {line}", f"{stamp} ##[error]Process completed with exit code 1."]
+        if to["number"] > was["number"]:
+            added = []
+            for step in steps:
+                if was["number"] < step["number"] <= to["number"]:
+                    step["conclusion"] = "failure" if step is to else "success"
+                    added += [f"{stamp} {header(step['name'])}", f"{stamp} ##[endgroup]"]
+            lines[at:at] = added + red
+        else:
+            start = next(k for k, text in enumerate(lines) if text.endswith(header(to_step)))
+            end = next(k for k in range(start + 1, len(lines)) if "##[group]Run " in lines[k])
+            lines[end:end] = [f"{lines[end - 1].split(' ', 1)[0]} {text.split(' ', 1)[1]}" for text in red]
+            to["conclusion"] = "failure"
+        was["conclusion"] = "success"
+        logs[job_id] = "\n".join(lines)
+
+    def moved(self, job, to_step, line):
+        def edit(jobs, logs):
+            for job_id in (self.HEAD_JOBS[job], self.OTHER_JOBS[job]):
+                self.move_red(jobs, logs, job_id, to_step, line)
+        return edit
+
+    def test_a_step_that_runs_the_prs_code_is_never_excused(self):
+        for job, step, line in (("backend", "Start per-run backend", self.HEALTH),
+                                ("mac-ios-e2e", "Sign in and pair simulator", self.SIGN_IN),
+                                ("backend", "Install dependencies", self.LOCKFILE)):
+            with self.subTest(step), self.assertRaisesRegex(
+                    excuse.Refused, f"not a setup red other PRs share: its failed step '{step}' runs the PR's code"):
+                self.judge(self.github(edit=self.moved(job, step, line)), checks=[job])
+
+    def test_a_pr_that_changes_the_workflow_is_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, f"this PR changes its workflow \\({self.PATH}\\)"):
+            self.judge(self.github(changed=[self.PATH]), checks=["backend"])
+        # A script an allow-listed step runs is the PR's code once the PR changes it.
+        with self.assertRaisesRegex(excuse.Refused, "runs files this PR changes \\(scripts/install-zig-ci.sh\\)"):
+            self.judge(self.github(changed=["scripts/install-zig-ci.sh"]), checks=["mac-ios-e2e"])
+        # Its steps are read from the workflow at the merge-base, never the head's.
+        github = self.github()
+        self.judge(github, checks=["backend"])
+        self.assertIn(BASE_SHA, github.refs)
+
+    def test_another_prs_run_of_a_commit_this_pr_has_is_no_match(self):
+        # Its head is an ancestor of this head (a stacked lane), this head of its (behind), or the same commit.
+        for related in ("ahead", "behind", "identical"):
+            with self.subTest(related), self.assertRaisesRegex(excuse.Refused, "the 1 that did share commits"):
+                self.judge(self.github(related=related), checks=["backend"])
+
+    def test_a_completed_time_without_its_zone_is_skipped(self):
+        self.assertIsNone(excuse.completed({"completed_at": "2026-11-15T17:16:57"}))
+        self.assertIsNotNone(excuse.completed({"completed_at": "2026-11-15T17:16:57Z"}))
+
+    # PR #43876's second review (FIX FIRST at f5c717cd260): an allow-listed step whose input the PR changes is the PR's
+    # red. select-ci-xcode.sh:98's floor line, digits masked, is the same for a PR that bumps .xcode-version past its
+    # pool's Xcode and for a runner image that lacks the pin.
+    XCODE_FLOOR = ("##[error]Found Xcode 26.0 at /Applications/Xcode_26.0.app; cmux requires Xcode 26.1 "
+                   "(.xcode-version). This runner's image does not carry the Xcode pinned for its pool in "
+                   "scripts/ci/xcode-pins.txt")
+    NOT_OUR_REF = ("##[error]fatal: remote error: upload-pack: not our ref "
+                   "0123456789abcdef0123456789abcdef01234567")
+    GITMODULES = ('[submodule "ghostty"]\n\tpath = ghostty\n\turl = https://github.com/manaflow-ai/ghostty.git\n'
+                  '[submodule "ghostty-next"]\n\tpath = ghostty-next\n\turl = https://github.com/manaflow-ai/ghostty\n')
+
+    def test_a_pr_that_changes_the_xcode_pin_is_not_excused_by_select_xcode(self):
+        edit = self.moved("mac-ios-e2e", "Select Xcode", self.XCODE_FLOOR)
+        self.assertIn("excused 'mac-ios-e2e'", self.judge(self.github(edit=edit), checks=["mac-ios-e2e"]))
+        for pin in (".xcode-version", "scripts/ci/xcode-pins.txt"):
+            with self.subTest(pin), self.assertRaisesRegex(
+                    excuse.Refused, f"its failed step 'Select Xcode' runs files this PR changes \\("
+                    f"{re.escape(pin)}\\)"):
+                self.judge(self.github(edit=edit, changed=[pin]), checks=["mac-ios-e2e"])
+        # The steps that run under the selected Xcode read the pins too.
+        with self.assertRaisesRegex(excuse.Refused, "'Install build prerequisites' runs files this PR changes"):
+            self.judge(self.github(changed=[".xcode-version"]), checks=["mac-ios-e2e"])
+
+    def test_a_checkout_red_is_the_prs_own_when_it_changes_a_submodule(self):
+        edit = self.moved("mac-ios-e2e", "Checkout cmux", self.NOT_OUR_REF)
+        self.assertIn("excused 'mac-ios-e2e'", self.judge(self.github(edit=edit), checks=["mac-ios-e2e"]))
+        for pin in ("ghostty", "ghostty-next", ".gitmodules"):
+            with self.subTest(pin), self.assertRaisesRegex(
+                    excuse.Refused, "its failed step 'Checkout cmux' checks out submodules "
+                    f"this PR changes \\({pin}\\)"):
+                self.judge(self.github(edit=edit, changed=[pin]), checks=["mac-ios-e2e"])
+
+    LANE, PARENT = "lane/parent", "c" * 40
+
+    def stacked(self, github):
+        """GITHUB as the head stacked on lane branch LANE, which heads open PR #43000 at PARENT (stacked_parent)."""
+        real, lane = github.json, self.LANE
+
+        def answer(route, *, paginate=False):
+            if f"/pulls?head=manaflow-ai:{lane}&" in route:
+                return [{"number": 43000, "state": "open",
+                         "head": {"ref": lane, "sha": self.PARENT, "repo": {"full_name": REPO}}}]
+            if route.endswith(f"/branches/{lane}"):
+                return {"commit": {"sha": self.PARENT}}
+            if f"/compare/{lane}...{self.HEAD_SHA}" in route:
+                return dict(real(route.replace(lane, "feat-cmux-next"), paginate=paginate),
+                            merge_base_commit={"sha": self.PARENT})
+            return real(route.replace(f"branch={lane}", "branch=feat-cmux-next"), paginate=paginate)
+        github.json = answer
+        return github
+
+    def test_a_stacked_pr_is_judged_by_its_parents_head_never_by_another_pr(self):
+        # Into a lane branch heading an open PR, the parent's head is the base (stacked_parent, Evidence.merge_base):
+        # its checks there are the only verdicts, and a parent with no run of the workflow refuses the red before this
+        # rule is asked, so no other PR's run, no workflow read at another commit, can excuse a stacked child's red.
+        # The parent is judged on its own when it lands, by this rule at feat-cmux-next's merge-base.
+        def judge(gh):
+            with unittest.mock.patch.object(excuse, "datetime", wraps=excuse.datetime) as clock:
+                clock.now.return_value = excuse.datetime.fromisoformat(self.NOW)
+                return "\n".join(excuse.judge(REPO, self.LANE, self.HEAD_SHA, [], gh, checks=["backend"]))
+        for changed in ((), (self.PATH,)):
+            github = self.stacked(self.github(changed=changed))
+            with self.subTest(changed=changed), self.assertRaisesRegex(
+                    excuse.Refused, f"{self.LANE} is PR #43000's head; "
+                    f"its head {self.PARENT[:12]} has no completed run"):
+                judge(github)
+            self.assertFalse([route for route in github.routes if "event=pull_request" in route], github.routes)
+            self.assertLessEqual(set(github.refs), {self.HEAD_SHA})  # only read_head's own placing of its log
+
+
+class SetupOnlyStepsReadNothingUnlisted(unittest.TestCase):
+    """Detector (PR #43876's second review, f5c717cd260): each SETUP_ONLY_STEPS step lists every repository path it
+    reads. From the step's `run:` in the real workflow, every script it runs is scanned, and every script those name,
+    for the repository paths they source, run or read ($SCRIPT_DIR/..., $REPO_ROOT/..., $PROJECT_DIR/..., a Python
+    `root / "..."`, `git -C <dir>`, `cd <dir>`); a path no listed entry covers fails it. A step after 'Select Xcode' in
+    its job runs under the Xcode the pins select, so it lists them too."""
+
+    SCRIPT_DIR = re.compile(r"\$\{?(?:SCRIPT_DIR|SELECT_XCODE_SCRIPT_DIR)\}?/([\w./$-]+)")
+    ROOT_DIR = re.compile(r"\$\{?(?:REPO_ROOT|PROJECT_DIR|SELECT_XCODE_REPO_ROOT|repo_root)\}?/([\w./$-]+)")
+    PY_ROOT = re.compile(r"\broot / \"([^\"]+)\"")
+    SUBDIR = re.compile(r"(?:\bgit -C|^\s*cd|[;&|]\s*cd) \"?([A-Za-z][\w.-]*)\"?(?=[\s;)&|]|$)")
+    RUN_SCRIPT = re.compile(r"(?<![\w/$.-])\.?/?(scripts/[\w./-]+\.(?:sh|py))")
+    # A path whose first part is a variable: the repository paths it can be.
+    DYNAMIC = {"$source/build.zig.zon": ("ghostty/build.zig.zon", "ghostty-next/build.zig.zon")}
+
+    def reads(self, text, script=True):
+        found = set()
+        for line in text.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            if not script:
+                found.update(self.RUN_SCRIPT.findall(line))
+                continue
+            found.update(path if path.startswith("..") else "scripts/" + path
+                         for path in self.SCRIPT_DIR.findall(line))
+            for pattern in (self.ROOT_DIR, self.PY_ROOT, self.SUBDIR):
+                found.update(pattern.findall(line))
+        out = set()
+        for path in found:
+            if path.startswith(".."):  # the script's own root ($SCRIPT_DIR/..), no file
+                continue
+            path = path.rstrip("/")
+            if "$" in path:
+                fixed = path.split("$", 1)[0].rstrip("/")
+                out.update(self.DYNAMIC.get(path, (path,)) if not fixed else (fixed,))
+            else:
+                out.add(path)
+        return out
+
+    def unlisted(self, workflow, step, listed):
+        """The paths step STEP of WORKFLOW (its job's spec) reads that LISTED does not cover."""
+        def covered(path):
+            return any(path == own or path.startswith(own + "/") for own in listed)
+        todo = sorted(self.reads(step.get("run") or "", script=False))
+        seen, missing = set(), set()
+        while todo:
+            path = todo.pop()
+            if path in seen:
+                continue
+            seen.add(path)
+            if not covered(path):
+                missing.add(path)
+            if path.endswith((".sh", ".py")) and (ROOT / path).is_file():
+                todo.extend(sorted(self.reads((ROOT / path).read_text())))
+        return missing
+
+    def test_every_allow_listed_step_lists_what_it_reads(self):
+        yaml = excuse.yaml_module()
+        for path, steps in excuse.SETUP_ONLY_STEPS.items():
+            jobs = yaml.safe_load((ROOT / path).read_text())["jobs"]
+            for job_id, job in jobs.items():
+                declared = [step.get("name") for step in job.get("steps") or []]
+                for k, step in enumerate(job.get("steps") or []):
+                    if step.get("name") not in steps:
+                        continue
+                    listed = steps[step["name"]]
+                    with self.subTest(job=job_id, step=step["name"]):
+                        self.assertEqual(self.unlisted(path, step, listed), set())
+                        if "Select Xcode" in declared[:k]:
+                            self.assertLessEqual(set(excuse.XCODE_PINS), set(listed))
+
+    def test_the_detector_finds_what_a_script_reads(self):
+        text = "\n".join(['SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"', 'source "$SCRIPT_DIR/lib.sh"',
+                          'cat "$REPO_ROOT/.xcode-version"', 'git -C ghostty rev-parse HEAD',
+                          'zon = root / "cmux-tui/x.zon"', '# "$REPO_ROOT/commented.txt"',
+                          'manifest="$repo_root/$source/build.zig.zon"'])
+        self.assertEqual(self.reads(text), {"scripts/lib.sh", ".xcode-version", "ghostty", "cmux-tui/x.zon",
+                                            "ghostty/build.zig.zon", "ghostty-next/build.zig.zon"})
+        # The scripts the first review's list named, without what they read, are found short.
+        step = {"run": "./scripts/select-ci-xcode.sh"}
+        self.assertEqual(self.unlisted(".github/workflows/ios-e2e.yml", step, ("scripts/select-ci-xcode.sh",)),
+                         set(excuse.XCODE_PINS))
 
 
 if __name__ == "__main__":
