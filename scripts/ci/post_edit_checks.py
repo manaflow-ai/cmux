@@ -34,8 +34,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 PATH_KEYS = {"file_path", "filePath", "path", "filename", "target_file", "targetFile"}
 # apply_patch-style tools carry their paths only in the patch text.
@@ -132,7 +130,14 @@ def run_tool(argv: list[str], root: Path, budget: Budget, *, cap: float = 8.0, s
     try:
         out, err = proc.communicate(stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
-        kill_group(proc, signal.SIGKILL)
+        # The hooks run a copy of this file alone, with no ci_process_tree.py beside it, so the fallback is inline: a
+        # refused killpg (macOS EPERM) kills the tool by its handle (cmux#41880 review F1).
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            proc.kill()
         proc.communicate()
         return None
     return subprocess.CompletedProcess(argv, proc.returncode, out, err)

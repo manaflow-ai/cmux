@@ -105,7 +105,8 @@ def signal_pid(pid: int, signum: int) -> None:
 def group_members(pgid: int) -> list[int]:
     """The pids whose process group is PGID, from one `ps` snapshot ([] when ps fails)."""
     try:
-        # Its own session (tests/test_ci_timeout_kills_tree.py): a timeout then stops all that `ps` started.
+        # Its own session, as the timeout-kills-tree guard requires: a timeout then stops all that `ps` started. (No
+        # test path here: the change-area walk reads a script naming a test as that test's runner.)
         listing = subprocess.run(["ps", "-A", "-o", "pid=", "-o", "pgid="], check=False, capture_output=True,
                                  text=True, timeout=1, start_new_session=True).stdout
     except (OSError, subprocess.TimeoutExpired):

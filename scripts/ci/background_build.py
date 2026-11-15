@@ -37,8 +37,22 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             print(*args, **kwargs)
         except (BrokenPipeError, OSError, ValueError):
             pass
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
+
+
+def kill_group(pgid: int, sig: int) -> bool:
+    """SIG to process group PGID; False only when the group is gone. A refused killpg (macOS EPERM, members exiting)
+    signals the leader by its pid instead (cmux#41880 review F1). Inline rather than ci_process_tree.kill_group: the
+    nightly tests run a copy of this file alone, with no ci_process_tree.py beside it."""
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        try:
+            os.kill(pgid, sig)
+        except OSError:
+            pass
+    return True
 
 
 def paths(state: Path, name: str) -> dict[str, Path]:
