@@ -692,7 +692,8 @@ jobs:
           # family skipped that the image has, or walked that it lacks.
           while IFS= read -r f; do
             echo "::error::App Review gate: a device leg's image disagrees with the plan ($f); check .github/ios-review-gate-devices.json"
-            { echo; echo '```json'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            { echo; echo "**Device plan mismatch** ($f): this run fails until .github/ios-review-gate-devices.json is checked again."
+              echo '```json'; cat "$f"; echo '```'; } | tee -a review-gate.md >> "$GITHUB_STEP_SUMMARY"
             code=1
           done < <(find in -name 'device-plan-mismatch.json' -type f | sort)
           exit $code

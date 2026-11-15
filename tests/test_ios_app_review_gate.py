@@ -1216,6 +1216,12 @@ class DevicePlanTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("check could not read this image's simulators", proc.stderr)
         self.assertTrue(out.exists())
+        # Nor is a plan or picker the check cannot load.
+        out.unlink()
+        proc = self.script("check", "--plan", "not json", "--picker", str(PICKER), "--out", str(out))
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("::error::the device check could not run", proc.stderr)
+        self.assertTrue(out.exists())
 
     def test_the_matrix_walks_only_the_plans_families(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()

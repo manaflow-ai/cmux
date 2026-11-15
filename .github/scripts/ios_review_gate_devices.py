@@ -189,7 +189,15 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--picker", required=True)
     check.add_argument("--out", required=True)
     args = parser.parse_args(argv)
-    return plan_main(args) if args.command == "plan" else check_main(args)
+    if args.command == "plan":
+        return plan_main(args)
+    try:
+        return check_main(args)
+    except Exception as error:  # an unreadable plan or picker is never agreement
+        message = f"the device check could not run: {error!r}"
+        print(f"::error::{message}", file=sys.stderr)
+        Path(args.out).write_text(json.dumps({"mismatches": [{"family": "", "message": message}]}, indent=2) + "\n")
+        return 1
 
 
 if __name__ == "__main__":
