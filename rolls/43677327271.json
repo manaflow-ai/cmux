@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43677327271",
+  "recorded_at": "2026-11-15T04:49:27Z",
+  "reason": "cmux-tui 8d0524328b3c changes the image's cmux-tui (pinned 8465bdc5bd38)",
+  "dry_run": false,
+  "cmux_tui": "8d0524328b3c091835083b02c757aa0775af53cd",
+  "fixes": [
+    {
+      "sha": "8d0524328b3c091835083b02c757aa0775af53cd",
+      "mergedAt": "2026-11-14T20:17:54-08:00",
+      "subject": "Action catalog: Capture Screenshot to Chat (FFI step A) (#43120)"
+    },
+    {
+      "sha": "7dc15357c936395896ab6df2ad2e1cfe09e2e869",
+      "mergedAt": "2026-11-14T20:17:20-08:00",
+      "subject": "Customize library: every customization you keep, as layers you turn on and off and share (#43418)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T04:49:27Z",
+    "snapshot_id": "sh-aa69c1d59406404585077668cdc4016b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43677327271): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5d2cecc7f76bcf564d1c77ffbea250326f4c41ca",
+    "image": "cloud-native-auto-8d052432-43677327271-1",
+    "revision": "ci-43677327271-1",
+    "at": "2026-11-15T04:49:27Z"
+  },
+  "rolled_back": false
+}
