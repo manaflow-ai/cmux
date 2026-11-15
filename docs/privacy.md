@@ -65,7 +65,6 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `cmux-staging.vercel.app` | connects | classic cmux Cloud's staging sign-in, only when staging is chosen |
 | `cdn.agentclientprotocol.com` | connects | the public registry of ACP coding agents, read by the daemon |
 | `api.anthropic.com` | connects | the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude |
-| `api.cloudflare.com` | connects | the Cloudflare API, when you run `cmux keys connect cloudflare` or `cmux keys mint cloudflare-r2`, with the account token you gave it |
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
 | `api.bing.com` | connects | search suggestions as you type, when Bing is your search engine |
 | `chatgpt.com` | connects | OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script |
