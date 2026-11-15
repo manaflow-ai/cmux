@@ -490,7 +490,7 @@ final class CmuxSettingsFileStore {
         }
         if let fileEditorSection = root["fileEditor"] as? [String: Any] { parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot) }
         if let section = root["fileExplorer"] as? [String: Any] { parseFileExplorerSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
-        if let section = root["canvas"] as? [String: Any] { parseCanvasSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
+        parseCanvasSection(in: root, sourcePath: sourcePath, snapshot: &snapshot)
         if let section = root["agentMessages"] as? [String: Any] { parseAgentMessagesSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
         if let section = root["chief"] as? [String: Any] { parseChiefSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
