@@ -1012,6 +1012,8 @@ pub struct Hub {
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
+    /// One chat's adoption ended (`log_load.rs` `chat_adopted`): its waiting prompts look again.
+    pub(crate) chat_adopted_wake: Notify,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has served the model lists kept on disk: `_acpmux/models` waits for it.
@@ -1456,6 +1458,7 @@ impl Hub {
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
+            chat_adopted_wake: Notify::new(),
             catalog_ready: tokio::sync::watch::channel(true).0,
             model_caches_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -2036,6 +2039,7 @@ impl Hub {
             applied: StdMutex::new(session::Applied::default()),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
+            purging: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
@@ -3078,6 +3082,10 @@ impl Hub {
     /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
     /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
     pub(super) fn reopen(&self, session: &Session, stops: u64) -> bool {
+        // A chat being deleted stays closed (`Session::purging`).
+        if session.purging.load(Ordering::SeqCst) {
+            return false;
+        }
         let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
         if reopened {
             self.append(session, "mux", "reopened", json!({}));

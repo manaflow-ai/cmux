@@ -44,7 +44,7 @@ mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
 pub use mirror::{MAX_FRAME_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
-pub use origins::{Source, refused_held_rows};
+pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
 
 pub use crate::wire::{DeltaFrame, Window};
 
@@ -490,6 +490,10 @@ pub struct Hub {
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
     rebuild_fenced: Arc<AtomicU64>,
+    /// Moves when the writer drops an origin's source or record: a slot may be free.
+    origin_slots_freed: Arc<AtomicU64>,
+    /// Moves when the writer refuses an origin past [`MAX_ORIGINS`] (`admit_origin`).
+    origins_refused: Arc<AtomicU64>,
     mirror: Arc<mirror::Counters>,
 }
 
@@ -547,6 +551,8 @@ pub struct HubWriter {
     directory: Option<PathBuf>,
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
+    origin_slots_freed: Arc<AtomicU64>,
+    origins_refused: Arc<AtomicU64>,
     mirror: mirror::WriterMirror,
 }
 
@@ -731,6 +737,8 @@ impl Hub {
         let rebuild_requested = Arc::new(AtomicBool::new(false));
         let rebuild_count = Arc::new(AtomicU64::new(rebuilds));
         let rebuild_fenced = Arc::new(AtomicU64::new(0));
+        let origin_slots_freed = Arc::new(AtomicU64::new(0));
+        let origins_refused = Arc::new(AtomicU64::new(0));
         let has_disk = index.disk().is_some();
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
@@ -758,6 +766,8 @@ impl Hub {
             rebuild_requested: rebuild_requested.clone(),
             rebuild_count: rebuild_count.clone(),
             rebuild_fenced,
+            origin_slots_freed: origin_slots_freed.clone(),
+            origins_refused: origins_refused.clone(),
             mirror: mirror.clone(),
         };
         let mut writer = HubWriter {
@@ -794,6 +804,8 @@ impl Hub {
             directory: directory.map(Path::to_path_buf),
             rebuild_requested,
             rebuild_count,
+            origin_slots_freed,
+            origins_refused,
             mirror: mirror::WriterMirror::new(mirror),
         };
         if has_disk {
@@ -823,6 +835,28 @@ impl Hub {
     /// retain this value and walk again when it changes.
     pub fn rebuild_count(&self) -> u64 {
         self.rebuild_count.load(Ordering::Acquire)
+    }
+
+    /// How many times this hub's writer dropped an origin's source or record (`origins.rs`): a
+    /// slot of [`MAX_ORIGINS`] may be free since a source last read it. A source that kept the
+    /// origins refused at the bound offers them again when it moves (decision 261).
+    pub fn origin_slots_freed(&self) -> u64 {
+        self.origin_slots_freed.load(Ordering::Acquire)
+    }
+
+    /// How many submits this hub's writer refused at [`MAX_ORIGINS`] (`admit_origin`): the
+    /// process-wide [`refused_origins`] counted per hub. A source that tells its refusals from
+    /// the index it reads learns here of one it could not see.
+    pub fn origins_refused(&self) -> u64 {
+        self.origins_refused.load(Ordering::Acquire)
+    }
+
+    /// The origins the writer counts toward [`MAX_ORIGINS`] that a reader can see: every record,
+    /// and each source with none yet. The writer also counts a record waiting on a log retry.
+    pub fn origins_counted(&self) -> usize {
+        let index = self.snapshot();
+        let sources = self.sources.load();
+        index.origins().count() + sources.keys().filter(|id| index.origin(id).is_none()).count()
     }
 
     /// Ends a source's rebuild walk. An incomplete walk leaves existing list

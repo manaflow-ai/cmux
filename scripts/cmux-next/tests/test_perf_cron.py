@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -100,6 +100,30 @@ class DecideTests(unittest.TestCase):
         state["current"]["host"] = cron.BENCH_WORKER
         d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
         self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
+
+    def test_a_measurement_that_gave_the_bench_host_up_still_asks_it_while_github_is_busy(self):
+        # 2026-11-15 00:54Z: the measurement gave cmux20-bench up after 2 h without a part (two results were lost to
+        # the rate limit and the host ran other steps). The give-up kept the bench host from the "only on the bench
+        # host" rule for 2 h, a dev build waited for a Mac at every tick, and so no Mac part was asked for at all
+        # (01:13Z plan: "none"). Giving a host up is for trying another host; while only the bench host may be
+        # asked, it is asked.
+        busy = "cmux-next.yml waits for a Mac runner"
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, busy)
+        state["current"]["host"] = cron.BENCH_WORKER
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
+        late = at(1 + cron.HOST_WAIT_HOURS + 0.1)
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
+        self.assertEqual(state["current"]["gave_up"][0]["host"], cron.BENCH_WORKER)
+        self.assertEqual((d["action"], d.get("part"), d.get("worker")), ("part", "build", cron.BENCH_WORKER))
+        # Without a waiting build the measurement goes to any idle measure host, as before.
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, None)
+        self.assertEqual((d["action"], d.get("worker")), ("part", ""))
+        # A bench host the fleet check reported offline is not asked.
+        cron.mark_host(state, cron.BENCH_WORKER, unreachable_since=cron.iso(late))
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
+        self.assertEqual(d["action"], "none")
 
     def test_the_measurement_in_flight_goes_on_before_a_newer_tip(self):
         state = cron.empty_state(T0)
@@ -642,6 +666,31 @@ class WebUiTests(unittest.TestCase):
             {"name": "infinite_items.n1000.memory_vs_empty", "p50": 1.4, "p95": 1.4, "unit": "x", "floor": 0.1}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.infinite_items.n1000.memory_vs_empty"]["p95"], 1.4)
+
+    def test_the_chat_100k_flat_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-flat"))
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.ratio_max@linux"), "web-ui-flat")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.long_x20.renderer_mb@linux"), "web-ui-flat")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.ratio_max@linux"), "web-ui-flat-grown")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.empty_x20.renderer_mb@linux"), "web-ui-flat-grown")
+        argv, _, _ = cron.linux_bench_runs("/r", "web-ui-flat-grown")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"])
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-flat")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_chat_disk_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("chat-disk"))
+        self.assertEqual(cron.part_for_row("webui.chat_disk.growth_ratio@linux"), "chat-disk")
+        self.assertEqual(cron.part_for_row("webui.chat_disk.long_mb_per_hour@linux"), "chat-disk")
+        runs = cron.linux_bench_runs("/r", "chat-disk")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/chat-disk-growth-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/chat-disk-growth-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["chat-disk"], {"rows": [
+            {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
 
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))

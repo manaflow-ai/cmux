@@ -95,6 +95,14 @@ pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
         }
         std::fs::write(file, text)?;
     }
+    // `cmux-extension-sdk/customize`: the types of what this build lets you customize,
+    // written from the same schema `cmux customize schema` prints (not committed anywhere).
+    let types = dir.join("sdk/cmux-extension-sdk/typescript/src/generated/customize.ts");
+    if let Some(parent) = types.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let schema = cmux_customize::schema::Schema::current();
+    std::fs::write(types, cmux_customize::schema::typescript(&schema))?;
     Ok(dir.join("sdk").join(SDK_FILES[0].0))
 }
 
