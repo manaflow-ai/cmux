@@ -165,6 +165,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
+pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod placement;
@@ -221,7 +223,8 @@ pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
-#[cfg(test)]
+// The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
+#[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;

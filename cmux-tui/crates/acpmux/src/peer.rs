@@ -33,6 +33,8 @@ pub(crate) use carriers::paired_install;
 #[path = "peer_carrier.rs"]
 mod carrier;
 pub use dual::DualStats;
+#[path = "peer_dialer.rs"]
+mod dialer;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
@@ -360,6 +362,8 @@ pub struct Peer {
     session_auth: AtomicBool,
     /// The features the peer listed at its last handshake (`lists`).
     features: StdMutex<Vec<String>>,
+    /// The mirror of the peer's list stream into the index (`peer_dialer.rs`).
+    mirror: dialer::MirrorLink,
     /// One more than the link epoch whose handshake listed `sessionResume`
     /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
     session_resume_link: AtomicU64,
