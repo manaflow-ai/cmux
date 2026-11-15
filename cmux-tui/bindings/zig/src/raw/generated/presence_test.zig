@@ -137,6 +137,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenderStateEvent, "graphics");
     try expectExplicitNullRejected(protocol.ResizedEvent, "colors");
     try expectExplicitNullRejected(protocol.ResizedEvent, "data");
+    try expectExplicitNullRejected(protocol.ResizedEvent, "history_rows_omitted");
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.ResizedEvent, "replay");
@@ -145,6 +146,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.TitleChangedEvent, "title");
     try expectExplicitNullRejected(protocol.VtStateEvent, "colors");
     try expectExplicitNullRejected(protocol.VtStateEvent, "history_rows_omitted");
+    try expectExplicitNullRejected(protocol.VtStateEvent, "history_rows_skipped");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.WorkspaceAddedEvent, "mutation_id");
