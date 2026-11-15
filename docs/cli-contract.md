@@ -334,7 +334,7 @@ surface, and returns:
 
 | Field | Meaning |
 | --- | --- |
-| `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the active screen (not the scrolled viewport): Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel" below the input row. |
+| `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the active screen (not the scrolled viewport): Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel" below the input row. An input row is read only on a surface running that agent, so another agent's screen (OpenCode, for example) reports `unknown` unless a dialog is open. |
 | `draft_length` | Characters in the draft, when `state` is `draft`. The text itself is not returned. |
 | `agent` | Whether an agent reports lifecycle state for the surface. |
 | `lifecycle` | The agent's lifecycle: `unknown`, `running`, `idle` or `needsInput`. |
