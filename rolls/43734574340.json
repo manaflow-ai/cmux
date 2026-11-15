@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43734574340",
+  "recorded_at": "2026-11-15T16:26:26Z",
+  "reason": "cmux-tui 721ab36d6fef changes the image's cmux-tui (pinned 91c5821a578d)",
+  "dry_run": false,
+  "cmux_tui": "721ab36d6fef2b78a289ec24c25dafec49a37923",
+  "fixes": [
+    {
+      "sha": "721ab36d6fef2b78a289ec24c25dafec49a37923",
+      "mergedAt": "2026-11-15T08:00:14-08:00",
+      "subject": "acpmux: a Gemini or Grok key held only in the vault or machine.env keeps own mode on a Cloud machine (#43805)"
+    },
+    {
+      "sha": "ee563a3bc718177c131ddc8f92ac60416d1168bd",
+      "mergedAt": "2026-11-15T07:54:41-08:00",
+      "subject": "cloud: replay unfiltered agent-stream gaps (#43576)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T16:26:26Z",
+    "snapshot_id": "sh-9c670cf051e8431b975936607bed9158",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43734574340): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1832bb3a74d230185f1cd675e1d722e29e909547",
+    "image": "cloud-native-auto-721ab36d-43734574340-1",
+    "revision": "ci-43734574340-1",
+    "at": "2026-11-15T16:26:26Z"
+  },
+  "rolled_back": false
+}
