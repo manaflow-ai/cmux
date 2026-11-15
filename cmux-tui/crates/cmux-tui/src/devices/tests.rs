@@ -683,8 +683,9 @@ fn every_row_carries_its_device_kind_and_glyph() {
 
 /// Leo, 2026-11-15: "and why dont' i see the other linked up vms and such? and [a Linux desktop]?" The
 /// Screen Sharing page lists every linked machine, and each row says what its kind can do there:
-/// a Mac is viewed through the device hub, a Cloud machine through its desktop, and every other
-/// machine is listed with why it has nothing to press.
+/// a Mac or a Linux desktop is viewed through the device hub, a Cloud machine through its desktop,
+/// and every other machine is listed with why it has nothing to press. Leo, 2026-11-15: "we do
+/// have mac to windows and mac to linux and mac to mac on top of the other way around too right?"
 #[test]
 fn every_machine_says_what_the_screen_sharing_page_offers_for_it() {
     use cmux_device_kind::screen::{NoScreen, Screen, ScreenRoute};
@@ -709,10 +710,11 @@ fn every_machine_says_what_the_screen_sharing_page_offers_for_it() {
         ("peer:sandbox", view(ScreenRoute::Cloud)),
         // A Mac that is not connected (its OS from the network, no health yet).
         ("peer:old-air", none(NoScreen::Offline)),
-        ("peer:vm-1", none(NoScreen::NoDisplay)),
-        ("peer:linux-desk", none(NoScreen::Linux)),
-        // A joined Linux machine that reported no kind: its OS still says it is Linux.
-        ("joined:m_lane3", none(NoScreen::Linux)),
+        ("peer:vm-1", none(NoScreen::NoDesktop)),
+        // A Linux desktop is viewed through the device hub like a Mac (`cmux-rd linux-host`).
+        ("peer:linux-desk", view(ScreenRoute::Hub)),
+        // A joined Linux machine that reported no kind: desktop or server, nothing tells.
+        ("joined:m_lane3", none(NoScreen::Unknown)),
         ("joined:m_quiet", none(NoScreen::Unknown)),
         ("paired:dv_phone", none(NoScreen::Phone)),
         ("paired:dv_leo", none(NoScreen::Unknown)),
@@ -725,6 +727,7 @@ fn every_machine_says_what_the_screen_sharing_page_offers_for_it() {
     let wire = |id| serde_json::to_value(device(&listing, id)).unwrap()["screen"].clone();
     assert_eq!(wire("peer:mini-7"), json!({"action": "view", "route": "hub"}));
     assert_eq!(wire("peer:sandbox"), json!({"action": "view", "route": "cloud"}));
-    assert_eq!(wire("peer:vm-1"), json!({"action": "none", "reason": "no-display"}));
+    assert_eq!(wire("peer:linux-desk"), json!({"action": "view", "route": "hub"}));
+    assert_eq!(wire("peer:vm-1"), json!({"action": "none", "reason": "no-desktop"}));
     assert!(wire("allow:austin@manaflow.ai").is_null());
 }

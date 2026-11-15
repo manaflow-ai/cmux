@@ -20,15 +20,18 @@ fn every_kind_says_what_the_screen_sharing_page_offers() {
     }
     // A Cloud machine's desktop opens (and resumes a paused machine) from any state.
     assert_eq!(offer(DeviceKind::Cloud, None, false), view(ScreenRoute::Cloud));
-    // A Linux VM has no display to share; a Linux desktop cmux cannot share yet.
-    assert_eq!(offer(DeviceKind::LinuxServer, Some("linux"), true), none(NoScreen::NoDisplay));
-    assert_eq!(offer(DeviceKind::LinuxDesktop, Some("linux"), true), none(NoScreen::Linux));
+    // A headless Linux server or VM has no desktop. A Linux desktop is viewed through the device
+    // hub like a Mac (`cmux-rd linux-host`), and is offline the same way.
+    assert_eq!(offer(DeviceKind::LinuxServer, Some("linux"), true), none(NoScreen::NoDesktop));
+    assert_eq!(offer(DeviceKind::LinuxDesktop, Some("linux"), true), view(ScreenRoute::Hub));
+    assert_eq!(offer(DeviceKind::LinuxDesktop, Some("linux"), false), none(NoScreen::Offline));
     assert_eq!(offer(DeviceKind::IPhone, None, true), none(NoScreen::Phone));
     assert_eq!(offer(DeviceKind::IPad, None, true), none(NoScreen::Phone));
-    // An older peer that reports no kind: its OS still tells a Mac or a Linux machine.
+    // An older peer that reports no kind: its OS still tells a Mac. A Linux one may be a desktop
+    // or a server, so it is listed as unknown rather than given a button that may be dead.
     assert_eq!(offer(DeviceKind::Generic, Some("macOS"), true), view(ScreenRoute::Hub));
     assert_eq!(offer(DeviceKind::Generic, Some("macOS"), false), none(NoScreen::Offline));
-    assert_eq!(offer(DeviceKind::Generic, Some("linux"), true), none(NoScreen::Linux));
+    assert_eq!(offer(DeviceKind::Generic, Some("linux"), true), none(NoScreen::Unknown));
     assert_eq!(offer(DeviceKind::Generic, Some("android"), true), none(NoScreen::Phone));
     assert_eq!(offer(DeviceKind::Generic, None, true), none(NoScreen::Unknown));
     // Every kind has an answer.
@@ -51,8 +54,7 @@ fn the_offer_goes_out_as_action_with_route_or_reason() {
     );
     for (reason, word) in [
         (NoScreen::Offline, "offline"),
-        (NoScreen::NoDisplay, "no-display"),
-        (NoScreen::Linux, "linux"),
+        (NoScreen::NoDesktop, "no-desktop"),
         (NoScreen::Phone, "phone"),
         (NoScreen::Unknown, "unknown"),
     ] {
