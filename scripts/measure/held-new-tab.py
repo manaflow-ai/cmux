@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """A held Cmd-T with a Cmd-W now and then, in a session of many workspaces.
 
-Launches a tagged Debug or bench `cmux DEV <tag>.app`, makes --workspaces workspaces with the daemon's own
-`workspace.create` (made-up names; a terminal in each --terminal-each-th, the others empty), then plays 3 rows
-in a new workspace whose pane has --neighbours more terminal tabs, --rounds times:
+Launches a tagged Debug or bench `cmux DEV <tag>.app`, makes a session of --workspaces workspaces with the
+repository's one session maker (scripts/perf-bench/session_real.py make): each workspace has 2 tabs, a terminal
+tab and a page tab that is not loaded; --live-shells of the terminals keep their shell, each other one is parked
+(the tab stays, with no pty). Then it plays 3 rows in a new workspace whose pane has --neighbours more terminal
+tabs, --rounds times:
 
   mixed  Command down for --hold-ms; Cmd-T held, and at each --every-ms the T goes up, one Cmd-W, T again
   hold   Cmd-T held for --hold-ms, no Cmd-W
   close  Cmd-W held: one key for each tab that `hold` left
 
 A held key is one key-down and then its repeats (the repeat flag set): the first after --repeat-delay-ms, the
-next ones each --repeat-ms (default: this host's own key repeat settings).
+next ones each --repeat-ms (default: this host's own key repeat settings). `mixed` follows the system's rule: each
+new key-down of T starts its repeats again after the first delay (`mixed_repeat_rule` in the report).
 
 KEY SOURCE. The first act is the check if a process of this step may post a key at the HID tap (`HID grant:
 yes|no`; the check never asks, so no dialog). The keys come from `debug.key {"sequence"}` (`app-queue`): the app
@@ -33,7 +36,7 @@ request is in no log. --film DIR adds one `mixed` take under `debug.window_recor
 Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out. Exit 1 when a row did not measure what it
 names, 3 when it cannot run as asked. Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
 """
-import argparse, ctypes, importlib.util, json, os, socket, subprocess, sys, time
+import argparse, ctypes, importlib.util, json, os, re, socket, subprocess, sys, time
 from pathlib import Path
 
 NEXT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-next")
@@ -43,7 +46,9 @@ SPEC.loader.exec_module(BENCH)  # it puts scripts/cmux-next on sys.path
 import tag_teardown  # noqa: E402
 STRESS = BENCH.load("perf_stress_session", "perf-stress-session.py")
 BENCH.KEY["t"], BENCH.ACTIONS["t"] = 17, "newTab.default"
+MAKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-bench", "session_real.py")
 ROWS = ("mixed", "hold", "close")
+REPEAT_RULE = "the system's: each new key-down of T starts its repeats again after the first delay"
 FRAMES_S = 8.0  # with the 0.8 s lead, a take stays under the 9 s between 2 bluetoothd starts
 APPSERVICES = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
 LOG_PREDICATE = 'process == "launchd" AND eventMessage CONTAINS "Successfully spawned bluetoothd"'
@@ -220,23 +225,28 @@ def daemon_of(app):
     return None, []
 
 
-def seed(path, count, terminal_each, deadline):
-    """`count` workspaces by the daemon's own `workspace.create`: (the ms of each one that it acknowledged, the
-    error code of the last one that it refused)."""
-    ms, refused, bound = [], None, time.monotonic() + deadline
-    for index in range(count):
-        if time.monotonic() > bound:
-            break
-        key = f"held-new-tab-{os.getpid()}-{index}"
-        content = "terminal" if terminal_each and index % terminal_each == 0 else "empty"
-        reply, took = daemon(path, {"protocol": "cmux.protocol/2", "type": "request", "id": key, "idempotency_key": key,
-                                    "operation": "workspace.create",
-                                    "params": {"machine": "current", "session": "current", "name": key, "initial_content": content}})
-        if reply and reply.get("ok") is True:
-            ms.append(took)
-        else:
-            refused = "no reply" if reply is None else ((reply.get("error") or {}).get("code") or "refused")
-    return ms, refused
+def seed(app, count, live, deadline, out):
+    """`count` workspaces by session_real.py `make` on the app's daemon, each with a terminal tab (parked, so no
+    pty, but for `live` of them) and a page tab: (its result or {}, its exit code or why it has none, the count of
+    workspaces that it said it made, its last lines). Its output goes to this script's output."""
+    result = os.path.join(out, "session.json")
+    command = [sys.executable, MAKER, "make", "--app-socket", app.socket, "--workspaces", str(count), "--terminals", str(count),
+               "--agents", "0", "--no-agents", "--settle", "0", "--tabs", str(2 * count), "--panes", str(count),
+               "--browser-tabs", str(count), "--live-shells", str(live), "--out", result]
+    try:
+        done = subprocess.run(command, check=False, timeout=deadline, capture_output=True, text=True)
+        code, said = done.returncode, done.stdout + done.stderr
+    except subprocess.TimeoutExpired as late:
+        parts = [part.decode(errors="replace") if isinstance(part, bytes) else part or "" for part in (late.stdout, late.stderr)]
+        code, said = f"not done in {deadline:.0f} s", "".join(parts)
+    print(said, flush=True)
+    counted = re.findall(r"^made (\d+)/", said, re.M)
+    try:
+        with open(result) as f:
+            made = json.load(f)
+    except (OSError, ValueError):
+        made = {}
+    return made, code, int(counted[-1]) if counted else 0, said.strip().splitlines()[-3:]
 
 
 def stats(path):
@@ -283,19 +293,18 @@ def run(opts, app, signposts, report):
         report["failures"].append("no daemon of the app's bundle with a socket")
         return
     began, have = time.monotonic(), len(builder.workspaces())
-    asked = max(0, opts.workspaces - have - 1)
-    ms, refused = seed(path, asked, opts.terminal_each, opts.seed_deadline)
+    asked = max(1, opts.workspaces - have - 1)
+    made, code, count, tail = seed(app, asked, opts.live_shells, opts.seed_deadline, opts.out)
     # The made workspaces are in the app's list before the rows' workspace is made: it is found as the new one.
-    listed = STRESS.wait(lambda: len(builder.workspaces()) >= have + len(ms), 120, step=1.0)
+    listed = STRESS.wait(lambda: len(builder.workspaces()) >= have + count, 120, step=1.0)
     workspace = builder.new_workspace()
-    mean = lambda values: round(sum(values) / len(values), 2) if values else None
-    report["session"] = {"asked": opts.workspaces, "acknowledged_creates": len(ms), "last_refusal": refused,
-                         "terminal_each": opts.terminal_each, "listed_by_the_app": len(builder.workspaces()),
-                         "all_listed": bool(listed), "seed_s": round(time.monotonic() - began, 1),
-                         "create_ms_first_50": mean(ms[:50]), "create_ms_last_50": mean(ms[-50:])}
+    report["session"] = {"asked": opts.workspaces, "maker_exit": code, "maker_last_lines": tail if code else [], "maker_made": count,
+                         "maker_asked": made.get("asked"), "before": made.get("before"), "after": made.get("after"),
+                         "make_s": made.get("make_seconds"), "seed_s": round(time.monotonic() - began, 1),
+                         "listed_by_the_app": len(builder.workspaces()), "all_listed": bool(listed)}
     print("HELD-NEW-TAB-SESSION " + json.dumps(report["session"]), flush=True)
-    if len(ms) < asked or not listed:
-        report["failures"].append(f"the session is not the size asked: {report['session']}")
+    if code or not listed:
+        report["failures"].append(f"the session is not the one asked (maker exit {code}; in the app's list: {bool(listed)})")
     panes = builder.panes(builder.workspace(workspace)) if workspace else []
     if not panes:
         report["failures"].append("the workspace of the rows never appeared with a pane")
@@ -340,7 +349,7 @@ def main():
     parser.add_argument("--app", help="a Debug or bench `cmux DEV <tag>.app` to launch (not running)")
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/held-new-tab")
     parser.add_argument("--workspaces", type=int, default=60, help="the size of the session")
-    parser.add_argument("--terminal-each", type=int, default=4, help="a terminal in each N-th made workspace (0: none)")
+    parser.add_argument("--live-shells", type=int, default=8, help="terminals of the session that keep a shell; each other one is parked")
     parser.add_argument("--neighbours", type=int, default=2, help="terminal tabs beside the first one in the rows' pane")
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--hold-ms", type=float, default=3000)
@@ -349,7 +358,7 @@ def main():
     parser.add_argument("--repeat-ms", type=float, default=0, help="a held key's repeat interval (0: this host's setting)")
     parser.add_argument("--keys", default="app-queue", help="the key source; only app-queue is in this script")
     parser.add_argument("--deadline", type=float, default=60.0, help="seconds after a take's frames for the app to say it is done")
-    parser.add_argument("--seed-deadline", type=float, default=900.0, help="seconds for the session's creates")
+    parser.add_argument("--seed-deadline", type=float, default=900.0, help="seconds for the session's maker")
     parser.add_argument("--film", help="a folder for one more `mixed` take under debug.window_record")
     for internal in ("--row", "--socket", "--workspace", "--pane"):
         parser.add_argument(internal, help=argparse.SUPPRESS)
@@ -365,7 +374,7 @@ def main():
     os.makedirs(opts.out, exist_ok=True)
     report = {"host": BENCH.load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "hid_grant": grant,
               "key_source": f"{opts.keys}: debug.key posts real key events to the app's own queue; not the HID tap, not the window server",
-              "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "rows": [], "failures": []}
+              "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "mixed_repeat_rule": REPEAT_RULE, "rows": [], "failures": []}
     app = BENCH.load("activation_perf", "activation-perf.py").App(os.path.abspath(opts.app), opts.out, 50)
     app.launch()
     try:
