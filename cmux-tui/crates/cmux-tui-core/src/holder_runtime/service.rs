@@ -133,6 +133,12 @@ impl HolderService {
         socket_path(host_root).is_ok_and(|socket| socket.exists())
     }
 
+    /// The socket of `host_root`'s holder, for a test that stands in for one.
+    #[cfg(test)]
+    pub(crate) fn socket_for_test(host_root: &Path) -> io::Result<PathBuf> {
+        socket_path(host_root)
+    }
+
     /// The live link: connects to a running holder, else starts one. A link
     /// made after a lost one hands every live terminal to the new holder.
     pub(crate) fn link(self: &Arc<Self>) -> io::Result<Arc<HolderLink>> {
