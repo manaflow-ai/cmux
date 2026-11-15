@@ -425,6 +425,26 @@ impl Store for ForkView {
         let chunk = self.inner.read_log(id, from, filter, stamp, marks, out)?;
         Ok(LogChunk { read: chunk.read + read, ..chunk })
     }
+    /// A fork's line at a seq through the one it was forked through is its chat's history line,
+    /// read from that chat's log; a later one is its own.
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            Some(r) if seq <= r.through_seq => {
+                self.read_log_part(&r.session, seq, offset, max, stamp, marks, out)
+            }
+            _ => self.inner.read_log_part(id, seq, offset, max, stamp, marks, out),
+        }
+    }
     /// A fork by reference reads its own count plus its chat's: a change to either log's lines
     /// changes what the fork shows.
     fn log_stamp(&self, id: &str) -> Result<u64> {

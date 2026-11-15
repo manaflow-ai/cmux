@@ -258,6 +258,8 @@ function answerOf(msg: any): any {
 /** What the chat and the guest terminal need of a carrier dial (ClientDial; a fake in the tests). */
 export type DialLike = {
   dials: number;
+  /** What the dial went through (ClientDial.events); none for a fake. */
+  events?: string[];
   start(): void;
   request(frame: Record<string, unknown>, timeoutMs?: number): Promise<any>;
   stop(): void;
@@ -270,6 +272,12 @@ export type DialLike = {
  */
 class ClientDial implements DialLike {
   dials = 0;
+  /**
+   * The dial's own story, oldest first: each `cloud.connect` route line (a resume, a fresh session) and each exit, with
+   * its time. The chat rides this dial, not the pinged one, so a chat stream that stops while the pinged dial resumed
+   * is told from these.
+   */
+  events: string[] = [];
   private child: ReturnType<typeof spawn> | null = null;
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private n = 0;
@@ -306,16 +314,24 @@ class ClientDial implements DialLike {
     });
     let err = "";
     let said = false;
+    let rest = "";
     child.stderr!.setEncoding("utf8").on("data", (chunk: string) => {
-      err += chunk;
+      rest += chunk;
+      for (let at = rest.indexOf("\n"); at >= 0; at = rest.indexOf("\n")) {
+        const line = rest.slice(0, at);
+        rest = rest.slice(at + 1);
+        if (line.startsWith("cloud.connect ")) this.note(line.slice(0, 300));
+      }
       if (said) return;
+      err += chunk;
       const first = err.split("\n")[0];
       if (!err.includes("\n")) return;
       said = true;
       try { if (JSON.parse(first).ok === true && this.child === child) this.onDial(); } catch { /* not the reply line */ }
     });
-    child.on("exit", () => {
+    child.on("exit", (code) => {
       if (this.child === child) this.child = null;
+      if (!this.stopped) this.note(`exit ${code}`);
       for (const [id, w] of this.pending) {
         clearTimeout(w.timer);
         w.reject(new Error("the client's dial ended"));
@@ -325,6 +341,12 @@ class ClientDial implements DialLike {
       // At once, as the app's redial; a dial that cannot connect yet ends again and comes back here.
       setTimeout(() => this.dial(), 250);
     });
+  }
+
+  /** Keeps the newest 40 of the dial's events. */
+  private note(text: string): void {
+    this.events.push(`${new Date().toISOString().slice(11, 23)}Z dial ${this.dials}: ${text}`);
+    if (this.events.length > 40) this.events.shift();
   }
 
   /** One request on the current dial; rejects when it is not answered within `timeoutMs` or the dial ends. */
@@ -426,6 +448,15 @@ export class ChatClient {
 
   /** Dial, make the chat tab and start the chat in it; the first attach sets the baseline seq. */
   async open(harness: string): Promise<void> {
+    await this.openTab(harness);
+    const started = answerOf(await this.start(harness));
+    this.session = String(started.session ?? "");
+    if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
+    await this.attach(undefined);
+  }
+
+  /** Dial and make the chat tab for `harness`, as the app does for a new Cloud chat, before any start. */
+  async openTab(harness: string): Promise<void> {
     this.dial.start();
     await Promise.race([this.ready, sleep(90_000).then(() => { throw new Error("the client's dial never connected"); })]);
     const id = answerOf(await this.dial.request({ cmd: "identify" }));
@@ -436,10 +467,16 @@ export class ChatClient {
     if (typeof tab.surface !== "number") throw new Error(`new-conversation-tab gave no surface: ${JSON.stringify(tab).slice(0, 200)}`);
     this.surface = tab.surface;
     this.tab = typeof tab.tab_resource_id === "string" ? tab.tab_resource_id : "";
-    const started = answerOf(await this.dial.request({ cmd: "agent-session-start", surface: tab.surface, harness, vm_kind: "owner" }, 120_000));
-    this.session = String(started.session ?? "");
-    if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
-    await this.attach(undefined);
+  }
+
+  /**
+   * The app's start of the tab's chat with `harness` on the caller's own machine (`vm_kind: "owner"`), the daemon's
+   * answer as it came: `ok` with `data.session`, or a refusal with its `error_code` and `data` (a signed-out agent:
+   * `agent_session.sign_in_required` with `data.harness`, hq#11225).
+   */
+  async start(harness: string): Promise<any> {
+    if (this.surface === null) throw new Error("start before openTab");
+    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner" }, 120_000);
   }
 
   /**
@@ -465,12 +502,43 @@ export class ChatClient {
     return this.held >= seq;
   }
 
+  /**
+   * Why a catch-up wait timed out, as a clause for the verdict. It asks `agent-session-events` past the seq held
+   * (the mux Bulk lane, as the chat's own pushes) and then `identify` (the Control lane), and keeps nothing either
+   * answers: the client's view, and so the verdict, stays what the product delivered.
+   */
+  async stallDiagnosis(eventsMs = 10_000, identifyMs = 5_000): Promise<string> {
+    const held = this.held;
+    const asked = async (frame: Record<string, unknown>, ms: number): Promise<{ answer?: any; error?: string }> => {
+      try {
+        return { answer: answerOf(await this.dial.request(frame, ms)) };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    };
+    const events = await asked({ cmd: "agent-session-events", surface: this.surface, after_seq: held, limit: 500 }, eventsMs);
+    const identify = await asked({ cmd: "identify" }, identifyMs);
+    const timedOut = (r: { error?: string }) => /^no answer within/.test(r.error ?? "");
+    const seqs: number[] = (events.answer?.events ?? []).map((e: any) => Number(e?.seq)).filter((s: number) => s > held);
+    const eventsText = events.answer
+      ? seqs.length ? `events answered from seq ${Math.min(...seqs)} (${seqs.length} records)` : "events answered with nothing past it"
+      : timedOut(events) ? `events timed out (${eventsMs / 1000} s)` : `events failed: ${events.error}`;
+    const identifyText = identify.answer ? "identify answered" : timedOut(identify) ? `identify timed out (${identifyMs / 1000} s)` : `identify failed: ${identify.error}`;
+    const verdict = seqs.length ? "attachment dead, transport fine"
+      : timedOut(events) && identify.answer ? "bulk lane stalled"
+      : timedOut(events) && timedOut(identify) ? "carrier dead"
+      : "no conclusion";
+    return `after seq ${held}: ${eventsText}, ${identifyText}: ${verdict}`;
+  }
+
   private onLine(m: any): void {
     if (m?.surface !== this.surface) return;
     if (m.event === "agent-session-record" && m.record && typeof m.record.seq === "number") {
-      if (!this.attached) return;
       if (this.paging) this.stash.push({ record: m.record, at: Date.now() });
-      else this.live(m.record);
+      else {
+        if (!this.attached) return;
+        this.live(m.record);
+      }
     } else if (m.event === "agent-session-closed") {
       this.attached = false;
       this.lastError = `closed: ${String(m.reason ?? "")}`;
@@ -594,6 +662,7 @@ export class SeqTerminal {
   terminal = "";
   error = "";
   private offset = 0;
+  private recovery = "";
   private stopped = false;
   private loop: Promise<void> | null = null;
 
@@ -628,10 +697,11 @@ export class SeqTerminal {
   private async poll(): Promise<void> {
     while (!this.stopped) {
       try {
-        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), max_bytes: 1_048_576 } }, 10_000));
-        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, text: String(r.text ?? "") };
+        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), recovery: this.recovery, max_bytes: 1_048_576 } }, 10_000));
+        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, snapshot: r.snapshot === true, text: String(r.text ?? "") };
         this.reads.push(read);
         this.offset = read.next;
+        this.recovery = typeof r.recovery === "string" ? r.recovery : "";
       } catch (e) {
         this.error = (e as Error).message;
       }
@@ -834,9 +904,16 @@ async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, bas
   const client = slice.map((r) => journalEvent(tag, r.record) ?? { seq: r.seq, ks: [] });
   const reconnects = chat.reconnects.filter((i) => i >= from).map((i) => i - from);
   const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted, injection });
-  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""})`;
+  // A stalled client is asked why before the verdict is written; the diagnosis never changes the verdict.
+  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""}; ${await chat.stallDiagnosis()})`;
   const pages = slice.filter((r) => r.via === "page").length;
   const why = ranNone ? `; ${journalNotesText(notes)}` : "";
+  if (!verdict.ok || !caught) {
+    // In the job log (it outlives a full artifact store): when the client's stream last moved, and what the chat's
+    // own dial went through (its resumes, fresh sessions and exits), so a stall is told from a lost push.
+    const lastAt = slice.length ? new Date(slice[slice.length - 1].at).toISOString().slice(11, 23) + "Z" : "never";
+    ctx.log?.(`chaos: ${tag}: the client's last record came at ${lastAt}; its dial: ${(chat.dial.events ?? []).slice(-12).join(" | ") || "no route line or exit"}`);
+  }
   return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)${why}` };
 }
 
@@ -1072,6 +1149,8 @@ export type SeqEvent = {
    * update, so a step counts once per call, and twice only when two calls printed it.
    */
   call?: string;
+  /** The record's kind (`tool_call`, `agent_message_chunk`, ...), so a seq the client skipped can be named. */
+  kind?: string;
 };
 
 export type LossVerdict = { ok: boolean; text: string };
@@ -1096,6 +1175,7 @@ export function journalEvent(tag: string, line: unknown): SeqEvent | null {
     seq,
     ks: tool ? [...new Set(countedSteps(tag, JSON.stringify(update ?? e)))] : [],
     ...(tool && typeof update?.toolCallId === "string" ? { call: update.toolCallId } : {}),
+    ...(kind ? { kind } : {}),
   };
 }
 
@@ -1154,7 +1234,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
     if (seen.has(e.seq)) cRepeats.push(e.seq);
     else if (i > 0 && e.seq !== client[i - 1].seq + 1) {
       const at = input.reconnects?.includes(i) ? " (a replay after a reconnect)" : "";
-      cGaps.push(`${client[i - 1].seq}->${e.seq}${at}`);
+      // What the skipped seqs were on the machine: a kind that is never pushed live is a different bug from a lost push.
+      const skipped: string[] = [];
+      for (let s = client[i - 1].seq + 1; s < e.seq && skipped.length < 3; s++) skipped.push(bySeq.get(s)?.kind || "?");
+      const what = e.seq > client[i - 1].seq + 1 ? ` [${skipped.join(",")}${e.seq - client[i - 1].seq - 1 > 3 ? ",..." : ""}]` : "";
+      cGaps.push(`${client[i - 1].seq}->${e.seq}${at}${what}`);
     }
     seen.add(e.seq);
   }
@@ -1201,7 +1285,7 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
 }
 
 /** One `terminal.output_read` answer: the offset asked for and what came back. */
-export type TerminalRead = { after: number; start: number; next: number; complete: boolean; text: string };
+export type TerminalRead = { after: number; start: number; next: number; complete: boolean; snapshot?: boolean; text: string };
 
 /**
  * The terminal's text as the client holds it after `reads` (each asked from the last one's `next_offset`), and what was
@@ -1221,7 +1305,10 @@ export function assembleTerminal(reads: TerminalRead[]): { text: string; problem
     const want = i === 0 ? 0 : reads[i - 1].next;
     if (r.after !== want) problems.push(`read ${i} asked from ${r.after}, not the last read's end ${want}`);
     if (!r.complete) problems.push(`read ${i} from ${r.after} was not complete (output past retention)`);
-    if (r.start === r.after) {
+    if (r.snapshot === true) {
+      if (!r.complete || r.start !== 0 || r.next < 0) problems.push(`read ${i} returned an invalid snapshot projection`);
+      else { snapshots += 1; text = r.text; }
+    } else if (r.start === r.after) {
       text += r.text;
     } else if (r.start === 0 && r.after > 0 && r.complete && r.next >= r.after) {
       snapshots += 1;
@@ -1258,7 +1345,7 @@ export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machine
   const sha = input.sha256(text);
   if (sha !== input.machineSha256) problems.push(`sha256 ${sha.slice(0, 12)} differs from the machine copy's ${input.machineSha256.slice(0, 12)}`);
   if (problems.length) return { ok: false, text: `terminal output lost: ${problems.slice(0, 4).join("; ")}` };
-  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} after the terminal ended taken in place of what was held` : "";
+  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} taken in place of what was held` : "";
   return { ok: true, text: `terminal: all ${n} lines over ${reads.length} reads, offsets contiguous${snap}, sha256 matches the machine copy` };
 }
 

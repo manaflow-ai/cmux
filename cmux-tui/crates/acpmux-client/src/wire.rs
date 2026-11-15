@@ -405,6 +405,10 @@ pub struct Page {
     /// On a chat: a group's rowId. The page holds that fold's rows, taken as open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fold: Option<u64>,
+    /// On a chat: the page holds the group rows `folds.idx` lists, one a settled turn, and no
+    /// other row. Not with `fold`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
 }
 
 /// Descriptive alias used by request routers.
@@ -432,6 +436,7 @@ impl Page {
             filter: None,
             edition: None,
             fold: None,
+            turns: false,
         }
     }
 
@@ -459,6 +464,7 @@ impl Page {
             filter: None,
             edition: None,
             fold: None,
+            turns: false,
         }
     }
 
@@ -479,6 +485,7 @@ impl Page {
             filter: None,
             edition: None,
             fold: None,
+            turns: false,
         }
     }
 
@@ -672,6 +679,10 @@ pub struct ChatPageResult {
     pub has_after: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<u64>,
+    /// The reply to a page of turns says so. A daemon from before `turns` reads the request as
+    /// an ordinary page and answers rows without it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
 }
 
 /// One op of a chat's delta. A settled row and a patch carry a seq of their own; a row that
@@ -1168,6 +1179,22 @@ mod tests {
             serde_json::to_value(page).unwrap().get("maxBytes"),
             Some(&serde_json::json!(262_144))
         );
+    }
+
+    #[test]
+    fn a_page_of_turns_round_trips_and_is_left_out_when_false() {
+        let mut page = Page::new("s1", "chat:c", PageSide::Before, 11);
+        assert!(serde_json::to_value(&page).unwrap().get("turns").is_none());
+        page.turns = true;
+        page.edition = Some(3);
+        let text = serde_json::to_string(&page).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&text).unwrap()["turns"], true);
+        let back: Page = serde_json::from_str(&text).unwrap();
+        assert!(back.turns && back.fold.is_none());
+        assert_eq!(serde_json::to_string(&back).unwrap(), text);
+        let old: Page =
+            serde_json::from_str(r#"{"sid":"s1","stream":"chat:c","before":11}"#).unwrap();
+        assert!(!old.turns);
     }
 
     #[test]

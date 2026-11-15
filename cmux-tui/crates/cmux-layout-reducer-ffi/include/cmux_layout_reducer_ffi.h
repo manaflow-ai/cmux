@@ -937,7 +937,8 @@ uint8_t cmux_scroll_gesture_active(const CmuxScroll *scroll); /* per frame: no f
  * nothing once the handle's buffers have grown.
  *
  * Return codes: begin and remove return 1 when they answer and 0 when they do
- * not, with nothing written. 1 and 0 are answers, not
+ * not, with nothing written; landing_moves returns 1 (a landing now would move
+ * a closing side more than snap; the state is not changed) or 0. 1 and 0 are answers, not
  * CMUX_LAYOUT_REDUCER_OK (also 0): check for 1. settle and rects return
  * CMUX_LAYOUT_REDUCER_OK and write a list that borrows the handle's buffer,
  * valid until the next call on the same handle. Any call returns ERR_NULL,
@@ -1035,6 +1036,7 @@ void cmux_closing_panes_free(CmuxClosingPanes *closing);
 int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift, double strip_shift);
 int32_t cmux_closing_panes_settle(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingIds *out);
 int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, double strip, double rest_strip, CmuxClosingPlacedList *out);
+int32_t cmux_closing_panes_landing_moves(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, double rest_strip, double snap);
 int32_t cmux_closing_panes_carry(CmuxClosingPanes *closing, double drift, uint8_t has_view_shift, double view_shift);
 int32_t cmux_closing_panes_settle_carried(CmuxClosingPanes *closing, double strip_shift);
 int32_t cmux_closing_panes_shift_y(CmuxClosingPanes *closing, uint64_t column, double delta);

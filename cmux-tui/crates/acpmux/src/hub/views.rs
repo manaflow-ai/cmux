@@ -1111,6 +1111,10 @@ impl Hub {
             "exeStable": exe_unstable.is_none(),
             "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
+            // What kind of device this machine is (`cmux-device-kind`), so the app draws This
+            // Mac with its own glyph (a Mac mini as a Mac mini) beside the peers' `health.device`.
+            "device": cmux_device_kind::this_device().kind.as_str(),
+            "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
             "personKey": self.person.has_key(),
@@ -1161,6 +1165,10 @@ impl Hub {
             "gauges": ({
                 let mut gauges = crate::gauges::daemon_status();
                 gauges["v2SnapshotDamagedFrames"] = json!(self.events.damaged_snapshot_frames());
+                // The v2 list stream on peer links: frames dropped, held bytes (`link_v2.rs`).
+                if let Some(gauges) = gauges.as_object_mut() {
+                    gauges.insert("v2PeerLink".into(), self.link_v2.counters.status());
+                }
                 gauges
             }),
             "webUrl": web_url(&cfg),

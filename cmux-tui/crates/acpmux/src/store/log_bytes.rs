@@ -162,6 +162,15 @@ pub struct LogChunk {
     pub read: u64,
 }
 
+/// What a read of part of one line gave besides its bytes ([`Store::read_log_part`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LogPart {
+    /// The line ends where the bytes end.
+    pub ends: bool,
+    /// Bytes this read took from the log's files.
+    pub read: u64,
+}
+
 /// A segment file opened for a read, with the bytes taken from it counted.
 struct Segment {
     index: u32,
@@ -278,6 +287,107 @@ impl LocalStore {
                 self.read_listed(id, from, filter, stamp, marks, out)
             }
             result => result,
+        }
+    }
+
+    /// `Store::read_log_part`: at most `max` bytes of chat `id`'s line at seq `seq`, from `offset`
+    /// in it, into `out`; and whether the line ends there. The line is found as a read at `seq`
+    /// finds it (a mark, else the segments' first seqs and a scan of one), and only the part is
+    /// read: none of it is held but `max` bytes. The found mark is left at the line, so the next
+    /// part of it starts there.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn read_log_part_bytes(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        out.clear();
+        marks.keep_stamp(stamp);
+        let mut part = LogPart::default();
+        let mut found = None;
+        // A kept listing may predate the line's segment, or name a file a cold archive moved:
+        // list again, once.
+        for fresh in [false, true] {
+            if fresh {
+                marks.listing = None;
+            }
+            let listing = self.listing(id, stamp, marks)?;
+            let at = self.line_start(id, seq, stamp, &listing.segments, marks, &mut part.read);
+            marks.listing = Some(listing);
+            match at {
+                Ok(Some(at)) => {
+                    found = Some(at);
+                    break;
+                }
+                Ok(None) => {}
+                Err(error) if !fresh && is_not_found(&error) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let Some((mut segment, start)) = found else {
+            anyhow::bail!("chat {id} holds no line at seq {seq}");
+        };
+        let at = start.checked_add(offset).context("a part of a line past the log")?;
+        out.reserve_exact(max);
+        out.resize(max, 0);
+        let n = segment.read_at(at, out)?;
+        out.truncate(n);
+        if let Some(newline) = out.iter().position(|b| *b == b'\n') {
+            out.truncate(newline);
+            part.ends = true;
+        }
+        part.read += segment.read;
+        marks.found = Some(LogMark {
+            log: id.to_owned(),
+            seq,
+            segment: segment.index,
+            offset: start,
+            file: segment.id,
+            stamp,
+        });
+        Ok(part)
+    }
+
+    /// The segment of chat `id`'s line at seq `seq` and the offset it starts at; None when the
+    /// listing holds no such line. A read at a mark's seq starts at its offset, a later seq in
+    /// its segment goes on from it, and any other is found by halves and a scan.
+    fn line_start(
+        &self,
+        id: &str,
+        seq: u64,
+        stamp: u64,
+        segments: &[(u32, PathBuf)],
+        marks: &mut LogMarks,
+        read: &mut u64,
+    ) -> Result<Option<(Segment, u64)>> {
+        let mut chunk = LogChunk::default();
+        let mut heads = 0;
+        let started = self.start(id, seq, stamp, segments, marks, &mut chunk, &mut heads);
+        marks.heads += heads;
+        *read += chunk.read;
+        let Some((mut segment, mut offset, _)) = started? else { return Ok(None) };
+        let mut scanned = false;
+        loop {
+            let mut head = [0u8; HEAD];
+            let n = segment.read_at(offset, &mut head)?;
+            match head.get(..n).and_then(record_seq) {
+                Some(found) if found == seq => return Ok(Some((segment, offset))),
+                // A mark before `seq` leaves the lines between: passed over by their first
+                // bytes, once.
+                Some(found) if found < seq && !scanned => {}
+                None if n > 0 && !scanned => {}
+                _ => {
+                    *read += segment.read;
+                    return Ok(None);
+                }
+            }
+            offset = scan_to(&mut segment, offset, seq)?;
+            scanned = true;
         }
     }
 
@@ -537,19 +647,20 @@ impl LocalStore {
         }
         let Some((index, path)) = segments.get(low) else { return Ok(None) };
         let mut segment = Segment::open(*index, path)?;
-        let offset = scan_to(&mut segment, from)?;
+        let offset = scan_to(&mut segment, 0, from)?;
         Ok(Some((segment, offset, false)))
     }
 }
 
-/// The offset of the first line in `segment` whose seq is `from` or more, read from its start
-/// with every line before it skipped unparsed (only its first bytes are looked at): the
-/// segment's end when it has none. A line with no seq is passed over.
-fn scan_to(segment: &mut Segment, from: u64) -> Result<u64> {
-    segment.file.seek(SeekFrom::Start(0))?;
+/// The offset of the first line in `segment` at or after `start` (a line's start) whose seq is
+/// `from` or more, read from `start` with every line before it skipped unparsed (only its first
+/// bytes are looked at; the line found is read no further than them): the segment's end when it
+/// has none. A line with no seq is passed over.
+fn scan_to(segment: &mut Segment, start: u64, from: u64) -> Result<u64> {
+    segment.file.seek(SeekFrom::Start(start))?;
     let found = {
         let mut reader = BufReader::with_capacity(64 * 1024, &segment.file);
-        let mut offset = 0u64;
+        let mut offset = start;
         let mut head = Vec::with_capacity(HEAD);
         let mut length = 0u64;
         loop {
@@ -563,13 +674,17 @@ fn scan_to(segment: &mut Segment, from: u64) -> Result<u64> {
             if head.len() < HEAD {
                 let room = HEAD - head.len();
                 head.extend_from_slice(buffer.get(..upto.min(room)).unwrap_or_default());
+                // A line whose first bytes name a seq at or past `from`: it is the one, whole
+                // or not yet whole, as a read from its start decides.
+                if (head.len() == HEAD || newline.is_some())
+                    && line_seq(&head).is_some_and(|seq| seq >= from)
+                {
+                    break offset;
+                }
             }
             length += upto as u64;
             reader.consume(upto);
             if newline.is_some() {
-                if line_seq(&head).is_some_and(|seq| seq >= from) {
-                    break offset;
-                }
                 offset += length;
                 length = 0;
                 head.clear();
@@ -577,7 +692,7 @@ fn scan_to(segment: &mut Segment, from: u64) -> Result<u64> {
         }
     };
     // What the scan took from the file, its read-ahead included.
-    segment.read += segment.file.stream_position()?;
+    segment.read += segment.file.stream_position()?.saturating_sub(start);
     Ok(found)
 }
 

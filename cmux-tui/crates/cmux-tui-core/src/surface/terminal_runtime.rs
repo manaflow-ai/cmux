@@ -151,6 +151,13 @@ impl PtyTerminalRuntime {
         {
             mux.queue_terminal_tail(self.event_surface_id);
         }
+        // Mark and wake: the ports pass reads the screen later, off the reader.
+        if !bytes.is_empty()
+            && self.port_mark.mark()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.queue_terminal_ports(self.event_surface_id);
+        }
         metadata.take_admitted_notifications(Instant::now())
     }
 
@@ -329,6 +336,9 @@ pub struct PtyTerminalRuntime {
     /// The last line of a pinned terminal (`terminal-tail-pin-v1`); idle
     /// unless the terminal is pinned.
     pub(crate) tail_pin: crate::terminal_tail::TailPinSlot,
+    /// Set when the terminal printed since the last ports pass
+    /// (`mux/terminal_port_watch.rs`); the reader only sets it.
+    pub(crate) port_mark: crate::mux::PortMark,
     /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,

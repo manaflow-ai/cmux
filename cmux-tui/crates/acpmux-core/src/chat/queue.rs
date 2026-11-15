@@ -72,6 +72,53 @@ pub fn head(source: &mut dyn RawSource, entry: &QueueEntry) -> io::Result<QueueI
     })
 }
 
+/// A raw body's text is read in pieces of this many bytes.
+pub const TEXT_READ: usize = 256 * 1024;
+
+/// The text of the raw line at `place` (its `msg.text`), as the JSON string the line holds: the
+/// line's first [`HEAD_READ`] bytes find where it begins, and from there it is read in pieces of
+/// [`TEXT_READ`], none past the piece that holds its closing quote. None: the text does not
+/// begin in the head.
+pub fn read_text(source: &mut dyn RawSource, place: u64) -> io::Result<Option<Vec<u8>>> {
+    let head = source.read_at(place, 0, HEAD_READ)?;
+    let Some(start) = find_string(&head.bytes, &TEXT) else { return Ok(None) };
+    let truncated = || io::Error::new(io::ErrorKind::InvalidData, "a line ended inside its text");
+    let mut out = vec![b'"'];
+    let (mut bytes, mut ends, mut at) = (head.bytes, head.ends, start);
+    let mut offset = 0u64;
+    // A backslash at the end of one piece escapes the first byte of the next.
+    let mut escape = false;
+    loop {
+        let rest = bytes.get(at..).unwrap_or_default();
+        let mut close = None;
+        for (index, byte) in rest.iter().enumerate() {
+            if escape {
+                escape = false;
+            } else if *byte == b'\\' {
+                escape = true;
+            } else if *byte == b'"' {
+                close = Some(index);
+                break;
+            }
+        }
+        if let Some(close) = close {
+            out.extend_from_slice(rest.get(..close).unwrap_or_default());
+            out.push(b'"');
+            return Ok(Some(out));
+        }
+        out.extend_from_slice(rest);
+        if ends {
+            return Err(truncated());
+        }
+        offset = offset.saturating_add(bytes.len() as u64);
+        let next = source.read_at(place, offset, TEXT_READ)?;
+        if next.bytes.is_empty() && !next.ends {
+            return Err(truncated());
+        }
+        (bytes, ends, at) = (next.bytes, next.ends, 0);
+    }
+}
+
 /// A waiting prompt's `blob`: the bytes of `[start, start + len)` of its decoded text that one
 /// request reaches, and the token where its scan stopped when the text goes on.
 #[derive(Debug, Default, Eq, PartialEq)]

@@ -254,6 +254,26 @@ body {
   border-color: transparent;
 }
 
+/* A hover card taller than the room it has scrolls in itself (Leo, 2026-11-14, on a "Received 2
+   messages" preview cut after its first message: "this has no transparency at all + is not
+   scrollable"). Its height stops at what its positioner has (Base UI's --available-height) and the
+   window less its edges; past that its content scrolls with the wheel, the trackpad and, from its
+   focused trigger, Page Down and Page Up (ui/Tooltip.tsx), and a scroll that reaches its end never
+   moves the transcript under it. A Tooltip's card (data-tooltip-card) takes the pointer, as a
+   link's card does, so the pointer can rest on it to scroll: Base UI keeps a tooltip open while the
+   pointer is on it. An AnchoredCard's caller decides that itself. */
+.ui-tooltip.ui-card {
+  max-height: min(
+    var(--available-height, 100dvh),
+    calc(100dvh - var(--tooltip-edge) - var(--tooltip-edge))
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ui-tooltip.ui-card[data-tooltip-card] {
+  pointer-events: auto;
+}
+
 .ui-hint {
   border-width: var(--tooltip-rim-width);
   background: var(--tooltip-tint);

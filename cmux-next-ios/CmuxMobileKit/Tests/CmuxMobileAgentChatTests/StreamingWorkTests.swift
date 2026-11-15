@@ -75,6 +75,84 @@ import UIKit
         #expect(store.turns.last?.lastAnswerMarkdown == MockStressContent.streamedAnswer)
     }
 }
+
+/// A streamed token whose rows keep their ids touches only the changed row's cell. The energy
+/// bench's stream-chat case (the reader scrolled up, the streaming answer off screen) spent most
+/// of its main thread in `reload`: a snapshot apply per token, which ran UIKit's batch update over
+/// every visible cell, and the streaming block's text layout made on the main thread per token,
+/// for a row nobody could see. Counted per 1,000 tokens, in a window, with every token laid out.
+@MainActor
+@Suite struct StreamingOffScreenTests {
+    /// The bench's chat in a window, laid out.
+    static func shownChat() -> (store: AgentChatStore, list: ChatTranscriptList, surface: AgentChatSurface, window: UIWindow, rest: [String]) {
+        let (store, list, rest) = StreamingWorkTests.streamingChat()
+        let surface = list.surface
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
+        let host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(list.collectionView)
+        list.collectionView.frame = host.view.bounds
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+        return (store, list, surface, window, rest)
+    }
+
+    /// The answer's last block and whether its cell on screen draws its current state.
+    static func lastBlockDrawn(_ list: ChatTranscriptList) -> (id: String, drawn: Bool)? {
+        guard let id = list.layout.items.last(where: { $0.id.hasPrefix("m-m40#") })?.id else { return nil }
+        let shown = (list.cell(for: id) as? ChatNativeRowCell)?.shown ?? (list.cell(for: id) as? ChatRowCell)?.shown
+        return (id, shown != nil && shown?.revision == list.layout.shownState(of: id)?.revision)
+    }
+
+    static func scrollToBottom(_ list: ChatTranscriptList) {
+        let view = list.collectionView
+        view.layoutIfNeeded()
+        view.contentOffset.y = max(0, view.contentSize.height - view.bounds.height)
+        view.layoutIfNeeded()
+    }
+
+    @Test func aTokenOffScreenAppliesNoSnapshotAndLaysOutNothing() throws {
+        let (store, list, surface, window, rest) = Self.shownChat()
+        defer { window.isHidden = true }
+        surface.following = false
+        list.collectionView.contentOffset = .zero
+        list.collectionView.layoutIfNeeded()
+        let applies = list.snapshotApplies, made = list.layoutsMadeNow
+        var newRows = 0
+        for token in rest {
+            let before = list.layout.items.count
+            store.apply(.update(.agentMessageChunk(text: token, messageId: "m40")))
+            list.reload()
+            list.collectionView.layoutIfNeeded()
+            if list.layout.items.count != before { newRows += 1 }
+        }
+        let snapshotApplies = list.snapshotApplies - applies
+        let layoutsMadeNow = list.layoutsMadeNow - made
+        // A token that starts a block adds a row (an apply); the rest touch no snapshot.
+        #expect(snapshotApplies <= newRows + 5, "snapshot applies per \(rest.count) tokens: \(snapshotApplies) (\(newRows) added a row)")
+        #expect(layoutsMadeNow <= 5, "main-thread layouts per \(rest.count) tokens off screen: \(layoutsMadeNow)")
+        // Nothing lost: scrolled back down, the answer's last block draws what streamed.
+        surface.following = true
+        Self.scrollToBottom(list)
+        let last = try #require(Self.lastBlockDrawn(list))
+        #expect(last.drawn, "\(last.id) draws an old state")
+    }
+
+    @Test func aTokenOnScreenRedrawsTheStreamingRow() throws {
+        let (store, list, surface, window, rest) = Self.shownChat()
+        defer { window.isHidden = true }
+        surface.following = true
+        Self.scrollToBottom(list)
+        for (index, token) in rest.prefix(300).enumerated() {
+            store.apply(.update(.agentMessageChunk(text: token, messageId: "m40")))
+            list.reload()
+            Self.scrollToBottom(list)
+            let last = try #require(Self.lastBlockDrawn(list))
+            #expect(last.drawn, "after \(index + 1) tokens \(last.id) draws an old state")
+        }
+    }
+}
 #endif
 
 /// `MarkdownStreamParse.unchangedDisplayed` never claims a block that changed: the rows it lets

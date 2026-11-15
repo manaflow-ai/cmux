@@ -3,7 +3,8 @@
 // died on a transient capacity error (2026-10-26: "this needs to retry :("). While acpmux waits to
 // retry, the line reads "Retrying (2/4) after a capacity error" with the turning ring, never a dot.
 // A failed line offers Retry, inline and in its ⋯ menu (shown on hover); one acpmux gave up on says
-// how many tries it had; a Task subagent acpmux cannot retry offers "Ask parent to retry". Three
+// how many tries it had; a Task subagent acpmux cannot retry offers none (Leo, 2026-11-14: "we
+// maybe want to remove the "ask parent to retry" if we haven't already"). Three
 // places for the failed line's Retry are compared: an inline button (the pick), a link after the
 // line, and the ⋯ menu alone. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
@@ -130,7 +131,7 @@ export default componentEntry<Props>({
       props: { lines: MIXED },
     },
     "grid-long-cells": {
-      note: "The grid's growing cells: Ask parent to retry on a subagent acpmux cannot retry, and a run past an hour. Retry and the time grow instead of spilling into the next column.",
+      note: "The grid's growing cells: a subagent acpmux cannot retry (no Retry, its cell left empty), and a run past an hour. Retry and the time grow instead of spilling into the next column.",
       props: {
         lines: [
           THREE[0]!,
@@ -152,7 +153,7 @@ export default componentEntry<Props>({
       props: { lines: [overview({ retryable: true }), relay({ retryable: true })], base: true },
     },
     "failed-capacity": {
-      note: "The pick. A failed line acpmux can retry: Retry as a small outlined button right after it, always shown; its ⋯ menu (on hover) has Retry and Ask parent to retry.",
+      note: "The pick. A failed line acpmux can retry: Retry as a small outlined button right after it, always shown; its ⋯ menu (on hover) has Retry.",
       props: { lines: FAILED, affordance: "button" },
     },
     "failed-link": {
@@ -165,7 +166,7 @@ export default componentEntry<Props>({
       play: openMenu,
     },
     "menu-open": {
-      note: "The pick's ⋯ menu, opened: Retry (acpmux) and Ask parent to retry.",
+      note: "The pick's ⋯ menu, opened: Retry (acpmux).",
       props: { lines: [overview({ retryable: true })], affordance: "button" },
       play: openMenu,
     },
@@ -182,8 +183,8 @@ export default componentEntry<Props>({
       note: "acpmux gave up after its last try: the line says so, and Retry runs it once more.",
       props: { lines: [relay({ retryable: true, retriedOut: { attempt: 4, of: 4, reason: "capacity" } })] },
     },
-    "task-ask-parent": {
-      note: "A Task subagent acpmux cannot retry (no `retryable`): Ask parent to retry, which sends the chat one line naming the task and its description.",
+    "task-no-retry": {
+      note: "A Task subagent acpmux cannot retry (no `retryable`): no Retry and no ⋯ menu; the chat's agent already read the error.",
       props: { lines: [relay()] },
     },
   },

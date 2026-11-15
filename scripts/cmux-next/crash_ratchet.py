@@ -1019,7 +1019,7 @@ def rust_test_modules(paths):
         text = open(path, encoding="utf-8", errors="replace").read()
         if "mod " not in text:
             continue
-        here, name = os.path.split(path)
+        here, name = os.path.split(os.path.normpath(path))
         # A mod.rs, lib.rs or main.rs owns its folder; any other file foo.rs owns foo/.
         owner = here if name in ("mod.rs", "lib.rs", "main.rs") else os.path.join(here, name[:-3])
         for decl in TEST_MOD_DECL.finditer(text):
@@ -1047,7 +1047,10 @@ def scan_rust(repo, scan, exported):
             continue
         if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
             continue
-        if path in test_files or any(path.startswith(folder + os.sep) for folder in test_folders):
+        # rust_test_modules normalises its targets, so compare the normalised path: with a relative
+        # `--repo .` the scanned paths start with `./` and a `#[path]` test module never matched.
+        norm = os.path.normpath(path)
+        if norm in test_files or any(norm.startswith(folder + os.sep) for folder in test_folders):
             continue
         rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
         text = open(path, encoding="utf-8", errors="replace").read()

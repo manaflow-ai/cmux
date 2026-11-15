@@ -915,6 +915,8 @@ final class FeedFadeView: UIView {
 /// CmuxMobileCapsuleButtonStyle in UIKit: a 40 pt capsule inside a 44 pt target.
 final class FeedCapsuleButton: UIControl {
     private let fill = UIView()
+    /// The pressed wash over `fill` (design/pressed-state.md: a press changes the fill only).
+    private let pressWash = UIView()
     private let label = UILabel()
     var actionID: String?
     /// The button opens the event's terminal (not an answer: an agent's option id could be anything).
@@ -924,6 +926,10 @@ final class FeedCapsuleButton: UIControl {
         super.init(frame: frame)
         fill.isUserInteractionEnabled = false
         addSubview(fill)
+        pressWash.isUserInteractionEnabled = false
+        pressWash.backgroundColor = .cmuxMobileFillPressed
+        pressWash.isHidden = true
+        fill.addSubview(pressWash)
         label.textAlignment = .center
         label.numberOfLines = 1
         label.adjustsFontSizeToFitWidth = true
@@ -944,6 +950,8 @@ final class FeedCapsuleButton: UIControl {
         isEnabled = button.enabled
         fill.frame = bounds.insetBy(dx: 0, dy: 2)
         fill.layer.cornerRadius = fill.bounds.height / 2
+        pressWash.frame = fill.bounds
+        pressWash.layer.cornerRadius = fill.layer.cornerRadius
         let kind: FeedRowLayout.CapsuleButton.Kind = button.kind
         fill.backgroundColor = !button.enabled ? .cmuxMobileFill : (kind == .primary ? .cmuxMobileAccent : .cmuxMobileFillSelected)
         label.attributedText = button.title
@@ -952,7 +960,7 @@ final class FeedCapsuleButton: UIControl {
     }
 
     override var isHighlighted: Bool {
-        didSet { fill.alpha = isHighlighted ? 0.85 : 1; transform = isHighlighted ? CGAffineTransform(scaleX: 0.98, y: 0.98) : .identity }
+        didSet { pressWash.isHidden = !isHighlighted }
     }
 }
 

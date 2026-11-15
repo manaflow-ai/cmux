@@ -538,6 +538,12 @@ fn process_frame(
         }
         Request::Page(page) => {
             require_surface(&page.stream, surfaces)?;
+            if page.turns && class != Class::Later {
+                return Err(ConnError::InvalidRequest("a page of turns is a chat's".into()));
+            }
+            if page.turns && page.fold.is_some() {
+                return Err(ConnError::coded("bad_request", "a page of turns names no fold"));
+            }
             if class == Class::Later {
                 let identity = hold_reply(state)?;
                 let reply = Reply::new(state.clone(), "page", Some(page.sid.clone()), None);
@@ -589,7 +595,7 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
             if sub.stream.as_str() != "list"
                 || sub.view != Some(crate::wire::ListView::Live)
                 || sub.filter.is_some()
-                || sub.anchor.is_some()
+                || sub.anchor.as_ref().is_some_and(|anchor| *anchor != crate::wire::Anchor::End)
             {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),
@@ -605,6 +611,7 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
                 || page.view != Some(crate::wire::ListView::Live)
                 || page.filter.is_some()
                 || page.keys.is_some()
+                || page.turns
             {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),

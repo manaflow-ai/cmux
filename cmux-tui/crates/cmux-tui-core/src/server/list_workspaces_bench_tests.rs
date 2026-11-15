@@ -4,7 +4,7 @@
 //! terminal tab with no process behind it, on a persistent registry.
 //! Per size: the whole reply (what every phone list costs today), the
 //! `known` reply of a client whose tree is current, and the first screen
-//! (`limit: 50`), from the command to the
+//! (`limit: 50`), and a paired phone's list without and with `known`, from the command to the
 //! serialized line, p50 and p95, with the line's bytes; then the first whole
 //! list after a restart of the daemon on the same registry. Prints
 //! LIST-WORKSPACES-BENCH lines and writes them to
@@ -18,16 +18,39 @@ use super::*;
 use crate::SurfaceOptions;
 
 fn run(mux: &Arc<Mux>, request: &Value) -> String {
+    run_as(mux, mux.local_test_client(0), request)
+}
+
+fn run_as(mux: &Arc<Mux>, client: u64, request: &Value) -> String {
     let command: Command = serde_json::from_value(request.clone()).unwrap();
     let (writer, _) = captured_writer();
-    handle_command(mux, mux.local_test_client(0), command, &writer).unwrap().to_string()
+    handle_command(mux, client, command, &writer).unwrap().to_string()
 }
 
 /// The time of one request to its serialized reply, in ms, and the reply.
 fn timed(mux: &Arc<Mux>, request: &Value) -> (f64, String) {
+    timed_as(mux, mux.local_test_client(0), request)
+}
+
+fn timed_as(mux: &Arc<Mux>, client: u64, request: &Value) -> (f64, String) {
     let started = Instant::now();
-    let line = run(mux, request);
+    let line = run_as(mux, client, request);
     (started.elapsed().as_secs_f64() * 1000.0, line)
+}
+
+/// A paired phone's connection: the Mac lane marks its `set-client-info`
+/// `remote: true` (incognito_remote.rs), so it is answered as a remote device.
+fn phone(mux: &Arc<Mux>) -> u64 {
+    let (writer, _) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer);
+    run_as(
+        mux,
+        client,
+        &json!({"cmd": "set-client-info", "name": "iPhone", "kind": "ios",
+                "device_id": "bench-phone", "remote": true}),
+    );
+    assert!(incognito_remote::is_remote_device(mux, client), "the bench phone is not remote");
+    client
 }
 
 fn percentiles(times: &mut [f64]) -> String {
@@ -145,6 +168,39 @@ fn list_workspaces_bench() {
             percentiles(&mut first_times),
         ));
 
+        // The phone path (hq#10926): a paired phone's connection, before (the list it sent
+        // with no `known`: the whole tree each time) and after (its `known`, answered
+        // `unchanged`).
+        let client = phone(&mux);
+        let phone_first = run_as(&mux, client, &json!({"cmd": "list-workspaces", "known": {}}));
+        let phone_known = json!({"cmd": "list-workspaces", "known": known_of(&phone_first)});
+        let (mut before_times, mut after_times) = (Vec::new(), Vec::new());
+        let (mut before_bytes, mut after_bytes) = (0, 0);
+        for round in 0..runs {
+            for arm in (0..2).map(|offset| (round + offset) % 2) {
+                if arm == 0 {
+                    let (ms, line) = timed_as(&mux, client, &whole);
+                    before_bytes = line.len();
+                    before_times.push(ms);
+                } else {
+                    let (ms, line) = timed_as(&mux, client, &phone_known);
+                    assert!(
+                        line.contains("\"unchanged\":true"),
+                        "{}",
+                        &line[..200.min(line.len())]
+                    );
+                    after_bytes = line.len();
+                    after_times.push(ms);
+                }
+            }
+        }
+        lines_out.push(format!(
+            "LIST-WORKSPACES-BENCH {profile} workspaces={count} phone: before (no known) \
+             {before_bytes} bytes, {}; after (known, unchanged) {after_bytes} bytes, {}",
+            percentiles(&mut before_times),
+            percentiles(&mut after_times),
+        ));
+
         // Restart on the same registry: the first lists the new daemon answers.
         mux.shutdown();
         drop(mux);
@@ -168,7 +224,7 @@ fn list_workspaces_bench() {
         mux.shutdown();
         drop(mux);
         let _ = std::fs::remove_dir_all(&root);
-        for line in &lines_out[lines_out.len() - 2..] {
+        for line in &lines_out[lines_out.len() - 3..] {
             eprintln!("{line}");
         }
     }

@@ -320,6 +320,12 @@ pub struct Session {
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.
     pub(super) replaced: AtomicBool,
+    /// Set while a delete (`kill` with purge) runs, before it counts its stop, and kept once the
+    /// chat is gone: no agent starts for it from then on (`ensure_child`). A request that read
+    /// the stop count after the delete counted it started a new agent once the delete had taken
+    /// the old one, and that agent, its host, its record and its temporary folder outlived the
+    /// chat (`tests/session_delete_disk.rs`). Cleared when the delete fails: the chat stays.
+    pub(super) purging: AtomicBool,
     /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
     /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
     pub(super) closing: AtomicBool,
