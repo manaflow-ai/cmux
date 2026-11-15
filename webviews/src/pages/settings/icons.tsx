@@ -130,6 +130,33 @@ const paths: Record<string, ReactNode> = {
       <path d="m10.3 10.3 3.6 3.6" />
     </>
   ),
+  // The app areas What's New and the Updated popover group changes under (changelog/SheetPage.tsx
+  // AREA_SYMBOLS; Leo 2026-11-14 on the popover's blobby cloud and its blank Other: "theese are kinda
+  // crappy looking icons and stuff").
+  cloud: <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3Z" />,
+  command: (
+    <path d="M6 6H4.5A1.5 1.5 0 1 1 6 4.5V6Zm4 0V4.5A1.5 1.5 0 1 1 11.5 6H10Zm0 4h1.5a1.5 1.5 0 1 1-1.5 1.5V10Zm-4 0v1.5A1.5 1.5 0 1 1 4.5 10H6ZM6 6h4v4H6Z" />
+  ),
+  macwindow: (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M1.8 5.8h12.4M3.9 4.3h.01M5.5 4.3h.01" />
+    </>
+  ),
+  "rectangle.tabs": (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M1.8 6.2h12.4M6 2.8v3.4M10.2 2.8v3.4" />
+    </>
+  ),
+  "ellipsis.circle": (
+    <>
+      <circle cx="8" cy="8" r="6.2" />
+      <circle cx="5.2" cy="8" r=".85" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r=".85" fill="currentColor" stroke="none" />
+      <circle cx="10.8" cy="8" r=".85" fill="currentColor" stroke="none" />
+    </>
+  ),
   "icloud.and.arrow.down": (
     <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3ZM8 6.8v4M6.5 9.4 8 10.9l1.5-1.5" />
   ),
