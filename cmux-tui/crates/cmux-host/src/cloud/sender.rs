@@ -201,7 +201,7 @@ pub enum Answer {
 }
 
 impl Answer {
-    fn ok(&self) -> bool {
+    pub(crate) fn ok(&self) -> bool {
         matches!(self, Answer::Http { status: 200, body } if *body.field("ok") == true)
     }
 }
