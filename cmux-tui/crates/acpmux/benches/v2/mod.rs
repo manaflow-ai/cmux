@@ -186,10 +186,10 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3c",
         name: "v2.pr03c.append_behind_page",
-        done_when: "An append that waits behind a cold `page` read: its wait 1.2x on the best p95 of five rounds, as each sample holds a cold read. Runs of their own, alternated. The cold segment read is paid on both sides; bytes read printed beside the time.",
-        measured: false,
+        done_when: "An append that waits behind a cold `page` read: its wait 1.2x on the best p95 of five rounds, as each sample holds a cold read, and 2x on the p95 of all samples. Runs of their own, alternated. The cold segment read is paid on both sides; bytes read and minor faults printed beside the time. Sampled in a child process whose allocator keeps fixed thresholds, so an actor arena's trim (faults that follow the thread, not the chat's length) is not read as god's cost.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
@@ -923,13 +923,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         ratio_all: None,
         god_max: None,
     },
+    // Best round, with every sample's p95 beside it: a round is 20 runs over a socket (about
+    // 0.6 ms each), and a shared runner's one slow round is not the list's.
     GateRow {
         pr: "7c",
         name: "v2.pr07c.update_plan_wall",
-        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, best p95 of five rounds 1.2x, every sample's p95 2x.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
