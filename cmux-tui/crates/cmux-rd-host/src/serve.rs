@@ -239,16 +239,21 @@ impl Carrier for ServeCarrier {
     }
 }
 
+/// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
+/// with `capture`.
+fn view_only_for(scope: &str, _capture: CaptureBackend) -> Res<bool> {
+    match scope {
+        "view" => Ok(true),
+        "control" => Ok(false),
+        other => Err(format!("scope {other}: use view or control").into()),
+    }
+}
+
 pub fn run(opts: &Opts) -> Res<()> {
     let mut first = String::new();
     io::stdin().lock().read_line(&mut first)?;
     let setup: Setup = serde_json::from_str(&first).map_err(|e| format!("setup line: {e}"))?;
     let peer_key = unhex32(&setup.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let view_only = match setup.scope.as_str() {
-        "view" => true,
-        "control" => false,
-        other => return Err(format!("scope {other}: use view or control").into()),
-    };
     let stun: Vec<SocketAddr> = setup
         .stun
         .iter()
@@ -270,6 +275,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         })
     }));
     let capture = CaptureBackend::from_env(setup.capture.as_deref().or(opts.get("capture")))?;
+    let view_only = view_only_for(&setup.scope, capture)?;
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
@@ -465,4 +471,19 @@ fn serve_session(
     media.close_upstreams();
     let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));
     Ok(reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portal_sessions_are_view_only_whatever_the_scope() {
+        // The portal backend drops input: a control session there would not be one.
+        assert!(view_only_for("view", CaptureBackend::X11).unwrap());
+        assert!(!view_only_for("control", CaptureBackend::X11).unwrap());
+        assert!(view_only_for("view", CaptureBackend::Portal).unwrap());
+        assert!(view_only_for("control", CaptureBackend::Portal).unwrap());
+        assert!(view_only_for("full", CaptureBackend::X11).is_err());
+    }
 }

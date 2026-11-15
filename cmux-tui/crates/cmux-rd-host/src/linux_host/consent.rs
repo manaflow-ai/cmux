@@ -58,7 +58,8 @@ impl Default for LocalConsent {
 impl LocalConsent {
     /// How a ticket with `scope` is served: `Some(view_only)`, or None when this desktop does
     /// not allow it (the session is ended unserved). An unknown scope is refused.
-    pub fn serve(self, scope: &str) -> Option<bool> {
+    /// `applies_input`: whether this host's capture can apply a viewer's input.
+    pub fn serve(self, scope: &str, _applies_input: bool) -> Option<bool> {
         match scope {
             "view" if self.view => Some(true),
             "full" if self.full => Some(false),
@@ -127,6 +128,7 @@ pub fn decision_scope(
     request: &Request,
     wanted: Option<&str>,
     consent: LocalConsent,
+    applies_input: bool,
 ) -> Result<String, String> {
     let scope = wanted.unwrap_or(&request.scope);
     match (request.scope.as_str(), scope) {
@@ -135,7 +137,7 @@ pub fn decision_scope(
             return Err(format!("scope {given} is not allowed for a request for {asked}"))
         }
     }
-    if consent.serve(scope).is_none() {
+    if consent.serve(scope, applies_input).is_none() {
         return Err(format!("this desktop does not allow {scope} sessions (enable with --allow-control to allow full)"));
     }
     Ok(scope.to_owned())
@@ -165,25 +167,46 @@ mod tests {
     #[test]
     fn decisions_never_raise_the_scope_or_pass_local_consent() {
         let all = LocalConsent { view: true, full: true };
-        assert_eq!(decision_scope(&request("full"), None, all).as_deref(), Ok("full"));
-        assert_eq!(decision_scope(&request("full"), Some("view"), all).as_deref(), Ok("view"));
-        assert!(decision_scope(&request("view"), Some("full"), all).is_err());
-        assert!(decision_scope(&request("view"), Some("none"), all).is_err());
-        let view_only = LocalConsent { view: true, full: false };
-        assert!(decision_scope(&request("full"), None, view_only).is_err());
+        assert_eq!(decision_scope(&request("full"), None, all, true).as_deref(), Ok("full"));
         assert_eq!(
-            decision_scope(&request("full"), Some("view"), view_only).as_deref(),
+            decision_scope(&request("full"), Some("view"), all, true).as_deref(),
+            Ok("view")
+        );
+        assert!(decision_scope(&request("view"), Some("full"), all, true).is_err());
+        assert!(decision_scope(&request("view"), Some("none"), all, true).is_err());
+        let view_only = LocalConsent { view: true, full: false };
+        assert!(decision_scope(&request("full"), None, view_only, true).is_err());
+        assert_eq!(
+            decision_scope(&request("full"), Some("view"), view_only, true).as_deref(),
             Ok("view")
         );
     }
 
     #[test]
     fn local_consent_maps_ticket_scopes() {
-        assert_eq!(LocalConsent::default().serve("view"), Some(true));
-        assert_eq!(LocalConsent::default().serve("full"), None);
-        assert_eq!(LocalConsent { view: true, full: true }.serve("full"), Some(false));
-        assert_eq!(LocalConsent { view: true, full: false }.serve("full"), None);
-        assert_eq!(LocalConsent::default().serve("control"), None);
+        assert_eq!(LocalConsent::default().serve("view", true), Some(true));
+        assert_eq!(LocalConsent::default().serve("full", true), None);
+        assert_eq!(LocalConsent { view: true, full: true }.serve("full", true), Some(false));
+        assert_eq!(LocalConsent { view: true, full: false }.serve("full", true), None);
+        assert_eq!(LocalConsent::default().serve("control", true), None);
+    }
+
+    #[test]
+    fn a_host_that_applies_no_input_serves_and_offers_view_only() {
+        // The Wayland portal capture drops every input event: a control session would
+        // promise what it does not do.
+        let all = LocalConsent { view: true, full: true };
+        assert_eq!(all.serve("full", false), Some(true));
+        assert_eq!(all.serve("view", false), Some(true));
+        assert_eq!(LocalConsent::default().serve("full", false), None);
+        // Approving a request for control offers view.
+        assert_eq!(decision_scope(&request("full"), None, all, false).as_deref(), Ok("view"));
+        assert_eq!(
+            decision_scope(&request("full"), Some("view"), all, false).as_deref(),
+            Ok("view")
+        );
+        let refused = decision_scope(&request("full"), Some("full"), all, false).unwrap_err();
+        assert!(refused.contains("--scope view"), "{refused}");
     }
 
     #[test]
