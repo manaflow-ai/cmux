@@ -218,6 +218,8 @@ export function noteChatTheme(key: unknown): void {
 /// streaming reply writes at most once per ``WRITE_GAP_MS``, never per frame or per delta.
 const QUIET_MS = 1_500;
 const WRITE_GAP_MS = 10_000;
+/// How long a resize rests before the copy is written at the new size (``watchChatSnapshot``).
+const RESIZE_QUIET_MS = 400;
 /// The host event that asks for a write now (the tab was hidden; AgentPaneView+PageHost).
 export const SNAPSHOT_WRITE_EVENT = "cmux-chat-snapshot-write";
 
@@ -281,7 +283,19 @@ export function watchChatSnapshot(
   // drawn only at the size it was written at (shared.ts `fitsDocument`): a pane resized after the
   // last write left a copy the next launch refused ("size 868x712, drawn at 528x512" in the
   // relaunch-shift bench), and the chat opened from nothing, its chips filling in after the attach.
-  view.addEventListener("resize", changed);
+  // So a resize writes once it rests, ``RESIZE_QUIET_MS``, past the write gap: a quit within the gap
+  // (the host asks for a write only when the tab hides) kept the old size.
+  let resizeTimer: number | undefined;
+  const resized = () => {
+    if (stopped) return;
+    view.clearTimeout(resizeTimer);
+    resizeTimer = view.setTimeout(() => {
+      resizeTimer = undefined;
+      if (timer !== undefined) view.clearTimeout(timer);
+      write();
+    }, RESIZE_QUIET_MS);
+  };
+  view.addEventListener("resize", resized);
   const now = () => {
     if (timer !== undefined) view.clearTimeout(timer);
     write();
@@ -297,7 +311,8 @@ export function watchChatSnapshot(
   return () => {
     stopped = true;
     observer.disconnect();
-    view.removeEventListener("resize", changed);
+    view.removeEventListener("resize", resized);
+    view.clearTimeout(resizeTimer);
     if (timer !== undefined) view.clearTimeout(timer);
     doc.removeEventListener("visibilitychange", hidden);
     view.removeEventListener(SNAPSHOT_WRITE_EVENT, now);

@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { noteChatTheme, watchChatSnapshot } from "./live";
 
-test("a resize with no markup change writes the copy again, after the quiet", async () => {
+test("a resize with no markup change writes the copy again once it rests, inside the write gap", async () => {
   const dom = new JSDOM(`<!doctype html><html><body><main id="root"><p>row</p></main></body></html>`, {
     pretendToBeVisual: true,
   });
@@ -20,13 +20,17 @@ test("a resize with no markup change writes the copy again, after the quiet", as
   // Nothing changed: no write past the gap.
   await new Promise((resolve) => setTimeout(resolve, 200));
   expect(writes.length).toBe(1);
+  // A drag's resizes: one write, once they rest, though the write gap (10 s) has not passed.
   view.dispatchEvent(new view.Event("resize"));
-  // Writes stay WRITE_GAP_MS apart; the resize is written once the gap since the first has passed.
-  await new Promise((resolve) => setTimeout(resolve, 10_200));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  view.dispatchEvent(new view.Event("resize"));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(writes.length).toBe(1);
+  await new Promise((resolve) => setTimeout(resolve, 400));
   expect(writes.length).toBe(2);
   stop();
   view.dispatchEvent(new view.Event("resize"));
   await new Promise((resolve) => setTimeout(resolve, 1_700));
   expect(writes.length).toBe(2);
   dom.window.close();
-}, 20_000);
+}, 10_000);

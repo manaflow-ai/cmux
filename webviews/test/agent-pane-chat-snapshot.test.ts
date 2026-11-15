@@ -571,6 +571,25 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  test("under the theme it was written in, the copy keeps its own look attributes", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    // The host's document-start attributes, which the page replaces with its own once it runs.
+    await relaunched(page, before.snapshot, "theme-1", {
+      holdDraw: true,
+      attributes: `data-look="plain" style="--cmux-surface: rgb(10, 20, 30);"`,
+    });
+    const look = await page.evaluate(() =>
+      document
+        .querySelector("cmux-chat-snapshot")!
+        .shadowRoot!.querySelector("cmux-snapshot-html")!
+        .getAttribute("data-look"),
+    );
+    expect(look).toBe("roomy");
+    await context.close();
+  });
+
   test("a copy written in another appearance draws nothing", async () => {
     const context = await newContext(800, 600);
     const before = await written(

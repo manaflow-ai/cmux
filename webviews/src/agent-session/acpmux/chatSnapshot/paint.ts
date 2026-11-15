@@ -17,6 +17,7 @@ import {
   SNAPSHOT_SCROLL_ATTRIBUTE,
   SNAPSHOT_SHEETS_ATTRIBUTE,
   SNAPSHOT_SHOWN_GLOBAL,
+  SNAPSHOT_THEME_GLOBAL,
   shadowSelector,
   type ChatSnapshot,
   type SnapshotAttributes,
@@ -179,7 +180,13 @@ export function paintSnapshot(
   shadow.adoptedStyleSheets = [...(styles as CSSStyleSheet[]), still];
   const html = doc.createElement(SNAPSHOT_HTML_TAG);
   setAttributes(html, snapshot.root);
-  layerHostTheme(html, doc.documentElement);
+  // Only under another theme: under the one it was written in, the copy's root already holds the live
+  // page's look attributes and variables as it drew, and the host's document-start ones are what the page
+  // replaces with its own once it runs. Suspected cause of the copy's trust ask drawing 4 px taller than the
+  // live one (95 against 91 in the relaunch-shift bench, where the swap never matched); the swap's report
+  // (swapDiff.ts `copyAsk`/`liveAsk`) says.
+  if ((view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] !== snapshot.theme)
+    layerHostTheme(html, doc.documentElement);
   html.classList.add(SNAPSHOT_ROOT_CLASS);
   const body = doc.createElement(SNAPSHOT_BODY_TAG);
   setAttributes(body, snapshot.body);
