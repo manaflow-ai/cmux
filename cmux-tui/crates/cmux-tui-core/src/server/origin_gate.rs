@@ -507,6 +507,7 @@ fn set_peer_identity_with(
     };
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
+        record.origin.peer_token = peer_token;
         record.origin.local_peer = local_peer;
         record.origin.kept_seat = kept_seat;
         record.origin.mobile_host = mobile_host;

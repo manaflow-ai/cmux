@@ -157,3 +157,35 @@ fn apps_list_names_the_watched_local_folder() {
     let local = f.state.join("apps/local");
     assert_eq!(f.supervisor.list()["local_dir"], json!(local.to_string_lossy()));
 }
+
+/// An app in a `CMUX_APPS_DIRS` folder (`Sources::extra`: a person's own
+/// checkout of an extension, or a fork of a first-party app) reloads on a
+/// save like a local app, and its open view is mounted again with the saved
+/// manifest (base red: only the customize and local folders had
+/// fingerprints, so a save there changed nothing until cmux restarted).
+#[test]
+fn a_save_in_an_apps_dirs_folder_reloads_the_app_and_its_open_view() {
+    let f = fixture();
+    let extra = f.state.parent().unwrap().join("extra");
+    write_app(&extra, "ext", "acme/ext", json!({}));
+    // A publisher must own its repository (`publisher.mismatch`).
+    let path = extra.join("ext/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["repository"] = json!("https://github.com/acme/ext");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(app_entry(&f.supervisor.list(), "acme/ext")["version"], "1.0.0");
+    f.install("acme/ext");
+    f.mount("m1", "acme/ext", "cmux.section/1", json!({}));
+    manifest["version"] = json!("1.0.1");
+    manifest["implements"]["cmux.section/1"]["export"] = json!("renderAgain");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&prints);
+    let entry = app_entry(&f.supervisor.list(), "acme/ext");
+    assert_eq!(entry["version"], "1.0.1", "the save was read: {entry}");
+    let scene = f.wait("the remount's scene", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "create"
+    });
+    assert_eq!(scene["ops"][0]["props"]["text"], "renderAgain", "{scene}");
+}

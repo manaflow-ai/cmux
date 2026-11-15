@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "566e2042952c0c67b4a5746a12488f5ac809b887b8d1fd84d4bb6aad6e842d51";
+inline constexpr std::string_view kProtocolIrSha256 = "725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -681,6 +681,7 @@ struct ResizedEvent;
 struct ScreenAddedEvent;
 struct ScreenChangedEvent;
 struct ScreenClosedEvent;
+struct ScreenDeviceChangedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
 struct SelectionChangedEvent;
@@ -3427,6 +3428,7 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
@@ -5017,6 +5019,11 @@ struct ScreenClosedEvent {
     Id screen{};
     Id workspace{};
     friend bool operator==(const ScreenClosedEvent&, const ScreenClosedEvent&) = default;
+};
+
+struct ScreenDeviceChangedEvent {
+    std::optional<std::string> screen_device_id{};
+    friend bool operator==(const ScreenDeviceChangedEvent&, const ScreenDeviceChangedEvent&) = default;
 };
 
 struct ScreenRenamedEvent {
@@ -10583,6 +10590,12 @@ template <>
 struct Codec<ScreenClosedEvent> {
     static Result<Json> encode(const ScreenClosedEvent& value);
     static Result<ScreenClosedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ScreenDeviceChangedEvent> {
+    static Result<Json> encode(const ScreenDeviceChangedEvent& value);
+    static Result<ScreenDeviceChangedEvent> decode(const Json& value);
 };
 
 template <>
