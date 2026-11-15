@@ -40,7 +40,8 @@ import Testing
         #expect(!redeemed.description.contains("\"r\""))
         let request = try #require(box.requests.first)
         #expect(request.value(forHTTPHeaderField: "authorization") == nil)
-        let sent = try #require(JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: String])
+        let body = try #require(request.httpBody)
+        let sent = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
         #expect(sent == ["code": code, "device": "cmux16", "expected_user": "s1"])
     }
 
