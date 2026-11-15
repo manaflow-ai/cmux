@@ -94,6 +94,45 @@ struct MacScreenAppKitViewTests {
         window.close()
     }
 
+    @Test func offlineDeviceExplainsHowToBringItBackAndDisablesScreenActions() throws {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        let device = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Air Blue", isPhone: false,
+                                                   online: false, macScreenShared: true, access: MacScreenAccess(.ask))
+        home.build(MacScreenHomeSnapshot(devices: .list([device]), sharingLook: .list))
+        let shown = texts(under: home)
+        #expect(shown.contains("Open cmux on Air Blue to share its screen."))
+        #expect((findView("macScreen.home.view.Air Blue", under: home) as? NSButton)?.isEnabled == false)
+        #expect((findView("macScreen.home.control.Air Blue", under: home) as? NSButton)?.isEnabled == false)
+        pages.tabClosed("home")
+    }
+
+    @Test func askAccessExplainsThatTheFirstConnectAsksOnTheHost() throws {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        let device = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Studio", isPhone: false,
+                                                   online: true, macScreenShared: true, access: MacScreenAccess(.ask))
+        home.build(MacScreenHomeSnapshot(devices: .list([device]), sharingLook: .list))
+        #expect(texts(under: home).contains("The first connect asks on that Mac."))
+        pages.tabClosed("home")
+    }
+
+    @Test func firstUseGuideNamesTheTwoSharingSteps() throws {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        let sharing = MacScreenHomeSnapshot.Sharing(isSharing: false, busy: false, screenRecordingGranted: false,
+                                                     accessibilityGranted: false, showFirstUse: true)
+        home.build(MacScreenHomeSnapshot(sharing: sharing, sharingLook: .list))
+        #expect(texts(under: home).contains("First time? 1. Turn on Allow Mac Screen on the other Mac. 2. Click View Only or Full Control here."))
+        pages.tabClosed("home")
+    }
+
     @Test func connectCardButtonsAskTheHubAndTheCardFollows() async throws {
         let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
         let window = window(pane.view)
