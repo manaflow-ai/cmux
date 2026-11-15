@@ -374,9 +374,14 @@ public final class SettingsController {
     /// ``readAtLaunch(fileURL:managedReader:buildDefaults:)`` of the launch's file, remembering whether
     /// the launch made it from nothing, so ``start(announcingDiagnostics:rotatingFavoriteThemes:)``
     /// starts a fresh install's window on Glass.
-    public static func readAtLaunch(file: CmuxConfigFile.LaunchFile, buildDefaults: SettingsBuildDefaults = .none) -> LaunchRead {
+    ///
+    /// It also applies `appearance.fontSmoothing` to `appDefaults` (``ProcessFontSmoothing/apply(_:to:)``):
+    /// the app calls this before its first window, and AppKit fixes its text weight at its first text draw.
+    public static func readAtLaunch(file: CmuxConfigFile.LaunchFile, buildDefaults: SettingsBuildDefaults = .none,
+                                    appDefaults: UserDefaults = .standard) -> LaunchRead {
         var read = readAtLaunch(fileURL: file.url, buildDefaults: buildDefaults)
         read.createdEmptyFile = file.createdEmpty
+        ProcessFontSmoothing.apply(read.snapshot.fontSmoothing, to: appDefaults)
         return read
     }
 
