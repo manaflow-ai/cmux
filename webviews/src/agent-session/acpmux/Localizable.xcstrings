@@ -34057,6 +34057,1062 @@
         }
       }
     },
+    "switch.signInRequired": {
+      "comment": "Agent pane: a chat's agent did not start because it is not signed in on the chat's machine. {agent} is the agent's name (Cursor).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} غير مسجّل الدخول على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} nije prijavljen na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} er ikke logget ind på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} ist auf diesem Gerät nicht angemeldet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} isn't signed in on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} no tiene la sesión iniciada en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} n'est pas connecté sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} non ha eseguito l'accesso su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンでは {agent} にサインインしていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} មិនទាន់បានចូលគណនីនៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서 {agent}에 로그인되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} er ikke logget på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} nie jest zalogowany na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} não está conectado nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} не выполнил вход на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} ยังไม่ได้ลงชื่อเข้าใช้ในเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} bu makinede oturum açmamış."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} не ввійшов на цьому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} chưa đăng nhập trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 尚未在这台机器上登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 尚未在這台機器上登入。"
+          }
+        }
+      }
+    },
+    "switch.signInExpired": {
+      "comment": "Agent pane: a chat's agent did not start because its sign-in on the chat's machine expired. {agent} is the agent's name (Grok).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتهت صلاحية تسجيل دخول {agent} على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijava za {agent} je istekla na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login for {agent} er udløbet på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Anmeldung von {agent} ist auf diesem Gerät abgelaufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent}'s sign-in expired on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sesión de {agent} caducó en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connexion de {agent} a expiré sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'accesso di {agent} è scaduto su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンでの {agent} のサインインが期限切れです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចូលគណនី {agent} បានផុតកំណត់នៅលើម៉ាស៊ីននេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서 {agent} 로그인이 만료되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Påloggingen for {agent} er utløpt på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logowanie {agent} wygasło na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O login do {agent} expirou nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Срок входа {agent} на этом компьютере истёк."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การลงชื่อเข้าใช้ {agent} ในเครื่องนี้หมดอายุแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} oturumunun bu makinedeki süresi doldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термін входу {agent} на цьому комп’ютері сплив."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên đăng nhập {agent} trên máy này đã hết hạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 在这台机器上的登录已过期。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 在這台機器上的登入已過期。"
+          }
+        }
+      }
+    },
+    "switch.signInRequiredUnnamed": {
+      "comment": "Agent pane: a chat's agent, whose name is unknown, did not start because it is not signed in on the chat's machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الوكيل غير مسجّل الدخول على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj agent nije prijavljen na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agent er ikke logget ind på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Agent ist auf diesem Gerät nicht angemeldet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent isn't signed in on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente no tiene la sesión iniciada en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet agent n'est pas connecté sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo agente non ha eseguito l'accesso su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンではこのエージェントにサインインしていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារនេះមិនទាន់បានចូលគណនីនៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서 이 에이전트에 로그인되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agenten er ikke logget på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten agent nie jest zalogowany na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente não está conectado nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот агент не выполнил вход на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์นี้ยังไม่ได้ลงชื่อเข้าใช้ในเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajan bu makinede oturum açmamış."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей агент не ввійшов на цьому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử này chưa đăng nhập trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理尚未在这台机器上登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理尚未在這台機器上登入。"
+          }
+        }
+      }
+    },
+    "switch.signInElsewhere": {
+      "comment": "Agent pane: under 'Cursor isn't signed in on this machine.' for a chat on another machine where cmux can't run the sign-in: what to do. 'This machine' is the chat's machine, as in the line above. Retry is the card's button.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل دخوله على هذا الجهاز، ثم اضغط إعادة المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite ga na ovom računaru, pa Pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log den ind på denne maskine, og vælg derefter Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde ihn auf diesem Gerät an und wähle dann Erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign it in on this machine, then Retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia su sesión en esta máquina y luego pulsa Reintentar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-le sur cette machine, puis Réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esegui l'accesso su questa macchina, poi Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンでサインインしてから、再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនីវានៅលើម៉ាស៊ីននេះ រួចសាកល្បងម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서 로그인한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg den på denne maskinen, og velg deretter Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj go na tym komputerze, a potem kliknij Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conecte-o nesta máquina e depois toque em Tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выполните вход на этом компьютере, затем нажмите «Повторить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ในเครื่องนี้ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makinede oturum açın, ardından Yeniden dene'ye basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть на цьому комп’ютері, потім натисніть «Повторити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập trên máy này, rồi Thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请在这台机器上登录，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請在這台機器上登入，然後重試。"
+          }
+        }
+      }
+    },
+    "switch.notInstalledUnnamed": {
+      "comment": "Agent pane: a chat's agent, whose name is unknown, did not start because it is not on the chat's machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الوكيل غير مثبّت على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj agent nije instaliran na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agent er ikke installeret på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Agent ist auf diesem Gerät nicht installiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent isn't installed on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente no está instalado en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet agent n'est pas installé sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo agente non è installato su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンにはこのエージェントがインストールされていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារនេះមិនទាន់បានដំឡើងនៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에 이 에이전트가 설치되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agenten er ikke installert på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten agent nie jest zainstalowany na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente não está instalado nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот агент не установлен на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้ติดตั้งเอเจนต์นี้ในเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajan bu makinede yüklü değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей агент не встановлено на цьому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử này chưa được cài trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台机器上没有安装此代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台機器上沒有安裝此代理。"
+          }
+        }
+      }
+    },
+    "switch.routeUnavailable": {
+      "comment": "Agent pane: a chat's agent did not start because the model route its profile uses can't serve it on the chat's machine. {agent} is the agent's name (Claude Code).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مسار النموذج الخاص بـ {agent} غير متاح على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruta modela za {agent} nije dostupna na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelruten for {agent} er ikke tilgængelig på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Modellroute von {agent} ist auf diesem Gerät nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent}'s model route isn't available on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La ruta de modelo de {agent} no está disponible en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La route de modèle de {agent} n'est pas disponible sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il percorso del modello di {agent} non è disponibile su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンでは {agent} のモデルルートを利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លូវម៉ូដែលរបស់ {agent} មិនអាចប្រើបាននៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서는 {agent}의 모델 경로를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modellruten for {agent} er ikke tilgjengelig på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trasa modelu {agent} nie jest dostępna na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A rota de modelo do {agent} não está disponível nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрут модели {agent} недоступен на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นทางโมเดลของ {agent} ใช้ไม่ได้ในเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} model rotası bu makinede kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрут моделі {agent} недоступний на цьому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tuyến mô hình của {agent} không khả dụng trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 的模型路由在这台机器上不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 的模型路由在這台機器上無法使用。"
+          }
+        }
+      }
+    },
+    "switch.routeUnavailableUnnamed": {
+      "comment": "Agent pane: a chat's agent, whose name is unknown, did not start because the model route its profile uses can't serve it on the chat's machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مسار النموذج الخاص بهذا الوكيل غير متاح على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruta modela ovog agenta nije dostupna na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelruten for denne agent er ikke tilgængelig på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Modellroute dieses Agenten ist auf diesem Gerät nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent's model route isn't available on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La ruta de modelo de este agente no está disponible en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La route de modèle de cet agent n'est pas disponible sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il percorso del modello di questo agente non è disponibile su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンではこのエージェントのモデルルートを利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លូវម៉ូដែលរបស់ភ្នាក់ងារនេះមិនអាចប្រើបាននៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서는 이 에이전트의 모델 경로를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modellruten for denne agenten er ikke tilgjengelig på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trasa modelu tego agenta nie jest dostępna na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A rota de modelo deste agente não está disponível nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрут модели этого агента недоступен на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นทางโมเดลของเอเจนต์นี้ใช้ไม่ได้ในเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajanın model rotası bu makinede kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрут моделі цього агента недоступний на цьому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tuyến mô hình của tác tử này không khả dụng trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理的模型路由在这台机器上不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理的模型路由在這台機器上無法使用。"
+          }
+        }
+      }
+    },
+    "switch.routerUnavailable": {
+      "comment": "Agent pane: a chat on the cmux router agent did not start because the cmux router can't serve it on the chat's machine (a Cloud machine has no local router). Keep 'cmux' as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موجّه cmux غير متاح على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ruter nije dostupan na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-routeren er ikke tilgængelig på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der cmux-Router ist auf diesem Gerät nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux router isn't available on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El enrutador de cmux no está disponible en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le routeur cmux n'est pas disponible sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il router di cmux non è disponibile su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンでは cmux ルーターを利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រ៉ោតទ័រ cmux មិនអាចប្រើបាននៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서는 cmux 라우터를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-ruteren er ikke tilgjengelig på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Router cmux nie jest dostępny na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O roteador do cmux não está disponível nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрутизатор cmux недоступен на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เราเตอร์ของ cmux ใช้ไม่ได้ในเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux yönlendiricisi bu makinede kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрутизатор cmux недоступний на цьому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ định tuyến cmux không khả dụng trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 路由器在这台机器上不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 路由器在這台機器上無法使用。"
+          }
+        }
+      }
+    },
     "switch.action.install": {
       "comment": "Agent pane: the start-failed card's button that runs the agent's installer in a terminal tab.",
       "extractionState": "manual",
@@ -77721,6 +78777,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "與我共享"
+          }
+        }
+      }
+    },
+    "switch.action.signInTo": {
+      "comment": "Agent pane, a refused start's card: the button that runs the agent's sign-in in a terminal tab of this Mac. No ellipsis: it runs at once, as Install does. {harness} is the agent's name (Cursor).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى {harness}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavi se na {harness}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på {harness}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei {harness} anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to {harness}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en {harness}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à {harness}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a {harness}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} にサインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលគណនី {harness}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness}에 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på {harness}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do {harness}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar no {harness}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войти в {harness}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ {harness}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} oturumu aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійти в {harness}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập vào {harness}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 {harness}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 {harness}"
           }
         }
       }

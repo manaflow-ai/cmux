@@ -934,6 +934,55 @@ export type SharesState = {
   titles?: Record<string, string>;
 };
 
+/** Settings > Keys (`cmux.settings.keys.list`): what `cmux keys ls --json` lists (cmux-tui
+ * cli/key_broker.rs) and the key requests agents sent with `cmux keys request` that wait for the
+ * person. A record never carries a value. Times are RFC 3339 (UTC, `Z`). Older records may lack
+ * the newer fields, so each is optional here and read defensively (keys.ts). */
+export type KeyUseWire = { target: string; last_used_at?: string | null; count?: number };
+export type KeyRecordWire = {
+  id: string;
+  /** What to show; older records have none (keys.ts falls back to the name, bucket or id). */
+  label?: string | null;
+  /** Local keys only: the `[A-Z_][A-Z0-9_]*` name agents use. */
+  name?: string | null;
+  /** `local` or `cloudflare`. */
+  provider?: string;
+  /** `secret` or `r2`. */
+  kind?: string;
+  /** `stdin`, `generated`, `person` or `cloudflare`. */
+  source?: string;
+  bucket?: string | null;
+  purpose?: string | null;
+  /** The sites the key may be sent to; empty: any. */
+  hosts?: string[];
+  /** Where copies were written (`gh-secret:owner/repo:NAME`, `file:/path`). */
+  stores?: string[];
+  uses?: KeyUseWire[];
+  /** Who stored or minted it (`CLAUDE_CODE_SESSION_ID=…`, `user=leo`). */
+  by?: string | null;
+  asked_by?: string | null;
+  created_at?: string | null;
+  expires_at?: string | null;
+  /** `live`, `expired` or `revoked`. */
+  state?: string;
+};
+/** One `keys.request` waiting for the person; the app keeps it in memory only. */
+export type KeyRequestWire = {
+  id: string;
+  name: string;
+  purpose: string;
+  hosts: string[];
+  /** Who asked, as the CLI names it (`CLAUDE_CODE_SESSION_ID=…`). */
+  requester: string;
+  asked_at: string;
+};
+export type KeysState = {
+  /** False when this build's `cmux` could not list keys: the card says so instead of the list. */
+  available?: boolean;
+  requests: KeyRequestWire[];
+  keys: KeyRecordWire[];
+};
+
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
  * the device hub, Mac Screen access to this Mac, relays and the access history. The host sends
  * every text localized; the page draws and forwards each gesture (`cmux.settings.devices.run`). */
@@ -1294,6 +1343,16 @@ export type SettingsOps = {
   /** Native: one `cmux customize library` verb through the bundled CLI (Personalization >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
+  /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
+  "cmux.settings.keys.list": [Record<string, never>, KeysState];
+  /** Native, the person's click: the value goes to `cmux keys put` on stdin only, and the agent's
+   * waiting `cmux keys request` is answered; a refusal rejects and the request stays. */
+  "cmux.settings.keys.answer": [{ request_id: string; value: string }, { stored: boolean; name?: string }];
+  /** Native, the person's click: the agent's request ends as declined. */
+  "cmux.settings.keys.decline": [{ request_id: string }, unknown];
+  /** Native, the person's click: a local key's value is deleted (its record stays, revoked); a
+   * provider key is deleted at the provider. */
+  "cmux.settings.keys.revoke": [{ id: string }, unknown];
   /** Native: Settings > Agents > Worktree Setup, the session host's `project.list`,
    * `git.worktree.setup` and (on your click) `project.update` field `worktree`, on the app's own
    * connection: a page may not reach them itself. */
@@ -1390,6 +1449,8 @@ export type SettingsStreams = {
   "cmux.settings.harnesses.changed": HarnessesState;
   /** The Devices part changed (the event carries the new state). */
   "cmux.settings.devices.changed": DevicesState;
+  /** A key request arrived or ended (the page reads `cmux.settings.keys.list` again). */
+  "cmux.settings.keys.changed": { revision: number };
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
