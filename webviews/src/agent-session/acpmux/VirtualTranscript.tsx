@@ -2861,6 +2861,9 @@ function TranscriptView({
     const mounted = threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row");
     if (mounted.length !== placed.last - placed.first) return false;
     const geometry = placed.layout.geometry;
+    // The thread carries the room held for older history (its `top`): rows flow in its coordinates,
+    // so every placed top here is taken less that room.
+    const room = placed.layout.origin ?? 0;
     // Each mounted row's gap under it, its margin in the flow; the last one has no row under it there.
     // Written here and not by the row's render: outside a drag a row that arrives must cost what it
     // cost before the rows could flow. A length on every row's style, set again as the row under it
@@ -2880,7 +2883,7 @@ function TranscriptView({
     const live = liveResize.current;
     if (end) {
       live.hold = undefined;
-      const at = geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1);
+      const at = geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1) - room;
       // The room under the latest row at rest, taken from the scroll content's own height (100%: the
       // taller of the placed height and the view). Over a chat taller than the view that is the
       // latest row's placed bottom; over one that fits, the same room above the view's lower edge.
@@ -2889,7 +2892,7 @@ function TranscriptView({
       // The first row's place when the view holds the whole chat, in the thread's coordinates at
       // this scroll offset. No such place while older rows are unmounted above the first mounted
       // one: the strut then gets the box's own length, which leaves the rows at its end.
-      const whole = placed.first === 0 ? geometry.topAt(0) + scrolled : at;
+      const whole = placed.first === 0 ? geometry.topAt(0) - room + scrolled : at;
       writeFlow(live, threadNode, "start", `${THREAD_TOP + whole}px`);
     } else {
       // The same mounted rows under the same held row keep the padding `holdFlow` gave them.
@@ -2907,7 +2910,7 @@ function TranscriptView({
           break;
         }
       }
-      const pad = THREAD_TOP + geometry.topAt(placed.first);
+      const pad = THREAD_TOP + geometry.topAt(placed.first) - room;
       if (live.hold) Object.assign(live.hold, { pad, first: placed.first });
       writeFlow(live, threadNode, "start", `${pad}px`);
       writeFlow(live, threadNode, "end", undefined);
@@ -5076,7 +5079,8 @@ function TranscriptView({
       : {
           idAt: (index) => rows[index]?.id,
           indexOf: (id) => mountedIndexOf(rows, mountedRanges, id),
-          topAt: (index) => THREAD_TOP + placedGeometry.topAt(index),
+          // Each row's `offsetTop` in the thread, which carries the older-history room.
+          topAt: (index) => THREAD_TOP + placedGeometry.topAt(index) - (layout.origin ?? 0),
           heightAt: (index) => placedGeometry.heightAt(index),
           mounted: mountedRanges,
         };
