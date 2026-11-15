@@ -1,8 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample wishes), not shipped UI.
 // "Ask cmux to do this" under a search with no match, three looks for the pick (rulebook: more than
-// two versions). References: cmux-design-references `aside/live/new-tab-search-to-ask` (the one
-// box turns from search into ask) and `claude/live/settings-search-transcript` (results as rows in
-// the flyout). Shipped: `row`. It reads as the one result the search did find, it shows the words
+// two versions). From the cmux-design-references: one box that turns from search into ask, and
+// search results as rows in a flyout. Shipped: `row`. It reads as the one result the search did find, it shows the words
 // it will send (so nothing is sent that the person did not see), and it is as wide as a result row,
 // so it lines up under "No settings match.". `button` hides the words; `link` is the quietest and
 // the easiest to miss, and a person who searched and found nothing is looking for a next step.
