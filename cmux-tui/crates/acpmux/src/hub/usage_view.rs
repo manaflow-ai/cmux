@@ -175,8 +175,9 @@ impl Hub {
             self.usage_stats.sources_read.store(sources.len(), Ordering::SeqCst);
             self.usage_stats.passes.fetch_add(1, Ordering::SeqCst);
         }
-        let by_id: HashMap<String, Arc<Session>> =
-            sessions.into_iter().map(|s| (s.id.clone(), s)).collect();
+        // Only a turn's own read keeps its chat's handle, to announce it; a whole pass resolves
+        // what changed in the session map, so it builds no map of its candidates.
+        let own = if whole { Vec::new() } else { sessions };
         let models = Models::from_catalog(&self.catalog.current());
         let cache = &self.usage_stats;
         let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
@@ -212,15 +213,17 @@ impl Hub {
             (changed, announce)
         });
         let Ok((changed, announce)) = pass.await else { return };
-        // Only the chats whose stats changed or went: their rows, not every closed row.
+        // Only the chats whose stats changed or went: their rows, not every closed row. Each is
+        // found in the session map (one lookup a chat): a chat pruned for age is there and tells
+        // its own row; only a purged one, in no map, makes every closed row stale.
         for id in &changed {
-            match by_id.get(id) {
-                Some(session) => self.events.row_changed(session),
+            match self.session_by_id(id) {
+                Some(session) => self.events.row_changed(&session),
                 None => self.events.all_rows_stale(),
             }
         }
         for (id, stats) in announce {
-            if let Some(session) = by_id.get(&id) {
+            if let Some(session) = own.iter().find(|s| s.id == id) {
                 let stats = serde_json::to_value(stats).unwrap_or_default();
                 self.append(session, "mux", RECORD_KIND, stats);
             }

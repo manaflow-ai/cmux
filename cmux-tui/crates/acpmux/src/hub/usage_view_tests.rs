@@ -100,3 +100,79 @@ async fn a_whole_pass_counts_the_chats_it_read() {
     hub.refresh_usage_stats().await;
     assert_eq!(hub.usage_passes_for_test(), (2, 3));
 }
+
+/// Stats a pass found for chat `id`, as if one did.
+fn stats_found(hub: &Hub, id: &str) {
+    let stats: UsageStats =
+        serde_json::from_value(json!({"autocompact": "unknown", "updatedAt": 1})).unwrap();
+    hub.usage_stats.stats.lock().unwrap().insert(id.to_owned(), stats);
+}
+
+fn every_row_generation(hub: &Hub) -> u64 {
+    hub.events.summary_generation.load(Ordering::SeqCst)
+}
+
+/// Decision 293 (i): a chat closed today and aged past the day before the next pass is no
+/// candidate of that pass, yet its stats go as on base: its own row is told (its `summary_gen`
+/// rises and it takes a list position), and no other closed row goes stale.
+#[tokio::test]
+async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    let chat = meta("aging", "claude", Some("s1"), "closed", now - 3_600_000);
+    hub.store.save(&chat).unwrap();
+    let session = hub.insert_test_session(chat);
+    stats_found(&hub, "aging");
+    hub.refresh_usage_stats().await;
+    assert!(hub.usage_stats.stats.lock().unwrap().contains_key("aging"), "read today: kept");
+    assert_eq!(hub.usage_passes_for_test(), (1, 1));
+
+    hub.edit_test_meta(&session, |m| m.updated_at = now - 2 * DAY_MS);
+    let head = hub.events.list_head();
+    let (own, every) = (session.summary_gen.load(Ordering::SeqCst), every_row_generation(&hub));
+    hub.usage_pass_due_for_test();
+    hub.refresh_usage_stats().await;
+    assert_eq!(hub.usage_passes_for_test(), (2, 0), "no chat to read");
+    assert!(!hub.usage_stats.stats.lock().unwrap().contains_key("aging"), "its stats went");
+    assert!(session.summary_gen.load(Ordering::SeqCst) > own, "its own row was told");
+    assert_eq!(every_row_generation(&hub), every, "no other closed row went stale");
+    let told = hub.events.list_since(head).unwrap().rows;
+    assert!(
+        told.iter().any(|(_, key, _)| *key == super::row_log::RowKey::Own("aging".into())),
+        "it took a list position: {told:?}"
+    );
+}
+
+/// Decision 293 (ii): stats of a chat in no map (purged) go with every closed row stale, as on
+/// base: no row of its own is left to tell.
+#[tokio::test]
+async fn a_purged_chats_stats_make_every_closed_row_stale() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    stats_found(&hub, "purged");
+    let every = every_row_generation(&hub);
+    hub.refresh_usage_stats().await;
+    assert!(!hub.usage_stats.stats.lock().unwrap().contains_key("purged"));
+    assert!(every_row_generation(&hub) > every, "every closed row went stale");
+}
+
+/// Decision 292: a pass on a hub whose list order is not sorted yet (a deferred start before
+/// its logs are read) sorts it once; the next pass and the next page read patch it.
+#[tokio::test]
+async fn a_pass_before_the_order_is_sorted_sorts_it_once() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for n in 0..4 {
+        let chat = meta(&format!("c{n}"), "claude", Some("s"), "closed", now - n * 1_000);
+        hub.store.save(&chat).unwrap();
+        hub.insert_test_session(chat);
+    }
+    assert_eq!(hub.list_order_rebuilds_for_test(), 0, "not sorted yet");
+    hub.refresh_usage_stats().await;
+    assert_eq!(hub.list_order_rebuilds_for_test(), 1, "the pass sorted it");
+    hub.usage_pass_due_for_test();
+    hub.refresh_usage_stats().await;
+    assert_eq!(hub.list_order_rebuilds_for_test(), 1, "the next pass patched it");
+    let _ = hub.own_rows_from(None, 20);
+    assert_eq!(hub.list_order_rebuilds_for_test(), 1, "a page read patched it");
+    assert_eq!(hub.usage_passes_for_test(), (2, 4));
+}
