@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43721339115",
+  "recorded_at": "2026-11-15T14:01:57Z",
+  "reason": "cmux-tui f385a1926e91 changes the image's cmux-tui (pinned 70e5c08f8b72)",
+  "dry_run": false,
+  "cmux_tui": "f385a1926e916bb318f9c71d4d1ccd57b855f4e7",
+  "fixes": [
+    {
+      "sha": "f385a1926e916bb318f9c71d4d1ccd57b855f4e7",
+      "mergedAt": "2026-11-15T13:36:41Z",
+      "subject": "chore(next): base autofix at 711eea218dd0"
+    },
+    {
+      "sha": "711eea218dd04c198b7f85106579f221bdbcfafb",
+      "mergedAt": "2026-11-15T05:34:25-08:00",
+      "subject": "Screen sharing step A: Rust screen-device identity and ScreenDeviceChanged event (#42277) (#43428)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T14:01:57Z",
+    "snapshot_id": "sh-35963662639c42708db714a45fae28fc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43721339115): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a99699633bae602aa5d9b1996fc655c8ebaddb69",
+    "image": "cloud-native-auto-f385a192-43721339115-1",
+    "revision": "ci-43721339115-1",
+    "at": "2026-11-15T14:01:57Z"
+  },
+  "rolled_back": false
+}
