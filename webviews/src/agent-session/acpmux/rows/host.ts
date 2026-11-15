@@ -81,10 +81,15 @@ export class ChatRowsHost {
     void this.post("chat.rows.close", { sid }).catch(() => {});
   }
 
-  /// Asks for the page before or after the store's edge (or a fold's rows). False when nothing is
-  /// held to page from or a page is out: one page a sub at a time.
-  page(sid: string, side: "before" | "after", options: { fold?: number; maxBytes?: number } = {}): boolean {
-    const rowId = this.store.edge(sid, side);
+  /// Asks for the page before or after a row: `from`, or the edge of the stretch that holds the
+  /// anchor (a gap's row, `gapBefore`, pages before from itself). Or a fold's rows. False when
+  /// nothing is held to page from or a page is out: one page a sub at a time.
+  page(
+    sid: string,
+    side: "before" | "after",
+    options: { from?: number; fold?: number; maxBytes?: number } = {},
+  ): boolean {
+    const rowId = options.from ?? this.store.edge(sid, side);
     if (rowId === null || this.store.pageOut(sid)) return false;
     this.store.pageAsked(sid, side, rowId, options.fold);
     const params: Record<string, unknown> = { sid, [side]: rowId };
