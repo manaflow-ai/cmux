@@ -106,11 +106,14 @@ TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
     r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows"  # web holds
-    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold"  # native holds
+    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold"  # native holds
     r")\b"
 )
 # A gate helper called with a literal grace: `useLasting(x, 500)`, `useAfterDelay(x, 1_000)`.
 LITERAL_GRACE = re.compile(r"\b(useLasting|useAfterDelay)\s*\([^()]*,\s*([0-9][0-9_]*)\s*\)")
+# The Swift hold with a literal delay: `QuietHold(owner: "x", delay: .seconds(2))`.
+SWIFT_LITERAL_GRACE = re.compile(
+    r"\bQuietHold\s*\([^()]*\bdelay:\s*\.(seconds|milliseconds)\(\s*([0-9][0-9_]*)\s*\)")
 # The policy bound, ms (schemas/notice-timing/notice-timing.json `connectionQuietMs`), and its copies in each
 # language: each must say the same bound.
 NOTICE_TIMING = "schemas/notice-timing/notice-timing.json"
@@ -379,6 +382,8 @@ def scan(tree: Tree) -> list[Unit]:
         unit.acted = bool(PERSON_ACTIONS.search(text))
         unit.literal_grace = [m.group(0) for m in LITERAL_GRACE.finditer(text)
                               if int(m.group(2).replace("_", "")) < bound]
+        unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
+                               if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
     propagate(units, imports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():

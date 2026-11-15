@@ -308,6 +308,20 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_quiet_hold_at_the_bound_passes_and_a_short_one_does_not(self):
+        """cmux#43311 added QuietHold (CmuxNextWakeups): a hold for the bound is a gate; a shorter literal is not."""
+        view = ("struct RemoteTerminalPlaceholderView: View {{\n"
+                "    var reconnectHold = QuietHold(owner: \"remote-terminal-reconnect\", delay: {delay})\n"
+                "    var body: some View {{ Text(\"Reconnecting…\") }}\n}}\n")
+        tree = Tree(self)
+        tree.write(f"{MAC}/RemoteTerminalPlaceholderView.swift", view.format(delay=".seconds(10)"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{MAC}/RemoteTerminalPlaceholderView.swift", view.format(delay=".milliseconds(1_500)"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("a literal grace under the bound (QuietHold(", out)
+
     def test_ios_connecting_line(self):
         tree = Tree(self)
         tree.write(f"{IOS}/TerminalStatusLine.swift", IOS_OLD)
