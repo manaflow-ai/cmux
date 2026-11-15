@@ -400,6 +400,14 @@ import UniformTypeIdentifiers
         reduce = true
         probe.endBatch()
         #expect(!probe.running && !probe.timerRunning, "Reduce Motion stopped the tail")
+        // The motion check comes first: a batch-end tick that finds no batch running (the tail
+        // following at full rate) also stops the tail when motion is off.
+        reduce = false
+        overlay.show(AgentCursorEvent(kind: .click, session: "a", label: "Claude", at: CGPoint(x: 200, y: 200)))
+        #expect(probe.running && !probe.batching)
+        reduce = true
+        probe.endBatch()
+        #expect(!probe.running, "a tick with no batch running still re-checks motion")
         // Back on with the next step; then hide stops the link and the timer.
         reduce = false
         // (A click in place: a glide's animation would only end as real time passes.)

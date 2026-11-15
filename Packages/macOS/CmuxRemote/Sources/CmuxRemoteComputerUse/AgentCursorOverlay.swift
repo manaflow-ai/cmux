@@ -877,11 +877,18 @@ private final class SessionCursor {
         play.values = paths
         play.duration = duration
         play.calculationMode = .linear
+        // The animation starts when the driver's batch began (the frame's time, or the end of the
+        // previous batch), so ending the batch at any moment shows exactly the keyframe on screen.
+        let began = tailDriver.batch?.began ?? CACurrentMediaTime()
+        play.beginTime = began
+        play.fillMode = .backwards
         // motion: allow the same gated batch: the edge's shadow follows its path.
         let shade = CAKeyframeAnimation(keyPath: "shadowPath")
         shade.values = paths.map(AgentCursorTail.edgeOutline)
         shade.duration = duration
         shade.calculationMode = .linear
+        shade.beginTime = began
+        shade.fillMode = .backwards
         setTailPath(last)
         tail.add(play, forKey: "idle")
         tailEdge.add(play, forKey: "idle")

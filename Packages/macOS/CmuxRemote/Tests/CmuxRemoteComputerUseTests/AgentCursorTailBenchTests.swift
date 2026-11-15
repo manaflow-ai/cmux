@@ -52,10 +52,15 @@ import Testing
         var spikes: [Double] = []
         let target = ProcessInfo.processInfo.environment["CMUX_TAIL_BENCH"] == nil ? 2 : 30
         for _ in 0..<target {
-            while !probe.batching {
+            // Bounded: a tail that never calms down fails the suite instead of hanging it.
+            for _ in 0..<Int(10 * 60) where !probe.batching {
                 t += 1.0 / 60
                 let cost = clock.measure { probe.frame(at: t) }
                 if probe.batching { spikes.append(Double(cost.components.attoseconds) / 1e15 + Double(cost.components.seconds) * 1000) }
+            }
+            guard probe.batching else {
+                Issue.record("the tail never played ahead within 10 s of calm frames")
+                break
             }
             // A key press in place stirs it; then it calms and plays ahead again.
             overlay.show(AgentCursorEvent(kind: .keys, session: "bench", label: "Claude", at: CGPoint(x: 200, y: 200), text: "a"))
