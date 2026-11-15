@@ -8,13 +8,16 @@
 //! the owner's own on a personal machine), else a 401 that says `agent.sign_in_required`
 //! (`recovery::start_sign_in` and `claude_auth::is_sign_in_failure` type it as a sign-in).
 //!
-//! [`decide`] is `codex_cloud_auth::own_reason`'s rule for these two, on an owner machine with the
-//! image's own-or-team script:
+//! [`decide_launch`] is `codex_cloud_auth::own_reason`'s rule for these two, on an owner machine
+//! with the image's own-or-team script:
 //!   env       `CMUX_GEMINI_AUTH` / `CMUX_GROK_AUTH` = `own|team` pins the launch;
 //!   chosen    `~/.config/cmux/agent-auth/<agent>` holds `own` or `team` (`cr use`);
 //!   login     no choice; the agent has its own sign-in (`agent_login::signed_in_at`);
-//!   key       a key of its own in the launch's env: anything but the placeholder or a
-//!             `cmux-secret://` reference;
+//!   key       a key of its own in the env the launch gets ([`LaunchEnv`]: the vault's and
+//!             `machine.env`'s values too, as Claude's check reads them): anything but the
+//!             placeholder or a `cmux-secret://` reference, except the vault's own placeholder
+//!             for that name, which its egress proxy fills; or one the login shell sets that
+//!             this daemon has not read yet (#43800);
 //!   endpoint  the person points it somewhere themselves (a base URL, Gemini's Vertex or Google
 //!             sign-in switches, a Gemini `selectedType` other than an API key or gateway);
 //!   no-team-plane / probe-failed / not-served: no `https://` origin, or the origin's
@@ -29,7 +32,7 @@
 //! (`11-custom-models.md`): `GROK_MODELS_BASE_URL` is its base URL for inference, `XAI_API_KEY`
 //! sent as `Authorization: Bearer`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -167,8 +170,25 @@ impl Providers {
 }
 
 /// The mode of one launch (module docs). `probe` asks the origin what it serves; it runs only
-/// when nothing else decides, and None (no answer in time, any error) keeps own.
-pub async fn decide<F, Fut>(provider: Provider, inputs: &Inputs<'_>, probe: F) -> Mode
+/// when nothing else decides, and None (no answer in time, any error) keeps own. A launch goes
+/// through [`decide_launch`], which also knows the keys its env shows only as a reference.
+#[cfg(test)]
+async fn decide<F, Fut>(provider: Provider, inputs: &Inputs<'_>, probe: F) -> Mode
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Option<Providers>>,
+{
+    decide_holding(provider, inputs, &|_| false, probe).await
+}
+
+/// [`decide`], where `held` names the keys the launch gets a value of the person's own for
+/// that its env shows only as a reference ([`LaunchEnv::holds`]).
+async fn decide_holding<F, Fut>(
+    provider: Provider,
+    inputs: &Inputs<'_>,
+    held: &(dyn Fn(&str) -> bool + Sync),
+    probe: F,
+) -> Mode
 where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = Option<Providers>>,
@@ -193,7 +213,11 @@ where
         if crate::agent_login::signed_in_at(provider.agent(), &store) {
             return Mode::Own("login");
         }
-        if provider.key_vars().iter().any(|k| var(k).is_some_and(|v| own_key(&v))) {
+        let own = |k: &str| match var(k) {
+            Some(v) => own_key(&v) || (held(k) && v.trim() == cmux_vault_egress::placeholder(k)),
+            None => held(k),
+        };
+        if provider.key_vars().iter().any(|k| own(k)) {
             return Mode::Own("key");
         }
         let switched = provider == Provider::Gemini
@@ -214,36 +238,71 @@ where
     }
 }
 
-/// What the own-key check reads for one Gemini or Grok launch (`hub/spawn.rs`).
+/// What the own-key check reads for one Gemini or Grok launch (`hub/spawn.rs`): the env the child
+/// gets, as Claude's check reads it (`login_env::effective_for`: the daemon's env, the allow-listed
+/// login values, the vault's entries, `machine.env`'s values, then the profile), and the key names
+/// it gets a value of the person's own for that this env shows only as a reference (#43800).
 #[derive(Debug, Clone, Default)]
 pub struct LaunchEnv {
-    profile: BTreeMap<String, String>,
-    daemon: BTreeMap<String, String>,
+    env: BTreeMap<String, String>,
+    held: BTreeSet<String>,
 }
 
 impl LaunchEnv {
-    /// The view of a launch of `family` with the profile env `profile`, over the daemon's own env
-    /// `daemon`, the vault's entries `vault`, `machine.env`'s values `machine`, and the login
-    /// shell's secret names this daemon does not hold yet `pending`.
+    /// The view of a launch of `family` with the (resolved) profile env `profile`, over the
+    /// daemon's own env `daemon` (less `machine.env`'s names), the vault's entries `vault`
+    /// (`vault::env_for_children`: a proxy entry as its `cmux-secret://NAME` placeholder, which
+    /// the egress proxy fills), `machine.env`'s values `machine`, and `pending`, the secret names
+    /// the login shell sets that this daemon does not hold yet (`login_env::missing_secret_names`).
     pub fn new(
-        _family: &str,
+        family: &str,
         profile: BTreeMap<String, String>,
         daemon: BTreeMap<String, String>,
-        _vault: Vec<(String, String)>,
-        _machine: BTreeMap<String, String>,
-        _pending: Vec<String>,
+        vault: Vec<(String, String)>,
+        machine: BTreeMap<String, String>,
+        pending: Vec<String>,
     ) -> LaunchEnv {
-        LaunchEnv { profile, daemon }
+        let held = vault
+            .iter()
+            .filter(|(k, v)| *v == cmux_vault_egress::placeholder(k))
+            .map(|(k, _)| k.clone())
+            .chain(pending)
+            .collect();
+        let env = crate::login_env::effective_with(
+            Some(family),
+            &profile,
+            daemon.into_iter().collect(),
+            vault,
+            machine,
+        );
+        LaunchEnv { env, held }
+    }
+
+    /// [`LaunchEnv::new`] with this daemon's vault, `machine.env`, own env and pending secrets now.
+    pub fn now(family: &str, profile: BTreeMap<String, String>) -> LaunchEnv {
+        let vault = crate::vault::env_for_children();
+        let machine = crate::login_env::machine_values();
+        let daemon = crate::login_env::daemon_values().into_iter().collect();
+        LaunchEnv::new(
+            family,
+            profile,
+            daemon,
+            vault,
+            machine,
+            crate::login_env::missing_secret_names(),
+        )
     }
 
     /// The launch's value of `k`; None when unset or empty.
     pub fn var(&self, k: &str) -> Option<String> {
-        self.profile
-            .get(k)
-            .cloned()
-            .or_else(|| crate::login_env::var(k))
-            .or_else(|| self.daemon.get(k).cloned())
-            .filter(|v| !v.is_empty())
+        self.env.get(k).cloned().filter(|v| !v.is_empty())
+    }
+
+    /// Whether the launch gets a value of the person's own for `k` though its env shows none, or
+    /// only `k`'s vault placeholder: a vault proxy entry, or a login-shell secret not read yet.
+    /// Any other `cmux-secret://` reference, or the gateway placeholder, is still no key.
+    pub fn holds(&self, k: &str) -> bool {
+        self.held.contains(k)
     }
 }
 
@@ -261,7 +320,7 @@ where
     let var = |k: &str| launch.var(k);
     let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
     let inputs = Inputs { root, home: &home, var: &var, broker: false };
-    decide(provider, &inputs, probe).await
+    decide_holding(provider, &inputs, &|k| launch.holds(k), probe).await
 }
 
 /// Put team mode in a launch's profile env: [`Provider::team_env`] over whatever it had.
