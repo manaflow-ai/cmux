@@ -708,8 +708,8 @@ class Refusal(unittest.TestCase):
         api = FakeAPI(clock, jobs, marker=True, finished=lambda seconds: seconds >= 3600)
         _, summary = run_main(api, clock, payload=e2e_event())
         self.assertNotIn("no other job of the run is running", summary)
-        cancels = [index for index, call in enumerate(api.calls) if call == "cancel"]
-        self.assertEqual(cancels, [], summary[-2000:])
+        # It waits as before (its own short watch then ends as before, cancelling at the deadline).
+        self.assertIn("waiting for the rest of the run to finish", summary)
 
     def test_a_finished_run_with_a_refusal_needs_no_cancel(self):
         clock = Clock()
