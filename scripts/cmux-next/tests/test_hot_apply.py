@@ -1381,6 +1381,7 @@ class RunningAcpmux(unittest.TestCase):
 
 
 FFI_FIX = "2d7bfe48c026a2382c834b04007492dd92c88e3b"  # cmux-layout-reducer only: an app FFI input
+FFI_FIX_PIN = "387615ca1bafb7d63f255da52edde22e64132fe5"  # the release FFI_FIX^ pins: the additive check diffs it
 
 
 class HotApplyFFI(unittest.TestCase):
@@ -1388,7 +1389,8 @@ class HotApplyFFI(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        git_history.require_history(ROOT, [FFI_FIX], depth=2)
+        # The pairing check diffs the app's pinned source against FFI_FIX: a shallow checkout (CI, Linux) lacks it.
+        git_history.require_history(ROOT, [FFI_FIX, FFI_FIX_PIN], depth=2)
         sys.path.insert(0, str(SCRIPT.parent))
         sys.path.insert(0, str(ROOT / "scripts/ci"))
         import hot_apply_ffi
