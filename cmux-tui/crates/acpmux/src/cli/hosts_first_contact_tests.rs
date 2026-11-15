@@ -92,9 +92,21 @@ impl Fixture {
     }
 
     fn run(&self, argv: &[String]) -> std::result::Result<(), String> {
-        let mut command = Command::new(&self.ssh);
-        command.arg("-F").arg(&self.client).args(argv).env("LC_ALL", "C");
-        bounded_ok(&mut command, Duration::from_secs(15))
+        // bounded_ok keeps only the last stderr line. Preserve the complete SSH
+        // warning for classification while retaining its timeout/group cleanup.
+        let stderr = self._dir.path().join("ssh.stderr");
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", "exec \"$@\" 2>\"$SSH_POLICY_STDERR\"", "ssh-policy-test"])
+            .arg(&self.ssh)
+            .arg("-F")
+            .arg(&self.client)
+            .args(argv)
+            .env("SSH_POLICY_STDERR", &stderr)
+            .env("LC_ALL", "C");
+        bounded_ok(&mut command, Duration::from_secs(15)).map_err(|why| {
+            format!("{why}\n{}", std::fs::read_to_string(stderr).unwrap_or_default())
+        })
     }
 
     fn contact(&self, accept: bool) -> std::result::Result<(), String> {
