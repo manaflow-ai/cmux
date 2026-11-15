@@ -90,8 +90,9 @@ experiments remain gallery-only. Scores are pending the same real 1x/2x capture 
 ## License survey
 
 `neko-candidates/manifest.json` pins upstream commits, exact source paths, byte counts and SHA-256
-hashes. The actual upstream license files accompany the three representative gallery assets. The
-full relevant license texts are also in the generated third-party notices.
+hashes. The actual upstream license files accompany the three representative gallery assets, and
+`neko-candidates/NOTICE.md` is their notice. The app's `THIRD_PARTY_LICENSES.md` lists only what the
+app bundles, so it carries no Neko art until a set ships (#37815).
 
 | Set | License scope verified | Coverage and suitability |
 | --- | --- | --- |
