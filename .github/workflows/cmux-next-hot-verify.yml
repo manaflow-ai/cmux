@@ -349,7 +349,9 @@ jobs:
             exit 0
           fi
           nonce="hv-$PR-${HEAD_SHA:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          mapfile -t chunks < <(python3 scripts/cmux-next/hot-verify-ci.py pack --pr "$PR" --head "$HEAD_SHA" --nonce "$nonce" --video)
+          # Not mapfile: a fleet Mac's /bin/bash is 3.2, which has none (#43916's look on glaeda-5, 2026-11-15).
+          chunks=()
+          while IFS= read -r chunk; do chunks+=("$chunk"); done < <(python3 scripts/cmux-next/hot-verify-ci.py pack --pr "$PR" --head "$HEAD_SHA" --nonce "$nonce" --video)
           (( ${#chunks[@]} > 0 )) || { echo "::error::the step's inputs did not pack"; exit 1; }
           args=()
           for chunk in "${chunks[@]}"; do args+=("--arg=$chunk"); done
