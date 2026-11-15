@@ -17,9 +17,14 @@ impl Hub {
         let peers_read = self.peer_read_gen().await;
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.
+        // Nor does one the daemon would refuse to start with (`config/start_check.rs`): the next
+        // restart would leave the daemon down, so the refusal is said now, to whoever reloaded.
         let mut next = tokio::task::spawn_blocking(move || {
             std::fs::metadata(&path)?;
-            crate::config::Config::load_from_with(&path, &sources)
+            let next = crate::config::Config::load_from_with(&path, &sources)?;
+            next.start_refusal()
+                .map_err(|e| e.context("the acpmux daemon would refuse to start with it"))?;
+            anyhow::Ok(next)
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
@@ -215,5 +220,32 @@ mod tests {
                 "daemon save must retain the reloaded thresholds"
             );
         }
+    }
+
+    /// A config.json the daemon would refuse to start with (WireGuard on, no `wireguardStatic`)
+    /// is refused by `_acpmux/reload_config`, which says why and keeps the running config.
+    #[tokio::test]
+    async fn reload_refuses_a_config_the_daemon_would_not_start_with() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.json");
+        let config = Config {
+            path: Some(path.clone()),
+            profile_sources: ProfileSources::none(),
+            ..Config::default()
+        };
+        config.save().unwrap();
+        let mut config = config;
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, root.path()).unwrap();
+        let hub = Hub::new(config, store);
+        *hub.probe_only.lock().unwrap() = Some(Default::default());
+
+        let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+        changed.transport.wireguard = true;
+        changed.session.memory_mb = Some(6144);
+        changed.save().unwrap();
+        let refused = format!("{:?}", hub.reload_catalog().await.unwrap_err());
+        assert!(refused.contains("wireguardStatic.listen"), "{refused}");
+        assert_eq!(hub.config.read().await.session.memory_mb, None, "the refused file applied");
     }
 }
