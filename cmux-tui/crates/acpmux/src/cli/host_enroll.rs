@@ -941,7 +941,7 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
         )
         .with_reason(REASON_NOT_THIS_PROGRAM);
     }
-    let pushed = hosts::push_binary(r, bin).and_then(|_| {
+    let pushed = hosts::push_binary(r, bin, false).and_then(|_| {
         if bin == DAEMON_BIN {
             return Ok(String::new());
         }

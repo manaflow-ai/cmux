@@ -348,6 +348,7 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
         binary_dir: Some(dir.clone()),
         if_idle: false,
         keep_newer: false,
+        allow_downgrade: false,
         caller: None,
     };
     let mut up = update_peer(&plan.lease.fence(remote), &opts);
