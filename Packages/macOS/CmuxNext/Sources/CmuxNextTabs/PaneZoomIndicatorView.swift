@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextDesign
 
 /// A zoomed pane's indicator (Cmd-Shift-Return, Toggle Pane Zoom) for a pane whose tab bar shows no
-/// controls (a pane with them shows it left of "…", `PaneToolbarView.zoomButton`): a small Exit Zoom
+/// controls (a pane with them shows it in their trailing slot, `PaneToolbarView.zoomButton`): a small Exit Zoom
 /// button at the pane's top-right corner, over the content just under the tab bar, as Ghostty draws a zoomed
 /// split's (user 2026-11-07: "should show up in top right of pane rather than in the tab itself").
 /// It sits on the shared overlay glass, like the find pill, so it reads over any terminal or page;
@@ -61,7 +61,7 @@ public final class PaneZoomIndicatorView: NSView {
     /// `top` (both in the superview's coordinates); returns the width it takes from that corner, 0
     /// while hidden.
     ///
-    /// - Parameter elsewhere: the pane's tab bar shows the zoom beside its "…"
+    /// - Parameter elsewhere: the pane's tab bar shows the zoom in its trailing controls
     ///   (`PaneToolbarView.zoomButton`): the corner stays empty.
     @discardableResult
     public func place(in content: NSRect, top: CGFloat, elsewhere: Bool = false) -> CGFloat {

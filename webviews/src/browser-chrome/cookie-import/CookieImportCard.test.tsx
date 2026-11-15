@@ -6,6 +6,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
 import { CookieImportCard } from "./CookieImportCard";
 import {
   APP_COOKIE_IMPORT_LOOK,
@@ -18,6 +19,7 @@ let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
+const cookieImportCss = readFileSync(new URL("./cookieImport.css", import.meta.url), "utf8");
 const KEYS = [
   "window",
   "document",
@@ -99,6 +101,11 @@ test("the app's look is the dialog card: icon, the line, Don't Show Again quiet,
   // On the app's glass the card paints none of its own.
   expect(card.classList.contains("ui-glass")).toBe(false);
   expect(card.hasAttribute("data-native-glass")).toBe(true);
+});
+
+test("the toast card consumes the shared transient material and radius", () => {
+  expect(cookieImportCss).toContain("--glass-tint: var(--transient-surface-veil);");
+  expect(cookieImportCss).toContain("border-radius: var(--transient-surface-radius);");
 });
 
 test("every answer reaches the host as its type only", () => {

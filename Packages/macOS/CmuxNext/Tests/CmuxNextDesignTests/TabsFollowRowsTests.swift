@@ -3,8 +3,9 @@ import CmuxNextDesignTokens
 import CoreGraphics
 import Testing
 
-/// Tabs follow the workspace rows (Lawrence 2026-11-11; the rows are the reference, #39984): at every density a tab
-/// pill is the density's one-line row, with Chrome's tab corner (8 on 30).
+/// Tabs follow the workspace rows (Lawrence 2026-11-11; the rows are the reference, #39984), except where a density sets
+/// its browser row (Lawrence 2026-11-13: Helium's 28 pt row at Default, 20 at Compact, Chrome's 34 at Spacious): there
+/// the pill is that row with the density's one gap above and below it. The corner is the row's share of Helium's 8 on 28.
 @MainActor @Suite(.serialized) struct TabsFollowRowsTests {
     @Test(arguments: DensityPreset.allCases)
     func aTabIsTheDensitysRow(preset: DensityPreset) {
@@ -12,11 +13,13 @@ import Testing
         let saved = design.densityTokens
         defer { design.densityTokens = saved }
         design.densityTokens = preset.tokens
-        let row = SidebarRowTokens(density: .compact, textSize: .standard, base: SidebarRowTokens.current.base).listRowHeight
+        let sidebarRow = SidebarRowTokens(density: .compact, textSize: .standard, base: SidebarRowTokens.current.base).listRowHeight
+        let browserRow = preset.tokens.tokens["browserRowHeight"].map { CGFloat($0) }
+        let row = browserRow ?? sidebarRow
         #expect(Metrics.tabHeight == row, "\(preset): the tab is \(Metrics.tabHeight), the row \(row)")
-        // Compact and Default set their strip (26 and 36 pt, 3 pt around the pill; Lucas 2026-11-13); the others keep
-        // the density's room around a row-tall pill.
-        if Metrics.tabsFollowRows {
+        if browserRow != nil {
+            #expect(Metrics.tabStripHeight - Metrics.tabHeight == 2 * (Metrics.browserRowGap ?? 0), "\(preset): one gap above and below the pill")
+        } else if Metrics.tabsFollowRows {
             #expect(Metrics.tabStripHeight - Metrics.tabHeight == MetricTunables.tabStripHeight.value - MetricTunables.tabHeight.value,
                     "\(preset): the room around the pill is the density's")
         } else {

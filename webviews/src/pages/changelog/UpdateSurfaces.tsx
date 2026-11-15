@@ -53,7 +53,7 @@ import type {
   UpdateHighlights,
   UpdateSurfaceActions,
 } from "./updateHighlights";
-import { PREVIEW_CLOSE_MS, PreviewIntent, previewEntries } from "./updatedPreview";
+import { PREVIEW_CLOSE_MS, PreviewIntent, plainEntries, previewEntries } from "./updatedPreview";
 import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
 import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
 import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout, type PreviewTarget } from "./UpdatedCardPreview";
@@ -552,7 +552,7 @@ function useHoverPreview({
   /** The preview opens and closes on a height run (`header-bottom`); else it is simply there. */
   runsHeight: boolean;
 }) {
-  const entries = enabled ? previewEntries(data, span, strings.language) : [];
+  const entries = enabled ? plainEntries(previewEntries(data, span, strings.language), strings.language).entries : [];
   const forced = previewOpen !== undefined;
   const [warm, setWarm] = useState(previewOpen === true);
   const [wanted, setWanted] = useState(false);

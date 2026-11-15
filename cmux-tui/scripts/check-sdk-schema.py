@@ -40,6 +40,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "RowHeight": "RowHeight",
     "ExpectAgent": "SendExpectAgent",
     "LayoutSizeWire": "LayoutSizeValue",
+    "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
     "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
 }
 

@@ -1,6 +1,7 @@
 import Foundation
 import struct CmuxMobileModel.ServiceFailureMessage
 import struct CmuxMobileModel.TeamAppearance
+import enum CmuxMobileModel.UserFacingError
 
 /// The `cmux-mobile-api` HTTP surface the app uses (PROTOCOL.md "HTTP").
 public struct LiveAPI: Sendable {
@@ -397,9 +398,11 @@ extension LiveAPI {
             case (429, _):
                 text = "Too many requests. Wait a moment and try again."
             case (500..., _), (0, _):
-                text = "The Cloud service couldn't remove it (\(failure.code)). Try again in a moment."
+                text = "The Cloud service couldn't remove it. Try again in a moment."
             default:
-                text = "The Cloud service refused: \(failure.message.isEmpty ? failure.code : failure.message)"
+                text = UserFacingError.isProse(failure.message)
+                    ? "The Cloud service refused: \(failure.message)"
+                    : "The Cloud service couldn't remove it. Try again in a moment."
             }
             return ServiceFailureMessage(text: text, requestID: failure.requestID)
         }
@@ -410,9 +413,28 @@ extension LiveAPI {
             case .timedOut:
                 return ServiceFailureMessage(text: "The Cloud service didn't answer in time. Try again.")
             default:
-                return ServiceFailureMessage(text: "Couldn't reach the Cloud service (\(urlError.localizedDescription)).")
+                return ServiceFailureMessage(text: "Couldn't reach the Cloud service. Try again in a moment.")
             }
         }
-        return ServiceFailureMessage(text: "Couldn't remove it: \(error.localizedDescription)")
+        return ServiceFailureMessage(text: UserFacingError.message(error, fallback: "Couldn't remove it. Try again."))
+    }
+}
+
+/// What a person reads for a failed service call: never the HTTP status, the code
+/// or the type. The service's own message shows when it reads as a sentence.
+extension LiveAPI.Failure: LocalizedError {
+    public var errorDescription: String? {
+        switch status {
+        case 401: return "Your session expired. Sign in again."
+        case 429: return "Too many requests. Wait a moment and try again."
+        case 500...: return "The Cloud service isn't available right now. Try again in a moment."
+        default: break
+        }
+        if UserFacingError.isProse(message) { return message.trimmingCharacters(in: .whitespacesAndNewlines) }
+        switch status {
+        case 403: return "You don't have access to that."
+        case 404: return "That isn't available anymore."
+        default: return "The Cloud service couldn't do that. Try again in a moment."
+        }
     }
 }

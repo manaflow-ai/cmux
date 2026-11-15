@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxNextDaemon
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -52,6 +53,9 @@ struct CloudSignedDEVAuthPersistenceTests {
         let historicalDirectory = home.appendingPathComponent("Library/Application Support/cmux/com.cmuxterm.app.debug.next/fixture")
         let historical = FileStackTokenStore(directory: historicalDirectory)
         await historical.setTokens(accessToken: "existing-development-access", refreshToken: "existing-development-refresh")
+        // The upgrade's launch moves the store out of classic's folder before Cloud reads it.
+        ClassicFolderItemsMove(applicationSupport: home.appendingPathComponent("Library/Application Support"))
+            .moveBundleItems(bundleID: "com.cmuxterm.app.debug.next")
         let upgraded = FileStackTokenStore(directory: development.credentialsDirectory(homeDirectory: home))
         #expect(await upgraded.getStoredAccessToken() == "existing-development-access")
         #expect(await upgraded.getStoredRefreshToken() == "existing-development-refresh")

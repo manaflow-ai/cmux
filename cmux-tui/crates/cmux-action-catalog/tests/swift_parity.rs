@@ -22,7 +22,7 @@ fn repo() -> PathBuf {
 /// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
 /// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
 /// these rows with the re-pin, which takes them off this list (#38644, #41954).
-const AWAITING_REPIN: &[&str] = &[];
+const AWAITING_REPIN: &[&str] = &["app.menu.run"];
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
 /// lists) does not have yet: once the export has it, it comes off the list.
@@ -44,7 +44,7 @@ fn check_awaiting_repin(export: &[Value], file: &str) {
 /// catalog, so until the re-pin they show no shortcut for these rows. An export may show
 /// either no shortcut or this crate's; any other value still fails. Take an id off once both
 /// exports carry its shortcut.
-const SHORTCUT_AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
+const SHORTCUT_AWAITING_REPIN: &[&str] = &[];
 
 /// Whether `id`'s exported shortcut may be `null` while the crate has one (see
 /// [`SHORTCUT_AWAITING_REPIN`]).
@@ -59,6 +59,60 @@ fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
         "{id} is awaiting a shortcut re-pin but has no default shortcut"
     );
     exported.is_null()
+}
+
+/// Actions whose default shortcut this crate dropped and the pinned app FFI still has (step A of
+/// an app FFI change, docs/ci/app-ffi-release.md): until the re-pin the exports still show the
+/// old shortcut. Leo, 2026-11-15, on Toggle Terminal and Chat: "idk if the terminal gui should
+/// even get a hotkey by default".
+const SHORTCUT_REMOVAL_AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
+
+/// Whether `id`'s exported shortcut may still be the pinned app's while the crate has none.
+fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
+    SHORTCUT_REMOVAL_AWAITING_REPIN.contains(&id) && crate_shortcut.is_null()
+}
+
+/// Fields of an existing action that this crate has changed and the pinned app FFI does not have
+/// yet (step A of an app FFI change, docs/ci/app-ffi-release.md), as JSON pointers into the
+/// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
+/// field of the row is still compared. A listed field the dump already shows as this crate has
+/// it fails: the re-pin landed, so take it off.
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] =
+    &[("palette.toggleTerminalChat", &["/defaultShortcut"])];
+
+/// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
+/// checking that the two still differ there.
+fn awaiting_field_repin(rust: &mut Value, swift: &Value) {
+    for (id, fields) in FIELDS_AWAITING_REPIN {
+        let dumped = swift["actions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|a| a["id"] == *id)
+            .unwrap_or_else(|| panic!("{id} is awaiting a field re-pin but not in the dump"));
+        let action = rust["actions"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .find(|a| a["id"] == *id)
+            .unwrap_or_else(|| panic!("{id} is awaiting a field re-pin but not an action"));
+        for field in *fields {
+            let old = dumped.pointer(field).cloned().unwrap_or(Value::Null);
+            let new =
+                action.pointer_mut(field).unwrap_or_else(|| panic!("{id}{field}: no such field"));
+            assert_ne!(
+                *new, old,
+                "action-catalog.json has {id}{field} as the crate does: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+            );
+            *new = old;
+        }
+    }
+}
+
+/// Whether `id`'s exported arguments may still be the pinned app's (see
+/// [`FIELDS_AWAITING_REPIN`]).
+fn arguments_await_repin(id: &str) -> bool {
+    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&"/arguments"))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -178,6 +232,7 @@ fn english_catalog_equals_the_swift_dump() {
             .retain(|action| !action["id"].as_str().is_some_and(|id| AWAITING_REPIN.contains(&id)));
     }
     awaiting_family_repin(&mut rust, &swift);
+    awaiting_field_repin(&mut rust, &swift);
     for action in rust["actions"].as_array_mut().into_iter().flatten() {
         let Some(id) = action["id"].as_str().map(str::to_owned) else { continue };
         let dumped = swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == *id);
@@ -271,7 +326,9 @@ fn action_list_export_matches() {
         if action.shortcut_family == Some("digits") && !shortcut.is_null() {
             shortcut["family"] = serde_json::json!("digits");
         }
-        if !shortcut_awaits_repin(id, &row["default_shortcut"]) {
+        if !shortcut_awaits_repin(id, &row["default_shortcut"])
+            && !shortcut_removal_awaits_repin(id, &shortcut)
+        {
             assert_eq!(row["default_shortcut"], shortcut, "{id}");
         }
         let chord = action.default_chord.map_or(Value::Null, |c| {
@@ -287,10 +344,19 @@ fn action_list_export_matches() {
             "{id}"
         );
         let args = row["args"].as_array().expect("args");
-        assert_eq!(args.len(), action.arguments.len(), "{id}");
-        for (wire, argument) in args.iter().zip(action.arguments) {
-            assert_eq!(wire["name"], argument.name, "{id}");
-            assert_eq!(wire["required"], argument.required, "{id}.{}", argument.name);
+        if arguments_await_repin(id) {
+            let names: Vec<_> = args.iter().map(|a| a["name"].clone()).collect();
+            let ours: Vec<_> = action.arguments.iter().map(|a| Value::from(a.name)).collect();
+            assert_ne!(
+                names, ours,
+                "action-surfaces.json has {id}'s arguments: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+            );
+        } else {
+            assert_eq!(args.len(), action.arguments.len(), "{id}");
+            for (wire, argument) in args.iter().zip(action.arguments) {
+                assert_eq!(wire["name"], argument.name, "{id}");
+                assert_eq!(wire["required"], argument.required, "{id}.{}", argument.name);
+            }
         }
         let section = &row["palette_section"];
         let category = cmux_action_catalog::category(action.category).expect("a category");
@@ -356,4 +422,13 @@ fn debug_build_only_entries_exist() {
         };
         assert!(cases.iter().any(|c| c.value == *value), "{id}.{name} has no {value}");
     }
+}
+
+/// Leo, 2026-11-15: "idk if the terminal gui should even get a hotkey by default". Toggle
+/// Terminal and Chat ships unbound (its old Opt-Cmd-` was macOS's "Move focus to the window
+/// drawer"); a person binds one in Settings > Keyboard Shortcuts.
+#[test]
+fn toggle_terminal_and_chat_has_no_default_key() {
+    let action = cmux_action_catalog::find("palette.toggleTerminalChat").expect("an action");
+    assert!(action.default_shortcut.is_none() && action.default_chord.is_none());
 }

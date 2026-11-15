@@ -68,6 +68,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
 | `api.bing.com` | connects | search suggestions as you type, when Bing is your search engine |
 | `chatgpt.com` | connects | OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script |
+| `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
 | `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
 | `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
 | `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |
@@ -98,6 +99,8 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
 | `api.open-meteo.com` | connects | the clock and weather widget's forecast, only when you install it (a customize template) |
 | `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) |
+| `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
+| `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
@@ -126,9 +129,6 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
 | `cmux-platform-staging.debussy.workers.dev` | connects | cmux Cloud platform API on staging, only when chosen |
-| `cmux-v2.debussy.workers.dev` | connects | the iPhone app's host API (production) |
-| `cmux-v2-development.debussy.workers.dev` | connects | the iPhone app's host API in development builds |
-| `cmux-v2-staging.debussy.workers.dev` | connects | the iPhone app's host API on staging, only when chosen |
 | `cmux-vnc-signal.debussy.workers.dev` | connects | screen sharing signaling between your devices |
 | `api.artic.edu` | connects | museum art for backgrounds, when you search for art |
 | `www.artic.edu` | connects | museum art for backgrounds, when you search for art |

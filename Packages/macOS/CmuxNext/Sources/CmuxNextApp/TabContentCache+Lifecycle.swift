@@ -95,7 +95,7 @@ extension TabContentCache {
         for key in keys {
             evictHiddenTerminal(key)
             if browsers[key] != nil { hibernation?.hibernateForWorkspace(key, byPerson: byPerson) }
-            hibernation?.agentPages?.releaseForWorkspace(key)
+            hibernation?.agentPages?.pages.releaseForWorkspace(key)
         }
     }
 

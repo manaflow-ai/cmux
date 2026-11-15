@@ -259,7 +259,9 @@ extension SidebarViewComponents {
         // Inset like the rows' pills (one gutter, Leo 2026-10-13), so its ends line up with theirs.
         let inset = list.inset
         aboveLine.frame = NSRect(x: inset, y: aboveY - width, width: max(0, bounds.width - inset * 2), height: width)
-        aboveLine.isHidden = !(look.drawsBandLines && showsAbove)
+        // No line under a band that ends in Home's section (Lawrence 2026-11-13: "get rid of line under "home"").
+        let endsInHome = aboveRegion.layoutResult.sectionIDs.last == SidebarLayoutDocument.topSectionID
+        aboveLine.isHidden = !(look.drawsBandLines && showsAbove) || endsInHome
         performWithTheme { aboveLine.backgroundColor = Palette.separator.cgColor }
         CATransaction.commit()
     }

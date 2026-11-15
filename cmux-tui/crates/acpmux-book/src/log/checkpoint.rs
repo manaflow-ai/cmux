@@ -76,9 +76,6 @@ impl CheckpointHead {
             return None;
         }
         let edition = le_u32(bytes, 8)?;
-        if edition == 0 {
-            return None;
-        }
         Some(Self { version: le_u32(bytes, 4)?, edition })
     }
 
@@ -114,9 +111,6 @@ pub(crate) struct Mark {
 }
 
 pub(crate) fn encode(mark: &Mark, state: &[u8], open_rows: &[u64]) -> Result<Vec<u8>, Error> {
-    if mark.edition == 0 {
-        return Err(Error::InvalidInput("edition is zero"));
-    }
     check_budget(state, open_rows.len())?;
     let bytes =
         state.len().saturating_add(OVERHEAD).saturating_add(open_rows.len().saturating_mul(8));

@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 
 // Sidebar intents -> daemon commands, applied optimistically to the
 // sidebar model first. Each command goes to the machine daemon that owns
@@ -111,11 +112,8 @@ extension SidebarBridge {
             rows.send(rows.edits.add(intent), closes, failed: saveFailed(intent))
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
-        case .newProfile:
-            services.registry.perform("space.new", invocation: ActionInvocation())
-        case .openProfileInNewWindow(let profile):
-            let invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: profile.rawValue), origin: .user)
-            services.registry.perform("space.openInNewWindow", invocation: invocation)
+        case .newProfile, .openProfileInNewWindow, .viewScreen, .shareScreen: // only an action each (Share: macScreen.open without cmux Remote)
+            SidebarIntentActions(registry: services.registry, remoteRuns: services.cmuxRemote.started).handle(intent, sections: model.sections)
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)

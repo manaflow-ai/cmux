@@ -680,7 +680,7 @@ pub(in crate::cli) fn resume_launch(
                 .default_launcher
                 .clone()
                 .filter(|launcher| launch::harness_of(launcher).as_deref() == Some(harness))
-                .unwrap_or_else(|| harness.to_owned());
+                .unwrap_or_else(|| launch::default_program(harness).to_owned());
             Launch { shell: env.shell.clone(), launcher, args: options.args.clone() }
         }
     };

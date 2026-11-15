@@ -6,6 +6,8 @@
 #   cmux-cloud-machine-update  cmux-tui/channels/cloud-machine.json
 #   cmux-linux-release         cmux-tui/<commit>/release.json, written once, then
 #                              cmux-tui/channels/linux-<channel>.json (the same signed file)
+#   cmux-mac-live-update       cmux-tui/<commit>/mac-live.json, written once (`cmux app try` reads it),
+#                              then cmux-tui/channels/mac-live.json (the same signed file)
 #
 # Used by point-machine-channel-early, point-machine-channel and sign-linux-release in
 # .github/workflows/cmux-tui-artifacts.yml.
@@ -25,7 +27,10 @@ p = json.load(open(sys.argv[1]))
 print(p["purpose"], p["channel"], p["commit"])' "$payload")
 case "$purpose" in
   cmux-cloud-machine-update) object=cmux-tui/channels/cloud-machine.json label="Cloud machine channel" ;;
-  cmux-linux-release) object="cmux-tui/channels/linux-$channel.json" label="Linux release channel $channel" ;;
+  cmux-linux-release) object="cmux-tui/channels/linux-$channel.json" label="Linux release channel $channel"
+    once="cmux-tui/$commit/release.json" once_label="Linux release file" ;;
+  cmux-mac-live-update) object=cmux-tui/channels/mac-live.json label="Mac live update channel"
+    once="cmux-tui/$commit/mac-live.json" once_label="Mac live update file" ;;
   *) echo "::error::$payload has the unknown purpose $purpose"; exit 1 ;;
 esac
 if [[ -z "${SIGNING_KEY:-}" ]]; then
@@ -45,11 +50,11 @@ upload() { # KEY CACHE-CONTROL MODE...
     --conflict-exit-code 9 "$@"
 }
 
-if [[ "$purpose" == cmux-linux-release ]]; then
-  # The per-commit release file is written once. A file already there of the same build (another
+if [[ -n "${once:-}" ]]; then
+  release=$once
+  # The per-commit file is written once. A file already there of the same build (another
   # run or attempt signed it at another time) is kept; one of another build is an error: an
   # installer that asked for this version by name would install other bytes.
-  release="cmux-tui/$commit/release.json"
   for attempt in 1 2 3; do
     rm -f "$dir/release-current.json"
     code="$(curl -sS -o "$dir/release-current.json" -w '%{http_code}' --max-time 60 "https://files.cmux.com/$release?release=$GITHUB_RUN_ID-$attempt" || true)"
@@ -73,7 +78,7 @@ if [[ "$purpose" == cmux-linux-release ]]; then
   curl -fsS --retry 3 --max-time 60 -o "$dir/release-check.json" "https://files.cmux.com/$release?check=$GITHUB_RUN_ID"
   python3 "$ptr" verify --pointer "$dir/release-check.json" --keys "$keys" --purpose "$purpose" --channel "$channel" \
     --allow-expired >/dev/null
-  echo "Linux release file -> $release" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  echo "$once_label -> $release" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 fi
 
 for attempt in 1 2 3 4 5; do

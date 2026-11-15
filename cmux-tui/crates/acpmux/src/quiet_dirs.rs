@@ -222,6 +222,14 @@ impl QuietDirs {
         })
     }
 
+    /// Follows `targets` from now on in place of the ones it followed: a folder no longer needed
+    /// loses its watch, a new one gets one. Nothing is sent for the change.
+    pub(crate) fn retarget(&self, targets: Vec<Target>) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.targets = targets;
+        let _ = state.sync();
+    }
+
     /// Looks at the targets' paths again now (the reading thread does after each event that
     /// may change them).
     pub(crate) fn sync(&self) {
