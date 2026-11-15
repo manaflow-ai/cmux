@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43694754327",
+  "recorded_at": "2026-11-15T08:38:36Z",
+  "reason": "cmux-tui 0fc51a0403fb changes the image's cmux-tui (pinned a7e9879b0941)",
+  "dry_run": false,
+  "cmux_tui": "0fc51a0403fbedb8477d48627bfbee116868a61e",
+  "fixes": [
+    {
+      "sha": "0fc51a0403fbedb8477d48627bfbee116868a61e",
+      "mergedAt": "2026-11-15T00:14:46-08:00",
+      "subject": "acpmux v2 3c: queue_window evicts its actor each sample, so every window reads its heads (#43512)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T08:38:36Z",
+    "snapshot_id": "sh-34cdf7fb87e04294a93162be017b6e3e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43694754327): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d69aab556c4c427d571630f15cd95b1d92696e61",
+    "image": "cloud-native-auto-0fc51a04-43694754327-1",
+    "revision": "ci-43694754327-1",
+    "at": "2026-11-15T08:38:36Z"
+  },
+  "rolled_back": false
+}
