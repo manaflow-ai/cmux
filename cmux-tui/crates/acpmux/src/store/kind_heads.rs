@@ -280,7 +280,7 @@ impl KindHeads {
 
 /// The inode of the copy at `path`; None when there is none.
 fn copy_inode(path: &Path) -> Option<u64> {
-    let meta = std::fs::symlink_metadata(path).ok()?;
+    let meta = crate::home_fs::symlink_metadata(path).ok()?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
