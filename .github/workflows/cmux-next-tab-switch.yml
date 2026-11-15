@@ -74,8 +74,10 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
       && vars.CI_EVAL_STEP_GATEWAY != ''
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
-    # The exclusive queue waits for an idle display worker (hours at peak); the step itself builds and measures.
-    timeout-minutes: 330
+    # The job holds one of the gateway runner's two tokens while it waits, so it waits at most an hour for an idle
+    # display worker (the exclusive queue's p95 is longer at peak) and an hour for the build and the measure; past
+    # that the verdict has no report, which only warns while GATE_MODE is report.
+    timeout-minutes: 130
     permissions: {}
     steps:
       # No checkout: the gateway runner takes only thin cmux-ci clients. The display worker checks out the head.
@@ -97,7 +99,7 @@ jobs:
             --script scripts/measure/tab-switch.sh --ref "$HEAD_SHA" --repo manaflow-ai/cmux \
             --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
             --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
-            --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout 14400 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+            --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout 3600 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
           out="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
           if [[ -n "$step" ]]; then
