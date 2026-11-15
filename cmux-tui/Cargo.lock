@@ -2290,6 +2290,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
+ "toml_edit 0.22.27",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
