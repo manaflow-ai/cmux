@@ -1883,9 +1883,7 @@ async fn run_registration_once(
     // the current registration and retires the one it replaced, so dials go to
     // the new socket from that moment; Incomings already sent on the old one
     // are still read until the relay closes it (`retiring`).
-    let mut renewal: Option<
-        Pin<Box<dyn Future<Output = Result<DaemonControl, ProviderError>> + Send + '_>>,
-    > = None;
+    let mut renewal: Option<Renewal<'_>> = None;
     let mut retiring: Option<RelaySocket> = None;
     let mut retire_until = Instant::now();
     let mut interval = tokio::time::interval(CHECK_INTERVAL);
@@ -2146,6 +2144,9 @@ impl IncomingCircuitTasks {
 }
 
 /// A daemon control socket the relay answered `Registered` on.
+/// A second control socket's authentication, in flight while the first serves.
+type Renewal<'a> = Pin<Box<dyn Future<Output = Result<DaemonControl, ProviderError>> + Send + 'a>>;
+
 struct DaemonControl {
     socket: RelaySocket,
     lease_seconds: u32,
