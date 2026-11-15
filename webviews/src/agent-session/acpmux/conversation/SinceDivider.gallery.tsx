@@ -5,7 +5,8 @@
 // stand in for what the app's applyTheme sets (--cmux-app-* from cmux-theme-tokens app_theme.rs):
 // the component reads only those tokens. References: chat apps' unread line (a rule with a NEW
 // tag at its end), their "N new messages since" bar, and the accent "New" line with a "New messages"
-// pill; the glass of Jump to latest (cmux-design-references cmux-next/live/
+// pill; the terminal chat's "157 new messages" rule, a hairline broken by a centered muted count
+// (Leo, 2026-11-15: "we needto properly do somthing like this in the gui somehow"); the glass of Jump to latest (cmux-design-references cmux-next/live/
 // transcript-jump-to-latest-glass-too-transparent). The whole pane with the jump pair is
 // agent-pane.unread-marker.
 import type React from "react";
@@ -67,9 +68,19 @@ type Props = {
   read?: boolean;
   recap?: boolean;
   mode?: UnreadBannerMode;
+  /// The messages after the line ("157 new messages").
+  count?: number;
 };
 
-function UnreadLooks({ part, theme, look = "tag", read = false, recap = true, mode = "expanded" }: Props) {
+function UnreadLooks({
+  part,
+  theme,
+  look = "count",
+  read = false,
+  recap = true,
+  mode = "expanded",
+  count = 157,
+}: Props) {
   return (
     <div
       className="acpmux-shell"
@@ -99,6 +110,7 @@ function UnreadLooks({ part, theme, look = "tag", read = false, recap = true, mo
         onDismissRecap={() => {}}
         look={look}
         read={read}
+        count={count}
       />
       <Reply text="Missing fields now default instead of failing; I added a test for each one." />
       <Reply text="The fuzz corpus ran clean for 10 minutes. The PR is ready for review." />
@@ -117,8 +129,28 @@ export default componentEntry<Props>({
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css"), import("./unread.css")]),
   load: async () => UnreadLooks,
   variants: {
+    "line-count": {
+      note: 'Chosen: the terminal chat\'s rule in GUI terms. A muted hairline on both sides of a centered, muted "157 new messages"; the recap under it.',
+      props: { part: "line", theme: "dark", look: "count", recap: false },
+    },
+    "line-count-few": {
+      note: 'A short absence: "3 new messages". The count grows in place as rows arrive; only the gap between the rules changes, never the row.',
+      props: { part: "line", theme: "dark", look: "count", count: 3, recap: false },
+    },
+    "line-count-capped": {
+      note: 'Past the cap: "999+ new messages", so counting stays bounded however long the chat ran.',
+      props: { part: "line", theme: "dark", look: "count", count: 4_210, recap: false },
+    },
+    "line-count-recap": {
+      note: "The count line with the recap made for the same return under it.",
+      props: { part: "line", theme: "dark", look: "count" },
+    },
+    "line-count-accent": {
+      note: "The same rule and count in the theme's accent: louder, but it reads as a selection or a link in an accent-heavy theme.",
+      props: { part: "line", theme: "dark", look: "count-accent", recap: false },
+    },
     "line-tag": {
-      note: "Chosen: an accent hairline across the column with a filled New tag at its end; the recap under it.",
+      note: "The look before: an accent hairline across the column with a filled New tag at its end; no count.",
       props: { part: "line", theme: "dark", look: "tag" },
     },
     "line-text": {
@@ -130,15 +162,15 @@ export default componentEntry<Props>({
       props: { part: "line", theme: "dark", look: "labelled" },
     },
     "line-no-recap": {
-      note: "A chat with no recap (not Claude, or the recap is off): the line alone, one control row tall.",
+      note: "A chat with no recap (not Claude, or the recap is off): the count line alone, one control row tall.",
       props: { part: "line", theme: "dark", recap: false },
     },
     "line-read": {
-      note: "Read (Mark read, or seen and then the latest reached): the rule and the tag have faded in place; the row and the recap stay.",
+      note: "Read (seen for a moment, scrolled past, Mark read, or the latest reached): the rules and the count have faded in place; the row and the recap stay, so nothing moves.",
       props: { part: "line", theme: "dark", read: true },
     },
     "line-light": {
-      note: "Chosen look in the light theme: the theme's accent, on-accent text in the tag.",
+      note: "Chosen look in the light theme: the pane's muted text and strong border tokens.",
       props: { part: "line", theme: "light" },
     },
     "line-image": {
@@ -146,7 +178,7 @@ export default componentEntry<Props>({
       props: { part: "line", theme: "image" },
     },
     "banner-expanded": {
-      note: "Chosen: the glass bar at the top start, 3 new turns since 3:42 PM | Mark read | collapse chevron.",
+      note: "The glass bar at the top start (off by default), 3 new turns since 3:42 PM | Mark read | collapse chevron; in the pane it counts messages, as the line does.",
       props: { part: "banner", theme: "dark", mode: "expanded" },
     },
     "banner-collapsed": {

@@ -52,6 +52,30 @@
   background: none;
   color: var(--unread-accent-text);
 }
+/* Count (chosen): the terminal chat's rule in GUI terms (Leo, 2026-11-15). A muted hairline on both
+   sides of a centered, muted "157 new messages"; the words sit on the line's center, so a count that
+   grows by a digit only widens the gap between the two rules, never the row. */
+.cv-since[data-look="count"],
+.cv-since[data-look="count-accent"] {
+  --unread-rule: var(--agent-border-strong);
+}
+.cv-since[data-look="count"] .cv-since__rule,
+.cv-since[data-look="count-accent"] .cv-since__rule {
+  border-top-color: var(--unread-rule);
+}
+.cv-since__words {
+  flex: none;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Count in the accent: the rules and the words take the theme's accent, louder in a quiet theme. */
+.cv-since[data-look="count-accent"] {
+  --unread-rule: var(--unread-accent);
+}
+.cv-since[data-look="count-accent"] .cv-since__words {
+  color: var(--unread-accent-text);
+  font-weight: var(--weight-emphasis);
+}
 /* Labelled: the words lead the line where the text column starts (the first look, on tokens). */
 .cv-since__lead {
   display: inline-flex;
@@ -71,12 +95,14 @@
    below it moves, and the recap stays (it is content). */
 .cv-since[data-read] .cv-since__rule,
 .cv-since[data-read] .cv-since__tag,
+.cv-since[data-read] .cv-since__words,
 .cv-since[data-read] .cv-since__lead {
   opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-since__rule,
   .cv-since__tag,
+  .cv-since__words,
   .cv-since__lead {
     transition: opacity var(--agent-motion-calm) var(--agent-ease-out);
   }

@@ -1749,7 +1749,9 @@ function TranscriptView({
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
   /// The run that holds call `toolId` opens, as for a Find match.
-  reveal?: { rowId: string; key: number; toolId: string };
+  /// `land`: the view opens at the row on a return (the unread line, App.tsx), so only a view at the
+  /// latest message moves; a reader scrolled up keeps their place.
+  reveal?: { rowId: string; key: number; toolId: string; land?: true };
   /// A chat the page switched to and read cold, by its open (a new number per open), whose rows
   /// have not shown yet: they fade in once, on the frame they first draw (fadeInOpenedChat).
   /// Undefined for a chat drawn from a kept tail, which shows whole on the frame the switch lands
@@ -5433,6 +5435,7 @@ function TranscriptView({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || revealIndex < 0 || !rowRequest.current?.()) return;
+    if (reveal?.land && !followingRef.current) return;
     const top = layout.geometry.topAt(revealIndex);
     const bottom = top + layout.geometry.heightAt(revealIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).

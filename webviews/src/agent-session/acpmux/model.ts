@@ -1423,6 +1423,9 @@ export type AcpmuxSnapshot = {
   /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
   /// follows it.
   sinceKey?: string;
+  /// A return placed that line (the chat picked, shown again, the reader back): the view opens at
+  /// it, not at the latest message (App.tsx). Unset for the line a scroll up placed.
+  sinceLands?: true;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;

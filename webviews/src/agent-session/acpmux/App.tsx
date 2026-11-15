@@ -2,6 +2,7 @@ import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
+import { countNewMessages, noteUnreadCount } from "./conversation/unreadState";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
   Activity,
@@ -590,6 +591,7 @@ import {
   useFeatureTipsOn,
   useTrayHandle,
   useTrayTucked,
+  useUnreadBannerMode,
 } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
@@ -5865,7 +5867,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Inspector's section that lists them all (the summary card with the Inspector off). With the tray
   // on (the default) the tray is the count, in a turn and between turns, so the line counts nothing.
   // `child`: a row of the subagent view shown then, which only that view reveals.
-  const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string; child?: true }>();
+  const [revealRow, setRevealRow] = useState<{
+    rowId: string;
+    key: number;
+    toolId: string;
+    child?: true;
+    land?: true;
+  }>();
   const counting = snapshot.isWorking && !subagentTray;
   // chatAgents already lists every subagent and changes when one's state does.
   const runningAgents = useMemo(() => (counting ? chatAgents.filter(running) : NO_AGENTS), [counting, chatAgents]);
@@ -6033,11 +6041,34 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
   // the transcript brings it in by its place in the chat even when it is far above the view.
   const sinceKey = snapshot.sinceKey;
-  const jumpToSince = useCallback(() => {
+  const jumpToSince = useCallback((land?: true) => {
     const key = Date.now();
-    setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
+    setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "", ...(land && { land }) });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
   }, []);
+  // "157 new messages" (Leo, 2026-11-15): the count after the line follows the rows as they come,
+  // read from the end back to the line (O(the new rows), capped), and only while the line is unread.
+  const sinceCount = useMemo(
+    () => (sinceKey !== undefined ? countNewMessages(snapshot.rows, SINCE_DIVIDER) : undefined),
+    [snapshot.rows, sinceKey],
+  );
+  useLayoutEffect(() => {
+    if (sinceKey !== undefined) noteUnreadCount(sinceKey, sinceCount);
+  }, [sinceKey, sinceCount]);
+  // A return (the chat picked, its tab shown again, the reader back after stepping away) with new
+  // rows lands at the line, not the latest: the view opens where the new part starts. A line the
+  // reader's own scroll-up placed (`sinceLands` unset) never moves the view, and a reader scrolled
+  // up keeps their place (VirtualTranscript's `land` reveal moves only a view at the latest). A
+  // person who turned the unread banner on chose to open at the latest with the banner to jump from:
+  // their view stays where it opens.
+  const landedSince = useRef<string | undefined>(undefined);
+  const bannerMode = useUnreadBannerMode();
+  const sinceLands = snapshot.sinceLands === true && bannerMode === "off";
+  useEffect(() => {
+    if (sinceKey === undefined || !sinceLands || landedSince.current === sinceKey) return;
+    landedSince.current = sinceKey;
+    jumpToSince(true);
+  }, [sinceKey, sinceLands, jumpToSince]);
   // A link waiting on replay retries against committed rows, without a polling timer.
   useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that

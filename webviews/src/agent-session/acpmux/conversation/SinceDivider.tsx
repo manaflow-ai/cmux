@@ -2,10 +2,13 @@
 // inspiration from, say, like [other chat apps] ... make it look integrated". Two parts:
 //
 // - The static view, `SinceDivider`: where the person left a chat that kept working (acpmux
-//   `seenSeq`, `hub/seen.rs`), a hairline in the theme's accent across the text column with a small
-//   "New" tag pinned to its end, as chat apps draw it. Its row keeps the transcript's 28px rhythm
-//   (model.ts), placed when the chat opens and kept until another chat is selected, so it never
-//   appears or goes under the reader. Once read it fades in place: the row stays, nothing moves.
+//   `seenSeq`, `hub/seen.rs`), or where they scrolled up from while rows kept coming: a hairline
+//   across the text column broken by a centered, muted "157 new messages", as the terminal chat
+//   draws it (Leo, 2026-11-15: "we needto properly do somthing like this in the gui somehow"). Its
+//   row keeps the transcript's 28px rhythm (model.ts), placed when the chat opens or the reader
+//   comes back and kept until another chat is selected, so it never appears or goes under the
+//   reader. The count follows new rows live (only the label's words change). Seen, it fades a
+//   moment later, or at once when scrolled past (unreadState.ts): the row stays, nothing moves.
 //   The recap the daemon made for the same return (`hub/away_recap.rs`) draws under it.
 // - The moving view, `UnreadBanner`: "3 new turns since 3:42 · Mark read" in the transcript's
 //   top-start zone (overlayLayout.ts) while the line is off screen, as chat apps' unread bars.
@@ -27,6 +30,7 @@ import {
   noteUnreadMounted,
   noteUnreadSide,
   readUnread,
+  SINCE_COUNT_CAP,
   sinceDone,
   subscribeUnread,
   unreadRead,
@@ -64,11 +68,17 @@ function useSinceObserver(mark: string) {
   );
 }
 
-/// How the line is drawn; the gallery compares them. `tag` (chosen): the accent hairline with a
-/// filled "New" tag at its end. `text`: the hairline with "New" in accent text at its end.
-/// `labelled`: "New since you looked · 3 turns" leading the hairline (the first look,
-/// on theme tokens).
-export type SinceLook = "tag" | "text" | "labelled";
+/// How the line is drawn; the gallery compares them. `count` (chosen): a muted hairline on both
+/// sides of a centered, muted "157 new messages", the terminal chat's rule in GUI terms.
+/// `count-accent`: the same in the theme's accent. `tag`: the accent hairline with a filled "New"
+/// tag at its end (the look before). `text`: the hairline with "New" in accent text at its end.
+/// `labelled`: "New since you looked · 3 turns" leading the hairline (the first look, on tokens).
+export type SinceLook = "count" | "count-accent" | "tag" | "text" | "labelled";
+
+/// "157 new messages", "999+ new messages" past the count's cap.
+export function newMessagesLabel(t: ReturnType<typeof useT>, count: number): string {
+  return t("since.messages", { n: count > SINCE_COUNT_CAP ? `${SINCE_COUNT_CAP}+` : count });
+}
 
 /// The banner and the line share one menu shape: what the reader can do with the unread marker.
 function unreadMenu(
@@ -99,8 +109,9 @@ function unreadMenu(
 export function SinceDivider({
   since,
   onDismissRecap,
-  look = "tag",
+  look = "count",
   read,
+  count: forcedCount,
 }: {
   since: AcpmuxSince;
   /// The recap's ×. Without it (a read-only transcript) the recap draws no ×.
@@ -108,16 +119,32 @@ export function SinceDivider({
   look?: SinceLook;
   /// The gallery's read state; the transcript reads its own (unreadState.ts).
   read?: boolean;
+  /// The gallery's count of new messages; the transcript's comes from its rows (App.tsx).
+  count?: number;
 }) {
   const t = useT();
   const unread = useUnreadView();
   const mode = useUnreadBannerMode();
   const isRead = read ?? unreadRead(since.key, unread);
   const label = t("since.label");
+  const count = forcedCount ?? (unread?.mark === since.key ? unread.count : undefined);
+  const counted = look === "count" || look === "count-accent";
+  const words = count !== undefined ? newMessagesLabel(t, count) : t("since.new");
   return (
     <div className="cv-since" data-look={look} data-read={isRead ? "" : undefined} ref={useSinceObserver(since.key)}>
       <ContextMenu items={unreadMenu(t, since.key, mode)} className="cv-since__menu">
-        <p className="cv-since__line" aria-label={`${label}, ${t("since.turns", { n: since.turns })}`}>
+        <p
+          className="cv-since__line"
+          aria-label={counted ? words : `${label}, ${t("since.turns", { n: since.turns })}`}
+        >
+          {counted && (
+            <>
+              <span className="cv-since__rule" aria-hidden="true" />
+              <span className="cv-since__words" aria-hidden="true">
+                {words}
+              </span>
+            </>
+          )}
           {look === "labelled" && (
             <span className="cv-since__lead" aria-hidden="true">
               <span className="cv-since__label">{label}</span>
@@ -125,7 +152,7 @@ export function SinceDivider({
             </span>
           )}
           <span className="cv-since__rule" aria-hidden="true" />
-          {look !== "labelled" && (
+          {(look === "tag" || look === "text") && (
             <span className="cv-since__tag" aria-hidden="true">
               {t("since.new")}
             </span>
@@ -174,7 +201,9 @@ export function UnreadBanner({
   const mine = unread?.mark === mark ? unread : undefined;
   const shown = forceShown ?? bannerShown(mark, unread, mode);
   const collapsed = mode === "collapsed";
-  const count = t("since.bannerCount", { n: turns });
+  const messages = mine?.count;
+  const count = messages !== undefined ? newMessagesLabel(t, messages) : t("since.bannerCount", { n: turns });
+  const short = messages !== undefined ? (messages > SINCE_COUNT_CAP ? `${SINCE_COUNT_CAP}+` : messages) : turns;
   const when = firstNewAt !== undefined ? t("since.bannerSince", { time: clockLabel(firstNewAt) }) : undefined;
   const jump = () => {
     // Pressed, it has done its job, also when the line's row is not drawn in view after the move.
@@ -204,7 +233,7 @@ export function UnreadBanner({
           <span className="acpmux-since-jump__arrow" aria-hidden="true">
             <ArrowDown size={12} />
           </span>
-          <span className="acpmux-since-jump__count">{collapsed ? turns : count}</span>
+          <span className="acpmux-since-jump__count">{collapsed ? short : count}</span>
           <span className="acpmux-since-jump__more" aria-hidden={collapsed || undefined}>
             <span className="acpmux-since-jump__more-inner">
               {when && <span className="acpmux-since-jump__when">{when}</span>}
