@@ -88,7 +88,7 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
 }
 
 /// What the owner side asks of the app, so tests run it with fakes. Every call runs on the main actor.
-public struct RemoteControlConsentServices {
+@MainActor public struct RemoteControlConsentServices {
     /// One request to this Mac's acpmux over a person-proof line: its `result`, or the error to show.
     public var call: @MainActor (_ method: String, _ params: [String: Any]) async -> Result<[String: Any], RemoteControlCallError>
     /// SECURITY: signs a grant with this Mac's key (``AcpmuxMacApprover/consentGrant``) for `account`,
@@ -108,11 +108,11 @@ public struct RemoteControlConsentServices {
 
     public init(call: @escaping @MainActor (String, [String: Any]) async -> Result<[String: Any], RemoteControlCallError>,
                 sign: @escaping @MainActor (String, String, String, Bool, String) async -> [String: any Sendable]?,
-                thisMacName: @escaping @MainActor () -> String, now: @escaping @MainActor () -> Date = { Date() }) {
+                thisMacName: @escaping @MainActor () -> String, now: (@MainActor () -> Date)? = nil) {
         self.call = call
         self.sign = sign
         self.thisMacName = thisMacName
-        self.now = now
+        self.now = now ?? { Date() }
     }
 
     /// The app's: requests over the join model's person line, rows from the joined machines, and `sign`
