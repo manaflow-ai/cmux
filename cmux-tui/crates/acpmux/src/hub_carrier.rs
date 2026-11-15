@@ -818,15 +818,12 @@ impl RelayIncoming for Incoming {
             .map(|key| base64::engine::general_purpose::STANDARD.encode(key));
         let link = accepted.link;
         // The acpmux listener is reached at once, as before services were named: a circuit with
-        // no hello may send nothing for a while, and its listener counts it from the start.
-        let mut local = match tokio::net::TcpStream::connect(self.websocket).await {
-            Ok(local) => local,
-            Err(_) => {
-                let _ = link.close().await;
-                return;
-            }
-        };
-        let _ = local.set_nodelay(true);
+        // no hello may send nothing for a while, and its listener counts it from the start. A
+        // session circuit never uses it, so one that fails to connect refuses only the others.
+        let listener = tokio::net::TcpStream::connect(self.websocket).await.ok();
+        if let Some(listener) = &listener {
+            let _ = listener.set_nodelay(true);
+        }
         // The first record says which service the circuit is for: a hello names one, anything
         // else is the acpmux listener's own first bytes (a WebSocket upgrade).
         let first = match link.receive().await {
@@ -839,7 +836,7 @@ impl RelayIncoming for Incoming {
         if named_service(&first) == Some(Ok(CircuitService::CmuxTuiSession)) {
             // A session circuit reaches the cmux-tui session socket; the acpmux listener's
             // connection closes unused.
-            drop(local);
+            drop(listener);
             let admitted = match (self.carrier.session_gate(), from) {
                 (Some(gate), Some(from)) => gate.admit(&from).await,
                 (None, _) => Err(ServiceRefusal::new(
@@ -877,6 +874,10 @@ impl RelayIncoming for Incoming {
             pump(Box::new(link), local, &self.carrier.stats).await;
             return;
         }
+        let Some(mut local) = listener else {
+            let _ = link.close().await;
+            return;
+        };
         let started = match named_service(&first) {
             None => local.write_all(&first).await.map_err(|e| e.to_string()),
             Some(named) => {
