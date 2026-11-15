@@ -881,12 +881,14 @@ fn listing(entries: &[Entry]) -> Listing {
     }
     let conflicts: Vec<Conflict> = setters
         .iter()
-        .filter(|(_, names)| names.len() > 1)
-        .map(|((kind, key), names)| Conflict {
-            kind,
-            key: (*key).to_owned(),
-            winner: names[0].to_owned(),
-            losers: names[1..].iter().map(|name| (*name).to_owned()).collect(),
+        .filter_map(|((kind, key), names)| {
+            let (winner, losers) = names.split_first()?;
+            (!losers.is_empty()).then(|| Conflict {
+                kind,
+                key: (*key).to_owned(),
+                winner: (*winner).to_owned(),
+                losers: losers.iter().map(|name| (*name).to_owned()).collect(),
+            })
         })
         .collect();
     let listed = entries
@@ -951,21 +953,16 @@ pub fn thumbnail(profile: &Profile) -> Thumbnail {
 
 /// `#rgb` and `#rrggbb` colors in `text`, lowercase.
 fn colors(text: &str) -> Vec<String> {
-    let bytes = text.as_bytes();
     let mut out = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'#' {
-            let run = bytes[i + 1..].iter().take_while(|b| b.is_ascii_hexdigit()).count();
-            let after = bytes.get(i + 1 + run).copied();
-            let ends = after.is_none_or(|b| !b.is_ascii_alphanumeric());
-            if (run == 6 || run == 3) && ends {
-                out.push(text[i..i + 1 + run].to_ascii_lowercase());
-            }
-            i += 1 + run;
-        } else {
-            i += 1;
+    let mut rest = text;
+    while let Some((_, after)) = rest.split_once('#') {
+        let run: String = after.chars().take_while(char::is_ascii_hexdigit).collect();
+        let next = after.chars().nth(run.len());
+        let ends = next.is_none_or(|c| !c.is_ascii_alphanumeric());
+        if (run.len() == 6 || run.len() == 3) && ends {
+            out.push(format!("#{}", run.to_ascii_lowercase()));
         }
+        rest = after;
     }
     out
 }
@@ -1010,13 +1007,10 @@ fn one_line(text: &str) -> String {
 
 /// A serde message without the value it quoted.
 fn redact_serde(message: &str) -> String {
-    match message.find(" at line ") {
-        Some(at) => {
-            let head = &message[..at];
-            let head = head.split(['`', '"']).next().unwrap_or(head).trim_end();
-            format!("{head}{}", &message[at..])
-        }
-        None => message.split(['`', '"']).next().unwrap_or(message).to_owned(),
+    let unquoted = |text: &str| text.split(['`', '"']).next().unwrap_or(text).trim_end().to_owned();
+    match message.split_once(" at line ") {
+        Some((head, tail)) => format!("{} at line {tail}", unquoted(head)),
+        None => unquoted(message),
     }
 }
 
