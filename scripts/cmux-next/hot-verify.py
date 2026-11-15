@@ -123,6 +123,8 @@ SETTLE_THEME = 1.5
 SETTLE_WEB = 5.0
 SETTLE_DEV_SERVER = 10.0
 MAX_STEPS = 60
+ENGINES = ("webkit", "chromium")
+DEFAULT_ENGINE = "webkit"
 MAX_WAIT = 30.0
 STEP_KINDS = ("action", "rpc", "cmux", "wait", "shot", "waitFor", "chat", "move", "hover", "type", "key",
               "recording")
@@ -691,6 +693,37 @@ def load_steps(path: str | None, kit) -> list:
     return steps
 
 
+def steps_engine(path: str | None) -> str:
+    """The copy's browser.defaultEngine: the steps file's "engine", else webkit. The pr_capture kit's stopgap
+    (nightly_steps.py CHROMIUM_UNCAPTURABLE): since cmux#34904 a Chromium-default NEXT nightly turns uncapturable
+    10-25 s after launch (`screencapture -l`: "could not create image from window"), so every shot fails."""
+    if not path:
+        return DEFAULT_ENGINE
+    data = json.loads(Path(path).read_text())
+    engine = data.get("engine", DEFAULT_ENGINE) if isinstance(data, dict) else DEFAULT_ENGINE
+    if engine not in ENGINES:
+        raise Usage(f"--state {path}: a steps file's engine is one of {', '.join(ENGINES)}")
+    return engine
+
+
+def set_browser_engine(config: Path, engine: str) -> None:
+    """Set browser.defaultEngine in the copy's own settings file (CMUX_NEXT_CONFIG_FILE), keeping the rest. A file
+    this cannot read as JSON is left alone and the look stops: overwriting it would drop the copy's settings."""
+    data = {}
+    if config.exists():
+        try:
+            data = json.loads(config.read_text())
+        except ValueError as error:
+            raise LookError(f"the copy's settings file {config} is not plain JSON ({error}); "
+                            "not overwriting it to set browser.defaultEngine") from error
+        if not isinstance(data, dict):
+            raise LookError(f"the copy's settings file {config} is not a JSON object")
+    browser = data.get("browser") if isinstance(data.get("browser"), dict) else {}
+    data["browser"] = {**browser, "defaultEngine": engine}
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(json.dumps(data, indent=2) + "\n")
+
+
 def selected_kinds(sock: str) -> list[str]:
     """The kind of each pane's selected tab in the workspaces a visible window shows (snapshot.get)."""
     topology = rpc(sock, "snapshot.get", timeout=10).get("topology") or {}
@@ -990,6 +1023,8 @@ def finish(out: Path, receipt: dict, phases, began: float, code: int) -> int:
 def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int:
     kit = load_kit(args.kit)
     steps = load_steps(args.state, kit)
+    engine = steps_engine(args.state)
+    receipt["app"]["engine"] = engine
     shoot = Shooter(kit)
     rules = rules_for(repo)
     src_tree = resolve_tree(planned, args.source)
@@ -1001,6 +1036,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                 side.stop()
                 side.run("remove", timeout=300)
             side.run("make", "--from", str(the_app), "--label", SIDE_LABEL, timeout=600)
+            set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
             launched = side.run("launch", timeout=LAUNCH_SECONDS)
             found = re.search(r"pid (\d+)", launched)
             if not found:
