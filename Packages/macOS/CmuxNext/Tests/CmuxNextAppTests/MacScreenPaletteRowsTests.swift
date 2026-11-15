@@ -15,7 +15,7 @@ import Testing
         let phone = HubDevice(id: "1b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "iPhone", platform: .ios, macScreenShared: true)
         let unnamed = HubDevice(id: "2b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", name: "")
         var ran: [ActionInvocation] = []
-        let rows = MacScreenPaletteRows.rows(devices: [mac, phone, unnamed], actionTitle: "Screen Sharing") { ran.append($0) }
+        let rows = MacScreenPages.paletteRows(devices: [mac, phone, unnamed], actionTitle: "Screen Sharing") { ran.append($0) }
         #expect(rows.map(\.title) == ["Screen Sharing: Studio", "Screen Sharing: iPhone"])
         #expect(rows.map(\.symbol) == ["display", "iphone"])
         let row = try #require(rows.first)
@@ -33,7 +33,7 @@ import Testing
     }
 
     @Test func noActionTitleListsNoRows() {
-        #expect(MacScreenPaletteRows.rows(devices: [mac], actionTitle: nil) { _ in }.isEmpty)
+        #expect(MacScreenPages.paletteRows(devices: [mac], actionTitle: nil) { _ in }.isEmpty)
     }
 
     @Test func signedOutListsNoDevices() {

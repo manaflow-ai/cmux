@@ -25,7 +25,7 @@ public struct MacScreenActions {
 
     /// - Parameter paletteRows: Adds a root palette provider: one "Screen Sharing: <device>" row per device.
     public func bind(into registry: ActionRegistry, paletteRows: ((AsyncPaletteProvider) -> Void)? = nil) {
-        paletteRows?(MacScreenPaletteRows.provider(pages: pages, registry: registry))
+        paletteRows?(pages.paletteProvider(registry: registry))
         registry.bindEffect("macScreen.open", effect: { invocation in
             if let target = invocation.target, target.kind != .pane && target.kind != .tab { return .refused(Self.noPane) }
             do { try open({ try Self.record(invocation, pages: pages) }, invocation, Self.isPerson(invocation)) }
