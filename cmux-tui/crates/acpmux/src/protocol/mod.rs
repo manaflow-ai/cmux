@@ -188,6 +188,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.changed", Notification),
         // First-request transport upgrade, answered before framed v2 traffic.
         untyped(method::MUX_V2, Request),
+        // First-request pipe to another machine's cmux-tui remote daemon (cmux_tui_service.rs).
+        untyped(method::MUX_REMOTE_PIPE, Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
