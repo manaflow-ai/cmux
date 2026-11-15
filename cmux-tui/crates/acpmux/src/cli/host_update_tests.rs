@@ -841,6 +841,47 @@ fn keep_newer_leaves_a_later_or_own_build_and_updates_an_older_one() {
     assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
 }
 
+/// A fake acpmux of `build` ([`fake_acpmux`]) that carries the commit-time
+/// stamp `committed` (Unix seconds) as a shipped binary does.
+#[cfg(unix)]
+fn stamped_acpmux(build: &str, runs: Option<&str>, committed: u64) -> String {
+    format!("{}# acpmux-commit-time={committed};\n", fake_acpmux(build, runs))
+}
+
+/// gcp-codex-swarm-08, 2026-11-15: its self-update timer installed
+/// af330854e at 13:31, then a cmux app whose bundled acpmux was the older
+/// c144c01f3 (same day, so `--keep-newer` saw nothing newer) pushed that
+/// one at 13:40 and restarted the daemon. The host's install script now
+/// refuses a binary built from an older commit than the installed one,
+/// whatever the pusher asked, and changes nothing.
+#[test]
+#[cfg(unix)]
+fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
+    let peer = FakePeer::new("downgrade");
+    let installed = stamped_acpmux(OLD, Some(OLD), 1_794_748_257);
+    peer.exe(".local/bin/acpmux", &installed);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &stamped_acpmux(NEW, Some(NEW), 1_794_744_982));
+    for keep_newer in [false, true] {
+        let up = peer.update_with(false, keep_newer);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Current, Some("newerInstalled")),
+            "{up:?}"
+        );
+        let why = up.error.as_deref().unwrap_or("");
+        assert!(why.contains("newer commit") && why.contains("--allow-downgrade"), "{why}");
+        assert_eq!(peer.read(".local/bin/acpmux"), installed);
+        assert!(!peer.exists(".local/bin/acpmux.prev"));
+        assert!(!peer.exists(".local/bin/.acpmux-new"));
+        assert_eq!(peer.daemon(), OLD);
+    }
+    // A binary from before the stamp is older than any stamped one.
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("newerInstalled")));
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+}
+
 #[test]
 fn a_build_is_kept_over_an_older_days_or_as_someones_own() {
     let new = Some(NEW);
