@@ -53,11 +53,13 @@ SHOWN = DEMO.replace(os.path.expanduser("~"), "~", 1)
 SCENARIOS = [
     ("sections", "cmux", "open tabs and start rows under their section headers",
      lambda rows, heads: any(" in " in row for row in rows) and bool(heads)),
-    ("start-named", "codex cmux", "Codex in the cmux folders leads above Ask",
-     lambda rows, heads: bool(rows) and rows[0].startswith("Codex in ")),
+    # A typed path names the folder: the host's project list need not hold the demo folders.
+    ("start-named", f"codex in {SHOWN}/cmux", "Codex in the cmux folders leads above Ask",
+     lambda rows, heads: bool(rows) and rows[0] == f"Codex in {SHOWN}/cmux"),
     ("folder-complete", f"codex {SHOWN}/", "the disk's subfolders of a typed path as start rows",
      lambda rows, heads: any(row.startswith(f"Codex in {SHOWN}/") for row in rows)),
-    ("chat-search", "chief", "a chat the device's chat index finds, under Chats",
+    # A word of a chat title the device's chat index holds (the capture host's own chats).
+    ("chat-search", "flicker", "a chat the device's chat index finds, under Chats",
      lambda rows, heads: "Chats" in heads),
     ("prompt", "claude why is the build slow", "a prompt after an agent's name stays a prompt",
      lambda rows, heads: bool(rows) and rows[0].startswith("Ask ")),
