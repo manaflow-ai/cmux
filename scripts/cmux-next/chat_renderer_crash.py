@@ -60,8 +60,12 @@ def chat_pages(app) -> list[dict]:
         if not str(page.get("url", "")).startswith(CHAT_ORIGIN):
             continue
         clients = [int(c) for c in page.get("renderer_clients") or []]
-        pages.append({"browser": int(page["browser"]), "hidden": page.get("hidden"),
+        pages.append({"browser": int(page["browser"]), "hidden": page.get("hidden"), "clients": clients,
                       "renderer": next((pids[c] for c in clients if c in pids), None)})
+    if any(p["renderer"] is None for p in pages):
+        # Which side lost the page: no client ids from the shim, or a client no listed helper names.
+        print(f"chat-renderer-crash: helper clients {sorted(pids)}; unmapped pages "
+              f"{[(p['browser'], p['clients']) for p in pages if p['renderer'] is None]}", file=sys.stderr)
     return pages
 
 
