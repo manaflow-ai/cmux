@@ -578,8 +578,6 @@ mod tests {
     /// Best-of-rounds rows whose gate source an open pull request changes: they move onto
     /// `gate_rounds` after it lands, and leave this list then.
     const ROUNDS_WAIT_ON_ANOTHER_PR: &[&str] = &[
-        // cmux#43039: acpmux-client/src/lib.rs.
-        "v2.pr04b.mirror_v1_rows",
         // cmux#43553: acpmux-core/src/chat/stream/gates_tests.rs.
         "v2.pr03c.first_window",
         "v2.pr03c.resume_missed",
