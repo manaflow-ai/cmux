@@ -344,7 +344,10 @@ pub const MENU_PLACE_DEPTH: usize = 10;
 /// when the walk does not reach the menu bar: a role or title that cannot be
 /// read, the walk ending elsewhere (the application), deeper than
 /// [`MENU_PLACE_DEPTH`], or `live` turning false (the scope ended).
-pub fn menu_place(parents: impl Iterator<Item = MenuNode>, live: &dyn Fn() -> bool) -> Option<Vec<String>> {
+pub fn menu_place(
+    parents: impl Iterator<Item = MenuNode>,
+    live: &dyn Fn() -> bool,
+) -> Option<Vec<String>> {
     let mut titles = Vec::new();
     for node in parents.take(MENU_PLACE_DEPTH) {
         if !live() {
