@@ -3638,7 +3638,7 @@ jobs:
         run: |
           selected=()
           if [[ "$FFI_REPIN" == true ]]; then selected=(--only "app handler coverage"); fi
-          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift "${selected[@]}" --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift ${selected[@]+"${selected[@]}"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-204
       - name: Stop this job's acpmux daemons and remove its home
