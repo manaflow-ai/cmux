@@ -335,15 +335,18 @@ pub(crate) fn entries_now() -> Vec<Given> {
 /// joined never runs it) and gives no kept key, so no launch waits on it.
 fn kept_store_usable() -> bool {
     static STARTED: AtomicBool = AtomicBool::new(false);
-    match store::os_usable_known() {
-        Some(usable) => usable,
-        None => {
-            if !STARTED.swap(true, Ordering::SeqCst) {
-                std::thread::spawn(store::os_usable);
-            }
-            false
-        }
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    if let Some(usable) = store::os_usable_known() {
+        return usable;
     }
+    // Outside a runtime nothing starts it: the next spawn in one does.
+    if tokio::runtime::Handle::try_current().is_ok() && !STARTED.swap(true, Ordering::SeqCst) {
+        let scope = SCOPE.get_or_init(|| cmux_scope::Scope::new("vault kept store check"));
+        scope.spawn_named("vault-kept-store-check", async {
+            let _ = tokio::task::spawn_blocking(store::os_usable).await;
+        });
+    }
+    false
 }
 
 /// One entry a spawn gets: its value, and `Some(allowed hosts)` when agents
