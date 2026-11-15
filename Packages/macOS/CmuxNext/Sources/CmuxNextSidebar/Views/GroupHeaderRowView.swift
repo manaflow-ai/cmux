@@ -64,8 +64,7 @@ final class GroupHeaderRowView: SidebarRowView {
     let moreButton = OverflowButton(label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
-    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
-                                      label: GroupEditorStrings.newWorkspace)
+    let addButton = SidebarIconButton(plus: GroupEditorStrings.newWorkspace)
     /// A pinned group's Unpin button (#27700): shows with the + and more, left of them, as a pinned
     /// workspace row's does; the bar's pin is only a mark, and a click there folds the group. An
     /// unpinned group shows none (Leo 2026-10-21: "no empty pin symbol by default"); Pin Group stays in
@@ -700,7 +699,8 @@ extension GroupHeaderRowView {
             return
         }
         self.machine = machine
-        let tone = SectionHeaderRowView.tone(machine, hostGroup: true)
+        // A link down for less than the grace draws as connected (`SectionHeaderRowView.drawn`); the tooltip says the truth.
+        let tone = SectionHeaderRowView.tone(SectionHeaderRowView.drawn(machine), hostGroup: true)
         machineTone = tone
         let look = hostLook
         // The machine's own icon at a status mark's size, the size of every row's trailing mark: drawn at the leading
@@ -712,7 +712,7 @@ extension GroupHeaderRowView {
         // The quiet look keeps the dot for a machine that needs the person (or is on its way).
         let quiet = look == .markQuietWhenConnected && (tone == .success || tone == nil)
         machineDot.isHidden = tone == nil || look == .markAndWords || quiet
-        machineWords.stringValue = SectionHeaderRowView.statusWords(machine.status)
+        machineWords.stringValue = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
         machineWords.isHidden = look != .markAndWords
         machineMark.setAccessibilityElement(false)
         themedToolTip = machine.detail.map { "\(SectionHeaderRowView.statusWords(machine.status)): \($0)" }

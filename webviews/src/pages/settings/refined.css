@@ -155,6 +155,8 @@
 }
 
 :root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
+/* A held row changes its fill only (design/pressed-state.md). */
+:root[data-settings-look="refined"] .settings .section-link:not([aria-current]):active { background: var(--polish-pressed); }
 :root[data-settings-look="refined"] .settings .section-icon { color: var(--polish-muted); }
 :root[data-settings-look="refined"] .settings .sidebar-section-title { color: var(--polish-muted); }
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-icon { color: var(--polish-ink); }

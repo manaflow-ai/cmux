@@ -8,7 +8,7 @@
 /// The text is short on purpose: it is what the person's own message shows in the transcript.
 
 /// The verbs a person types after `/customize`, with what may follow each.
-const VERBS: Readonly<Record<string, "none" | "number" | "name" | "note">> = {
+const VERBS: Readonly<Record<string, "none" | "number" | "name" | "note" | "try">> = {
   status: "none",
   diff: "none",
   apply: "note",
@@ -21,6 +21,9 @@ const VERBS: Readonly<Record<string, "none" | "number" | "name" | "note">> = {
   show: "number",
   save: "name",
   use: "name",
+  try: "try",
+  keep: "none",
+  revert: "none",
 };
 
 /// One shell word: single quotes, with a quote inside closed and reopened.
@@ -43,6 +46,14 @@ export function customizeVerb(args: string): string | undefined {
     return rest.length === 1 && /^#?\d+$/.test(rest[0]!)
       ? `cmux customize ${name} ${rest[0]!.replace("#", "")}`
       : undefined;
+  }
+  if (takes === "try") {
+    // `try`, `try NAME`, `try NAME MINUTES`: a try-on of the preview or a profile that reverts by
+    // itself. "try a darker theme" is a wish.
+    if (rest.length === 0) return "cmux customize try";
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(rest[0]!) || rest.length > 2) return undefined;
+    if (rest.length === 1) return `cmux customize try ${rest[0]}`;
+    return /^\d+(\.\d+)?$/.test(rest[1]!) ? `cmux customize try ${rest[0]} --minutes ${rest[1]}` : undefined;
   }
   if (takes === "name") {
     // A profile name; anything else after `save` or `use` reads as a wish ("use a darker theme").

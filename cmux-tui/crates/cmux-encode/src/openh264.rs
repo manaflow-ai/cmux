@@ -189,10 +189,93 @@ fn ok(rc: c_int, what: &str) -> Res<()> {
     if rc == 0 { Ok(()) } else { Err(format!("openh264 {what} failed: {rc}").into()) }
 }
 
+/// Settings past [`OpenH264::new`]'s, for measuring speed against sharpness. The default
+/// is the shipped encoder. [`OpenH264Options::parse`] reads the bench's comma list
+/// (`frameskip=0,threads=8,complexity=1,minqp=18,maxqp=40,aq=1,bgd=1`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenH264Options {
+    pub frame_skip: bool,
+    /// Worker threads and slices; `None` is the config's.
+    pub threads: Option<u16>,
+    /// 0 low (the default), 1 medium, 2 high.
+    pub complexity: u8,
+    pub min_qp: Option<u8>,
+    pub max_qp: Option<u8>,
+    pub adaptive_quant: bool,
+    pub background_detection: bool,
+}
+
+impl Default for OpenH264Options {
+    fn default() -> Self {
+        Self {
+            frame_skip: true,
+            threads: None,
+            complexity: 0,
+            min_qp: None,
+            max_qp: None,
+            adaptive_quant: false,
+            background_detection: false,
+        }
+    }
+}
+
+impl OpenH264Options {
+    /// Reads `key=value` pairs, comma separated, over the default.
+    pub fn parse(s: &str) -> Res<Self> {
+        let mut o = Self::default();
+        for pair in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let (k, v) =
+                pair.split_once('=').ok_or(format!("openh264 options: {pair} is not key=value"))?;
+            let num = || v.parse::<u32>().map_err(|e| format!("openh264 options {k}: {e}"));
+            match k {
+                "frameskip" => o.frame_skip = num()? != 0,
+                "threads" => o.threads = Some(num()?.clamp(1, 16) as u16),
+                "complexity" => o.complexity = num()?.min(2) as u8,
+                "minqp" => o.min_qp = Some(num()?.min(51) as u8),
+                "maxqp" => o.max_qp = Some(num()?.min(51) as u8),
+                "aq" => o.adaptive_quant = num()? != 0,
+                "bgd" => o.background_detection = num()? != 0,
+                _ => return Err(format!("openh264 options: unknown key {k}").into()),
+            }
+        }
+        Ok(o)
+    }
+
+    /// The settings that differ from the default, for the encoder's name.
+    fn describe(&self) -> String {
+        let d = Self::default();
+        let mut s = Vec::new();
+        if self.threads.is_some() {
+            s.push(format!("threads={}", self.threads.unwrap_or(1)));
+        }
+        if self.complexity != d.complexity {
+            s.push(format!("complexity={}", self.complexity));
+        }
+        if let Some(q) = self.min_qp {
+            s.push(format!("minqp={q}"));
+        }
+        if let Some(q) = self.max_qp {
+            s.push(format!("maxqp={q}"));
+        }
+        if self.adaptive_quant {
+            s.push("aq=on".into());
+        }
+        if self.background_detection {
+            s.push("bgd=on".into());
+        }
+        s.join(" ")
+    }
+}
+
 impl OpenH264 {
     /// An encoder on `api` (from source in tests and the bench, Cisco's
     /// library loaded by [`load_verified`] otherwise).
     pub fn new(cfg: &EncCfg, api: OpenH264Api) -> Res<Self> {
+        Self::with_options(cfg, api, &OpenH264Options::default())
+    }
+
+    /// [`OpenH264::new`] with `opts` in place of the shipped settings.
+    pub fn with_options(cfg: &EncCfg, api: OpenH264Api, opts: &OpenH264Options) -> Res<Self> {
         let mut enc: *mut ISVCEncoder = std::ptr::null_mut();
         // SAFETY: the API fills `enc` with a new encoder instance or fails.
         ok(unsafe { api.0.WelsCreateSVCEncoder(&mut enc) }, "create")?;
@@ -202,18 +285,22 @@ impl OpenH264 {
         // SAFETY: plain version query.
         let v = unsafe { api.0.WelsGetCodecVersion() };
         let name = format!(
-            "openh264 {}.{}.{} {} baseline rc=bitrate frameskip=on gop=inf",
+            "openh264 {}.{}.{} {} baseline rc=bitrate frameskip={} gop=inf {}",
             v.uMajor,
             v.uMinor,
             v.uRevision,
-            if cfg.screen_content { "screen-realtime" } else { "camera-realtime" }
-        );
+            if cfg.screen_content { "screen-realtime" } else { "camera-realtime" },
+            if opts.frame_skip { "on" } else { "off" },
+            opts.describe()
+        )
+        .trim_end()
+        .to_owned();
         let this = Self { api, enc, info: Box::default(), kbps: cfg.kbps.max(100), name };
         let vt = this.vtbl();
         let mut p = SEncParamExt::default();
         // SAFETY: vtable functions of a live encoder, called with valid pointers.
         unsafe { ok(vt.GetDefaultParams.ok_or("no GetDefaultParams")?(enc, &mut p), "defaults")? };
-        let threads = cfg.threads.max(1);
+        let threads = opts.threads.unwrap_or(cfg.threads).max(1);
         let bitrate = (this.kbps * 1000) as c_int;
         // Camera usage honors "no scene-change IDR"; screen usage forces one on large changes
         // but is the only mode that codes a text scroll cheaply (prototype: 73x less).
@@ -224,7 +311,11 @@ impl OpenH264 {
         p.fMaxFrameRate = cfg.fps as f32;
         p.iTemporalLayerNum = 1;
         p.iSpatialLayerNum = 1;
-        p.iComplexityMode = LOW_COMPLEXITY;
+        p.iComplexityMode = match opts.complexity {
+            0 => LOW_COMPLEXITY,
+            1 => MEDIUM_COMPLEXITY,
+            _ => HIGH_COMPLEXITY,
+        };
         p.uiIntraPeriod = 0;
         p.iNumRefFrame = 1;
         p.eSpsPpsIdStrategy = CONSTANT_ID;
@@ -233,14 +324,20 @@ impl OpenH264 {
         p.iEntropyCodingModeFlag = 0;
         // Frame skipping lets the rate controller hold the target (measured: without it the
         // target overshot 6x); a skipped frame sends nothing and the next damage retries.
-        p.bEnableFrameSkip = true;
+        p.bEnableFrameSkip = opts.frame_skip;
         p.bEnableLongTermReference = false;
         p.iMultipleThreadIdc = threads;
         p.bUseLoadBalancing = false;
         p.iLoopFilterDisableIdc = 0;
         p.bEnableDenoise = false;
-        p.bEnableBackgroundDetection = false;
-        p.bEnableAdaptiveQuant = false;
+        p.bEnableBackgroundDetection = opts.background_detection;
+        p.bEnableAdaptiveQuant = opts.adaptive_quant;
+        if let Some(q) = opts.min_qp {
+            p.iMinQp = c_int::from(q);
+        }
+        if let Some(q) = opts.max_qp {
+            p.iMaxQp = c_int::from(q);
+        }
         p.bEnableSceneChangeDetect = false;
         p.iRCMode = RC_BITRATE_MODE;
         p.iTargetBitrate = bitrate;

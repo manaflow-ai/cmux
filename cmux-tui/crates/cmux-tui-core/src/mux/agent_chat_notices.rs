@@ -1,6 +1,7 @@
 //! Agent chat notifications (cx-sg1qz). One watch of this machine's acpmux
 //! (`_acpmux/watch`, then its `_acpmux/session_changed` pushes) turns what a
-//! chat does into notifications on every agent tab bound to it:
+//! chat does into one notification per event, on one agent tab bound to it
+//! (one chat open in two tabs is still one chat: one banner, one push):
 //!
 //! - its turn ended: "<chat> finished" with the reply's last line, or
 //!   "<chat> failed" (level error) when the turn failed;
@@ -331,31 +332,39 @@ impl Mux {
         } else {
             Vec::new()
         };
-        for (surface, content) in self.agent_chat_tabs(session) {
-            if unread.iter().any(|(row, acknowledged)| {
-                !acknowledged
-                    && row.surface == Some(surface)
-                    && row.title == notice.title
-                    && row.body == notice.body
-            }) {
-                continue;
-            }
-            // Hashed: an adopted session's id is the agent's own, of any length.
-            let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
-            let key = format!("acpmux-{digest:x}");
-            let posted = self.create_durable_notification(
-                &Actor::Daemon,
-                &key,
-                notice.title.clone(),
-                notice.subtitle.clone(),
-                notice.body.clone(),
-                notice.level,
-                Some(surface),
-                NotificationSource::Agent,
-            );
-            if posted.is_err() {
-                self.report_internal_diagnostic("agent chat notification not posted");
-            }
+        // One tab takes the notice: the one with the least durable content id, so a daemon
+        // restart (which may number surfaces anew) picks the same tab and its key again.
+        // The other tabs keep acpmux's own unread, and a read on any of them reads it.
+        let tabs = self.agent_chat_tabs(session);
+        let Some((surface, content)) = tabs.iter().min_by(|a, b| a.1.cmp(&b.1)) else {
+            return;
+        };
+        // Any bound tab: a daemon before one-tab notices posted the wait on each of them.
+        if unread.iter().any(|(row, acknowledged)| {
+            !acknowledged
+                && row
+                    .surface
+                    .is_some_and(|row_surface| tabs.iter().any(|(tab, _)| *tab == row_surface))
+                && row.title == notice.title
+                && row.body == notice.body
+        }) {
+            return;
+        }
+        // Hashed: an adopted session's id is the agent's own, of any length.
+        let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
+        let key = format!("acpmux-{digest:x}");
+        let posted = self.create_durable_notification(
+            &Actor::Daemon,
+            &key,
+            notice.title.clone(),
+            notice.subtitle.clone(),
+            notice.body.clone(),
+            notice.level,
+            Some(*surface),
+            NotificationSource::Agent,
+        );
+        if posted.is_err() {
+            self.report_internal_diagnostic("agent chat notification not posted");
         }
     }
 

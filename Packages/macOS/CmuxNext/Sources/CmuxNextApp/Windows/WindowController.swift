@@ -185,7 +185,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.teardown()
         // Last: a host the steps above made for the closing window (the overlay layer is made on
         // first use) closes its panel too, since it came after the close that tears hosts down.
-        if let window { WindowOverlayHost.windowIsClosing(window) }
+        if let window { WindowOverlayHost.windowIsClosing(window); services.hoverCards.windowClosed(window) } // and its hidden sidebar's hold on cards
     }
 
     // MARK: Workspace

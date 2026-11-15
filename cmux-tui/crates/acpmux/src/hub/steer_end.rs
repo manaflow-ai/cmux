@@ -144,6 +144,11 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                     return Err(super::turns::stopped_before_prompt());
                 }
                 *unwritten = None;
+                drop(unwritten);
+                // The person's steer that queued while this turn was starting goes in now
+                // (`queue.rs` `QueuedPrompt::steer_on_start`): it waits for the handoff this
+                // prompt holds, so it reaches the agent after it.
+                session.queue_moved.notify_waiters();
             }
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -311,6 +316,7 @@ impl Hub {
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
                     asked: opts.provenance.clone(),
                 },
+                device: opts.full_access_device.clone().filter(|_| control == Control::Web),
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now

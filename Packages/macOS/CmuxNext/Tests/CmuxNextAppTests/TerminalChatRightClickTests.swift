@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// Toggle Terminal and Chat without the pane toolbar's `>_ | bubble` control (user 2026-11-13: "get rid of these
-/// buttons"): its key (Opt-Cmd-`), the Command Palette, and a row of the tab's right-click on half of a terminal and
+/// buttons"): a key a person binds (none by default), the Command Palette, and a row of the tab's right-click on half of a terminal and
 /// chat pair, which runs `palette.toggleTerminalChat` on that tab through the registry, one path with the key.
 @MainActor @Suite(.serialized)
 struct TerminalChatRightClickTests {

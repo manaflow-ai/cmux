@@ -806,6 +806,12 @@ impl HostTab {
         out
     }
 
+    /// Whether popup surface `surface` is this tab's (a shared host finds a
+    /// surface frame's tab by it).
+    pub fn has_surface(&self, surface: u32) -> bool {
+        self.surfaces.contains_key(&surface)
+    }
+
     /// The stream that carries `surface`, once it is shown.
     pub fn surface_stream(&self, surface: u32) -> Option<u16> {
         self.surfaces.get(&surface)?.shown.map(|(stream, _, _)| stream)
