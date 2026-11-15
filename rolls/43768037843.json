@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43768037843",
+  "recorded_at": "2026-11-15T22:25:01Z",
+  "reason": "cmux-tui 5f9ffecdcf02 changes the image's cmux-tui (pinned f30a8ef81d24)",
+  "dry_run": false,
+  "cmux_tui": "5f9ffecdcf029c42ed5de9840f5cfeb2021e7ae4",
+  "fixes": [
+    {
+      "sha": "5f9ffecdcf029c42ed5de9840f5cfeb2021e7ae4",
+      "mergedAt": "2026-11-15T13:56:12-08:00",
+      "subject": "cmux-tui: terminal-command-context and the terminal-to-chat catalog rows (FFI step A of #38590) (#43840)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T22:25:01Z",
+    "snapshot_id": "sh-85a9a93d73384e0fb1276d9fa2be9381",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43768037843): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "615d8db7aea463ec2f09c82e800dc2e029f0f604",
+    "image": "cloud-native-auto-5f9ffecd-43768037843-1",
+    "revision": "ci-43768037843-1",
+    "at": "2026-11-15T22:25:01Z"
+  },
+  "rolled_back": false
+}
