@@ -180,12 +180,14 @@ impl Customize {
         let mut draft = existing.unwrap_or(Draft {
             base: index.current,
             started_ms: now_ms,
+            absent_dirs: tree::absent_dirs(&self.roots),
             ..Draft::default()
         });
         draft.asks.push(Ask {
             text: ask.trim().to_owned(),
             at_ms: now_ms,
             origin: origin.to_owned(),
+            description: None,
         });
         self.store.put_draft(Some(&draft))?;
         Ok(Begun { draft: DraftInfo::from(&draft), baseline, by_hand, refined })
