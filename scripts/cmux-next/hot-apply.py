@@ -66,6 +66,18 @@ with live_apply.py's rules:
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
 
+Published keys first. CI publishes each feat-cmux-next commit's hot keys (`keys SHA`, written by
+cmux-tui-artifacts.yml to files.cmux.com/cmux-next/hot-keys/SHA.json): its tree key, web source key
+and web ABI, and one digest each over the paths and blobs of the files that need a new app (`shell`:
+Swift, resources and manifests), the Rust the app links (`ffi`), the bundled helpers' inputs
+(`helpers`) and the web the app serves (`web`; the web key also covers web tests, so it only names
+what to fetch), sorted by the same rules as the diff below. When both the app's commit and SHA have
+them, `plan` compares the keys and nothing else (`via: published keys`): no fetch of SHA, no diff,
+no tree or web key computed here, and no checkout needed past resolving a short CMUXCommit. Equal
+`shell` and `ffi` digests mean the two commits differ only in what a hot apply swaps, in either
+direction, so an older SHA with the app's shell takes too. Otherwise (a commit from before the
+keys, a branch) `plan` diffs the two commits as it always has.
+
 --branch takes a branch head instead (try-pr.sh passes a pull request's): one branched before the
 app's commit is sorted from the fork, and its Rust part applies only when the app's cmux-tui tree
 is the fork's, so the app has no Rust the branch lacks. Its web part is left to try-pr.sh, which
@@ -169,6 +181,10 @@ COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("b
               ("host", "cmux-tui-host"), ("holder", "cmux-holder"),
               ("agent-screen-detection", "cmux-agent-screen-detection"))
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
+# Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
+HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
+HOT_KEYS_SCHEMA = 1
+MISSING_KEYS_SECONDS = 3600
 DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
 BIN = "Contents/Resources/bin"
 APP_ABI = "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"
@@ -318,10 +334,10 @@ def lists_binary(name: str):
     return check
 
 
-def fetch(url: str) -> bytes:
+def fetch(url: str, timeout: float = 300) -> bytes:
     # files.cmux.com answers Python's default user agent (Python-urllib/...) with 403.
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
-    with PHASES("fetch"), urllib.request.urlopen(request, timeout=300) as answer:
+    with PHASES("fetch"), urllib.request.urlopen(request, timeout=timeout) as answer:
         return answer.read()
 
 
@@ -498,8 +514,132 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
+def set_digest(blobs: dict[str, str], paths: list[str]) -> str:
+    """One sha256 over PATHS and their blobs: equal for two commits exactly when none of them changed."""
+    return hashlib.sha256("".join(f"{p}\0{blobs[p]}\n" for p in sorted(set(paths))).encode()).hexdigest()
+
+
+def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
+    """SHA's hot keys: what `plan` compares instead of diffing two commits. Each key covers one bucket's files
+    (live_apply.py's rules applied to every path of SHA's tree, as _plan applies them to a diff), so two commits
+    whose `shell` and `ffi` keys are equal differ only in parts a hot apply swaps. The FFI and helper inputs are
+    read from REPO's working tree (cmux_next_route.py), so CI runs this on SHA's own checkout."""
+    listing = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", "--full-tree", sha],
+                             capture_output=True, check=True).stdout.decode("utf-8", "replace")
+    blobs = {}
+    for entry in filter(None, listing.split("\0")):
+        meta, path = entry.split("\t", 1)
+        blobs[path] = meta.split()[2]
+    files = live_apply.classify([("M", p) for p in blobs], {})["files"]
+    native = [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
+    shell = [p for p in files.get("rebuild", []) if p not in native] + files.get("swift-live", [])
+    daemon = files.get("daemon", []) + native
+    abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
+    return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
+            # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
+            "web": set_digest(blobs, files.get("web-live", [])),
+            "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
+            "ffi": set_digest(blobs, linked_rust(repo, daemon)), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
+
+
+def valid_keys(keys, sha: str) -> bool:
+    """KEYS is a whole hot-keys record of SHA: every field `keys_plan` reads, well formed."""
+    return (isinstance(keys, dict) and keys.get("schema") == HOT_KEYS_SCHEMA and keys.get("commit") == sha
+            and type(keys.get("web_abi")) is int
+            and all(HEX.fullmatch(str(keys.get(k))) for k in ("tree_key", "web", "web_key", "shell", "ffi", "helpers")))
+
+
+def published_keys(sha: str) -> dict | None:
+    """SHA's hot keys as CI published them (cmux-tui-artifacts.yml, mark-tree-commits), kept under
+    state/keys/hot; None when CI has not (a commit before the step, a run that failed) or the record is not
+    whole: `plan` then diffs the two commits."""
+    path = state_dir() / "keys" / "hot" / f"{sha}.json"
+    with contextlib.suppress(OSError, ValueError):
+        kept = json.loads(path.read_text())
+        if valid_keys(kept, sha):
+            return kept
+    # A miss is kept for an hour, so the apply after a prefetch (or a commit from before the keys) asks no
+    # second time; CI may still publish a new commit's keys after that.
+    missing = path.with_suffix(".missing")
+    with contextlib.suppress(OSError):
+        if time.time() - missing.stat().st_mtime < MISSING_KEYS_SECONDS:
+            return None
+    keys = None
+    with PHASES("key"), contextlib.suppress(urllib.error.URLError, OSError, ValueError):
+        keys = json.loads(fetch(f"{HOT_KEYS_BASE}/{sha}.json", timeout=10))  # the diff is the fallback: wait little
+    if not valid_keys(keys, sha):
+        write_atomic(missing, b"")
+        return None
+    write_atomic(path, json.dumps(keys).encode())
+    return keys
+
+
+def note_refused(out: dict, app: Path, given_base: bool) -> None:
+    """Names a web-dev.json pointer at an overlay the app refuses (it serves its bundled pages instead)."""
+    if not given_base and (refused := refused_pointer(app)):
+        out["refused_overlay"] = refused
+        out["notes"].append(f"web-dev.json points at {refused['overlay']}: {refused['why']}. "
+                            "`hot-apply.py drop-refused-overlay` drops that pointer; an apply's web part replaces it")
+
+
+def daemon_part(out: dict, app: Path, given_base: bool, unsigned: bool) -> None:
+    """The Rust part, unless its published build is not signed as the app is: a Team-signed app's daemon
+    proves a connection is the app only by that team's signature (prover A), so an ad-hoc daemon verifies
+    none and Cloud (its credential provider) fails until rollback."""
+    team = None if given_base else app_team(app)
+    why = None
+    if team and out.get("published"):
+        name = f"cmux-tui-{triple()}"
+        why = unverifiable(url_team(f"{TUI_BASE}/{out['tree_key']}/{name}"), team, f"the published {name}")
+    if why and not unsigned:
+        out["left"]["Rust (the published build is not signed as this app is)"] = [why]
+    else:
+        out["parts"].append("rust")
+        if why:
+            out["notes"].append(f"--unsigned-daemon: {why}")
+    out["app_team"] = team
+
+
+def keys_plan(app: Path, sha: str, base: str, given_base: bool, unsigned: bool = False) -> dict | None:
+    """The plan from both commits' published keys, with no checkout of either: None when one is missing."""
+    have, want = published_keys(base), published_keys(sha)
+    if not have or not want:
+        return None
+    out = {"sha": sha, "base": base, "app": str(app), "parts": [], "left": {}, "notes": [], "via": "published keys"}
+    note_refused(out, app, given_base)
+    if want["shell"] != have["shell"]:
+        out["left"]["Swift, resources and manifests"] = [f"shell key {have['shell'][:12]} -> {want['shell'][:12]}"]
+    if want["web"] != have["web"]:
+        abi = have["web_abi"] if given_base else app_abi(app)
+        if abi == want["web_abi"]:
+            out["parts"].append("web")
+            # Kept where web_unchanged() looks a commit's key up.
+            out["web_key"] = remembered("web", sha, lambda: want["web_key"])
+        else:
+            out["left"]["web ABI"] = [f"SHA's web needs ABI {want['web_abi']}, the app has {abi}"]
+    if want["tree_key"] != have["tree_key"]:
+        out["tree_key"], out["base_tree_key"] = want["tree_key"], have["tree_key"]
+        if want["ffi"] != have["ffi"]:
+            # The app FFI may swap warm (cmux#43548): which files changed decides it (the Swift build's own Rust
+            # inputs still need an app), and only the diff knows them, so the diff plans this pair.
+            return None
+        else:
+            out["published"] = published(want["tree_key"])
+            daemon_part(out, app, given_base, unsigned)
+            if want["helpers"] != have["helpers"]:
+                out["left"]["bundled helpers (cmux-mobile-host, ...)"] = [
+                    f"helpers key {have['helpers'][:12]} -> {want['helpers'][:12]}"]
+    if not out["parts"] and not out["left"]:
+        out["notes"].append("the app already runs SHA's parts")
+    return out
+
+
 def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None = None, unsigned: bool = False) -> dict:
     with PHASES("plan"):
+        if not branch:
+            planned = keys_plan(app, sha, base or app_commit(app, repo), bool(base), unsigned)
+            if planned:
+                return planned
         return _plan(repo, app, sha, branch, base, unsigned)
 
 
@@ -553,10 +693,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         if not have_commit(repo, commit):
             raise RuntimeError(f"{commit} is not in {repo} (fetch feat-cmux-next)")
     out = {"sha": sha, "base": base, "app": str(app), "parts": [], "left": {}, "notes": []}
-    if not given_base and (refused := refused_pointer(app)):
-        out["refused_overlay"] = refused
-        out["notes"].append(f"web-dev.json points at {refused['overlay']}: {refused['why']}. "
-                            "`hot-apply.py drop-refused-overlay` drops that pointer; an apply's web part replaces it")
+    note_refused(out, app, bool(given_base))
     if is_ancestor(repo, sha, base):
         out["notes"].append("the app already contains SHA")
         return out
@@ -617,19 +754,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
             out["left"]["Rust the app links (FFI)"] = linked
         elif out["tree_key"] != out["base_tree_key"]:
             out["published"] = published(out["tree_key"])
-            # The app's own daemon must be signed as the app is, or the app is never verified (prover A).
-            team = None if given_base else app_team(app)
-            why = None
-            if team and out["published"]:
-                name = f"cmux-tui-{triple()}"
-                why = unverifiable(url_team(f"{TUI_BASE}/{out['tree_key']}/{name}"), team, f"the published {name}")
-            if why and not unsigned:
-                out["left"]["Rust (the published build is not signed as this app is)"] = [why]
-            else:
-                out["parts"].append("rust")
-                if why:
-                    out["notes"].append(f"--unsigned-daemon: {why}")
-            out["app_team"] = team
+            daemon_part(out, app, bool(given_base), unsigned)
             helpers = helper_rust(repo, rust)
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
@@ -1415,8 +1540,7 @@ def web_unchanged(live, key: str) -> bool:
         return False
 
 
-def apply_web(repo: Path, sha: str, live) -> dict:
-    key = web_key(repo, sha)
+def apply_web(key: str, sha: str, live) -> dict:
     bundles = web_bundles(key, state_dir())
     with PHASES("swap"):
         installed = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "install", str(bundles),
@@ -1553,7 +1677,7 @@ def command_apply(args) -> int:
             if left:  # they keep the build they mapped
                 receipt["steps"]["rust"]["acpmux_left_on_old_build"] = left
         if "web" in parts:
-            key = web_key(repo, args.sha)
+            key = planned.get("web_key") or web_key(repo, args.sha)
             if web_unchanged(live, key):
                 receipt["unchanged"].append("web")
                 receipt["steps"]["web"] = {"key": key, "commit": overlay_commit(live), "unchanged": True}
@@ -1561,7 +1685,7 @@ def command_apply(args) -> int:
                 # What the app served before, not the files as they were: a pointer at an overlay the app
                 # refuses was its bundled pages, so that is what `rollback` puts back.
                 undo["web"] = in_effect(overlay_snapshot(live), app_abi(app), live.overlay_paths()[0])
-                receipt["steps"]["web"] = apply_web(repo, args.sha, live)
+                receipt["steps"]["web"] = apply_web(key, args.sha, live)
                 if undo["web"].get("refused"):
                     receipt["steps"]["web"]["replaced_refused_overlay"] = undo["web"]["refused"]
                 receipt["applied"].append("web")
@@ -1606,7 +1730,7 @@ def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, st
             receipt["steps"]["rust"] = {"to": want, "copy": str(new)}
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:
-            key = web_key(repo, args.sha)
+            key = planned.get("web_key") or web_key(repo, args.sha)
             receipt["steps"]["web"] = {"key": key, "commit": args.sha, "bundles": str(web_bundles(key, state))}
         if "ffi" in parts and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]:
             try:
@@ -1711,6 +1835,11 @@ def command_prefetch(args) -> int:
     return command_apply(args)
 
 
+def command_keys(args) -> int:
+    print(json.dumps(hot_keys(Path(args.repo), args.sha, args.web_key), indent=1, sort_keys=True))
+    return 0
+
+
 def command_status(_args) -> int:
     try:
         print((state_dir() / "last.json").read_text().strip())
@@ -1750,6 +1879,10 @@ def main(argv=None) -> int:
                                 "to the new build with `server restart` (terminals kept)")
             p.add_argument("--dry-run", action="store_true",
                            help="plan, fetch and verify every part; change nothing in the app (receipt: history.jsonl)")
+    p = sub.add_parser("keys")
+    p.add_argument("sha")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--web-key", help="SHA's web source key, when the caller has it (else computed here)")
     p = sub.add_parser("live-from", help="the app commits that can take SHA's daemon build live (JSON)")
     p.add_argument("sha")
     p.add_argument("--repo", default=str(ROOT))
@@ -1768,8 +1901,8 @@ def main(argv=None) -> int:
             print(f"hot-apply: {args.sha!r} is not a commit here", file=sys.stderr)
             return 2
     try:
-        return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "rollback": command_rollback,
-                "status": command_status, "live-from": command_live_from,
+        return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "keys": command_keys,
+                "rollback": command_rollback, "status": command_status, "live-from": command_live_from,
                 "drop-refused-overlay": command_drop_refused_overlay}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)
