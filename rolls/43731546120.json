@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43731546120",
+  "recorded_at": "2026-11-15T15:51:43Z",
+  "reason": "cmux-tui 3e12cbb23b32 changes the image's cmux-tui (pinned 086afb8f44e3)",
+  "dry_run": false,
+  "cmux_tui": "3e12cbb23b3228fb546bd127e99566e0d8816099",
+  "fixes": [
+    {
+      "sha": "3e12cbb23b3228fb546bd127e99566e0d8816099",
+      "mergedAt": "2026-11-15T15:27:52Z",
+      "subject": "acpmux v2: a gate whose test fails reads red in the home (#43698)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T15:51:43Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
