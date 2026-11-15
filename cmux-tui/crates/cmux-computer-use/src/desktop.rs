@@ -290,6 +290,21 @@ pub struct ActionOutcome {
     /// decide the outcome and drops it from the result.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shows: Option<String>,
+    /// A read-back of the intended effect the platform can do once the
+    /// action has settled ([`Desktop::read_back`]): typed keys and scrolls
+    /// land a little after they are posted. The engine drops it from the
+    /// result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Expect>,
+}
+
+/// A pending read-back ([`ActionOutcome::expect`]): the platform's handle
+/// and what it checks (`text`: the typed text is in the element's value;
+/// `scroll`: the scrolled view moved).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Expect {
+    pub token: u64,
+    pub what: String,
 }
 
 impl ActionOutcome {
@@ -474,6 +489,12 @@ pub trait Desktop: Send + Sync {
     }
     /// The [`World`] now; `None` when the platform cannot read it.
     fn world(&self) -> Option<World> {
+        None
+    }
+    /// Reads back an action's intended effect after it settled
+    /// ([`ActionOutcome::expect`]), once: `Some(true)` it shows, `Some(false)`
+    /// it does not (yet), `None` unknown.
+    fn read_back(&self, _expect: &Expect) -> Option<bool> {
         None
     }
     /// Whether the app of `window` is the frontmost app (where the person's

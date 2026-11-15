@@ -923,7 +923,8 @@ impl MacDesktop {
                 i.info
             })
             .collect();
-        let mut out = ActionOutcome::delivered(route);
+        // The menu was read from accessibility: it opened.
+        let mut out = ActionOutcome::confirmed(route);
         if let Some(note) = loading_note(workspace::app_names_ready()) {
             out.note = note.into();
         }

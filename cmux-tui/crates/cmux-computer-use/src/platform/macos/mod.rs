@@ -16,6 +16,7 @@ mod input;
 mod key_focus;
 mod keymap;
 mod menus;
+mod readback;
 mod roles;
 mod sys;
 #[cfg(test)]
@@ -39,6 +40,8 @@ pub struct MacDesktop {
     menu_policy: Mutex<crate::menus::MenuPolicy>,
     /// The menu a call opened and left open, and its window.
     opened: Mutex<Option<menus::Opened>>,
+    /// Read-backs the engine asks for after an action settled.
+    checks: Mutex<readback::Checks>,
 }
 
 impl MacDesktop {
@@ -49,7 +52,14 @@ impl MacDesktop {
             menu_guard: std::sync::RwLock::new(None),
             menu_policy: Mutex::new(crate::menus::MenuPolicy::default()),
             opened: Mutex::new(None),
+            checks: Mutex::new(readback::Checks::default()),
         }
+    }
+
+    /// Keeps `check` for the engine's read-back after the settle.
+    fn expect(&self, check: Option<readback::Check>) -> Option<Expect> {
+        let check = check?;
+        Some(self.checks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).add(check))
     }
 
     fn guard(&self) -> Option<Arc<dyn MenuGuard>> {
@@ -495,6 +505,15 @@ impl Desktop for MacDesktop {
             .collect();
         ids.sort();
         Ok(ids)
+    }
+
+    fn read_back(&self, expect: &Expect) -> Option<bool> {
+        let check = self
+            .checks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take(expect.token)?;
+        check.holds()
     }
 
     /// The target window's app, watched for accessibility signals.

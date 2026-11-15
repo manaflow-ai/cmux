@@ -6,7 +6,7 @@
 use super::ax::{Ax, ax_error};
 use super::input::{self, Route};
 use super::sys::Cf;
-use super::{MacDesktop, Target, keymap, roles, workspace};
+use super::{MacDesktop, Target, keymap, readback, roles, workspace};
 use crate::desktop::*;
 use crate::keys::KeyCombo;
 use crate::menus;
@@ -497,13 +497,18 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
     let unselected_row = selectable(&el).is_some_and(|row| row.bool("AXSelected") != Some(true));
     let denied = d.refuse_denied_item(&el);
     let blocked = denied.is_err();
+    // Text: the caret goes where the click is, through accessibility.
+    if !blocked && let Some(out) = caret_click(&el, at) {
+        return Ok(Some(out));
+    }
     match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), unselected_row, blocked) {
         roles::HitClick::Refuse => denied.map(|()| None),
         roles::HitClick::Press => {
             d.refuse_submenu_open(&el)?;
-            let before = el.value_text();
+            let holder = value_holder(&el);
+            let before = holder.value_text();
             let mut out = match el.perform("AXPress") {
-                Ok(()) => outcome_after("ax_hit_press", before, &el),
+                Ok(()) => outcome_after("ax_hit_press", before, &holder),
                 // Not taken at all: the events.
                 Err(e) if roles::press_error_falls_back(e) => return Ok(None),
                 // It may have run (a modal loop, a popped menu): no second click.
@@ -527,6 +532,134 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
         }
         roles::HitClick::Events => Ok(None),
     }
+}
+
+/// The element whose value shows a press on `el`: `el` when it has a value,
+/// else its stepper (an arrow of an AXIncrementor has none; the stepper's
+/// value changes).
+fn value_holder(el: &Ax) -> Ax {
+    if el.value_text().is_some() {
+        return el.clone();
+    }
+    el.element("AXParent")
+        .filter(|p| p.string("AXRole").as_deref() == Some("AXIncrementor"))
+        .unwrap_or_else(|| el.clone())
+}
+
+/// An editable text element (a text field or area, not a secure field, not
+/// web content, whose page may handle clicks itself) that takes a selection
+/// through accessibility.
+fn ax_text(el: &Ax) -> bool {
+    let role = el.string("AXRole").unwrap_or_default();
+    roles::is_text_input(&role)
+        && !roles::is_secure(&role, el.string("AXSubrole").as_deref())
+        && el.settable("AXSelectedTextRange")
+        && !in_web_area(el)
+}
+
+/// A plain click in text puts the caret at the character under the point
+/// (`AXRangeForPosition`) and focuses the element, as the click would; the
+/// caret is read back. Posted clicks do not reach a background AppKit text
+/// view (macOS 27.0.1: TextEdit and the fixture's text view kept their
+/// selection) and do not reach one in the front app by process either.
+fn caret_click(el: &Ax, at: Point) -> Option<ActionOutcome> {
+    if !ax_text(el) {
+        return None;
+    }
+    let under = el.range_for_position(at.x, at.y)?;
+    let caret = super::sys::CFRange { location: under.location, length: 0 };
+    if el.bool("AXFocused") != Some(true) {
+        el.set("AXFocused", &Cf::boolean(true)?).ok()?;
+    }
+    el.set_selected_range(caret).ok()?;
+    let out = if el.selected_range() == Some(caret) {
+        ActionOutcome::confirmed("ax_caret")
+    } else {
+        ActionOutcome::delivered("ax_caret")
+    };
+    Some(out.showing("selection").at(at))
+}
+
+/// A left drag from `from` to `to` inside one text element selects the text
+/// between the two points through accessibility (read back).
+fn select_drag(d: &MacDesktop, t: &Target, from: Point, to: Point) -> Option<ActionOutcome> {
+    let (app, win) = d.ax_window(t).ok()?;
+    let el = app.element_at(from.x, from.y)?;
+    if !el.element("AXWindow").is_some_and(|w| w.same(&win)) || !ax_text(&el) {
+        return None;
+    }
+    if !app.element_at(to.x, to.y).is_some_and(|end| end.same(&el)) {
+        return None;
+    }
+    let a = el.range_for_position(from.x, from.y)?.location;
+    let b = el.range_for_position(to.x, to.y)?.location;
+    let range = super::sys::CFRange { location: a.min(b), length: (a - b).abs() };
+    if el.bool("AXFocused") != Some(true) {
+        el.set("AXFocused", &Cf::boolean(true)?).ok()?;
+    }
+    el.set_selected_range(range).ok()?;
+    let out = if range.length > 0 && el.selected_range() == Some(range) {
+        ActionOutcome::confirmed("ax_select_text")
+    } else {
+        ActionOutcome::delivered("ax_select_text")
+    };
+    Some(out.showing("selection").at(to))
+}
+
+/// Points per scroll line for a scroll done through the scroll bars.
+const LINE_POINTS: f64 = 16.0;
+
+/// A scroll over an AppKit scroll area (not web content, whose page may
+/// handle wheel events itself) moves its scroll bars through accessibility:
+/// posted wheel events do not reach a background AppKit view on macOS
+/// 27.0.1. The bar's value is a fraction of the scrollable distance (the
+/// document's height less the visible height); read back.
+fn ax_scroll(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<ActionOutcome> {
+    let (app, win) = d.ax_window(t).ok()?;
+    let mut el = app.element_at(at.x, at.y)?;
+    if !el.element("AXWindow").is_some_and(|w| w.same(&win)) || in_web_area(&el) {
+        return None;
+    }
+    let mut area = None;
+    for _ in 0..12 {
+        if el.string("AXRole").as_deref() == Some("AXScrollArea") {
+            area = Some(el);
+            break;
+        }
+        el = el.element("AXParent")?;
+    }
+    let area = area?;
+    let visible = area.frame()?;
+    let content = area
+        .elements("AXChildren")
+        .into_iter()
+        .find(|c| !matches!(c.string("AXRole").as_deref(), Some("AXScrollBar") | None))?;
+    let doc = content.frame()?;
+    let mut moved = false;
+    for (bar_attr, lines, doc_len, vis_len) in [
+        ("AXVerticalScrollBar", dy, doc.height, visible.height),
+        ("AXHorizontalScrollBar", dx, doc.width, visible.width),
+    ] {
+        if lines == 0.0 {
+            continue;
+        }
+        let bar = area.element(bar_attr)?;
+        let span = doc_len - vis_len;
+        if span <= 0.0 || !bar.settable("AXValue") {
+            return None;
+        }
+        let before: f64 = bar.value_text()?.parse().ok()?;
+        let wanted = (before + lines * LINE_POINTS / span).clamp(0.0, 1.0);
+        bar.set("AXValue", &Cf::number_f64(wanted)?).ok()?;
+        let after: f64 = bar.value_text()?.parse().ok()?;
+        moved |= (after - before).abs() > f64::EPSILON;
+    }
+    let out = if moved {
+        ActionOutcome::confirmed("ax_scroll_bar")
+    } else {
+        ActionOutcome::delivered("ax_scroll_bar")
+    };
+    Some(out.showing("scroll").at(at))
 }
 
 /// Makes a background app validate its menus against `t`'s window
@@ -845,6 +978,9 @@ pub(super) fn type_text(
         d.refuse_other_menus(&t)?;
     }
     let route = d.key_route(&t, delivery)?;
+    // Read back after the settle: the value before the keys.
+    let check =
+        target.as_ref().filter(|_| shows_text).and_then(|el| readback::Check::text(el, text));
     // Never into a primed app (another session's scope): each chunk is posted
     // under the lock entering a scope takes, so a scope can open between
     // chunks but no key lands inside one.
@@ -864,10 +1000,10 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
-        return Ok(typed_outcome(route.name(), shows_text));
+        return Ok(typed_outcome(route.name(), shows_text, d.expect(check)));
     }
     unprimed(route, |p| input::type_text(p, text))?;
-    Ok(typed_outcome(route.name(), shows_text))
+    Ok(typed_outcome(route.name(), shows_text, d.expect(check)))
 }
 
 /// Whether `el` is a text element whose value shows what is typed into it.
@@ -875,8 +1011,9 @@ fn is_text_element(el: &Ax) -> bool {
     roles::is_text_input(&el.string("AXRole").unwrap_or_default())
 }
 
-fn typed_outcome(route: &str, shows_text: bool) -> ActionOutcome {
-    let out = ActionOutcome::delivered(route);
+fn typed_outcome(route: &str, shows_text: bool, expect: Option<Expect>) -> ActionOutcome {
+    let mut out = ActionOutcome::delivered(route);
+    out.expect = expect;
     if shows_text { out.showing("text") } else { out }
 }
 
@@ -1104,6 +1241,14 @@ fn press_keys_inner(
                 if !notes.is_empty() {
                     super::activation::append_note(&mut out.note, &notes);
                 }
+                // Command-A in a text element selects all of it: read back
+                // after the settle.
+                if roles::is_select_all(combo)
+                    && let Some(el) = d.focused_in(&t).filter(is_text_element)
+                {
+                    out = out.showing("selection");
+                    out.expect = d.expect(Some(readback::Check::SelectAll { el }));
+                }
                 return Ok(out);
             }
             roles::ChordAction::Refuse(why) => {
@@ -1169,9 +1314,12 @@ fn press_keys_inner(
     // under the lock entering a scope takes, waiting at most the bound.
     let carries = keymap::carries_text(&combo.key, flags);
     // A character key into a focused text element shows in its value.
-    let shows_text = carries.is_some() && d.focused_in(&t).as_ref().is_some_and(is_text_element);
+    let focused = carries.and_then(|_| d.focused_in(&t)).filter(is_text_element);
+    let shows_text = focused.is_some();
+    let check =
+        focused.as_ref().zip(carries).and_then(|(el, c)| readback::Check::text(el, &c.to_string()));
     unprimed(route, |p| input::key(p, code, flags, carries))?;
-    let mut out = typed_outcome(route.name(), shows_text);
+    let mut out = typed_outcome(route.name(), shows_text, d.expect(check));
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
@@ -1364,9 +1512,19 @@ pub(super) fn scroll(
         PointerTarget::Point { point, .. } => d.point_in(&t, *point)?,
         PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
     };
+    // A window off screen keeps refusing (pointer_route).
+    if roles::hit_usable(t.window.on_screen, true)
+        && let Some(out) = ax_scroll(d, &t, at, dx, dy)
+    {
+        return Ok(out);
+    }
     let route = d.pointer_route(&t, Delivery::Background)?;
+    // The scroll bars' positions before, read back after the settle.
+    let check = readback::Check::scroll(t.window.pid, at.x, at.y);
     unprimed(route, |p| input::scroll(p, at, dx, dy))?;
-    Ok(ActionOutcome::delivered(route.name()).at(at).showing("scroll"))
+    let mut out = ActionOutcome::delivered(route.name()).at(at).showing("scroll");
+    out.expect = d.expect(check);
+    Ok(out)
 }
 
 pub(super) fn drag(
@@ -1391,6 +1549,13 @@ pub(super) fn drag(
         if d.recorded_menu().is_some() {
             return Err(DesktopError::Unsupported(menus::OPEN_MENU_DRAG_REFUSAL.into()));
         }
+    }
+    if delivery == Delivery::Background
+        && button == Button::Left
+        && roles::hit_usable(t.window.on_screen, true)
+        && let Some(out) = select_drag(d, &t, from, to)
+    {
+        return Ok(out);
     }
     let route = d.pointer_route(&t, delivery)?;
     unprimed(route, |p| input::drag(p, from, to, button))?;
@@ -1454,6 +1619,12 @@ pub(super) fn set_value(
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
     let read = el.value_text();
     let mut out = match &read {
+        // A secure field hides its value; its length reads back.
+        _ if secure
+            && el.number("AXNumberOfCharacters") == Some(value.encode_utf16().count() as f64) =>
+        {
+            ActionOutcome::confirmed("ax_set_value")
+        }
         Some(r) if !secure && same_value(r, value) => ActionOutcome::confirmed("ax_set_value"),
         _ => ActionOutcome::delivered("ax_set_value").showing("value"),
     };

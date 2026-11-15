@@ -218,6 +218,48 @@ impl Ax {
         self.attr("AXValue").ok().flatten().and_then(|v| value_text(&v))
     }
 
+    /// A number attribute.
+    pub fn number(&self, name: &str) -> Option<f64> {
+        self.attr(name).ok().flatten().filter(Cf::is_number).and_then(|v| v.as_f64())
+    }
+
+    /// The selected text range (`AXSelectedTextRange`).
+    pub fn selected_range(&self) -> Option<CFRange> {
+        let v = self.attr("AXSelectedTextRange").ok().flatten()?;
+        range_of(&v)
+    }
+
+    /// Selects `range` of the element's text (`AXSelectedTextRange`).
+    pub fn set_selected_range(&self, range: CFRange) -> Result<(), AXError> {
+        // SAFETY: range outlives the call; AXValueCreate copies it (+1).
+        let v = Cf::created(unsafe { AXValueCreate(AX_VALUE_CFRANGE, (&raw const range).cast()) })
+            .ok_or(AX_CANNOT_COMPLETE)?;
+        self.set("AXSelectedTextRange", &v)
+    }
+
+    /// The text range at a global point (`AXRangeForPosition`): its
+    /// location is the character offset there.
+    pub fn range_for_position(&self, x: f64, y: f64) -> Option<CFRange> {
+        let p = CGPoint { x, y };
+        // SAFETY: p outlives the call; AXValueCreate copies it (+1).
+        let param = Cf::created(unsafe { AXValueCreate(AX_VALUE_CGPOINT, (&raw const p).cast()) })?;
+        let attr = Cf::string("AXRangeForPosition")?;
+        let mut out: CFTypeRef = std::ptr::null();
+        // SAFETY: live element, attribute and parameter; out receives +1.
+        let err = unsafe {
+            AXUIElementCopyParameterizedAttributeValue(
+                self.ptr(),
+                attr.ptr(),
+                param.ptr(),
+                &mut out,
+            )
+        };
+        if err != AX_OK {
+            return None;
+        }
+        range_of(&Cf::created(out)?)
+    }
+
     /// The process that owns the element.
     pub fn pid(&self) -> Option<i32> {
         let mut pid = 0i32;
@@ -298,6 +340,17 @@ fn frame_of(pos: &Cf, size: &Cf) -> Option<Rect> {
         }
     }
     Some(Rect { x: p.x, y: p.y, width: s.width, height: s.height })
+}
+
+fn range_of(v: &Cf) -> Option<CFRange> {
+    let mut r = CFRange::default();
+    // SAFETY: v is live; the type is checked before the copy into r.
+    let ok = unsafe {
+        v.type_id() == AXValueGetTypeID()
+            && AXValueGetType(v.ptr()) == AX_VALUE_CFRANGE
+            && AXValueGetValue(v.ptr(), AX_VALUE_CFRANGE, (&raw mut r).cast()) != 0
+    };
+    ok.then_some(r)
 }
 
 fn value_text(v: &Cf) -> Option<String> {

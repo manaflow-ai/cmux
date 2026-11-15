@@ -618,6 +618,7 @@ impl Engine {
             }
         } else if let Some(body) = out.body.as_object_mut() {
             body.remove("shows");
+            body.remove("expect");
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
@@ -1734,6 +1735,20 @@ impl Engine {
             .as_object_mut()
             .and_then(|b| b.remove("shows"))
             .and_then(|v| v.as_str().map(String::from));
+        // The route's read-back, done now that the action settled: typed
+        // keys and scrolls land a little after they are posted.
+        let expect = out
+            .body
+            .as_object_mut()
+            .and_then(|b| b.remove("expect"))
+            .and_then(|v| serde_json::from_value::<crate::desktop::Expect>(v).ok());
+        if let Some(expect) = expect
+            && out.body["evidence"] != json!("confirmed")
+            && self.desktop.read_back(&expect) == Some(true)
+        {
+            out.body["evidence"] = json!("confirmed");
+            out.body["read_back"] = json!(expect.what);
+        }
         let facts = crate::outcome::Facts {
             evidence: out.body["evidence"].as_str().unwrap_or_default().to_string(),
             shows,

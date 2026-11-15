@@ -328,6 +328,28 @@ fn a_read_back_is_confirmed() {
     assert_eq!(out.body["outcome"], "confirmed", "{}", out.body);
 }
 
+/// Typed keys land after they are posted: the route's read-back, done
+/// after the settle, confirms them; a read-back that fails confirms
+/// nothing (and the request never reaches the result).
+#[test]
+fn a_read_back_after_the_settle_confirms_typed_keys() {
+    for (reads, outcome) in [(true, "confirmed"), (false, "uncertain")] {
+        let d = Arc::new(FakeDesktop::standard());
+        *d.reads_back.lock().unwrap() = Some(reads);
+        *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+        d.repaint_from.lock().unwrap().replace((2, 9));
+        let (e, _) = settling_engine(d);
+        assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+        let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "Zed"}));
+        assert_eq!(out.body["outcome"], outcome, "{}", out.body);
+        assert!(out.body.get("expect").is_none(), "{}", out.body);
+        assert_eq!(out.body["evidence"], if reads { "confirmed" } else { "delivered" });
+        if reads {
+            assert_eq!(out.body["read_back"], "text");
+        }
+    }
+}
+
 /// The settle wait ends at a change only once the app has gone quiet: a
 /// signal since the capture before keeps it waiting (within the ceiling),
 /// and the changed capture is what comes back.

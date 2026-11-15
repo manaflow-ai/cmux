@@ -92,6 +92,12 @@ pub fn is_text_input(role: &str) -> bool {
     matches!(role, "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField")
 }
 
+/// Command-A alone: Select All.
+pub fn is_select_all(combo: &crate::keys::KeyCombo) -> bool {
+    combo.modifiers == [crate::keys::Modifier::Meta]
+        && matches!(combo.key, crate::keys::Key::Char('a' | 'A'))
+}
+
 pub fn is_secure(role: &str, subrole: Option<&str>) -> bool {
     subrole == Some("AXSecureTextField") || role == "AXSecureTextField"
 }

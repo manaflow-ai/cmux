@@ -2382,3 +2382,14 @@ fn the_protected_prefixes_are_sent_as_prefix_entries() {
     assert!(prefixes.contains(&"com.cmuxterm.remote."));
     assert!(prefixes.iter().all(|p| p.ends_with('.')));
 }
+
+/// Command-A alone is Select All, read back as the whole text selected;
+/// with another modifier it is some other command.
+#[test]
+fn only_command_a_alone_is_select_all() {
+    let combo = |s: &str| KeyCombo::parse(s).unwrap();
+    assert!(roles::is_select_all(&combo("cmd+a")));
+    assert!(!roles::is_select_all(&combo("cmd+shift+a")));
+    assert!(!roles::is_select_all(&combo("ctrl+a")));
+    assert!(!roles::is_select_all(&combo("a")));
+}
