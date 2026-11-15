@@ -135,11 +135,6 @@
       background: var(--cmux-folder-fill, transparent);
     }
 
-    /* The press sink would lift the tab into its own layer, over the rows its shadow runs under. */
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]:active {
-      transform: none;
-    }
-
     :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]::before {
       content: "";
       position: absolute;
@@ -194,26 +189,8 @@
 
 /* Hover follows the pointer at once, as a native sidebar's does (Lucas 2026-11-11: a quick pass
    over the rows lagged behind the pointer: each fill faded in over the hover duration). A press
-   sinks the row a little and lets it snap back on release, with the timing measured from a
-   recording of Aside's sidebar (Lucas 2026-11-11): in and back over the quick motion token, no
-   overshoot. The sink is shallower than Aside's 97 %, which was still "too much". Only the transform
-   moves, so nothing around the row shifts, and Reduce Motion and the motion settings end it (the
-   page's bootstrap sheet). */
-:root[data-settings-look="refined"] .settings .section-link,
-:root[data-settings-look="refined"] .settings .section-link:hover {
-  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
-}
-
-:root[data-settings-look="refined"] .settings .section-link:active {
-  transform: scale(0.99);
-  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root[data-settings-look="refined"] .settings .section-link:active {
-    transform: none;
-  }
-}
+   changes the row's fill only: no sink, no scale (Lawrence 2026-11-15: a held button changes its
+   background, nothing else; design/pressed-state.md). */
 
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-name {
   font-weight: inherit;
