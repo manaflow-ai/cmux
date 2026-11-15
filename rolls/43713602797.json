@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43713602797",
+  "recorded_at": "2026-11-15T12:33:48Z",
+  "reason": "cmux-tui fcd50f439039 changes the image's cmux-tui (pinned a4c45640e31b)",
+  "dry_run": false,
+  "cmux_tui": "fcd50f439039123ef3e0425d74655159d4011798",
+  "fixes": [
+    {
+      "sha": "fcd50f439039123ef3e0425d74655159d4011798",
+      "mergedAt": "2026-11-15T04:06:57-08:00",
+      "subject": "cloud-config: install key slots in Rust (cloud_identity_install_key_slots) (#43597)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T12:33:48Z",
+    "snapshot_id": "sh-99489d9273ab445e81e12e777cab7822",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43713602797): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9664dc5d95991a353e6fbca44eca1be97504daf4",
+    "image": "cloud-native-auto-fcd50f43-43713602797-1",
+    "revision": "ci-43713602797-1",
+    "at": "2026-11-15T12:33:48Z"
+  },
+  "rolled_back": false
+}
