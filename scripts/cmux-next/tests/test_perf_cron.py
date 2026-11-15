@@ -1956,6 +1956,17 @@ class RateLimitTests(unittest.TestCase):
                     cron.gh_request("/repos/o/r")
             self.assertAlmostEqual(ctx.exception.wait, want, delta=5)
 
+    def test_the_workflow_calls_only_subcommands_the_cron_has(self):
+        # A lost space ("plan--repo") makes argparse exit 2 and the plan step fail on every tick.
+        import re
+        root = os.path.join(HERE, "..", "..", "..")
+        source = open(os.path.join(HERE, "..", "perf-cron.py")).read()
+        known = set(re.findall(r'add_parser\("([a-z-]+)"', source))
+        workflow = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
+        called = re.findall(r"python3 -I scripts/cmux-next/perf-cron\.py (\S+)", workflow)
+        self.assertIn("plan", called)
+        self.assertEqual([c for c in called if c not in known], [])
+
     def test_any_other_403_is_still_an_error(self):
         def forbidden(*a, **k):
             import email.message
