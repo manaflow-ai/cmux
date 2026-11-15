@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43774032858",
+  "recorded_at": "2026-11-15T23:28:23Z",
+  "reason": "cmux-tui 0a02f56030ef changes the image's cmux-tui (pinned 5f9ffecdcf02)",
+  "dry_run": false,
+  "cmux_tui": "0a02f56030efafe38a461628131543cad877b180",
+  "fixes": [
+    {
+      "sha": "0a02f56030efafe38a461628131543cad877b180",
+      "mergedAt": "2026-11-15T15:01:05-08:00",
+      "subject": "v2 peer pages: a peer's all page reads a bounded number of pieces (row 8b, decisions 285 and 290) (#43789)"
+    },
+    {
+      "sha": "b9625e0e0566f3ae768fbc354cb9bd82e429ccd5",
+      "mergedAt": "2026-11-15T14:49:19-08:00",
+      "subject": "acpmux: a daemon's start task sorts the list order first, before any log is read (#43852)"
+    },
+    {
+      "sha": "bcd73daa5a785782a6f145285cfb69117b70040c",
+      "mergedAt": "2026-11-15T14:39:32-08:00",
+      "subject": "cmux-remote: a daemon's relay registration renews its ticket make-before-break, and its open circuits outlive the control socket (#43954)"
+    },
+    {
+      "sha": "9750ac9e9926cfe6e9131c56ecd7c1efb22e391f",
+      "mergedAt": "2026-11-15T14:10:53-08:00",
+      "subject": "cmux-tui: acpmux-cgu-sweep.sh, acpmux release rebuild time, size and pipe numbers per codegen-units count (#43926)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T23:28:23Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
