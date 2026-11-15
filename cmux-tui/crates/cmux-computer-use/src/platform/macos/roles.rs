@@ -305,18 +305,55 @@ pub fn insert_at(before: &str, text: &str, location: isize, length: isize) -> Op
 /// What the web value route reads of a field ([`web_value_gate`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct WebField {
-    pub text_input: bool,
+    pub kind: WebKind,
     pub secure: bool,
-    /// Children other than plain text runs (a rich editor).
-    pub rich: bool,
     pub width: f64,
     pub height: f64,
     /// Its frame overlaps its window.
     pub on_screen: bool,
     pub hidden: bool,
-    /// It exposes a length limit (not applied by a value write).
+    /// It exposes a length limit (AXMaxLength), which a value write does
+    /// not apply.
     pub limited: bool,
     pub center: Point,
+}
+
+/// What a web text element is, for its value to be its content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebKind {
+    /// A text field or search field with no children: an `<input>`.
+    Plain,
+    /// A text field with children: rich content (`role="textbox"`).
+    Rich,
+    /// A text area: a native `<textarea>` or a contenteditable, which
+    /// Safari shows alike.
+    Area,
+    /// Anything else (a combobox, a group).
+    Other,
+}
+
+/// From the element's role and how many children it has. Live in Safari
+/// (macOS 27.0.1): an `<input>` has none; a native `<textarea>` and a
+/// one-paragraph contenteditable (an empty ProseMirror `<p><br></p>`, a
+/// one-paragraph Quill, a one-line CodeMirror 6) are both an AXTextArea with
+/// one AXGroup child, with the same attributes, settable attributes,
+/// parameterized attributes and actions, so no text area counts as plain.
+pub fn web_kind(role: &str, kids: usize) -> WebKind {
+    match role {
+        "AXTextField" | "AXSearchField" if kids == 0 => WebKind::Plain,
+        "AXTextField" | "AXSearchField" => WebKind::Rich,
+        "AXTextArea" => WebKind::Area,
+        _ => WebKind::Other,
+    }
+}
+
+/// Whether the gate lets a password field through: typing into one by its
+/// value would replace it with what it shows; set_value replaces it by
+/// design (read back by its length).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SecureField {
+    Refuse,
+    Allow,
 }
 
 /// The refusal when a web field's facts cannot be read.
@@ -328,33 +365,34 @@ pub const WEB_FIELD_UNREAD: &str = "this web field could not be read well enough
 /// read is taller than 10 pt.
 pub const WEB_FIELD_MIN: f64 = 10.0;
 
-/// Whether a web text element holds rich content, from its role and its
-/// children's roles: an AXTextField never does; an AXTextArea is a native
-/// textarea when its children are exactly one AXGroup (or none), else a
-/// contenteditable (text runs, formatting).
-pub fn web_rich(role: &str, kid_roles: &[String]) -> bool {
-    match role {
-        "AXTextField" | "AXSearchField" => false,
-        "AXTextArea" => !(kid_roles.is_empty() || kid_roles == ["AXGroup"]),
-        _ => true,
-    }
-}
-
-/// Whether the web value route may write into a field: a plain text input
-/// or text area, not a password field (writing would replace it with what
-/// it shows), not a rich editor, not tiny, off screen or hidden (an input
-/// helper, whose value is not the content).
-pub fn web_value_gate(f: Option<&WebField>) -> Result<(), &'static str> {
+/// Whether a value write may be made into a web field: a plain text input
+/// (see [`web_kind`]), not tiny, off screen or hidden (an input helper, whose
+/// value is not the content), and not a password field unless `secure`
+/// allows it.
+pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &'static str> {
     let Some(f) = f else { return Err(WEB_FIELD_UNREAD) };
-    if f.secure {
+    if f.secure && secure == SecureField::Refuse {
         return Err(
             "this is a password field; its value is never written this way, because what it shows is not its text. Use delivery foreground",
         );
     }
-    if !f.text_input || f.rich {
-        return Err(
-            "this web element is not a plain text field (a rich editor or another control), so its value is not written this way; use delivery foreground",
-        );
+    match f.kind {
+        WebKind::Plain => {}
+        WebKind::Rich => {
+            return Err(
+                "this web text field holds rich content (a rich editor), so its value is not written through accessibility; use delivery foreground",
+            );
+        }
+        WebKind::Area => {
+            return Err(
+                "this is a web text area; Safari shows a native text area and a rich editor alike, so its value is not written through accessibility; use delivery foreground",
+            );
+        }
+        WebKind::Other => {
+            return Err(
+                "this web element is not a plain text field (a combobox or another control), so its value is not written through accessibility; use delivery foreground",
+            );
+        }
     }
     if f.width < WEB_FIELD_MIN || f.height < WEB_FIELD_MIN || !f.on_screen || f.hidden {
         return Err(
@@ -362,6 +400,45 @@ pub fn web_value_gate(f: Option<&WebField>) -> Result<(), &'static str> {
         );
     }
     Ok(())
+}
+
+/// Whether a web field may take a value write: only while it holds its
+/// page's focus (read strictly, `None` unread). Live in Safari (macOS
+/// 27.0.1): an AXValue write on an `<input>` lands in whichever field holds
+/// the page's focus, whichever one was addressed, and returns success.
+pub fn holds_page_focus(focused: Option<bool>) -> bool {
+    focused == Some(true)
+}
+
+/// Whether a failed value write certainly wrote nothing: the app refused
+/// the argument or the attribute. Any other error (no answer in time, an
+/// element gone, a generic failure) may have come after the write applied.
+pub fn write_not_applied(e: super::sys::AXError) -> bool {
+    matches!(
+        e,
+        super::sys::AX_ILLEGAL_ARGUMENT
+            | super::sys::AX_ATTRIBUTE_UNSUPPORTED
+            | super::sys::AX_ACTION_UNSUPPORTED
+    )
+}
+
+/// The note of a web value write at UTF-16 position `at` that replaced
+/// `replaced` selected characters.
+pub fn web_value_note(at: isize, replaced: isize, limited: bool) -> String {
+    let what = match replaced {
+        0 => String::new(),
+        1 => ", replacing the 1 selected character,".into(),
+        n => format!(", replacing the {n} selected characters,"),
+    };
+    // macOS 27.0.1, Safari: the value write fires the page's input event
+    // (not change, which comes when the field loses focus).
+    let mut note = format!(
+        "web content: the text was written into the field's value at position {at} (its selection then){what} through accessibility, with no keystrokes, so the page's key handlers did not run (its input event did)"
+    );
+    if limited {
+        note.push_str("; the field has a length limit, which was not applied");
+    }
+    note
 }
 
 /// How a posted press is aimed, from the two readings of the front app

@@ -2819,16 +2819,14 @@ fn web_typing_inserts_into_the_value_at_the_selection() {
     assert_eq!(roles::insert_at("ab", "Z", -1, 0), None);
 }
 
-/// Review of 1d54907 (1, 2): the web value route writes only into a plain,
-/// visible text field: never a password field, a rich editor, another
-/// control, a tiny, off-screen or hidden input helper, or an unread one.
+/// The web value route writes only where a value is the content: a plain
+/// text input, visible, not a password field (set_value may write one).
 #[test]
-#[allow(clippy::redundant_clone)] // each case starts from the same field
+#[allow(clippy::redundant_clone)]
 fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
     let plain = roles::WebField {
-        text_input: true,
+        kind: roles::WebKind::Plain,
         secure: false,
-        rich: false,
         width: 200.0,
         height: 22.0,
         on_screen: true,
@@ -2836,40 +2834,88 @@ fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
         limited: false,
         center: Point { x: 0.0, y: 0.0 },
     };
-    assert!(roles::web_value_gate(Some(&plain)).is_ok());
-    let not = |f: roles::WebField| roles::web_value_gate(Some(&f)).is_err();
+    let typing = roles::SecureField::Refuse;
+    assert!(roles::web_value_gate(Some(&plain), typing).is_ok());
+    let not = |f: roles::WebField| roles::web_value_gate(Some(&f), typing).is_err();
     assert!(not(roles::WebField { secure: true, ..plain.clone() }), "password");
-    assert!(not(roles::WebField { rich: true, ..plain.clone() }), "contenteditable");
-    assert!(not(roles::WebField { text_input: false, ..plain.clone() }), "another control");
+    assert!(not(roles::WebField { kind: roles::WebKind::Rich, ..plain.clone() }), "rich editor");
+    assert!(not(roles::WebField { kind: roles::WebKind::Area, ..plain.clone() }), "text area");
+    assert!(
+        not(roles::WebField { kind: roles::WebKind::Other, ..plain.clone() }),
+        "another control"
+    );
     assert!(not(roles::WebField { width: 1.0, height: 1.0, ..plain.clone() }), "xterm-like helper");
     assert!(not(roles::WebField { on_screen: false, ..plain.clone() }), "off screen");
     assert!(not(roles::WebField { hidden: true, ..plain.clone() }), "hidden");
-    assert!(roles::web_value_gate(None).is_err(), "unread");
+    assert!(roles::web_value_gate(None, typing).is_err(), "unread");
+    // set_value writes a password field's value (it is read back by length),
+    // and nothing else the typing gate refuses.
+    let setting = roles::SecureField::Allow;
+    assert!(
+        roles::web_value_gate(Some(&roles::WebField { secure: true, ..plain.clone() }), setting)
+            .is_ok()
+    );
+    for kind in [roles::WebKind::Rich, roles::WebKind::Area, roles::WebKind::Other] {
+        assert!(
+            roles::web_value_gate(Some(&roles::WebField { kind, ..plain.clone() }), setting)
+                .is_err()
+        );
+    }
+    let proxy = roles::WebField { width: 12.0, height: 6.0, ..plain.clone() };
+    assert!(roles::web_value_gate(Some(&proxy), setting).is_err(), "a padded 1x1 helper");
 }
 
-/// Live in Safari (macOS 27.0.1): an <input> has no children, a native
-/// <textarea> one AXGroup child, a contenteditable its text runs; and a 1x1
-/// textarea is padded to 12x6 pt.
+/// Live in Safari (macOS 27.0.1): an <input> has no children; a native
+/// <textarea> and a one-paragraph contenteditable (an empty ProseMirror
+/// `<p><br></p>`, a one-paragraph Quill, a one-line CodeMirror 6) are both an
+/// AXTextArea with one AXGroup child, with the same attributes, settable
+/// attributes, parameterized attributes and actions: nothing tells them apart,
+/// so a web text area is never written this way. A text field with children
+/// (role="textbox" on rich content) is rich; a combobox is another control.
 #[test]
-fn a_contenteditable_is_rich_and_a_textarea_is_not() {
-    let roles = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    assert!(!roles::web_rich("AXTextField", &roles(&[])));
-    assert!(!roles::web_rich("AXTextField", &roles(&["AXGroup"])));
-    assert!(!roles::web_rich("AXTextArea", &roles(&["AXGroup"])), "a textarea");
-    assert!(!roles::web_rich("AXTextArea", &roles(&[])));
-    assert!(roles::web_rich("AXTextArea", &roles(&["AXStaticText"])), "contenteditable");
-    assert!(roles::web_rich("AXTextArea", &roles(&["AXStaticText", "AXGroup"])));
-    assert!(roles::web_rich("AXGroup", &roles(&[])));
-    let proxy = roles::WebField {
-        text_input: true,
-        secure: false,
-        rich: false,
-        width: 12.0,
-        height: 6.0,
-        on_screen: true,
-        hidden: false,
-        limited: false,
-        center: Point { x: 0.0, y: 0.0 },
+fn only_a_childless_web_text_field_is_plain() {
+    assert_eq!(roles::web_kind("AXTextField", 0), roles::WebKind::Plain);
+    assert_eq!(roles::web_kind("AXSearchField", 0), roles::WebKind::Plain);
+    assert_eq!(roles::web_kind("AXTextField", 1), roles::WebKind::Rich, "role=textbox");
+    assert_eq!(roles::web_kind("AXSearchField", 2), roles::WebKind::Rich);
+    assert_eq!(roles::web_kind("AXTextArea", 1), roles::WebKind::Area, "textarea or one paragraph");
+    assert_eq!(roles::web_kind("AXTextArea", 0), roles::WebKind::Area);
+    assert_eq!(roles::web_kind("AXComboBox", 0), roles::WebKind::Other, "Google search");
+    assert_eq!(roles::web_kind("AXGroup", 0), roles::WebKind::Other);
+}
+
+/// Safari puts a text field's AXValue write into the field holding the
+/// page's focus: a web value write is made only while the target holds it.
+#[test]
+fn a_web_value_write_needs_the_page_focus() {
+    assert!(roles::holds_page_focus(Some(true)));
+    assert!(!roles::holds_page_focus(Some(false)));
+    assert!(!roles::holds_page_focus(None), "unread");
+}
+
+/// A value write that errors may still have applied, unless the error says
+/// the write was refused outright (illegal argument, unsupported).
+#[test]
+fn only_a_refusing_ax_error_means_the_value_was_not_written() {
+    use super::sys::{
+        AX_ACTION_UNSUPPORTED, AX_ATTRIBUTE_UNSUPPORTED, AX_CANNOT_COMPLETE, AX_ILLEGAL_ARGUMENT,
+        AX_INVALID_ELEMENT,
     };
-    assert!(roles::web_value_gate(Some(&proxy)).is_err(), "a padded 1x1 helper");
+    for e in [AX_ILLEGAL_ARGUMENT, AX_ATTRIBUTE_UNSUPPORTED, AX_ACTION_UNSUPPORTED] {
+        assert!(roles::write_not_applied(e), "{e}");
+    }
+    for e in [AX_CANNOT_COMPLETE, AX_INVALID_ELEMENT, -25200, -25212] {
+        assert!(!roles::write_not_applied(e), "{e}");
+    }
+}
+
+/// The note says where the text went and how much it replaced.
+#[test]
+fn the_web_value_note_names_the_position_and_the_replaced_characters() {
+    let n = roles::web_value_note(3, 0, false);
+    assert!(n.contains("position 3") && !n.contains("replac"), "{n}");
+    let n = roles::web_value_note(0, 5, true);
+    assert!(n.contains("replacing the 5 selected characters"), "{n}");
+    assert!(n.contains("length limit") && !n.contains("pattern"), "{n}");
+    assert!(roles::web_value_note(0, 1, false).contains("the 1 selected character,"));
 }

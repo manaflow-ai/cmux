@@ -1312,15 +1312,16 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
 /// write, before keys are posted to it.
 const FOCUS_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
-/// Typing into web content whose focus the guard could not prove: the text
-/// goes into the field's value at its selection through accessibility (no
-/// keystrokes, so the page's key handlers do not run), read back as exactly
-/// the value it should make. Text with control characters (Enter, Tab) is
-/// refused: those are keys, and no keys are sent this way. An unreadable
-/// value or selection writes nothing.
-fn web_value_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<ActionOutcome> {
+/// Whether typing into web content may fall back to a value write when the
+/// focus guard cannot prove focus, decided before the focus write so a
+/// refusal moves nothing: never in the person's app (the value would change
+/// under their caret), never text with control characters (Enter, Tab:
+/// those are keys, and no keys are sent this way), and only a plain text
+/// input ([`roles::web_value_gate`]): never a password field, a rich editor,
+/// a text area, or a tiny or hidden proxy (a terminal's or a code editor's
+/// input helper), whose value is not the content.
+fn web_value_ready(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<roles::WebField> {
     let refuse = |why: &str| Err(DesktopError::Unsupported(why.into()));
-    // Never in the person's app: the value would change under their caret.
     if d.is_persons_app(t) {
         return refuse(
             "this web field is in the app the person is using; writing its value would change it under their caret. Use delivery foreground",
@@ -1328,27 +1329,35 @@ fn web_value_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<
     }
     if text.chars().any(char::is_control) {
         return refuse(
-            "this web field could not be focused for keys, and the text has Enter, Tab or other keys, which are never typed into its value; send the plain text, then press the keys with delivery foreground",
+            "this web field cannot be focused for keys in the background, and the text has Enter, Tab or other keys, which are never typed into its value; send the plain text, then press the keys with delivery foreground",
         );
     }
-    // Only a plain text input or text area, read strictly; never a
-    // password field (writing would replace it with what the field shows)
-    // and never a rich editor, a tiny or hidden proxy element (a terminal's
-    // or a code editor's input helper), whose value is not the content.
     let field = web_field(el, &t.window.frame);
-    if let Err(why) = roles::web_value_gate(field.as_ref()) {
+    if let Err(why) = roles::web_value_gate(field.as_ref(), roles::SecureField::Refuse) {
         return refuse(why);
     }
-    let Some(field) = field else { return refuse(roles::WEB_FIELD_UNREAD) };
-    let unread = || {
+    field.map_or_else(|| refuse(roles::WEB_FIELD_UNREAD), Ok)
+}
+
+/// Typing into web content whose focus the guard could not prove (the field
+/// passed [`web_value_ready`]): the text goes into the field's value at its
+/// selection through accessibility (no keystrokes, so the page's key
+/// handlers do not run), read back as exactly the value it should make. An
+/// unreadable value or selection writes nothing.
+fn web_value_write(
+    d: &MacDesktop,
+    t: &Target,
+    el: &Ax,
+    text: &str,
+    field: &roles::WebField,
+) -> DResult<ActionOutcome> {
+    let nothing = |note: &str| {
         let mut out = ActionOutcome::delivered("ax_web_value");
-        out.note = "the web field's value or selection could not be read, so nothing was written and no keys were posted".into();
+        out.note = note.into();
         Ok(out)
     };
     if text.is_empty() {
-        let mut out = ActionOutcome::delivered("ax_web_value");
-        out.note = "no text to write".into();
-        return Ok(out);
+        return nothing("no text to write");
     }
     // Read, decided and written inside the app's input lock; the value
     // and selection are read again right before the write.
@@ -1371,52 +1380,65 @@ fn web_value_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<
         if again.get() != before.get() || el.try_selected_range().ok()?? != range {
             return Some(WebWrite::Changed);
         }
-        if el.set("AXValue", &cf).is_err() {
-            return Some(WebWrite::Failed);
+        // Safari writes a text field's AXValue into whichever field holds
+        // the page's focus: only while this one does.
+        if !roles::holds_page_focus(el.try_bool("AXFocused").ok()?) {
+            return Some(WebWrite::NotFocused);
         }
-        let caret = super::sys::CFRange {
-            location: range.location + text.encode_utf16().count() as isize,
-            length: 0,
-        };
-        let _ = el.set_selected_range(caret);
-        Some(WebWrite::Done { new_value, check, at: range.location })
+        let error = el.set("AXValue", &cf).err();
+        if error.is_none() {
+            let caret = super::sys::CFRange {
+                location: range.location + text.encode_utf16().count() as isize,
+                length: 0,
+            };
+            let _ = el.set_selected_range(caret);
+        }
+        Some(WebWrite::Wrote {
+            new_value,
+            check,
+            at: range.location,
+            replaced: range.length,
+            error,
+        })
     })?;
-    let Some(written) = written else { return unread() };
-    let (new_value, check, at) = match written {
-        WebWrite::Done { new_value, check, at } => (new_value, check, at),
-        WebWrite::Changed => {
-            let mut out = ActionOutcome::delivered("ax_web_value");
-            out.note =
-                "the field changed while it was read, so nothing was written; try again".into();
-            return Ok(out);
+    let Some(written) = written else {
+        return nothing(
+            "the web field's value or selection could not be read, so nothing was written and no keys were posted",
+        );
+    };
+    let (new_value, check, at, replaced, error) = match written {
+        WebWrite::Wrote { new_value, check, at, replaced, error } => {
+            (new_value, check, at, replaced, error)
         }
-        WebWrite::Failed => {
-            return Err(DesktopError::Failed("the web field refused the value write".into()));
+        WebWrite::Changed => {
+            return nothing(
+                "the field changed while it was read, so nothing was written; try again",
+            );
         }
         WebWrite::OutOfRange => {
-            let mut out = ActionOutcome::delivered("ax_web_value");
-            out.note =
-                "the field's selection lies outside its value, so nothing was written".into();
-            return Ok(out);
+            return nothing("the field's selection lies outside its value, so nothing was written");
         }
+        WebWrite::NotFocused => return nothing(WEB_NOT_FOCUSED),
     };
+    if let Some(e) = error
+        && roles::write_not_applied(e)
+    {
+        return Err(ax_error(e, "the web field's value write"));
+    }
     let read = el.try_value_text().ok().flatten();
-    let mut out = if read.as_deref() == Some(new_value.as_str()) {
+    let mut out = if error.is_none() && read.as_deref() == Some(new_value.as_str()) {
         ActionOutcome::confirmed("ax_web_value")
     } else {
         ActionOutcome::delivered("ax_web_value")
     }
     .showing("text");
-    // macOS 27.0.1, Safari: the value write fires the page's input events
-    // (not change, which comes when the field loses focus); length limits
-    // and input masks do not apply to it.
-    let mut note = format!(
-        "web content: the text was written into the field's value at position {at} (its selection then) through accessibility, with no keystrokes, so the page's key handlers did not run (its input event did)"
-    );
-    if field.limited {
-        note.push_str("; the field has a length limit or pattern, which was not applied");
-    }
-    out.note = note;
+    out.note = match error {
+        // The read-back (and the engine's) still tells whether it applied.
+        Some(e) => format!(
+            "the value write returned accessibility error {e}; it may have applied; nothing more was sent"
+        ),
+        None => roles::web_value_note(at, replaced, field.limited),
+    };
     out.expect = d.expect(Some(check));
     out = out.at(field.center);
     Ok(out)
@@ -1424,40 +1446,39 @@ fn web_value_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<
 
 /// What the web value write came to (inside the input lock).
 enum WebWrite {
-    Done {
+    /// The write was made; `error` when it returned one.
+    Wrote {
         new_value: String,
         check: readback::Check,
         at: isize,
+        replaced: isize,
+        error: Option<super::sys::AXError>,
     },
     /// The value or selection changed between the reads: nothing written.
     Changed,
-    Failed,
     /// The selection lies outside the value: nothing written.
     OutOfRange,
+    /// The field did not hold the page's focus: nothing written.
+    NotFocused,
 }
 
-/// The facts the web value route is gated on ([`roles::web_value_gate`]),
-/// read strictly; `None` when a read failed.
+/// The note when a web field does not hold its page's focus at the write.
+const WEB_NOT_FOCUSED: &str = "the web field did not hold its page's focus, and the page would put a value write into the field that does, so nothing was written";
+
+/// The facts the web value gate reads ([`roles::web_value_gate`]), read
+/// strictly; `None` when a read failed.
 fn web_field(el: &Ax, window: &Rect) -> Option<roles::WebField> {
     let role = el.try_string("AXRole").ok()??;
     let subrole = el.try_string("AXSubrole").ok()?;
     let frame = el.frame()?;
-    // Rich content (macOS 27.0.1, Safari): an <input> (AXTextField) never
-    // holds any; a native <textarea> (AXTextArea) has exactly one AXGroup
-    // child, a contenteditable AXTextArea has its text runs and formatting
-    // as children instead.
-    let mut kid_roles = Vec::new();
-    for c in el.try_elements("AXChildren").ok()? {
-        kid_roles.push(c.try_string("AXRole").ok()?.unwrap_or_else(String::new));
-    }
-    let rich = roles::web_rich(&role, &kid_roles);
+    let kids = el.try_count("AXChildren").ok()?;
     let hidden = el.try_bool("AXHidden").ok()?.unwrap_or(false);
-    // A length limit, where the web content exposes one.
+    // A length limit, where the web content exposes one (Safari on macOS
+    // 27.0.1 does not).
     let limited = matches!(el.try_number("AXMaxLength"), Ok(Some(n)) if n > 0.0);
     Some(roles::WebField {
-        text_input: roles::is_text_input(&role),
+        kind: roles::web_kind(&role, kids),
         secure: roles::is_secure(&role, subrole.as_deref()),
-        rich,
         width: frame.width,
         height: frame.height,
         on_screen: frame.intersects(window),
@@ -1744,6 +1765,15 @@ pub(super) fn type_text(
         if element_id.is_some() {
             // The route first: a refusal must not move focus.
             d.key_route(&t, delivery)?;
+            // Web content in the background: whether its value may take the
+            // text when the guard refuses focus, decided before the focus
+            // write (a refusal moves nothing).
+            let web_value = if delivery == Delivery::Background && in_web_area(el) == roles::Web::In
+            {
+                Some(web_value_ready(d, &t, el, text)?)
+            } else {
+                None
+            };
             // What focus looked like before the write (read strictly).
             let before = FocusBefore::read(el);
             // Not while another session's scope holds the app.
@@ -1755,8 +1785,8 @@ pub(super) fn type_text(
             let focused = written && before.is_some_and(|b| wait_focused(d, &t, el, &b));
             // Web content the guard refused: no keys; a settable value takes
             // the text through accessibility instead.
-            if !focused && delivery == Delivery::Background && in_web_area(el) == roles::Web::In {
-                return web_value_insert(d, &t, el, text);
+            if !focused && let Some(field) = &web_value {
+                return web_value_write(d, &t, el, text, field);
             }
             if !focused {
                 let mut out = ActionOutcome::delivered("ax_focus");
@@ -2465,6 +2495,35 @@ pub(super) fn set_value(
             "element {element_id}'s value cannot be set; use type_text or click"
         )));
     }
+    // Web content (or content not known to be native): only a plain text
+    // input whose value is its content (a password field too: it is read
+    // back by its length), and never in the person's app.
+    if in_web_area(&el) != roles::Web::Out {
+        if d.is_persons_app(&t) {
+            return Err(DesktopError::Unsupported(
+                "this web field is in the app the person is using; writing its value would change it under their caret. Use type_text with delivery foreground".into(),
+            ));
+        }
+        let field = web_field(&el, &t.window.frame);
+        roles::web_value_gate(field.as_ref(), roles::SecureField::Allow)
+            .map_err(|why| DesktopError::Unsupported(why.into()))?;
+    }
+    let web = in_web_area(&el) != roles::Web::Out;
+    // Safari (macOS 27.0.1) writes a text field's AXValue into whichever
+    // field holds the page's focus, whichever one was addressed: the field
+    // takes the focus first (inside its app, which is not the person's), and
+    // the write is made only while it holds it.
+    if web && !roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()) {
+        let wrote = ax_unprimed(t.window.pid, || {
+            Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
+        })?;
+        let held = || roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten());
+        if !(wrote && (held() || super::menus::wait_for(FOCUS_WAIT, held))) {
+            let mut out = ActionOutcome::delivered("ax_set_value");
+            out.note = WEB_NOT_FOCUSED.into();
+            return Ok(out);
+        }
+    }
     let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
     let new_count = value.encode_utf16().count() as f64;
     // Read before the write, once: whether the value is a number (then
@@ -2480,14 +2539,35 @@ pub(super) fn set_value(
     } else {
         readback::Check::value(&el, readback::Wanted::from_request(requested.clone()), 1e-6)
     };
-    el.set("AXValue", &value_for(&el, value)?)
-        .map_err(|e| ax_error(e, &format!("element {element_id}")))?;
-    let read = el.try_value_text().ok().flatten();
-    let holds = if secure {
-        readback::secure_count(&el) == Some(new_count)
+    // An error that does not say the write was refused may have come after
+    // it applied: delivered, with the read-back still taken.
+    let cf = value_for(&el, value)?;
+    let error = if web {
+        let written = ax_unprimed(t.window.pid, || {
+            roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten())
+                .then(|| el.set("AXValue", &cf).err())
+        })?;
+        let Some(error) = written else {
+            let mut out = ActionOutcome::delivered("ax_set_value");
+            out.note = WEB_NOT_FOCUSED.into();
+            return Ok(out);
+        };
+        error
     } else {
-        read.as_deref().is_some_and(|r| same_value(r, &requested, numeric))
+        el.set("AXValue", &cf).err()
     };
+    if let Some(e) = error
+        && roles::write_not_applied(e)
+    {
+        return Err(ax_error(e, &format!("element {element_id}")));
+    }
+    let read = el.try_value_text().ok().flatten();
+    let holds = error.is_none()
+        && if secure {
+            readback::secure_count(&el) == Some(new_count)
+        } else {
+            read.as_deref().is_some_and(|r| same_value(r, &requested, numeric))
+        };
     let mut out = if holds {
         ActionOutcome::confirmed("ax_set_value")
     } else {
@@ -2495,7 +2575,11 @@ pub(super) fn set_value(
     }
     .showing("value");
     out.expect = d.expect(check);
-    if !secure && read.as_deref().is_some_and(|r| !same_value(r, &requested, numeric)) {
+    if let Some(e) = error {
+        out.note = format!(
+            "the value write returned accessibility error {e}; it may have applied; nothing more was sent"
+        );
+    } else if !secure && read.as_deref().is_some_and(|r| !same_value(r, &requested, numeric)) {
         out.note = "the element reads back a different value".into();
     }
     if let Some(frame) = el.frame() {
