@@ -921,6 +921,37 @@ class AgentReviewerPassTests(unittest.TestCase):
             verdicts[rule] = self.report("--expect-agent", "--extra", str(path))[0]
         self.assertEqual(verdicts, {"agent.no-verdict": 1, "agent.api-unavailable": 1})
 
+    def test_the_report_names_an_out_of_quota_agent_pass_as_ci_infrastructure(self) -> None:
+        # Gate run 43660691021: "NO: 9 blocking", one of them the agent
+        # pass's weekly usage limit (HTTP 429), read as one more app blocker.
+        # It still blocks (an unjudged build is never a YES), but the verdict
+        # says which blockers are the gate's own CI and why.
+        limit = self.root / "agent-findings.json"
+        limit.write_text(json.dumps([{
+            "rule": "agent.api-unavailable", "guideline": "2.1", "severity": "blocker",
+            "source": "agent reviewer pass", "where": "",
+            "message": "agent pass: API unavailable (rate limited): weekly limit, resets Nov 18 at 3am (UTC)",
+            "api": {"api_error_status": 429, "api_error": "usage_limit_reached", "usage_limit": True,
+                    "limit": "weekly", "resets": "Nov 18 at 3am (UTC)"}}]))
+        app = self.root / "app-findings.json"
+        app.write_text(json.dumps([{"rule": "uitest.failed", "guideline": "2.1(a)", "severity": "blocker",
+                                    "source": "reviewer-path suite", "message": "m", "where": "ipad"}]))
+        code, text = self.report("--expect-agent", "--extra", str(limit), "--extra", str(app))
+        self.assertEqual(code, 1)
+        verdict = text.splitlines()[2]
+        self.assertTrue(verdict.startswith("**NO**: 2 blocking, "), verdict)
+        self.assertIn("1 of the 2 blocking is CI infrastructure, not the app", verdict)
+        self.assertIn("the agent pass could not run: weekly usage limit until Nov 18 at 3am (UTC)", text)
+        # Alone it is still a NO, never a YES.
+        code, text = self.report("--expect-agent", "--extra", str(limit))
+        self.assertEqual(code, 1)
+        self.assertIn("**NO**: 1 blocking", text)
+        self.assertIn("1 of the 1 blocking is CI infrastructure", text)
+        # An app blocker alone says nothing about infrastructure.
+        code, text = self.report("--expect-agent", "--extra", str(app))
+        self.assertEqual(code, 1)
+        self.assertNotIn("CI infrastructure", text)
+
     def test_the_agent_launches_the_app_the_way_the_reviewer_walk_does(self) -> None:
         # Gate run 43591424745: the pass launched the app with no mock
         # account, so the sign-in buttons the prompt promised were the live
