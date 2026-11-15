@@ -247,8 +247,23 @@ async fn a_kill_at_each_unit_of_a_frame_ends_equal_to_the_uncut_run() {
         let (hub, mut writer) = Hub::open(directory.path(), 2, || 8).unwrap();
         let hub = Arc::new(hub);
         hydrate(&hub, &mut writer).await;
+        let mark = hub.mirror_mark(ORIGIN);
+        // Decision 264: a stored mark opens the origin as the mirror's, and v1's
+        // rows of it stay out until the dial.
+        assert_eq!(hub.source(ORIGIN), mark.map(|_| Source::Mirror), "killed after {stop}");
+        if mark.is_some() {
+            let mut v1_row = peer_row("v1-row", "v1's", 1);
+            v1_row.origin = ORIGIN.to_owned();
+            hub.submit_from(Source::V1, v1_row).unwrap();
+            writer.turn();
+            assert!(!titles(&hub, ORIGIN).contains_key("v1-row"), "killed after {stop}");
+        }
         let counters = DialCounters::default();
         let mut dial = dialer(&hub, &counters, MAX_UNIT_CHANGES);
+        dial.start();
+        dial.sid = "s".to_owned();
+        let whole = mark.is_some_and(|mark| mark.whole);
+        assert_eq!(counters.resumes.load(Ordering::Relaxed), u64::from(whole));
         let rest = after_mark(&hub, &ops);
         if !rest.is_empty() {
             cut(&mut dial, &mut writer, &rest, None).await;
@@ -256,7 +271,65 @@ async fn a_kill_at_each_unit_of_a_frame_ends_equal_to_the_uncut_run() {
         assert_eq!(titles(&hub, ORIGIN), want, "killed after {stop} units");
         assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), ops.last().map(Op::seq));
         assert_eq!(hub.mirror_counts().out_of_order, 0);
+        assert_eq!(counters.walks.load(Ordering::Relaxed), 0, "killed after {stop}: no walk");
     }
+}
+
+/// Decision 264: a hub opened again from its store (not the same object)
+/// holds the origin as the mirror's while its mark is on. Between the open
+/// and the dial no v1 row of the origin goes in, and the dial resumes from
+/// the whole mark with no walk, ending equal to the peer.
+#[tokio::test]
+async fn a_hub_opened_from_its_store_resumes_its_mirror_with_no_walk() {
+    let peer = peer_hub();
+    peer_rows(&peer, 3 * MAX_UNIT_CHANGES, 1).await;
+    let directory = tempfile::tempdir().unwrap();
+    {
+        let (local, writer) = Hub::open(directory.path(), 1, || 7).unwrap();
+        let writing = tokio::spawn(writer.run());
+        let local = Arc::new(local);
+        let link = dial(&peer, &local);
+        until("the walk ended whole", || {
+            local.mirror_mark(ORIGIN).is_some_and(|mark| mark.whole)
+                && titles(&local, ORIGIN).len() == 3 * MAX_UNIT_CHANGES
+        })
+        .await;
+        link.end();
+        local.close();
+        writing.await.unwrap().unwrap();
+    }
+    peer.submit(peer_row("r00000", "changed while down", 1_000_000)).unwrap();
+    let (local, writer) = Hub::open(directory.path(), 2, || 8).unwrap();
+    tokio::spawn(writer.run());
+    let local = Arc::new(local);
+    local.wait_hydrated().await.unwrap();
+    assert_eq!(
+        local.source(ORIGIN),
+        Some(Source::Mirror),
+        "the stored mark opens it as the mirror's"
+    );
+    let mut v1_row = peer_row("v1-row", "v1's", 1);
+    v1_row.origin = ORIGIN.to_owned();
+    // What v1's tee would submit: the writer refuses it for the mirror's origin.
+    local.submit_from(Source::V1, v1_row).unwrap();
+    let mut mine = peer_row("mine", "a later local row", 2);
+    mine.origin = "local".to_owned();
+    local.submit(mine).unwrap();
+    until("the writer took both", || titles(&local, "local").contains_key("mine")).await;
+    assert!(
+        !titles(&local, ORIGIN).contains_key("v1-row"),
+        "no v1 row of the mirror's origin went in"
+    );
+    let link = dial(&peer, &local);
+    until("the resume brought the change", || {
+        titles(&local, ORIGIN).get("r00000").map(String::as_str) == Some("changed while down")
+    })
+    .await;
+    assert_eq!(link.counters.walks.load(Ordering::Relaxed), 0, "a resume, not a walk");
+    assert_eq!(link.counters.resumes.load(Ordering::Relaxed), 1);
+    assert_eq!(titles(&local, ORIGIN), titles(&peer, PEER_LOCAL));
+    assert!(!titles(&local, ORIGIN).contains_key("v1-row"));
+    link.end();
 }
 
 /// (d) 10,000 random runs: a random live frame cut into units of a random
@@ -585,95 +658,236 @@ fn p95(values: &mut [u128]) -> u128 {
     values[(values.len() * 95).div_ceil(100).saturating_sub(1)]
 }
 
-/// One resume round: the link down, one change on the peer, the link up; the
-/// time from the dial to the change in the index.
-async fn resume_rounds(rows: usize, rounds: usize) -> Vec<u128> {
+/// What a counting link saw: bytes each way, and when the first frame toward
+/// the dialer that ends a resume (`replay: "end"`) or carries a window passed.
+#[derive(Default)]
+struct Wire {
+    bytes: std::sync::atomic::AtomicU64,
+    frames: std::sync::Mutex<Vec<Value>>,
+    ended_at: std::sync::Mutex<Option<Instant>>,
+}
+
+/// A real serving side behind a proxy that counts the link's bytes both ways
+/// and decodes the frames toward the dialer.
+fn counted(peer: &Arc<Hub>, local: &Arc<Hub>) -> (Link, Arc<Wire>) {
+    let (near, near_far) = tokio::io::duplex(64 * 1024);
+    let (inner, far) = tokio::io::duplex(64 * 1024);
+    let serving = serve(peer, far);
+    let wire = Arc::new(Wire::default());
+    let (mut from_dialer, mut to_dialer) = tokio::io::split(near_far);
+    let (mut from_server, mut to_server) = tokio::io::split(inner);
+    let up = wire.clone();
+    tokio::spawn(async move {
+        let mut buf = vec![0_u8; 16 * 1024];
+        while let Ok(n) = from_dialer.read(&mut buf).await {
+            if n == 0 || to_server.write_all(&buf[..n]).await.is_err() {
+                break;
+            }
+            up.bytes.fetch_add(n as u64, Ordering::Relaxed);
+        }
+    });
+    let down = wire.clone();
+    tokio::spawn(async move {
+        let mut decoder = FrameDecoder::default();
+        let mut buf = vec![0_u8; 16 * 1024];
+        while let Ok(n) = from_server.read(&mut buf).await {
+            if n == 0 {
+                break;
+            }
+            down.bytes.fetch_add(n as u64, Ordering::Relaxed);
+            for frame in decoder.push(&buf[..n]).unwrap_or_default() {
+                let value = frame.decode_json::<Value>().unwrap_or_default();
+                let ends = (frame.kind == FrameKind::Delta && value["replay"] == "end")
+                    || frame.kind == FrameKind::Window;
+                if ends {
+                    down.ended_at.lock().unwrap().get_or_insert_with(Instant::now);
+                }
+                if frame.kind != FrameKind::Hello {
+                    down.frames.lock().unwrap().push(value);
+                }
+            }
+            if to_dialer.write_all(&buf[..n]).await.is_err() {
+                break;
+            }
+        }
+    });
+    (dial_over(local, near, serving), wire)
+}
+
+/// A peer with `live` running rows and `closed` closed rows beside them.
+async fn shaped_peer(live: usize, closed: usize) -> Arc<Hub> {
     let peer = peer_hub();
-    peer_rows(&peer, rows, 1).await;
-    let local = peer_hub();
-    let first = dial(&peer, &local);
-    until("the walk ended whole", || {
-        local.mirror_mark(ORIGIN).is_some_and(|mark| mark.whole)
-            && titles(&local, ORIGIN).len() == rows
-    })
-    .await;
-    first.end();
-    let mut samples = Vec::with_capacity(rounds);
-    for round in 0..rounds {
-        let title = format!("round {round}");
-        peer.submit(peer_row("r00000", &title, 1_000_000 + round as u64)).unwrap();
-        until("the peer took the change", || {
-            peer.snapshot().iter().any(|row| row.chat_id == "r00000" && row.title == title)
+    for n in 0..closed {
+        let mut row = peer_row(&format!("closed-{n:05}"), "closed", 1 + n as u64);
+        row.state = "closed".to_owned();
+        peer.submit(row).unwrap();
+    }
+    for n in 0..live {
+        peer.submit(peer_row(&format!("r{n:05}"), "live", 100_000 + n as u64)).unwrap();
+    }
+    until("the peer holds its rows", || peer.snapshot().len() == live + closed).await;
+    peer
+}
+
+const LIVE: usize = 500;
+const CLOSED: usize = 11_000;
+
+/// A hub of its own store that mirrored `peer`'s live view whole, closed and
+/// opened again from the store (decision 264: it opens as the mirror's).
+async fn reopened_mirror(peer: &Arc<Hub>, directory: &std::path::Path) -> Arc<Hub> {
+    {
+        let (local, writer) = Hub::open(directory, 1, || 7).unwrap();
+        let writing = tokio::spawn(writer.run());
+        let local = Arc::new(local);
+        let link = dial(peer, &local);
+        until("the walk ended whole", || {
+            local.mirror_mark(ORIGIN).is_some_and(|mark| mark.whole)
+                && titles(&local, ORIGIN).len() == LIVE
         })
         .await;
+        link.end();
+        local.close();
+        writing.await.unwrap().unwrap();
+    }
+    let (local, writer) = Hub::open(directory, 2, || 8).unwrap();
+    tokio::spawn(writer.run());
+    let local = Arc::new(local);
+    local.wait_hydrated().await.unwrap();
+    assert_eq!(local.source(ORIGIN), Some(Source::Mirror));
+    local
+}
+
+/// A mirror reopened from its store over a peer of 500 live rows with
+/// `closed` closed rows beside them, for dials with nothing missed.
+struct Resumed {
+    peer: Arc<Hub>,
+    local: Arc<Hub>,
+    _directory: tempfile::TempDir,
+}
+
+impl Resumed {
+    async fn new(closed: usize) -> Self {
+        let peer = shaped_peer(LIVE, closed).await;
+        let directory = tempfile::tempdir().unwrap();
+        let local = reopened_mirror(&peer, directory.path()).await;
+        Self { peer, local, _directory: directory }
+    }
+
+    /// One dial: the time from the dial to the frame that ends the resume,
+    /// and the link's bytes. It is one empty frame marked `end`, and no walk.
+    async fn dial(&self) -> (u128, u128) {
         let started = Instant::now();
-        let link = dial(&peer, &local);
-        let key = acpmux_book::index::RowKey::new(ORIGIN, "r00000");
-        tokio::time::timeout(
-            WAIT,
-            local.wait_mirror_until(|hub| {
-                hub.snapshot().get_row(&key).is_some_and(|row| row.title == title)
-            }),
-        )
-        .await
-        .expect("the resume brought the change");
-        samples.push(started.elapsed().as_nanos());
+        let (link, wire) = counted(&self.peer, &self.local);
+        until("the resume ended", || wire.ended_at.lock().unwrap().is_some()).await;
+        let ended = wire.ended_at.lock().unwrap().unwrap();
+        let time = ended.duration_since(started).as_nanos();
+        until("the dialer read the end", || link.counters.resumes.load(Ordering::Relaxed) == 1)
+            .await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let bytes = u128::from(wire.bytes.load(Ordering::Relaxed));
+        let frames = wire.frames.lock().unwrap().clone();
+        assert_eq!(frames.len(), 1, "one frame to the dialer: {frames:?}");
+        assert_eq!(frames[0]["replay"], "end", "{frames:?}");
+        assert!(
+            frames[0]["ops"].as_array().is_none_or(Vec::is_empty),
+            "nothing missed: {frames:?}"
+        );
         assert_eq!(link.counters.walks.load(Ordering::Relaxed), 0, "a resume, not a walk");
         link.end();
+        (time, bytes)
     }
-    samples
+
+    /// The digits of the cursor the dial resumes from.
+    fn cursor_digits(&self) -> u128 {
+        let cursor = self.local.mirror_mark(ORIGIN).map_or(0, |mark| mark.cursor);
+        cursor.to_string().len() as u128
+    }
 }
 
-#[ignore = "Linux gate: a dial's resume after one change, 11k rows against 20"]
+#[ignore = "Linux gate: a resume with nothing missed, 500 live with 11k closed beside them against none"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn v2_pr08_dial_resume() {
-    let mut small = resume_rounds(20, 60).await;
-    let mut god = resume_rounds(11_000, 60).await;
+    let (small_rig, god_rig) = (Resumed::new(0).await, Resumed::new(CLOSED).await);
+    let (mut small, mut god, mut small_bytes, mut god_bytes) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    // Rounds alternate, so drift on the runner falls on both sides alike.
+    for _ in 0..60 {
+        let (time, bytes) = small_rig.dial().await;
+        small.push(time);
+        small_bytes.push(bytes);
+        let (time, bytes) = god_rig.dial().await;
+        god.push(time);
+        god_bytes.push(bytes);
+    }
     let (small_p95, god_p95) = (p95(&mut small), p95(&mut god));
-    emit("v2.pr08.dial_resume", json!({"small_p95": small_p95, "god_p95": god_p95}));
+    let (small_b, god_b) = (p95(&mut small_bytes), p95(&mut god_bytes));
+    emit(
+        "v2.pr08.dial_resume",
+        json!({"small_p95": small_p95, "god_p95": god_p95, "small_bytes": small_b, "god_bytes": god_b}),
+    );
+    assert!(god_p95 * 10 <= small_p95 * 12, "resume p95 {small_p95} -> {god_p95} ns");
+    // The closed rows put no row on the link: the bytes differ only by the
+    // cursor's longer number, named in the sub and in the `end`.
+    let digits = god_rig.cursor_digits() - small_rig.cursor_digits();
+    assert!(
+        god_b <= small_b + 2 * digits,
+        "closed rows put bytes on the link: {small_b} -> {god_b}"
+    );
 }
 
-/// One walk in a new edition over `rows` live rows: its time from the dial to
-/// whole, checking each published index holds every live row.
-async fn edition_walk(rows: usize) -> u128 {
-    let peer = peer_hub();
-    peer_rows(&peer, rows, 1).await;
+/// One walk in a new edition of a peer's 500 live rows with `closed` closed
+/// rows beside them: its time from the dial to whole and the link's bytes,
+/// each published index checked to hold every live row.
+async fn edition_walk(closed: usize) -> (u128, u128) {
+    let peer = shaped_peer(LIVE, closed).await;
     let armed = Arc::new(AtomicBool::new(false));
     let checking = armed.clone();
     let (local, broken) = watched_hub(move |index| {
         !checking.load(Ordering::Acquire)
-            || index.iter().filter(|row| row.origin == ORIGIN && row.state == "running").count()
-                == rows
+            || index.origin_rows(ORIGIN).filter(|row| row.state == "running").count() == LIVE
     });
     let first = dial(&peer, &local);
     until("the first walk ended whole", || {
         local.mirror_mark(ORIGIN).is_some_and(|mark| mark.whole)
-            && titles(&local, ORIGIN).len() == rows
+            && titles(&local, ORIGIN).len() == LIVE
     })
     .await;
     first.end();
     another_edition(&local).await;
     armed.store(true, Ordering::Release);
     let started = Instant::now();
-    let link = dial(&peer, &local);
+    let (link, wire) = counted(&peer, &local);
     until("the walk ended whole", || {
         local.mirror_mark(ORIGIN).is_some_and(|mark| mark.whole && mark.edition != 999_999)
     })
     .await;
     let elapsed = started.elapsed().as_nanos();
+    let bytes = u128::from(wire.bytes.load(Ordering::Relaxed));
     assert!(!broken.load(Ordering::Acquire), "a published index lacked a live row");
+    assert_eq!(link.counters.walks.load(Ordering::Relaxed), 1);
     link.end();
-    elapsed
+    (elapsed, bytes)
 }
 
-#[ignore = "Linux gate: a walk in a new edition, 11k live rows against 20, no live row dropped"]
+#[ignore = "Linux gate: a walk in a new edition of 500 live rows, 11k closed beside them against none"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn v2_pr08_edition_walk() {
-    let (mut small, mut god) = (Vec::new(), Vec::new());
+    let (mut small, mut god, mut small_bytes, mut god_bytes) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for _ in 0..5 {
-        small.push(edition_walk(20).await);
-        god.push(edition_walk(11_000).await);
+        let (time, bytes) = edition_walk(0).await;
+        small.push(time);
+        small_bytes.push(bytes);
+        let (time, bytes) = edition_walk(CLOSED).await;
+        god.push(time);
+        god_bytes.push(bytes);
     }
     let (small_p95, god_p95) = (p95(&mut small), p95(&mut god));
-    emit("v2.pr08.edition_walk", json!({"small_p95": small_p95, "god_p95": god_p95}));
+    let (small_b, god_b) = (p95(&mut small_bytes), p95(&mut god_bytes));
+    emit(
+        "v2.pr08.edition_walk",
+        json!({"small_p95": small_p95, "god_p95": god_p95, "small_bytes": small_b, "god_bytes": god_b}),
+    );
+    assert!(god_b < 200 * 1024, "the walk put {god_b} bytes on the link");
+    assert!(god_p95 * 10 <= small_p95 * 12, "walk p95 {small_p95} -> {god_p95} ns");
 }
