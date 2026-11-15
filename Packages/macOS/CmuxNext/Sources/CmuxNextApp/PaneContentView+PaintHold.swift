@@ -55,7 +55,7 @@ extension PaneContentView {
             // The host is not flipped: a fixed height on the strip's far side.
             outgoing.autoresizingMask = barPosition == .top ? [.width, .maxYMargin] : [.width, .minYMargin]
         }
-        paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost, release: { [weak self] outgoing in
+        paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost, keepingPlaceIn: holdKeepsStrip ? nil : self, release: { [weak self] outgoing in
             guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
             retire(outgoing)
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
