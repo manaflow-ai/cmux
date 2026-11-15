@@ -360,3 +360,76 @@ fn own_tree_a_log_with_one_name_keeps_its_lines() {
     assert_eq!(reply["state"], "succeeded", "{reply}");
     fs::remove_dir_all(top).unwrap();
 }
+
+/// A folder of [`folder_with_a_git_folder`] whose ports file says that the worktree `root` has
+/// the block of ports that starts at 40010.
+#[cfg(unix)]
+fn folder_with_a_port_of_its_root() -> PathBuf {
+    let top = folder_with_a_git_folder();
+    let root = top.join("root").to_string_lossy().into_owned();
+    let ports = json!({root: 40_010});
+    fs::write(top.join("git-folder/cmux-worktree-ports.json"), ports.to_string()).unwrap();
+    top
+}
+
+/// What `call` gives on a thread of its own while a second open of the port lock of
+/// [`folder_with_a_port_of_its_root`] holds the lock, as another session host holds it during
+/// an allocation. `None`: the call did not end in 10 s. The 10 s are not a time that a call
+/// is measured against: they only make a failed test from a call that waits with no end. The
+/// lock is let go before the join, so a call that waits for it ends then.
+#[cfg(unix)]
+fn with_the_port_lock_held<T: Send + 'static>(
+    top: &Path,
+    call: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    use std::os::fd::AsRawFd as _;
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(false).write(true);
+    let held = options.open(top.join("git-folder/cmux-worktree-ports.lock")).unwrap();
+    // SAFETY: flock(2) on a descriptor that `held` keeps open; LOCK_NB makes it return at once.
+    let taken = unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    assert_eq!(taken, 0, "the test did not get the port lock");
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        let _ = sender.send(call());
+    });
+    let result = receiver.recv_timeout(Duration::from_secs(10)).ok();
+    // SAFETY: as above. The unlock is its own call: a close alone keeps the lock while a child
+    // that another test forked has a copy of the descriptor.
+    unsafe {
+        libc::flock(held.as_raw_fd(), libc::LOCK_UN);
+    }
+    thread.join().unwrap();
+    result
+}
+
+/// The read of a worktree's port takes no port lock: it gives the port while another session
+/// host holds the lock.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_read_takes_no_port_lock() {
+    let top = folder_with_a_port_of_its_root();
+    let place = place_in(&top);
+
+    let port =
+        with_the_port_lock_held(&top, move || super::ports::lookup(&place.git_dir, &place.root));
+
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!(port, Some(Some(40_010)), "the read waited for the port lock");
+}
+
+/// An allocation waits a bounded time for the port lock: it ends while another session host
+/// holds the lock, and the worktree has its port.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_allocation_waits_a_bounded_time_for_the_port_lock() {
+    let top = folder_with_a_port_of_its_root();
+    let place = place_in(&top);
+
+    let port = with_the_port_lock_held(&top, move || {
+        super::ports::allocate(&place.git_dir, &place.root).ok().flatten()
+    });
+
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!(port, Some(Some(40_010)), "the allocation waited for the port lock with no end");
+}
