@@ -225,6 +225,37 @@ pub(crate) fn restart_window(now: bool) -> Option<u64> {
     (secs > 0).then_some(secs)
 }
 
+/// Why an update leaves the daemon alone: an update restarted it `restarted`
+/// (by the host's `clock`) less than `window` seconds ago. None with no
+/// window, no stamp, or a stamp from the host's future (its clock went back:
+/// never a host held off updates for good).
+fn in_restart_window(
+    window: Option<u64>,
+    clock: Option<u64>,
+    restarted: Option<u64>,
+) -> Option<String> {
+    let (window, clock, restarted) = (window?, clock?, restarted?);
+    let age = clock.checked_sub(restarted)?;
+    if age >= window {
+        return None;
+    }
+    let next = restarted.saturating_add(window);
+    let next = i64::try_from(next)
+        .ok()
+        .and_then(|at| chrono::DateTime::from_timestamp(at, 0))
+        .map_or_else(|| "?".to_owned(), |at| at.format("%H:%MZ").to_string());
+    Some(format!(
+        "restart window: last update restart {} min ago; next after {next} (--now restarts it now)",
+        age / 60
+    ))
+}
+
+/// Writes [`RESTART_STAMP`]: the host's clock, beside and renamed, owner-only.
+fn stamp_restart() -> String {
+    let stamp = format!("{REMOTE_HOME}/{RESTART_STAMP}");
+    format!("(umask 077 && date +%s > {stamp}.$$ && mv -f {stamp}.$$ {stamp})")
+}
+
 /// A peer as [`probe_script`] found it.
 #[derive(Debug)]
 struct Probe {
@@ -592,6 +623,9 @@ impl PeerUpdate {
                 }
             }
             Outcome::Current => format!("current ({})", self.build.as_deref().unwrap_or("?")),
+            Outcome::Busy if self.reason.as_deref() == Some("restartWindow") => {
+                format!("left alone: {error}")
+            }
             Outcome::Busy => format!("busy, left alone: {error}"),
             Outcome::NeedsBinary => format!("needs a binary: {error}"),
             Outcome::RolledBack => format!("rolled back: {error}"),
@@ -778,6 +812,14 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     if let Some((reason, why)) = &probe.refused {
         return up.end(Outcome::Failed, reason, why.clone());
     }
+    // A running daemon an update restarted within the window (this host's
+    // timer, or a `host update` from any machine) is left alone, nothing
+    // installed; a daemon that does not answer has nothing to wake.
+    if probe.build.is_some()
+        && let Some(why) = in_restart_window(opts.restart_window, probe.clock, probe.restarted)
+    {
+        return up.end(Outcome::Busy, "restartWindow", why);
+    }
     // From here on the peer changes.
     let running = probe.build.as_deref().and_then(build_commit);
     let version = match push_update(remote, &binary, running) {
@@ -833,6 +875,12 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     let linux = probe.uname.starts_with("Linux");
     let restart = if linux { linux_restart(false, true) } else { launchd_restart() };
     let restarted = restart_checked(remote, &restart, pushed.as_deref());
+    // The daemon was stopped (a refusal stops nothing): the window starts
+    // now, whether it came back on the new build, needs a rollback, or the
+    // link dropped. A stamp that cannot be written only loses the window.
+    if !restarted.refused {
+        let _ = run(remote, &stamp_restart());
+    }
     let (reason, why) = match restarted.result {
         Ok(status) => {
             up.auto_update_off = restarted.auto_update_off;
