@@ -143,9 +143,14 @@ fn every_kind_is_new_loads_then_shows_an_edit_within_a_second() {
 /// When the interface lands this fails: give the kind its template.
 #[test]
 fn a_kind_whose_interface_has_not_landed_names_what_it_needs() {
-    for (kind, needs) in [("menu", "cmux.context_menu/1")] {
+    assert!(
+        scaffold::PENDING
+            .iter()
+            .any(|(kind, needs, _)| *kind == "menu" && *needs == "cmux.context_menu/1")
+    );
+    for (kind, needs, _) in scaffold::PENDING {
         assert!(
-            !cmux_app_manifest::KNOWN_INTERFACES.contains(&needs),
+            !cmux_app_manifest::KNOWN_INTERFACES.contains(needs),
             "{needs} landed: give --kind {kind} its template"
         );
         let error = parse(&words(&format!("new x --kind {kind}"))).unwrap_err();

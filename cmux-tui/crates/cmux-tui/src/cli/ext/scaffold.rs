@@ -22,6 +22,7 @@ pub(super) const KINDS: &[&str] =
     &["sidebar", "section", "session-info", "pane", "newtab", "command"];
 
 /// The first lines of every kind's `dist/main.js`; the packer's build follows.
+#[cfg(test)]
 pub(super) const FIRST_BUILD_HEADER: &str = "// The packer's build of src/main.ts, so this folder loads before bun is installed. `cmux ext dev`\n\
 // rebuilds it on every save. Do not edit; edit src/main.ts.\n\
 ";
