@@ -832,8 +832,10 @@ impl Desktop for MacDesktop {
             None => app.element("AXFocusedWindow"),
         };
         if let Some(window) = window {
+            // caret-gate: not a field write (the person's own window, put
+            // back as it was)
             let _ = window.set("AXMain", &yes);
-            let _ = window.set("AXFocused", &yes);
+            let _ = window.set("AXFocused", &yes); // caret-gate: restoring the person's window
             accepted &= window.perform("AXRaise").is_ok();
         }
         Ok(accepted)

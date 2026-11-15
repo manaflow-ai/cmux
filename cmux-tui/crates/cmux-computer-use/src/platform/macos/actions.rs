@@ -1498,10 +1498,14 @@ fn web_field_in_view(
     field: roles::WebField,
     secure: roles::SecureField,
 ) -> (Option<roles::WebField>, bool) {
-    if d.is_persons_app(t) || !roles::scroll_into_view_first(&field, secure) {
+    if !roles::scroll_into_view_first(&field, secure) {
         return (Some(field), false);
     }
-    if !matches!(ax_unprimed(t.window.pid, || el.perform("AXScrollToVisible").is_ok()), Ok(true)) {
+    // The person's app is read inside the lock, right before the scroll.
+    let scrolled = ax_unprimed(t.window.pid, || {
+        !d.is_persons_app(t) && el.perform("AXScrollToVisible").is_ok()
+    });
+    if !matches!(scrolled, Ok(true)) {
         return (Some(field), false);
     }
     let mut now = None;
@@ -1598,9 +1602,16 @@ fn persons_caret_write<T>(
             return CaretWrite::Refused;
         }
         let value = write();
-        let moved_onto = persons && persons_caret(t, el) != roles::Caret::Elsewhere;
+        // The app may have become the person's during the write.
+        let moved_onto = d.is_persons_app(t) && persons_caret(t, el) != roles::Caret::Elsewhere;
         CaretWrite::Wrote { value, moved_onto }
     })
+}
+
+/// What a result after a focus write adds: that the field was given focus
+/// first (nothing when no focus write was made).
+fn focus_note(written: bool) -> &'static str {
+    if written { "; the field was given focus in its page through accessibility first" } else { "" }
 }
 
 /// The note when the person's caret was on the field right after a write.
@@ -1858,17 +1869,26 @@ fn ax_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<Option<
     // The whole value is replaced through the gate (in the person's app
     // only where their caret is not); the value is read again right before
     // the write, and a change writes nothing.
-    let gated = persons_caret_write(d, t, el, false, || {
-        let again = readback::Known::value(el)?;
-        (again.get() == &before).then(|| el.set("AXValue", &value).err())
+    let gated = persons_caret_write(d, t, el, false, || match readback::Known::value(el) {
+        None => Fallback::Unread,
+        Some(again) if again.get() != &before => Fallback::Changed,
+        Some(_) => Fallback::Wrote(el.set("AXValue", &value).err()),
     })?;
     let CaretWrite::Wrote { value: written, moved_onto } = gated else {
         return Err(DesktopError::Unsupported(roles::CARET_ON_TARGET.into()));
     };
-    let Some(error) = written else {
-        let mut out = ActionOutcome::delivered("ax_set_value");
-        out.note = "the field changed while it was read, so nothing was written and no keys were posted; try again".into();
-        return Ok(Some(out));
+    let error = match written {
+        Fallback::Wrote(error) => error,
+        Fallback::Changed => {
+            let mut out = ActionOutcome::delivered("ax_set_value");
+            out.note = "the field changed while it was read, so nothing was written and no keys were posted; try again".into();
+            return Ok(Some(out));
+        }
+        Fallback::Unread => {
+            let mut out = ActionOutcome::delivered("ax_set_value");
+            out.note = "the field's value could not be read again right before the write, so nothing was written and no keys were posted; try again".into();
+            return Ok(Some(out));
+        }
     };
     if moved_onto {
         let mut out = ActionOutcome::delivered("ax_set_value").showing("text");
@@ -1899,6 +1919,16 @@ fn ax_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<Option<
         None => "appended to the field's value".into(),
     };
     Ok(Some(out))
+}
+
+/// What ax_insert's AXValue fallback came to inside the lock.
+enum Fallback {
+    /// The value could not be read again: nothing written.
+    Unread,
+    /// The value changed since it was read: nothing written.
+    Changed,
+    /// Written; the error, if the write returned one.
+    Wrote(Option<super::sys::AXError>),
 }
 
 pub(super) fn type_text(
@@ -1973,13 +2003,20 @@ pub(super) fn type_text(
             // Through the gate (a focus write is never made in the person's
             // app); an element already focused needs none, and keys into the
             // person's focused field follow their own policy.
-            let written = before.as_ref().is_some_and(|b| b.own == Some(true))
-                || matches!(
-                    persons_caret_write(d, &t, el, true, || {
-                        Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
-                    })?,
-                    CaretWrite::Wrote { value: true, .. }
-                );
+            let already = before.as_ref().is_some_and(|b| b.own == Some(true));
+            // Whether a focus write was made (taken or not): what a refusal
+            // after it says.
+            let mut focus_written = false;
+            let written = already
+                || match persons_caret_write(d, &t, el, true, || {
+                    Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
+                })? {
+                    CaretWrite::Wrote { value, .. } => {
+                        focus_written = true;
+                        value
+                    }
+                    CaretWrite::Refused => false,
+                };
             // Keys go only once focus is on the target, by the guard's rules:
             // a write the app ignored would send them to whatever has focus.
             let focused = written && before.is_some_and(|b| wait_focused(d, &t, el, &b));
@@ -1994,8 +2031,9 @@ pub(super) fn type_text(
                         return web_value_write(d, &t, el, text, field);
                     }
                     (roles::WebTyping::Refuse(why), _) => {
-                        // The focus write was made: say so.
-                        let moved = if written {
+                        // A focus write was made: say so (none when the
+                        // field already had focus).
+                        let moved = if focus_written {
                             "; the field was given focus in its page through accessibility before this was decided"
                         } else {
                             ""
@@ -2737,17 +2775,23 @@ pub(super) fn set_value(
     // field holds the page's focus, whichever one was addressed: the field
     // takes the focus first (inside its app, which is not the person's), and
     // the write is made only while it holds it.
+    // Whether a focus write was made here: what a later "nothing written"
+    // says.
+    let mut focus_written = false;
     if web && !roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()) {
-        let wrote = matches!(
-            persons_caret_write(d, &t, &el, true, || {
-                Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
-            })?,
-            CaretWrite::Wrote { value: true, .. }
-        );
+        let wrote = match persons_caret_write(d, &t, &el, true, || {
+            Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok())
+        })? {
+            CaretWrite::Wrote { value, .. } => {
+                focus_written = true;
+                value
+            }
+            CaretWrite::Refused => false,
+        };
         let held = || roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten());
         if !(wrote && (held() || super::menus::wait_for(FOCUS_WAIT, held))) {
             let mut out = ActionOutcome::delivered("ax_set_value");
-            out.note = WEB_NOT_FOCUSED.into();
+            out.note = format!("{WEB_NOT_FOCUSED}{}", focus_note(focus_written));
             return Ok(out);
         }
     }
@@ -2776,11 +2820,15 @@ pub(super) fn set_value(
             .then(|| el.set("AXValue", &cf).err())
     })?;
     let CaretWrite::Wrote { value: written, moved_onto } = gated else {
-        return Err(DesktopError::Unsupported(roles::CARET_ON_TARGET.into()));
+        return Err(DesktopError::Unsupported(format!(
+            "{}{}",
+            roles::CARET_ON_TARGET,
+            focus_note(focus_written)
+        )));
     };
     let Some(error) = written else {
         let mut out = ActionOutcome::delivered("ax_set_value");
-        out.note = WEB_NOT_FOCUSED.into();
+        out.note = format!("{WEB_NOT_FOCUSED}{}", focus_note(focus_written));
         return Ok(out);
     };
     if let Some(e) = error
@@ -2942,6 +2990,7 @@ fn pick_closed(
 
 fn write_attribute(
     d: &MacDesktop,
+    t: &Target,
     el: &Ax,
     element_id: &str,
     attr: &str,
@@ -2955,7 +3004,20 @@ fn write_attribute(
     }
     let cf = Cf::boolean(value).ok_or_else(|| DesktopError::Failed("no boolean".into()))?;
     let check = readback::Check::flag(el, attr, value);
-    let error = el.set(attr, &cf).err();
+    // A focus write moves the caret: through the caret gate (never in the
+    // person's app). Expanding or selecting writes no text or caret.
+    let error = if attr == "AXFocused" {
+        match persons_caret_write(d, t, el, true, || el.set(attr, &cf).err())? {
+            CaretWrite::Wrote { value, .. } => value,
+            CaretWrite::Refused => {
+                return Err(DesktopError::Unsupported(
+                    "this element is in the app the person is using; focusing it would move their caret. Use set_value or type_text with element_id, or a click with delivery foreground".into(),
+                ));
+            }
+        }
+    } else {
+        el.set(attr, &cf).err() // caret-gate: not a field write (expanded, selected)
+    };
     if let Some(e) = error
         && roles::write_not_applied(e)
     {
@@ -3001,7 +3063,7 @@ pub(super) fn perform_action(
                     "this element is in the app the person is using; focusing it would move their caret. Use set_value or type_text with element_id, or a click with delivery foreground".into(),
                 ));
             }
-            return write_attribute(d, &el, element_id, attr, value);
+            return write_attribute(d, &t, &el, element_id, attr, value);
         }
         let offered: Vec<String> = available
             .iter()

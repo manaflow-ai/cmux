@@ -447,7 +447,7 @@ fn open_submenu(parent: &Ax) -> Option<Ax> {
     if parent.perform("AXPress").is_err()
         && let Some(yes) = Cf::boolean(true)
     {
-        let _ = parent.set("AXSelected", &yes);
+        let _ = parent.set("AXSelected", &yes); // caret-gate: not a field write (a menu item)
     }
     let mut opened = None;
     wait_for(SUBMENU_WAIT, || {

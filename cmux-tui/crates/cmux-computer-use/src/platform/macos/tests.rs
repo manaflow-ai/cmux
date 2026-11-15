@@ -2941,51 +2941,90 @@ fn a_targeted_write_in_the_persons_app_needs_their_caret_elsewhere() {
 }
 
 /// Every targeted write into a field (its value, selected text, selection
-/// or focus) in actions.rs goes through the one caret gate
-/// (`persons_caret_write`), or through `gated`, which refuses the person's
-/// app outright. `focus_and_select` is called only inside `gated`. A new
-/// write site must be added here, gated.
+/// or focus, or an attribute named at run time) in actions.rs, menus.rs and
+/// mod.rs goes through the one caret gate (`persons_caret_write`), or
+/// through `gated`, which refuses the person's app outright, or carries a
+/// `caret-gate:` note saying why it is not a field write (each listed
+/// here). `focus_and_select` is called only inside `gated`. A new write
+/// site must be added here, gated.
 #[test]
 fn every_targeted_field_write_goes_through_the_caret_gate() {
-    let src = include_str!("actions.rs");
-    let lines: Vec<&str> = src.lines().collect();
-    let writes =
-        ["set(\"AXSelectedText\"", "set(\"AXValue\"", "set_selected_range(", "set(\"AXFocused\""];
+    let files = [
+        ("actions.rs", include_str!("actions.rs")),
+        ("menus.rs", include_str!("menus.rs")),
+        ("mod.rs", include_str!("mod.rs")),
+    ];
+    let writes = [
+        "set(\"AXSelectedText\"",
+        "set(\"AXValue\"",
+        "set_selected_range(",
+        "set(\"AXFocused\"",
+        "set(attr",
+    ];
     let fn_start = |l: &str| {
         let t = l.trim_start();
-        t.starts_with("fn ") || t.starts_with("pub(super) fn ") || t.starts_with("pub fn ")
+        t.starts_with("fn ")
+            || t.starts_with("pub(super) fn ")
+            || t.starts_with("pub fn ")
+            || t.starts_with("pub(crate) fn ")
+    };
+    // Inside a gate call: the write is on the call's line, or in a block
+    // (its closure) opened on a line that makes the call.
+    let gate = |l: &str| {
+        l.contains("persons_caret_write(")
+            || l.contains("gated(d, t,")
+            || l.contains("gated(d, &t,")
     };
     let mut sites = Vec::new();
-    for (i, line) in lines.iter().enumerate() {
-        if line.trim_start().starts_with("//") || !writes.iter().any(|w| line.contains(w)) {
-            continue;
-        }
-        let start = (0..=i).rev().find(|&j| fn_start(lines[j])).expect("an enclosing fn");
-        let after_fn = lines[start].split("fn ").nth(1).unwrap_or("");
-        let name: String =
-            after_fn.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-        // Inside a gate call: the write is on the call's line, or in a block
-        // (its closure) opened on a line that makes the call.
-        let gate = |l: &str| {
-            l.contains("persons_caret_write(")
-                || l.contains("gated(d, t,")
-                || l.contains("gated(d, &t,")
-        };
-        let mut gated = gate(line);
-        let mut depth = 0i32;
-        for j in (start..i).rev() {
-            let l = lines[j];
-            depth += l.matches('}').count() as i32 - l.matches('{').count() as i32;
-            if depth < 0 {
-                // A block enclosing the write opens on line j.
-                if gate(l) {
-                    gated = true;
-                    break;
+    let mut exempt = Vec::new();
+    for (file, src) in files {
+        let lines: Vec<&str> = src.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim_start().starts_with("//") || !writes.iter().any(|w| line.contains(w)) {
+                continue;
+            }
+            let start = (0..=i).rev().find(|&j| fn_start(lines[j])).expect("an enclosing fn");
+            let after_fn = lines[start].split("fn ").nth(1).unwrap_or("");
+            let name: String =
+                after_fn.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            if line.contains("// caret-gate:") {
+                exempt.push(format!("{file}:{name}"));
+                continue;
+            }
+            let mut gated = gate(line);
+            let mut depth = 0i32;
+            for j in (start..i).rev() {
+                let l = lines[j];
+                depth += l.matches('}').count() as i32 - l.matches('{').count() as i32;
+                if depth < 0 {
+                    // A block enclosing the write opens on line j.
+                    if gate(l) {
+                        gated = true;
+                        break;
+                    }
+                    depth = 0;
                 }
-                depth = 0;
+            }
+            sites.push((format!("{file}:{name}"), gated, i + 1));
+        }
+        for (i, line) in lines.iter().enumerate() {
+            if line.contains("focus_and_select(")
+                && !fn_start(line)
+                && !line.trim_start().starts_with("//")
+            {
+                assert!(
+                    line.contains("gated(d, t,"),
+                    "{file}:{}: focus_and_select outside gated",
+                    i + 1
+                );
             }
         }
-        sites.push((name, gated, i + 1));
+    }
+    for (name, gated, line) in &sites {
+        assert!(
+            *gated || name == "actions.rs:focus_and_select",
+            "{name} (line {line}) writes outside the caret gate"
+        );
     }
     let mut names: Vec<&str> = sites.iter().map(|(n, _, _)| n.as_str()).collect();
     names.sort_unstable();
@@ -2993,34 +3032,23 @@ fn every_targeted_field_write_goes_through_the_caret_gate() {
     assert_eq!(
         names,
         [
-            "ax_insert",
-            "ax_scroll_run",
-            "focus_and_select",
-            "set_value",
-            "slider_drag",
-            "type_text",
-            "web_value_write"
+            "actions.rs:ax_insert",
+            "actions.rs:ax_scroll_run",
+            "actions.rs:focus_and_select",
+            "actions.rs:set_value",
+            "actions.rs:slider_drag",
+            "actions.rs:type_text",
+            "actions.rs:web_value_write",
+            "actions.rs:write_attribute",
         ],
         "a new field write site: route it through persons_caret_write and list it here"
     );
-    for (name, gated, line) in &sites {
-        assert!(
-            *gated || name == "focus_and_select",
-            "actions.rs:{line} ({name}) writes outside the caret gate"
-        );
-    }
-    for (i, line) in lines.iter().enumerate() {
-        if line.contains("focus_and_select(")
-            && !fn_start(line)
-            && !line.trim_start().starts_with("//")
-        {
-            assert!(
-                line.contains("gated(d, t,"),
-                "actions.rs:{}: focus_and_select outside gated",
-                i + 1
-            );
-        }
-    }
+    exempt.sort_unstable();
+    assert_eq!(
+        exempt,
+        ["actions.rs:write_attribute", "mod.rs:restore_focus"],
+        "a new caret-gate exemption: say why it is not a field write and list it here"
+    );
 }
 
 /// After a web value write: confirmed only while the field still holds the
