@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43697136838",
+  "recorded_at": "2026-11-15T09:07:48Z",
+  "reason": "cmux-tui b22d2aebe904 changes the image's cmux-tui (pinned ae0b49220b4f)",
+  "dry_run": false,
+  "cmux_tui": "b22d2aebe904648ad36a2cb1b64f4a24236e6b85",
+  "fixes": [
+    {
+      "sha": "b22d2aebe904648ad36a2cb1b64f4a24236e6b85",
+      "mergedAt": "2026-11-15T00:45:43-08:00",
+      "subject": "Toggle Terminal and Chat ships with no default key (base red) (#43598)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T09:07:48Z",
+    "snapshot_id": "sh-933db82ef09546a6ad86addc88783660",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43697136838): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "838228ea2137b9754ff748c00238b5080b87511b",
+    "image": "cloud-native-auto-b22d2aeb-43697136838-1",
+    "revision": "ci-43697136838-1",
+    "at": "2026-11-15T09:07:48Z"
+  },
+  "rolled_back": false
+}
