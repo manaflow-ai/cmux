@@ -161,6 +161,16 @@ case "close":
         if let b = attr(w, "AXCloseButton") { AXUIElementPerformAction(b as! AXUIElement, "AXPress" as CFString); n += 1 }
     }
     out(["closed": n])
+case "wins":
+    // Every on-screen window of a pid, all layers (what an engine's "app window set" sees)
+    let pid = Int(args[2])!
+    let wins = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []
+    out(wins.filter { ($0[kCGWindowOwnerPID as String] as? Int) == pid }.map { w -> [String: Any] in
+        let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+        return ["id": w[kCGWindowNumber as String] ?? 0, "layer": w[kCGWindowLayer as String] ?? 0,
+                "name": w[kCGWindowName as String] ?? "", "alpha": w[kCGWindowAlpha as String] ?? 0,
+                "w": b["Width"] ?? 0, "h": b["Height"] ?? 0]
+    })
 case "raise":
     // Test setup only (foreground cells): make app args[2] frontmost and its window titled args[3] (prefix) key.
     let pid = pid_t(Int32(args[2])!)
