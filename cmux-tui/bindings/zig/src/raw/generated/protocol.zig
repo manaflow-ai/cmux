@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2";
+pub const ir_sha256 = "145ed467dcba51946c60ca8de389e6ef76a985ab08b05534873aa9f18d93e9c0";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1216,9 +1216,11 @@ pub const IdentifyResult = struct {
     launch_snapshot_path: wire.Field([]const u8) = .absent,
     lifecycle_ready: ?bool = null,
     machine_capabilities: ?[]const []const u8 = null,
+    machine_device: ?[]const u8 = null,
     machine_id: ?[]const u8 = null,
     machine_name: ?[]const u8 = null,
     machine_platform: ?MachinePlatform = null,
+    machine_symbol: ?[]const u8 = null,
     min_api_revision: wire.Field(u32) = .absent,
     pid: u32,
     protocol: u32,
@@ -1234,9 +1236,11 @@ pub const IdentifyResult = struct {
         "capabilities",
         "lifecycle_ready",
         "machine_capabilities",
+        "machine_device",
         "machine_id",
         "machine_name",
         "machine_platform",
+        "machine_symbol",
         "session_id",
     };
 };
