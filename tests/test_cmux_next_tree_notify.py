@@ -916,6 +916,20 @@ class NeverSilent(unittest.TestCase):
         handoff = next(s for s in unpublished["steps"] if s.get("name") == "Hand the key to a run that deferred to this one")
         self.assertIn("!cancelled()", handoff["if"])
 
+    def test_a_same_tree_status_that_cannot_be_posted_is_red(self):
+        """cmux#43335 (2026-11-14): the same-tree daemon tests passed, the status post got HTTP 403, the step
+        warned and passed, and the required status never posted."""
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next.yml").read_text())["jobs"]
+        posts = [step for job in jobs.values() for step in job.get("steps") or []
+                 if step.get("name") == "Report the same-tree result on the tested commit"]
+        self.assertGreaterEqual(len(posts), 2)
+        for step in posts:
+            self.assertNotIn("continue-on-error", step)
+            self.assertNotIn("::warning::could not post", step["run"])
+            self.assertIn("exit 1", step["run"])
+            self.assertIn("for wait in", step["run"])
+
     def test_a_pull_request_never_defers_to_a_publisher_it_could_not_find(self):
         """cmux#43400 and #43027 (2026-11-14): path routing could not compare the active artifacts runs (fetch
         budget, API) and deferred; no publish ever ended the wait. The probe now reads the head's tree from git
