@@ -500,7 +500,10 @@ impl FakePeer {
 
     fn update_with(&self, if_idle: bool, keep_newer: bool) -> PeerUpdate {
         let binary_dir = Some(self.home.join("binaries"));
-        update_peer(self, &UpdateOptions { binary_dir, if_idle, keep_newer, caller: None })
+        update_peer(
+            self,
+            &UpdateOptions { binary_dir, if_idle, keep_newer, caller: None, restart_window: None },
+        )
     }
 
     /// `update(true)` run from the session `session` of the daemon `daemon`.
@@ -511,6 +514,7 @@ impl FakePeer {
             if_idle: true,
             keep_newer: false,
             caller: Some(caller),
+            restart_window: None,
         };
         update_peer(self, &opts)
     }
@@ -796,7 +800,13 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
     let peer = FakePeer::new("wrong-platform");
     let other = if cfg!(target_os = "linux") { "Darwin arm64" } else { "Linux x86_64" };
     peer.write("uname", other);
-    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: false, caller: None };
+    let opts = UpdateOptions {
+        binary_dir: None,
+        if_idle: false,
+        keep_newer: false,
+        caller: None,
+        restart_window: None,
+    };
     let up = update_peer(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::NeedsBinary, Some("wrongPlatform")));
     let why = up.error.as_deref().unwrap_or("");
@@ -1683,6 +1693,7 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
             if_idle: false,
             keep_newer: false,
             caller: None,
+            restart_window: None,
         },
     );
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
@@ -1752,7 +1763,13 @@ impl Remote for Down {
 /// or probe: nothing waits on its ssh, and the app retries it quietly once it is back.
 #[test]
 fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
-    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: true, caller: None };
+    let opts = UpdateOptions {
+        binary_dir: None,
+        if_idle: false,
+        keep_newer: true,
+        caller: None,
+        restart_window: None,
+    };
     let up = update_locked(&Down, &opts);
     assert_eq!(
         (up.outcome, up.reason.as_deref()),
@@ -1779,7 +1796,13 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
     let path = dir.join("update-holds.json");
     let holds = r#"{"holds": {"mini-a": {"reason": "reserved for a teammate", "until": "2026-10-28T23:59:59Z"}}}"#;
     std::fs::write(&path, holds).unwrap();
-    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: true, caller: None };
+    let opts = UpdateOptions {
+        binary_dir: None,
+        if_idle: false,
+        keep_newer: true,
+        caller: None,
+        restart_window: None,
+    };
     let now = 1_793_000_000_000; // 2026-10-26
     let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Held, Some("held")), "{up:?}");

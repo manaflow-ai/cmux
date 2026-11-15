@@ -8,8 +8,8 @@
 use super::host_auto_update::take_auto_update_off;
 use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
-    IN_PLACE, LockLost, MIGRATING, OLD_SYSTEMD_UNITS, REFUSED, RESTORE_PREV, Remote, RemoteOut,
-    SYSTEMD_UNIT, SshRemote, connect_peer, daemon_unit, launchd_reload, linux_restart,
+    IN_PLACE, LockLost, MIGRATING, OLD_SYSTEMD_UNITS, REFUSED, REMOTE_HOME, RESTORE_PREV, Remote,
+    RemoteOut, SYSTEMD_UNIT, SshRemote, connect_peer, daemon_unit, launchd_reload, linux_restart,
     lock_updates, migrate, migrate_back, old_unit_check, push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
@@ -181,11 +181,48 @@ fn probe_script(if_idle: bool) -> String {
         ":"
     };
     format!(
-        "echo \"{UNAME}$(uname -sm)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
+        "echo \"{UNAME}$(uname -sm)\"\necho \"{CLOCK}$(date +%s)\"\necho \"{RESTARTED}$(cat {REMOTE_HOME}/{RESTART_STAMP} 2>/dev/null)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
         cloud_vm_check(),
         daemon_unit(),
         migrate(true)
     )
+}
+
+/// Start [`probe_script`]'s line with the host's clock (`date +%s`) and its
+/// line with the last update restart's ([`RESTART_STAMP`]).
+const CLOCK: &str = "ACPMUX_CLOCK=";
+const RESTARTED: &str = "ACPMUX_RESTARTED=";
+
+/// The file in [`REMOTE_HOME`], beside `update.owner`, that holds when (by
+/// the host's `date +%s`) an update last restarted the daemon there, whichever
+/// update it was: `host self-update` (its timer), `host update` from another
+/// machine, or the app's update queue. Every update reads it under the host's
+/// update lock, so the restart window ([`RESTART_WINDOW_SECS`]) holds across
+/// all of them.
+pub(crate) const RESTART_STAMP: &str = "update.restarted";
+
+/// An update restarts a host's running daemon at most once in this many
+/// seconds (gcp-codex-swarm-08, 2026-11-15: its timer and a `host update`
+/// from another machine restarted it 13 times in 160 minutes, each waking
+/// every harness at once). An update inside the window changes nothing
+/// (`busy`, reason `restartWindow`); the first one after it brings the
+/// newest build.
+pub(crate) const RESTART_WINDOW_SECS: u64 = 60 * 60;
+
+/// Sets the window in seconds instead of [`RESTART_WINDOW_SECS`]; 0 turns it off.
+pub(crate) const RESTART_WINDOW_ENV: &str = "ACPMUX_UPDATE_RESTART_WINDOW_SECS";
+
+/// The restart window an update keeps: none with `now` (a person's `--now`),
+/// else [`RESTART_WINDOW_ENV`]'s or [`RESTART_WINDOW_SECS`].
+pub(crate) fn restart_window(now: bool) -> Option<u64> {
+    if now {
+        return None;
+    }
+    let secs = std::env::var(RESTART_WINDOW_ENV)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(RESTART_WINDOW_SECS);
+    (secs > 0).then_some(secs)
 }
 
 /// A peer as [`probe_script`] found it.
@@ -204,6 +241,10 @@ struct Probe {
     busy: Option<Vec<String>>,
     /// Why its hand-written unit cannot be moved: a reason code and a message.
     refused: Option<(String, String)>,
+    /// The host's clock, in seconds since 1970.
+    clock: Option<u64>,
+    /// When an update last restarted its daemon ([`RESTART_STAMP`]), by that clock.
+    restarted: Option<u64>,
 }
 
 impl Probe {
@@ -247,7 +288,11 @@ impl Probe {
             parts[0].lines().find_map(|l| l.strip_prefix(APP_MANAGED)).map(str::to_owned);
         let uname = parts[0].lines().find_map(|l| l.strip_prefix(UNAME)).unwrap_or_default();
         let uname = uname.trim().to_owned();
-        Some(Probe { uname, cloud_vm, app_managed, build, busy, refused })
+        let secs = |key: &str| {
+            parts[0].lines().find_map(|l| l.strip_prefix(key)).and_then(|v| v.trim().parse().ok())
+        };
+        let (clock, restarted) = (secs(CLOCK), secs(RESTARTED));
+        Some(Probe { uname, cloud_vm, app_managed, build, busy, refused, clock, restarted })
     }
 }
 
@@ -567,6 +612,9 @@ pub(crate) struct UpdateOptions {
     pub keep_newer: bool,
     /// The session this command runs in, and its daemon.
     pub caller: Option<Caller>,
+    /// Restart a running daemon only when no update restarted it in this many
+    /// seconds ([`RESTART_STAMP`]); None restarts it whenever (`--now`).
+    pub restart_window: Option<u64>,
 }
 
 /// The session `host update` runs in: its `ACPMUX_SESSION_ID`, and the

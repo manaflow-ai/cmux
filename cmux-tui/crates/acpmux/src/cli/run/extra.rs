@@ -771,8 +771,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         // No daemon connection: the update must work while the daemon does not.
-        Command::Host(PeerCmd::SelfUpdate { channel }) => {
-            crate::cli::hosts::self_update(&channel, json_out).await
+        Command::Host(PeerCmd::SelfUpdate { channel, now }) => {
+            crate::cli::hosts::self_update(&channel, now, json_out).await
         }
         // A file of this machine's; the daemon, when it runs, only reloads it.
         Command::Host(PeerCmd::Approvals { cmd }) => {
@@ -1112,8 +1112,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // Dispatched before the connect (above); kept here so the
                 // match stays total without a panic.
-                PeerCmd::SelfUpdate { channel } => {
-                    return crate::cli::hosts::self_update(&channel, json_out).await;
+                PeerCmd::SelfUpdate { channel, now } => {
+                    return crate::cli::hosts::self_update(&channel, now, json_out).await;
                 }
                 PeerCmd::Hold { name, reason, until, release } => {
                     return crate::cli::hosts::hold(name, reason, until, release, json_out);
@@ -1121,7 +1121,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Approvals { cmd } => {
                     return crate::cli::host_approvals::run(cmd, json_out).await;
                 }
-                PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer } => {
+                PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer, now } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
                     let caller = match std::env::var("ACPMUX_SESSION_ID") {
                         Ok(session) if if_idle && !session.is_empty() => {
@@ -1137,6 +1137,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         if_idle,
                         keep_newer,
                         caller,
+                        restart_window: crate::cli::hosts::restart_window(now),
                     };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
