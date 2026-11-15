@@ -677,6 +677,7 @@ fn percentile(values: &mut [u128]) -> u128 {
 #[test]
 #[ignore = "Linux gate-profile ratio fixture: 40 and 2M settled rows"]
 fn actor_line_and_checkpoint_open_gate() {
+    let mut homes = Vec::new();
     let mut fixtures = Vec::new();
     for count in [40u64, 2_000_000] {
         let home = tempfile::tempdir().unwrap();
@@ -692,6 +693,7 @@ fn actor_line_and_checkpoint_open_gate() {
         }
         assert_eq!(state.log.max_row(), count);
         checkpoint(&mut state).unwrap();
+        homes.push(home);
         fixtures.push((count, config, state));
     }
 
