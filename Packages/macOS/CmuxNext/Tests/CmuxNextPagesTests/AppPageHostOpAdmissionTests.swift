@@ -2,6 +2,7 @@ import Foundation
 import CmuxNextSettings
 @testable import CmuxNextPages
 import Testing
+import WebKit
 
 /// next-review's BLOCK on #43033 (P1, blocks:security): an extension's web page went through the
 /// generic ``PageRouter``, whose built-in host ops ran before namespace admission, so a page could
@@ -58,6 +59,26 @@ struct AppPageHostOpAdmissionTests {
         }
         #expect(router.builtIn.isEmpty)
         #expect(!router.hasSwipeSubscriber)
+    }
+
+    /// next-review's BLOCK at 0162166 (P1-F1): the title row press is a host op outside the router
+    /// (`cmuxTitleRowPress`, a page script's report that moves, zooms or minimizes the window). An
+    /// extension page fabricating one from its own click handler passed the gesture check, so an app
+    /// page gets neither its script nor its handler; another page keeps both.
+    @Test func anExtensionPageGetsNoTitleRowPress() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("title-row-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Ext</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let marker = "__cmuxTitleRowPress"
+        let app = try PageDescriptor.appPage(id: "com.example.ext", resource: "ext", namespaces: ["com.example.ext."])
+        let extensionPage = try #require(PageWebView(descriptor: app, root: root, testRoot: true, routes: [], route: "#/"))
+        defer { extensionPage.close() }
+        #expect(!extensionPage.webView.configuration.userContentController.userScripts.contains { $0.source.contains(marker) })
+        let other = PageDescriptor(id: "test.title-row", resource: "title-row", namespaces: [])
+        let page = try #require(PageWebView(descriptor: other, root: root, testRoot: true, routes: [], route: "#/"))
+        defer { page.close() }
+        #expect(page.webView.configuration.userContentController.userScripts.contains { $0.source.contains(marker) })
     }
 
     @Test func aFirstPartyPageStillRunsTheRoutersHostOps() async {
