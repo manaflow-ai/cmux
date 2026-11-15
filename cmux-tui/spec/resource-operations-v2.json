@@ -3196,7 +3196,8 @@
       "kind": "enum",
       "values": [
         "unix",
-        "websocket"
+        "websocket",
+        "remote"
       ]
     },
     "ClientTerminalSize": {

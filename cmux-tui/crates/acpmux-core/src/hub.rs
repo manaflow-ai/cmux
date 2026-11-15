@@ -756,7 +756,13 @@ impl Hub {
             disk::HydrationState::Loading
         };
         let (hydrated_tx, hydrated_rx) = tokio::sync::watch::channel(state);
-        let sources = Arc::new(ArcSwap::from_pointee(HashMap::new()));
+        // Decision 264: a stored mark is the record of who held the origin.
+        // Every takeover as v1 writes it off before a v1 row goes in, so an
+        // origin whose mark is on opens as the mirror's: v1's tee stands aside
+        // for it, and the first dial resumes from the mark.
+        let sources: HashMap<String, Source> =
+            index.mirror_marks().map(|mark| (mark.origin, Source::Mirror)).collect();
+        let sources = Arc::new(ArcSwap::from_pointee(sources));
         let rebuild_requested = Arc::new(AtomicBool::new(false));
         let rebuild_count = Arc::new(AtomicU64::new(rebuilds));
         let rebuild_fenced = Arc::new(AtomicU64::new(0));
