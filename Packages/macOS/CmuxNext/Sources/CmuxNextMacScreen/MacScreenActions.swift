@@ -62,7 +62,7 @@ public struct MacScreenActions {
 
     /// The hub id `text` names: an id as is (listed or not, as before names resolved), else the one device whose
     /// name matches case-insensitively, else the one whose name matches ignoring punctuation and spacing too
-    /// ("air-blue" for "Air Blue", "leos-mac" for "Leo’s Mac"), so a `cmux device list` name finds its Mac.
+    /// ("mac-mini" for "Mac Mini", "leos-mac" for "Leo’s Mac"), so a `cmux device list` name finds its Mac.
     /// An empty, unknown or ambiguous name fails with the devices it could name, as "name (id)".
     static func deviceID(named text: String, among devices: [HubDevice]) throws -> String {
         if let id = MacScreenRecord.normalizedDeviceID(text) { return id }
@@ -86,7 +86,7 @@ public struct MacScreenActions {
     private static func slug(_ name: String) -> String {
         folded(name).components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: "-")
     }
-    /// "Studio (0b6c…), air-blue (5d1e…)": what a CLI caller can pass back as `--device`.
+    /// "Studio (0b6c…), mac-mini (5d1e…)": what a CLI caller can pass back as `--device`.
     private static func listed(_ devices: [HubDevice]) -> String {
         let rows = devices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map { "\($0.name) (\($0.id))" }
         return ListFormatter.localizedString(byJoining: rows)
