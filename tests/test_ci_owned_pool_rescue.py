@@ -2385,6 +2385,57 @@ class DeeperDestination(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
 
 
+class LongQueueOnWatchedRun(unittest.TestCase):
+    """A refusals-only watch acts on a long queue too, not only on a refusal: a job queued STALL_QUEUE_SECONDS on an
+    owned label moves like a stall when its re-run's label has a shallower queue (deeper_queue())."""
+
+    PAYLOAD = DeeperDestination.PAYLOAD
+
+    def follow(self, snapshot):
+        clock = Clock()
+        api = FakeAPI(clock, gui_daemon_tests, snapshot=snapshot)
+        target = rescue.target_from_event(self.PAYLOAD, "manaflow-ai/cmux")
+        target = dataclasses.replace(target, refusals_only=True)
+        logs: list[str] = []
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=logs.append, side_seconds=30, side_label=SIDE)
+        return api, "\n".join(logs + [result])
+
+    def test_a_long_queue_moves_to_a_shallower_side_queue(self):
+        api, text = self.follow(depth_snapshot(source=3, destination=0, destination_oldest=0))
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertGreaterEqual(api.first_cancel, rescue.STALL_QUEUE_SECONDS)
+        self.assertIn(f"min for a runner on `{GUI}`", text)
+        self.assertIn(f"attempt 2 takes {SIDE}", text)
+
+    def test_a_long_queue_stays_when_the_side_queue_is_deeper(self):
+        api, text = self.follow(depth_snapshot())
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", text)
+
+    def test_a_refusal_beside_a_running_sibling_waits_for_it(self):
+        # The long queue waits on a running sibling; a refusal found meanwhile does not cancel the run either.
+        def jobs(seconds):
+            sibling = job("cmux-next swift test", status="in_progress", labels=[SIDE], runner="mini-2")
+            sibling["started_at"] = stamp(5)
+            found = [job("cmux-next daemon tests", labels=[GUI], created=0), sibling]
+            if seconds >= rescue.STALL_QUEUE_SECONDS + 60:
+                found.append(refused_job("cmux-next Release compile", labels=(GUI,)))
+            return found
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, snapshot=depth_snapshot(source=3, destination=0, destination_oldest=0))
+        target = dataclasses.replace(rescue.target_from_event(self.PAYLOAD, "manaflow-ai/cmux"), refusals_only=True)
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                          log=lambda text: None, side_seconds=30, side_label=SIDE)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+
+
 class SideLanes(unittest.TestCase):
     def test_every_side_workflow_is_watched_like_a_pull_request(self):
         for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
