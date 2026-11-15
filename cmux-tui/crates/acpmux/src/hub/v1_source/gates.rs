@@ -170,9 +170,11 @@ impl RawSource for Measured {
                 {
                     let mut waits = counters.sync_waits.lock().unwrap();
                     s.waits_bytes = (waits.capacity() * 8) as u64;
-                    if std::env::var_os("CATCHUP_DRAIN_WAITS").is_some() {
-                        *waits = Vec::new();
-                    }
+                    // A test-only record of every sync's wait (`Counters::sync_waits`, one u64
+                    // each, absent from a product build): god syncs about 36,600 times and small
+                    // 98, so kept whole it alone climbs 512 KiB with length. Each stretch starts
+                    // it empty.
+                    *waits = Vec::new();
                 }
                 let mut stretches = self.stretches.lock().unwrap();
                 if stretches.len() < stretches.capacity() {
@@ -206,7 +208,21 @@ impl RawSource for Measured {
 }
 
 fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
-    let home = Home::with_chat(shape.god_messages, shape.god_bytes);
+    let home = match std::env::var("CATCHUP_SEGMENT_BYTES").ok().and_then(|s| s.parse().ok()) {
+        Some(segment_bytes) if shape.name == "small" => {
+            let home = Home::with_segments(segment_bytes);
+            let (_, last) = crate::god_fixture::append_log(
+                home.store.as_ref(),
+                ID,
+                shape.god_messages,
+                shape.god_bytes,
+            )
+            .unwrap();
+            home.last.store(last, Ordering::SeqCst);
+            home
+        }
+        _ => Home::with_chat(shape.god_messages, shape.god_bytes),
+    };
     let log = home.log();
     let log_bytes = {
         let mut bytes = 0;
@@ -256,7 +272,12 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
             Some((e.file_name().to_string_lossy().into_owned(), e.metadata().ok()?.len()))
         })
         .collect::<Vec<_>>();
-    eprintln!("v2.pr03b.catchup_peak_rss book_files msgs={} {book_files:?}", shape.god_messages);
+    eprintln!(
+        "v2.pr03b.catchup_peak_rss book_files msgs={} heads={} lists={} {book_files:?}",
+        shape.god_messages,
+        log.counters.heads.load(Ordering::SeqCst),
+        log.counters.lists.load(Ordering::SeqCst)
+    );
     {
         let b = at_baseline;
         eprintln!(
