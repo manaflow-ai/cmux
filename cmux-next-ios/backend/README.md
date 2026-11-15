@@ -121,9 +121,11 @@ API 0.16.0 (build spaces, PROTOCOL.md "Build spaces") needs the `space` columns
 of `mobile_devices`, `mobile_push_tokens` and `mobile_team_prefs` in
 cmux-next-vitess: `backend/db/drizzle-mysql/0004_mobile_build_space.sql`
 (expand only, applied with `backend/db/migrate-mysql.ts`, a deploy request on
-`main`). The Worker names `space` in every statement, so it fails on a database
-without them; the 0.15.0 Worker keeps working on a migrated one (existing rows
-read as stable). `drizzle/0005_build_space.sql` is the same change for the old
+`main`). The Worker names `space` in every statement, so on a database
+without them it answers every store request with
+`503 store.schema_outdated` naming the migration (a per-isolate probe, logged
+once, rechecked until it passes); the 0.15.0 Worker keeps working on a
+migrated one (existing rows read as stable). `drizzle/0005_build_space.sql` is the same change for the old
 Postgres databases, which the Worker no longer binds.
 
 API 0.13.0 needs `drizzle/0004_push_settings.sql` (the `muted_macs` and

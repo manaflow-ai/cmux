@@ -1,6 +1,7 @@
 import { createExecutionContext, env, runInDurableObject, waitOnExecutionContext } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import handler from "../src/index.ts"
+import { memoryStore, type DeviceInput } from "../src/store.ts"
 import { userHubName, type TeamHub } from "../src/team-hub.ts"
 import { token, worker } from "./helpers.ts"
 
@@ -113,6 +114,21 @@ describe("build space header", () => {
     // Dev and local Workers accept dev spaces (the test Worker is ENVIRONMENT=test).
     expect((await callIn(A, "GET", "/v1/health", undefined)).status).toBe(200)
   })
+
+  it("serves dev spaces only in environments that allow them, so an unknown or missing environment refuses them", async () => {
+    const health = async (environment: string | undefined, space: string) => {
+      const e = { ...(env as object), ENVIRONMENT: environment } as unknown as Parameters<typeof handler.fetch>[1]
+      const ctx = createExecutionContext()
+      const res = await handler.fetch(new Request("https://api.test/v1/health", { headers: headersIn(space) }), e, ctx)
+      await waitOnExecutionContext(ctx)
+      return { status: res.status, code: res.status === 200 ? null : ((await res.json()) as any).error.code }
+    }
+    for (const environment of ["production", "Prod", "staging", "dev ", "DEV", "", undefined]) {
+      expect({ environment, ...(await health(environment, A)) }).toEqual({ environment, status: 403, code: "build_space.not_allowed" })
+      expect({ environment, ...(await health(environment, "")) }).toEqual({ environment, status: 200, code: null })
+    }
+    for (const environment of ["dev", "test", "local"]) expect({ environment, ...(await health(environment, A)) }).toEqual({ environment, status: 200, code: null })
+  })
 })
 
 describe("build spaces isolate one person's data", () => {
@@ -153,15 +169,61 @@ describe("build spaces isolate one person's data", () => {
     for (const space of SPACES) expect((await callIn(space, "GET", "/v1/me/devices", tok)).json.devices).toHaveLength(2)
   })
 
-  it("refuses a device id that is registered in another space and leaves that row alone", async () => {
+  it("refuses a device id another user registered in another space and leaves that row alone", async () => {
     const tok = await token("bs-conflict")
     const team = "personal-bs-conflict"
     const id = await registerIn("", tok, "mac", team)
-    const taken = await callIn(A, "POST", "/v1/devices", tok, { deviceId: id, kind: "mac", name: "dev copy", teamId: team })
-    expect(taken.status).toBe(409)
-    expect(taken.json.error.code).toBe("build_space.device_conflict")
+    const other = await token("bs-conflict-2")
+    for (const space of [A, B]) {
+      const taken = await callIn(space, "POST", "/v1/devices", other, { deviceId: id, kind: "mac", name: "dev copy", teamId: "personal-bs-conflict-2" })
+      expect(taken.status).toBe(409)
+      expect(taken.json.error.code).toBe("build_space.device_conflict")
+    }
     expect((await callIn("", "GET", "/v1/me/macs", tok)).json.macs).toEqual([expect.objectContaining({ deviceId: id, name: "mac in stable" })])
-    expect((await callIn(A, "GET", "/v1/me/macs", tok)).json.macs).toEqual([])
+    expect((await callIn(A, "GET", "/v1/me/macs", other)).json.macs).toEqual([])
+  })
+
+  it("moves the same user's stable device into the dev space that registers it, with its push token", async () => {
+    // A dev build that registered before build spaces holds a stable ("") row; its next registration sends the
+    // header. It must not be refused forever: the row (one install of one build) moves to the dev space.
+    const tok = await token("bs-move")
+    const team = "personal-bs-move"
+    const mac = await registerIn("", tok, "mac", team, { machineId: MACHINE })
+    const phone = await registerIn("", tok, "phone", team)
+    expect((await callIn("", "PUT", `/v1/devices/${phone}/push`, tok, { token: HEX, environment: "sandbox", topic: "dev.cmux.mobile", kinds: ["question"] })).status).toBe(200)
+    const stableMac = await connectIn("", tok, team, mac)
+    const closed = new Promise<number>((resolve) => stableMac.ws.addEventListener("close", (e) => resolve(e.code)))
+
+    const movedMac = await callIn(A, "POST", "/v1/devices", tok, { deviceId: mac, kind: "mac", name: "mac in dev", teamId: team })
+    expect(movedMac.status).toBe(200)
+    expect(movedMac.json.device).toMatchObject({ deviceId: mac, name: "mac in dev", machineId: MACHINE })
+    expect((await callIn(A, "POST", "/v1/devices", tok, { deviceId: phone, kind: "phone", name: "phone in dev", teamId: team })).status).toBe(200)
+    // The stable hub let go of the Mac: its old socket is closed as removed.
+    expect(await closed).toBe(4002)
+
+    expect((await callIn("", "GET", "/v1/me/devices", tok)).json.devices).toEqual([])
+    expect((await callIn("", "GET", "/v1/me/macs", tok)).json.macs).toEqual([])
+    const dev = await callIn(A, "GET", "/v1/me/devices", tok)
+    expect(dev.json.devices.map((d: any) => [d.deviceId, d.push]).sort()).toEqual([[mac, false], [phone, true]].sort())
+    expect((await callIn(A, "GET", "/v1/me/macs", tok)).json.macs).toEqual([expect.objectContaining({ deviceId: mac, machineId: MACHINE })])
+    // Notify in the dev space reaches the moved phone's push registration; stable has none left.
+    const body = { eventId: "evt-move", kind: "question", agent: "Claude", place: "repo" }
+    expect((await callIn(A, "POST", `/v1/devices/${mac}/notify`, tok, body)).json.wants).toEqual(["question"])
+    // The moved device signals in its new space.
+    const devMac = await connectIn(A, tok, team, mac)
+    devMac.ws.close()
+    expect((await upgrade("", tok, team, mac)).status).toBe(403)
+  })
+
+  it("moves the same user's device from one dev space to another", async () => {
+    // One device id is one install of one build: a build whose dev tag changed takes its device with it.
+    const tok = await token("bs-retag")
+    const team = "personal-bs-retag"
+    const phone = await registerIn(A, tok, "phone", team)
+    expect((await callIn(A, "PUT", `/v1/devices/${phone}/push`, tok, { token: HEX, environment: "sandbox", topic: "dev.cmux.mobile" })).status).toBe(200)
+    expect((await callIn(B, "POST", "/v1/devices", tok, { deviceId: phone, kind: "phone", name: "retagged", teamId: team })).status).toBe(200)
+    expect((await callIn(A, "GET", "/v1/me/devices", tok)).json.devices).toEqual([])
+    expect((await callIn(B, "GET", "/v1/me/devices", tok)).json.devices).toEqual([expect.objectContaining({ deviceId: phone, name: "retagged", push: true })])
   })
 
   it("never gives a machine id to a sibling build of another space", async () => {
@@ -267,9 +329,12 @@ describe("build space hubs", () => {
     expect(await runInDurableObject(stub, (_h, state) => state.id.name)).toBeUndefined()
     expect(await bound()).toEqual({ owner: "bs-evict", space: A })
     expect((await stub.macs({ ownerKey: "bs-evict", space: A })).map((m) => m.deviceId)).toEqual([macs[A]])
-    // The same owner in another space is never this hub.
-    await expect(stub.macs("bs-evict")).rejects.toThrow()
-    await expect(stub.macs({ ownerKey: "bs-evict", space: B })).rejects.toThrow()
+    // The same owner in another space is never this hub. Called on the instance: a refused RPC through the test
+    // pool's stub proxy also surfaces as an unhandled rejection, which fails the run even though it is awaited here.
+    await runInDurableObject(stub, async (hub) => {
+      await expect(hub.macs("bs-evict")).rejects.toThrow("not this user's hub")
+      await expect(hub.macs({ ownerKey: "bs-evict", space: B })).rejects.toThrow("not this user's hub")
+    })
     // Stable's hub is untouched and never holds dev:a's Mac.
     const stable = hubs.get(hubs.idFromName(userHubName("bs-evict")))
     expect((await stable.macs("bs-evict")).map((m) => m.deviceId)).toEqual([macs[""]])
@@ -280,5 +345,29 @@ describe("build space hubs", () => {
     const stub = hubs.get(hubs.idFromName(userHubName("bs-retire", A)))
     expect(await stub.retireTeamHub()).toEqual({ closed: 0 })
     expect((await callIn(A, "GET", "/v1/me/macs", tok)).json.macs.map((m: any) => m.deviceId)).toEqual([macs[A]])
+  })
+})
+
+describe("store: a device id moves with its owner", () => {
+  it("moves the same owner's row and push token to the registering space, never another owner's", async () => {
+    const s = memoryStore()
+    const id = crypto.randomUUID()
+    const phone = (space: string, ownerUserId = "bs-store-move"): DeviceInput => ({ deviceId: id, space, ownerUserId, teamId: "personal-bs-store-move", kind: "phone", name: "p", wgPublicKey: null })
+    const first = await s.upsertDevice(phone(""))
+    expect(first).toMatchObject({ movedFrom: null, device: { space: "" } })
+    await s.setPush({ deviceId: id, space: "", ownerUserId: "bs-store-move", token: "tok-move", environment: "sandbox", topic: "dev.cmux.mobile", kinds: ["question"], mutedMacs: [], previews: true })
+
+    expect(await s.upsertDevice(phone(A, "bs-store-other"))).toBe("other_space")
+    expect(await s.upsertDevice(phone("", "bs-store-other"))).toBe("not_owner")
+
+    expect(await s.upsertDevice(phone(A))).toMatchObject({ movedFrom: "", device: { space: A } })
+    expect(await s.getDevice("", id)).toBeUndefined()
+    expect((await s.getDevice(A, id))?.space).toBe(A)
+    expect(await s.listOwnerPush("", "bs-store-move")).toEqual([])
+    expect((await s.listOwnerPush(A, "bs-store-move")).map((p) => [p.token, p.space])).toEqual([["tok-move", A]])
+    expect(await s.upsertDevice(phone(A))).toMatchObject({ movedFrom: null })
+    expect(await s.upsertDevice(phone(B))).toMatchObject({ movedFrom: A, device: { space: B } })
+    expect((await s.listOwnerPush(B, "bs-store-move")).map((p) => p.token)).toEqual(["tok-move"])
+    await s.deleteOwner("bs-store-move", "all")
   })
 })

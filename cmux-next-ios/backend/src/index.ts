@@ -5,6 +5,7 @@ import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
 import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
 import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
+import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
@@ -98,23 +99,26 @@ class HttpError extends Error {
  * its own devices, hubs, pushes and prefs.
  */
 export const BUILD_SPACE_HEADER = "x-cmux-build-space"
+/** The `ENVIRONMENT` values (wrangler.jsonc vars, vitest.config.ts) whose Worker serves dev spaces. */
+const DEV_SPACE_ENVIRONMENTS: ReadonlySet<string> = new Set(["dev", "test", "local"])
 const BUILD_SPACE = /^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
 /**
  * The caller's build space. An absent header is the stable space (""). A malformed value is refused (400),
  * never read as stable: a dev build with a broken tag must not land in stable data. `dev:default` is refused
  * too: the mobile-attach scripts reserve the `default` tag for the stable instance.
  *
- * The production Worker refuses every dev space (403 `build_space.not_allowed`) instead of serving it or
- * dropping the header: production holds only stable data, and a dev build pointed at it by mistake then fails
- * on its first request, before auth or any read, rather than reading or writing a person's real devices.
- * Dev builds use the dev Worker (or a local one), where their spaces live.
+ * Only the environments in `DEV_SPACE_ENVIRONMENTS` serve dev spaces; every other Worker, production included,
+ * refuses them (403 `build_space.not_allowed`) instead of serving them or dropping the header. It is an allow-list
+ * so a missing or misspelled `ENVIRONMENT` refuses too: production holds only stable data, and a dev build pointed
+ * at it by mistake then fails on its first request, before auth or any read, rather than reading or writing a
+ * person's real devices. Dev builds use the dev Worker (or a local one), where their spaces live.
  */
 export const spaceOf = (req: Request, env: Pick<Env, "ENVIRONMENT">): string => {
   const value = req.headers.get(BUILD_SPACE_HEADER)
   if (value === null) return ""
   if (!BUILD_SPACE.test(value) || value === "dev:default")
     throw new HttpError(400, "build_space.invalid", `${BUILD_SPACE_HEADER} must be dev:<slug> (lowercase letters, digits and inner dashes, at most 64)`)
-  if (env.ENVIRONMENT === "prod") throw new HttpError(403, "build_space.not_allowed", "dev build spaces are not served by the production API; use the dev API")
+  if (!DEV_SPACE_ENVIRONMENTS.has(env.ENVIRONMENT)) throw new HttpError(403, "build_space.not_allowed", "dev build spaces are not served by the production API; use the dev API")
   return value
 }
 
@@ -288,7 +292,11 @@ const requireMember = async (env: Env, teamId: string, caller: Ctx) => {
 
 const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Promise<T>): Promise<T> => {
   const t = timingFor(ctx)
-  const store = await t.span("db_connect", openStore(env))
+  const store = await t.span("db_connect", openStore(env)).catch((e: unknown) => {
+    // A Worker deployed before its migration: one clear answer instead of a SQL error from each statement.
+    if (e instanceof StoreSchemaError) throw new HttpError(503, "store.schema_outdated", e.message)
+    throw e
+  })
   try {
     return await t.span("db", f(store))
   } finally {
@@ -639,7 +647,15 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       return { ...up, claimed }
     })
     if (r === "not_owner") throw new HttpError(403, "not_owner", "this deviceId belongs to another user")
-    if (r === "other_space") throw new HttpError(409, "build_space.device_conflict", "this deviceId is registered by another build of the app")
+    if (r === "other_space") throw new HttpError(409, "build_space.device_conflict", "this deviceId is registered by another user's build of the app")
+    // The caller's device moved here from another build space (Store.upsertDevice): that space's hub lets it go
+    // (presence `removed`, its old socket closed with 4002), so it is never listed or dialed there again.
+    if (r.movedFrom !== null) {
+      const from = r.movedFrom
+      await t
+        .span("hub_moved", env.TEAM_HUB.get(env.TEAM_HUB.idFromName(userHubName(owner, from))).forgetDevice({ ownerKey: owner, space: from }, r.device.deviceId))
+        .catch((e: unknown) => console.log(JSON.stringify({ msg: "moved device: old hub unavailable", error: String(e) })))
+    }
     // The caller's hub notes the device (and its team; a team move closes its socket with 4001 `moved`).
     await t.span(
       "hub",

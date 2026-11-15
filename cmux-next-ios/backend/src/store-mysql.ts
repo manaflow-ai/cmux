@@ -69,6 +69,52 @@ const push = (r: PushRowDb): PushRegistration => ({
   updatedAt: iso(r.updated_at)
 })
 
+/**
+ * The database lacks a column this Worker names in every statement: a migration was not applied before the deploy
+ * (backend/README.md "Migrations"). src/index.ts answers it with 503 `store.schema_outdated`.
+ */
+export class StoreSchemaError extends Error {
+  constructor(readonly migration: string) {
+    super(`the database is missing the build space columns: apply backend/db/drizzle-mysql/${migration}.sql (cmux-next-vitess) before this Worker`)
+    this.name = "StoreSchemaError"
+  }
+}
+
+/** The migration that adds the `space` column of each table below. */
+const SPACE_MIGRATION = "0004_mobile_build_space"
+const SPACE_TABLES = ["mobile_devices", "mobile_push_tokens", "mobile_team_prefs"] as const
+/** MySQL ER_BAD_FIELD_ERROR ("Unknown column"). */
+const UNKNOWN_COLUMN = 1054
+/**
+ * Per isolate: whether the probe passed (it is then skipped) and whether an outdated schema was logged. A failed
+ * probe is not remembered, so the first request after the migration is served without a redeploy.
+ */
+const probe = { ok: false, logged: false }
+/** Tests only: probe again on the next store. */
+export const resetSchemaProbe = () => {
+  probe.ok = false
+  probe.logged = false
+}
+
+/**
+ * Checks once per isolate that every table has `space` (`SELECT space ... LIMIT 0` reads no rows). Without it each
+ * statement of every request would fail with its own SQL error; this fails the request before any of them with one
+ * StoreSchemaError, logged once.
+ */
+const probeSchema = async (conn: MysqlConn) => {
+  if (probe.ok) return
+  try {
+    for (const table of SPACE_TABLES) await conn.query(`SELECT space FROM ${table} LIMIT 0`)
+  } catch (e) {
+    if ((e as { errno?: unknown }).errno !== UNKNOWN_COLUMN) throw e
+    const err = new StoreSchemaError(SPACE_MIGRATION)
+    if (!probe.logged) console.log(JSON.stringify({ msg: "store.schema_outdated", migration: SPACE_MIGRATION, error: String(e) }))
+    probe.logged = true
+    throw err
+  }
+  probe.ok = true
+}
+
 const marks = (n: number) => Array.from({ length: n }, () => "?").join(", ")
 
 /**
@@ -77,8 +123,14 @@ const marks = (n: number) => Array.from({ length: n }, () => "?").join(", ")
  */
 export const mysqlStore = async (conn: MysqlConn): Promise<Store> => {
   await conn.query("SET time_zone = '+00:00'")
+  try {
+    await probeSchema(conn)
+  } catch (e) {
+    await conn.end().catch(() => {})
+    throw e
+  }
   const rows = async <T>(sql: string, values: Array<unknown> = []): Promise<Array<T>> => (await conn.query(sql, values))[0] as Array<T>
-  /** The row of an id in any space: only upsertDevice reads it, to refuse an id another space holds. */
+  /** The row of an id in any space: only upsertDevice reads it, to move or refuse an id another space holds. */
   const anyDevice = async (deviceId: string) => (await rows<DeviceRow>("SELECT * FROM mobile_devices WHERE device_id = ? LIMIT 1", [uuid(deviceId)])).map(device)[0]
   const getDevice = async (space: string, deviceId: string) =>
     (await rows<DeviceRow>("SELECT * FROM mobile_devices WHERE device_id = ? AND space = ? LIMIT 1", [uuid(deviceId), space])).map(device)[0]
@@ -94,8 +146,14 @@ export const mysqlStore = async (conn: MysqlConn): Promise<Store> => {
     async upsertDevice(d) {
       const id = uuid(d.deviceId)
       const prev = await anyDevice(id)
-      if (prev && prev.space !== d.space) return "other_space"
-      if (prev && prev.ownerUserId !== d.ownerUserId) return "not_owner"
+      if (prev && prev.ownerUserId !== d.ownerUserId) return prev.space !== d.space ? "other_space" : "not_owner"
+      // The same owner's id in another space moves here (Store), push token first: if the device's move fails, a
+      // retry finds the row still there and moves it then.
+      const movedFrom = prev && prev.space !== d.space ? prev.space : null
+      if (movedFrom !== null) {
+        await conn.query("UPDATE mobile_push_tokens SET space = ? WHERE device_id = ? AND space = ?", [d.space, id, movedFrom])
+        await conn.query("UPDATE mobile_devices SET space = ? WHERE device_id = ? AND owner_user_id = ? AND space = ?", [d.space, id, d.ownerUserId, movedFrom])
+      }
       // INSERT IGNORE then an owner- and space-guarded UPDATE: a racing registration by another owner or space keeps its row.
       await conn.query(
         "INSERT IGNORE INTO mobile_devices (device_id, space, owner_user_id, team_id, kind, name, wg_public_key, machine_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -110,7 +168,7 @@ export const mysqlStore = async (conn: MysqlConn): Promise<Store> => {
       if (!now) return "not_owner"
       if (now.space !== d.space) return "other_space"
       if (now.ownerUserId !== d.ownerUserId) return "not_owner"
-      return { device: now, previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
+      return { device: now, previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null, movedFrom }
     },
     async claimSiblings(space, ownerUserId, machineId, deviceIds) {
       if (!deviceIds.length) return []
