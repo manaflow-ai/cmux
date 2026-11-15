@@ -247,6 +247,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | View another Mac's screen (Mac Screen tab, streamed on cmux.rd/1) | the Screen Sharing viewer (CmuxMobileScreenSharing) | partial | The phone views over WebRTC. A Mac host takes its protocol from the viewer's offer: a cmux.rd/1 document runs `cmux rd serve`, any other offer runs ScreenStreamHost, so Macs and phones both reach it. The phone has no cmux.rd/1 link yet: iOS cannot start the Mac's helper process, so the link has to come in as a library. code-checked; live pending |
 | Mac Screen as a tab in a workspace | + › Screen Sharing, then Open as Tab: a phone-side Screen Sharing tab after the Mac's tabs (`WorkspaceScreenSharingTab.swift`) | done | The tab is the phone's own: the Mac lists no such tab, and Close Tab removes it on the phone only. It stays open for the app's run. sim-checked (ScreenSharingSheetUITests) |
 | Share This Mac (serve a session) | | not from a phone | A phone views Macs; it is not a screen host. |
+| Share another Mac of yours, confirmed on the device you are at (`remote.confirm {action: share, device}`: Allow signs a `cmux.share-approval.v1` with the device key) | | missing | The phone holds a device hub key too, so it can be the device that confirms. It needs the same dialog and signature (`CmuxRemoteShareApproval`), and delivery through hq#11046 cut 1's same-account trust, which the Mac does not have yet either. |
 
 ## Workspace list order (parity2 decision)
 
