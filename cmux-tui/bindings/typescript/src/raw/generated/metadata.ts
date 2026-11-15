@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294. */
+/* cmux-tui mux protocol 12, IR b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6a3013d2fbf6ac8e4a466d77b50923aaf53b8d2caf9525e4fb2174e89714f294" as const;
+export const SDK_IR_SHA256 = "b2886f08b5d2fb8bfcec48a9752046afc22720bacf96d570b784a9e2b2a798d2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -97,6 +97,10 @@ export const COMMAND_METADATA = {
         "since": 7,
         "capability": null
       },
+      "output_coalesce_ms": {
+        "since": null,
+        "capability": "attach-output-coalesce-v1"
+      },
       "replay_history_rows": {
         "since": null,
         "capability": "attach-replay-history-rows-v1"
@@ -180,7 +184,8 @@ export const COMMAND_METADATA = {
     "constraints": [
       "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted.",
       "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
-      "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted."
+      "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted.",
+      "output_coalesce_ms (bytes mode, no snapshot; 0 to 1000, 0 off) applies only when the connection declared attach-output-coalesce-v1 in set-client-info: output events then come at most once per interval (default 16.667 ms), the first bytes after an idle interval at once."
     ]
   },
   "bind-conversation-tab-session": {
@@ -16240,6 +16245,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "bytes",
               "render"
             ]
+          }
+        },
+        "output_coalesce_ms": {
+          "capability": "attach-output-coalesce-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
           }
         },
         "replay_history_rows": {
