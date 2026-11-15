@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::ids::{self, Resolved, WindowIds};
 use super::outline::{self, Options};
 use super::{diff, guards};
@@ -346,10 +348,12 @@ fn an_unnamed_element_inserted_above_never_takes_an_id_that_is_still_there() {
         vec![field("2.9", 99), field("2.1", 11), field("2.2", 12)],
     ));
     w.assign(&mut b, false, &mut n);
-    assert_eq!(b.root.children[1].id, x, "X keeps its id");
-    assert_eq!(b.root.children[2].id, y, "Y keeps its id");
-    assert_ne!(b.root.children[0].id, x);
-    assert_ne!(b.root.children[0].id, y);
+    // Z is new; X and Y either keep their own ids or get new ones (their
+    // place among unnamed fields changed), never another one's.
+    let (z, x2, y2) = (&b.root.children[0].id, &b.root.children[1].id, &b.root.children[2].id);
+    assert!(z != &x && z != &y, "Z took {z}");
+    assert!(x2 == &x || x2 != &y, "X took Y's id");
+    assert!(y2 == &y || y2 != &x, "Y took X's id");
 }
 
 #[test]
@@ -373,8 +377,8 @@ fn ids_are_unique_across_windows_and_say_whose_they_are() {
     let mut r = ids::Registry::default();
     let mut a = tree(form(1, &["Alpha"]));
     let mut b = tree(form(1, &["Alpha"]));
-    r.assign("w1", &mut a, false);
-    r.assign("w2", &mut b, false);
+    r.assign("w1", &mut a, false, None);
+    r.assign("w2", &mut b, false, None);
     let save_a = id_of(&a, "Save");
     assert_ne!(save_a, id_of(&b, "Save"));
     assert_eq!(r.window("w2").unwrap().resolve(save_a), Resolved::Unknown);
@@ -631,11 +635,12 @@ fn without_identity_an_unnamed_element_is_never_matched_by_place_alone() {
 
 #[test]
 fn a_running_registry_starts_its_ids_at_a_random_thousand() {
-    let mut r = ids::Registry::new();
+    // Without a state directory, ids start at a per-process epoch.
+    let mut r = ids::Registry::new(None);
     let mut t = tree(el("1.0", "window", "W"));
-    r.assign("w", &mut t, false);
+    r.assign("w", &mut t, false, None);
     let first: u32 = t.root.id.parse().unwrap();
-    assert!(first > 1000 && first < 100_001, "{first}");
+    assert!(first > 100_000, "{first}");
 }
 
 #[test]
@@ -712,4 +717,158 @@ fn an_element_read_anew_with_a_new_id_is_said_once_not_as_removed_and_added() {
     let (a, b) = (outline::build(&before, false, &opts), outline::build(&after, false, &opts));
     let c = diff::compute(&a, &b, &opts);
     assert_eq!(diff::render(&a, &b, &c, &opts).unwrap(), "~ [9] close button (new id; was [8])");
+}
+
+/// The ids two walks give the elements named `name` (first match each).
+fn twice(a: Element, b: Element) -> (UiTree, UiTree) {
+    let mut w = WindowIds::default();
+    let mut n = 0u32;
+    let (mut x, mut y) = (tree(a), tree(b));
+    w.assign(&mut x, false, &mut n);
+    w.assign(&mut y, false, &mut n);
+    (x, y)
+}
+
+#[test]
+fn a_recycled_rows_delete_button_never_keeps_its_id_under_another_file() {
+    // AppKit reuses the row view (same identity) and its button for another
+    // file: the "Delete" of a.txt must not become the "Delete" of b.txt.
+    let row = |g: u32, file: &str| {
+        with(
+            el(&format!("{g}.0"), "window", "Files"),
+            vec![with(
+                ident(el(&format!("{g}.1"), "table", ""), 1),
+                vec![with(
+                    ident(el(&format!("{g}.2"), "row", ""), 7),
+                    vec![
+                        el(&format!("{g}.3"), "text", file),
+                        ident(el(&format!("{g}.4"), "button", "Delete"), 50),
+                    ],
+                )],
+            )],
+        )
+    };
+    let (a, b) = twice(row(1, "a.txt"), row(2, "b.txt"));
+    assert_ne!(id_of(&a, "Delete"), id_of(&b, "Delete"));
+}
+
+#[test]
+fn a_feed_card_rerendered_with_another_post_is_new() {
+    // Unlabeled cards sharing "Like" and "Share": only the post tells them
+    // apart, so a card now showing another post is another card.
+    let feed = |g: u32, posts: &[&str]| {
+        with(
+            el(&format!("{g}.0"), "window", "Feed"),
+            posts
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    with(
+                        el(&format!("{g}.c{i}"), "group", ""),
+                        vec![
+                            el(&format!("{g}.t{i}"), "text", p),
+                            el(&format!("{g}.l{i}"), "button", "Like"),
+                            el(&format!("{g}.s{i}"), "button", "Share"),
+                        ],
+                    )
+                })
+                .collect(),
+        )
+    };
+    let (a, b) = twice(feed(1, &["Post A", "Post B"]), feed(2, &["Post C", "Post B"]));
+    assert_ne!(a.root.children[0].id, b.root.children[0].id, "card 1 shows another post");
+    assert_ne!(
+        a.root.children[0].children[1].id, b.root.children[0].children[1].id,
+        "its Like too"
+    );
+    assert_eq!(a.root.children[1].id, b.root.children[1].id, "card 2 is the same card");
+}
+
+#[test]
+fn repeated_identical_siblings_lose_their_ids_when_one_is_removed() {
+    let list = |g: u32, k: usize| {
+        with(
+            el(&format!("{g}.0"), "window", "W"),
+            (0..k).map(|i| el(&format!("{g}.{i}"), "button", "Remove")).collect(),
+        )
+    };
+    let (a, b) = twice(list(1, 3), list(2, 2));
+    let old: Vec<&String> = a.root.children.iter().map(|c| &c.id).collect();
+    for c in &b.root.children {
+        assert!(
+            !old.contains(&&c.id),
+            "{} kept an id though which one was removed is unknown",
+            c.id
+        );
+    }
+}
+
+#[test]
+fn a_renamed_button_with_a_fixed_identifier_and_an_insert_is_new() {
+    let with_id = |e: Element, id: &str| Element { identifier: id.into(), ..e };
+    let a = with(el("1.0", "window", "W"), vec![with_id(el("1.1", "button", "Save"), "primary")]);
+    let b = with(
+        el("2.0", "window", "W"),
+        vec![
+            el("2.9", "text", "Unsaved changes"),
+            with_id(el("2.1", "button", "Delete"), "primary"),
+        ],
+    );
+    let (x, y) = twice(a, b);
+    assert_ne!(id_of(&x, "Save"), id_of(&y, "Delete"));
+}
+
+#[test]
+fn ids_given_out_before_a_restart_are_never_given_out_again() {
+    let dir = std::env::temp_dir().join(format!(
+        "cu-ids-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    fn all(e: &Element, out: &mut Vec<u32>) {
+        out.push(e.id.parse().unwrap());
+        e.children.iter().for_each(|c| all(c, out));
+    }
+    // Twenty restarts of the worker, each walking the window once: no id is
+    // ever given out twice (a model may still hold one from before).
+    let mut seen: HashSet<u32> = HashSet::new();
+    for g in 1..=20u32 {
+        let mut r = ids::Registry::new(Some(&dir));
+        let mut t = tree(form(g, &["Alpha", "Beta"]));
+        r.assign("w", &mut t, false, None);
+        let mut ids = Vec::new();
+        all(&t.root, &mut ids);
+        for id in ids {
+            assert!(seen.insert(id), "id {id} given out again after restart {g}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_window_id_reused_by_another_process_starts_its_ids_over() {
+    let mut r = ids::Registry::default();
+    let mut a = tree(form(1, &["Alpha"]));
+    r.assign("w", &mut a, false, Some(10));
+    let save = id_of(&a, "Save");
+    let mut b = tree(form(2, &["Alpha"]));
+    r.assign("w", &mut b, false, Some(11));
+    assert_ne!(id_of(&b, "Save"), save);
+    assert_eq!(r.window("w").unwrap().resolve(save), Resolved::Unknown);
+}
+
+#[test]
+fn a_fingerprint_names_what_differs() {
+    let mut w = WindowIds::default();
+    let mut n = 0u32;
+    let mut a = tree(form(1, &["Alpha"]));
+    w.assign(&mut a, false, &mut n);
+    let save = id_of(&a, "Save");
+    let fp = w.fingerprint(save).unwrap();
+    assert_eq!(fp.difference(&fp), None);
+    let mut other = fp.clone();
+    other.label = "Delete".into();
+    assert!(fp.difference(&other).unwrap().contains("\"Delete\""));
 }

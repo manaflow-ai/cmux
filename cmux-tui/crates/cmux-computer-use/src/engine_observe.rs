@@ -15,6 +15,10 @@ const SEEN_LINES: usize = 60_000;
 /// What an agent last saw of each window: (session, window) -> (when, outline).
 type Seen = HashMap<(String, String), (u64, outline::Outline)>;
 
+/// What an agent was shown of each window's elements: (session, window) ->
+/// (when, id -> fingerprint).
+type Shown = HashMap<(String, String), (u64, HashMap<u32, ids::Fingerprint>)>;
+
 /// What the engine keeps for observation.
 pub(super) struct Observe {
     pub(super) ids: Mutex<ids::Registry>,
@@ -24,6 +28,9 @@ pub(super) struct Observe {
     /// (session, window) -> the outline the agent last saw of it, and when.
     pub(super) seen: Mutex<Seen>,
     seen_tick: std::sync::atomic::AtomicU64,
+    /// (session, window) -> what each element was when its id was last shown
+    /// to the agent, checked when it acts on the id.
+    pub(super) shown: Mutex<Shown>,
     /// window -> the most elements a walk of it was asked for, when more than
     /// the default: later default walks read as far, so ids past the default
     /// limit stay current instead of being carried (and healed every action).
@@ -43,16 +50,25 @@ impl Pixels {
 
 impl Default for Observe {
     fn default() -> Self {
+        Self::new(None)
+    }
+}
+
+impl Observe {
+    /// With the engine's state directory, element ids are never given out
+    /// twice, across restarts too ([`ids::Registry::new`]).
+    pub(super) fn new(state_dir: Option<&std::path::Path>) -> Self {
         Self {
-            // Tests read exact ids; a running worker starts at a random offset.
+            // Tests read exact ids from 1; a running worker reserves them.
             ids: Mutex::new(if cfg!(test) {
                 ids::Registry::default()
             } else {
-                ids::Registry::new()
+                ids::Registry::new(state_dir)
             }),
             walking: Mutex::new(HashMap::new()),
             seen: Mutex::new(HashMap::new()),
             seen_tick: std::sync::atomic::AtomicU64::new(0),
+            shown: Mutex::new(HashMap::new()),
             reach: Mutex::new(HashMap::new()),
         }
     }
@@ -120,7 +136,8 @@ impl Engine {
             }
         };
         let mut tree = self.desktop.ui_tree(window_id, options)?;
-        lock(&self.observe.ids).assign(window_id, &mut tree, options.menus);
+        let pid = self.desktop.window(window_id).ok().flatten().map(|w| w.pid);
+        lock(&self.observe.ids).assign(window_id, &mut tree, options.menus, pid);
         Ok(tree)
     }
 
@@ -132,6 +149,60 @@ impl Engine {
 
     pub(super) fn forget_session_seen(&self, session: &str) {
         lock(&self.observe.seen).retain(|(s, _), _| s != session);
+    }
+
+    /// Records the fingerprints of the window's latest walk as shown to the
+    /// agent (merged: a look cut short keeps what it did not reach), keeping
+    /// at most [`SEEN_WINDOWS`] windows per session.
+    pub(super) fn record_shown(&self, session: &str, window_id: &str, ids: &[u32]) {
+        let fps: Vec<(u32, ids::Fingerprint)> = {
+            let reg = lock(&self.observe.ids);
+            let Some(w) = reg.window(window_id) else { return };
+            ids.iter().filter_map(|id| w.fingerprint(*id).map(|f| (*id, f))).collect()
+        };
+        let tick = self.observe.seen_tick.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut shown = lock(&self.observe.shown);
+        let entry = shown.entry((session.to_string(), window_id.to_string())).or_default();
+        entry.0 = tick;
+        entry.1.extend(fps);
+        loop {
+            let mine: Vec<_> = shown.iter().filter(|((s, _), _)| s == session).collect();
+            if mine.len() <= SEEN_WINDOWS {
+                break;
+            }
+            let Some(oldest) = mine.iter().min_by_key(|(_, (t, _))| *t).map(|(k, _)| (*k).clone())
+            else {
+                break;
+            };
+            shown.remove(&oldest);
+        }
+    }
+
+    /// The use-time check: the element `n` resolves to now is the element the
+    /// agent was shown under `n` (same role, label, kind of value, place and
+    /// ancestors). Anything else is refused as stale, so an id that moved to
+    /// another element can never be acted on.
+    fn check_shown(&self, session: &str, window: &Window, n: u32) -> Result<(), ToolOutput> {
+        let now = lock(&self.observe.ids).window(&window.id).and_then(|w| w.fingerprint(n));
+        let then = lock(&self.observe.shown)
+            .get(&(session.to_string(), window.id.clone()))
+            .and_then(|(_, m)| m.get(&n).cloned());
+        let look = format!("Call get_ui_tree on window {} and use the id it shows now.", window.id);
+        match (then, now) {
+            (Some(then), Some(now)) => match then.difference(&now) {
+                None => Ok(()),
+                Some(why) => Err(stale(format!(
+                    "element [{n}] is not the element you were shown under that id ({why}), so nothing was done. {look}"
+                ))),
+            },
+            (None, _) => Err(stale(format!(
+                "element [{n}] was not shown to you in window {} by this Computer Use (it may be from before a restart), so nothing was done. {look}",
+                window.id
+            ))),
+            (Some(_), None) => {
+                Err(stale(format!("element [{n}] is not in window {} now. {look}", window.id)))
+            }
+        }
     }
 
     /// The outline the agent last saw of a window.
@@ -224,6 +295,28 @@ impl Engine {
         body.insert("root".into(), serde_json::to_value(root).unwrap_or(Value::Null));
         body.insert("frames_in".into(), json!("screenshot pixels"));
         body.insert("truncated".into(), json!(truncated));
+        // What the agent is shown, for the use-time check: every element of a
+        // JSON tree; an outline's lines; a menu-only look's items.
+        let shown_ids: Vec<u32> = if look.json {
+            let mut all = Vec::new();
+            fn walk(e: &Element, out: &mut Vec<u32>) {
+                if let Ok(n) = e.id.parse() {
+                    out.push(n);
+                }
+                e.children.iter().for_each(|c| walk(c, out));
+            }
+            walk(root, &mut all);
+            all
+        } else if !menus.is_empty() {
+            menus
+                .iter()
+                .flat_map(|m| outline::build_items(m, &opts).lines.into_iter().map(|l| l.id))
+                .chain(menu_only)
+                .collect()
+        } else {
+            new.lines.iter().map(|l| l.id).collect()
+        };
+        self.record_shown(session, window_id, &shown_ids);
         if look.json {
             if !windows.is_empty() {
                 body.insert("windows_changed".into(), json!(windows));
@@ -275,10 +368,10 @@ impl Engine {
                                 format!("No change in window {window_id}'s elements since your last look")
                             };
                             let pixels = match pixels {
-                                Pixels::Changed => ", but its pixels changed (see the screenshot): something the tree does not describe moved, such as scrolled or drawn content.",
-                                Pixels::Same => ", and its pixels look the same as in your last screenshot of it.",
-                                Pixels::Unknown => "; whether its pixels changed is unknown (no earlier screenshot of it to compare).",
-                                Pixels::NotRead => " (full: true shows the whole tree).",
+                                Pixels::Changed => ", but its pixels changed (see the screenshot): something the tree does not describe moved, such as scrolled or drawn content. Effects outside this window (another app, a file, the clipboard) are not seen here.",
+                                Pixels::Same => ", and its pixels look the same as in your last screenshot of it. Effects outside this window (another app, a file, the clipboard) are not seen here.",
+                                Pixels::Unknown => "; whether its pixels changed is unknown (no earlier screenshot of it to compare). Effects outside this window (another app, a file, the clipboard) are not seen here.",
+                                Pixels::NotRead => " (full: true shows the whole tree). Effects outside this window are not seen here.",
                             };
                             parts.push(format!("{elements}{pixels}"));
                         }
@@ -387,7 +480,7 @@ impl Engine {
 
     /// The desktop's id for an agent's `[n]`, walking the window again when
     /// the id is a menu bar element of an earlier walk.
-    fn resolve_small(&self, window: &Window, n: u32) -> Result<String, ToolOutput> {
+    fn resolve_small(&self, session: &str, window: &Window, n: u32) -> Result<String, ToolOutput> {
         let resolved = |e: &Self| {
             lock(&e.observe.ids)
                 .window(&window.id)
@@ -408,7 +501,10 @@ impl Engine {
             r = resolved(self);
         }
         match r {
-            ids::Resolved::Current(e) => Ok(e.platform_id),
+            ids::Resolved::Current(e) => {
+                self.check_shown(session, window, n)?;
+                Ok(e.platform_id)
+            }
             ids::Resolved::Gone(what) => Err(stale(format!(
                 "element [{n}] ({what}) is no longer in window {}: it closed or was replaced after the state you read it from. Use an id from the latest state of this window, or call get_ui_tree.",
                 window.id
@@ -518,11 +614,24 @@ impl Engine {
         args: &Value,
         point: Option<Point>,
     ) -> Result<Guarded, ToolOutput> {
-        let _ = ctx;
         let element = match args_str(args, "element_id") {
             None => None,
             Some(raw) => Some(match ids::parse(raw) {
-                Some(n) => self.resolve_small(window, n)?,
+                Some(n) => {
+                    // Read the window as it is now (the menus too for a menu
+                    // item), so the use-time check compares the element the
+                    // action would reach, not the one an earlier walk saw.
+                    let menu = lock(&self.observe.ids)
+                        .window(&window.id)
+                        .and_then(|w| w.entry(n))
+                        .is_some_and(|e| e.menu_bar);
+                    self.walk_tree(
+                        &window.id,
+                        TreeOptions { menus: menu, ..TreeOptions::default() },
+                    )
+                    .map_err(|e| ToolOutput::desktop(&e))?;
+                    self.resolve_small(&ctx.session, window, n)?
+                }
                 None => raw.to_string(),
             }),
         };
@@ -545,7 +654,7 @@ impl Engine {
                 "perform_action" => matches!(action, "press" | "show_menu" | "pick" | "AXPress"),
                 _ => false,
             }
-            && let Some(listing) = self.menu_bar_listing(&window.id, n)
+            && let Some(listing) = self.menu_bar_listing(&ctx.session, &window.id, n)
         {
             out.done = Some(listing);
             return Ok(out);
@@ -625,14 +734,23 @@ impl Engine {
         }
         // A fresh walk above gave the element a new desktop id (and one that
         // carried it walks again: never act on a replaced desktop id).
+        // An agent's small id is checked against what it was shown; a desktop
+        // id the agent passed itself (the old form) only follows the walk.
+        let passed_small = args_str(args, "element_id").and_then(ids::parse).is_some();
         if let Some(n) = small {
-            out.element = Some(self.resolve_small(window, n)?);
+            if passed_small {
+                out.element = Some(self.resolve_small(&ctx.session, window, n)?);
+            } else if let Some(ids::Resolved::Current(e)) =
+                lock(&self.observe.ids).window(&window.id).map(|w| w.resolve(n))
+            {
+                out.element = Some(e.platform_id);
+            }
         }
         Ok(out)
     }
     /// A menu bar menu's items, from the walk that read the menus (it stays
     /// closed: the menu bar is the frontmost app's).
-    fn menu_bar_listing(&self, window_id: &str, n: u32) -> Option<ToolOutput> {
+    fn menu_bar_listing(&self, session: &str, window_id: &str, n: u32) -> Option<ToolOutput> {
         // Menus change with the app's state (Open Recent, enabled items):
         // list them as they are now.
         self.walk_tree(window_id, TreeOptions::default()).ok()?;
@@ -644,6 +762,8 @@ impl Engine {
         if items.lines.is_empty() {
             return None;
         }
+        let listed: Vec<u32> = items.lines.iter().map(|l| l.id).collect();
+        self.record_shown(session, window_id, &listed);
         let title = item.name;
         let mut out = ToolOutput::ok(json!({
             "menu": {

@@ -59,6 +59,9 @@ pub struct Entry {
     rnth: usize,
     /// The labels of the labeled elements inside it (a few, sorted).
     content: Vec<String>,
+    distinct: Vec<String>,
+    dups: usize,
+    sole: bool,
     identity: Option<u64>,
     pub disabled: bool,
     pub focused: bool,
@@ -108,6 +111,9 @@ pub struct WindowIds {
     truncated: bool,
     /// The menu bar of the latest walk that read it, small ids.
     menu_bar: Option<Element>,
+    /// The process and root element the ids belong to: a window id the
+    /// system reuses for another window starts over.
+    owner: Option<(u32, Option<u64>)>,
 }
 
 /// One node of a walk in pre-order, before ids are given.
@@ -117,6 +123,17 @@ struct Flat {
     nth: usize,
     rnth: usize,
     content: Vec<String>,
+    /// Its content without the labels its same-role unlabeled siblings also
+    /// hold (a feed card's "Like", "Share"): what tells it apart.
+    distinct: Vec<String>,
+    /// How many siblings (it included) have its role and label.
+    dups: usize,
+    /// Its identifier, unless weak (AppKit's generated `_NS:12`).
+    identifier: String,
+    /// No sibling shares its role and identifier.
+    ident_unique: bool,
+    /// No sibling has its role.
+    sole: bool,
     menu_bar: bool,
 }
 
@@ -230,15 +247,6 @@ pub fn time_drift(a: &str, b: &str) -> bool {
     a != b && without_times(a) == without_times(b) && without_times(a).contains('#')
 }
 
-/// Two containers' contents share most of their labels.
-fn overlap(a: &[String], b: &[String]) -> bool {
-    if a.is_empty() || b.is_empty() {
-        return false;
-    }
-    let shared = a.iter().filter(|x| b.contains(x)).count();
-    shared * 2 >= a.len().max(b.len())
-}
-
 /// Roles an unnamed element of which is told apart by the text inside it.
 const ITEM_ROLES: &[&str] = &[
     "row",
@@ -285,7 +293,7 @@ fn label_of(e: &Element) -> String {
             return label;
         }
     }
-    if !e.identifier.is_empty() {
+    if !strong_identifier(&e.identifier).is_empty() {
         return format!("#{}", e.identifier);
     }
     String::new()
@@ -343,6 +351,11 @@ fn flatten(root: &Element) -> Vec<(Flat, &Element)> {
                 nth,
                 rnth,
                 content: Vec::new(),
+                distinct: Vec::new(),
+                dups: 1,
+                identifier: strong_identifier(&c.identifier).to_string(),
+                ident_unique: false,
+                sole: false,
                 menu_bar: menu_bar || c.role == MENU_BAR,
             };
             for inner in visit(c, f, out) {
@@ -363,13 +376,82 @@ fn flatten(root: &Element) -> Vec<(Flat, &Element)> {
         nth: 0,
         rnth: 0,
         content: Vec::new(),
+        distinct: Vec::new(),
+        dups: 1,
+        identifier: strong_identifier(&root.identifier).to_string(),
+        ident_unique: true,
+        sole: true,
         menu_bar: root.role == MENU_BAR,
     };
     visit(root, f, &mut out);
+    // Per parent: repeated (role, label), shared identifiers, and the labels
+    // unlabeled same-role siblings share (left out of what tells them apart).
+    let mut kids: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (i, (f, _)) in out.iter().enumerate() {
+        if let Some(p) = f.parent {
+            kids.entry(p).or_default().push(i);
+        }
+    }
+    for group in kids.values() {
+        let mut keys: HashMap<(String, String), usize> = HashMap::new();
+        let mut idents: HashMap<(String, String), usize> = HashMap::new();
+        let mut shared: HashMap<(String, String), usize> = HashMap::new();
+        let mut roles: HashMap<String, usize> = HashMap::new();
+        for &i in group {
+            let (f, e) = &out[i];
+            *roles.entry(e.role.clone()).or_default() += 1;
+            *keys.entry((e.role.clone(), f.label.clone())).or_default() += 1;
+            if !f.identifier.is_empty() {
+                *idents.entry((e.role.clone(), f.identifier.clone())).or_default() += 1;
+            }
+            if f.label.is_empty() {
+                for l in &f.content {
+                    *shared.entry((e.role.clone(), l.clone())).or_default() += 1;
+                }
+            }
+        }
+        for &i in group {
+            let role = out[i].1.role.clone();
+            let f = &mut out[i].0;
+            f.dups = keys.get(&(role.clone(), f.label.clone())).copied().unwrap_or(1);
+            f.sole = roles.get(&role).copied().unwrap_or(1) == 1;
+            f.ident_unique = !f.identifier.is_empty()
+                && idents.get(&(role.clone(), f.identifier.clone())).copied().unwrap_or(0) == 1;
+            if f.label.is_empty() {
+                f.distinct = f
+                    .content
+                    .iter()
+                    .filter(|l| {
+                        shared.get(&(role.clone(), (*l).clone())).copied().unwrap_or(0) <= 1
+                    })
+                    .cloned()
+                    .collect();
+            }
+        }
+    }
     out
 }
 
+/// Two lists of labels share at least half of the longer one.
+fn half_shared(a: &[String], b: &[String]) -> bool {
+    let shared = a.iter().filter(|x| b.contains(x)).count();
+    !a.is_empty() && !b.is_empty() && shared * 2 >= a.len().max(b.len())
+}
+
+/// An identifier that names the element, or "" for a weak one: AppKit's
+/// generated `_NS:12`, or digits alone.
+pub fn strong_identifier(id: &str) -> &str {
+    if id.starts_with("_NS:") || id.bytes().all(|b| b.is_ascii_digit()) { "" } else { id }
+}
+
 type Key = (Option<u32>, String, String, usize);
+
+/// For an element whose role and label repeat among its siblings (identical
+/// "Remove" buttons): only the same count of them and the same position
+/// match; one removed or added makes every one of them new.
+fn same_repeat(o: &Entry, f: &Flat) -> bool {
+    (o.dups <= 1 && f.dups <= 1) || (o.dups == f.dups && o.rnth == f.rnth)
+}
 
 impl WindowIds {
     /// The latest walk's number.
@@ -394,7 +476,7 @@ impl WindowIds {
         let old = std::mem::take(&mut self.entries);
         let mut by_identity: HashMap<(u64, &str), Vec<u32>> = HashMap::new();
         let mut by_ident: HashMap<(Option<u32>, &str, &str), Vec<u32>> = HashMap::new();
-        let mut by_key: HashMap<Key, u32> = HashMap::new();
+        let mut by_key: HashMap<Key, Vec<u32>> = HashMap::new();
         let mut by_place: HashMap<(Option<u32>, &str, usize), u32> = HashMap::new();
         let mut old_root: Option<(u32, &str)> = None;
         let mut sorted: Vec<(&u32, &Entry)> = old.iter().collect();
@@ -403,14 +485,15 @@ impl WindowIds {
             if let Some(h) = e.identity {
                 by_identity.entry((h, e.role.as_str())).or_default().push(*id);
             }
-            if !e.identifier.is_empty() {
-                by_ident
-                    .entry((e.parent, e.role.as_str(), e.identifier.as_str()))
-                    .or_default()
-                    .push(*id);
+            let ident = strong_identifier(&e.identifier);
+            if !ident.is_empty() {
+                by_ident.entry((e.parent, e.role.as_str(), ident)).or_default().push(*id);
             }
             if !e.label.is_empty() {
-                by_key.insert((e.parent, e.role.clone(), e.label.clone(), e.nth), *id);
+                by_key
+                    .entry((e.parent, e.role.clone(), e.label.clone(), e.nth))
+                    .or_default()
+                    .push(*id);
             }
             by_place.insert((e.parent, e.role.as_str(), e.rnth), *id);
             if e.parent.is_none() && !e.menu_bar {
@@ -420,19 +503,18 @@ impl WindowIds {
         let flat = flatten(&tree.root);
         let mut ids: Vec<Option<u32>> = vec![None; flat.len()];
         let mut taken: HashSet<u32> = HashSet::new();
-        // Same parent (by its new id, which is its old one when it kept it) and
-        // the same position among the parent's children of its role.
-        let same_place =
-            |o: &Entry, parent: Option<u32>, f: &Flat| o.parent == parent && o.rnth == f.rnth;
-        // Pass 1, top-down (parents first): the platform's identity, plus a
-        // second axis. A reference can be reused after its element is freed
-        // (an AXUIElement's hash, an AT-SPI path), and AppKit reuses row views
-        // and rebuilds menus in place, so identity alone proves nothing:
+        // Pass 1, top-down (parents first): the platform's identity, under a
+        // parent that kept its id, plus a second axis. A reference can be
+        // reused after its element is freed (an AXUIElement's hash, an AT-SPI
+        // path), and AppKit reuses row views and rebuilds menus in place, so
+        // identity alone proves nothing:
         // - the same non-empty label; or
-        // - no label on either side and the same parent (not for a recycled
-        //   item, which is told apart only by its text); or
-        // - a recycled item (a row) whose label changed only in a time or
-        //   count ("2 min ago"), at the same place.
+        // - no label on either side (not a recycled item, told apart only by
+        //   its text); or
+        // - a recycled item whose label changed only in a time or count
+        //   ("2 min ago"), at the same position.
+        // A recycled row's children follow it: under a row that got a new id,
+        // nothing keeps an old id (its "Delete" button belongs to another file).
         for (i, (f, e)) in flat.iter().enumerate() {
             if f.parent.is_none() {
                 if let Some((id, role)) = old_root
@@ -444,19 +526,23 @@ impl WindowIds {
                 continue;
             }
             let Some(h) = e.identity else { continue };
-            let parent = f.parent.and_then(|p| ids[p]);
+            let Some(parent) = f.parent.and_then(|p| ids[p]) else { continue };
+            let recycled = RECYCLED_ROLES.contains(&e.role.as_str());
             let found = by_identity.get(&(h, e.role.as_str())).and_then(|v| {
                 v.iter().copied().find(|id| {
                     !taken.contains(id)
                         && old.get(id).is_some_and(|o| {
-                            (!f.label.is_empty() && o.label == f.label)
-                                || (f.label.is_empty()
-                                    && o.label.is_empty()
-                                    && !RECYCLED_ROLES.contains(&e.role.as_str())
-                                    && o.parent == parent)
-                                || (RECYCLED_ROLES.contains(&e.role.as_str())
-                                    && time_drift(&o.label, &f.label)
-                                    && same_place(o, parent, f))
+                            o.parent == Some(parent)
+                                && ((!f.label.is_empty()
+                                    && o.label == f.label
+                                    && same_repeat(o, f))
+                                    || (f.label.is_empty()
+                                        && o.label.is_empty()
+                                        && !recycled
+                                        && o.rnth == f.rnth)
+                                    || (recycled
+                                        && time_drift(&o.label, &f.label)
+                                        && o.rnth == f.rnth))
                         })
                 })
             });
@@ -465,47 +551,57 @@ impl WindowIds {
                 taken.insert(id);
             }
         }
-        // Pass 2, over the ids pass 1 left free, parents before children:
-        // - the identifier and the parent: when the identifier is unique there
-        //   and the role is not a recycled one; else the label too;
-        // - a non-empty label at the same place (role, label, position);
-        // - an unlabeled container at the same place holding the same labeled
-        //   elements (its content): place alone is never enough.
+        // Pass 2, over the ids pass 1 left free, parents before children, and
+        // only under a parent that kept its id:
+        // - a strong identifier unique among the siblings in both trees, for a
+        //   role that is not recycled, whose label did not change;
+        // - a non-empty label at the same place (role, label, and position
+        //   when that role and label repeat among the siblings);
+        // - an unlabeled container at the same position whose distinctive
+        //   content (labels its same-role siblings do not share) is the same,
+        //   every label of it; or, the only container of its role among its
+        //   siblings in both trees, sharing at least half its labels (a list
+        //   that gained a row is the same list).
         for (i, (f, e)) in flat.iter().enumerate() {
             if ids[i].is_some() {
                 continue;
             }
-            let parent = f.parent.and_then(|p| ids[p]);
-            let free = |id: &u32| !taken.contains(id);
             let recycled = RECYCLED_ROLES.contains(&e.role.as_str());
-            let found = (!e.identifier.is_empty())
-                .then(|| by_ident.get(&(parent, e.role.as_str(), e.identifier.as_str())))
+            let parent = f.parent.and_then(|p| ids[p]);
+            let parent_kept = parent.is_some_and(|p| old.contains_key(&p));
+            let free = |id: &u32| !taken.contains(id);
+            let labels_agree =
+                |o: &Entry| o.label.is_empty() || f.label.is_empty() || o.label == f.label;
+            let found = (parent_kept && !recycled && f.ident_unique)
+                .then(|| by_ident.get(&(parent, e.role.as_str(), f.identifier.as_str())))
                 .flatten()
-                .and_then(|v| {
-                    let unique = v.len() == 1;
-                    v.iter().copied().find(|id| {
-                        free(id)
-                            && old.get(id).is_some_and(|o| {
-                                (unique && !recycled) || (!f.label.is_empty() && o.label == f.label)
-                            })
-                    })
-                })
+                .filter(|v| v.len() == 1)
+                .and_then(|v| v.first().copied())
+                .filter(|id| free(id) && old.get(id).is_some_and(labels_agree))
                 .or_else(|| {
-                    (!f.label.is_empty())
+                    (parent_kept && !f.label.is_empty())
                         .then(|| by_key.get(&(parent, e.role.clone(), f.label.clone(), f.nth)))
                         .flatten()
-                        .copied()
-                        .filter(|id| free(id))
+                        .and_then(|v| {
+                            v.iter().copied().find(|id| {
+                                free(id) && old.get(id).is_some_and(|o| same_repeat(o, f))
+                            })
+                        })
                 })
                 .or_else(|| {
-                    (f.label.is_empty() && !recycled && !f.content.is_empty())
+                    (parent_kept && f.label.is_empty() && !recycled && !f.content.is_empty())
                         .then(|| by_place.get(&(parent, e.role.as_str(), f.rnth)))
                         .flatten()
                         .copied()
                         .filter(|id| {
                             free(id)
                                 && old.get(id).is_some_and(|o| {
-                                    o.label.is_empty() && overlap(&o.content, &f.content)
+                                    o.label.is_empty()
+                                        && if o.sole && f.sole {
+                                            half_shared(&o.content, &f.content)
+                                        } else {
+                                            !f.distinct.is_empty() && o.distinct == f.distinct
+                                        }
                                 })
                         })
                 });
@@ -533,6 +629,9 @@ impl WindowIds {
                     nth: f.nth,
                     rnth: f.rnth,
                     content: f.content.clone(),
+                    distinct: f.distinct.clone(),
+                    dups: f.dups,
+                    sole: f.sole,
                     identity: e.identity,
                     disabled: e.disabled,
                     focused: e.focused,
@@ -621,6 +720,49 @@ impl WindowIds {
             .or_else(|| self.menu_bar.as_ref().and_then(|m| find(m, &want)))
     }
 
+    /// What the model was shown of element `id`, compared when it acts on the
+    /// id ([`Fingerprint`]). None when the latest walk does not have it.
+    pub fn fingerprint(&self, id: u32) -> Option<Fingerprint> {
+        let e = self.entries.get(&id)?;
+        let mut chain = Vec::new();
+        let mut cur = e.parent;
+        while let Some(p) = cur {
+            if chain.len() > 256 {
+                break;
+            }
+            let pe = self.entries.get(&p)?;
+            // The window's own title changes as a document is edited; its id
+            // stands for it in the chain.
+            let label = if pe.parent.is_none() { String::new() } else { pe.label.clone() };
+            chain.push((p, pe.role.clone(), label));
+            cur = pe.parent;
+        }
+        // A recycled row keeps its id through a ticking time or count, so its
+        // fingerprint reads the label without them.
+        let label = if RECYCLED_ROLES.contains(&e.role.as_str()) {
+            without_times(&e.label)
+        } else {
+            e.label.clone()
+        };
+        Some(Fingerprint {
+            role: e.role.clone(),
+            label,
+            value_class: value_class(&e.role, &e.value),
+            nth: e.nth,
+            dups: e.dups,
+            chain,
+        })
+    }
+
+    /// Fingerprints of every element of the latest walk.
+    pub fn fingerprints(&self) -> HashMap<u32, Fingerprint> {
+        self.entries
+            .keys()
+            .filter(|id| self.entries.get(id).is_some_and(|e| e.walk == self.walk || e.menu_bar))
+            .filter_map(|id| self.fingerprint(*id).map(|f| (*id, f)))
+            .collect()
+    }
+
     /// The ids of `id`'s ancestors, nearest first.
     pub fn ancestors(&self, id: u32) -> Vec<u32> {
         let mut out = Vec::new();
@@ -653,30 +795,119 @@ fn rewrite(e: &mut Element, ids: &mut std::slice::Iter<'_, u32>) {
     }
 }
 
-/// Every window's ids, from one counter: an id is never reused, in any window.
+/// What an element was when its id was shown to the model: its role, label,
+/// the kind of its value, its place among same-role same-label siblings, and
+/// its ancestors' ids, roles and labels up to the window. An id whose element
+/// no longer matches is refused, never acted on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fingerprint {
+    pub role: String,
+    pub label: String,
+    pub value_class: &'static str,
+    pub nth: usize,
+    /// How many siblings look the same (role and label), it included.
+    pub dups: usize,
+    pub chain: Vec<(u32, String, String)>,
+}
+
+impl Fingerprint {
+    /// What differs, in words, for the refusal; None when they match.
+    pub fn difference(&self, now: &Fingerprint) -> Option<String> {
+        if self.role != now.role {
+            return Some(format!(
+                "it is a {} now, not a {}",
+                now.role.replace('_', " "),
+                self.role.replace('_', " ")
+            ));
+        }
+        if self.label != now.label {
+            return Some(format!("its name is now \"{}\", not \"{}\"", now.label, self.label));
+        }
+        if self.value_class != now.value_class {
+            return Some("its kind of value changed".into());
+        }
+        if self.nth != now.nth || self.dups != now.dups {
+            return Some("its place among elements like it changed".into());
+        }
+        if self.chain != now.chain {
+            return Some("what contains it changed".into());
+        }
+        None
+    }
+}
+
+/// A value's kind: what the person types into a field is always text; for
+/// anything else, a number (a slider, a checkbox's 0/1, a progress bar) or
+/// text (empty included).
+fn value_class(role: &str, v: &str) -> &'static str {
+    if super::guards::is_text_input(role) {
+        return "text";
+    }
+    let t = v.trim();
+    if !t.is_empty() && t.parse::<f64>().is_ok() { "number" } else { "text" }
+}
+
+/// Every window's ids, from one counter: an id is never reused, in any window,
+/// and (with a state directory) across restarts of the worker.
 #[derive(Default)]
 pub struct Registry {
     windows: HashMap<String, WindowIds>,
     order: VecDeque<String>,
     next: u32,
+    /// Ids below this are reserved in `store` (a file the counter lives in).
+    reserved: u32,
+    store: Option<std::path::PathBuf>,
 }
 
+/// How many ids are reserved in the store at a time: more than one walk gives
+/// out (at most 5,000 window elements and the menu bar).
+const RESERVE: u32 = 10_000;
+
 impl Registry {
-    /// A registry whose ids start at a per-process offset (a multiple of
-    /// 1000 below 100,000), so ids a model kept from before a worker restart
-    /// are unknown to the new worker, never another element.
-    pub fn new() -> Self {
-        use std::hash::{BuildHasher, Hasher};
-        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u128(
-            std::time::SystemTime::now()
+    /// A registry for a running worker. With `state_dir`, the counter lives
+    /// in a file there and ids are reserved ahead in blocks, so no id given
+    /// out before a restart is ever given out again. Without it, ids start at
+    /// a per-process epoch (tenths of a second since 2026), far past any id an
+    /// earlier process of the last years gave out.
+    pub fn new(state_dir: Option<&std::path::Path>) -> Self {
+        let store = state_dir.map(|d| d.join("element-ids"));
+        let epoch = || {
+            let secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            (secs.saturating_sub(1_767_225_600) / 10 * 100).min(u64::from(u32::MAX / 2)) as u32
+                + 1000
+        };
+        let start = match &store {
+            Some(p) => std::fs::read_to_string(p)
+                .ok()
+                .and_then(|t| t.trim().parse::<u32>().ok())
                 .unwrap_or(0),
-        );
-        h.write_u32(std::process::id());
-        let block = (h.finish() % 99) as u32 + 1;
-        Self { next: block * 1000, ..Self::default() }
+            None => epoch(),
+        };
+        let mut r = Self { next: start, reserved: start, store, ..Self::default() };
+        r.reserve();
+        r
+    }
+
+    /// Reserves the next block of ids in the store before any is given out.
+    fn reserve(&mut self) {
+        let Some(path) = &self.store else {
+            self.reserved = u32::MAX;
+            return;
+        };
+        let upto = self.next.saturating_add(RESERVE);
+        let tmp = path.with_extension("tmp");
+        let written =
+            std::fs::write(&tmp, format!("{upto}\n")).and_then(|()| std::fs::rename(&tmp, path));
+        // A store that cannot be written: fall back to the epoch, never reuse.
+        if written.is_err() {
+            self.store = None;
+            self.reserved = u32::MAX;
+            return;
+        }
+        self.reserved = upto;
     }
 
     fn touch(&mut self, window_id: &str) {
@@ -689,11 +920,28 @@ impl Registry {
         }
     }
 
-    /// Gives a walk of `window_id` its ids ([`WindowIds::assign`]).
-    pub fn assign(&mut self, window_id: &str, tree: &mut UiTree, menus: bool) {
+    /// Gives a walk of `window_id` its ids ([`WindowIds::assign`]). `pid`:
+    /// the window's process; when it, or the root element's identity, is not
+    /// the one the window's ids belong to, the window id names another window
+    /// now and its ids start over.
+    pub fn assign(&mut self, window_id: &str, tree: &mut UiTree, menus: bool, pid: Option<u32>) {
         self.touch(window_id);
+        let owner = pid.map(|p| (p, tree.root.identity));
+        if let Some(w) = self.windows.get(window_id)
+            && let (Some((op, oroot)), Some((np, nroot))) = (w.owner, owner)
+            && (op != np || matches!((oroot, nroot), (Some(a), Some(b)) if a != b))
+        {
+            self.windows.remove(window_id);
+        }
+        if self.next.saturating_add(RESERVE / 2) >= self.reserved {
+            self.reserve();
+        }
         let mut next = self.next;
-        self.windows.entry(window_id.to_string()).or_default().assign(tree, menus, &mut next);
+        let w = self.windows.entry(window_id.to_string()).or_default();
+        if owner.is_some() {
+            w.owner = owner;
+        }
+        w.assign(tree, menus, &mut next);
         self.next = next;
     }
 

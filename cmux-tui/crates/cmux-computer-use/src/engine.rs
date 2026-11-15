@@ -419,7 +419,7 @@ impl Engine {
             seen: Mutex::new(HashMap::new()),
             last_display: Mutex::new(HashMap::new()),
             agent_front: Mutex::new(HashMap::new()),
-            observe: observe_glue::Observe::default(),
+            observe: observe_glue::Observe::new(parts.state_dir.as_deref()),
             audit,
             machine_name: parts.machine_name,
             settle: parts.settle,

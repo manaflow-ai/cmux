@@ -205,6 +205,7 @@ fn a_pixel_click_on_the_title_bar_is_refused_in_the_background_only() {
 fn typing_with_focus_on_a_button_goes_through_and_into_a_button_is_refused() {
     let (d, e) = rig();
     set_tree(&d, form(1, false, true, ""));
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
     // A web app keeps focus on a button while its own key handler takes the
     // text: untargeted typing is let through, the state tells what landed.
     let out =
@@ -436,4 +437,60 @@ fn an_actions_state_carries_its_evidence_in_a_fixed_shape() {
     assert_eq!((c["added"].clone(), c["removed"].clone()), (json!(0), json!(0)));
     assert_eq!(c["elements_read"], "all");
     assert!(["changed", "same"].contains(&c["pixels"].as_str().unwrap()), "{c}");
+}
+
+#[test]
+fn an_id_whose_element_is_not_the_one_shown_is_refused_at_use_time() {
+    // The progress bar "Upload" keeps its id (same name, same place), but its
+    // value turned from text into a number: not what the agent was shown
+    // under the id, so the use-time check refuses it instead of acting.
+    let (d, e) = rig();
+    let with_bar = |g: u32, value: &str| {
+        let mut f = form(g, false, false, "");
+        let mut b = framed(el(&format!("{g}.30"), "progress", "Upload"), 400.0, 200.0, 80.0, 22.0);
+        b.value = value.into();
+        b.actions = vec!["press".into()];
+        f.children.push(b);
+        identify(&mut f, 1);
+        f
+    };
+    set_tree(&d, with_bar(1, "Waiting"));
+    let look = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    let id = tree_text(&look)
+        .lines()
+        .find(|l| l.contains("progress \"Upload\""))
+        .and_then(|l| l.trim().strip_prefix('['))
+        .and_then(|l| l.split(']').next())
+        .unwrap()
+        .to_string();
+    set_tree(&d, with_bar(2, "42"));
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": id}));
+    assert_eq!(out.code.as_deref(), Some("stale_element"), "{}", out.body);
+    assert!(
+        out.body["error"].as_str().unwrap().contains("not the element you were shown"),
+        "{}",
+        out.body
+    );
+    assert!(d.events().is_empty());
+}
+
+#[test]
+fn an_id_never_shown_by_this_worker_is_refused() {
+    let (_d, e) = rig();
+    // The window was walked (a guard, a state the agent never saw) but no look
+    // showed its ids to this session.
+    e.walk_tree("1", TreeOptions::default()).unwrap();
+    let out = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3"}));
+    assert_eq!(out.code.as_deref(), Some("stale_element"), "{}", out.body);
+    assert!(out.body["error"].as_str().unwrap().contains("was not shown to you"), "{}", out.body);
+}
+
+#[test]
+fn a_focus_move_counts_in_the_evidence() {
+    let (d, e) = rig();
+    e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    set_tree(&d, form(2, false, true, ""));
+    let look = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
+    assert_eq!(look.body["changes"]["changed"], 1, "{}", look.body["changes"]);
+    assert_eq!(look.body["changes"]["focus_moved"], true);
 }

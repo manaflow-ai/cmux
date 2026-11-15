@@ -107,6 +107,7 @@ pub fn compute(old: &outline::Outline, new: &outline::Outline, opts: &Options) -
                 && n.value == o.value
                 && n.identifier == o.identifier
                 && n.depth == o.depth
+                && n.parent == o.parent
         });
         match twin {
             Some(k) => c.renumbered.push((c.added.remove(k), j)),
