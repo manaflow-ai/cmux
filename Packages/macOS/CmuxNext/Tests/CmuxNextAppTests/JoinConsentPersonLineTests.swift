@@ -97,6 +97,61 @@ import CmuxNextServer
         #expect(daemon.refused == ["screen"] && daemon.granted.isEmpty)
     }
 
+    /// The 2026-11-15 incident: NIGHTLY's acpmux home is `~/.acpmux`, which a launchd job running
+    /// `~/.local/bin/acpmux` also serves. That daemon is not the acpmux this app runs, so the person line
+    /// refused it before its first byte and Settings > Devices said only "could not read what it allows",
+    /// with nothing in the log. The consent line now reads the record from it (rules 1 and 2), proves
+    /// nothing there (rule 3: no `person_prove` goes out), and says whose daemon it is.
+    @Test func anotherInstallsDaemonOnTheSocketIsReadButNeverProven() async throws {
+        let socket = Self.socketPath()
+        let daemon = try FakeAcpmux(socket: socket, key: AcpmuxPersonKey.spawnKey(for: socket), connections: 2)
+        defer { daemon.stop() }
+        var environment = try Self.environment(socket)
+        let ours = environment.executable.path
+        environment.executable = URL(fileURLWithPath: "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux")
+        #expect(await AcpmuxPersonLine.open(environment) == nil, "the approval lines still refuse another install's daemon")
+        guard case .line(let line) = await JoinConsentPersonLine.open(environment) else {
+            Issue.record("the consent line got no line to another install's daemon")
+            return
+        }
+        #expect(!line.isPerson && line.supportsConsent)
+        #expect(line.notProven == .notProven(foreignPath: ours, why: "another install's acpmux holds no key of this app"))
+        #expect(await line.read() == JoinConsentRecord(screen: false, control: false))
+        #expect(await line.set(.screen, granted: true, ticket: JoinConsentGrantGate().ticket()) == nil)
+        line.close()
+        daemon.waitForConnections()
+        #expect(daemon.methods == ["initialize", "_acpmux/machine_consent_get", "_acpmux/machine_consent_set"],
+                "no person_prove to another install's daemon")
+        #expect(daemon.granted.isEmpty)
+    }
+
+    /// No acpmux at the socket: "not running", never the generic "could not read".
+    @Test func noDaemonAtTheSocketSaysNotRunning() async throws {
+        let socket = Self.socketPath()
+        guard case .failed(let why) = await JoinConsentPersonLine.open(try Self.environment(socket)) else {
+            Issue.record("a line with no daemon")
+            return
+        }
+        #expect(why == .notRunning(path: socket))
+    }
+
+    /// This app's own daemon that this launch never keyed (it restarted while the app ran): the record
+    /// reads, and the line says the proof is what is missing.
+    @Test func anUnkeyedOwnDaemonReadsAndSaysItIsNotProven() async throws {
+        let socket = Self.socketPath()
+        // The status read the line makes before it would enroll answers "method not found" here.
+        let daemon = try FakeAcpmux(socket: socket, key: AcpmuxPersonKey.newKey(), connections: 2)
+        defer { daemon.stop() }
+        guard case .line(let line) = await JoinConsentPersonLine.open(try Self.environment(socket)) else {
+            Issue.record("no line to this app's own daemon")
+            return
+        }
+        #expect(!line.isPerson)
+        #expect(line.notProven == .notProven(foreignPath: nil, why: "this app holds no person key for this acpmux instance"))
+        #expect(await line.read() == JoinConsentRecord(screen: false, control: false))
+        line.close()
+    }
+
     private static func socketPath() -> String {
         "/tmp/jcl-\(UUID().uuidString.prefix(8))/acpmux.sock"
     }
@@ -219,6 +274,7 @@ import CmuxNextServer
                     switch method {
                     case "initialize":
                         let acpmux: [String: Any] = ["capabilities": ["acpmux-v1", "machine-consent-v1"],
+                                                     "features": ["personChallenge"],
                                                      "personChallenge": ["nonce": "n-1", "connection": "c-1"]]
                         reply["result"] = ["_meta": ["acpmux": acpmux]]
                     case "_acpmux/person_prove":

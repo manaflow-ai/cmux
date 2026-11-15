@@ -636,6 +636,69 @@ import Testing
         #expect(fake.writes.isEmpty)
     }
 
+    private static func page(_ model: JoinConsentModel) throws -> [String: Any] {
+        try #require(try JSONSerialization.jsonObject(with: try #require(model.pageData())) as? [String: Any])
+    }
+
+    /// Every way the page is left with no record says which one it is (2026-11-15: one generic "could not
+    /// read" line for all of them, and nothing in the log): no acpmux, a refused one, one that never
+    /// answered, an older one, one without the capability, and a failed read.
+    @Test func eachWayWithoutARecordSaysWhichOnThePage() async throws {
+        let cases: [(JoinConsentUnread, String)] = [
+            (.notRunning(path: "/tmp/x/acpmux.sock"), JoinConsentStrings.notRunning),
+            (.refused("the socket's peer runs as uid 0, not this user"), JoinConsentStrings.refusedDaemon),
+            (.noAnswer, JoinConsentStrings.noAnswer),
+            (.olderDaemon(path: "/usr/local/bin/acpmux"), JoinConsentStrings.olderDaemon),
+        ]
+        for (why, text) in cases {
+            let model = JoinConsentModel(services: JoinConsentServices(
+                status: { JoinStatus(credentialPresent: true, machineId: "m_1", teamId: "t_1") }, openLine: { nil },
+                enabled: { true }, askShown: { false }, markAskShown: {}, open: { .failed(why) }))
+            await model.refresh()
+            #expect(model.unread == why)
+            let page = try Self.page(model)
+            #expect(page["error"] as? String == text, "\(why)")
+            #expect(text != JoinConsentStrings.unread)
+            #expect(page["known"] as? Bool == false)
+            #expect(!model.permitsMacScreen(control: false))
+        }
+        let fake = Fake()
+        fake.capable = false
+        let unsupported = JoinConsentModel(services: fake.services())
+        await unsupported.refresh()
+        #expect(unsupported.unread == .unsupported)
+        fake.capable = true
+        fake.readFails = true
+        let failed = JoinConsentModel(services: fake.services())
+        await failed.refresh()
+        #expect(failed.unread == .readFailed(nil))
+        #expect(try Self.page(failed)["error"] as? String == JoinConsentStrings.unread)
+    }
+
+    /// The incident's Mac once the line reads another install's acpmux: the switches show what it holds,
+    /// disabled, with no Turn All Off (it takes no off from this app either), and the page names that
+    /// acpmux. Mac Screen follows the record it read.
+    @Test func aRecordReadButNotProvenShowsItsStateAndNamesTheDaemon() async throws {
+        final class ForeignLine: JoinConsentLine {
+            let isPerson = false
+            let supportsConsent = true
+            var notProven: JoinConsentUnread? { .notProven(foreignPath: "/Users/me/.local/bin/acpmux", why: "another install's") }
+            func read() async -> JoinConsentRecord? { JoinConsentRecord(screen: true, control: false) }
+            func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? { nil }
+            func close() {}
+        }
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: { JoinStatus(credentialPresent: true, machineId: "m_1", teamId: "t_1") }, openLine: { ForeignLine() },
+            enabled: { true }, askShown: { false }, markAskShown: {}))
+        await model.refresh()
+        let page = try Self.page(model)
+        #expect(page["error"] as? String == JoinConsentStrings.otherDaemon("/Users/me/.local/bin/acpmux"))
+        #expect(page["known"] as? Bool == false && page["revoke_all"] == nil)
+        let switches = try #require(page["switches"] as? [[String: Any]])
+        #expect(switches.first { $0["surface"] as? String == "screen" }?["on"] as? Bool == true, "shows what acpmux holds")
+        #expect(model.permitsMacScreen(control: false) && !model.permitsMacScreen(control: true))
+    }
+
     @Test func noAcpmuxIsAFailureNeverAnOn() async {
         let model = JoinConsentModel(services: JoinConsentServices(status: { JoinStatus(credentialPresent: true) }, openLine: { nil },
                                                                    enabled: { true }, confirmOwner: { _ in .confirmed },
