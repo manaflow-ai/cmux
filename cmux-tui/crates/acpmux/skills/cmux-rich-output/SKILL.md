@@ -17,6 +17,14 @@ never because it exists. The person's own instructions win.
    - ```` ```vega-lite ```` (a JSON spec): bar, line, area, point, pie (`arc`) and other charts.
      Put the rows in `data.values`; the chat fetches nothing, so a `data.url` draws nothing.
      The chat applies its own light or dark theme: leave colors and backgrounds out.
+   - ```` ```chart ````: the same charts from small JSON, no Vega-Lite needed:
+     `{"type": "bar", "data": [{"k": "a", "v": 3}], "x": "k", "y": "v"}`. type is bar, line, area,
+     pie or scatter; y may be a list (a series each); `labels` plus `series: [{name, values}]` works too.
+   - Perf and benchmark numbers (before and after, p50 and p95, memory over time): give the numbers
+     as text or a table first, then the same numbers as a ```` ```chart ```` beside them, never instead
+     of them, so the reply still reads where charts do not draw. A bench before and after:
+     `{"type": "bar", "title": "Cold start (ms)", "data": [{"run": "p50", "before": 910, "after": 590}, {"run": "p95", "before": 1240, "after": 760}], "x": "run", "y": ["before", "after"]}`.
+     Memory or time over a run is a `line` with the time or step as x.
    - Math: `$e^{i\pi} + 1 = 0$` inline, `$$ ... $$` on its own lines (KaTeX).
    - ```` ```html ```` or ```` ```svg ````: a static picture in the chat; scripts wait for the
      person's Run.
