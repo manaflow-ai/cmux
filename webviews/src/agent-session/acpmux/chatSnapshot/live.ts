@@ -2,6 +2,7 @@
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { captureMiss, captureSnapshot } from "./capture";
+import { noteSwap, swapDiff } from "./swapDiff";
 import {
   SNAPSHOT_GLOBAL,
   SNAPSHOT_HOST_TAG,
@@ -57,6 +58,7 @@ export function chatSnapshotReport(): Record<string, unknown> {
     miss: globals[SNAPSHOT_MISS_GLOBAL] ?? null,
     served: globals[`${SNAPSHOT_GLOBAL}Why`] ?? null,
     writes: { ...writes },
+    swap_diff: swapDiff() ?? null,
   };
 }
 
@@ -70,6 +72,7 @@ export function removeChatSnapshot(doc: Document = document): boolean {
   const root = doc.getElementById("root");
   if (root) root.style.removeProperty("opacity");
   if (!host) return false;
+  if (host.shadowRoot && root && doc.defaultView) noteSwap(host.shadowRoot, root, doc.defaultView);
   host.remove();
   const value = shown();
   if (value) value.swappedAt = performance.now();
