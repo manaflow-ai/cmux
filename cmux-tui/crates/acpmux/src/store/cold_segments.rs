@@ -127,7 +127,7 @@ pub(crate) fn read_index(session: &Path, index: u32) -> Result<Index> {
 /// A segment's file, local or cold.
 pub(crate) enum SegmentFile {
     Local(File),
-    Cold(ColdFile),
+    Cold(Box<ColdFile>),
 }
 
 impl SegmentFile {
@@ -179,7 +179,7 @@ impl Seek for SegmentFile {
 /// segment only after).
 pub(crate) fn open_segment(path: &Path) -> Result<SegmentFile> {
     if is_cold(path) {
-        return Ok(SegmentFile::Cold(ColdFile::open(path)?));
+        return Ok(SegmentFile::Cold(Box::new(ColdFile::open(path)?)));
     }
     match crate::config::private_state_file(path) {
         Ok(file) => Ok(SegmentFile::Local(file)),
@@ -192,7 +192,7 @@ pub(crate) fn open_segment(path: &Path) -> Result<SegmentFile> {
                     if crate::home_fs::try_exists_nofollow(idx_path(session, index))
                         .unwrap_or(false) =>
                 {
-                    Ok(SegmentFile::Cold(ColdFile::open(&zst_path(session, index))?))
+                    Ok(SegmentFile::Cold(Box::new(ColdFile::open(&zst_path(session, index))?)))
                 }
                 _ => Err(e),
             }
@@ -572,7 +572,6 @@ fn write_archive(src: &Path, dst: &Path, level: i32) -> Result<(PathBuf, Index, 
             }
         }
         flush(&mut chunk, &mut first, &mut out)?;
-        drop(flush);
         anyhow::ensure!(raw_off == len, "{} got shorter while it was read", src.display());
         let doc = Index {
             schema: SCHEMA.into(),
@@ -595,7 +594,7 @@ fn write_archive(src: &Path, dst: &Path, level: i32) -> Result<(PathBuf, Index, 
             let mut bytes = std::fs::read(&tmp)?;
             let at = bytes.len() / 2;
             bytes[at] ^= 0x5a;
-            std::fs::write(&tmp, &bytes)?;
+            crate::home_fs::write(&tmp, &bytes)?;
         }
         // Every chunk decoded back from the disk and checked before anything is in place.
         archive_holds(&tmp, &doc)
@@ -897,9 +896,9 @@ fn keep_for_bench(session: &Path, index: u32, doc: &Index) {
     let Some(keep) = std::env::var_os("ACPMUX_COLD_SEGMENTS_KEEP") else { return };
     let kept = (|| -> Result<()> {
         let dir = Path::new(&keep).join(session.file_name().unwrap_or_default());
-        std::fs::create_dir_all(&dir)?;
+        crate::home_fs::create_dirs(&dir)?;
         let mut file = crate::config::private_state_file(&zst_path(session, index))?;
-        let mut out = File::create(dir.join(format!("{index:06}.ndjson")))?;
+        let mut out = crate::home_fs::create_file(dir.join(format!("{index:06}.ndjson")))?;
         for chunk in &doc.chunks {
             out.write_all(&decode_chunk(&mut file, chunk)?)?;
         }

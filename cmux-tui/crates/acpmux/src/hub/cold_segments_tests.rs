@@ -95,7 +95,7 @@ async fn one_worker_moves_sealed_segments_and_ends_at_shutdown() {
     assert!(sealed > 1, "{sealed} sealed segments");
     // The worker's round is in: with the setting off, nothing went.
     let quiet = std::time::Instant::now();
-    while hub.cold_sealed.lock().unwrap().len() > 0 && quiet.elapsed().as_secs() < 10 {
+    while !hub.cold_sealed.lock().unwrap().is_empty() && quiet.elapsed().as_secs() < 10 {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
