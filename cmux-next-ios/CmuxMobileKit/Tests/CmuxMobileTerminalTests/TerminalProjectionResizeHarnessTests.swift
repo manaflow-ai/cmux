@@ -1,3 +1,6 @@
+// The projection (TerminalProjectingSession) and its FFI are iOS only, so the
+// harness runs on the kit job's iOS simulator leg, not under macOS swift test.
+#if os(iOS)
 import Foundation
 import Testing
 @testable import CmuxMobileTerminal
@@ -145,3 +148,5 @@ import Testing
         #expect(resets["another tab and back"] == 0)
     }
 }
+
+#endif
