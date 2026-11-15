@@ -13,7 +13,9 @@
 //!
 //! Laps never overlap and are recorded in order, so their sum is at most the
 //! total. Time a nested phase's own steps did not cover is named
-//! `<phase>.other`.
+//! `<phase>.other`. A step that names its parts keeps its own name for that
+//! time: `mux.build` and `registry.migrations.rehome` are the rest of their
+//! step, written after the entries that have the name as a prefix.
 //!
 //! The clock starts at the process's first statement, not at the owner's
 //! first step: the process marks its own steps before it knows it is an
