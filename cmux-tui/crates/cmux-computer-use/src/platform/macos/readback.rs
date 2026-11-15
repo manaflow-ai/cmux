@@ -188,8 +188,26 @@ pub(super) enum Check {
 // ------------------------------------------------------------ strict reads
 
 /// The window's elements, breadth first, bounded; `None` when a read of
-/// the walk failed.
+/// the walk failed or it ran past its bound.
 fn walk(win: &Ax) -> Option<Vec<(Ax, usize)>> {
+    walk_with(win, |_| true)
+}
+
+/// Roles whose contents a list search does not enter: their rows are read
+/// on their own ([`row_names`], counted with
+/// `AXUIElementGetAttributeValueCount` and capped).
+const LIST_ROLES: &[&str] = &["AXTable", "AXOutline", "AXList"];
+
+/// Whether a list search walks into an element of `role` (not into a
+/// list's rows and cells: a window's lists are found by their containers,
+/// so a long list does not push the search past its bound).
+pub(super) fn list_search_enters(role: Option<&str>) -> bool {
+    !role.is_some_and(|r| LIST_ROLES.contains(&r))
+}
+
+/// [`walk`], entering an element's children only when `enter` says so of
+/// its role (read strictly; a failed read ends the walk as unknown).
+fn walk_with(win: &Ax, enter: impl Fn(Option<&str>) -> bool) -> Option<Vec<(Ax, usize)>> {
     let mut out = Vec::new();
     let mut queue = VecDeque::from([(win.clone(), 0usize)]);
     while let Some((el, depth)) = queue.pop_front() {
@@ -197,7 +215,8 @@ fn walk(win: &Ax) -> Option<Vec<(Ax, usize)>> {
         if out.len() >= WALK_MAX {
             return None;
         }
-        if depth < WALK_DEPTH {
+        let role = el.try_string("AXRole").ok()?;
+        if depth < WALK_DEPTH && enter(role.as_deref()) {
             for c in el.try_elements("AXChildren").ok()? {
                 queue.push_back((c, depth + 1));
             }
@@ -226,9 +245,19 @@ pub(super) fn overlays(win: &Ax) -> Option<usize> {
     Some(with_roles(win, &["AXSheet", "AXPopover"])?.len())
 }
 
-/// The lists, tables and outlines of a window.
+/// The lists, tables and outlines of a window, found without walking into
+/// their rows (Notes' window has 708 elements, 45 outside its lists).
 pub(super) fn lists_of(win: &Ax) -> Option<Vec<Ax>> {
-    with_roles(win, &["AXTable", "AXOutline", "AXList"])
+    let nodes = walk_with(win, list_search_enters)?;
+    let roles = all_known(nodes.iter().map(|(el, _)| el.try_string("AXRole")))?;
+    Some(
+        nodes
+            .into_iter()
+            .zip(roles)
+            .filter(|(_, r)| r.as_deref().is_some_and(|r| LIST_ROLES.contains(&r)))
+            .map(|((el, _), _)| el)
+            .collect(),
+    )
 }
 
 /// The static texts of `win` and their values.
@@ -1121,6 +1150,21 @@ mod tests {
         assert!(!wanted_reached("5", "5", &Wanted::Direction(-1.0), 0.0));
         assert!(wanted_reached("0", "1", &Wanted::Other, 0.0));
         assert!(!wanted_reached("1", "1", &Wanted::Other, 0.0));
+    }
+
+    /// Notes on macOS 27.0.1: its window walk ran past its bound (708
+    /// elements, 83 rows in its notes list), so no "New Note" read-back
+    /// was attached. A list search finds lists by their containers and does
+    /// not walk into their rows; everything else is walked as before.
+    #[test]
+    fn a_list_search_does_not_walk_into_rows() {
+        for role in ["AXTable", "AXOutline", "AXList"] {
+            assert!(!list_search_enters(Some(role)), "{role}");
+        }
+        for role in ["AXWindow", "AXSplitGroup", "AXScrollArea", "AXGroup", "AXToolbar"] {
+            assert!(list_search_enters(Some(role)), "{role}");
+        }
+        assert!(list_search_enters(None));
     }
 
     #[test]
