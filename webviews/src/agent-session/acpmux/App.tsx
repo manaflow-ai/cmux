@@ -4126,7 +4126,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return {
       cloudSignIn: cloudAgentLogin(login),
       apiKeySignIn: localApiKeyLogin(login),
-      refusedSignIn: refused ? cloudAgentLogin({ ...login, harness: refused }) : undefined,
+      // A new chat has no session yet: its machine signs the agent in there with none, where its
+      // daemon can (`agent_login_machine`); elsewhere the card says to sign in on that machine.
+      refusedSignIn: refused
+        ? cloudAgentLogin({
+            ...login,
+            harness: refused,
+            machineLogin: directClient.current?.supportsMachineLogin === true,
+          })
+        : undefined,
     };
   }, [
     connected,
