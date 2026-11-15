@@ -3,6 +3,7 @@ import CmuxRemoteWire
 import Darwin
 import Foundation
 import Testing
+import os
 
 @Suite struct RemoteChildLifetimeTests {
     @Test func freezeRefusesLateSpawnAndCannotReopen() throws {
@@ -25,7 +26,7 @@ import Testing
         #expect(!lifetime.claimIdle())
         lifetime.freeze()
         #expect(await lifetime.waitUntilEmpty(timeout: .zero) == false)
-        lifetime.watch(child, name: "capture-lease-test-reap") { status in
+        lifetime.watch(child) { status in
             if status >= 0 { lifetime.reaped(child) }
         }
         close(child.stdin)
@@ -36,7 +37,7 @@ import Testing
         let lifetime = RemoteChildLifetime()
         let child = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         defer { close(child.stdout) }
-        lifetime.watch(child, name: "capture-lease-test-gated-stop") { status in
+        lifetime.watch(child) { status in
             if status >= 0 { lifetime.reaped(child) }
         }
         lifetime.freeze()
@@ -50,7 +51,7 @@ import Testing
         let current = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         defer { close(old.stdout); close(current.stdout) }
         lifetime.freeze()
-        lifetime.watch(old, name: "capture-old-generation") { status in
+        lifetime.watch(old) { status in
             if status >= 0 { lifetime.reaped(old) }
         }
         close(old.stdin)
@@ -58,11 +59,50 @@ import Testing
         lifetime.reaped(old)
         lifetime.reaped(old)
         #expect(await lifetime.waitUntilEmpty(timeout: .zero) == false)
-        lifetime.watch(current, name: "capture-current-generation") { status in
+        lifetime.watch(current) { status in
             if status >= 0 { lifetime.reaped(current) }
         }
         close(current.stdin)
         #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func shutdownKillsAStampedChildThatOutlivesTheTermDeadline() async throws {
+        let lifetime = RemoteChildLifetime()
+        let child = try lifetime.spawn(executable: "/bin/sh", arguments: ["-c", "trap '' TERM; echo ready; read line"],
+                                       environment: [:], logPath: "/dev/null")
+        defer { close(child.stdin); close(child.stdout) }
+        lifetime.watch(child) { status in
+            if status >= 0 { lifetime.reaped(child) }
+        }
+        // The trap is installed once the child says so.
+        var ready = [UInt8](repeating: 0, count: 6)
+        #expect(read(child.stdout, &ready, ready.count) > 0)
+        lifetime.freeze()
+        lifetime.stopOwnedChildren()
+        #expect(await lifetime.waitUntilEmpty(timeout: .milliseconds(300)) == false)
+        #expect(await lifetime.terminate(grace: .milliseconds(100), kill: .seconds(5)))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func oneReaperThreadServesEveryTrackedChild() async throws {
+        let lifetime = RemoteChildLifetime()
+        let threads = OSAllocatedUnfairLock(initialState: [String]())
+        var children: [ChildProcess] = []
+        for _ in 0..<8 {
+            children.append(try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null"))
+        }
+        defer { children.forEach { close($0.stdout) } }
+        for child in children {
+            lifetime.watch(child) { status in
+                threads.withLock { $0.append(Thread.current.name ?? "") }
+                if status >= 0 { lifetime.reaped(child) }
+            }
+        }
+        children.forEach { close($0.stdin) }
+        #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
+        let seen = threads.withLock { $0 }
+        // Waiting costs no thread per child and no periodic wakeup: one kernel exit reaper.
+        #expect(seen.count == children.count)
+        #expect(Set(seen) == [RemoteChildLifetime.reaperName])
     }
 
     @Test(.timeLimit(.minutes(1))) func failedWaitpidIsNotAnExitReceipt() async {
