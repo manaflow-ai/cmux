@@ -5485,10 +5485,11 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         # A long queue is acted on too, like a stall, where the re-run's side label is shallower (long_queue_move()).
         long_queue = long_queue_moves(target, side_label)
         while True:
-            outcome, reason = watch(client, target, budget_seconds=STALL_QUEUE_SECONDS if long_queue else max(
-                                        effective_seconds, remaining),
-                                    now=clock, sleep=sleep, log=log, deadline=deadline,
-                                    floor_seconds=effective_seconds)
+            # `seen` keeps each job's first sighting, so STALL_QUEUE_SECONDS counts from when it began waiting.
+            budget_now = STALL_QUEUE_SECONDS if long_queue else max(effective_seconds, remaining)
+            outcome, reason = watch(client, target, budget_seconds=budget_now, now=clock, sleep=sleep, log=log,
+                                    deadline=deadline, floor_seconds=effective_seconds,
+                                    seen=seen if long_queue else None)
             if outcome == "resume":
                 # A rescue stopped between its cancel and its re-run while this watch waited: finish its re-run.
                 return settle(outcome, reason)[3]
@@ -5499,9 +5500,20 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                 break
             moved = long_queue_move(client, target, side_label, now=clock, sleep=rescue_sleep, log=log,
                                     deadline=rescue_deadline)
-            if moved:
+            if moved and not moved.startswith("not rescued"):
                 return moved
+            if moved:
+                # Nothing was cancelled (the stall cleared, the run moved on): the watch goes on, so a later
+                # refusal keeps its rescue owner.
+                log(moved)
             if clock() >= deadline:
+                break
+            # assess() reports a long queue before a refusal: look for one before waiting again.
+            turned_away = [job for job in read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+                           if refused(job)]
+            if turned_away:
+                names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
+                outcome, reason = "refused", f"{names} refused by {job_pool(turned_away[0])} at job start"
                 break
             sleep(STALL_RECHECK_SECONDS)
     if target.refusals_only and outcome != "refused" and not failover_now:
