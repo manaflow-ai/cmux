@@ -29660,6 +29660,44 @@
 
       ],
       "cli" : "guiOnly",
+      "cli_name" : "action palette-capture-screenshot-to-chat",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "s",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "palette.captureScreenshotToChat",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Capture Screenshot to Chat",
+      "title_key" : "action.palette.captureScreenshotToChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
       "cli_name" : "action palette-add-harness",
       "context_menu" : "noObject",
       "context_menus" : [
