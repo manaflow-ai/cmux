@@ -69,7 +69,8 @@ const PORT_BLOCKS: u16 = 1_000;
 /// The output a read returns at most.
 pub(super) const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
 /// The most bytes that are read of a file that cmux keeps in a git folder
-/// (a setup's status, the repository's ports). A real one is far smaller.
+/// (a setup's status, the repository's ports), and of the `.git` file of a
+/// new worktree ([`read_small`]). A real one is far smaller.
 const MAX_OWN_BYTES: u64 = 1024 * 1024;
 /// Teardown output a removal reply carries.
 const MAX_TEARDOWN_OUTPUT_BYTES: u64 = 16 * 1024;

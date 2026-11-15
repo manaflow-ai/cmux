@@ -45,7 +45,9 @@ enum Open {
 }
 
 /// A git folder that cmux keeps files in (a setup's status, log and lock,
-/// the repository's ports).
+/// the repository's ports). The top folder of a new worktree is opened so
+/// too, for the read of its `.git` file
+/// ([`read_small`](super::read_small)): that file is git's, not cmux's.
 pub(super) struct OwnFolder {
     path: PathBuf,
     /// The real path of the folder at its open, or why there is no open
@@ -107,7 +109,8 @@ impl OwnFolder {
         self.folder.has(name)
     }
 
-    /// Opens `name`. The file is cmux's own: a link in its place is not
+    /// Opens `name`. The file is cmux's own, or the `.git` file of a new
+    /// worktree ([`read_small`](super::read_small)): a link in its place is not
     /// followed, the open waits for nothing (a named pipe has no other end
     /// to wait for), and only a regular file is used (the open file is
     /// looked at, not its name). A thing at the name that is not a regular

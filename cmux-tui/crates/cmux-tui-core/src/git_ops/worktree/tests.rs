@@ -92,9 +92,9 @@ fn own_tree_a_setup_starts_in_the_git_folder_of_a_new_work_tree() {
     );
 }
 
-/// The same with a `worktrees` folder that is a link to a folder of a different place: a
-/// person can keep the folder so, and git then makes the git folder of a new work tree in the
-/// folder that the link names.
+/// The same with a `worktrees` folder that is a link to a folder of a different place. The
+/// folders are made by hand here. git did not make them: with such a link, `git worktree add`
+/// of git 2.43.0 fails and makes no work tree.
 #[cfg(unix)]
 #[test]
 fn own_tree_a_setup_starts_in_a_worktrees_folder_that_is_a_link() {
