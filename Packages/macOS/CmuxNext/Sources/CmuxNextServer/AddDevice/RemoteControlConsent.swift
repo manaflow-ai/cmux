@@ -115,13 +115,13 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
         self.now = now ?? { Date() }
     }
 
-    /// The app's: requests over the join model's person line, rows from the joined machines, and `sign`
-    /// (this Mac's approver key).
+    /// The app's: requests over the join model's person line, rows from the joined machines, and `signer`
+    /// (this Mac's approver key, ``AcpmuxMacApprover/consentSigner``; nil: nothing is signed).
     public static func over(join: JoinConsentModel, machines: JoinedMachineStore,
-                            sign: @escaping @MainActor (String, String, String, Bool, String) async -> [String: any Sendable]?) -> Self {
+                            signer: (@Sendable (String, String, String, Bool, String) async -> [String: any Sendable]?)?) -> Self {
         var services = Self(call: { [weak join] method, params in
             await join?.personCall(method, params) ?? .failure(RemoteControlCallError(nil))
-        }, sign: sign, thisMacName: { [weak join] in join?.status?.name ?? join?.status?.machineId ?? "Mac" })
+        }, sign: { await signer?($0, $1, $2, $3, $4) }, thisMacName: { [weak join] in join?.status?.name ?? join?.status?.machineId ?? "Mac" })
         services.shown = { [weak join] in join?.shown == true }
         services.thisMac = { [weak join] in join?.status?.machineId }
         services.machines = { [weak machines] in machines?.machines ?? [] }

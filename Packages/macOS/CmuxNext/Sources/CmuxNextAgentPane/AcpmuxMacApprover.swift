@@ -181,6 +181,15 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         }
     }
 
+    /// ``consentGrant`` turning Control and Screen sharing both on (true) or both off, now: Settings > Devices'
+    /// one switch per owned machine (account, machine id, node key, on, this Mac's name).
+    public var consentSigner: @Sendable (String, String, String, Bool, String) async -> [String: any Sendable]? {
+        { [self] account, machineId, nodeKey, on, name in
+            let change: ConsentGrantChange = on ? .on : .off
+            return await consentGrant(account: account, machineId: machineId, nodeKey: nodeKey, control: change, screen: change, name: name, now: Date())
+        }
+    }
+
     /// A consent grant's signed bytes (acpmux `consent_grant::message`): the domain, then each part after a
     /// NUL, numbers as decimal ASCII.
     static func consentGrantMessage(grantor: String, account: String, machineId: String, nodeKey: String, control: String,

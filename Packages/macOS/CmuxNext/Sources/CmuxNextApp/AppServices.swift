@@ -170,12 +170,7 @@ final class AppServices {
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// Settings > Devices' "Control from this Mac": a switch per owned machine, signed by this Mac's key.
-    private(set) lazy var remoteControl = makeRemoteControl()
-    private func makeRemoteControl() -> RemoteControlConsentStore {
-        RemoteControlConsentStore(services: .over(join: joinConsent, machines: joinedMachines) { [weak self] in
-            await self?.peerApprover?.key.consentGrant(account: $0, machineId: $1, nodeKey: $2, control: $3 ? .on : .off, screen: $3 ? .on : .off, name: $4, now: Date())
-        })
-    }
+    private(set) lazy var remoteControl = RemoteControlConsentStore(services: .over(join: joinConsent, machines: joinedMachines, signer: peerApprover?.key.consentSigner))
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
     /// table of posting processes (`personInput.sources`): backs a consent grant made in a page. Started at launch.
     let personInput = PersonInputLedger(sources: EventSourceProcesses())
