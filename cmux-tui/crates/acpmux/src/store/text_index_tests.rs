@@ -324,3 +324,37 @@ fn rollover_preserves_the_message_text_cap_and_utf8_boundary() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn rollover_rebuilds_old_or_damaged_copies() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    let mut seq = 1;
+    store.append("c", &chunk(seq, "m", "alpha ")).unwrap();
+    rollover(&store, &mut seq);
+    seq += 1;
+    store.append("c", &chunk(seq, "m", "beta")).unwrap();
+    store.flush().unwrap();
+    let want = vec![entry(1, Role::Assistant, "alpha beta")];
+    assert_eq!(entries(&store), want);
+    for damage in [false, true] {
+        for (index, _) in store.segments("c").unwrap() {
+            let path = store.text_index_path("c", index);
+            let bytes = std::fs::read(&path).unwrap();
+            let end = bytes.iter().position(|b| *b == b'\n').unwrap();
+            let mut header: serde_json::Value = serde_json::from_slice(&bytes[..end]).unwrap();
+            if damage {
+                header["incomingHash"] = json!(0);
+            } else {
+                header["schema"] = json!("acpmux.search-index.v1");
+                header.as_object_mut().unwrap().remove("incomingHash");
+            }
+            let mut broken = serde_json::to_vec(&header).unwrap();
+            broken.extend_from_slice(&bytes[end..]);
+            std::fs::write(path, broken).unwrap();
+        }
+        assert_eq!(entries(&store), want);
+        assert_eq!(entries(&store), want);
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
