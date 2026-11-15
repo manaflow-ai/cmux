@@ -10,6 +10,8 @@ import {
   hostRefusedTooLarge,
   hostSelfRetrying,
   nextRetryDelay,
+  QUICK_RETRY_WINDOW_MS,
+  quickRetry,
   offersAcpmuxRestart,
 } from "./hostRetry";
 
@@ -172,6 +174,38 @@ test("a recovering pane asks again within 2 s; a refusal keeps retrying, at leas
   };
   expect(waits(true)).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000, 2000]);
   expect(waits(false)).toEqual([250, 500, 1000, 2000, 4000, 8000, 16_000, 30_000]);
+});
+
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up and load
+// faster/percievably load faster / whatever it takes". A chat on screen whose acpmux restarts asks
+// again within half a second for the first 10 s (a restart's usual length), so it is back within
+// 500 ms of acpmux answering instead of up to 2 s later. A hidden chat, or a recovery past 10 s,
+// keeps the 2 s step; a refusal keeps its 30 s one.
+test("a shown chat asks again within 500 ms during the first 10 s of a recovery", () => {
+  const waits = (quick: boolean, recovering = true) => {
+    let delay = 250;
+    const out: number[] = [];
+    for (let attempt = 0; attempt < 8; attempt++) {
+      out.push(delay);
+      delay = nextRetryDelay(delay, recovering, quick);
+    }
+    return out;
+  };
+  expect(waits(true)).toEqual([250, 500, 500, 500, 500, 500, 500, 500]);
+  expect(waits(false)).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000, 2000]);
+  expect(waits(true, false)).toEqual([250, 500, 1000, 2000, 4000, 8000, 16_000, 30_000]);
+  expect(QUICK_RETRY_WINDOW_MS).toBe(10_000);
+  expect(quickRetry({ shown: true, failingForMs: 9_999 })).toBe(true);
+  expect(quickRetry({ shown: true, failingForMs: 10_000 })).toBe(false);
+  expect(quickRetry({ shown: false, failingForMs: 0 })).toBe(false);
+});
+
+// The first-load bench's 10 s drop got slower with quick asks (791 -> 2618 ms): over a page's own
+// WebSocket, Chromium holds back each open by 1-5 s once ~15 have failed, so ~25 refused opens in
+// 10 s delayed the one that would succeed. Only the app's host connect (`acpmux-bridge`) asks quickly.
+test("a page that opens its own WebSocket keeps the 2 s step", () => {
+  expect(quickRetry({ shown: true, failingForMs: 0, browserSocket: false })).toBe(true);
+  expect(quickRetry({ shown: true, failingForMs: 0, browserSocket: true })).toBe(false);
 });
 
 // Leo, 2026-11-12, after the machine hosting a chat's agent rebooted: "it should just automatically

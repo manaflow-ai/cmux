@@ -593,11 +593,15 @@ impl WorkspaceRegistry {
         timings.lap("registry.migrations.columns");
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-            if first_state_foreign_key_violation(&connection)?.is_some() {
-                anyhow::bail!(
-                    "saved session data could not be loaded; start a new session or restore this session from a backup"
-                );
-            }
+        }
+        // The one foreign key check of an open, for a new file too. From here
+        // foreign keys are on for this connection until the open returns, so
+        // SQLite refuses each later write that breaks a key and the topology
+        // checks below do not check the keys again.
+        if first_state_foreign_key_violation(&connection)?.is_some() {
+            anyhow::bail!(
+                "saved session data could not be loaded; start a new session or restore this session from a backup"
+            );
         }
         timings.lap("registry.migrations.foreign_key_check");
         if needs_sensitive_receipt_cleanup {

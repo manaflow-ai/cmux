@@ -144,6 +144,21 @@ fn launch_sign_in_and_identity_rules_answer_here() {
     assert_eq!(own["user"], "u");
     let (_, key) = call(c"cloud_identity_install_key", &json!({"user": "u"}));
     assert!(key["account"].as_str().unwrap().starts_with("install-key-"));
+    let (_, slots) = call(
+        c"cloud_identity_install_key_slots",
+        &json!({"account": "install-key-a", "accounts": ["install-key-a.2", "install-key-b", "install-key-a"]}),
+    );
+    assert_eq!(
+        slots,
+        json!({"slots": ["install-key-a", "install-key-a.2"], "current": "install-key-a.2",
+               "next": "install-key-a.3", "replacement": null})
+    );
+    let (_, rotated) = call(
+        c"cloud_identity_install_key_slots",
+        &json!({"account": "install-key-a", "deletes": [
+            {"account": "install-key-a", "status": -25244}, {"account": "install-key-a.2", "status": 0}]}),
+    );
+    assert_eq!(rotated["replacement"], "install-key-a.2");
     let (_, share) = call(
         c"cloud_identity_share_origin",
         &json!({"url": "https://Cloud-API.cmux.dev/x", "folders": ["install-share-h.example", "x"]}),
@@ -215,6 +230,30 @@ fn the_agent_key_mint_is_planned_and_read_here() {
         &json!({"status": 401, "body": "", "baseUrl": "https://vm.cmux.dev", "teamId": "t"}),
     );
     assert_eq!(signed_out["refusal"]["appText"], "notSignedIn");
+}
+
+#[test]
+fn the_device_identity_items_answer_here() {
+    let (code, found) = call(
+        c"cloud_identity_device_slots",
+        &json!({"accounts": ["device-id.2", "capture-lease", "device-id", "device-signing-key"]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        found,
+        json!({"accounts": ["device-id", "device-signing-key", "device-id.2"],
+               "current": {"id": "device-id.2", "signingKey": "device-signing-key.2",
+                           "agreementKey": "device-agreement-key.2"},
+               "replacement": {"id": "device-id", "signingKey": "device-signing-key",
+                               "agreementKey": "device-agreement-key"}})
+    );
+    let (_, renewed) = call(
+        c"cloud_identity_device_slots",
+        &json!({"deletes": [{"account": "device-id", "status": -25244},
+                            {"account": "device-id.2", "status": 0}]}),
+    );
+    assert_eq!(renewed["current"], Value::Null);
+    assert_eq!(renewed["replacement"]["agreementKey"], "device-agreement-key.2");
 }
 
 #[test]

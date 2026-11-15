@@ -411,6 +411,7 @@ mod tests {
             &hub,
             web,
             false,
+            None,
             method::SESSION_FORK,
             &mut fork,
         )
@@ -421,6 +422,7 @@ mod tests {
             &hub,
             web,
             false,
+            None,
             method::SESSION_FORK,
             &mut unknown,
         )

@@ -35,6 +35,8 @@ enum Stun {
 }
 
 impl LinkCfg {
+    /// Only `--listen-systemd` (Linux, host.rs) builds one outside tests.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn new(names: Vec<String>) -> Self {
         Self { names, resolved: Arc::default() }
     }
@@ -361,7 +363,9 @@ mod with_link {
 
 /// Parses `--link-stun HOST:PORT[,HOST:PORT...]`. Only the form is checked
 /// here (a malformed entry is an error); names resolve later
-/// ([`LinkCfg::resolve_stun`]), and one that does not is left out.
+/// ([`LinkCfg::resolve_stun`]), and one that does not is left out. Only `--listen-systemd`
+/// (Linux, host.rs) reads `--link-stun` outside tests.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn stun_names(list: Option<&str>) -> Result<Vec<String>, String> {
     let Some(list) = list else {
         return Ok(Vec::new());

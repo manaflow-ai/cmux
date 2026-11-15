@@ -505,6 +505,13 @@ const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 1024 * 1024;
 /// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES.
 const OLDER_PAGE_RECORDS = 2000;
+/// An older ask the reader is not scrolling up for (`loadOlder`'s `rising` false: an open filling
+/// the view, a chat at rest within OLDER_AHEAD_VIEWPORTS of its loaded top) reads the page it read
+/// before older pages grew, and reads none ahead. The reader's next screens are a short page away,
+/// and a 1 MiB page drawn above a chat just opened was its settle's cost: a switch to a god session
+/// settled in 464 ms instead of 152 (bench/chat-switch.bench.ts, chat_switch.god.unread.settled, #42298).
+export const OLDER_REST_PAGE_BYTES = 256 * 1024;
+export const OLDER_REST_PAGE_RECORDS = 400;
 /// The prompt index's byte cap (`loadPromptIndex`), as it was before older pages grew.
 const PROMPT_INDEX_BYTES = 256 * 1024;
 /// Pages read ahead of the reader once an older read lands (`readOlderAhead`): the next ask at the top
@@ -1379,6 +1386,9 @@ export const HELD_KEPT = OLDER_PAGE_RECORDS;
 /// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice what a cut
 /// keeps, so it sheds at most once per `HELD_KEPT` records, one refold of what it keeps each time.
 export const HELD_RECORDS = 2 * HELD_KEPT;
+/// How many more records a chat that could not shed past `HELD_RECORDS` takes before it tries again
+/// (`shedOlderHeld`): the try walks the newest `HELD_KEPT` records, so a refused one costs O(1) a record.
+const HELD_RETRY = HELD_KEPT / 4;
 
 /// The index of the first record in `events` (oldest first) at or after `seq`: a binary search, so
 /// a read of the newest records costs O(log held), not a walk over every one.
@@ -1410,6 +1420,32 @@ export function rebuildCut(
   while (at > 0 && events[at]!.at >= openSince) at -= 1;
   while (at > 0 && !(startsTurn(events[at]!) && endsTurnBefore(events, at))) at -= 1;
   return at;
+}
+
+/// Where a chat left open lets go of its oldest records inside a turn that has not ended (`shedOlderHeld`): a
+/// coordinator's turn takes prompts and messages for days and never reaches a `turn_result`, so a cut only at a
+/// turn start (`rebuildCut`) never came and the pane held every record it streamed (Leo's coordinator chat: 3.58 GB
+/// and 110% CPU). The newest `keep` records, moved back over a subagent still running (`openSince`) and to the
+/// oldest row a record past the cut changed (`spanningFrom`, so no row is drawn from only part of its records),
+/// until neither moves it. 0 when that reaches the oldest record held. The rows kept are drawn as a page that
+/// starts inside the turn is, under the turn's prompt (`turnOpener`).
+export function midTurnCut(
+  events: readonly EventRecord[],
+  keep: number,
+  openSince: number,
+  spanningFrom: (seq: number) => number,
+): number {
+  if (events.length <= keep) return 0;
+  let at = events.length - keep;
+  for (;;) {
+    const moved = at;
+    while (at > 0 && events[at]!.at >= openSince) at -= 1;
+    if (at <= 0) return 0;
+    const from = spanningFrom(events[at]!.seq);
+    if (from < events[at]!.seq) at = firstHeldFrom(events, from);
+    if (at <= 0) return 0;
+    if (at === moved) return at;
+  }
 }
 
 /// Whether the turn before `events[at]` ended before it: its `turn_result` comes after the agent's
@@ -3454,6 +3490,12 @@ export class AcpmuxDirectClient {
   /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
   /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
   private following = true;
+  /// How many records the chat holds when it next tries to shed inside a turn (`apply`, `HELD_RETRY`).
+  private shedRetryAt = 0;
+  /// The seq of the record that opened the running turn (its prompt, or its `turn_started` with none open): a turn
+  /// shorter than `HELD_KEPT` records sheds at its `turn_result`, not on the count (`apply`). Undefined when it
+  /// opened outside what is held (an attach to a running turn).
+  private turnOpenedSeq?: number;
   /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
   private nativeSeed?: { seq: number; before: number; mark?: string };
   /// Where the next older native page ends, once one was read, for the held transcript
@@ -5004,6 +5046,7 @@ export class AcpmuxDirectClient {
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
+    this.turnOpenedSeq = undefined;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -7595,6 +7638,17 @@ export class AcpmuxDirectClient {
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
+    } else if (
+      this.events.length > HELD_RECORDS &&
+      this.events.length >= this.shedRetryAt &&
+      this.turnRunning() &&
+      !(this.turnOpenedSeq !== undefined && event.seq - this.turnOpenedSeq <= HELD_KEPT)
+    ) {
+      // A turn that does not end (a coordinator's) sheds on the count alone once it alone is longer than
+      // `HELD_KEPT` records; a shorter one sheds at its `turn_result`, as every turn did. One that could not shed now
+      // (scrolled up, paging, a gap) tries again `HELD_RETRY` records later, so a refused shed costs O(1) a record.
+      this.shedOlderHeld();
+      if (this.events.length > HELD_RECORDS) this.shedRetryAt = this.events.length + HELD_RETRY;
     }
   }
 
@@ -7618,14 +7672,35 @@ export class AcpmuxDirectClient {
     if (this.indexedPlaceholders?.size || this.indexedGaps.length > 0) return;
     // Native history (seq < 1) pages in by its own cursor (`fetchNativeOlder`): a chat holding it keeps it.
     if ((this.events[0]?.seq ?? 1) < 1) return;
+    // A subagent still running keeps the turn it started in whole, unless it started before the newest
+    // `HELD_RECORDS` records: one that never said it ended (its last record lost, a harness that restarted) pinned
+    // the cut at its start forever. Past the cut it is drawn as a page that starts after its start draws it.
+    const oldestKept = this.events[this.events.length - HELD_RECORDS]?.at ?? -Infinity;
     let openSince = Infinity;
     for (const agent of this.subagents.all())
-      if (agent.state === "running") openSince = Math.min(openSince, agent.startedAt);
-    const cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
+      if (agent.state === "running" && agent.startedAt >= oldestKept) openSince = Math.min(openSince, agent.startedAt);
+    let cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
+    // No turn start to cut at within the budget (a turn that never ends): cut inside the newest turn, under its
+    // prompt, as a page that starts inside a turn is drawn (`turnOpener`).
+    // A turn start cut stays when no cut inside the turn is found (a row or a subagent spans the whole budget).
+    let opener: EventRecord | undefined;
+    if (this.events.length - cut > HELD_RECORDS) {
+      const inside = midTurnCut(this.events, HELD_KEPT, openSince, (seq) => this.rows.spanningFrom(seq));
+      if (inside > cut) {
+        cut = inside;
+        opener = this.turnOpener;
+        for (let index = cut - 1; index >= 0; index -= 1)
+          if (startsTurn(this.events[index]!)) {
+            opener = this.events[index];
+            break;
+          }
+      }
+    }
     if (cut <= 0) return;
+    this.shedRetryAt = 0;
     this.events = this.events.slice(cut);
     this.historyExhausted = false;
-    this.turnOpener = undefined;
+    this.turnOpener = opener;
     // An older page in flight, or read ahead, was read for the held history that just went.
     this.historyEpoch += 1;
     this.cancelOlderPaging();
@@ -9522,6 +9597,7 @@ export class AcpmuxDirectClient {
         if (!this.turnOpen) {
           this.turnStartedAtMs = undefined;
           this.turnPromptAtMs = event.at;
+          this.turnOpenedSeq = event.seq;
         }
         this.turnOpen = true;
       } else if (event.kind === "stopping") {
@@ -9543,6 +9619,7 @@ export class AcpmuxDirectClient {
         // A prompt opens its turn (user_message); one opening with none open, and naming no turn, is
         // a turn the agent started on its own, never the turn before's.
         const agentStarted = !this.turnOpen && startedTurnId === undefined;
+        if (!this.turnOpen) this.turnOpenedSeq = event.seq;
         this.stoppingOpens(event);
         this.stopSeesTurnOpen(event, startedTurnId, agentStarted);
         if (this.stoppingTurn && startedTurnId !== undefined && startedTurnId !== this.stoppingTurn.turnId) {
@@ -14785,8 +14862,9 @@ export class AcpmuxDirectClient {
   /// selection changed belongs to another session and is dropped.
   /// `through`: read on until the record at that seq is held (a rail jump, `loadThrough`), not only
   /// until an older turn starts. `fill`: the held rows do not fill the view; the read lands with the
-  /// first page that starts an older turn.
-  loadOlder(through?: number, fill = false): Promise<void> {
+  /// first page that starts an older turn. `rising`: the reader is scrolling up now (the transcript's
+  /// OlderAhead); only then does a read ask for the big page (OLDER_PAGE_BYTES) and read pages ahead.
+  loadOlder(through?: number, fill = false, rising = false): Promise<void> {
     // A chat on the store pages from it.
     if (this.selectedSessionId && this.chatRows.holds(this.selectedSessionId))
       return Promise.resolve(void this.chatRows.page(this.selectedSessionId));
@@ -14804,10 +14882,10 @@ export class AcpmuxDirectClient {
             .wait(wait)
             .then((ready) =>
               ready && this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration
-                ? this.fetchOlder(pagingEpoch, through, fill)
+                ? this.fetchOlder(pagingEpoch, through, fill, rising)
                 : undefined,
             )
-        : this.fetchOlder(pagingEpoch, through, fill);
+        : this.fetchOlder(pagingEpoch, through, fill, rising);
     const loading = read
       .catch((error: unknown) => {
         if (this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration)
@@ -14838,7 +14916,8 @@ export class AcpmuxDirectClient {
     return `${sessionId}\u0000${this.selectionGeneration}\u0000${this.historyEpoch}\u0000${pagingEpoch}`;
   }
   /// The older page of `sessionId` that ends before `before`: the one read ahead for it, else a read.
-  private olderPage(sessionId: string, before: number, pagingEpoch: number): Promise<any> {
+  /// `rest`: the reader is not scrolling up, so a read asks for the rest page (OLDER_REST_PAGE_BYTES).
+  private olderPage(sessionId: string, before: number, pagingEpoch: number, rest = false): Promise<any> {
     const ahead = this.olderAhead;
     const kept = ahead?.key === this.olderKey(sessionId, pagingEpoch) ? ahead.pages.get(before) : undefined;
     if (kept) {
@@ -14848,8 +14927,8 @@ export class AcpmuxDirectClient {
     return this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: before,
-      limit: OLDER_PAGE_RECORDS,
-      maxBytes: OLDER_PAGE_BYTES,
+      limit: rest ? OLDER_REST_PAGE_RECORDS : OLDER_PAGE_RECORDS,
+      maxBytes: rest ? OLDER_REST_PAGE_BYTES : OLDER_PAGE_BYTES,
       // acpmux's "transcript" leaves out the preset approval records (paging.rs): a card older
       // than the attach's page comes with the older page that holds it, on a local acpmux as at
       // attach (three kinds, within a remote cmux-tui's eight either way).
@@ -14967,7 +15046,12 @@ export class AcpmuxDirectClient {
     return next !== undefined && next > 0 ? next : undefined;
   }
 
-  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number, _fill = false): Promise<void> {
+  private async fetchOlder(
+    pagingEpoch = this.olderPagingEpoch,
+    through?: number,
+    _fill = false,
+    rising = false,
+  ): Promise<void> {
     if (!this.canPageOlder(pagingEpoch)) return;
     if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
       return this.fetchNativeOlder();
@@ -15051,12 +15135,14 @@ export class AcpmuxDirectClient {
       more = window.more;
       publish(window.pages.reverse().flat(), more);
     }
+    // The reader asked for this (scrolling up, or a rail jump to a place): the big page, and pages ahead.
+    const reading = rising || through !== undefined;
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
     // page of its own, and every page of a long turn the open landed in is that turn's. Each ask
     // reads OLDER_PAGES_PER_ASK pages and moves `historyFrom`, which makes the transcript ask again.
     for (let pages = 0; more && pages < OLDER_PAGES_PER_ASK && (!windowed || !foundThrough); pages++) {
       if (!this.canPageOlder(pagingEpoch)) return;
-      const result = await this.olderPage(sessionId, before, pagingEpoch);
+      const result = await this.olderPage(sessionId, before, pagingEpoch, !reading);
       if (stale()) return;
       const page = records(result?.events);
       const pageMore = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
@@ -15066,7 +15152,8 @@ export class AcpmuxDirectClient {
     }
     this.historyExhausted = !more || (this.firstSeq ?? 1) <= 1;
     if (this.historyExhausted) this.emit("history");
-    this.readOlderAhead(pagingEpoch);
+    // Pages ahead only for a reader on the way up (or a rail jump): a chat at rest reads no 4 MiB it may never show.
+    if (reading) this.readOlderAhead(pagingEpoch);
   }
 
   /// Pages older turns in from the chat's Claude Code transcript, past the newest page its log was
