@@ -23,7 +23,8 @@ cmux-app-ffi-<commit>). For a commit SHA this part:
            side-instance.sh do; the Keychain group entitlement goes with the Developer ID signature, so the app
            starts signed out); otherwise the part is left, with why.
   swap     quits the app keeping its sessions (`cmux app quit --keep-sessions` from the app's own bin), renames
-           the library into place, opens the app again and waits until its control socket answers from a new pid
+           the library into place, opens the app again (through launchd's GUI domain where `open` fails: in a
+           terminal of the app itself, or over ssh) and waits until its control socket answers from a new pid
            that stays up STAY_SECONDS. The daemon and its terminals never stop.
 
 This is a warm swap, not a live one: the C ABI holds state, so the new library loads with the app. A failed check
@@ -117,6 +118,52 @@ def plan(repo: Path, app: Path | None, sha: str, base: str) -> dict:
     if changed:
         raise Left(f"the app FFI at {source[:12]} is not additive to the app's ({pinned[:12]}): " + "; ".join(changed[:3]))
     return {"source": source, "release": f"cmux-app-ffi-{source}", "app_pin_source": pinned}
+
+
+def pin_moved(repo: Path, base: str, sha: str) -> bool:
+    """SHA's commit pins another app FFI release than the app's commit BASE (False when either is not in REPO)."""
+    try:
+        return app_pin_source(repo, base) != app_pin_source(repo, sha)
+    except Exception:
+        return False
+
+
+def pin_plan(repo: Path, app: Path | None, sha: str, base: str) -> dict | None:
+    """The ffi part for SHA when no FFI source changed after the app's commit but SHA pins a newer release.
+
+    An app links the release its commit pins, and the pin lags the FFI sources until app-ffi-repin lands, so a
+    NIGHTLY's library is usually older than its commit's FFI sources: the commit that moves the pin is then the
+    one that brings the app's library up to date. None when SHA pins the app's release; Left when it cannot."""
+    try:
+        pinned, want = app_pin_source(repo, base), app_pin_source(repo, sha)
+    except RuntimeError:
+        return None  # a commit from before app-ffi-pin.json: no pin to compare, nothing for this part
+    if pinned == want:
+        return None
+    if app is not None and not carries_dylib(app):
+        raise Left(f"{app} links the app FFI statically (no {DYLIB}): it needs a new app")
+    # No ancestry check: an older pin (a reverted re-pin) is refused here when it drops what the app calls, and a
+    # shallow checkout cannot tell ancestry anyway.
+    changed = additive(repo, pinned, want)
+    if changed:
+        raise Left(f"the app FFI at {want[:12]} is not additive to the app's ({pinned[:12]}): " + "; ".join(changed[:3]))
+    return {"source": want, "release": f"cmux-app-ffi-{want}", "app_pin_source": pinned, "via": "pin"}
+
+
+PIN_CHECKSUM_LINE = "// app-ffi-pin-checksum:"
+PACKAGE_SWIFT = "Packages/macOS/CmuxNext/Package.swift"
+
+
+def pin_packaging(repo: Path, since: str, sha: str) -> set[str]:
+    """The changed paths between SINCE and SHA that only move the pin: app-ffi-pin.json, and Package.swift when
+    its only changed line is the pin checksum (repin-app-ffi.sh moves the two together). The ffi part covers them."""
+    out = {PIN_FILE}
+    diff = _git(repo, "diff", "-U0", since, sha, "--", PACKAGE_SWIFT)
+    changed = [line[1:].strip() for line in diff.splitlines()
+               if line[:1] in "+-" and not line.startswith(("+++", "---"))]
+    if all(line.startswith(PIN_CHECKSUM_LINE) for line in changed):
+        out.add(PACKAGE_SWIFT)
+    return out
 
 
 # ---------------------------------------------------------------- fetch
@@ -307,29 +354,70 @@ def quit_keeping_sessions(app: Path) -> int | None:
     raise RuntimeError(f"the app (pid {pid}) did not quit within {QUIT_SECONDS} s of quit --keep-sessions")
 
 
+def open_app(app: Path) -> dict:
+    """Opens APP: `open`, or, where LaunchServices does not answer, a one-shot agent in the user's GUI domain.
+
+    `open` fails in the two places hot-apply runs from most: a terminal of the app itself, which outlives
+    `cmux app quit --keep-sessions` but whose LaunchServices connection went with the app (error -600), and an
+    ssh session, which has no window server. launchd's gui/<uid> domain opens the app in the console session from
+    both. Returns {"via": "open"} or {"via": "launchd", "label", "plist"} for close_opener()."""
+    done = _run("open", str(app), check=False)
+    if done.returncode == 0:
+        return {"via": "open"}
+    label = f"com.cmux.hot-apply-ffi.open.{os.getpid()}.{time.monotonic_ns()}"
+    plist = Path(tempfile.mkdtemp(prefix="hot-apply-ffi-open.")) / f"{label}.plist"
+    with open(plist, "wb") as handle:
+        plistlib.dump({"Label": label, "ProgramArguments": ["/usr/bin/open", str(app)], "RunAtLoad": True,
+                       "LaunchOnlyOnce": True}, handle)
+    boot = _run("launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist), check=False)
+    if boot.returncode != 0:
+        shutil.rmtree(plist.parent, ignore_errors=True)
+        raise RuntimeError(f"open {app}: {(done.stderr or done.stdout).strip()[:200]}; launchctl bootstrap "
+                           f"gui/{os.getuid()}: {(boot.stderr or boot.stdout).strip()[:200]}")
+    return {"via": "launchd", "label": label, "plist": str(plist), "open_error": (done.stderr or done.stdout).strip()[:200]}
+
+
+def close_opener(opener: dict) -> None:
+    """Removes the one-shot agent open_app() bootstrapped; the app it opened keeps running."""
+    if opener.get("via") != "launchd":
+        return
+    _run("launchctl", "bootout", f"gui/{os.getuid()}/{opener['label']}", check=False)
+    shutil.rmtree(Path(opener["plist"]).parent, ignore_errors=True)
+
+
 def launch(app: Path, old_pid: int | None) -> dict:
     """Opens APP and waits until a new pid's control socket answers, then that it stays up STAY_SECONDS."""
     t0 = time.monotonic()
-    _run("open", str(app))
-    deadline = t0 + LAUNCH_SECONDS
-    pid = None
-    while time.monotonic() < deadline:
-        pid = answering_pid(app)
-        if pid and pid != old_pid:
-            break
-        time.sleep(0.1)
-    else:
-        raise RuntimeError(f"the app did not answer within {LAUNCH_SECONDS} s of opening it")
+    opener = open_app(app)
+    try:
+        deadline = t0 + LAUNCH_SECONDS
+        pid = None
+        while time.monotonic() < deadline:
+            pid = answering_pid(app)
+            if pid and pid != old_pid:
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError(f"the app did not answer within {LAUNCH_SECONDS} s of opening it ({opener['via']})")
+    finally:
+        close_opener(opener)
     answered = time.monotonic() - t0
     time.sleep(STAY_SECONDS)
     if app_pid(app) != pid:
         raise RuntimeError(f"the app (pid {pid}) did not stay up {STAY_SECONDS:g} s")
-    return {"pid": pid, "answered_seconds": round(answered, 3), "stayed_seconds": STAY_SECONDS}
+    return {"pid": pid, "answered_seconds": round(answered, 3), "stayed_seconds": STAY_SECONDS, "opened_via": opener["via"]}
 
 
 def place(src: Path, dest: Path) -> None:
     part = dest.with_name(f".{dest.name}.hot-apply")
-    shutil.copy2(src, part)
+    try:
+        shutil.copy2(src, part)
+    except PermissionError as error:
+        # macOS App Management: only processes macOS lets manage apps (the app's own team, its terminals, a
+        # terminal or sshd with that permission) may write into a signed app bundle.
+        raise RuntimeError(f"cannot write into {dest.parent} ({error.strerror}): macOS lets this process change "
+                           "no signed app; run hot-apply from a terminal of the app, over ssh, or from a terminal "
+                           "with App Management (System Settings, Privacy & Security)") from error
     os.replace(part, dest)
 
 

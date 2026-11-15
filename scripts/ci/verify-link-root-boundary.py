@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Run the actual root/work-uid socket boundary on a trusted hosted Linux runner."""
+from __future__ import annotations  # PEP 604 annotations on macOS's /usr/bin/python3 3.9
+
 import json
 import os
 from pathlib import Path

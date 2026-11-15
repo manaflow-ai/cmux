@@ -1,5 +1,6 @@
 //! PR 5e: paired five-round release measurements over 20 / 11,000 hot rows.
 use super::*;
+use crate::gate_rounds::{self, all_p95, best_p95};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Instant;
@@ -7,7 +8,7 @@ use std::time::Instant;
 const ROUNDS: usize = 5;
 const SAMPLES: usize = 200;
 
-fn emit(name: &str, small: u64, god: u64, all: Option<u64>, unit: &str) {
+fn emit(name: &str, small: u128, god: u128, all: Option<u128>, unit: &str) {
     let line = all.map_or_else(
         || format!("{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"{unit}\"}}"),
         |all| format!("{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{all},\"unit\":\"{unit}\"}}"),
@@ -19,29 +20,24 @@ fn emit(name: &str, small: u64, god: u64, all: Option<u64>, unit: &str) {
     }
 }
 
-fn p95(samples: &mut [u64]) -> u64 {
-    samples.sort_unstable();
-    samples.get((samples.len() * 95).div_ceil(100).saturating_sub(1)).copied().unwrap_or(1)
-}
-
-fn stats(samples: &[u64]) -> (u64, u64) {
-    let best = samples.chunks_exact(SAMPLES).map(|round| p95(&mut round.to_vec())).min().unwrap();
-    (best, p95(&mut samples.to_vec()))
-}
+/// Each side's rounds of samples, small then god.
+type Rounds = (Vec<Vec<u128>>, Vec<Vec<u128>>);
 
 // Warm each shape before its round; retain the returned root until after the clock.
 // Alternating the order each round avoids assigning all scheduler drift to god.
-fn paired<T>(mut small: impl FnMut() -> T, mut god: impl FnMut() -> T) -> (u64, u64, u64) {
-    fn round<T>(f: &mut impl FnMut() -> T, samples: &mut Vec<u64>) {
+fn paired<T>(mut small: impl FnMut() -> T, mut god: impl FnMut() -> T) -> Rounds {
+    fn round<T>(f: &mut impl FnMut() -> T, rounds: &mut Vec<Vec<u128>>) {
         for _ in 0..32 {
             std::hint::black_box(f());
         }
+        let mut samples = Vec::with_capacity(SAMPLES);
         for _ in 0..SAMPLES {
             let start = Instant::now();
             let result = std::hint::black_box(f());
-            samples.push(start.elapsed().as_nanos() as u64);
+            samples.push(start.elapsed().as_nanos());
             drop(result);
         }
+        rounds.push(samples);
     }
     let (mut a, mut b) = (Vec::new(), Vec::new());
     for n in 0..ROUNDS {
@@ -53,11 +49,13 @@ fn paired<T>(mut small: impl FnMut() -> T, mut god: impl FnMut() -> T) -> (u64, 
             round(&mut small, &mut a);
         }
     }
-    (stats(&a).0, stats(&b).0, stats(&b).1)
+    (a, b)
 }
 
-fn check(name: &str, values: (u64, u64, u64), ratio: f64, all_ratio: f64, max: Option<u64>) {
-    let (small, god, all) = values;
+fn check(name: &str, rounds: Rounds, ratio: f64, all_ratio: f64, max: Option<u128>) {
+    let (small, god) = rounds;
+    gate_rounds::report(name, &[("small", &small), ("god", &god)]);
+    let (small, god, all) = (best_p95(&small), best_p95(&god), all_p95(&god));
     emit(name, small, god, Some(all), "ns");
     assert!(god as f64 <= small as f64 * ratio, "{name}: best {god}/{small}");
     assert!(all as f64 <= small as f64 * all_ratio, "{name}: all {all}/{small}");
@@ -253,7 +251,7 @@ fn cold_continuation_gate() {
     }
     let small = scan(20);
     let god = scan(11_000);
-    emit("v2.pr05e.cold_continuation", small, god, None, "bytes");
+    emit("v2.pr05e.cold_continuation", small.into(), god.into(), None, "bytes");
     // Sparse seeks have the existing 5b block bound; the per-request budget is fixed.
     assert!(god <= 256 * 1024);
 }
