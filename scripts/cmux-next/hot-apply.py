@@ -253,17 +253,32 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def fetch_kept(url: str) -> bytes:
+def fetch_kept(url: str, complete=None) -> bytes:
     """fetch(), for a URL whose body never changes once published (a tree key's or a commit's files):
-    kept under state/meta by the URL's sha256 after the first answer. A 404 is not kept."""
+    kept under state/meta by the URL's sha256 after the first answer. A 404 is not kept, and neither
+    is a body COMPLETE says lacks what this host needs (a completion.json without this host's binary):
+    a kept one like that is fetched again."""
     path = state_dir() / "meta" / hashlib.sha256(url.encode()).hexdigest()
     try:
-        return path.read_bytes()
+        body = path.read_bytes()
+        if complete is None or complete(body):
+            return body
     except OSError:
         pass
     body = fetch(url)
-    write_atomic(path, body)
+    if complete is None or complete(body):
+        write_atomic(path, body)
     return body
+
+
+def lists_binary(name: str):
+    """A completion.json check for fetch_kept: it names NAME's sha256."""
+    def check(body: bytes) -> bool:
+        try:
+            return bool(json.loads(body).get("binaries", {}).get(name))
+        except (ValueError, AttributeError):
+            return False
+    return check
 
 
 def fetch(url: str) -> bytes:
@@ -414,7 +429,8 @@ def triple() -> str:
 def published(key: str) -> bool:
     """CI published the cmux binaries of tree KEY (its completion.json is there)."""
     try:
-        return json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json")).get("key") == key
+        return json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json",
+                                     lists_binary(f"cmux-tui-{triple()}"))).get("key") == key
     except (OSError, ValueError):  # urllib's errors are OSErrors: a 404 is an unpublished tree
         return False
 
@@ -428,7 +444,7 @@ def cached(copy: Path, want: str) -> bool:
 def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     """SHA's cmux binary for this host, checked against the tree's completion.json and .sha256."""
     name = f"cmux-tui-{triple()}"
-    completion = json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json"))
+    completion = json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json", lists_binary(name)))
     if completion.get("key") != key:
         raise RuntimeError(f"{TUI_BASE}/{key}/completion.json names key {completion.get('key')}")
     want = completion.get("binaries", {}).get(name)

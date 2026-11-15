@@ -376,6 +376,15 @@ class HotApplyRust(unittest.TestCase):
         self.assertIn("fetch", receipt["phases"])
         self.assertEqual(self.sha(), self.new)
 
+    def test_a_completion_without_this_host_s_binary_is_not_kept(self):
+        (self.tmp / "tree" / self.key / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {}}))
+        code, _, _ = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 1)
+        self.publish(self.new_body, self.new)  # the build for this host lands later
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
     def test_a_build_the_app_already_runs_is_skipped(self):
         code, _, err = self.hot("apply", FIX, "--app", str(self.app))
         self.assertEqual(code, 0, err)
