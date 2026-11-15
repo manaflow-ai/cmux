@@ -465,12 +465,43 @@ export class ChatClient {
     return this.held >= seq;
   }
 
+  /**
+   * Why a catch-up wait timed out, as a clause for the verdict. It asks `agent-session-events` past the seq held
+   * (the mux Bulk lane, as the chat's own pushes) and then `identify` (the Control lane), and keeps nothing either
+   * answers: the client's view, and so the verdict, stays what the product delivered.
+   */
+  async stallDiagnosis(eventsMs = 10_000, identifyMs = 5_000): Promise<string> {
+    const held = this.held;
+    const asked = async (frame: Record<string, unknown>, ms: number): Promise<{ answer?: any; error?: string }> => {
+      try {
+        return { answer: answerOf(await this.dial.request(frame, ms)) };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    };
+    const events = await asked({ cmd: "agent-session-events", surface: this.surface, after_seq: held, limit: 500 }, eventsMs);
+    const identify = await asked({ cmd: "identify" }, identifyMs);
+    const timedOut = (r: { error?: string }) => /^no answer within/.test(r.error ?? "");
+    const seqs: number[] = (events.answer?.events ?? []).map((e: any) => Number(e?.seq)).filter((s: number) => s > held);
+    const eventsText = events.answer
+      ? seqs.length ? `events answered from seq ${Math.min(...seqs)} (${seqs.length} records)` : "events answered with nothing past it"
+      : timedOut(events) ? `events timed out (${eventsMs / 1000} s)` : `events failed: ${events.error}`;
+    const identifyText = identify.answer ? "identify answered" : timedOut(identify) ? `identify timed out (${identifyMs / 1000} s)` : `identify failed: ${identify.error}`;
+    const verdict = seqs.length ? "attachment dead, transport fine"
+      : timedOut(events) && identify.answer ? "bulk lane stalled"
+      : timedOut(events) && timedOut(identify) ? "carrier dead"
+      : "no conclusion";
+    return `after seq ${held}: ${eventsText}, ${identifyText}: ${verdict}`;
+  }
+
   private onLine(m: any): void {
     if (m?.surface !== this.surface) return;
     if (m.event === "agent-session-record" && m.record && typeof m.record.seq === "number") {
-      if (!this.attached) return;
       if (this.paging) this.stash.push({ record: m.record, at: Date.now() });
-      else this.live(m.record);
+      else {
+        if (!this.attached) return;
+        this.live(m.record);
+      }
     } else if (m.event === "agent-session-closed") {
       this.attached = false;
       this.lastError = `closed: ${String(m.reason ?? "")}`;
@@ -594,6 +625,7 @@ export class SeqTerminal {
   terminal = "";
   error = "";
   private offset = 0;
+  private recovery = "";
   private stopped = false;
   private loop: Promise<void> | null = null;
 
@@ -628,10 +660,11 @@ export class SeqTerminal {
   private async poll(): Promise<void> {
     while (!this.stopped) {
       try {
-        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), max_bytes: 1_048_576 } }, 10_000));
-        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, text: String(r.text ?? "") };
+        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), recovery: this.recovery, max_bytes: 1_048_576 } }, 10_000));
+        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, snapshot: r.snapshot === true, text: String(r.text ?? "") };
         this.reads.push(read);
         this.offset = read.next;
+        this.recovery = typeof r.recovery === "string" ? r.recovery : "";
       } catch (e) {
         this.error = (e as Error).message;
       }
@@ -820,7 +853,7 @@ async function feltBoundary(ctx: ChaosContext, session: string, after: number, e
 }
 
 /** The loss verdict for one fault's counting turn: the client's view from `from` against the machine's journal. */
-async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, baseline: number, from: number, interrupted: boolean): Promise<LossVerdict> {
+async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, baseline: number, from: number, interrupted: boolean, injection: { step: number; running: boolean }): Promise<LossVerdict> {
   const notes: JournalNotes = { kinds: {}, asks: [] };
   const journal = await readJournal(ctx, tag, chat.session, baseline, notes);
   if (typeof journal === "string") return { ok: false, text: journal };
@@ -833,8 +866,9 @@ async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, bas
   const slice = chat.received.slice(from);
   const client = slice.map((r) => journalEvent(tag, r.record) ?? { seq: r.seq, ks: [] });
   const reconnects = chat.reconnects.filter((i) => i >= from).map((i) => i - from);
-  const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted });
-  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""})`;
+  const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted, injection });
+  // A stalled client is asked why before the verdict is written; the diagnosis never changes the verdict.
+  const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""}; ${await chat.stallDiagnosis()})`;
   const pages = slice.filter((r) => r.via === "page").length;
   const why = ranNone ? `; ${journalNotesText(notes)}` : "";
   return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)${why}` };
@@ -942,12 +976,15 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         if (reached >= third) break;
       }
       const state = await turnState(ctx, marker, chat.session).catch(() => ({ started: 0, running: false, status: "", detail: "" }));
+      // History is a remote read: output may have finished while it was in flight.
+      reached = chat.reached(tag, from);
       if (state.started === 0) {
         out.push(failed(f.name, `the turn was sent but never showed in the chat's history (the client saw step ${reached})`));
         continue;
       }
-      const when = reached >= third ? `mid-turn at step ${reached} of ${COUNT_STEPS}`
-        : state.running ? `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}` : `after the turn (${state.status})`;
+      const when = !state.running || reached >= COUNT_STEPS ? `after the counting output (${state.status}, step ${reached} of ${COUNT_STEPS})`
+        : reached >= third ? `mid-turn at step ${reached} of ${COUNT_STEPS}`
+        : `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}`;
       const dialsBefore = carrier.dials;
       const movesBefore = chat.surfaceMoves;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
@@ -974,7 +1011,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const resumed = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length > resumesBefore;
       const how = carrier.dials > dialsBefore ? `new dial (${carrier.dials - dialsBefore})` : resumed ? "resumed the session" : "unbroken";
       const turn = await turnOutcome(ctx, marker, chat.session);
-      const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true);
+      const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true, { step: reached, running: state.running });
       const terminal = await terminalVerdict(ctx, seqError ? null : seq, seqError);
       const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok;
       const feltText = feel.felt_ms === null
@@ -1114,8 +1151,10 @@ export function countedSteps(tag: string, text: string): number[] {
  *   machine's event of that seq;
  * - every step K in 1..n shows exactly once in the journal and exactly once in what the client received. A turn a
  *   restart cut short (`interrupted`) ran only to some step M: then every step in 1..M, M the journal's highest.
+ * - at least one counting step ran. The live leg also supplies its pre-injection observation: the turn was running,
+ *   the client had reached the one-third trigger, and counting output remained.
  */
-export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEvent[]; reconnects?: number[]; interrupted?: boolean }): LossVerdict {
+export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEvent[]; reconnects?: number[]; interrupted?: boolean; injection?: { step: number; running: boolean } }): LossVerdict {
   const problems: string[] = [];
   const { journal, client } = input;
   const reached = Math.max(0, ...journal.flatMap((e) => e.ks));
@@ -1123,6 +1162,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   const range = (xs: number[]) => xs.length > 6 ? `${xs.slice(0, 6).join(",")},... (${xs.length})` : xs.join(",");
   if (!journal.length) return { ok: false, text: "the machine's journal has no events for the turn" };
   if (!client.length) return { ok: false, text: "the client received no events for the turn" };
+  if (reached === 0) return { ok: false, text: "the turn produced no counting steps" };
+  const injection = input.injection;
+  if (injection && (!injection.running || injection.step < Math.ceil(input.n / 3) || injection.step >= input.n)) {
+    problems.push(`the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`);
+  }
   // The machine's journal.
   const bySeq = new Map<number, SeqEvent>();
   const jGaps: number[] = [];
@@ -1191,7 +1235,7 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
 }
 
 /** One `terminal.output_read` answer: the offset asked for and what came back. */
-export type TerminalRead = { after: number; start: number; next: number; complete: boolean; text: string };
+export type TerminalRead = { after: number; start: number; next: number; complete: boolean; snapshot?: boolean; text: string };
 
 /**
  * The terminal's text as the client holds it after `reads` (each asked from the last one's `next_offset`), and what was
@@ -1211,7 +1255,10 @@ export function assembleTerminal(reads: TerminalRead[]): { text: string; problem
     const want = i === 0 ? 0 : reads[i - 1].next;
     if (r.after !== want) problems.push(`read ${i} asked from ${r.after}, not the last read's end ${want}`);
     if (!r.complete) problems.push(`read ${i} from ${r.after} was not complete (output past retention)`);
-    if (r.start === r.after) {
+    if (r.snapshot === true) {
+      if (!r.complete || r.start !== 0 || r.next < 0) problems.push(`read ${i} returned an invalid snapshot projection`);
+      else { snapshots += 1; text = r.text; }
+    } else if (r.start === r.after) {
       text += r.text;
     } else if (r.start === 0 && r.after > 0 && r.complete && r.next >= r.after) {
       snapshots += 1;
@@ -1248,7 +1295,7 @@ export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machine
   const sha = input.sha256(text);
   if (sha !== input.machineSha256) problems.push(`sha256 ${sha.slice(0, 12)} differs from the machine copy's ${input.machineSha256.slice(0, 12)}`);
   if (problems.length) return { ok: false, text: `terminal output lost: ${problems.slice(0, 4).join("; ")}` };
-  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} after the terminal ended taken in place of what was held` : "";
+  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} taken in place of what was held` : "";
   return { ok: true, text: `terminal: all ${n} lines over ${reads.length} reads, offsets contiguous${snap}, sha256 matches the machine copy` };
 }
 

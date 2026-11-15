@@ -17,6 +17,7 @@ parsing, test compilation, executed tests and runtime evidence.
 
 | Task | Skill |
 | --- | --- |
+| Try any change in a running cmux before building or testing it (the hot loop) | [cmux-hot-loop](cmux-hot-loop/SKILL.md) |
 | Setup, tagged builds, project normalization | [cmux-dev-workflow](cmux-dev-workflow/SKILL.md) |
 | Tests, verification scope, target wiring | [cmux-testing](cmux-testing/SKILL.md) |
 | Which commit broke a test on main, stale test or regression | [cmux-test-bisect](cmux-test-bisect/SKILL.md) |

@@ -44,8 +44,10 @@
 
 mod memory_budget;
 mod parked_trim;
+mod recovery;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
+pub(crate) use recovery::RecoveryCut;
 mod tail;
 mod writer;
 
@@ -327,6 +329,11 @@ struct LogState {
     /// snapshot whose capture saw an older count does not hold the screen
     /// after the gap, so it does not clear the request for one.
     gaps: u64,
+    /// A discontinuity requires a recovery cursor; numeric offsets alone
+    /// cannot describe output written while no daemon tap existed.
+    gap_pending: bool,
+    recovery_epoch: Arc<str>,
+    recovery_cut: Arc<Mutex<Option<Arc<RecoveryCut>>>>,
     /// Snapshot mode: the size the last capture saw and since when; a
     /// resized terminal is snapshotted once its size has held for
     /// [`RESIZE_SETTLE`] (a divider drag does not write a snapshot per pass).
@@ -363,6 +370,9 @@ impl LogState {
             retry_at: None,
             retry_delay: Duration::ZERO,
             gaps: 0,
+            gap_pending: false,
+            recovery_epoch: Arc::from(crate::workspace_registry::new_uuid_v4()),
+            recovery_cut: Arc::new(Mutex::new(None)),
             size_seen: None,
         }
     }
@@ -586,6 +596,7 @@ pub(crate) struct OutputStore {
     /// The policy the writer read last (the quit pass has no settings owner
     /// handle).
     policy: Mutex<Option<PersistencePolicy>>,
+    recovery_bytes: Arc<std::sync::atomic::AtomicU64>,
     /// Held by each write pass: the writer thread, a checkpoint and the quit
     /// pass never write the same file at once.
     pass: Mutex<()>,
@@ -643,6 +654,7 @@ impl OutputStore {
             last_enforce: Mutex::new(None),
             snapshot_interval,
             policy: Mutex::new(None),
+            recovery_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
@@ -816,6 +828,7 @@ impl OutputStore {
             state.tail.clear();
             state.pending.clear();
             state.pending_start = 0;
+            state.invalidate_recovery();
         }
         let keep = bytes.len().min(OUTPUT_TAIL_BYTES);
         let skipped = (bytes.len() - keep) as u64;
@@ -897,6 +910,22 @@ impl OutputStore {
         Some((state.generation.clone(), state.next_offset()))
     }
 
+    /// The current stream cursor, including a persisted snapshot/tail that has
+    /// not created an in-memory log yet (the first read after host adoption).
+    pub(crate) fn stream_cursor(&self, terminal_id: &TerminalPublicId) -> Option<(Arc<str>, u64)> {
+        if let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        {
+            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            return Some((state.generation.clone(), state.next_offset()));
+        }
+        self.resume
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(terminal_id)
+            .map(|(generation, end)| (Arc::from(generation.as_str()), *end))
+    }
+
     /// Retained output at or after `after`, at most `max_bytes` (never less
     /// than one byte when any exists). A cursor older than what is kept
     /// starts at the oldest kept byte. Full mode: bytes before the unflushed
@@ -966,29 +995,34 @@ impl OutputStore {
 
     /// The daemon's terminal was replaced from its host's snapshot (a host
     /// reconnect): bytes the host wrote while the daemon had no tap never
-    /// came through [`Self::append`]. Snapshot mode: the tail must not
-    /// continue across that gap; its unwritten bytes fall back to a snapshot
-    /// of the replaced terminal, asked for at the next pass. (Full mode's
-    /// segment files never had the gap's bytes either, and their offsets stay
-    /// contiguous, so a full-mode rebuild after a reconnect lacks them: not
-    /// changed here.)
-    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId) {
-        if !self.tail_enabled() {
-            return;
-        }
-        let Some(log) =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
-        else {
-            return;
-        };
+    /// came through [`Self::append`]. The next output read projects the
+    /// replaced terminal from offset zero; this applies to every persistence
+    /// mode and also creates a log for a re-adopted terminal with no tail yet.
+    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId, generation: &Arc<str>) {
+        // Re-adopted terminals may not have an in-memory log yet. Creating it
+        // here consumes the persisted cursor, so an idle terminal's screen is
+        // still recoverable even before its first post-adoption append.
+        let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.fall_back_to_snapshot();
+        if state.generation != *generation {
+            state.generation = generation.clone();
+            state.tail_start = 0;
+            state.tail.clear();
+            state.pending.clear();
+            state.pending_start = 0;
+        }
+        if self.tail_enabled() {
+            state.fall_back_to_snapshot();
+        }
         state.gaps += 1;
+        state.invalidate_recovery();
         let wait = state.retry_wait();
         drop(state);
-        match wait {
-            Some(wait) => self.mark_log_dirty_after(&log, wait),
-            None => self.mark_log_dirty(&log),
+        if self.tail_enabled() {
+            match wait {
+                Some(wait) => self.mark_log_dirty_after(&log, wait),
+                None => self.mark_log_dirty(&log),
+            }
         }
     }
 
@@ -1025,6 +1059,7 @@ impl OutputStore {
             let end = state.next_offset();
             state.tail.clear();
             state.tail_start = end;
+            state.invalidate_recovery();
             state.pending.clear();
             state.snapshot_digest = None;
             state.snapshot_at = None;

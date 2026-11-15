@@ -6,7 +6,7 @@
     reason = "fault injection and test assertions"
 )]
 use super::*;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
 const SEED: &str = include_str!("../../../acpmux-book/src/translate/fixtures/seed-turn.ndjson");
@@ -40,7 +40,7 @@ fn fixture(book: &Path, turns: u64) -> ChatConfig {
     fs::write(book.join("source.ndjson"), corpus(turns)).unwrap();
     config_at(book)
 }
-fn catch_up(config: ChatConfig) {
+pub(crate) fn catch_up(config: ChatConfig) {
     let mut state = open_state(config).unwrap();
     while !read_source(&mut state).unwrap() {}
     checkpoint(&mut state).unwrap();
@@ -411,6 +411,36 @@ fn simultaneous_registry_lookups_start_only_one_writer() {
     assert!(registry.evict("chat"));
 }
 
+/// cmux#43078: a lookup that joins a finished actor drops its slot, so the map does not grow
+/// with chats whose actors ended.
+#[test]
+fn a_registry_lookup_that_joins_a_finished_actor_drops_its_slot() {
+    let home = tempfile::tempdir().unwrap();
+    let registry = crate::registry::Registry::new();
+    let mut other = fixture(&home.path().join("other"), 1);
+    other.id = "other".into();
+    let other = registry.hydrate(other).unwrap();
+    let before = registry.len();
+    let config = fixture(&home.path().join("chat"), 1);
+    let handle = registry.hydrate(config.clone()).unwrap();
+    assert_eq!(registry.len(), before + 1);
+    wait_health(&handle, crate::life::Health::Running);
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || tx.send(handle.close()));
+    rx.recv_timeout(Duration::from_secs(10)).expect("the close is answered").unwrap();
+    let started = Instant::now();
+    while registry.get("chat").is_some() {
+        assert!(started.elapsed() < Duration::from_secs(10), "the closed actor never ended");
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(registry.len(), before, "the joined actor's slot is gone");
+    assert!(registry.get("other").is_some() && other.wake().is_ok(), "another chat's stays");
+    let (_, started) = registry.start(config).unwrap();
+    assert!(started, "a later lookup starts the chat again");
+    assert_eq!(registry.len(), before + 1);
+    assert!(registry.evict("chat") && registry.evict("other"));
+}
+
 fn gap_places(bytes: &[u8], _: u64) -> std::io::Result<std::ops::Range<u64>> {
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(std::io::Error::other)?;
     let start = value["seq"].as_u64().unwrap() * 10;
@@ -699,13 +729,22 @@ fn actor_line_and_checkpoint_open_gate() {
         measures.push((line_best, line_all, *rounds.iter().min().unwrap(), percentile(&mut all)));
     }
     let (small, god) = (measures[0], measures[1]);
-    for (name, small, god, all) in [
+    let measurements = [
         ("v2.pr03a3.actor_line", small.0, god.0, god.1),
         ("v2.pr03a3.checkpoint_open", small.2, god.2, god.3),
-    ] {
-        println!(
+    ];
+    let mut gate_output = std::env::var_os("V2_GATE_OUT")
+        .map(|path| fs::OpenOptions::new().create(true).append(true).open(path).unwrap());
+    for (name, small, god, all) in measurements {
+        let line = format!(
             "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{all},\"unit\":\"ns\"}}"
         );
+        println!("{line}");
+        if let Some(output) = gate_output.as_mut() {
+            writeln!(output, "{line}").unwrap();
+        }
+    }
+    for (name, small, god, all) in measurements {
         assert!((god as f64) <= small as f64 * 1.2, "{name} best p95");
         assert!((all as f64) <= small as f64 * 2.0, "{name} aggregate p95");
     }
@@ -1058,4 +1097,29 @@ fn a_card_field_whose_line_is_gone_is_absent_and_lacked() {
     assert!(body.get("title").is_none(), "{body}");
     assert_eq!(body["lacks"], 1);
     assert_eq!(body["tool"], "Read");
+}
+
+#[test]
+fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
+    let page: Page = serde_json::from_value(serde_json::json!({"sid": "s", "stream": "chat:c"}))
+        .expect("a page");
+    let mut keyed = page.clone();
+    keyed.keys = Some(
+        (0..1000)
+            .map(|n| {
+                crate::wire::PageKey::Summary(crate::wire::ListKey {
+                    last_activity: n,
+                    chat_id: format!("chat-{n:060}"),
+                    origin: "o".repeat(64),
+                })
+            })
+            .collect(),
+    );
+    let count = |page: Page| {
+        let (reply, _rx) = Reply::channel("page", None, None);
+        Request::Page { page: Box::new(page), person: [0; 16], reply }.bytes()
+    };
+    let (plain, keyed_len) = (count(page), count(keyed.clone()));
+    let encoded = serde_json::to_vec(&keyed).expect("encodes").len();
+    assert!(keyed_len >= plain + encoded - 64, "1,000 keys of {encoded} bytes counted {keyed_len}");
 }

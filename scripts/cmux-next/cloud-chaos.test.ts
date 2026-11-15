@@ -252,6 +252,13 @@ describe("the counting turn", () => {
 });
 
 describe("judgeLoss on a turn a restart cut short", () => {
+  test("an interrupted turn with journal events but no counted output cannot pass", () => {
+    const j = [{ seq: 40, ks: [] }, { seq: 41, ks: [] }];
+    const v = judgeLoss({ n: 10, journal: j, client: j, interrupted: true });
+    expect(v.ok).toBe(false);
+    expect(v.text).toContain("no counting steps");
+  });
+
   test("every step up to the last one reached, and no more", () => {
     const j = turn(10).slice(0, 12); // steps 1..6 ran
     expect(judgeLoss({ n: 10, journal: j, client: j }).ok).toBe(false);
@@ -259,6 +266,25 @@ describe("judgeLoss on a turn a restart cut short", () => {
     expect(v.text).toBe("no lost output: seq 40..51 contiguous, steps 1..6 of 10 (the turn was cut short) once on both sides");
     const holed = j.filter((e) => e.seq !== 43);
     expect(judgeLoss({ n: 10, journal: j, client: holed, interrupted: true }).text).toContain("the client is missing step 2");
+  });
+});
+
+describe("judgeLoss at the fault boundary", () => {
+  test("a complete transcript does not excuse a fault outside the counting turn", () => {
+    const j = turn(10);
+    for (const injection of [
+      { step: 0, running: true },
+      { step: 3, running: true },
+      { step: 4, running: false },
+      { step: 10, running: true },
+      { step: 10, running: false },
+    ]) {
+      const v = judgeLoss({ n: 10, journal: j, client: j, injection });
+      expect(v.ok).toBe(false);
+      expect(v.text).toContain("fault was not armed during counting output");
+    }
+    expect(judgeLoss({ n: 10, journal: j, client: j, injection: { step: 4, running: true } }).ok).toBe(true);
+    expect(judgeLoss({ n: 10, journal: j, client: j, injection: { step: 9, running: true } }).ok).toBe(true);
   });
 });
 
@@ -436,6 +462,13 @@ describe("judgeTerminal", () => {
     const behind: TerminalRead = { after: r[3].next, start: 0, next: r[3].next - 1, complete: true, text: all(5) };
     expect(judgeTerminal({ n: 50, reads: [...r, behind], machineSha256: sha(all(50)), sha256: sha }).ok).toBe(false);
   });
+
+  test("a repeated live snapshot at cursor zero replaces rather than duplicates", () => {
+    const snapshot: TerminalRead = { after: 0, start: 0, next: 0, complete: true, snapshot: true, text: all(3) };
+    const v = judgeTerminal({ n: 3, reads: [snapshot, snapshot], machineSha256: sha(all(3)), sha256: sha });
+    expect(v.ok).toBe(true);
+    expect(v.text).toContain("2 snapshot");
+  });
 });
 
 // Codex review F1: a session host restart restores the mux with new numeric surface ids; the chat's tab id stays.
@@ -465,14 +498,48 @@ describe("the chat's surface after a restart", () => {
   const fakeDial = (answer: (frame: any) => any) => {
     const frames: any[] = [];
     let onDial: () => void = () => undefined;
+    let onLine: (m: any) => void = () => undefined;
     const dial = {
       dials: 0,
       start() { this.dials += 1; queueMicrotask(() => onDial()); },
       async request(frame: any) { frames.push(frame); return { ok: true, data: answer(frame) }; },
       stop() {},
     };
-    return { frames, dial, make: (_onLine: (m: any) => void, d: () => void) => { onDial = d; return dial; }, redial: () => onDial() };
+    return { frames, dial, make: (line: (m: any) => void, d: () => void) => { onLine = line; onDial = d; return dial; }, redial: () => onDial(), push: (m: any) => onLine(m) };
   };
+
+  for (const redial of [false, true]) test(`records beside an attach reply survive ${redial ? "redial" : "initial attach"}`, async () => {
+    let attachingAgain = false;
+    const f = fakeDial((frame) => {
+      switch (frame.cmd) {
+        case "identify": return { registry_id: "r" };
+        case "create-workspace": return { workspace: 1 };
+        case "new-conversation-tab": return { surface: 7, tab_resource_id: "tab_chat" };
+        case "agent-session-start": return { session: "s-1" };
+        case "list-workspaces": return tree([{ surface: 7, tab_resource_id: "tab_chat", conversation: agent("s-1") }]).data;
+        case "agent-session-attach": {
+          if (!redial || attachingAgain) {
+            // ClientDial resolves the reply, then handles the next line in
+            // that stdout chunk before attach's await continuation can run.
+            queueMicrotask(() => f.push({ surface: 7, event: "agent-session-record", record: { seq: 11 } }));
+          }
+          return { lastSeq: 10, events: [], hasMore: false };
+        }
+        default: return {};
+      }
+    });
+    const chat = new chaos.ChatClient({ cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" }, f.make);
+    try {
+      await chat.open("claude");
+      if (redial) {
+        attachingAgain = true;
+        f.redial();
+        await chat.caughtUp(11, 1_000);
+      }
+      expect(chat.received.map((r) => r.seq)).toEqual([11]);
+      expect(chat.held).toBe(11);
+    } finally { chat.stop(); }
+  });
 
   test("after a redial the chat attaches, and prompts, on the tab's new surface", async () => {
     let surface = 7;
@@ -501,6 +568,66 @@ describe("the chat's surface after a restart", () => {
     await chat.prompt("hi");
     expect(f.frames.find((x) => x.cmd === "agent-session-prompt")?.surface).toBe(31);
     chat.stop();
+  });
+});
+
+describe("why a stalled chat stalled", () => {
+  const ctx = { cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" };
+  const late = (ms: number) => Promise.reject(new Error(`no answer within ${ms / 1000} s`));
+  /** A chat holding seq 10 whose dial answers the diagnosis' `agent-session-events` and `identify` as given. */
+  const chatWith = async (events: () => Promise<any>, identify: () => Promise<any>) => {
+    let onDial: () => void = () => undefined;
+    const asked: any[] = [];
+    const dial = {
+      dials: 0,
+      start() { queueMicrotask(() => onDial()); },
+      async request(frame: any, ms?: number) {
+        if (frame.cmd === "agent-session-events") { asked.push({ ...frame, ms }); return events(); }
+        if (frame.cmd === "identify" && asked.length) { asked.push({ ...frame, ms }); return identify(); }
+        switch (frame.cmd) {
+          case "identify": return { ok: true, data: { registry_id: "r" } };
+          case "create-workspace": return { ok: true, data: { workspace: 1 } };
+          case "new-conversation-tab": return { ok: true, data: { surface: 7, tab_resource_id: "tab_s" } };
+          case "agent-session-start": return { ok: true, data: { session: "s" } };
+          case "agent-session-attach": return { ok: true, data: { lastSeq: 10, events: [], hasMore: false } };
+          default: return { ok: true, data: {} };
+        }
+      },
+      stop() {},
+    };
+    const chat = new chaos.ChatClient(ctx, (_line, d) => { onDial = d; return dial; });
+    await chat.open("claude");
+    return { chat, asked };
+  };
+
+  test("events past the seq held: the attachment is dead and the transport fine, and the client keeps none of them", async () => {
+    const { chat, asked } = await chatWith(async () => ({ ok: true, data: { events: [{ seq: 9 }, { seq: 11 }, { seq: 12 }] } }), async () => ({ ok: true, data: {} }));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events answered from seq 11 (2 records), identify answered: attachment dead, transport fine");
+    expect(chat.held).toBe(10);
+    expect(chat.received).toEqual([]);
+    expect(asked.map((a) => [a.cmd, a.after_seq, a.ms])).toEqual([["agent-session-events", 10, 10_000], ["identify", undefined, 5_000]]);
+    chat.stop();
+  });
+
+  test("events unanswered while identify answers: the bulk lane stalled", async () => {
+    const { chat } = await chatWith(() => late(10_000), async () => ({ ok: true, data: {} }));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events timed out (10 s), identify answered: bulk lane stalled");
+    chat.stop();
+  });
+
+  test("neither answered: the carrier is dead", async () => {
+    const { chat } = await chatWith(() => late(10_000), () => late(5_000));
+    expect(await chat.stallDiagnosis()).toBe("after seq 10: events timed out (10 s), identify timed out (5 s): carrier dead");
+    chat.stop();
+  });
+
+  test("a refusal or nothing new names no cause", async () => {
+    const refused = await chatWith(async () => ({ ok: false, error: { code: "not_found", message: "no such surface" } }), async () => ({ ok: true, data: {} }));
+    expect(await refused.chat.stallDiagnosis()).toBe("after seq 10: events failed: not_found: no such surface, identify answered: no conclusion");
+    refused.chat.stop();
+    const empty = await chatWith(async () => ({ ok: true, data: { events: [] } }), async () => ({ ok: true, data: {} }));
+    expect(await empty.chat.stallDiagnosis()).toBe("after seq 10: events answered with nothing past it, identify answered: no conclusion");
+    empty.chat.stop();
   });
 });
 

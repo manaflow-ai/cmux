@@ -14,10 +14,16 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod link_side;
+mod terminal_chat;
 mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use link_side::{LinkOpenSide, link_open_side};
+pub use terminal_chat::{
+    TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
+};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 
 uniffi::setup_scaffolding!();
@@ -469,6 +475,13 @@ impl LinkHandle {
     /// heartbeat probes only a link quiet for a whole beat.
     pub fn received_ago_ms(&self) -> u64 {
         u64::try_from(self.link.received_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Milliseconds since the link last received a frame other than a ping
+    /// or a pong. With Align Keepalives on, the heartbeat probes a link with
+    /// no traffic for a whole beat on the keepalive beat.
+    pub fn traffic_ago_ms(&self) -> u64 {
+        u64::try_from(self.link.traffic_ago().as_millis()).unwrap_or(u64::MAX)
     }
 
     /// Close the link and its transport. The signaling socket stays warm
@@ -1176,6 +1189,24 @@ pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
+/// Settings → Transport → Align Keepalives (off by default): every
+/// keepalive of the phone goes out on the same beats
+/// (`cmux_mobile_link::keepalive`). Read by each dial and by the signaling
+/// socket's next keepalive tick.
+#[uniffi::export]
+pub fn set_keepalive_alignment(on: bool) {
+    cmux_mobile_link::keepalive::set_aligned(on);
+}
+
+/// Milliseconds from now until the next keepalive beat of `period_ms`, for
+/// the app's own timers (presence, Cloud Chief, the link heartbeat), so
+/// they share the Rust keepalives' instants.
+#[uniffi::export]
+pub fn keepalive_beat_delay_ms(period_ms: u64) -> u64 {
+    let delay = cmux_mobile_link::keepalive::delay_to_beat(Duration::from_millis(period_ms.max(1)));
+    u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)
+}
+
 /// How long the signaling socket may take to answer after a network
 /// change before a new one is opened (the old network's socket is usually
 /// dead, and `bye` and new dials need a live one).
@@ -1246,6 +1277,8 @@ async fn dial(
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
         ultra: request.ultra,
+        // Read once, so the tunnel and its link agree (`dial_on`).
+        aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
         timeline: timeline.clone(),
         ..DialOptions::default()
     };
@@ -1309,7 +1342,7 @@ async fn dial_on(
         &request.mac_device_id,
         request.transport.into(),
         options,
-        LinkConfig::default(),
+        if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
     );
     if !probe {
         return dial.await.map_err(Attempt::Failed);
