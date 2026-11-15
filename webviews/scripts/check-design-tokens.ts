@@ -483,7 +483,8 @@ function styleValues(node: ts.Expression, property: string): string[] {
     return [...styleValues(node.whenTrue, property), ...styleValues(node.whenFalse, property)];
   if (
     ts.isBinaryExpression(node) &&
-    (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+    (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
   )
     return styleValues(node.right, property);
   return [];
