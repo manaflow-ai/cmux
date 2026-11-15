@@ -31,7 +31,6 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
-  type CustomizeTryOn,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -52,6 +51,7 @@ import {
   type SnapshotResult,
   type ThemeOverride,
   type WorkspaceBackground,
+  type CustomizeTryOn,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -90,7 +90,7 @@ export type MockOptions = {
   tryOn?: CustomizeTryOn;
 };
 
-/** This Mac joined to a team with the one-line join, both consent switches off. */
+/** This Mac joined to a team with the one-line join, every consent switch off. */
 export const mockDevicesJoin: DevicesJoinState = {
   title: "This Mac on Your Team",
   joined: "Joined to Example Team as studio",
@@ -105,6 +105,12 @@ export const mockDevicesJoin: DevicesJoinState = {
       surface: "control",
       title: "Control",
       help: "Your team's machines can move the pointer and type here",
+      on: false,
+    },
+    {
+      surface: "signedInMachines",
+      title: "Your other Macs",
+      help: "Your other Macs signed in to this account can open workspaces and terminals here",
       on: false,
     },
   ],
