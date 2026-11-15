@@ -2801,7 +2801,7 @@ def launch_shift_rows(variant, record, launched, chat_watch):
     if chat_watch:
         chat_watch.pop("thread").join(20)
         summary["chat"] = {k: chat_watch.get(k) for k in ("first_content_ms", "first_rows", "elements", "shifts", "appeared",
-                                                          "scroll_jumps", "asked_s", "error", "snapshot", "first_from_copy", "swap_ms",
+                                                          "scroll_jumps", "asked_s", "error", "snapshot", "first_from_copy", "swap_ms", "first_parts", "swap_parts",
                                                           "grew") if k in chat_watch}
     dump(f"launch-shift-{variant}.json", summary)
     say(f"  LAUNCH-SHIFT {variant} {json.dumps(total)}")

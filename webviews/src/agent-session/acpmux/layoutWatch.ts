@@ -21,6 +21,9 @@ type Frame = {
   /// The transcript's scroll height and its last rows' names and heights: what grew when it grew.
   scrollHeight: number;
   tail: string[];
+  /// The scroller's parts (each child's class and height, the rows' drawn translate, the stack under
+  /// them): read only for frames the report keeps (the first, the swap, a height change).
+  parts: () => Record<string, unknown>;
 };
 
 const ROWS = ".cv-message, .cv-worked, .cv-tool, .cv-turn-actions";
@@ -98,7 +101,22 @@ function read(start: number): Frame {
     copy,
     scrollHeight: Math.round(list?.scrollHeight ?? 0),
     tail,
+    parts: partsOf(list, scope),
   };
+}
+
+/// A snapshot of the scroller's parts now, read when the report asks (the frame's own boxes are read at once).
+function partsOf(list: Element | undefined, scope: ParentNode): () => Record<string, unknown> {
+  const children = list
+    ? [...list.children].slice(0, 6).map((child) => {
+        const style = getComputedStyle(child);
+        return `${(child.className || child.tagName).toString().split(" ")[0]} h${Math.round(child.getBoundingClientRect().height)} t${style.translate} p${style.paddingBottom}`;
+      })
+    : [];
+  const dock = scope.querySelector(".acpmux-composer")?.parentElement;
+  const dockBox = dock && boxOf(dock);
+  const view = list && boxOf(list);
+  return () => ({ children, dock: dockBox, view });
 }
 
 const shown = (frame: Frame) =>
@@ -173,7 +191,13 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
       return before.copy === frame.copy && Math.abs(frame.scrollHeight - before.scrollHeight) > tolerance;
     })
     .slice(0, 8)
-    .map((frame) => ({ at_ms: Math.round(frame.at), scroll_height: frame.scrollHeight, tail: frame.tail }));
+    .map((frame) => ({
+      at_ms: Math.round(frame.at),
+      scroll_height: frame.scrollHeight,
+      scroll_top: frame.scrollTop,
+      tail: frame.tail,
+      parts: frame.parts(),
+    }));
   const swappedAt = later.find((frame, index) => (index ? later[index - 1]! : base).copy && !frame.copy)?.at;
   return {
     frames: frames.length,
@@ -188,6 +212,11 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     snapshot: chatSnapshotReport(),
     first_from_copy: base.copy,
     swap_ms: swappedAt === undefined ? null : Math.round(swappedAt),
+    first_parts: { scroll_top: base.scrollTop, scroll_height: base.scrollHeight, ...base.parts() },
+    swap_parts: (() => {
+      const frame = later.find((each, index) => (index ? later[index - 1]! : base).copy && !each.copy);
+      return frame ? { scroll_top: frame.scrollTop, scroll_height: frame.scrollHeight, ...frame.parts() } : null;
+    })(),
     shifts,
     appeared,
     scroll_jumps: scrollJumps,
