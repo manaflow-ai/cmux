@@ -526,4 +526,131 @@ mod tests {
         assert_eq!(run_cli(&["frobnicate".into()]), 2);
         assert_eq!(run_cli(&[]), 2);
     }
+
+    const UNIT: &str = include_str!("../../systemd/cmux-screen-host.service");
+
+    /// `[Service]` lines of the unit as (key, value), comments and blanks skipped.
+    fn unit_directives() -> Vec<(String, String)> {
+        UNIT.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with(';'))
+            .filter_map(|l| l.split_once('='))
+            .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn user_unit_needs_no_user_namespace() {
+        // In a user unit each of these makes systemd set up a user namespace (PrivateUsers),
+        // which Ubuntu 24.04+ forbids unprivileged processes through AppArmor: the unit would
+        // not start. PrivateTmp also hides an XAUTHORITY or X socket kept in /tmp.
+        const NEEDS_USERNS: &[&str] = &[
+            "PrivateUsers",
+            "PrivateTmp",
+            "PrivateDevices",
+            "PrivateNetwork",
+            "PrivateIPC",
+            "PrivateMounts",
+            "PrivatePIDs",
+            "ProtectSystem",
+            "ProtectHome",
+            "ProtectKernelTunables",
+            "ProtectKernelModules",
+            "ProtectKernelLogs",
+            "ProtectControlGroups",
+            "ProtectClock",
+            "ProtectHostname",
+            "ProtectProc",
+            "ProcSubset",
+            "ReadOnlyPaths",
+            "ReadWritePaths",
+            "InaccessiblePaths",
+            "ExecPaths",
+            "NoExecPaths",
+            "TemporaryFileSystem",
+            "BindPaths",
+            "BindReadOnlyPaths",
+            "MountAPIVFS",
+            "RootDirectory",
+            "RootImage",
+            "NetworkNamespacePath",
+            "IPCNamespacePath",
+        ];
+        let directives = unit_directives();
+        assert!(directives.iter().any(|(k, _)| k == "ExecStart"), "unit not parsed");
+        for (key, value) in &directives {
+            assert!(
+                !NEEDS_USERNS.contains(&key.as_str()),
+                "{key}={value} needs a user namespace in a user unit"
+            );
+        }
+    }
+
+    #[test]
+    fn fatal_hub_errors_stop_the_unit_with_a_next_step() {
+        for (code, next) in [
+            ("device_removed", "cmux-rd linux-host enable"),
+            ("device_key_mismatch", "cmux-rd linux-host enable"),
+            ("not_anchored", "cmux-rd linux-host share on"),
+        ] {
+            let e: Box<dyn std::error::Error + Send + Sync> =
+                HubError { status: 403, code: code.into(), message: "m".into() }.into();
+            let fatal = Fatal::from_hub(&e).unwrap_or_else(|| panic!("{code} is not fatal"));
+            assert!(fatal.to_string().contains(next), "{code}: {fatal}");
+            let boxed: Box<dyn std::error::Error + Send + Sync> = fatal.into();
+            assert_eq!(exit_code(&*boxed), EXIT_NEEDS_SETUP);
+        }
+        let transient: Box<dyn std::error::Error + Send + Sync> =
+            HubError { status: 503, code: "unavailable".into(), message: "m".into() }.into();
+        assert!(Fatal::from_hub(&transient).is_none());
+        assert_eq!(exit_code(&*transient), 1);
+        assert_ne!(EXIT_NEEDS_SETUP, 1);
+        assert_ne!(EXIT_NEEDS_SETUP, 2);
+        // systemd must not restart it: the code is in RestartPreventExitStatus=.
+        let prevented: Vec<String> = unit_directives()
+            .into_iter()
+            .filter(|(k, _)| k == "RestartPreventExitStatus")
+            .flat_map(|(_, v)| v.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
+            .collect();
+        assert!(
+            prevented.contains(&EXIT_NEEDS_SETUP.to_string()),
+            "RestartPreventExitStatus= lacks {EXIT_NEEDS_SETUP}: {prevented:?}"
+        );
+    }
+
+    fn request(name: &str, fingerprint: Option<&str>) -> consent::Request {
+        consent::Request {
+            id: "s1".into(),
+            viewer_id: "v1".into(),
+            viewer_name: name.into(),
+            viewer_key_fingerprint: fingerprint.map(str::to_owned),
+            scope: "view".into(),
+            received_ms: 0,
+        }
+    }
+
+    #[test]
+    fn hub_text_is_printed_without_control_characters() {
+        assert_eq!(printable("Ann's Mac"), "Ann's Mac");
+        assert_eq!(printable("\u{1b}[2J\u{1b}[31mEvil\u{1b}[0m"), "Evil");
+        assert_eq!(printable("a\u{1b}]0;title\u{7}b"), "ab");
+        assert_eq!(printable("x\ny\rz\t\u{0}\u{7f}\u{9b}1m"), "xyz1m");
+        assert_eq!(printable("\u{202e}cod.exe\u{202c}\u{2066}\u{200f}"), "cod.exe");
+        let hostile = "\u{1b}[2J\u{202e}Mallory\nlinux-host: approved";
+        for line in [request_line(&request(hostile, None)), ask_line(&request(hostile, None))] {
+            assert!(!line.chars().any(|c| c.is_control() || is_bidi_control(c)), "{line:?}");
+            assert!(line.contains("Mallorylinux-host: approved"), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn fingerprints_are_cut_on_a_character_boundary() {
+        // 15 ASCII bytes then a 3-byte character across the 16-byte mark.
+        let fp = "0123456789abcde\u{20ac}\u{20ac}tail";
+        let line = request_line(&request("Ann", Some(fp)));
+        assert!(line.contains("(key 0123456789abcde\u{20ac})"), "{line}");
+        let line = request_line(&request("Ann", Some("\u{1b}[31m\u{e9}")));
+        assert!(line.contains("(key \u{e9})"), "{line}");
+        assert!(request_line(&request("Ann", None)).contains("(key -)"));
+    }
 }
