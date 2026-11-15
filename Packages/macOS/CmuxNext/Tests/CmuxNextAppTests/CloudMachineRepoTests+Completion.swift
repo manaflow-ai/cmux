@@ -159,7 +159,7 @@ extension CloudMachineRepoTests {
         // The flow's task, as `CloudCreationFlow.run` makes it: the hook, then the open, then it waits
         // for the workspace's mirror (here: until the row's removal cancels it).
         let flow = Task { @MainActor in
-            await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
+            await CloudCreationFlow.startBootstrap(creation, on: fake.machine, running: {})
             opened.on = true
             try? await Task.sleep(for: .seconds(3600))
         }
@@ -180,7 +180,7 @@ extension CloudMachineRepoTests {
     @MainActor @Test func tearingTheCreationDownStopsTheWait() async {
         let creations = CloudCreations(), fake = GatedMachine()
         let creation = repoCreation(creations)
-        await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
+        await CloudCreationFlow.startBootstrap(creation, on: fake.machine, running: {})
         await fake.untilRead()
         creations.end(creation)
         // The read in flight comes back still waiting: no read follows it.
@@ -200,7 +200,7 @@ extension CloudMachineRepoTests {
     @MainActor @Test func aCallerWaitingOnTheCompletionWakesWhenTheCreationEnds() async {
         let creations = CloudCreations(), fake = GatedMachine(), fired = Fired()
         let creation = repoCreation(creations)
-        await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
+        await CloudCreationFlow.startBootstrap(creation, on: fake.machine, running: {})
         await fake.untilRead()
         // The wizard's wait: the completion, or the creation's end, whichever comes first.
         withObservationTracking { _ = creation.bootstrapCompletion != nil || creation.isTornDown } onChange: { fired.fire() }
@@ -224,7 +224,7 @@ extension CloudMachineRepoTests {
             else if !command.contains("mkdir -p"), command != CloudMachineBootstrap.waitCommand { others.fire() }
             return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
         })
-        await Task { @MainActor in await CloudCreationFlow.startBootstrap(creation, on: machine) }.value
+        await Task { @MainActor in await CloudCreationFlow.startBootstrap(creation, on: machine, running: {}) }.value
         #expect(creation.machineConfig == nil && !others.on, "the apply waits for the Retry")
         #expect(CloudCreationFlow.needsMachineConfig(creation))
         creation.tearDown()

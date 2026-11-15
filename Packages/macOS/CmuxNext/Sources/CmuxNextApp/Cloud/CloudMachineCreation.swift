@@ -323,7 +323,7 @@ struct CloudCreationFlow {
     /// up the open; then applies the requested machine config. The first workspace still opens at the
     /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`. Nothing goes
     /// out before `running` returns: a create answers while the machine binds, whose routes refuse it until it runs.
-    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine, running: @MainActor () async -> Void = {}) async {
+    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine, running: @MainActor () async -> Void) async {
         await running()
         guard !Task.isCancelled, !creation.isTornDown else { return }
         if let script = creation.request.script, needsScript(creation) {
