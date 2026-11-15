@@ -1067,6 +1067,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_upload_artifact_requires_retention.py
 
+      - name: Validate the DEV daily deletes its signed handoff only after its readers
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_dev_daily_drops_signed_handoff.py
+
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py

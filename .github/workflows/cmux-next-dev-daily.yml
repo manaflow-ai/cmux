@@ -1690,3 +1690,45 @@ jobs:
             (( attempt < 5 )) || { echo "the tip feed kept changing under build $TIP_BUILD" >&2; exit 1; }
           done
           echo "### cmux NEXT DEV tip $TIP_BUILD: $(find tip-out -name '*.delta' | wc -l | tr -d ' ') deltas added" >> "$GITHUB_STEP_SUMMARY"
+
+  # Deletes this run's signed app handoff (cmux-next-dev-daily-signed, about 208 MB) once every job that reads it
+  # is done. Only this run's verify, publish, tip-dmg-build and tip-dmg download it, and what outlives the run is
+  # on the release and in R2, yet the upload's 3 days held about 515 copies (about 107 GB) on 2026-11-14: GitHub
+  # keeps an artifact at least a day, so retention alone does not bound a busy handoff. It needs every other job,
+  # so it starts only after the last reader ends. A run with a failed or cancelled job keeps the artifact for its
+  # re-run (and the 3 days still expire it). continue-on-error, like supersede: a failed delete never fails the
+  # run, which would make the dispatcher hand the source over again. Three API calls; no secrets, no checkout.
+  drop-signed-handoff:
+    name: Delete the signed app handoff once its readers are done
+    needs: [sign, supersede, runner, verify, publish, tip-dmg-build, rcodesign, tip-dmg, tip, tip-deltas]
+    if: ${{ always() && needs.sign.outputs.signed == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+    steps:
+      - name: Delete cmux-next-dev-daily-signed from this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # needs.*.result reads a failed continue-on-error job (tip-dmg-build, supersede) as success, and the owned
+          # pool rescue (scripts/ci/owned_pool_rescue.py) or a person re-runs such a job, which downloads the
+          # artifact again. The jobs API has each job's real conclusion: keep it unless every other job of this
+          # attempt succeeded or was skipped.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.name != "Delete the signed app handoff once its readers are done")
+              | select(.conclusion != "success" and .conclusion != "skipped") | "\(.name): \(.conclusion // .status)"' \
+            > unclean.txt
+          if [[ -s unclean.txt ]]; then
+            echo "keeping cmux-next-dev-daily-signed for a re-run; jobs not clean:"; cat unclean.txt
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=cmux-next-dev-daily-signed&per_page=10" \
+            --jq '.artifacts[] | "\(.id) \(.size_in_bytes)"' > artifacts.txt
+          [[ -s artifacts.txt ]] || { echo "no cmux-next-dev-daily-signed artifact in this run"; exit 0; }
+          while read -r id size; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+            echo "deleted cmux-next-dev-daily-signed ($id, $(( size / 1000000 )) MB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done < artifacts.txt
