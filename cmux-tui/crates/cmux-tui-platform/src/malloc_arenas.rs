@@ -15,12 +15,10 @@
 //! environment wins over the cap, so a measurement can still set its own.
 
 /// Arenas for the cmux-tui daemon and acpmux: many threads, few of them busy at
-/// once (one per client request or agent stream).
+/// once (one per client request or agent stream). The slim terminal host
+/// (`cmux-tui-host`) keeps glibc's default: a cap of one there measured slower
+/// terminal output in #43851.
 pub const DAEMON_ARENAS: i32 = 2;
-
-/// Arenas for a terminal host: it serves one terminal, so its threads rarely
-/// allocate at the same moment.
-pub const TERMINAL_HOST_ARENAS: i32 = 1;
 
 /// Caps glibc's arenas at `max` unless the environment names its own limit.
 ///
