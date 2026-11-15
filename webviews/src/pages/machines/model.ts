@@ -4,6 +4,7 @@
 import type { Strings } from "../shared/i18n";
 import type {
   JoinedMachine,
+  JoinedDialPhase,
   JoinedMachineChange,
   MachineKind,
   MachineRow,
@@ -145,6 +146,24 @@ export function joinedCaption(
 /** Whether the row is a machine the app connects to (it can open a workspace), not a joined machine
  * reached through the mesh alone. */
 export const isLinked = (row: MachineRow) => !row.joined || row.id !== `joined:${row.joined.id}`;
+
+/** Whether New Workspace on the row asks the other Mac first (`openJoined`): a joined Mac the app
+ * reaches only through the hub, online. Its person allows it there, once, on the consent card
+ * (Leo, 2026-11-14, hq#11046). A Linux machine has no card to answer, so it keeps needing a link. */
+export const asksFirst = (row: MachineRow) =>
+  !isLinked(row) &&
+  row.joined?.state === "online" &&
+  ["macos", "darwin"].includes(row.joined.platform?.toLowerCase() ?? "");
+
+/** The words a row shows instead of its caption while its New Workspace on the other Mac is under way
+ * or stopped (`name`: that Mac). */
+export function dialText(phase: JoinedDialPhase, name: string, strings: Strings): string {
+  return strings.format(`machines.dial.${phase}`, name);
+}
+
+/** Whether the row offers Retry: the ask stopped and nothing asks again by itself. */
+export const dialStopped = (phase: JoinedDialPhase | undefined) =>
+  phase === "declined" || phase === "unanswered" || phase === "update" || phase === "failed";
 
 /** One line of the section, top to bottom. */
 export type SectionItem =

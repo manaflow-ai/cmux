@@ -412,8 +412,8 @@ def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
     (hot-apply's pins_daemon over that range): a daemon built at the head speaks those changes and the app does
     not."""
     files = h.live_apply.classify_range(str(repo), base, fork)["files"]
-    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if h.NATIVE_IN_TUI.match(p)]
-    return h.linked_rust(repo, sorted(set(rust)))
+    # As pins_daemon: since #43797 classify puts cmux-tui's own C, Objective-C and Zig in "daemon" too.
+    return h.linked_rust(repo, sorted(set(files.get("daemon", []))))
 
 
 def plan_text(planned: dict) -> str:

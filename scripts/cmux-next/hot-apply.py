@@ -1172,8 +1172,26 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, 
         if not socket:
             raise
         running = [socket]  # --socket names the daemon; the others are not known
+    retired: list[dict] = []
+    if not socket and running:
+        # A daemon an earlier copy of the app started can outlive an update: its argv still names this
+        # bin folder, but it runs the copy the updater moved aside (Leo's NIGHTLY, 2026-11-15: cmux-app.sock
+        # ran .../nightly-update/backup/retired/cmux NIGHTLY.app.../bin/cmux and the apply refused). The
+        # swap never reaches it, so it is left, named, and the app's own daemon is the first that runs TARGET.
+        live = []
+        for name in running:
+            probe = swapper_cls(None, name)  # no state: a probe never reads or writes a hand-off marker
+            with PHASES("find"):
+                owner = probe.owner(target, timeout=10)
+            if owner is not None and probe.app_file(owner[1]) != target:
+                retired.append({"socket": name, "pid": owner[0], "runs": str(owner[1])})
+            else:
+                live.append(name)
+        running = live
     socket = socket or (running[0] if running else None)
     step: dict = {"file": str(target), "to": want, "socket": socket}
+    if retired:
+        step["left_on_retired_copy"] = retired
     # The app's own daemon is handed off here. Another session's (the chief's) keeps the build it mapped
     # unless `sessions` restarts it below; the receipt names each one left, and why.
     others = [name for name in running if name != socket]

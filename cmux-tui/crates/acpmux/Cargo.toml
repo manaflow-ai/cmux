@@ -33,8 +33,8 @@ tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
 sim = []
 # Another crate's tests' in-process daemon that serves the v2 list (src/test_support.rs; row 7c,
 # cmux-tui-core's list callers). Never in a shipped build: only a crate's dev-dependencies turn it
-# on.
-test-support = []
+# on. Its gates print and compare their rounds through `acpmux_book::gate_rounds`.
+test-support = ["acpmux-book/gate-rounds"]
 # Dev only: the sign-in output parser from a WebAssembly module that a debug daemon swaps live
 # when ACPMUX_HOT_MODULE's file changes (crates/acpmux-hot). Never in a shipped build.
 hot-modules = ["dep:acpmux-hot"]
@@ -195,6 +195,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
+acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
 proptest = { version = "1", default-features = false, features = ["std"] }
 # The NEXT Cloud network list (`vm.networks`), whose id the tunnel tests attach with.
