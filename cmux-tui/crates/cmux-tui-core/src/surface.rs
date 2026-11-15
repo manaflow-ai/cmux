@@ -939,6 +939,17 @@ impl Surface {
         Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface)?;
 
+        // A daemon restart adopts a host whose screen may have advanced while
+        // no parser tap existed. Mark that cut before the reader starts so an
+        // idle adopted terminal is projected from its live screen too.
+        if adopted
+            && let Some(mux) = mux.upgrade()
+            && let Some(pty) = surface.as_pty()
+            && let Some(terminal_id) = pty.terminal_public_id.clone()
+        {
+            mux.output_store.stream_gap(&terminal_id, &pty.journal_generation);
+        }
+
         // Keep exact-child rollback ownership armed through the final thread
         // spawn. If Builder::spawn fails, dropping the closure clone and
         // function-local Surface drops the still-armed attachment, so no

@@ -175,7 +175,7 @@ jobs:
           name: ghosttykit-link-sets
           path: ${{ runner.temp }}/ghosttykit-link-sets
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
       # The iOS Settings.bundle Acknowledgements pane is generated from this tree
       # (the ghostty-next gitlink = the GhosttyNextKit pin's revision).
@@ -267,4 +267,4 @@ jobs:
           name: vt-link-graph
           path: ${{ runner.temp }}/vt-link-graph
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7

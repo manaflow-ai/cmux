@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -666,6 +666,31 @@ class WebUiTests(unittest.TestCase):
             {"name": "infinite_items.n1000.memory_vs_empty", "p50": 1.4, "p95": 1.4, "unit": "x", "floor": 0.1}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.infinite_items.n1000.memory_vs_empty"]["p95"], 1.4)
+
+    def test_the_chat_100k_flat_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-flat"))
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.ratio_max@linux"), "web-ui-flat")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.long_x20.renderer_mb@linux"), "web-ui-flat")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.ratio_max@linux"), "web-ui-flat-grown")
+        self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.empty_x20.renderer_mb@linux"), "web-ui-flat-grown")
+        argv, _, _ = cron.linux_bench_runs("/r", "web-ui-flat-grown")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"])
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-flat")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_chat_disk_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("chat-disk"))
+        self.assertEqual(cron.part_for_row("webui.chat_disk.growth_ratio@linux"), "chat-disk")
+        self.assertEqual(cron.part_for_row("webui.chat_disk.long_mb_per_hour@linux"), "chat-disk")
+        runs = cron.linux_bench_runs("/r", "chat-disk")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/chat-disk-growth-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/chat-disk-growth-linux.sh"])
+        rows = cron.rows_of_part(cron.PART_BY_NAME["chat-disk"], {"rows": [
+            {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
 
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))

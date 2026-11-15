@@ -395,7 +395,7 @@ jobs:
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
-            --test v2_gate_home --no-fail-fast)
+            --test v2_gate_home --test v2_chat_recorded_stream --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
