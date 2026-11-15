@@ -674,9 +674,6 @@ pub(in crate::server) fn restart_with(
     AcpmuxLink::connect(socket, |_| {}).ok()
 }
 
-/// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
-/// `timings`: each phase reached, on this machine's clock.
-/// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
 /// A start's refusal with its typed facts for `data`, when it has any.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct StartRefused(Refusal, Option<Value>);
@@ -719,6 +716,9 @@ impl StartRefused {
     }
 }
 
+/// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
+/// `timings`: each phase reached, on this machine's clock.
+/// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
 /// checks before the agent began (the readiness wait included); `until`: the start's one ceiling.
 #[allow(clippy::too_many_arguments)]
 fn start_and_bind(
