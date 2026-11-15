@@ -35,6 +35,191 @@ pub enum MftKind {
     Software,
 }
 
+/// Rate control an MFT runs ([`MfTuning::rc`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RateControl {
+    /// Constant bitrate at the target (the default).
+    #[default]
+    Cbr,
+    /// Low-delay VBR: the target as a mean, frames may vary.
+    LowDelayVbr,
+    /// Peak-constrained VBR: the target as a mean, capped at `peak_pct` of it.
+    PeakVbr,
+    /// Constant quality ([`MfTuning::quality`], 0-100), the target ignored.
+    Quality,
+}
+
+/// The H.264 profile an MFT sends ([`MfTuning::profile`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Profile {
+    /// Constrained baseline, as OpenH264 and VideoToolbox send (the default).
+    #[default]
+    Baseline,
+    Main,
+    /// High: 8x8 transforms; with CABAC, the most bits saved on text.
+    High,
+}
+
+impl Profile {
+    fn mf_profile(self) -> u32 {
+        match self {
+            Profile::Baseline => eAVEncH264VProfile_Base.0 as u32,
+            Profile::Main => eAVEncH264VProfile_Main.0 as u32,
+            Profile::High => eAVEncH264VProfile_High.0 as u32,
+        }
+    }
+}
+
+/// Settings past the defaults, for measuring what makes screen content sharper. The
+/// default is what [`MediaFoundation::new`] uses. [`MfTuning::parse`] reads the bench's
+/// comma list (`rc=quality,quality=70,profile=high,cabac=1,minqp=20,maxqp=40,stillqp=22`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MfTuning {
+    pub rc: RateControl,
+    /// Constant-quality level, 0-100 ([`RateControl::Quality`]).
+    pub quality: u32,
+    /// The peak as a percent of the target ([`RateControl::PeakVbr`]).
+    pub peak_pct: u32,
+    pub profile: Profile,
+    /// CABAC entropy coding (main and high profiles only).
+    pub cabac: bool,
+    pub min_qp: Option<u32>,
+    pub max_qp: Option<u32>,
+    /// The QP ceiling on a picture identical to the one before (sharpen-on-still).
+    pub still_max_qp: Option<u32>,
+    /// The rate-control buffer, in milliseconds of the target.
+    pub buffer_ms: Option<u32>,
+    /// Quality against speed, 0 (fastest) to 100 (best).
+    pub quality_vs_speed: Option<u32>,
+    pub threads: Option<u32>,
+    pub low_latency: bool,
+}
+
+impl Default for MfTuning {
+    fn default() -> Self {
+        Self {
+            rc: RateControl::Cbr,
+            quality: 70,
+            peak_pct: 200,
+            profile: Profile::Baseline,
+            cabac: false,
+            min_qp: None,
+            max_qp: None,
+            still_max_qp: None,
+            buffer_ms: None,
+            quality_vs_speed: None,
+            threads: None,
+            low_latency: true,
+        }
+    }
+}
+
+impl MfTuning {
+    /// Reads `key=value` pairs, comma separated, over the default.
+    pub fn parse(s: &str) -> Res<Self> {
+        let mut t = Self::default();
+        for pair in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let (k, v) =
+                pair.split_once('=').ok_or(format!("mf tuning: {pair} is not key=value"))?;
+            let num = || v.parse::<u32>().map_err(|e| format!("mf tuning {k}: {e}"));
+            match k {
+                "rc" => {
+                    t.rc = match v {
+                        "cbr" => RateControl::Cbr,
+                        "ldvbr" => RateControl::LowDelayVbr,
+                        "pvbr" => RateControl::PeakVbr,
+                        "quality" => RateControl::Quality,
+                        _ => return Err(format!("mf tuning: unknown rc {v}").into()),
+                    }
+                }
+                "quality" => t.quality = num()?.min(100),
+                "peak" => t.peak_pct = num()?.max(100),
+                "profile" => {
+                    t.profile = match v {
+                        "base" => Profile::Baseline,
+                        "main" => Profile::Main,
+                        "high" => Profile::High,
+                        _ => return Err(format!("mf tuning: unknown profile {v}").into()),
+                    }
+                }
+                "cabac" => t.cabac = num()? != 0,
+                "minqp" => t.min_qp = Some(num()?),
+                "maxqp" => t.max_qp = Some(num()?),
+                "stillqp" => t.still_max_qp = Some(num()?),
+                "buffer_ms" => t.buffer_ms = Some(num()?),
+                "qvs" => t.quality_vs_speed = Some(num()?.min(100)),
+                "threads" => t.threads = Some(num()?),
+                "lowlat" => t.low_latency = num()? != 0,
+                _ => return Err(format!("mf tuning: unknown key {k}").into()),
+            }
+        }
+        Ok(t)
+    }
+
+    /// The codec properties these settings set, each with the name the encoder's name lists.
+    fn properties(&self, kbps: u32, fps: u32) -> Vec<(String, GUID, VARIANT)> {
+        let bps = kbps * 1000;
+        let rc = match self.rc {
+            RateControl::Cbr => eAVEncCommonRateControlMode_CBR,
+            RateControl::LowDelayVbr => eAVEncCommonRateControlMode_LowDelayVBR,
+            RateControl::PeakVbr => eAVEncCommonRateControlMode_PeakConstrainedVBR,
+            RateControl::Quality => eAVEncCommonRateControlMode_Quality,
+        };
+        let mut p = vec![(
+            format!("rc={:?}", self.rc).to_lowercase(),
+            CODECAPI_AVEncCommonRateControlMode,
+            variant_u32(rc.0 as u32),
+        )];
+        if self.rc == RateControl::Quality {
+            p.push((
+                format!("quality={}", self.quality),
+                CODECAPI_AVEncCommonQuality,
+                variant_u32(self.quality),
+            ));
+        } else {
+            p.push(("bitrate".into(), CODECAPI_AVEncCommonMeanBitRate, variant_u32(bps)));
+        }
+        if self.rc == RateControl::PeakVbr {
+            let peak =
+                (u64::from(bps) * u64::from(self.peak_pct) / 100).min(u64::from(u32::MAX)) as u32;
+            p.push((
+                format!("peak={}%", self.peak_pct),
+                CODECAPI_AVEncCommonMaxBitRate,
+                variant_u32(peak),
+            ));
+        }
+        p.push((
+            format!("low-latency={}", self.low_latency),
+            CODECAPI_AVLowLatencyMode,
+            variant_bool(self.low_latency),
+        ));
+        p.push(("b=0".into(), CODECAPI_AVEncMPVDefaultBPictureCount, variant_u32(0)));
+        p.push(("gop=1h".into(), CODECAPI_AVEncMPVGOPSize, variant_u32(fps.max(1) * 3600)));
+        if self.profile != Profile::Baseline {
+            p.push((
+                format!("profile={:?} cabac={}", self.profile, self.cabac).to_lowercase(),
+                CODECAPI_AVEncH264CABACEnable,
+                variant_bool(self.cabac),
+            ));
+        }
+        for (name, key, v) in [
+            ("minqp", CODECAPI_AVEncVideoMinQP, self.min_qp),
+            ("maxqp", CODECAPI_AVEncVideoMaxQP, self.max_qp),
+            ("qvs", CODECAPI_AVEncCommonQualityVsSpeed, self.quality_vs_speed),
+            ("threads", CODECAPI_AVEncNumWorkerThreads, self.threads),
+        ] {
+            if let Some(v) = v {
+                p.push((format!("{name}={v}"), key, variant_u32(v)));
+            }
+        }
+        if let Some(ms) = self.buffer_ms {
+            let bits = (u64::from(bps) * u64::from(ms) / 1000).min(u64::from(u32::MAX)) as u32;
+            p.push((format!("buffer={ms}ms"), CODECAPI_AVEncCommonBufferSize, variant_u32(bits)));
+        }
+        p
+    }
+}
+
 /// How long an async hardware MFT may take to ask for a picture or to return its access
 /// unit. Past it the picture is dropped or its output comes on a later call, as a skipped
 /// frame would; the media loop never waits longer.
@@ -207,6 +392,11 @@ pub struct MediaFoundation {
     nv12: Vec<u8>,
     out_pts: Option<i64>,
     name: String,
+    /// [`MfTuning::still_max_qp`]; `moving_max_qp` is the ceiling it restores.
+    still_max_qp: Option<u32>,
+    moving_max_qp: u32,
+    prev_y: Vec<u8>,
+    sharpening: bool,
 }
 
 // SAFETY: Media Foundation transforms are free-threaded COM objects created in the
@@ -298,6 +488,11 @@ impl Drop for ShutdownGuard<'_> {
 impl MediaFoundation {
     /// An encoder on the best MFT of `kind` that accepts the settings.
     pub fn new(cfg: &EncCfg, kind: MftKind) -> Res<Self> {
+        Self::with_tuning(cfg, kind, &MfTuning::default())
+    }
+
+    /// [`MediaFoundation::new`] with `tuning` in place of the default settings.
+    pub fn with_tuning(cfg: &EncCfg, kind: MftKind, tuning: &MfTuning) -> Res<Self> {
         if cfg.width % 2 != 0 || cfg.height % 2 != 0 {
             return Err(format!(
                 "media foundation: NV12 needs an even size, not {}x{}",
@@ -313,7 +508,7 @@ impl MediaFoundation {
         let mut errors = Vec::new();
         for activate in candidates {
             let name = friendly_name(&activate);
-            match Self::open(plat, activate, cfg, kind, &name) {
+            match Self::open(plat, activate, cfg, kind, tuning, &name) {
                 Ok(enc) => return Ok(enc),
                 Err(e) => errors.push(format!("{name}: {e}")),
             }
@@ -327,6 +522,7 @@ impl MediaFoundation {
         activate: IMFActivate,
         cfg: &EncCfg,
         kind: MftKind,
+        tuning: &MfTuning,
         mft_name: &str,
     ) -> Res<Self> {
         let kbps = cfg.kbps.max(100);
@@ -350,25 +546,20 @@ impl MediaFoundation {
             // Rate control first: some encoders read it when the output type is set.
             let mut settings = Vec::new();
             if let Some(api) = &codec_api {
-                for (what, key, value) in [
-                    (
-                        "cbr",
-                        CODECAPI_AVEncCommonRateControlMode,
-                        variant_u32(eAVEncCommonRateControlMode_CBR.0 as u32),
-                    ),
-                    ("bitrate", CODECAPI_AVEncCommonMeanBitRate, variant_u32(kbps * 1000)),
-                    ("low-latency", CODECAPI_AVLowLatencyMode, variant_bool(true)),
-                    ("b=0", CODECAPI_AVEncMPVDefaultBPictureCount, variant_u32(0)),
-                    ("gop=1h", CODECAPI_AVEncMPVGOPSize, variant_u32(cfg.fps.max(1) * 3600)),
-                ] {
+                for (what, key, value) in tuning.properties(kbps, cfg.fps) {
                     if api.SetValue(&key, &value).is_ok() {
                         settings.push(what);
+                    } else {
+                        settings.push(format!("{what}(refused)"));
                     }
                 }
             }
+            if let Some(qp) = tuning.still_max_qp {
+                settings.push(format!("stillqp={qp}"));
+            }
             let out = plat.video_type(&MFVideoFormat_H264, cfg)?;
             out.SetUINT32(&MF_MT_AVG_BITRATE, kbps * 1000)?;
-            out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base.0 as u32)?;
+            out.SetUINT32(&MF_MT_MPEG2_PROFILE, tuning.profile.mf_profile())?;
             mft.SetOutputType(0, &out, 0)?;
             mft.SetInputType(0, &plat.video_type(&MFVideoFormat_NV12, cfg)?, 0)?;
             mft.ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)?;
@@ -378,7 +569,7 @@ impl MediaFoundation {
         guard.0 = None;
         drop(guard);
         let name = format!(
-            "media foundation {} ({}{}) baseline {}",
+            "media foundation {} ({}{}) {}",
             mft_name,
             if kind == MftKind::Hardware { "hardware" } else { "software" },
             if is_async { ", async" } else { "" },
@@ -403,7 +594,30 @@ impl MediaFoundation {
             nv12: vec![0; w * h * 3 / 2],
             out_pts: None,
             name,
+            still_max_qp: tuning.still_max_qp,
+            moving_max_qp: tuning.max_qp.unwrap_or(51),
+            prev_y: Vec::new(),
+            sharpening: false,
         })
+    }
+
+    /// Sharpen-on-still: a picture identical to the one before gets `still_max_qp` as its
+    /// QP ceiling, so the encoder spends the idle frames refining what is on screen; the
+    /// first changed picture puts the ceiling back.
+    fn sharpen_on_still(&mut self, pic: &I420) {
+        let Some(still_qp) = self.still_max_qp else { return };
+        let still = !self.prev_y.is_empty() && self.prev_y == pic.y;
+        if still != self.sharpening
+            && let Some(api) = &self.codec_api
+        {
+            let qp = if still { still_qp } else { self.moving_max_qp };
+            // SAFETY: a documented codec property, set between pictures.
+            if unsafe { api.SetValue(&CODECAPI_AVEncVideoMaxQP, &variant_u32(qp)) }.is_ok() {
+                self.sharpening = still;
+            }
+        }
+        self.prev_y.clear();
+        self.prev_y.extend_from_slice(&pic.y);
     }
 
     fn input_sample(&mut self, pic: &I420, pts: i64) -> Res<IMFSample> {
@@ -608,6 +822,7 @@ impl H264Encoder for MediaFoundation {
             // SAFETY: a documented codec property set before the picture it applies to.
             unsafe { api.SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &variant_u32(1)) }?;
         }
+        self.sharpen_on_still(pic);
         let sample = self.input_sample(pic, pts)?;
         if self.events.is_some() {
             self.encode_async(&sample)?;
