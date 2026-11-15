@@ -377,7 +377,7 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["try", "pr", "pull request", "branch", "commit", "sha", "hot swap", "swap", "run", "test", "nightly", "build"],
         category: "settings",
         symbol: "arrow.triangle.pull",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::APP_TRY_TARGET],
         cli_name: "action app-try-run",
         ..Action::DEFAULT
@@ -389,7 +389,7 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["try", "undo", "pr", "pull request", "put back", "revert", "roll back", "hot swap", "swap"],
         category: "settings",
         symbol: "arrow.uturn.backward",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action app-try-undo",
         ..Action::DEFAULT
     },
