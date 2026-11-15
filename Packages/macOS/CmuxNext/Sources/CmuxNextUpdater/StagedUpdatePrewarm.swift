@@ -14,9 +14,9 @@ public import Foundation
 /// pre-warmed this way and then renamed reached Home's first page in 1281 ms against 4688 ms for a cold
 /// copy and 3984 ms for one only `gktool scan`ned, as Sparkle does (a full launch first: 1303 ms).
 ///
-/// What runs, one after another, each stopped after `timeout`: the staged app's executable with
+/// What runs, all at once, each stopped after `timeout` and all of them after `total`: the staged app's executable with
 /// ``argument`` (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static
-/// initializers run and nothing more), then the bundled `cmux` and `cmux-tui` with `--version`, then
+/// initializers run and nothing more), the bundled `cmux` and `cmux-tui` with `--version`, and
 /// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s).
 /// Nothing is written, verified or skipped: Gatekeeper, quarantine and the code signature checks
 /// run as they always do, only earlier.
@@ -108,8 +108,15 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
     /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
     /// The marker write runs at ``WorkPriority/userVisible`` too, for the same reason as the scan.
+    ///
+    /// The runs start together, each stopped at `timeout`, and all of them at `total` (a stop ends the child's own
+    /// process group, ``AsyncProcess``). One after another under a load like Leo's (about 150-200), they took 95 s
+    /// and three passed a 20 s cap, the first helper among them, which pays the CEF framework's cold load for the
+    /// others (desktop-leo's third read-back). A helper started with no `--type` loads the framework, then
+    /// `CefExecuteProcess` returns -1 (CEFShim/src/helper_main.mm): exit 255 is a helper that ran to its end.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20), marker: URL? = nil,
+                        timeout: Duration = Self.runTimeout, total: Duration = Self.totalTimeout,
+                        clock: any Clock<Duration> = ContinuousClock(), marker: URL? = nil,
                         progress: (@Sendable (String) -> Void)? = nil) async -> String {
         let asked = ContinuousClock.now
         let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
@@ -121,27 +128,49 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         }
         let bundle = staged.0, planned = staged.1
         progress?("launch pre-warm of \(build): \(planned.count) runs in \(bundle.lastPathComponent) (scan \(scan) ms)")
-        var parts: [String] = []
-        for run in planned {
-            let started = ContinuousClock.now
-            let status: String
-            do {
-                let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
-                status = "exit \(outcome.status)"
-            } catch {
-                status = "failed (\(error))"
+        var parts: [Int: String] = [:]
+        let build = build
+        await withTaskGroup(of: (Int, String)?.self) { group in
+            for (index, run) in planned.enumerated() {
+                group.addTask {
+                    let started = ContinuousClock.now
+                    let status: String
+                    do {
+                        let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
+                        status = "exit \(outcome.status)"
+                    } catch {
+                        status = error is CancellationError ? "stopped at the \(Self.milliseconds(total)) ms cap" : "failed (\(error))"
+                    }
+                    return (index, "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms")
+                }
             }
-            let part = "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms"
-            progress?("launch pre-warm of \(build): \(part)")
-            parts.append(part)
+            // The whole pre-warm's cap: cancelling the group stops every run still going.
+            group.addTask {
+                try? await clock.sleep(for: total) // wakeup-allow: one cap per staged build's pre-warm, cancelled once every run ended
+                return nil
+            }
+            for await result in group {
+                guard case let (index, part)? = result else {
+                    group.cancelAll()
+                    continue
+                }
+                progress?("launch pre-warm of \(build): \(part)")
+                parts[index] = part
+                if parts.count == planned.count { group.cancelAll() }
+            }
         }
         if let marker {
-            let build = build
             try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
         }
+        let ran = parts.keys.sorted().compactMap { parts[$0] }
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
-            + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
+            + (ran.isEmpty ? "nothing to run" : ran.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
     }
+
+    /// One run's cap: under a load like Leo's the first helper's cold framework load passed 20 s.
+    public static let runTimeout: Duration = .seconds(60)
+    /// The whole pre-warm's cap.
+    public static let totalTimeout: Duration = .seconds(90)
 
     /// Whole milliseconds of `duration`.
     static func milliseconds(_ duration: Duration) -> Int {
