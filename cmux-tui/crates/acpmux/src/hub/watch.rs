@@ -981,14 +981,11 @@ mod tests {
                 .to_string()
             };
             let typed = uuid::Uuid::now_v7().to_string();
-            // The delivery's queue line and the same text typed in the terminal, in either order.
-            let both = if typed_first {
-                [enqueue("test"), enqueue("test")]
-            } else {
-                [enqueue("test"), enqueue("test")]
-            };
-            let mut lines = vec![enqueue("please test the migration")];
-            lines.extend(both);
+            // The delivery's queue line and the same text typed in the terminal read the same: the
+            // order is told only by which the turn takes in first, below.
+            let lines_head =
+                [enqueue("please test the migration"), enqueue("test"), enqueue("test")];
+            let mut lines = lines_head.to_vec();
             let (first, second) = if typed_first {
                 (absorbed("test", &typed, "human"), absorbed("test", &delivery, "peer"))
             } else {
