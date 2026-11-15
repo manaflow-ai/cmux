@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4376544293601",
+  "notes": "notes/4376544293601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43940,
+      "title": "chaos probe: a stalled chat names acpmux's queues and both daemons' attachment log lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43897,
+      "title": "cmux-next checks: the six left-out script tests run, and none can be left out again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43934,
+      "title": "hover-instant bench: real moves through a bench pointer app built once; route_failures; after_delay_ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43923,
+      "title": "Mac Screen: cmux app mac-screens reads each viewer tab's first frame, fps and round trip in every build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43549,
+      "title": "Settings > Keys: agents ask for a key, you type it once, it goes to cmux keys put",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43472,
+      "title": "acpmux: cut the rest of the recorded v1 answer; an uncut session fails it",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
