@@ -473,7 +473,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // height in the list's reload, before either: measured from the old
         // bottom, the moved offset read as "at the newest turn", following
         // came back on and the next pass pinned the chat to its newest turn.
-        return CGPoint(x: 0, y: max(-inset.top, list.layout.contentHeight + inset.bottom - view.bounds.height))
+        return CGPoint(x: 0, y: max(-inset.top, list.layout.laidOutContentHeight + inset.bottom - view.bounds.height))
     }
 
     private var distanceFromBottom: CGFloat {

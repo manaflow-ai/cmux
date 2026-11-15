@@ -73,6 +73,12 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// The column's width now (rows lay out at it less their margins).
     var columnWidth: CGFloat { columnWidth(in: collectionView?.bounds.width ?? 0) }
     private(set) var contentHeight: CGFloat = 0
+    /// The content's height with every change so far laid out: rows put in by a reload, or a
+    /// cell above the reader that measured itself, before the collection view's next pass.
+    var laidOutContentHeight: CGFloat {
+        prepareIfNeeded()
+        return contentHeight
+    }
     /// Space under the last row.
     var trailingGap: CGFloat = 24 { didSet { if trailingGap != oldValue { markDirty(max(items.count - 1, 0)) } } }
     /// Whether a cell's measurement of this row can be its height now: false while a disclosure
