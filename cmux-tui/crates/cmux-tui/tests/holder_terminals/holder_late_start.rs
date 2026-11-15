@@ -38,6 +38,54 @@ fn process_state(pid: i32) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
+/// The line a daemon writes for its ask of the holder at a start, from the daemon's log at
+/// `path`. It must say that the holder was silent and that the one terminal re-attaches after
+/// the start: a daemon writes that only after its greeting went to the holder and its wait for
+/// the answer ran out.
+fn silent_holder_pass(path: &Path, which: &str) -> String {
+    let text = fs::read_to_string(path).unwrap();
+    let line =
+        text.lines().find(|line| line.contains("terminal holder at this start")).unwrap_or_else(
+            || panic!("the {which} restarted daemon did not log its holder pass:\n{text}"),
+        );
+    assert!(
+        line.contains("(Silent") && line.contains(" 1 re-attach after the start"),
+        "the {which} restarted daemon did not wait for a silent holder: {line}"
+    );
+    line.trim().to_string()
+}
+
+/// The user of `fd`'s peer, read as the terminal holder reads it for a new connect.
+#[cfg(target_os = "linux")]
+fn peer_user(fd: i32) -> std::io::Result<libc::uid_t> {
+    // SAFETY: a zeroed ucred is a valid out-buffer.
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut len = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: SO_PEERCRED fills one ucred; both pointers are to live locals.
+    let read = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut cred as *mut libc::ucred).cast(),
+            &mut len,
+        )
+    };
+    if read == 0 { Ok(cred.uid) } else { Err(std::io::Error::last_os_error()) }
+}
+
+/// The user of `fd`'s peer, read as the terminal holder reads it for a new connect.
+#[cfg(not(target_os = "linux"))]
+fn peer_user(fd: i32) -> std::io::Result<libc::uid_t> {
+    let (mut uid, mut gid) = (0, 0);
+    // SAFETY: out-pointers to live locals.
+    if unsafe { libc::getpeereid(fd, &mut uid, &mut gid) } == 0 {
+        Ok(uid)
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
 /// A holder that is stopped when its daemon starts again (a suspended process, or a machine
 /// too loaded to schedule it) answers no connect, and it still runs every shell. The daemon
 /// must come up without it, keep the terminal with no new shell, and re-attach the same
@@ -101,6 +149,10 @@ fn a_restart_keeps_the_terminal_of_a_stopped_holder_and_reattaches_it_when_the_h
 /// waits on a connect of its own. The holder finds both connects when it runs again. The
 /// daemon that runs must then get the terminal back with its shell and its screen, and it
 /// must be able to start a new terminal.
+///
+/// Each restarted daemon's log must have its line of a silent holder, so each sent its
+/// greeting to the stopped holder. The test prints these lines, and what the second daemon
+/// wrote about the holder after them, as a `HOLDER-LATE-START` line.
 #[test]
 fn a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal() {
     let mut daemon = Daemon::start();
@@ -134,7 +186,8 @@ fn a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal() {
     let stopped = Stopped::stop(holder);
     // The first restart: this daemon answers only after its start asked the holder, so its
     // greeting waits at the holder when the daemon is killed.
-    daemon.restart();
+    let first_log = daemon.dir.join("first-restart.log");
+    daemon.restart_with_stderr(Stdio::from(fs::File::create(&first_log).unwrap()));
     let kept_by = |socket: &Path, which: &str| {
         let kept = request(socket, json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
         assert_eq!(
@@ -145,11 +198,13 @@ fn a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal() {
         );
     };
     kept_by(&daemon.socket, "first");
+    let first_pass = silent_holder_pass(&first_log, "first");
     daemon.sigkill();
     // The second restart: this daemon waits on its own connect.
     let log = daemon.dir.join("second-restart.log");
     daemon.restart_with_stderr(Stdio::from(fs::File::create(&log).unwrap()));
     kept_by(&daemon.socket, "second");
+    let second_pass = silent_holder_pass(&log, "second");
     assert!(alive(shell), "the shell died while its holder was stopped");
 
     // The holder runs again: the same shell re-attaches to the daemon that runs.
@@ -191,6 +246,111 @@ fn a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal() {
     );
     send(&daemon.socket, new_surface, "typed-in-the-new-terminal");
     screen_contains(&daemon.socket, new_surface, "typed-in-the-new-terminal");
+
+    // The holder did not give the link of the daemon that runs to another connect.
+    let text = fs::read_to_string(&log).unwrap();
+    assert!(
+        !text.contains("another daemon took the terminal holder"),
+        "the holder took its link from the daemon that runs:\n{text}"
+    );
+    let later: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("holder") && !line.contains("terminal holder at this start"))
+        .map(str::trim)
+        .collect();
+    eprintln!(
+        "HOLDER-LATE-START: two restarts while the holder was stopped. The first restart: \
+         {first_pass}. The second restart: {second_pass}. The second daemon's later lines on \
+         the holder: {later:?}"
+    );
+}
+
+/// What this system gives a listener for a connect whose client is gone before the accept:
+/// the state of the first restarted daemon's connect in the test above. The calls are the
+/// ones the terminal holder makes for a new connect: the accept, the read of the peer's user
+/// and the read of the bytes. Linux and macOS can differ here, so this test asserts nothing
+/// on the results. It prints them as a `HOLDER-LATE-START` line, with a client that lives as
+/// the control. It starts no holder and no daemon.
+#[test]
+fn a_listener_with_a_connect_whose_client_is_gone_prints_what_the_system_gives() {
+    use cmux_holder::wire::{self, Kind, Out};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixListener;
+
+    let dir = unique_dir("cmux-holder");
+    let path = dir.join("probe.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    // Each client sends one greeting frame whose last byte names it.
+    let greeting = |name: u8| {
+        wire::encode(Kind::Hello, 0, &Out::default().u16(wire::VERSION).bytes(&[name; 32]).0)
+    };
+    let mut gone = UnixStream::connect(&path).unwrap();
+    gone.write_all(&greeting(1)).unwrap();
+    drop(gone);
+    let mut live = UnixStream::connect(&path).unwrap();
+    live.write_all(&greeting(2)).unwrap();
+
+    let mut accepts = Vec::new();
+    let mut accept_errors = 0;
+    loop {
+        let stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => {
+                accepts.push(format!("accept error ({error})"));
+                accept_errors += 1;
+                if accept_errors == 4 {
+                    break;
+                }
+                continue;
+            }
+        };
+        let fd = stream.as_raw_fd();
+        let user = match peer_user(fd) {
+            // SAFETY: getuid has no failure mode.
+            Ok(uid) => {
+                format!("peer user read ok (same user: {})", uid == unsafe { libc::getuid() })
+            }
+            Err(error) => format!("peer user read error ({error})"),
+        };
+        let nonblocking = match stream.set_nonblocking(true) {
+            Ok(()) => String::new(),
+            Err(error) => format!("; nonblocking error ({error})"),
+        };
+        wire::tune_socket(fd);
+        let mut reader = wire::Reader::default();
+        let read = |reader: &mut wire::Reader| match reader.fill(fd) {
+            Ok(true) => "bytes".to_string(),
+            Ok(false) => "end of stream".to_string(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                "no end yet".to_string()
+            }
+            Err(error) => format!("error ({error})"),
+        };
+        let first = read(&mut reader);
+        let client = match reader.next_frame() {
+            Ok(Some(frame)) => match frame.payload.last().copied() {
+                Some(1) => "the greeting of the client that is gone",
+                Some(2) => "the greeting of the client that lives",
+                _ => "a frame of no client",
+            },
+            Ok(None) => "no whole frame",
+            Err(_) => "bytes that are no frame",
+        };
+        let then = read(&mut reader);
+        accepts.push(format!(
+            "accept ok; {user}{nonblocking}; first read: {first} ({client}); then: {then}"
+        ));
+    }
+    drop(live);
+    let _ = fs::remove_dir_all(&dir);
+    eprintln!(
+        "HOLDER-LATE-START: a listener of this system ({}) with 2 connects, the older from a \
+         client that is gone: {} accepts, in their order: {accepts:?}",
+        std::env::consts::OS,
+        accepts.len()
+    );
 }
 
 /// A start gives the holder one wait for all its terminals together, and the terminals whose
