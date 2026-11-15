@@ -113,7 +113,9 @@ await requireBrowserLane("agent-pane-running-idle-paint.test.ts", async () => {
           .catch(() => undefined);
       const shown = window.animations.filter((animation) => animation.onScreen);
       expect(
-        shown.filter((animation) => !animation.compositable).map((a) => `${a.name} on ${a.target}: ${a.properties}`),
+        shown
+          .filter((animation) => !animation.compositable)
+          .map((a) => `${a.name} on ${a.target}: ${a.properties.join(", ")}`),
       ).toEqual([]);
       expect(window.paintsPerS).toBeLessThanOrEqual(MAX_PAINTS_PER_S);
     });
