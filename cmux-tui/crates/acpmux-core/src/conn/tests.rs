@@ -1602,7 +1602,7 @@ async fn page_reply(client: &mut DuplexStream, page: &Page) -> Frame {
 /// the third machine. Each refused shape gets an error frame, and the link goes on.
 #[tokio::test]
 async fn a_peer_link_pages_all_and_keys_of_this_machine_only() {
-    use crate::wire::{ListKey, ListView, PageKey, PageResult, Position};
+    use crate::wire::{ListKey, ListView, PageKey, PageResult, PageSide, Position};
     let mut index = SummaryIndex::new();
     let (mut seq, mut local, mut remote) = (0, Vec::new(), Vec::new());
     for n in 0..11_020_u64 {
@@ -1712,7 +1712,7 @@ async fn a_peer_link_pages_all_and_keys_of_this_machine_only() {
 async fn a_local_page_without_a_held_sub_is_refused_as_today() {
     let (mut client, _task, _hub, _writer, _source) = list_pair();
     hello(&mut client).await;
-    let mut all = Page::new("nosub", "list", PageSide::After, 0);
+    let mut all = Page::new("nosub", "list", crate::wire::PageSide::After, 0);
     all.after = None;
     all.view = Some(crate::wire::ListView::All);
     let frame = page_reply(&mut client, &all).await;
