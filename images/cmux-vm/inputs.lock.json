@@ -465,6 +465,17 @@
       "expect": "0.85.1"
     },
     {
+      "name": "pi-acp",
+      "version": "0.0.34",
+      "url": "https://registry.npmjs.org/pi-acp/-/pi-acp-0.0.34.tgz",
+      "sha256": "4b3bf6bc71bed2b7f43dd7fcfa1906e464828e471740da593107e4f1608f2650",
+      "size": 77965,
+      "format": "npm",
+      "bin": { "pi-acp": "bin/pi-acp" },
+      "versionArgs": [],
+      "source": "npm pi-acp 0.0.34 (MIT); sha256 of the registry tarball, whose sha512 matches the registry's dist.integrity. acpmux lists pi only with this adapter on PATH (cmux-tui/crates/acpmux/src/config/discover.rs); it runs `pi --mode rpc` from the profile."
+    },
+    {
       "name": "cursor-agent",
       "version": "2026.11.05-86047df",
       "url": "https://downloads.cursor.com/lab/2026.11.05-86047df/linux/x64/agent-cli-package.tar.gz",
