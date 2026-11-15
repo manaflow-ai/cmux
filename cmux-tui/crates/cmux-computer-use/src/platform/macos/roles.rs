@@ -92,6 +92,40 @@ pub fn is_text_input(role: &str) -> bool {
     matches!(role, "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField")
 }
 
+/// Whether a press (`AXPress`, `AXIncrement`, `AXDecrement`) on an element
+/// of `role` must show in its value: a checkbox, radio button, switch,
+/// disclosure triangle, stepper or slider. A plain button, `AXConfirm`,
+/// `AXCancel`, `AXShowMenu` or a custom action may act where nothing shows.
+pub fn press_shows_value(role: &str, subrole: Option<&str>, action: &str) -> bool {
+    let value_role = matches!(
+        role,
+        "AXCheckBox" | "AXRadioButton" | "AXDisclosureTriangle" | "AXIncrementor" | "AXSlider"
+    ) || subrole == Some("AXSwitch");
+    value_role && matches!(action, "AXPress" | "AXIncrement" | "AXDecrement")
+}
+
+/// Whether a plain click in a text element may place the caret through
+/// accessibility: not when the element is denied (`blocked`), not in a
+/// table or list row (a click there selects the row, an editable cell does
+/// not start editing), and not in the app the person is using (it would
+/// move their caret).
+pub fn caret_click_allowed(blocked: bool, in_row: bool, persons_app: bool) -> bool {
+    !blocked && !in_row && !persons_app
+}
+
+/// A slider about as tall as it is wide: a circular one (its value follows
+/// the angle, not a track).
+pub fn looks_circular(frame: &Rect) -> bool {
+    let ratio = frame.width / frame.height;
+    (0.8..=1.25).contains(&ratio)
+}
+
+/// How near a slider's read value must be to the wanted one: 2% of its range
+/// (a slider with tick marks snaps to the nearest one).
+pub fn slider_tolerance(min: f64, max: f64) -> f64 {
+    ((max - min) * 0.02).max(f64::EPSILON)
+}
+
 /// Command-A alone: Select All.
 pub fn is_select_all(combo: &crate::keys::KeyCombo) -> bool {
     combo.modifiers == [crate::keys::Modifier::Meta]

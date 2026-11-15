@@ -251,6 +251,8 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     *d.shows.lock().unwrap() = Some("text".into());
     *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
     let (e, _) = settling_engine(d);
+    // The elements' baseline (a look at the tree), then the pixels'.
+    assert!(!e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1"})).is_error);
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
     e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
@@ -262,6 +264,22 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     let note = out.body["note"].as_str().unwrap();
     assert!(note.contains("no visible change within 1000 ms"), "{}", out.body);
     assert!(note.contains("take a screenshot before retrying"), "{}", out.body);
+}
+
+/// Review of b4236e6 (3): a screenshot and then the action gives the
+/// pixels a baseline but not the elements (the state's first look): an
+/// effect in the elements is unknown, so it is never no_effect.
+#[test]
+fn a_first_look_at_the_elements_is_never_no_effect() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.shows.lock().unwrap() = Some("text".into());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    let (e, _) = settling_engine(d);
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
+    assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
+    assert_eq!(out.body["outcome"], "uncertain", "{}", out.body);
+    assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
 }
 
 /// The truth matrix's FNs: a popover's button and a submenu item acted
@@ -344,9 +362,76 @@ fn a_read_back_after_the_settle_confirms_typed_keys() {
         assert_eq!(out.body["outcome"], outcome, "{}", out.body);
         assert!(out.body.get("expect").is_none(), "{}", out.body);
         assert_eq!(out.body["evidence"], if reads { "confirmed" } else { "delivered" });
-        if reads {
-            assert_eq!(out.body["read_back"], "text");
+        assert_eq!(out.body["read_back"], if reads { "text" } else { "failed" });
+    }
+}
+
+/// Review of b4236e6 (8): every confirmed result is read again after the
+/// settle; an effect the app undid is no longer confirmed, and a state that
+/// already matched is uncertain, saying so.
+#[test]
+fn a_confirmed_result_is_read_again_after_the_settle() {
+    for (reads, already, outcome, read_back) in [
+        (false, false, "uncertain", "failed"),
+        (true, true, "uncertain", "already"),
+        (true, false, "confirmed", "text"),
+    ] {
+        let d = Arc::new(FakeDesktop::standard());
+        *d.reads_back.lock().unwrap() = Some(reads);
+        *d.already.lock().unwrap() = already;
+        *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+        let (e, _) = settling_engine(d);
+        let out = e.call(
+            &ctx(None),
+            "set_value",
+            &json!({"window_id": "1", "element_id": "e1", "value": "x"}),
+        );
+        assert_eq!(out.body["outcome"], outcome, "{}", out.body);
+        assert_eq!(out.body["read_back"], read_back, "{}", out.body);
+        if !reads {
+            assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+            assert!(out.body["note"].as_str().unwrap().contains("no longer shows"), "{}", out.body);
         }
+    }
+}
+
+/// Review of b4236e6 (10): a stalled app shows nothing because it does
+/// nothing; without an answer after the settle, never no_effect.
+#[test]
+fn a_stalled_app_is_never_no_effect() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.shows.lock().unwrap() = Some("text".into());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    *d.responsive.lock().unwrap() = Some(false);
+    let (e, _) = settling_engine(d);
+    assert!(!e.call(&ctx(None), "get_ui_tree", &json!({"window_id": "1"})).is_error);
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 100}));
+    assert_eq!(out.body["outcome"], "uncertain", "{}", out.body);
+    assert!(
+        out.body["outcome_reason"].as_str().unwrap().contains("did not answer"),
+        "{}",
+        out.body
+    );
+}
+
+/// Review of b4236e6 (12): a retried call id returns the result without the
+/// route's internal keys.
+#[test]
+fn a_retry_record_has_no_internal_keys() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.shows.lock().unwrap() = Some("text".into());
+    *d.reads_back.lock().unwrap() = Some(true);
+    let e = engine(d, PolicyConfig::default());
+    let args = json!({"window_id": "1", "x": 10, "y": 100, "observe": false});
+    let first = e.call(&ctx(Some("r1")), "click", &args);
+    let again = e.call(&ctx(Some("r1")), "click", &args);
+    for out in [&first, &again] {
+        assert!(
+            out.body.get("shows").is_none() && out.body.get("expect").is_none(),
+            "{}",
+            out.body
+        );
     }
 }
 
@@ -455,9 +540,13 @@ fn a_result_that_reports_a_menu_is_not_no_visible_change() {
         shows: Some("value".into()),
         menu: true,
         settled_ms: Some(1000),
-        changes: Some(json!({"pixels": "same", "elements_read": "all"})),
+        changes: Some(json!({
+            "pixels": "same", "elements_read": "all", "added": 0, "changed": 0, "removed": 0
+        })),
         signals: Some(crate::desktop::Signals::default()),
         outside: Some(vec![]),
+        already: false,
+        responsive: Some(true),
     };
     assert_eq!(crate::outcome::decide(&facts).outcome, crate::outcome::Outcome::Uncertain);
     let plain = crate::outcome::Facts { menu: false, ..facts };

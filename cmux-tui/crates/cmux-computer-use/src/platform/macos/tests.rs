@@ -578,6 +578,16 @@ fn an_action_reports_its_own_failed_hand_back_once() {
     })
     .unwrap_err();
     assert!(format!("{err:?}").contains(activation::HAND_BACK_FAILED));
+    // Review of b4236e6 (12): the note follows the whole message; it is not
+    // put into the element id ("element 1.2 (note) is stale").
+    let err = actions::reporting_hand_back(|| {
+        fail();
+        Err(DesktopError::StaleElement("1.2".into()))
+    })
+    .unwrap_err()
+    .to_string();
+    assert!(err.starts_with("element 1.2 is stale; call get_ui_tree again ("), "{err}");
+    assert!(err.ends_with(&format!("({})", activation::HAND_BACK_FAILED)), "{err}");
 }
 
 /// Review 8 (6): a scope whose first record failed posted nothing: no
@@ -2405,4 +2415,49 @@ fn a_slider_drag_sets_the_value_under_its_end() {
     assert_eq!(actions::slider_value_at(&wide, 10.0, 20.0, at(50.0, 60.0)), 10.0);
     let tall = Rect { x: 0.0, y: 0.0, width: 20.0, height: 100.0 };
     assert_eq!(actions::slider_value_at(&tall, 0.0, 1.0, at(10.0, 25.0)), 0.75);
+}
+
+/// Review of b4236e6 (1, 2): a click in text places the caret through
+/// accessibility only outside rows (an editable cell's row is selected
+/// instead) and outside the person's app (their caret would move); never
+/// for a denied element.
+#[test]
+fn a_caret_is_placed_only_outside_rows_and_the_persons_app() {
+    assert!(roles::caret_click_allowed(false, false, false));
+    assert!(!roles::caret_click_allowed(false, true, false), "row");
+    assert!(!roles::caret_click_allowed(false, false, true), "the person's app");
+    assert!(!roles::caret_click_allowed(true, false, false), "denied");
+}
+
+/// Review of b4236e6 (4): only a value control pressed, incremented or
+/// decremented must show it in its value; a confirm, cancel, show-menu,
+/// custom action or a plain button can act invisibly.
+#[test]
+fn only_a_value_control_press_must_show_in_its_value() {
+    for role in ["AXCheckBox", "AXRadioButton", "AXDisclosureTriangle", "AXIncrementor", "AXSlider"]
+    {
+        assert!(roles::press_shows_value(role, None, "AXPress"), "{role}");
+    }
+    assert!(roles::press_shows_value("AXIncrementor", None, "AXIncrement"));
+    assert!(roles::press_shows_value("AXCheckBox", Some("AXSwitch"), "AXPress"));
+    assert!(roles::press_shows_value("AXButton", Some("AXSwitch"), "AXPress"));
+    for action in ["AXConfirm", "AXCancel", "AXShowMenu", "AXRaise", "Custom"] {
+        assert!(!roles::press_shows_value("AXCheckBox", None, action), "{action}");
+    }
+    for role in ["AXButton", "AXTextField", "AXPopUpButton", "AXMenuItem"] {
+        assert!(!roles::press_shows_value(role, None, "AXPress"), "{role}");
+    }
+}
+
+/// Review of b4236e6 (6): a slider's read value is near the wanted one
+/// within 2% of its range, whatever its range; a square slider is circular
+/// and left to the events.
+#[test]
+fn a_slider_tolerance_follows_its_range_and_circular_ones_are_left_alone() {
+    assert_eq!(roles::slider_tolerance(0.0, 100.0), 2.0);
+    assert_eq!(roles::slider_tolerance(0.0, 1.0), 0.02);
+    assert!(roles::slider_tolerance(5.0, 5.0) > 0.0);
+    assert!(roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 32.0, height: 32.0 }));
+    assert!(!roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 200.0, height: 20.0 }));
+    assert!(!roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 20.0, height: 120.0 }));
 }

@@ -305,6 +305,10 @@ pub struct ActionOutcome {
 pub struct Expect {
     pub token: u64,
     pub what: String,
+    /// The state already matched before the action (the caret was there,
+    /// everything was selected, the value was the one asked for).
+    #[serde(default)]
+    pub already: bool,
 }
 
 impl ActionOutcome {
@@ -403,6 +407,9 @@ pub struct Signals {
     /// When the last one came, ms after the watch started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_ms: Option<u64>,
+    /// How long ago the last one came, ms (when the signals were read).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_last_ms: Option<u64>,
 }
 
 impl Signals {
@@ -495,6 +502,12 @@ pub trait Desktop: Send + Sync {
     /// ([`ActionOutcome::expect`]), once: `Some(true)` it shows, `Some(false)`
     /// it does not (yet), `None` unknown.
     fn read_back(&self, _expect: &Expect) -> Option<bool> {
+        None
+    }
+    /// Whether the app of `window_id` answers an accessibility request now
+    /// (a stalled app shows nothing new because it does nothing at all).
+    /// `None`: unknown.
+    fn responsive(&self, _window_id: &str) -> Option<bool> {
         None
     }
     /// Whether the app of `window` is the frontmost app (where the person's

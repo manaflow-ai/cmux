@@ -109,6 +109,10 @@ pub struct FakeDesktop {
     pub copies_on_input: Mutex<bool>,
     /// Set: delivered results ask for a read-back, which answers this.
     pub reads_back: Mutex<Option<bool>>,
+    /// The read-back's state already matched before the action.
+    pub already: Mutex<bool>,
+    /// Whether the app answers ([`Desktop::responsive`]).
+    pub responsive: Mutex<Option<bool>>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
 }
@@ -199,6 +203,8 @@ impl FakeDesktop {
             pasteboard: Mutex::new(0),
             copies_on_input: Mutex::new(false),
             reads_back: Mutex::new(None),
+            already: Mutex::new(false),
+            responsive: Mutex::new(Some(true)),
         }
     }
 
@@ -238,7 +244,9 @@ impl FakeDesktop {
     /// The window's pop-ups as tree elements, an open one with its menu.
     /// A delivered result, showing where [`Self::shows`] says.
     fn delivered(&self) -> ActionOutcome {
-        let expect = lock(&self.reads_back).map(|_| Expect { token: 1, what: "text".into() });
+        let already = *lock(&self.already);
+        let expect =
+            lock(&self.reads_back).map(|_| Expect { token: 1, what: "text".into(), already });
         ActionOutcome {
             shows: lock(&self.shows).clone(),
             expect,
@@ -439,6 +447,9 @@ impl Desktop for FakeDesktop {
     }
     fn read_back(&self, _expect: &Expect) -> Option<bool> {
         *lock(&self.reads_back)
+    }
+    fn responsive(&self, _window_id: &str) -> Option<bool> {
+        *lock(&self.responsive)
     }
     fn world(&self) -> Option<World> {
         let opened = lock(&self.opened);
@@ -674,7 +685,14 @@ impl Desktop for FakeDesktop {
             return done;
         }
         self.push(event);
-        Ok(ActionOutcome::confirmed("fake"))
+        // With a read-back: as a route does, already matching is delivered.
+        let mut out = if *lock(&self.already) {
+            self.delivered()
+        } else {
+            ActionOutcome { expect: self.delivered().expect, ..ActionOutcome::confirmed("fake") }
+        };
+        out.shows = None;
+        Ok(out)
     }
     fn perform_action(
         &self,

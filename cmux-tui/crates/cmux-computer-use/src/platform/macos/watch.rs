@@ -74,11 +74,18 @@ unsafe extern "C" fn on_signal(
     s.last_ms = Some(sink.start.elapsed().as_millis() as u64);
 }
 
+/// How long the action waits for the observer to register: a stalled app
+/// answers each registration only at its AX timeout.
+const REGISTER_BUDGET: Duration = Duration::from_millis(150);
+
 /// A running watch (see the module notes).
 pub(super) struct AxWatch {
     signals: Arc<Mutex<Signals>>,
     stop: Arc<AtomicBool>,
     listening: bool,
+    started: Instant,
+    /// Joined on drop; `None` when the watch was detached (registration
+    /// ran past its budget: the thread ends on its own, nobody waits).
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -90,13 +97,21 @@ impl AxWatch {
         let stop = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<bool>();
         let (sig, stp) = (signals.clone(), stop.clone());
+        let started = Instant::now();
         let thread = std::thread::Builder::new()
             .name("cu-ax-watch".into())
-            .spawn(move || run(pid, target, sig, stp, ready_tx))
+            .spawn(move || run(pid, target, sig, stp, ready_tx, started))
             .ok();
-        let listening =
-            thread.is_some() && ready_rx.recv_timeout(Duration::from_millis(500)).unwrap_or(false);
-        AxWatch { signals, stop, listening, thread }
+        let ready = thread.as_ref().map(|_| ready_rx.recv_timeout(REGISTER_BUDGET));
+        let (listening, thread) = match ready {
+            Some(Ok(ok)) => (ok, thread),
+            // Past the budget: it stops when it gets there; never joined.
+            _ => {
+                stop.store(true, Ordering::Release);
+                (false, None)
+            }
+        };
+        AxWatch { signals, stop, listening, started, thread }
     }
 }
 
@@ -106,8 +121,9 @@ fn run(
     signals: Arc<Mutex<Signals>>,
     stop: Arc<AtomicBool>,
     ready: std::sync::mpsc::Sender<bool>,
+    start: Instant,
 ) {
-    let sink = Box::new(Sink { signals, target, start: Instant::now() });
+    let sink = Box::new(Sink { signals, target, start });
     let refcon = &*sink as *const Sink as *mut c_void;
     let (Some(app), Some(mode)) = (Ax::application(pid), Cf::string("com.cmuxterm.cu.watch"))
     else {
@@ -164,7 +180,10 @@ fn run(
 
 impl Watch for AxWatch {
     fn signals(&self) -> Signals {
-        self.signals.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        let mut s = self.signals.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let now = self.started.elapsed().as_millis() as u64;
+        s.since_last_ms = s.last_ms.map(|last| now.saturating_sub(last));
+        s
     }
     fn listening(&self) -> bool {
         self.listening

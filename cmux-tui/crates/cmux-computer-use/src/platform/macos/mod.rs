@@ -57,9 +57,16 @@ impl MacDesktop {
     }
 
     /// Keeps `check` for the engine's read-back after the settle.
-    fn expect(&self, check: Option<readback::Check>) -> Option<Expect> {
+    /// Keeps `check` for the engine's read-back after the settle;
+    /// `already`: the state matched before the action.
+    fn expect(&self, check: Option<readback::Check>, already: bool) -> Option<Expect> {
         let check = check?;
-        Some(self.checks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).add(check))
+        Some(
+            self.checks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .add(check, already),
+        )
     }
 
     fn guard(&self) -> Option<Arc<dyn MenuGuard>> {
@@ -514,6 +521,15 @@ impl Desktop for MacDesktop {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take(expect.token)?;
         check.holds()
+    }
+
+    /// One short AX round-trip to the window's app (its role).
+    fn responsive(&self, window_id: &str) -> Option<bool> {
+        let id = window_id.parse::<u32>().ok()?;
+        let cg = cgwindows::by_id(id)?;
+        let app = Ax::application(cg.pid)?;
+        app.set_timeout(0.25);
+        Some(app.string("AXRole").is_some())
     }
 
     /// The target window's app, watched for accessibility signals.

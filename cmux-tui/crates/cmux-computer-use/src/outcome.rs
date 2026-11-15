@@ -57,6 +57,19 @@ pub struct Facts {
     /// What changed outside the window (windows of any process, the
     /// pasteboard, the front app); None: unknown.
     pub outside: Option<Vec<String>>,
+    /// The state already matched before the action (the route's read-back).
+    pub already: bool,
+    /// The app answered an accessibility request after the settle; None:
+    /// not asked.
+    pub responsive: Option<bool>,
+}
+
+/// Appends `add` to a `; `-separated note.
+pub fn append(note: &mut String, add: &str) {
+    if !note.is_empty() {
+        note.push_str("; ");
+    }
+    note.push_str(add);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -141,6 +154,12 @@ fn unknowns(f: &Facts) -> Vec<&'static str> {
             if c.get("elements_read").and_then(Value::as_str) != Some("all") {
                 unknown.push("not every element of the window was read");
             }
+            // A first look has nothing to compare its elements with.
+            if c.get("first_look") == Some(&Value::Bool(true))
+                || ["added", "changed", "removed"].iter().any(|k| c.get(*k).is_none())
+            {
+                unknown.push("there was no earlier look at the window's elements to compare with");
+            }
         }
     }
     if f.signals.is_none() {
@@ -148,6 +167,9 @@ fn unknowns(f: &Facts) -> Vec<&'static str> {
     }
     if f.outside.is_none() {
         unknown.push("windows of other processes and the pasteboard could not be read");
+    }
+    if f.responsive != Some(true) {
+        unknown.push("the app did not answer an accessibility request after the settle");
     }
     unknown
 }
@@ -164,6 +186,12 @@ pub fn decide(f: &Facts) -> Verdict {
         return Verdict { outcome: Outcome::Confirmed, reason };
     }
     seen.extend(side);
+    if f.already {
+        return Verdict {
+            outcome: Outcome::Uncertain,
+            reason: "the state already matched before the action, so nothing had to change and nothing shows it was done".into(),
+        };
+    }
     if !seen.is_empty() {
         return Verdict {
             outcome: Outcome::Uncertain,
@@ -226,6 +254,8 @@ mod tests {
             })),
             signals: Some(Signals::default()),
             outside: Some(vec![]),
+            already: false,
+            responsive: Some(true),
         }
     }
 
@@ -294,6 +324,14 @@ mod tests {
             |f: &mut Facts| f.changes.as_mut().unwrap()["elements_read"] = json!("partial"),
             |f: &mut Facts| f.signals = None,
             |f: &mut Facts| f.outside = None,
+            // Review (3): a first look has no element baseline.
+            |f: &mut Facts| f.changes.as_mut().unwrap()["first_look"] = json!(true),
+            |f: &mut Facts| {
+                f.changes.as_mut().unwrap().as_object_mut().unwrap().remove("added");
+            },
+            // Review (10): a stalled app does nothing, so nothing shows.
+            |f: &mut Facts| f.responsive = Some(false),
+            |f: &mut Facts| f.responsive = None,
         ] {
             let mut f = quiet();
             unknown(&mut f);
@@ -301,6 +339,17 @@ mod tests {
             assert_eq!(v.outcome, Outcome::Uncertain, "{f:?}");
             assert!(v.reason.starts_with("nothing visible changed, but"), "{}", v.reason);
         }
+    }
+
+    /// Review (8): an action whose state already matched (Command-A with
+    /// everything selected, the caret already there) is not done by it.
+    #[test]
+    fn an_already_matching_state_is_uncertain() {
+        let mut f = quiet();
+        f.already = true;
+        let v = decide(&f);
+        assert_eq!(v.outcome, Outcome::Uncertain);
+        assert!(v.reason.contains("already matched"), "{}", v.reason);
     }
 
     #[test]

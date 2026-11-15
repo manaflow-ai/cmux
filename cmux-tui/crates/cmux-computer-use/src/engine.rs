@@ -541,7 +541,7 @@ impl Engine {
 
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
         if let Some(call_id) = acting_id {
-            self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
+            self.sessions.remember(&ctx.session, call_id, retry_record(&out));
         }
         if tool.acts()
             && let Some(reason) = out.code.as_deref().and_then(refusal_caption)
@@ -606,15 +606,15 @@ impl Engine {
                 }
                 Some(changes)
             });
-            self.attach_outcome(&mut out, settled_ms, signals, outside);
+            // A stalled app shows nothing new because it does nothing: one
+            // AX round-trip after the settle says it still answers.
+            let responsive = settled_ms
+                .and_then(|_| args_str(&args, "window_id"))
+                .and_then(|id| self.desktop.responsive(id));
+            self.attach_outcome(&mut out, settled_ms, signals, outside, responsive);
             // A retry returns the result with its outcome (not the state).
             if let Some(call_id) = acting_id {
-                let mut record = out.clone();
-                if let Some(body) = record.body.as_object_mut() {
-                    body.remove("state");
-                }
-                record.png_base64 = None;
-                self.sessions.remember(&ctx.session, call_id, record.to_json().to_string());
+                self.sessions.remember(&ctx.session, call_id, retry_record(&out));
             }
         } else if let Some(body) = out.body.as_object_mut() {
             body.remove("shows");
@@ -1644,8 +1644,16 @@ impl Engine {
                     match self.capture_for(&config, ctx, &args, false, Check::StillAllowed(app)) {
                         Ok((shot, _)) => {
                             let elapsed = (self.clock)().saturating_sub(start);
-                            let signals_now = watch.map(|w| w.signals().total());
-                            let quiet = signals_now == signals_then;
+                            let read = watch.map(|w| w.signals());
+                            let signals_now = read.as_ref().map(|r| r.total());
+                            // Quiet: no new signal since the capture before,
+                            // and the last one a while ago (a burst that
+                            // straddles a capture is not over).
+                            let quiet = signals_now == signals_then
+                                && read
+                                    .as_ref()
+                                    .and_then(|r| r.since_last_ms)
+                                    .is_none_or(|ms| ms >= QUIET_MS);
                             signals_then = signals_now;
                             let shot = if shot.body["unchanged"] != json!(true) {
                                 changed_shot = Some(shot);
@@ -1729,6 +1737,7 @@ impl Engine {
         settled_ms: Option<u64>,
         signals: Option<crate::desktop::Signals>,
         outside: Option<Vec<String>>,
+        responsive: Option<bool>,
     ) {
         let shows = out
             .body
@@ -1742,12 +1751,39 @@ impl Engine {
             .as_object_mut()
             .and_then(|b| b.remove("expect"))
             .and_then(|v| serde_json::from_value::<crate::desktop::Expect>(v).ok());
-        if let Some(expect) = expect
-            && out.body["evidence"] != json!("confirmed")
-            && self.desktop.read_back(&expect) == Some(true)
-        {
-            out.body["evidence"] = json!("confirmed");
-            out.body["read_back"] = json!(expect.what);
+        // Every confirmed result is read again too: an app can undo an
+        // effect a moment after it read back (a field that reformats or
+        // rejects a value, a list that reselects).
+        let mut already = false;
+        if let Some(expect) = expect {
+            already = expect.already;
+            let confirmed = out.body["evidence"] == json!("confirmed");
+            let read = match self.desktop.read_back(&expect) {
+                Some(true) if expect.already => "already",
+                Some(true) => {
+                    out.body["evidence"] = json!("confirmed");
+                    expect.what.as_str()
+                }
+                Some(false) => {
+                    if confirmed {
+                        out.body["evidence"] = json!("delivered");
+                        let mut note = out
+                            .body
+                            .get("note")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
+                        crate::outcome::append(
+                            &mut note,
+                            "read again after the settle, the effect no longer shows",
+                        );
+                        out.body["note"] = json!(note);
+                    }
+                    "failed"
+                }
+                None => "unread",
+            };
+            out.body["read_back"] = json!(read);
         }
         let facts = crate::outcome::Facts {
             evidence: out.body["evidence"].as_str().unwrap_or_default().to_string(),
@@ -1757,6 +1793,8 @@ impl Engine {
             changes: out.body.pointer("/state/changes").cloned(),
             signals,
             outside,
+            already,
+            responsive,
         };
         let verdict = crate::outcome::decide(&facts);
         crate::outcome::attach(&mut out.body, &facts, &verdict, no_visible_change_note);
@@ -2051,6 +2089,9 @@ mod focus;
 #[path = "engine_menus.rs"]
 mod menus_glue;
 
+/// How long after its last accessibility signal an app counts as quiet.
+const QUIET_MS: u64 = 60;
+
 /// The note a `delivered` result gets when nothing visible changed through
 /// a real settle wait: the window's pixels, and the windows over it (sheets,
 /// panels, a Save panel another process serves).
@@ -2058,6 +2099,19 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     format!(
         "no visible change within {waited_ms} ms: this window and the windows over it looked the same in every capture. If the action should change what it shows, take a screenshot before retrying, then try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An effect outside this window (copy, save, another app) is not seen here."
     )
+}
+
+/// What a retried call id returns: the result without its state, image or
+/// the route's internal keys (`shows`, `expect`).
+fn retry_record(out: &ToolOutput) -> String {
+    let mut record = out.clone();
+    if let Some(body) = record.body.as_object_mut() {
+        for key in ["state", "shows", "expect"] {
+            body.remove(key);
+        }
+    }
+    record.png_base64 = None;
+    record.to_json().to_string()
 }
 
 #[path = "engine_observe.rs"]

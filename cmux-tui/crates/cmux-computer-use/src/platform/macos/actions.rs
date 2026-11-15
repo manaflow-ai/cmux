@@ -24,17 +24,37 @@ fn route_name(ax_action: &str) -> String {
     format!("ax_{}", roles::snake(ax_action))
 }
 
-/// `confirmed` when the element's value changed, else `delivered`.
-fn outcome_after(route: &str, before: Option<String>, el: &Ax) -> ActionOutcome {
+/// `confirmed` when the element's value changed (read again after the
+/// settle), else `delivered`.
+fn outcome_after(
+    d: &MacDesktop,
+    route: &str,
+    action: &str,
+    before: Option<String>,
+    el: &Ax,
+) -> ActionOutcome {
     let after = el.value_text();
-    let mut out = if before.is_some() && after != before {
-        ActionOutcome::confirmed(route)
-    } else {
-        ActionOutcome::delivered(route)
+    let mut out = match (&before, &after) {
+        (Some(b), Some(a)) if a != b => {
+            let mut out = ActionOutcome::confirmed(route);
+            let check =
+                readback::Check::Value { el: el.clone(), wanted: a.clone(), tolerance: 0.0 };
+            out.expect = d.expect(Some(check), false);
+            out
+        }
+        _ => ActionOutcome::delivered(route),
     };
-    // An element with a value (a checkbox, a radio button, a slider) shows
-    // its press there; a button may act where nothing shows.
-    if before.is_some() {
+    // A value control (a checkbox, radio button, switch, disclosure
+    // triangle, stepper, slider) pressed, incremented or decremented shows
+    // it in its value; a button, a confirm or cancel, a custom action may
+    // act where nothing shows.
+    if before.is_some()
+        && roles::press_shows_value(
+            &el.string("AXRole").unwrap_or_default(),
+            el.string("AXSubrole").as_deref(),
+            action,
+        )
+    {
         out = out.showing("value");
     }
     if let Some(frame) = el.frame() {
@@ -497,8 +517,12 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
     let unselected_row = selectable(&el).is_some_and(|row| row.bool("AXSelected") != Some(true));
     let denied = d.refuse_denied_item(&el);
     let blocked = denied.is_err();
-    // Text: the caret goes where the click is, through accessibility.
-    if !blocked && let Some(out) = caret_click(&el, at) {
+    // Text: the caret goes where the click is, through accessibility; not
+    // in a row (a click there selects the row, it does not start editing)
+    // and not in the person's app (it would move their caret).
+    if roles::caret_click_allowed(blocked, selectable(&el).is_some(), d.is_persons_app(t))
+        && let Some(out) = caret_click(d, t, &el, at)?
+    {
         return Ok(Some(out));
     }
     match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), unselected_row, blocked) {
@@ -508,7 +532,7 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
             let holder = value_holder(&el);
             let before = holder.value_text();
             let mut out = match el.perform("AXPress") {
-                Ok(()) => outcome_after("ax_hit_press", before, &holder),
+                Ok(()) => outcome_after(d, "ax_hit_press", "AXPress", before, &holder),
                 // Not taken at all: the events.
                 Err(e) if roles::press_error_falls_back(e) => return Ok(None),
                 // It may have run (a modal loop, a popped menu): no second click.
@@ -526,7 +550,7 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
             if !select_only(&row) {
                 return Ok(None);
             }
-            let mut out = select_outcome(&row);
+            let mut out = select_outcome(d, &row, false);
             out.cursor_at = Some(at);
             Ok(Some(out))
         }
@@ -557,53 +581,95 @@ fn ax_text(el: &Ax) -> bool {
         && !in_web_area(el)
 }
 
+/// Runs AX writes to `pid`'s app while no other session's key-in-app scope
+/// is open on it (under the same lock input takes): refused when one stays
+/// open past the bound, nothing written.
+fn ax_unprimed<T>(pid: i32, write: impl FnOnce() -> T) -> DResult<T> {
+    super::activation::post_unprimed(Route::Pid { pid, window: 0 }, |_| write())
+        .ok_or_else(|| DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))
+}
+
+/// Focuses `el` (when it is not) and selects `range` of its text: whether
+/// both writes were taken.
+fn focus_and_select(el: &Ax, range: super::sys::CFRange) -> bool {
+    let focused = el.bool("AXFocused") == Some(true)
+        || Cf::boolean(true).is_some_and(|yes| el.set("AXFocused", &yes).is_ok());
+    focused && el.set_selected_range(range).is_ok()
+}
+
 /// A plain click in text puts the caret at the character under the point
 /// (`AXRangeForPosition`) and focuses the element, as the click would; the
-/// caret is read back. Posted clicks do not reach a background AppKit text
-/// view (macOS 27.0.1: TextEdit and the fixture's text view kept their
-/// selection) and do not reach one in the front app by process either.
-fn caret_click(el: &Ax, at: Point) -> Option<ActionOutcome> {
+/// caret is read back, and again after the settle. Posted clicks do not
+/// reach a background AppKit text view (macOS 27.0.1: TextEdit and the
+/// fixture's text view kept their selection). `None` only before anything
+/// was written: once a write was tried, no click is posted after it.
+fn caret_click(d: &MacDesktop, t: &Target, el: &Ax, at: Point) -> DResult<Option<ActionOutcome>> {
     if !ax_text(el) {
-        return None;
+        return Ok(None);
     }
-    let under = el.range_for_position(at.x, at.y)?;
+    let Some(under) = el.range_for_position(at.x, at.y) else { return Ok(None) };
     let caret = super::sys::CFRange { location: under.location, length: 0 };
-    if el.bool("AXFocused") != Some(true) {
-        el.set("AXFocused", &Cf::boolean(true)?).ok()?;
-    }
-    el.set_selected_range(caret).ok()?;
-    let out = if el.selected_range() == Some(caret) {
+    let already = el.bool("AXFocused") == Some(true) && el.selected_range() == Some(caret);
+    let taken = ax_unprimed(t.window.pid, || focus_and_select(el, caret))?;
+    let mut out = if taken && el.selected_range() == Some(caret) && !already {
         ActionOutcome::confirmed("ax_caret")
     } else {
-        ActionOutcome::delivered("ax_caret")
+        let mut out = ActionOutcome::delivered("ax_caret");
+        if !taken {
+            out.note =
+                "the caret could not be set through accessibility; no click was posted after it"
+                    .into();
+        }
+        out
     };
-    Some(out.showing("selection").at(at))
+    out.expect = d.expect(Some(readback::Check::Range { el: el.clone(), range: caret }), already);
+    Ok(Some(out.showing("selection").at(at)))
 }
 
 /// A left drag from `from` to `to` inside one text element selects the text
-/// between the two points through accessibility (read back).
-fn select_drag(d: &MacDesktop, t: &Target, from: Point, to: Point) -> Option<ActionOutcome> {
-    let (app, win) = d.ax_window(t).ok()?;
-    let el = app.element_at(from.x, from.y)?;
-    if !el.element("AXWindow").is_some_and(|w| w.same(&win)) || !ax_text(&el) {
-        return None;
+/// between the two points through accessibility (read back, and again after
+/// the settle). Not in the person's app (it would move their selection) and
+/// not in a row (editable cells). `None` only before anything was written.
+fn select_drag(
+    d: &MacDesktop,
+    t: &Target,
+    from: Point,
+    to: Point,
+) -> DResult<Option<ActionOutcome>> {
+    let Ok((app, win)) = d.ax_window(t) else { return Ok(None) };
+    let Some(el) = app.element_at(from.x, from.y) else { return Ok(None) };
+    if !el.element("AXWindow").is_some_and(|w| w.same(&win))
+        || !ax_text(&el)
+        || !roles::caret_click_allowed(false, selectable(&el).is_some(), d.is_persons_app(t))
+        || !app.element_at(to.x, to.y).is_some_and(|end| end.same(&el))
+    {
+        return Ok(None);
     }
-    if !app.element_at(to.x, to.y).is_some_and(|end| end.same(&el)) {
-        return None;
-    }
-    let a = el.range_for_position(from.x, from.y)?.location;
-    let b = el.range_for_position(to.x, to.y)?.location;
+    let (Some(a), Some(b)) =
+        (el.range_for_position(from.x, from.y), el.range_for_position(to.x, to.y))
+    else {
+        return Ok(None);
+    };
+    let (a, b) = (a.location, b.location);
     let range = super::sys::CFRange { location: a.min(b), length: (a - b).abs() };
-    if el.bool("AXFocused") != Some(true) {
-        el.set("AXFocused", &Cf::boolean(true)?).ok()?;
+    if range.length == 0 {
+        return Ok(None);
     }
-    el.set_selected_range(range).ok()?;
-    let out = if range.length > 0 && el.selected_range() == Some(range) {
+    let already = el.selected_range() == Some(range);
+    let taken = ax_unprimed(t.window.pid, || focus_and_select(&el, range))?;
+    let mut out = if taken && el.selected_range() == Some(range) && !already {
         ActionOutcome::confirmed("ax_select_text")
     } else {
-        ActionOutcome::delivered("ax_select_text")
+        let mut out = ActionOutcome::delivered("ax_select_text");
+        if !taken {
+            out.note =
+                "the selection could not be set through accessibility; no drag was posted after it"
+                    .into();
+        }
+        out
     };
-    Some(out.showing("selection").at(to))
+    out.expect = d.expect(Some(readback::Check::Range { el, range }), already);
+    Ok(Some(out.showing("selection").at(to)))
 }
 
 /// The slider at `p`: the hit element, or the slider its knob belongs to.
@@ -641,20 +707,25 @@ fn slider_drag(d: &MacDesktop, t: &Target, from: Point, to: Point) -> Option<Act
     }
     let (min, max) = (slider.number("AXMinValue")?, slider.number("AXMaxValue")?);
     let frame = slider.frame()?;
-    if max <= min || frame.width < 2.0 || frame.height < 2.0 {
+    // A circular slider's value follows the angle, not a track: the events.
+    if max <= min || frame.width < 2.0 || frame.height < 2.0 || roles::looks_circular(&frame) {
         return None;
     }
     let wanted = slider_value_at(&frame, min, max, to);
+    let tolerance = roles::slider_tolerance(min, max);
     let before = slider.number("AXValue");
-    slider.set("AXValue", &Cf::number_f64(wanted)?).ok()?;
+    let already = before.is_some_and(|b| (b - wanted).abs() <= tolerance);
+    let cf = Cf::number_f64(wanted)?;
+    // From here on a write was tried: no drag is posted after it.
+    let taken = slider.set("AXValue", &cf).is_ok();
     let after = slider.number("AXValue");
-    // A slider with tick marks snaps: the read value is near the wanted one.
-    let step = (max - min) / 100.0;
-    let out = if after.is_some_and(|a| (a - wanted).abs() <= step.max(1.0)) && after != before {
+    let mut out = if taken && after.is_some_and(|a| (a - wanted).abs() <= tolerance) && !already {
         ActionOutcome::confirmed("ax_slider")
     } else {
         ActionOutcome::delivered("ax_slider")
     };
+    let check = readback::Check::Value { el: slider, wanted: format!("{wanted}"), tolerance };
+    out.expect = d.expect(Some(check), already);
     Some(out.showing("value").at(to))
 }
 
@@ -687,7 +758,9 @@ fn ax_scroll(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<
         .into_iter()
         .find(|c| !matches!(c.string("AXRole").as_deref(), Some("AXScrollBar") | None))?;
     let doc = content.frame()?;
-    let mut moved = false;
+    // Everything is read before anything is written: a view this cannot
+    // scroll gets the events instead.
+    let mut plan = Vec::new();
     for (bar_attr, lines, doc_len, vis_len) in [
         ("AXVerticalScrollBar", dy, doc.height, visible.height),
         ("AXHorizontalScrollBar", dx, doc.width, visible.width),
@@ -700,17 +773,41 @@ fn ax_scroll(d: &MacDesktop, t: &Target, at: Point, dx: f64, dy: f64) -> Option<
         if span <= 0.0 || !bar.settable("AXValue") {
             return None;
         }
-        let before: f64 = bar.value_text()?.parse().ok()?;
+        let before = bar.number("AXValue")?;
         let wanted = (before + lines * LINE_POINTS / span).clamp(0.0, 1.0);
-        bar.set("AXValue", &Cf::number_f64(wanted)?).ok()?;
-        let after: f64 = bar.value_text()?.parse().ok()?;
-        moved |= (after - before).abs() > f64::EPSILON;
+        plan.push((bar, before, wanted, lines.signum()));
     }
-    let out = if moved {
+    if plan.is_empty() {
+        return None;
+    }
+    // At the end it scrolls toward already: nothing to move.
+    let already = plan.iter().all(|(_, before, wanted, _)| (wanted - before).abs() < 1e-9);
+    // From here on a write was tried: a failure is reported, no events.
+    let mut moved = false;
+    let mut failed = false;
+    for (bar, before, wanted, sign) in &plan {
+        if (wanted - before).abs() < 1e-9 {
+            continue;
+        }
+        if Cf::number_f64(*wanted).is_none_or(|cf| bar.set("AXValue", &cf).is_err()) {
+            failed = true;
+        }
+        moved |= bar.number("AXValue").is_some_and(|a| readback::moved_toward(*before, a, *sign));
+    }
+    let mut out = if moved && !failed {
         ActionOutcome::confirmed("ax_scroll_bar")
     } else {
-        ActionOutcome::delivered("ax_scroll_bar")
+        let mut out = ActionOutcome::delivered("ax_scroll_bar");
+        if failed {
+            out.note = "a scroll bar did not take its new position through accessibility; no scroll events were posted after it".into();
+        }
+        out
     };
+    let bars = plan
+        .into_iter()
+        .map(|(el, before, _, sign)| readback::Bar { el, before: Some(before), sign })
+        .collect();
+    out.expect = d.expect(Some(readback::Check::Scroll { bars }), already);
     Some(out.showing("scroll").at(at))
 }
 
@@ -758,14 +855,16 @@ fn key_in_app(_d: &MacDesktop, t: &Target) -> Option<super::activation::KeyInApp
     key.wait_until(KEY_SETTLE, &|| focused_on_target(t)).then_some(key)
 }
 
-/// `confirmed` when the row reads back as the only selected one.
-fn select_outcome(row: &Ax) -> ActionOutcome {
-    let mut out = if row.bool("AXSelected") == Some(true) && only_selected(row) {
+/// `confirmed` when the row reads back as the only selected one (and again
+/// after the settle); `already`: it was before.
+fn select_outcome(d: &MacDesktop, row: &Ax, already: bool) -> ActionOutcome {
+    let mut out = if row.bool("AXSelected") == Some(true) && only_selected(row) && !already {
         ActionOutcome::confirmed("ax_select")
     } else {
         ActionOutcome::delivered("ax_select")
     }
     .showing("selection");
+    out.expect = d.expect(Some(readback::Check::Selected { row: row.clone() }), already);
     if let Some(frame) = row.frame() {
         out = out.at(roles::center(&frame));
     }
@@ -874,9 +973,11 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         && spec.button == Button::Left
         && !available.iter().any(|a| a == "AXPress")
         && let Some(row) = selectable(&el)
-        && select_only(&row)
     {
-        return Ok(select_outcome(&row));
+        let already = row.bool("AXSelected") == Some(true) && only_selected(&row);
+        if select_only(&row) {
+            return Ok(select_outcome(d, &row, already));
+        }
     }
     if semantic
         && let Some(action) =
@@ -898,7 +999,7 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
         let before = if menu_key.is_some() { None } else { el.value_text() };
         let mut out = match el.perform(action) {
             Ok(()) if menu_key.is_some() => ActionOutcome::delivered(&route_name(action)),
-            Ok(()) => outcome_after(&route_name(action), before, &el),
+            Ok(()) => outcome_after(d, &route_name(action), action, before, &el),
             Err(e) if roles::press_error_falls_back(e) => {
                 let err = ax_error(e, &format!("element {element_id}"));
                 return Err(with_hand_back(err, menu_key.take()));
@@ -931,7 +1032,7 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
 
 /// Inserts text through Accessibility: at the caret (AXSelectedText), or
 /// appended to the value. `None` when the element takes neither.
-fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
+fn ax_insert(d: &MacDesktop, el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     let role = el.string("AXRole").unwrap_or_default();
     if !roles::is_text_input(&role) {
         return Ok(None);
@@ -941,22 +1042,26 @@ fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     // A secure field hides its value; its length reads back the typing.
     let count_before = el.number("AXNumberOfCharacters");
     let typed = text.encode_utf16().count() as f64;
-    let length_grew = |el: &Ax| {
-        count_before.zip(el.number("AXNumberOfCharacters")).is_some_and(|(b, a)| a - b == typed)
-    };
+    let wanted_count = count_before.map(|n| n + typed);
+    let length_check =
+        |el: &Ax| wanted_count.map(|count| readback::Check::Length { el: el.clone(), count });
     let Some(cf) = Cf::string(text) else { return Ok(None) };
     if el.settable("AXSelectedText") && el.set("AXSelectedText", &cf).is_ok() {
         if secure {
-            let out = if length_grew(el) {
+            let grew = wanted_count.is_some() && el.number("AXNumberOfCharacters") == wanted_count;
+            let mut out = if grew {
                 ActionOutcome::confirmed("ax_insert_text")
             } else {
                 ActionOutcome::delivered("ax_insert_text")
             };
+            out.expect = d.expect(length_check(el), false);
             return Ok(Some(out.showing("text")));
         }
         let after = el.value_text().unwrap_or_default();
-        if after != before && after.contains(text) {
-            return Ok(Some(ActionOutcome::confirmed("ax_insert_text")));
+        if readback::typed_shows(&before, &after, text) {
+            let mut out = ActionOutcome::confirmed("ax_insert_text");
+            out.expect = d.expect(readback::Check::text_from(el, &before, text), false);
+            return Ok(Some(out.showing("text")));
         }
         // The app took the call but kept its value: fall back to keys.
         return Ok(None);
@@ -968,14 +1073,21 @@ fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     let Some(value) = Cf::string(&wanted) else { return Ok(None) };
     el.set("AXValue", &value).map_err(|e| ax_error(e, "setting the value"))?;
     let reads_back = if secure {
-        el.number("AXNumberOfCharacters") == Some(wanted.encode_utf16().count() as f64)
+        wanted_count.is_some() && el.number("AXNumberOfCharacters") == wanted_count
     } else {
         el.value_text().as_deref() == Some(wanted.as_str())
     };
     let mut out = if reads_back {
         ActionOutcome::confirmed("ax_set_value")
     } else {
-        ActionOutcome::delivered("ax_set_value").showing("text")
+        ActionOutcome::delivered("ax_set_value")
+    }
+    .showing("text");
+    out.expect = if secure {
+        d.expect(length_check(el), false)
+    } else {
+        let check = readback::Check::Value { el: el.clone(), wanted, tolerance: 0.0 };
+        d.expect(Some(check), false)
     };
     out.note = "appended to the field's value".into();
     Ok(Some(out))
@@ -1000,7 +1112,7 @@ pub(super) fn type_text(
     if let Some(el) = &target {
         if delivery == Delivery::Background
             && !has_keys
-            && let Some(mut out) = ax_insert(el, text)?
+            && let Some(mut out) = ax_insert(d, el, text)?
         {
             if let Some(frame) = el.frame() {
                 out = out.at(roles::center(&frame));
@@ -1034,7 +1146,9 @@ pub(super) fn type_text(
         if element_id.is_some()
             && let Some(yes) = Cf::boolean(true)
         {
-            el.set("AXFocused", &yes).map_err(|e| ax_error(e, "focusing the element"))?;
+            // Not while another session's scope holds the app.
+            ax_unprimed(t.window.pid, || el.set("AXFocused", &yes))?
+                .map_err(|e| ax_error(e, "focusing the element"))?;
         }
     }
     if d.menu_open_in(t.window.pid) {
@@ -1068,10 +1182,10 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
-        return Ok(typed_outcome(route.name(), shows_text, d.expect(check)));
+        return Ok(typed_outcome(route.name(), shows_text, d.expect(check, false)));
     }
     unprimed(route, |p| input::type_text(p, text))?;
-    Ok(typed_outcome(route.name(), shows_text, d.expect(check)))
+    Ok(typed_outcome(route.name(), shows_text, d.expect(check, false)))
 }
 
 /// Whether `el` is a text element whose value shows what is typed into it.
@@ -1167,6 +1281,16 @@ fn press_keys_inner(
         .any(|m| matches!(m, Modifier::Meta | Modifier::Control | Modifier::Alt))
         || matches!(combo.key, Key::F(_));
     let denies_any = d.denies_any();
+    // Command-A in a text element: read back as all of it selected, after
+    // the settle; whether it already was, before the press.
+    let select_all = if roles::is_select_all(combo) {
+        d.focused_in(&t).filter(is_text_element).map(|el| {
+            let already = readback::Check::SelectAll { el: el.clone() }.holds() == Some(true);
+            (el, already)
+        })
+    } else {
+        None
+    };
     if menu_chord {
         // In the background the walk stops at the first enabled match (it is
         // pressed or refused); a foreground chord may be posted, which needs
@@ -1311,11 +1435,9 @@ fn press_keys_inner(
                 }
                 // Command-A in a text element selects all of it: read back
                 // after the settle.
-                if roles::is_select_all(combo)
-                    && let Some(el) = d.focused_in(&t).filter(is_text_element)
-                {
+                if let Some((el, already)) = select_all {
                     out = out.showing("selection");
-                    out.expect = d.expect(Some(readback::Check::SelectAll { el }));
+                    out.expect = d.expect(Some(readback::Check::SelectAll { el }), already);
                 }
                 return Ok(out);
             }
@@ -1387,7 +1509,7 @@ fn press_keys_inner(
     let check =
         focused.as_ref().zip(carries).and_then(|(el, c)| readback::Check::text(el, &c.to_string()));
     unprimed(route, |p| input::key(p, code, flags, carries))?;
-    let mut out = typed_outcome(route.name(), shows_text, d.expect(check));
+    let mut out = typed_outcome(route.name(), shows_text, d.expect(check, false));
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
@@ -1442,11 +1564,10 @@ fn with_hand_back_flag(res: DResult<ActionOutcome>) -> DResult<ActionOutcome> {
         Err(DesktopError::Failed(m)) if !m.contains(note) => {
             Err(DesktopError::Failed(with_notes(m, note)))
         }
-        Err(DesktopError::TargetNotFound(m)) if !m.contains(note) => {
-            Err(DesktopError::TargetNotFound(with_notes(m, note)))
-        }
-        Err(DesktopError::StaleElement(m)) if !m.contains(note) => {
-            Err(DesktopError::StaleElement(with_notes(m, note)))
+        // Their message is built around the target or element id: the note
+        // goes after the whole message, not into the id.
+        Err(e @ (DesktopError::TargetNotFound(_) | DesktopError::StaleElement(_))) => {
+            Err(DesktopError::Failed(with_notes(e.to_string(), note)))
         }
         other => other,
     }
@@ -1471,8 +1592,9 @@ fn with_hand_back(
     match err {
         DesktopError::Unsupported(m) => DesktopError::Unsupported(add(m)),
         DesktopError::Failed(m) => DesktopError::Failed(add(m)),
-        DesktopError::TargetNotFound(m) => DesktopError::TargetNotFound(add(m)),
-        DesktopError::StaleElement(m) => DesktopError::StaleElement(add(m)),
+        e @ (DesktopError::TargetNotFound(_) | DesktopError::StaleElement(_)) => {
+            DesktopError::Failed(add(e.to_string()))
+        }
         other => other,
     }
 }
@@ -1588,10 +1710,10 @@ pub(super) fn scroll(
     }
     let route = d.pointer_route(&t, Delivery::Background)?;
     // The scroll bars' positions before, read back after the settle.
-    let check = readback::Check::scroll(t.window.pid, at.x, at.y);
+    let check = readback::Check::scroll(t.window.pid, at.x, at.y, dx, dy);
     unprimed(route, |p| input::scroll(p, at, dx, dy))?;
     let mut out = ActionOutcome::delivered(route.name()).at(at).showing("scroll");
-    out.expect = d.expect(check);
+    out.expect = d.expect(check, false);
     Ok(out)
 }
 
@@ -1621,9 +1743,13 @@ pub(super) fn drag(
     if delivery == Delivery::Background
         && button == Button::Left
         && roles::hit_usable(t.window.on_screen, true)
-        && let Some(out) = select_drag(d, &t, from, to).or_else(|| slider_drag(d, &t, from, to))
     {
-        return Ok(out);
+        if let Some(out) = select_drag(d, &t, from, to)? {
+            return Ok(out);
+        }
+        if let Some(out) = slider_drag(d, &t, from, to) {
+            return Ok(out);
+        }
     }
     let route = d.pointer_route(&t, delivery)?;
     unprimed(route, |p| input::drag(p, from, to, button))?;
@@ -1682,20 +1808,40 @@ pub(super) fn set_value(
             "element {element_id}'s value cannot be set; use type_text or click"
         )));
     }
+    let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
+    // Before the write: whether the value (or a secure field's length)
+    // already was the wanted one.
+    let value_before = el.value_text();
+    let count_before = el.number("AXNumberOfCharacters");
+    let new_count = value.encode_utf16().count() as f64;
     el.set("AXValue", &value_for(&el, value)?)
         .map_err(|e| ax_error(e, &format!("element {element_id}")))?;
-    let secure = roles::is_secure(&role, el.string("AXSubrole").as_deref());
     let read = el.value_text();
-    let mut out = match &read {
-        // A secure field hides its value; its length reads back.
-        _ if secure
-            && el.number("AXNumberOfCharacters") == Some(value.encode_utf16().count() as f64) =>
-        {
-            ActionOutcome::confirmed("ax_set_value")
-        }
-        Some(r) if !secure && same_value(r, value) => ActionOutcome::confirmed("ax_set_value"),
-        _ => ActionOutcome::delivered("ax_set_value").showing("value"),
+    let (already, holds) = if secure {
+        // The length must have become the new one: an unchanged length
+        // says nothing (the same count, or a field that ignored the write).
+        let count = el.number("AXNumberOfCharacters");
+        (count_before == Some(new_count), count == Some(new_count) && count != count_before)
+    } else {
+        (
+            value_before.as_deref().is_some_and(|b| same_value(b, value)),
+            read.as_deref().is_some_and(|r| same_value(r, value)),
+        )
     };
+    let mut out = if holds && !already {
+        ActionOutcome::confirmed("ax_set_value")
+    } else {
+        ActionOutcome::delivered("ax_set_value")
+    }
+    .showing("value");
+    let check = if secure {
+        readback::Check::Length { el: el.clone(), count: new_count }
+    } else {
+        let wanted =
+            read.clone().filter(|r| same_value(r, value)).unwrap_or_else(|| value.to_string());
+        readback::Check::Value { el: el.clone(), wanted, tolerance: 0.0 }
+    };
+    out.expect = d.expect(Some(check), already);
     if !secure && read.as_deref().is_some_and(|r| !same_value(r, value)) {
         out.note = "the element reads back a different value".into();
     }
@@ -1886,7 +2032,7 @@ pub(super) fn perform_action(
     } else {
         route_name(ax_action)
     };
-    Ok(outcome_after(&route, before, &el))
+    Ok(outcome_after(d, &route, action, before, &el))
 }
 
 /// The menu items of `pid`'s menu bar whose key equivalent is `combo`, in
@@ -2032,7 +2178,7 @@ fn shortcut_match_of(d: &MacDesktop, node: &Ax) -> (roles::ShortcutMatch, bool) 
 
 /// Whether `row` is its table's only selected row (true when the table does
 /// not say).
-fn only_selected(row: &Ax) -> bool {
+pub(super) fn only_selected(row: &Ax) -> bool {
     let Some(table) = row.element("AXParent") else { return true };
     let selected = table.elements("AXSelectedRows");
     selected.is_empty() || (selected.len() == 1 && selected[0].same(row))
