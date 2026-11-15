@@ -236,15 +236,11 @@ fn fifty_entries_stack_and_toggle_by_order() {
     let mut names = Vec::new();
     for i in 0..50u64 {
         let density = if i % 2 == 0 { "compact" } else { "comfortable" };
-        // Each apply also writes its own theme file, so no two are the same.
+        // Each ask also writes its own theme file, so no two are the same.
+        customize.begin(&format!("step {i}"), "cli", i * 10).unwrap();
         home.write(&format!("themes/t{i}.json"), &format!("{{ \"name\": \"t{i}\" }}\n"));
-        names.push(ask_and_apply(
-            &customize,
-            &home,
-            &format!("step {i}"),
-            &settings(density),
-            i * 10,
-        ));
+        home.write("cmux-next.json", &settings(density));
+        names.push(customize.apply(None, "cli", i * 10 + 1).unwrap().library.unwrap());
     }
     let listing = customize.library().unwrap();
     assert_eq!(listing.entries.len(), 50);
