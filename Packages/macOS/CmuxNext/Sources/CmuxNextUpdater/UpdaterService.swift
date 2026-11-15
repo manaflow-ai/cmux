@@ -136,9 +136,14 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
-    /// The staged build whose first launch was pre-warmed (``prewarmStagedUpdate()``, once per build).
-    @ObservationIgnored var prewarmedBuild: String?
-    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:)``) in tests; returns its log line.
+    /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
+    @ObservationIgnored var prewarmRun: StagedPrewarmRun?
+    /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
+    @ObservationIgnored var prewarmWaitingInstall: PrewarmWaitingInstall?
+    @ObservationIgnored let prewarmWaitTimer: DemandTimer
+    /// ``prewarmInstallBound``; tests shorten or lengthen it.
+    @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:)``) in tests; returns its log line.
     @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
@@ -298,6 +303,7 @@ public final class UpdaterService {
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        prewarmWaitTimer = DemandTimer(owner: "UpdaterService.prewarmWait", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         tipCheck = TipUpdateCheck(clock: clock)
         releasePushRetry = DemandTimer(owner: "UpdaterService.releasePush", clock: clock)

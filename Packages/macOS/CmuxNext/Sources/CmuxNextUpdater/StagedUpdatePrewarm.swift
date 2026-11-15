@@ -14,10 +14,11 @@ public import Foundation
 /// pre-warmed this way and then renamed reached Home's first page in 1281 ms against 4688 ms for a cold
 /// copy and 3984 ms for one only `gktool scan`ned, as Sparkle does (a full launch first: 1303 ms).
 ///
-/// What runs, one after another, each stopped after `timeout`: the staged app's executable with
-/// ``argument`` (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static
-/// initializers run and nothing more), then the bundled `cmux` and `cmux-tui` with `--version`, then
-/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s).
+/// What runs, each stopped after `timeout`: the staged app's executable with ``argument``
+/// (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static initializers run
+/// and nothing more), the bundled `cmux` and `cmux-tui` with `--version`, and each Chromium helper app
+/// with `--version` (the first loads the CEF framework, about 1.4 s). They run in two waves
+/// (``waves(_:)``), so an install that waits for the pre-warm waits for the longest run, not their sum.
 /// Nothing is written, verified or skipped: Gatekeeper, quarantine and the code signature checks
 /// run as they always do, only earlier.
 public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
@@ -95,35 +96,73 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         return runs
     }
 
+    /// Raised once someone waits for the pre-warm (an install click, ``UpdaterService/installAfterPrewarm(_:)``):
+    /// a run that starts from then on runs at ``WorkPriority/userBlocking``, not best effort. A run already
+    /// started keeps its priority.
+    public final class Urgency: Sendable {
+        private let raised = Atomic<Bool>(false)
+        public init() {}
+        public func raise() { raised.store(true, ordering: .relaxed) }
+        public var isRaised: Bool { raised.load(ordering: .relaxed) }
+        var priority: TaskPriority { (isRaised ? WorkPriority.userBlocking : .bestEffort).taskPriority }
+    }
+
+    /// `runs` in the order they start: the app's executable, the bundled executables and the first helper
+    /// together (each pays its own first exec, the helper also the CEF framework's first load), then the
+    /// other helpers together, which map the framework the first one loaded.
+    public static func waves(_ runs: [Run]) -> [[Run]] {
+        func isHelper(_ run: Run) -> Bool { run.executable.path.contains("/Contents/Frameworks/") }
+        let helpers = runs.filter(isHelper)
+        return [runs.filter { !isHelper($0) } + helpers.prefix(1), Array(helpers.dropFirst())].filter { !$0.isEmpty }
+    }
+
     /// Finds the staged bundle on `work`'s files lane at best-effort priority, then starts each run
-    /// (``AsyncProcess``, nothing waits on a thread). Returns a line for the update log.
+    /// (``AsyncProcess``, nothing waits on a thread) in ``waves(_:)``, at `urgency`'s priority. Returns a
+    /// line for the update log: each run in ``runs(bundle:)`` order, then the time all of them took.
     /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
     /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20), marker: URL? = nil) async -> String {
+                        timeout: Duration = .seconds(20), marker: URL? = nil, urgency: Urgency = Urgency()) async -> String {
         let scanned = try? await work.run(.bestEffort, mayBlock: .files) { [self] () -> (URL, [Run])? in
             stagedBundle().map { ($0, runs(bundle: $0)) }
         }
         guard let staged = scanned ?? nil else { return "launch pre-warm: no staged bundle of \(build) in \(installation.path)" }
         let bundle = staged.0, planned = staged.1
-        var parts: [String] = []
-        for run in planned {
-            let started = ContinuousClock.now
-            let status: String
-            do {
-                let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
-                status = "exit \(outcome.status)"
-            } catch {
-                status = "failed (\(error))"
+        let started = ContinuousClock.now
+        var parts: [Int: String] = [:]
+        for wave in Self.waves(planned) {
+            await withTaskGroup(of: (Int, String).self) { group in
+                for run in wave {
+                    let index = planned.firstIndex(of: run) ?? planned.count
+                    group.addTask(priority: urgency.priority) {
+                        let started = ContinuousClock.now
+                        let status: String
+                        do {
+                            let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
+                            status = "exit \(outcome.status)"
+                        } catch {
+                            status = "failed (\(error))"
+                        }
+                        return (index, "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms")
+                    }
+                }
+                for await (index, part) in group { parts[index] = part }
             }
-            let elapsed = (ContinuousClock.now - started).components
-            parts.append("\(run.executable.lastPathComponent) \(status) \(elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000) ms")
         }
+        let total = Self.milliseconds(ContinuousClock.now - started)
         if let marker {
             let build = build
             try? await work.run(.bestEffort, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
         }
-        return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): " + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", "))
+        let ran = parts.keys.sorted().compactMap { parts[$0] }
+        return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
+            + (ran.isEmpty ? "nothing to run" : ran.joined(separator: ", ") + "; \(total) ms in all")
+    }
+
+    /// Whole milliseconds of `duration`.
+    static func milliseconds(_ duration: Duration) -> Int {
+        let parts = duration.components
+        return Int(parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000)
     }
 
     /// `~/Library/Application Support/<bundle id>/launch-prewarm`: the build the last pre-warm ran, until

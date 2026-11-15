@@ -82,9 +82,12 @@ import Testing
         try Self.stage(root, "u1", "x1", build: "200")
         let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
         let ran = try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n")
-        #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
-                        "cmux Helper (GPU) --version", "cmux Helper --version"])
+        // The first wave runs together (any order), the other helpers after it.
+        #expect(Set(ran.prefix(4)) == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
+                                       "cmux Helper (GPU) --version"], "\(ran)")
+        #expect(ran.dropFirst(4) == ["cmux Helper --version"], "\(ran)")
         #expect(line.hasPrefix("launch pre-warm of 200 (cmux.app): cmux exit 0"), "\(line)")
+        #expect(line.hasSuffix(" ms in all"), "\(line)")
         let none = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork())
         #expect(none.contains("no staged bundle of 300"))
     }
@@ -142,6 +145,15 @@ import Testing
         }
     }
 
+    @Test func theExecutablesAndTheFirstHelperRunTogetherThenTheOtherHelpers() throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let app = try Self.stage(root, "u1", "x1", build: "200", helpers: ["cmux Helper (GPU)", "cmux Helper (Renderer)", "cmux Helper"])
+        let waves = StagedUpdatePrewarm.waves(StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").runs(bundle: app))
+        #expect(waves.map { $0.map(\.executable.lastPathComponent) }
+            == [["cmux", "cmux", "cmux-tui", "cmux Helper (GPU)"], ["cmux Helper (Renderer)", "cmux Helper"]])
+    }
+
     // Leo's NIGHTLY (cmux#43890's read-back): the update staged at 22:07:57Z, he clicked Restart to Update at
     // 22:08:00Z and it relaunched at 22:08:03Z with no "launch pre-warm" line: a pre-warm that only runs while
     // the update waits never finished for a person who installs at once. The click now waits for it, bounded.
@@ -176,6 +188,23 @@ import Testing
         open.finish()
         #expect(await eventually { installs.count == 1 }, "the click never installed")
         #expect(h.updater.log.recent.contains { $0.hasPrefix("launch pre-warm before install: done, the install waited") },
+                "\(h.updater.log.recent)")
+    }
+
+    @Test func aPrewarmThatRunsPastTheBoundDoesNotHoldTheClick() async throws {
+        let (h, installs, open) = Self.clickHarness()
+        defer { open.finish() }
+        h.updater.followStagedUpdate(.ready(version: "4.0.0"))
+        #expect(h.updater.log.recent.contains("launch pre-warm of 400: started (staged)"), "\(h.updater.log.recent)")
+        h.updater.installClicked()
+        #expect(await eventually { h.updater.prewarmWaitTimer.isScheduled }, "no bound was armed")
+        #expect(installs.count == 0)
+        for _ in 0..<40 where installs.count == 0 {
+            h.clock.advance(by: .seconds(1))
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(installs.count == 1, "the click waits past its bound on a pre-warm that never ends")
+        #expect(h.updater.log.recent.contains { $0.hasPrefix("launch pre-warm before install: partial, still running after") },
                 "\(h.updater.log.recent)")
     }
 
