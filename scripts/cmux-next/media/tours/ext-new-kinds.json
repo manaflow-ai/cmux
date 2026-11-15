@@ -46,6 +46,16 @@
       "wait": 5
     },
     {
+      "title": "Session Info too: cmux ext new info --kind session-info loads as written",
+      "daemon": true,
+      "cmux": [
+        "workspace", "name:Extension", "screen", "current", "pane", "current", "tab", "current",
+        "terminal", "current", "write", "--text",
+        "clear; cd .. && cmux ext new info --kind session-info && cd info && cmux ext shot --out /dev/null 2>&1 | head -12\r"
+      ],
+      "wait": 6
+    },
+    {
       "title": "A pane too: cmux ext new board --kind pane loads as written",
       "daemon": true,
       "cmux": [
