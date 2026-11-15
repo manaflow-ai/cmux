@@ -238,10 +238,12 @@ where
     }
 }
 
-/// What the own-key check reads for one Gemini or Grok launch (`hub/spawn.rs`): the env the child
-/// gets, as Claude's check reads it (`login_env::effective_for`: the daemon's env, the allow-listed
-/// login values, the vault's entries, `machine.env`'s values, then the profile), and the key names
-/// it gets a value of the person's own for that this env shows only as a reference (#43800).
+/// What the own-key check reads for one Cloud machine launch (`hub/spawn.rs`: Gemini and Grok
+/// here, Claude through `claude_cloud_auth::launch_env`): the env the child gets
+/// (`login_env::effective_with`: the daemon's env, the allow-listed login values, the vault's
+/// entries, `machine.env`'s values, then the profile; for a remote-origin launch only the host
+/// base and the profile), and the key names it gets a value of the person's own for that this env
+/// shows only as a reference (#43800, #43821).
 #[derive(Debug, Clone, Default)]
 pub struct LaunchEnv {
     env: BTreeMap<String, String>,
@@ -317,6 +319,11 @@ impl LaunchEnv {
             crate::login_env::missing_secret_names(),
             false,
         )
+    }
+
+    /// The env the launch gets, for a check that reads it whole (Claude's, `claude_auth::find_in`).
+    pub fn into_env(self) -> BTreeMap<String, String> {
+        self.env
     }
 
     /// The launch's value of `k`; None when unset or empty.

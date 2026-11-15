@@ -2,7 +2,7 @@
 // client core gives (acpmux-client chat.rs `ChatChange`, its shape tests in chat/tests.rs) through
 // the host client, as the host's event carries them.
 import { describe, expect, test } from "bun:test";
-import { ChatRowsHost, CHAT_ROWS_OFF, chatRowsNamer } from "./host";
+import { ChatRowsHost, CHAT_ROWS_LOST, CHAT_ROWS_OFF, chatRowsNamer } from "./host";
 import { STORE_MAX_BYTES, STORE_MAX_ROWS, type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 import type { ChatRow } from "./wire";
 
@@ -497,6 +497,16 @@ describe("the fall to v1", () => {
         details: { protocol: "cmux.protocol.unknown_op" },
       }),
       CHAT_ROWS_OFF,
+    ],
+    ["the old bridge's unsupported", Object.assign(new Error("no"), { code: "unsupported" }), CHAT_ROWS_OFF],
+    ["a lost link, with no code", new Error("lost"), CHAT_ROWS_LOST],
+    [
+      "invalid params",
+      Object.assign(new Error("bad"), {
+        code: "native.invalid_request",
+        details: { protocol: "cmux.protocol.invalid_params" },
+      }),
+      "native.invalid_request",
     ],
   ] as const)
     test(`an open refused (${name}) falls with its code and holds no sid`, async () => {
