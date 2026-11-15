@@ -29,6 +29,7 @@ extension AgentPaneSeed {
         if let address { lines.append(address) }
         if let text = trimmed(selection) {
             if !lines.isEmpty { lines.append("") }
+            // main-actor-ok: `trimmed` caps the selection at selectionLimit (8,000 characters) before this split
             lines += text.split(separator: "\n", omittingEmptySubsequences: false).map { $0.isEmpty ? ">" : "> \($0)" }
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n") + "\n\n"

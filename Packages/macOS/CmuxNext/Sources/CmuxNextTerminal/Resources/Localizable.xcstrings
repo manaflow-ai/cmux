@@ -7623,13 +7623,13 @@
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Exit %lld"
+            "value": "Afslutningskode %lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Exit %lld"
+            "value": "Exit-Code %lld"
           }
         },
         "es": {
@@ -7671,7 +7671,7 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Exit %lld"
+            "value": "Avslutningskode %lld"
           }
         },
         "pl": {
