@@ -68,7 +68,16 @@ final class UnsentKeysClock {
         }
     }
 
-    static func waitUntil(_ seconds: Double = 5, _ condition: () -> Bool) async throws {
+    /// How long a step may take to get the screen and the session where it
+    /// puts them. A deadline, never a measure: each wait ends as soon as its
+    /// condition holds. The kit-test job runs every suite of the package in
+    /// one process at once, and while they all start the main actor and the
+    /// cooperative pool are busy for seconds: there a 5 s setup ended before
+    /// the session had sent the fake Mac its first command (run 43658355643:
+    /// `started=true`, no output pumped, `cmds=[]`).
+    static let deadline: Double = 30
+
+    static func waitUntil(_ seconds: Double = deadline, _ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(seconds * 1000)))
         while !condition(), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10)) // test: polls the screen until a deadline
@@ -96,8 +105,10 @@ final class UnsentKeysClock {
         window.rootViewController = screen
         window.makeKeyAndVisible()
         let rig = Rig(daemon: daemon, channels: channels, session: session, model: model, screen: screen, window: window, clock: clock)
-        try await waitUntil { session.isAttached && model.isTUI && screen.surface.capturesMouse }
-        // Where the setup stands when it fails (the kit-test job's red only).
+        // The suite's first test starts with every other suite of the job:
+        // twice the step deadline.
+        try await waitUntil(2 * deadline) { session.isAttached && model.isTUI && screen.surface.capturesMouse }
+        // Where the setup stands when it fails.
         let state = "started=\(screen.started) surface=\(screen.surface.surface != nil) shown=\(screen.surface.isShown) "
             + "appState=\(UIApplication.shared.applicationState.rawValue) attached=\(session.isAttached) tui=\(model.isTUI) "
             + "pending=\(screen.outputPendingBytes) counts=\(screen.outputCounts) frame=\(screen.surface.frame) "
