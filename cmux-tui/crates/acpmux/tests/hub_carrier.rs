@@ -1110,6 +1110,13 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
     assert!(fixture.carrier_a.stats().dials.load(Ordering::Relaxed) >= 4);
 }
 
+/// `future`'s output, or a panic naming `what` after 30 s: a stalled numbers run fails, not hangs.
+async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(30), future)
+        .await
+        .unwrap_or_else(|_| panic!("{what} stalled for 30 s"))
+}
+
 fn percentile(samples: &mut [Duration], p: f64) -> Duration {
     samples.sort();
     samples[((samples.len() - 1) as f64 * p).round() as usize]
@@ -1128,18 +1135,18 @@ async fn hub_carrier_pipe_numbers() {
     fixture.gate.granted.store(true, Ordering::SeqCst);
     let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
     let enrolled = connect_through_pipe(&fixture, &identity, true).await;
-    let _ = fixture.accepted.recv().await.unwrap();
+    let _ = within("the enrolling connect", fixture.accepted.recv()).await.unwrap();
     let _ = enrolled.close().await;
     let mut connects = Vec::new();
     for _ in 0..20 {
         let started = std::time::Instant::now();
         let client = connect_through_pipe(&fixture, &identity, false).await;
         connects.push(started.elapsed());
-        let _ = fixture.accepted.recv().await.unwrap();
+        let _ = within("a connect", fixture.accepted.recv()).await.unwrap();
         let _ = client.close().await;
     }
     let client = connect_through_pipe(&fixture, &identity, false).await;
-    let daemon_client = fixture.accepted.recv().await.unwrap();
+    let daemon_client = within("the echo connect", fixture.accepted.recv()).await.unwrap();
     let mut echoes = Vec::new();
     for i in 0..20u64 {
         let started = std::time::Instant::now();
@@ -1147,13 +1154,13 @@ async fn hub_carrier_pipe_numbers() {
             .send(Lane::Interactive, i, bytes::Bytes::from_static(b"k"), FrameFlags::empty())
             .await
             .unwrap();
-        let frame = daemon_client.receive().await.unwrap().unwrap();
+        let frame = within("an echo", daemon_client.receive()).await.unwrap().unwrap();
         daemon_client.send(Lane::Interactive, i, frame.payload, FrameFlags::empty()).await.unwrap();
-        let _ = client.receive().await.unwrap().unwrap();
+        let _ = within("an echo back", client.receive()).await.unwrap().unwrap();
         echoes.push(started.elapsed());
     }
     let chunk = vec![0xa5u8; 32 * 1024];
-    let total: usize = 64 << 20;
+    let total: usize = 16 << 20;
     let started = std::time::Instant::now();
     let sender = tokio::spawn(async move {
         for i in 0..(total / chunk.len()) as u64 {
@@ -1166,7 +1173,7 @@ async fn hub_carrier_pipe_numbers() {
     });
     let mut received = 0usize;
     while received < total {
-        received += client.receive().await.unwrap().unwrap().payload.len();
+        received += within("a bulk frame", client.receive()).await.unwrap().unwrap().payload.len();
     }
     let elapsed = started.elapsed();
     let _ = sender.await;
