@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43760216339",
+  "recorded_at": "2026-11-15T20:56:03Z",
+  "reason": "cmux-tui 32b4ead97017 changes the image's cmux-tui (pinned 9df878397e52)",
+  "dry_run": false,
+  "cmux_tui": "32b4ead970170287bcfaeff6033403171eacc391",
+  "fixes": [
+    {
+      "sha": "32b4ead970170287bcfaeff6033403171eacc391",
+      "mergedAt": "2026-11-15T12:31:41-08:00",
+      "subject": "Terminal: a restart with no free terminal says what to do (#43889)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T20:56:03Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
