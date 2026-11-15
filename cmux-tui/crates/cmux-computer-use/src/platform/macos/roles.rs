@@ -149,6 +149,12 @@ pub fn address_press(target_is_front_app: bool) -> bool {
     target_is_front_app
 }
 
+/// [`address_press`] from the active app's and the keyboard's pids, read
+/// right before the post: both must be the target; unreadable is not front.
+pub fn address_press_for(active: Option<i32>, keyboard: Option<i32>, target: i32) -> bool {
+    address_press(active == Some(target) && keyboard == Some(target))
+}
+
 /// Command-A alone: Select All.
 pub fn is_select_all(combo: &crate::keys::KeyCombo) -> bool {
     combo.modifiers == [crate::keys::Modifier::Meta]

@@ -325,6 +325,25 @@ pub(super) fn frontmost_pid() -> Option<i32> {
         .or_else(workspace::frontmost_pid)
 }
 
+/// Which app is "front", by what each caller needs:
+/// - [`frontmost_pid`]: the app with keyboard focus (AX's focused
+///   application, else NSWorkspace). A non-activating panel (Spotlight,
+///   Raycast) has the keyboard while another app stays active.
+/// - [`active_pid`]: the active app (NSWorkspace `frontmostApplication`),
+///   whose windows AppKit treats as active; a non-activating panel does not
+///   change it.
+/// - [`target_is_front`]: a posted press may name its window only when the
+///   target is both the active app and the keyboard's, each read now; an
+///   unreadable answer is "not front" (an addressed press can raise a
+///   background app's window).
+pub(super) fn active_pid() -> Option<i32> {
+    workspace::frontmost_pid()
+}
+
+pub(super) fn target_is_front(pid: i32) -> bool {
+    roles::address_press_for(active_pid(), frontmost_pid(), pid)
+}
+
 fn post_event_granted() -> bool {
     // SAFETY: no arguments.
     unsafe { sys::CGPreflightPostEventAccess() }

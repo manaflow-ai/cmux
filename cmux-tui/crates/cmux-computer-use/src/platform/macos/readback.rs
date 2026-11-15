@@ -54,24 +54,34 @@ pub(super) enum Check {
     Shown { el: Ax },
     /// A pressed menu item: its title or check mark changed (a toggle).
     /// Unchanged says nothing (most items do not toggle).
-    MenuItem { el: Ax, title: Option<String>, mark: Option<String> },
+    MenuItem { el: Ax, title: Read, mark: Read },
     /// A sheet or popover opened in window `win` (more of them than `before`).
     Opened { win: Ax, before: usize },
     /// The sheet `sheet` is gone (its button closed it).
-    Gone { sheet: Ax },
+    Gone { sheet: Ax, win: Option<Ax> },
     /// Exactly one text of window `win` changed, and it now ends with `ch`
     /// (a calculator's display after a digit).
     EndsWith { texts: Vec<(Ax, Option<String>)>, ch: char },
     /// Any of these holds.
     Any(Vec<Check>),
     /// The document file `path` was written after `before` (its mtime).
-    Saved { path: String, before: Option<f64> },
+    /// and, when the window reports it, its edited state is cleared.
+    Saved { path: String, before: Option<f64>, win: Ax },
     /// The list `el` has one new row selected (not among `names`).
     NewRow { el: Ax, names: Vec<String> },
     /// Type-to-select in the list `el` picked a row starting with `typed`.
     TypeSelect { el: Ax, typed: String },
     /// Some of these lists has more rows than its count before.
-    RowsGrew { lists: Vec<(Ax, usize)> },
+    /// One of these lists has a new row (not among its rows before), and
+    /// that row is the one selected.
+    RowsGrew { lists: Vec<(Ax, Vec<Ax>)> },
+}
+
+/// Whether a window's document has unsaved edits: its close button's
+/// `AXEdited` (AppKit sets it with the window's document-edited dot), else
+/// the window's own; `None` when neither reads.
+pub(super) fn edited(win: &Ax) -> Option<bool> {
+    win.element("AXCloseButton").and_then(|b| b.bool("AXEdited")).or_else(|| win.bool("AXEdited"))
 }
 
 /// A file's modification time (seconds), when it can be read.
@@ -117,8 +127,11 @@ pub(super) fn row_name(row: &Ax) -> Option<String> {
 
 /// The names of `list`'s rows (or of its selected rows).
 pub(super) fn row_names(list: &Ax, attr: &str) -> Vec<String> {
-    list.elements(attr).iter().filter_map(row_name).collect()
+    list.elements(attr).iter().take(ROWS_MAX).filter_map(row_name).collect()
 }
+
+/// Rows read at most from one list (a pre-read on a huge list is skipped).
+pub(super) const ROWS_MAX: usize = 500;
 
 /// The lists, tables and outlines of a window.
 pub(super) fn lists_of(win: &Ax) -> Vec<Ax> {
@@ -189,17 +202,51 @@ pub(super) fn texts(win: &Ax) -> Vec<(Ax, Option<String>)> {
         .collect()
 }
 
+/// A string attribute read: `Ok(value)` (None: no value), `Err` when the
+/// read failed.
+pub(super) type Read = Result<Option<String>, super::sys::AXError>;
+
+/// Reads a string attribute, telling a failed read apart from no value.
+pub(super) fn read_str(el: &Ax, name: &str) -> Read {
+    el.attr(name).map(|v| v.and_then(|v| v.as_string()))
+}
+
+/// Whether a menu item changed between two reads: only reads that both
+/// succeeded are compared (a failed read is never a change).
+pub(super) fn item_changed(before: &Read, after: &Read) -> bool {
+    matches!((before, after), (Ok(b), Ok(a)) if a != b)
+}
+
+/// Whether a sheet is gone: its role read says the element no longer
+/// exists, or it is no longer among its window's children. Any other
+/// failed read says nothing.
+pub(super) fn sheet_gone(role: &Read, among_children: Option<bool>) -> Option<bool> {
+    match role {
+        Err(e) if *e == super::sys::AX_INVALID_ELEMENT => Some(true),
+        Err(_) => None,
+        Ok(_) => (among_children == Some(false)).then_some(true),
+    }
+}
+
 /// Whether, of `before` and `after` values of the same texts, exactly one
 /// changed and it now ends with `ch` (spaces and group separators aside).
 pub(super) fn one_changed_ending(pairs: &[(Option<String>, Option<String>)], ch: char) -> bool {
-    let changed: Vec<&Option<String>> =
-        pairs.iter().filter(|(b, a)| b != a).map(|(_, a)| a).collect();
-    let [Some(after)] = changed.as_slice() else { return false };
-    let clean: String = after
-        .chars()
-        .filter(|c| !c.is_whitespace() && !matches!(c, ',' | '\u{2009}' | '\u{202F}'))
-        .collect();
-    clean.ends_with(ch)
+    let changed: Vec<(&Option<String>, &Option<String>)> =
+        pairs.iter().filter(|(b, a)| b != a).map(|(b, a)| (b, a)).collect();
+    let [(before, Some(after))] = changed.as_slice() else { return false };
+    let clean = |v: &str| -> String {
+        v.chars()
+            .filter(|c| !c.is_whitespace() && !matches!(c, ',' | '.' | '\u{2009}' | '\u{202F}'))
+            .collect()
+    };
+    let (b, a) = (clean(before.as_deref().unwrap_or("")), clean(after));
+    // A display: digits only, and the digit appended to the old value or
+    // replacing a cleared one.
+    let digits = |v: &str| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '-');
+    digits(&a)
+        && (digits(&b) || b.is_empty())
+        && (a == format!("{b}{ch}")
+            || (b.trim_start_matches('0').is_empty() && a == ch.to_string()))
 }
 
 #[derive(Default)]
@@ -426,18 +473,25 @@ impl Check {
             Check::Bool { el, attr, value } => Some(el.bool(attr)? == *value),
             Check::Shown { el } => Some(el.string("AXRole").as_deref() == Some("AXMenu")),
             Check::MenuItem { el, title, mark } => {
-                let changed = (title.is_some() && el.string("AXTitle") != *title)
-                    || el.string("AXMenuItemMarkChar") != *mark;
+                let changed = item_changed(title, &read_str(el, "AXTitle"))
+                    || item_changed(mark, &read_str(el, "AXMenuItemMarkChar"));
                 changed.then_some(true)
             }
             Check::Opened { win, before } => (overlays(win) > *before).then_some(true),
-            Check::Gone { sheet } => sheet.string("AXRole").is_none().then_some(true),
+            Check::Gone { sheet, win } => {
+                let among =
+                    win.as_ref().map(|w| w.elements("AXChildren").iter().any(|c| c.same(sheet)));
+                sheet_gone(&read_str(sheet, "AXRole"), among)
+            }
             Check::EndsWith { texts, ch } => {
                 let pairs: Vec<_> =
                     texts.iter().map(|(el, b)| (b.clone(), el.value_text())).collect();
                 one_changed_ending(&pairs, *ch).then_some(true)
             }
-            Check::Saved { path, before } => saved(*before, mtime(path)).then_some(true),
+            Check::Saved { path, before, win } => {
+                let written = saved(*before, mtime(path));
+                (written && edited(win) != Some(true)).then_some(true)
+            }
             Check::NewRow { el, names } => {
                 new_row_selected(names, &row_names(el, "AXSelectedRows")).then_some(true)
             }
@@ -445,9 +499,13 @@ impl Check {
                 type_selected(&row_names(el, "AXSelectedRows"), typed)
             }
             Check::RowsGrew { lists } => {
-                let counts: Vec<_> =
-                    lists.iter().map(|(el, n)| (*n, el.elements("AXRows").len())).collect();
-                rows_grew(&counts).then_some(true)
+                let grew = lists.iter().any(|(el, before)| {
+                    let now = el.elements("AXRows").len();
+                    let selected = el.elements("AXSelectedRows");
+                    rows_grew(&[(before.len(), now)])
+                        && matches!(selected.as_slice(), [one] if !before.iter().any(|r| r.same(one)))
+                });
+                grew.then_some(true)
             }
             Check::Any(all) => {
                 let reads: Vec<Option<bool>> = all.iter().map(Check::holds).collect();
@@ -547,6 +605,44 @@ mod tests {
         assert!(rows_grew(&[(3, 3), (5, 6)]));
         assert!(!rows_grew(&[(3, 3), (6, 5)]));
         assert!(!rows_grew(&[]));
+    }
+
+    /// Review of 13dca61 (1): a failed read after the press is not a change.
+    #[test]
+    fn a_failed_menu_item_read_is_never_a_change() {
+        let ok = |v: Option<&str>| -> Read { Ok(v.map(String::from)) };
+        let err: Read = Err(super::super::sys::AX_CANNOT_COMPLETE);
+        assert!(item_changed(&ok(Some("Hide Ruler")), &ok(Some("Show Ruler"))));
+        assert!(item_changed(&ok(None), &ok(Some("\u{2713}"))), "a check mark appeared");
+        assert!(!item_changed(&ok(Some("Hide Ruler")), &ok(Some("Hide Ruler"))));
+        assert!(!item_changed(&ok(Some("Hide Ruler")), &err), "after-read failed");
+        assert!(!item_changed(&err, &ok(Some("Show Ruler"))), "before-read failed");
+    }
+
+    /// Review of 13dca61 (2): a sheet is gone only when its element is
+    /// invalid or it left its window; a timeout says nothing.
+    #[test]
+    fn a_sheet_is_gone_only_when_invalid_or_detached() {
+        let invalid: Read = Err(super::super::sys::AX_INVALID_ELEMENT);
+        let timeout: Read = Err(super::super::sys::AX_CANNOT_COMPLETE);
+        let alive: Read = Ok(Some("AXSheet".into()));
+        assert_eq!(sheet_gone(&invalid, None), Some(true));
+        assert_eq!(sheet_gone(&timeout, None), None, "a timeout is not gone");
+        assert_eq!(sheet_gone(&timeout, Some(true)), None);
+        assert_eq!(sheet_gone(&alive, Some(true)), None, "still a child of its window");
+        assert_eq!(sheet_gone(&alive, Some(false)), Some(true), "left its window");
+    }
+
+    /// Review of 13dca61 (8): the digit check is for a display: the old
+    /// value then the digit, or a cleared display (0) replaced by it; not a
+    /// lone label that happens to end with the digit.
+    #[test]
+    fn the_digit_check_reads_a_display() {
+        let p = |b: &str, a: &str| (Some(b.to_string()), Some(a.to_string()));
+        assert!(one_changed_ending(&[p("12", "128")], '8'));
+        assert!(one_changed_ending(&[p("0", "8")], '8'));
+        assert!(!one_changed_ending(&[p("Items: 3", "Items: 8")], '8'), "a label");
+        assert!(!one_changed_ending(&[p("5", "8")], '8'), "not appended");
     }
 
     #[test]

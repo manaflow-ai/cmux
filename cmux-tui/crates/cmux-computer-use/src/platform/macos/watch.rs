@@ -90,6 +90,20 @@ fn detached() -> std::sync::MutexGuard<'static, std::collections::HashMap<i32, u
     D.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+const RUNNING: u8 = 0;
+const DETACHED: u8 = 1;
+const ENDED: u8 = 2;
+
+/// One detached watch of `pid` ended.
+fn release(map: &mut std::collections::HashMap<i32, usize>, pid: i32) {
+    if let Some(n) = map.get_mut(&pid) {
+        *n = n.saturating_sub(1);
+        if *n == 0 {
+            map.remove(&pid);
+        }
+    }
+}
+
 /// Whether another watch may start for an app with `running` detached ones.
 pub(super) fn may_start(running: usize) -> bool {
     running < DETACHED_MAX
@@ -118,21 +132,19 @@ impl AxWatch {
         if !may_start(detached().get(&pid).copied().unwrap_or(0)) {
             return AxWatch { signals, stop, listening: false, started, thread: None };
         }
-        let was_detached = Arc::new(AtomicBool::new(false));
-        let gone = was_detached.clone();
+        // The watch's life, changed only under the detached map's lock: the
+        // thread ending and the caller detaching it can race, and exactly
+        // the one that comes second settles the count.
+        let life = Arc::new(std::sync::atomic::AtomicU8::new(RUNNING));
+        let ended = life.clone();
         let thread = std::thread::Builder::new()
             .name("cu-ax-watch".into())
             .spawn(move || {
                 run(pid, target, sig, stp, ready_tx, started);
                 // A detached watch that ends frees its place.
-                if gone.load(Ordering::Acquire) {
-                    let mut map = detached();
-                    if let Some(n) = map.get_mut(&pid) {
-                        *n = n.saturating_sub(1);
-                        if *n == 0 {
-                            map.remove(&pid);
-                        }
-                    }
+                let mut map = detached();
+                if ended.swap(ENDED, Ordering::AcqRel) == DETACHED {
+                    release(&mut map, pid);
                 }
             })
             .ok();
@@ -141,8 +153,15 @@ impl AxWatch {
             Some(Ok(ok)) => (ok, thread),
             // Past the budget: it stops when it gets there; never joined.
             Some(Err(_)) => {
-                *detached().entry(pid).or_insert(0) += 1;
-                was_detached.store(true, Ordering::Release);
+                let mut map = detached();
+                // Counted only if it has not ended meanwhile.
+                if life
+                    .compare_exchange(RUNNING, DETACHED, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    *map.entry(pid).or_insert(0) += 1;
+                }
+                drop(map);
                 stop.store(true, Ordering::Release);
                 (false, None)
             }

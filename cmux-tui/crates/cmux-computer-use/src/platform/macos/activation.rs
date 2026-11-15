@@ -109,6 +109,20 @@ pub(super) const PRIME_DENY: &[&str] = &[
     "org.telegram.desktop",
     "com.microsoft.teams",
     "com.microsoft.Outlook",
+    // More browsers and messaging and mail apps.
+    "org.mozilla.nightly",
+    "org.chromium.Chromium",
+    "com.operasoftware.Opera",
+    "com.vivaldi.Vivaldi",
+    "com.kagi.kagimacOS",
+    "app.zen-browser.",
+    "com.duckduckgo.macos.browser",
+    "org.whispersystems.signal-desktop",
+    "com.facebook.archon",
+    "com.tencent.xinWeChat",
+    "org.mozilla.thunderbird",
+    "com.readdle.",
+    "com.mimestream.Mimestream",
 ];
 
 /// Whether the scope may prime the app with `bundle_id` under `apps`. An

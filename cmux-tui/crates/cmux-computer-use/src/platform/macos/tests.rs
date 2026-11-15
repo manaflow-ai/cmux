@@ -2587,6 +2587,20 @@ fn the_priming_deny_list_covers_browsers_and_messaging() {
         "ru.keepcoder.Telegram",
         "com.microsoft.teams2",
         "com.microsoft.Outlook",
+        "org.mozilla.nightly",
+        "org.chromium.Chromium",
+        "com.operasoftware.Opera",
+        "com.vivaldi.Vivaldi",
+        "com.kagi.kagimacOS",
+        "app.zen-browser.zen",
+        "com.duckduckgo.macos.browser",
+        "org.whispersystems.signal-desktop",
+        "com.facebook.archon",
+        "com.tencent.xinWeChat",
+        "org.mozilla.thunderbird",
+        "com.readdle.SparkDesktop",
+        "com.mimestream.Mimestream",
+        "com.cmuxterm.app.next",
     ] {
         assert!(!may_prime(PrimeApps::NotDenied, Some(id)), "{id}");
         assert!(may_prime(PrimeApps::Any, Some(id)), "{id}");
@@ -2598,4 +2612,17 @@ fn the_priming_deny_list_covers_browsers_and_messaging() {
         assert_eq!(may_prime(PrimeApps::NotDenied, Some(id)), !denied, "{id}");
     }
     assert!(!may_prime(PrimeApps::NotDenied, None), "unreadable bundle id");
+}
+
+/// Review of 13dca61 (6, 14): a press names its window only when the target
+/// is both the active app and the keyboard's; unreadable is not front, so an
+/// addressed press never raises a background window; a non-activating panel
+/// holding the keyboard is not the target being front.
+#[test]
+fn a_press_is_addressed_only_when_the_target_is_read_as_front() {
+    assert!(roles::address_press_for(Some(5), Some(5), 5));
+    assert!(!roles::address_press_for(None, Some(5), 5), "active app unread");
+    assert!(!roles::address_press_for(Some(5), None, 5), "keyboard app unread");
+    assert!(!roles::address_press_for(Some(5), Some(9), 5), "a panel has the keyboard");
+    assert!(!roles::address_press_for(Some(9), Some(9), 5));
 }
