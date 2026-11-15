@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43700013359",
+  "recorded_at": "2026-11-15T09:43:03Z",
+  "reason": "cmux-tui 88bf427008fb changes the image's cmux-tui (pinned 838228ea2137)",
+  "dry_run": false,
+  "cmux_tui": "88bf427008fbbb983cdb1ac1a83665cb3f47722f",
+  "fixes": [
+    {
+      "sha": "88bf427008fbbb983cdb1ac1a83665cb3f47722f",
+      "mergedAt": "2026-11-15T01:20:13-08:00",
+      "subject": "Cloud carrier: every link step in a release build's unified log (#43634)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T09:43:03Z",
+    "snapshot_id": "sh-b62f0c325480462487340a5df4712960",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43700013359): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b6a992f766ba8932c741beb568cc1d53ec226c7b",
+    "image": "cloud-native-auto-88bf4270-43700013359-1",
+    "revision": "ci-43700013359-1",
+    "at": "2026-11-15T09:43:03Z"
+  },
+  "rolled_back": false
+}
