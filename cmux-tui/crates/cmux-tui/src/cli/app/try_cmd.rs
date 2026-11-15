@@ -455,7 +455,7 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
         Plan::None { .. } => 1,
         Plan::Full { build, from } => {
             set(&mut receipt, "build", build.get("build").cloned().unwrap_or(Value::Null));
-            set(&mut receipt, "from_build", json!(from.clone()));
+            set(&mut receipt, "from_build", json!(from));
             let Some(mut stream) = stream else {
                 set(&mut receipt, "ok", json!(false));
                 set(&mut receipt, "error", json!("no app answers on its control socket"));
