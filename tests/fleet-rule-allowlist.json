@@ -94,7 +94,6 @@
     "scripts/reload.sh": {"count": 3, "reason": "debt: kills every pgrep match of the app path but the newest, which can include another run's copy of that path; the other matches are comments"},
     "scripts/reloadp.sh": {"count": 1, "reason": "safe: the exact Release bundle path this script built (APP_PATH), after refuse_if_stable_running"},
     "scripts/reloads.sh": {"count": 1, "reason": "debt: `pkill -f <staging app>.app/...` and a kill of every pgrep match but the newest stop the staging app from any path; use the built bundle's exact path or a recorded PID"},
-    "scripts/run-iroh-release-gate.sh": {"count": 2, "reason": "safe: the pattern is this run's own tagged or per-run app path, so it cannot match another run's or person's process"},
     "scripts/smoke-test-ci.sh": {"count": 1, "reason": "debt: `pkill -x \"cmux DEV\"` stops every DEV app of this user (other jobs on a shared mini); record the launched PID and kill that"},
     "skills/cmux-dev-workflow/references/tagged-builds.md": {"count": 2, "reason": "safe: the doc says never to run it"},
     "tests/automation-bench/linux-vm/vm_measure.py": {"count": 1, "reason": "safe: runs inside a throwaway VM or container this script owns; nothing else lives there (-u own uid, the bench's gedit in its Linux VM)"},
