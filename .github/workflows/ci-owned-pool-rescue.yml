@@ -138,6 +138,8 @@ jobs:
     permissions:
       actions: write
       contents: read
+      # The tailnet OIDC join (the owned stall move's build controller holds) mints a GitHub OIDC token.
+      id-token: write
       pull-requests: read
     steps:
       - name: Checkout trusted rescue
