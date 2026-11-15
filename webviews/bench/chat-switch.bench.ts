@@ -714,8 +714,10 @@ try {
     perfRow({ name: `chat_switch.${key}.cls`, p50: cls, p95: cls, unit: "score", target: 0, floor: 0.001 });
     const quiet = rounds.at(-1)!.quiet!;
     console.log(
-      `  at rest for 5 s: ${quiet.wakeups} wakeups, ${quiet.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
-        (quiet.sources.length ? `; ${quiet.sources.slice(0, 12).join("; ")}` : ""),
+      `  at rest for 5 s: ${quiet.wakeups} wakeups (${quiet.timeouts} timeouts, ${quiet.intervals} intervals, ` +
+        `${quiet.frames} frames, ${quiet.idleCallbacks} idle callbacks, ${quiet.animations} animations), ` +
+        `${quiet.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
+        (quiet.sources.length ? `; ${quiet.sources.slice(0, 24).join("; ")}` : ""),
     );
     perfRow({
       name: `chat_switch.${key}.idle_wakeups`,
