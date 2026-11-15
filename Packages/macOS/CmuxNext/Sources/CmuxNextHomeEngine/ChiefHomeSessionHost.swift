@@ -28,9 +28,9 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
         try await resolved().reconnectHandshake(sessionId: sessionId)
     }
 
-    public func prewarm() async throws {
-        try await fallback.prewarm()
-    }
+    public func prewarm() async throws { try await fallback.prewarm() }
+
+    public func prewarmForRestoredChats() async throws { try await fallback.prewarmForRestoredChats() }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
         try await resolved().sessionFolder(sessionId: sessionId)
