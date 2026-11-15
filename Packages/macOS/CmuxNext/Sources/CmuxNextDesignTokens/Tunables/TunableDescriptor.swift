@@ -94,9 +94,12 @@ nonisolated extension SpringParameters: TunableValueConvertible {
 }
 
 /// A string enum a choice tunable picks from. `tunableTitle` is the option
-/// label in Debug Settings.
+/// label in Debug Settings. `tunableCases` are the options Debug Settings offers: every case unless a
+/// type withholds some (an unreviewed family), while `allCases` stays every case so nothing walking
+/// them skips one silently.
 public nonisolated protocol TunableChoice: TunableValueConvertible, RawRepresentable, CaseIterable where RawValue == String {
     var tunableTitle: String { get }
+    static var tunableCases: [Self] { get }
 }
 
 nonisolated extension TunableChoice {
@@ -105,7 +108,8 @@ nonisolated extension TunableChoice {
         self = value
     }
     public var tunableValue: TunableValue { .choice(rawValue) }
+    public static var tunableCases: [Self] { Array(allCases) }
     public static var tunableOptions: [TunableChoiceOption] {
-        allCases.map { TunableChoiceOption(value: $0.rawValue, title: $0.tunableTitle) }
+        tunableCases.map { TunableChoiceOption(value: $0.rawValue, title: $0.tunableTitle) }
     }
 }
