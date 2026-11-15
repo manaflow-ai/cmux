@@ -85,6 +85,7 @@ core_gates() {
   run_core pr05d_removed_origin_batch
   run_core pr05d_submit_time
   run_core pr08_mirror_apply
+  run_core pr08_mirror_local_row
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
   run_core v2_pr03a_source_read_bounds
