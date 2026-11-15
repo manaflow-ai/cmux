@@ -4399,7 +4399,7 @@ jobs:
       - &x68
         name: Finish the signed-app checks
         id: signed-app-checks
-        if: always()
+        if: always() && !env.LEFT_SLOT
         timeout-minutes: 15
         run: s=scripts/ci/nightly-steps/sign-finish-signed-app-checks.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
