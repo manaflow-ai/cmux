@@ -55,7 +55,7 @@ import Testing
     @Test func installFailuresMapToTheCodesTheCLIActsOn() {
         #expect(CloudAccessToken.failure(MacInstallIdentity.Failure.signedOut) == .signedOut)
         #expect(CloudAccessToken.failure(InstallAuthError.noSession) == .signedOut)
-        #expect(CloudAccessToken.failure(InstallAuthError.transport) == .unreachable)
+        #expect(CloudAccessToken.failure(InstallAuthError.transport(path: "/v1/auth/token", urlErrorCode: -1001)) == .unreachable)
         #expect(CloudAccessToken.failure(InstallAuthError.clientTooOld(minimumVersion: "3.0")) == .clientTooOld(minimumVersion: "3.0"))
         #expect(CloudAccessToken.failure(InstallAuthError.unexpectedChallenge) == .badReply)
         // A server or rate-limit status is the service's trouble, never "not a member".
