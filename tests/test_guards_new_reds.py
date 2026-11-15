@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/guards_new_reds.py"
 RUNNER_GUARD = ROOT / "tests/test_ci_self_hosted_guard.sh"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
+import guards_new_reds as new_reds  # noqa: E402
 import run_ci_guards  # noqa: E402
 
 
@@ -463,6 +464,19 @@ class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
         # Fewer items on the head than on the base: still the base's.
         done = self.compare(self.outputs(old[:1], "41"), self.outputs(old, "93"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_an_interpreter_exit_warning_names_nothing(self):
+        # cmux#43438 and #43039: the head's run of a step red on both sides ended with
+        # `sys:1: ResourceWarning: unclosed file`, the base's did not, and "sys:0" read as the change's new item.
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += ("\nsys:1: ResourceWarning: unclosed file <_io.TextIOWrapper name='<ROOT>/x.json' mode='r'>"
+                             "\n<ROOT>/tests/a.py:12: DeprecationWarning: datetime.utcnow() is deprecated"
+                             "\nResourceWarning: Enable tracemalloc to get the object allocation traceback")
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+        self.assertEqual(new_reds.failure_names(["sys:1: ResourceWarning: unclosed <socket.socket fd=3>"]), set())
 
     def test_a_step_whose_failures_cannot_be_compared_is_not_excused(self):
         old = ["tests/test_cargo_locks.py"]
