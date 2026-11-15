@@ -256,6 +256,8 @@ SCANNERS = (
     ("Scrollbars thin, one style", ["/bin/bash", "{s}/check-scrollbars.sh", "{root}"], (PKG + "/", "webviews/")),
     # Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces".
     ("Buttons round as tabs", ["python3", "-I", "{s}/check-button-radius.py", "{root}"], (PKG + "/", "webviews/src/")),
+    # Lawrence 2026-11-15: "for all buttons ... we only want to have different bg color on mousedown".
+    ("Buttons change only their fill when pressed", ["python3", "-I", "{s}/check-pressed-state.py", "{root}"], (PKG + "/", "webviews/src/")),
     ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
@@ -1149,6 +1151,31 @@ def _manifest_text(repo: Path, tree: Path, rel: str) -> str | None:
     return None
 
 
+# The files the rustfmt layer reads from the checkout around the judged files: each crate's manifest (its edition, or
+# its own [workspace]), the config, and the toolchain pin rustup reads from the folder rustfmt runs in.
+RUST_WORKSPACE_FILES = ("Cargo.toml", "rustfmt.toml", ".rustfmt.toml", "rust-toolchain.toml", "rust-toolchain")
+
+
+def has_work_tree(repo: Path) -> bool:
+    """REPO is a checkout, not a clone with no work tree (a bare mirror or core.bare clone root, REPO its git dir)."""
+    done = subprocess.run(["git", "-C", str(absolute(repo)), "rev-parse", "--is-inside-work-tree"],
+                          capture_output=True, text=True)
+    return done.returncode == 0 and done.stdout.strip() == "true"
+
+
+def rust_workspace_root(repo: Path, head: str, work: Path) -> Path:
+    """The folder rustfmt() reads the cmux-tui workspace from: the checkout, or, for a clone with no work tree (the
+    bare mirror repo_publish pushes from), the head's RUST_WORKSPACE_FILES written under WORK from git objects. Without
+    them that push found no rustfmt.toml and the layer judged nothing."""
+    if has_work_tree(repo):
+        return repo
+    names = [p for p in ls_tree(repo, head, RUST_SCOPE) if p.rsplit("/", 1)[-1] in RUST_WORKSPACE_FILES]
+    root = work / "rust-workspace"
+    write_tree(repo, root, {p: head for p in [*names, "rust-toolchain.toml", "rust-toolchain"]}, index=False)
+    (root / RUST_SCOPE).mkdir(parents=True, exist_ok=True)  # rustfmt runs there
+    return root
+
+
 def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
     """The edition `cargo fmt --all` in cmux-tui/ formats PATH with, or None when it does not format PATH at all.
 
@@ -1889,6 +1916,10 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     """
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
     if not any(CARGO_FILE.search(p) for p in names.split("\0") if p) or shutil.which("cargo") is None:
+        return []
+    if not has_work_tree(repo):
+        # cargo resolves the checkout itself; a clone with no work tree (a bare mirror) has none to resolve.
+        log("prepush-gate: Cargo.lock check skipped: this clone has no work tree (CI's --locked cargo steps check it)")
         return []
     try:
         checked_out = git(repo, "rev-parse", "HEAD").decode().strip() == git(repo, "rev-parse", head).decode().strip()
@@ -2788,7 +2819,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate).
         rust = [p for p in changed if p.startswith(RUST_SCOPE) and p.endswith(".rs")]
         if rust and (swiftformat_layer if only is None else "rustfmt" in only):
-            jobs["rustfmt (cmux-tui)"] = ("fn", rustfmt, repo, repo / RUST_SCOPE / "rustfmt.toml", rust)
+            rust_root = rust_workspace_root(repo, head, absolute(Path(tmp)))
+            jobs["rustfmt (cmux-tui)"] = ("fn", rustfmt, rust_root, rust_root / RUST_SCOPE / "rustfmt.toml", rust)
         if swift and (only is None or "swiftlint" in only):
             jobs["SwiftLint (syntax rules)"] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)

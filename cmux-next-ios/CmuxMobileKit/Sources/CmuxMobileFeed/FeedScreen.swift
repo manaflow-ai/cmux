@@ -174,7 +174,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                         .frame(minHeight: 44)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(store.filter == filter ? .isSelected : [])
                 }
             }
@@ -200,7 +200,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             } label: {
                 Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, 16)
@@ -225,7 +225,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     // so a tap on the glass around the text fell through to the row under the pill.
                     .contentShape(.capsule)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .glassEffect(.regular.interactive(), in: .capsule)
             .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)
