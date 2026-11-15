@@ -45,12 +45,76 @@ fn trim() {
     }
 }
 
+/// One stretch's end: the high-water rise, and resident and heap bytes then (KiB, absolute).
+#[derive(Clone, Copy, Debug, Default)]
+struct Stretch {
+    n: u64,
+    rise: u64,
+    anon: u64,
+    file: u64,
+    shmem: u64,
+    heap: u64,
+    chunks_read: u64,
+    bytes_read: u64,
+}
+
+fn heap_kib() -> u64 {
+    // SAFETY: glibc's mallinfo2 takes no pointer and only reads the allocator's counters.
+    let info = unsafe { libc::mallinfo2() };
+    ((info.uordblks + info.hblkhd) / 1024) as u64
+}
+
+fn sample(n: u64, rise: u64) -> Stretch {
+    Stretch {
+        n,
+        rise,
+        anon: memory_kib("RssAnon:"),
+        file: memory_kib("RssFile:"),
+        shmem: memory_kib("RssShmem:"),
+        heap: heap_kib(),
+        ..Stretch::default()
+    }
+}
+
+/// Resident KiB by mapping (path, or `[anon]`), the largest first.
+fn smaps_top(label: &str, base: &str) {
+    let Ok(text) = std::fs::read_to_string("/proc/self/smaps") else { return };
+    let mut by: std::collections::BTreeMap<String, (u64, u64, u64)> = Default::default();
+    let mut current = String::new();
+    for line in text.lines() {
+        let mut fields = line.split_whitespace();
+        let first = fields.next().unwrap_or("");
+        if first.contains('-') && !first.ends_with(':') {
+            let path = line.split_whitespace().nth(5).unwrap_or("[anon]");
+            current = path.replace(base, "<home>");
+            continue;
+        }
+        let kib = fields.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        let entry = by.entry(current.clone()).or_default();
+        match first {
+            "Rss:" => entry.0 += kib,
+            "Anonymous:" => entry.1 += kib,
+            "Size:" => entry.2 += kib,
+            _ => {}
+        }
+    }
+    let mut rows: Vec<_> = by.into_iter().filter(|(_, v)| v.0 > 0).collect();
+    rows.sort_by_key(|(_, v)| std::cmp::Reverse(v.0));
+    for (path, (rss, anon, size)) in rows.into_iter().take(12) {
+        eprintln!(
+            "v2.pr03b.catchup_peak_rss smaps {label} rss_kib={rss} anon_kib={anon} size_kib={size} {path}"
+        );
+    }
+}
+
 /// A source that resets the high-water mark at each stretch's start and reads the rise at its end.
 struct Measured {
     inner: V1Source<Arc<dyn Store>>,
     baseline: u64,
     peak: Arc<AtomicU64>,
     chunks: u64,
+    stretches: Arc<std::sync::Mutex<Vec<Stretch>>>,
+    home: String,
 }
 
 impl RawSource for Measured {
@@ -59,6 +123,18 @@ impl RawSource for Measured {
             if self.chunks > 0 {
                 let rise = memory_kib("VmHWM:").saturating_sub(self.baseline);
                 self.peak.fetch_max(rise, Ordering::SeqCst);
+                let n = self.chunks / STRETCH;
+                let mut s = sample(n, rise);
+                s.chunks_read = self.inner.counters.chunks.load(Ordering::Relaxed);
+                s.bytes_read = self.inner.counters.read.load(Ordering::Relaxed);
+                let mut stretches = self.stretches.lock().unwrap();
+                if stretches.len() < stretches.capacity() {
+                    stretches.push(s);
+                }
+                drop(stretches);
+                if n.is_multiple_of(128) {
+                    smaps_top(&format!("stretch={n}"), &self.home);
+                }
             }
             std::fs::write("/proc/self/clear_refs", b"5\n")?;
         }
@@ -97,22 +173,63 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
     };
     trim();
     let baseline = memory_kib("VmRSS:");
+    let at_baseline = sample(0, 0);
+    let stretches = Arc::new(std::sync::Mutex::new(Vec::with_capacity(4096)));
+    let home_path = home.dir.path().display().to_string();
     let peak = Arc::new(AtomicU64::new(0));
-    let (inner, measured_peak) = (log.clone(), peak.clone());
+    let (inner, measured_peak, measured_stretches, measured_home) =
+        (log.clone(), peak.clone(), stretches.clone(), home_path.clone());
     let factory: SourceFactory = Arc::new(move || {
         Ok(Box::new(Measured {
             inner: inner.open()?,
             baseline,
             peak: measured_peak.clone(),
             chunks: 0,
+            stretches: measured_stretches.clone(),
+            home: measured_home.clone(),
         }) as Box<dyn RawSource>)
     });
     let mut config = home.config(&log);
     config.source_factory = factory;
     let actor = ChatActor::spawn(config);
     wait_ready(&actor);
-    peak.fetch_max(memory_kib("VmHWM:").saturating_sub(baseline), Ordering::SeqCst);
+    let last_rise = memory_kib("VmHWM:").saturating_sub(baseline);
+    peak.fetch_max(last_rise, Ordering::SeqCst);
+    let at_end = sample(u64::MAX, last_rise);
+    smaps_top(&format!("ready rows_msgs={}", shape.god_messages), &home_path);
     actor.join();
+    let book_files = std::fs::read_dir(home.book())
+        .into_iter()
+        .flatten()
+        .chain(std::fs::read_dir(home.book().join("rows")).into_iter().flatten())
+        .flatten()
+        .filter_map(|e| {
+            Some((e.file_name().to_string_lossy().into_owned(), e.metadata().ok()?.len()))
+        })
+        .collect::<Vec<_>>();
+    eprintln!("v2.pr03b.catchup_peak_rss book_files msgs={} {book_files:?}", shape.god_messages);
+    {
+        let b = at_baseline;
+        eprintln!(
+            "v2.pr03b.catchup_peak_rss stretches msgs={} baseline vmrss={baseline} anon={} file={} shmem={} heap={}",
+            shape.god_messages, b.anon, b.file, b.shmem, b.heap
+        );
+        let stretches = stretches.lock().unwrap();
+        for s in stretches.iter().chain(std::iter::once(&at_end)) {
+            eprintln!(
+                "v2.pr03b.catchup_peak_rss stretch msgs={} n={} rise={} d_anon={} d_file={} d_shmem={} d_heap={} chunks={} read={}",
+                shape.god_messages,
+                s.n as i64,
+                s.rise,
+                s.anon as i64 - b.anon as i64,
+                s.file as i64 - b.file as i64,
+                s.shmem as i64 - b.shmem as i64,
+                s.heap as i64 - b.heap as i64,
+                s.chunks_read,
+                s.bytes_read
+            );
+        }
+    }
     let rows = book_rows(&home.book());
     let equal = rows == translated(home.store.as_ref());
     CatchUp {
