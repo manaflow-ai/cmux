@@ -168,13 +168,16 @@ fn a_save_in_an_apps_dirs_folder_reloads_the_app_and_its_open_view() {
     let f = fixture();
     let extra = f.state.parent().unwrap().join("extra");
     write_app(&extra, "ext", "acme/ext", json!({}));
+    // A publisher must own its repository (`publisher.mismatch`).
+    let path = extra.join("ext/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["repository"] = json!("https://github.com/acme/ext");
+    std::fs::write(&path, manifest.to_string()).unwrap();
     let prints = f.supervisor.reload_local_apps(&Default::default());
     assert_eq!(app_entry(&f.supervisor.list(), "acme/ext")["version"], "1.0.0");
     f.install("acme/ext");
     f.mount("m1", "acme/ext", "cmux.section/1", json!({}));
-    let path = extra.join("ext/cmux-app.json");
-    let mut manifest: Value =
-        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     manifest["version"] = json!("1.0.1");
     manifest["implements"]["cmux.section/1"]["export"] = json!("renderAgain");
     std::fs::write(&path, manifest.to_string()).unwrap();
