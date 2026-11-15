@@ -308,11 +308,16 @@ pub(crate) fn entries_now() -> Vec<Given> {
             Some(store) => deliver_at(&home, &*store, &pull::current_credential, Instant::now()),
             None => Vec::new(),
         };
-        // Kept keys live only in the OS store (`kept.rs`); a pulled entry
-        // of the same name wins.
-        let taken: Vec<String> = given.iter().map(|g| g.name.clone()).collect();
-        let at = Instant::now();
-        given.extend(kept::given_at(&home, &store::OsStore, &taken, at, at + LOAD_BUDGET));
+        // Kept keys live only in the OS store (`kept.rs`), read once the
+        // store check found it usable (started here when nothing else has).
+        // A pulled entry of the same name wins, and so does a value the
+        // launch already inherits: no agent's key replaces another's.
+        if kept::path(&home).exists() && kept_store_usable() {
+            let taken: Vec<String> = given.iter().map(|g| g.name.clone()).collect();
+            let at = Instant::now();
+            let kept = kept::given_at(&home, &store::OsStore, &taken, at, at + LOAD_BUDGET);
+            given.extend(kept.into_iter().filter(|g| egress::inherited(&g.name).is_none()));
+        }
         given
     };
     // A reload runs store commands (bounded by `LOAD_BUDGET`): on a Tokio
@@ -322,6 +327,22 @@ pub(crate) fn entries_now() -> Vec<Given> {
             tokio::task::block_in_place(deliver)
         }
         _ => deliver(),
+    }
+}
+
+/// Whether kept keys can be read: the OS store check said usable. Until it
+/// has run, this starts it once on its own thread (a machine that is not
+/// joined never runs it) and gives no kept key, so no launch waits on it.
+fn kept_store_usable() -> bool {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    match store::os_usable_known() {
+        Some(usable) => usable,
+        None => {
+            if !STARTED.swap(true, Ordering::SeqCst) {
+                std::thread::spawn(store::os_usable);
+            }
+            false
+        }
     }
 }
 
@@ -479,7 +500,8 @@ pub async fn start_worker() {
     // the async workers, and within `INITIAL_WAIT` with the first pull. Past
     // it, launches give no vault env until the check is done (the loop's
     // first round waits for it).
-    let usable = if joined {
+    // A machine with kept keys checks too, so its first spawn gets them.
+    let usable = if joined || kept::path(&crate::config::home()).exists() {
         match bounded(INITIAL_WAIT, tokio::task::spawn_blocking(store::os_usable)).await {
             Some(Ok(usable)) => Some(usable),
             _ => {

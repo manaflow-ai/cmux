@@ -32,7 +32,7 @@ fn a_kept_key_reaches_spawns_host_locked_and_its_file_never_holds_the_value() {
     let store = MemoryStore::default();
     let allowed = kept::check_hosts(&["*.r2.cloudflarestorage.com".into()]).unwrap();
     kept::keep(home.path(), &store, "R2_TOKEN", KEY, Some(allowed.clone()), &[], 1).unwrap();
-    kept::keep(home.path(), &store, "PLAIN", "plain-value", None, &[], 2).unwrap();
+    kept::keep(home.path(), &store, "PLAIN_TOKEN", "plain-value", None, &[], 2).unwrap();
 
     let file = std::fs::read_to_string(kept::path(home.path())).unwrap();
     assert!(!file.contains(KEY) && !file.contains("plain-value"), "a value in {file}");
@@ -42,13 +42,13 @@ fn a_kept_key_reaches_spawns_host_locked_and_its_file_never_holds_the_value() {
     assert_eq!(
         got,
         [
-            ("PLAIN".to_owned(), "plain-value".to_owned(), None),
+            ("PLAIN_TOKEN".to_owned(), "plain-value".to_owned(), None),
             ("R2_TOKEN".to_owned(), KEY.to_owned(), Some(allowed)),
         ]
     );
     // A pulled entry of the same name wins.
     let got = given(home.path(), &store, &["R2_TOKEN".to_owned()]);
-    assert_eq!(got.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(), ["PLAIN"]);
+    assert_eq!(got.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(), ["PLAIN_TOKEN"]);
 }
 
 #[test]
@@ -69,16 +69,32 @@ fn an_edited_item_or_a_dropped_key_is_not_given_out() {
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore::default();
     kept::keep(home.path(), &store, "R2_TOKEN", KEY, hosts(&["example.com"]), &[], 1).unwrap();
-    kept::keep(home.path(), &store, "OTHER", "other", None, &[], 1).unwrap();
+    kept::keep(home.path(), &store, "OTHER_KEY", "other", None, &[], 1).unwrap();
     store.put("kept.R2_TOKEN", "swapped-in").unwrap();
     kept::reset();
     let got = given(home.path(), &store, &[]);
-    assert_eq!(got.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(), ["OTHER"]);
+    assert_eq!(got.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(), ["OTHER_KEY"]);
 
-    assert!(kept::remove(home.path(), &store, "OTHER").unwrap());
-    assert!(store.get("kept.OTHER").unwrap().is_none());
+    assert!(kept::remove(home.path(), &store, "OTHER_KEY").unwrap());
+    assert!(store.get("kept.OTHER_KEY").unwrap().is_none());
     assert!(given(home.path(), &store, &[]).is_empty());
-    assert!(!kept::remove(home.path(), &store, "OTHER").unwrap());
+    assert!(!kept::remove(home.path(), &store, "OTHER_KEY").unwrap());
+}
+
+#[test]
+fn a_failed_store_delete_keeps_the_record_so_the_item_is_not_orphaned() {
+    let _serial = KEPT_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    kept::reset();
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    kept::keep(home.path(), &store, "R2_TOKEN", KEY, hosts(&["example.com"]), &[], 1).unwrap();
+    store.fail_delete.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(kept::remove(home.path(), &store, "R2_TOKEN").is_err());
+    assert!(kept::read(home.path()).env.contains_key("R2_TOKEN"));
+    store.fail_delete.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert!(kept::remove(home.path(), &store, "R2_TOKEN").unwrap());
+    assert!(kept::read(home.path()).env.is_empty());
+    assert!(store.get("kept.R2_TOKEN").unwrap().is_none());
 }
 
 #[test]
@@ -88,8 +104,31 @@ fn keep_refuses_unsafe_names_hosts_values_and_a_store_that_takes_no_write() {
     let keep = |name: &str, value: &str, pulled: &[String]| {
         kept::keep(home.path(), &store, name, value, None, pulled, 1)
     };
-    for name in ["PATH", "LD_PRELOAD", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "a.b", ""] {
+    // Only credential-shaped names: nothing that steers other agents.
+    for name in [
+        "PATH",
+        "LD_PRELOAD",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "SSL_CERT_FILE",
+        "NODE_EXTRA_CA_CERTS",
+        "NODE_TLS_REJECT_UNAUTHORIZED",
+        "NODE_OPTIONS",
+        "GIT_ASKPASS",
+        "EDITOR",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "openai_api_key",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "_TOKEN",
+        "a.b_TOKEN",
+        "",
+    ] {
         assert_eq!(keep(name, KEY, &[]), Err("vault.bad_name"), "{name}");
+    }
+    for name in ["R2_TOKEN", "STRIPE_SECRET", "DB_PASSWORD", "GH_PAT", "AWS_CREDENTIALS"] {
+        assert_eq!(kept::check_name(name), Ok(()), "{name}");
     }
     assert_eq!(keep("R2_TOKEN", "", &[]), Err("vault.empty_value"));
     assert_eq!(keep("R2_TOKEN", "a\0b", &[]), Err("vault.bad_value"));

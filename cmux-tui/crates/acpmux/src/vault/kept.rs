@@ -107,11 +107,26 @@ fn write(home: &Path, kept: &Kept) -> Result<(), &'static str> {
     crate::config::write_atomic(&path(home), &bytes).map_err(|_| "vault.state_write_failed")
 }
 
-/// A name agents may get: an env name a machine may set, not a subscription
-/// login and not a base URL that would reroute agents.
+/// The endings a kept name must have. Any agent can keep a value with no
+/// person in the loop, so only names shaped like a credential are taken:
+/// never one that steers other agents (`HTTPS_PROXY`, `SSL_CERT_FILE`,
+/// `NODE_OPTIONS`, `GIT_ASKPASS`, `EDITOR`).
+pub const SECRET_SUFFIXES: &[&str] =
+    &["_TOKEN", "_KEY", "_SECRET", "_PASSWORD", "_PAT", "_CREDENTIALS"];
+
+/// Model provider keys: one kept by an agent would move every later agent's
+/// model traffic onto that key.
+pub const PROVIDER_KEYS: &[&str] = &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"];
+
+/// A name agents may get: an env name a machine may set, ending like a
+/// credential ([`SECRET_SUFFIXES`]), not a model provider key, not a
+/// subscription login and not a base URL that would reroute agents.
 pub fn check_name(name: &str) -> Result<(), &'static str> {
+    let upper = name.to_ascii_uppercase();
     let ok = crate::login_env::machine_env_name_allowed(name)
-        && !super::REFUSED_NAMES.contains(&name)
+        && SECRET_SUFFIXES.iter().any(|s| upper.ends_with(s) && upper.len() > s.len())
+        && !PROVIDER_KEYS.iter().any(|k| k.eq_ignore_ascii_case(name))
+        && !super::REFUSED_NAMES.iter().any(|k| k.eq_ignore_ascii_case(name))
         && !super::rerouting(name);
     if ok { Ok(()) } else { Err("vault.bad_name") }
 }
@@ -171,7 +186,7 @@ pub fn keep(
     let mut kept = read(home);
     if kept.salt.len() != 32 {
         let mut salt = [0u8; 16];
-        let _ = getrandom::fill(&mut salt);
+        getrandom::fill(&mut salt).map_err(|_| "vault.internal")?;
         kept.salt = salt.iter().map(|b| format!("{b:02x}")).collect();
     }
     store.put(&item(name), value)?;
@@ -180,17 +195,21 @@ pub fn keep(
     write(home, &kept)
 }
 
-/// Remove `name`: the record first (no spawn gets it after that), then the
-/// store item. `Ok(false)` when there was no such entry.
+/// Remove `name`: the store item first (a record left by a failed write then
+/// names a missing value, which no spawn gets), then the record, so an item
+/// is never left with nothing tracking it. `Ok(false)` when there was no such
+/// entry; a leftover item of a failed `keep` is still deleted when it can be.
 pub fn remove(home: &Path, store: &dyn SecretStore, name: &str) -> Result<bool, &'static str> {
     let _lock = super::pull::lock(home, true)?;
     let mut kept = read(home);
-    let had = kept.env.remove(name).is_some();
-    if had {
-        write(home, &kept)?;
+    if !kept.env.contains_key(name) {
+        let _ = store.delete(&item(name));
+        return Ok(false);
     }
     store.delete(&item(name))?;
-    Ok(had)
+    kept.env.remove(name);
+    write(home, &kept)?;
+    Ok(true)
 }
 
 /// The entries as loaded for spawns, and what they came from.

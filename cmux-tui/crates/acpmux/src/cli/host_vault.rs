@@ -448,13 +448,18 @@ pub async fn keep_cmd(name: String, hosts: Vec<String>, env: bool, json_out: boo
     if std::io::stdin().is_terminal() {
         return Err(kept_failure("vault.value_on_terminal"));
     }
-    // Room for the longest value up front: a grown buffer would leave a copy behind.
-    let limit = kept::MAX_VALUE_BYTES + 3;
-    let mut raw = Zeroizing::new(Vec::with_capacity(limit));
+    // The longest value and its line break (`\r\n`), plus one byte that
+    // tells a longer input, which is refused rather than cut. Room for it up
+    // front: a grown buffer would leave a copy behind.
+    let fits = kept::MAX_VALUE_BYTES + 2;
+    let mut raw = Zeroizing::new(Vec::with_capacity(fits + 1));
     std::io::stdin()
-        .take(u64::try_from(limit).unwrap_or(u64::MAX))
+        .take(u64::try_from(fits + 1).unwrap_or(u64::MAX))
         .read_to_end(&mut raw)
         .map_err(|_| kept_failure("vault.bad_value"))?;
+    if raw.len() > fits {
+        return Err(kept_failure("vault.bad_value"));
+    }
     let text = std::str::from_utf8(&raw).map_err(|_| kept_failure("vault.bad_value"))?;
     // A command's output ends with a line break that is not part of the key.
     let value = Zeroizing::new(text.trim_end_matches(['\n', '\r']).to_owned());
