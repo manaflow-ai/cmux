@@ -368,27 +368,29 @@ pub(super) fn parse_when(text: &str) -> Result<String, String> {
     let Some(event) = SUN_EVENTS.iter().find(|event| lower.starts_with(**event)) else {
         return Err(format!("{text:?} is not a time: {fix}"));
     };
-    let offset = &lower[event.len()..];
+    let offset = lower.strip_prefix(*event).unwrap_or_default();
     if offset.is_empty() {
         return Ok((*event).to_string());
     }
-    let Some(sign) = offset.strip_prefix(['+', '-']).map(|_| &offset[..1]) else {
+    let (sign, amount) = if let Some(amount) = offset.strip_prefix('+') {
+        ("+", amount)
+    } else if let Some(amount) = offset.strip_prefix('-') {
+        ("-", amount)
+    } else {
         return Err(format!("{text:?}: {fix}"));
     };
-    let amount = &offset[1..];
     if !amount.is_empty() && amount.bytes().all(|b| b.is_ascii_digit()) {
         return Err(format!(
             "{text:?}: the offset needs a unit, as in {event}{sign}{amount}m or {event}{sign}{amount}h"
         ));
     }
-    let (number, unit_minutes) = if let Some(number) = amount.strip_suffix('m') {
-        (number, 1)
+    let (number, unit_minutes, unit) = if let Some(number) = amount.strip_suffix('m') {
+        (number, 1, "m")
     } else if let Some(number) = amount.strip_suffix('h') {
-        (number, 60)
+        (number, 60, "h")
     } else {
         return Err(format!("{text:?}: {fix}"));
     };
-    let unit = &amount[number.len()..];
     let Some(count) = number.parse::<u64>().ok().filter(|n| *n > 0 && n.to_string() == number)
     else {
         return Err(format!("{text:?}: {fix}"));
@@ -506,7 +508,7 @@ fn heic_kind(path: &Path) -> Option<&'static str> {
     std::fs::File::open(path).ok()?.take(256 * 1024).read_to_end(&mut head).ok()?;
     let text = String::from_utf8_lossy(&head);
     let at = text.find("apple_desktop:")?;
-    let rest = &text[at..];
+    let rest = text.get(at..)?;
     Some(if rest.contains("apple_desktop:solar") {
         "sun"
     } else if rest.contains("apple_desktop:h24") {
@@ -745,7 +747,7 @@ pub(super) fn validate(edits: &[Edit]) -> Result<(), String> {
         };
         let Some(row) = schema.row(key) else {
             return Err(format!(
-                "this cmux has no setting {key} yet: update cmux (`cmux update`, or the app's Check for Updates) and run this again"
+                "this cmux CLI has no setting {key}: run this with the cmux CLI that ships with the running app (`cmux settings set {key} ...` there)"
             ));
         };
         if let Some(value) = value

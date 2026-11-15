@@ -160,6 +160,7 @@ function SlotPicker({
   onPick: (id: string) => void;
 }) {
   return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
     <div className="backdrop-grid wallpaper-slot-picker" role="group">
       {choices.map((choice) => (
         <button
@@ -210,6 +211,7 @@ function LocationField({
       <input
         id={id}
         className="field wallpaper-location"
+        aria-label={t("settingsWindow.wallpaperSwitch.location")}
         type="text"
         inputMode="decimal"
         spellCheck={false}
