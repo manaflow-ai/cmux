@@ -40,7 +40,7 @@ for sha in $SHAS; do
 done
 # One pane build per sha, smoke-checked: say at once when a sha's sources do not build here.
 for sha in $SHAS; do
-  (cd "$WORK/$sha/webviews" && timeout 300 node_modules/.bin/vite build --config vite.config.acpmux-pane.mjs --outDir "$WORK/smoke-$sha" >"$OUT/logs/smoke-${sha:0:11}.log" 2>&1) \
+  (cd "$WORK/$sha/webviews" && SMOKE_OUT="$WORK/smoke-$sha" timeout 300 bun -e 'const { build } = await import("vite"); await build({ configFile: "vite.config.acpmux-pane.mjs", logLevel: "warn", build: { outDir: process.env.SMOKE_OUT, emptyOutDir: true } });' >"$OUT/logs/smoke-${sha:0:11}.log" 2>&1) \
     && echo "SMOKE ${sha:0:11} ok" || { echo "SMOKE ${sha:0:11} FAILED"; tail -8 "$OUT/logs/smoke-${sha:0:11}.log"; smoke_failed=1; }
 done
 [ -z "${smoke_failed:-}" ] || { echo "a sha's pane does not build: stopping before the benches"; exit 3; }
