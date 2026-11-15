@@ -109,7 +109,7 @@ enum PaletteSourcesBridge {
             machines: { [weak services] in services?.machines.cloud.map(\.machine) ?? [] },
             refresh: { [weak services] in _ = await services?.cloud.refresh() },
             ask: { CloudHandlerRules().ask("cloud_handler_palette_targets", $0) })
-        return agentChatTargets(AgentChatDestinations(services: services), next: cloud)
+        return agentChatTargets(AgentChatDestinations(services: services), next: services.joinedMachines.paletteTargets(descriptors, next: cloud))
     }
 
     static func agentChatTargets(_ destinations: AgentChatDestinations, next: any PaletteTargetSource) -> any PaletteTargetSource {
