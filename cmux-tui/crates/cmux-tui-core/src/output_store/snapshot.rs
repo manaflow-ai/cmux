@@ -16,7 +16,9 @@
 //! changes, at once for a terminal this daemon has no snapshot of (a new
 //! generation), after a resize and when the tail passes its cap (at most
 //! once per [`super::TAIL_COMPACT_SPACING`] while it stays under
-//! [`super::TAIL_FLOOD_MAX_BYTES`]). At quit the tail takes the last bytes
+//! [`super::TAIL_FLOOD_MAX_BYTES`]). The tail files written since their
+//! last sync are synced together every [`super::TAIL_SYNC_INTERVAL`]
+//! (`sync_due_tails`). At quit the tail takes the last bytes
 //! (synced), and a snapshot is written only where the tail cannot carry
 //! them, a terminal on the alternate screen included (`quit_pass_tests.rs`).
 //! The snapshot records the stream offset its screen ends at, read under
@@ -290,6 +292,34 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
     }
+    if tail {
+        sync_due_tails(store, directory);
+    }
+}
+
+/// The end of a write pass in snapshot mode. Once
+/// [`super::TAIL_SYNC_INTERVAL`] has passed since the first tail write after
+/// the last sync, every tail file written since is synced, in this one pass
+/// (`tail::sync_ordered`). Before that, the writer is asked for the pass
+/// that does it (each turn of the writer forgets the request of the last
+/// one), so the sync runs whether or not a terminal prints again, and a
+/// session whose tails are all synced wakes nothing.
+///
+/// No pass but the quit pass syncs a tail in [`flush_tail`]: one fsync per
+/// printing terminal per second made the writer thread the daemon's top
+/// file system caller (`tail_sync_tests.rs`). A kill of every process needs
+/// no sync, so what it loses does not change.
+fn sync_due_tails(store: &OutputStore, directory: &Path) {
+    let Some(wait) = store.tail_sync_wait() else { return };
+    if !wait.is_zero() {
+        store.writer.mark_dirty(wait);
+        return;
+    }
+    for log in store.take_unsynced_tails() {
+        if super::tail::sync_ordered(directory, &log.terminal_id) {
+            store.count_tail_sync();
+        }
+    }
 }
 
 /// Tries of one terminal's capture while a parsed chunk is in flight.
@@ -526,8 +556,9 @@ fn flush_tail_now(
 /// Snapshot mode: append the terminal's unwritten bytes to its tail, unless
 /// they only redraw content already stored (the digest the capture saw is
 /// the one of the last stored byte: cursor redraws of an idle TUI wait in
-/// memory, up to [`super::TAIL_IDLE_BYTES`], then a snapshot replaces them),
-/// and fsync the tail at most every [`super::TAIL_SYNC_INTERVAL`].
+/// memory, up to [`super::TAIL_IDLE_BYTES`], then a snapshot replaces them).
+/// The quit pass fsyncs the tail here; any other pass leaves the sync to
+/// [`sync_due_tails`].
 fn flush_tail(
     store: &OutputStore,
     directory: &Path,
@@ -538,8 +569,8 @@ fn flush_tail(
     let job = {
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
         // At quit the last bytes are synced now: no later pass syncs them.
-        let sync_due = quitting
-            || state.tail_synced_at.is_none_or(|at| at.elapsed() >= super::TAIL_SYNC_INTERVAL);
+        // Any other pass only writes; `sync_due_tails` syncs.
+        let sync_due = quitting;
         // An unfinished Kitty upload's bytes change nothing the digest sees
         // but are content: never held as redraws.
         let redraw = state.tail_digest == Some(seen.digest) && !seen.upload;
@@ -567,16 +598,11 @@ fn flush_tail(
                 }
                 return;
             }
-            if state.tail_unsynced {
-                if sync_due {
-                    state.tail_unsynced = false;
-                    state.tail_synced_at = Some(Instant::now());
-                    drop(state);
-                    super::tail::sync(directory, &log.terminal_id);
-                } else {
-                    drop(state);
-                    store.mark_log_dirty(log);
-                }
+            if state.tail_unsynced && sync_due {
+                state.tail_unsynced = false;
+                drop(state);
+                store.count_tail_sync();
+                super::tail::sync(directory, &log.terminal_id);
             }
             return;
         }
@@ -613,6 +639,9 @@ fn flush_tail(
     let (generation, base, start, bytes, sync) = job;
     let result =
         super::tail::append(directory, &log.terminal_id, &generation, base, start, &bytes, sync);
+    if sync && result.is_ok() {
+        store.count_tail_sync();
+    }
     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
     let ours = state.generation == generation
         && state.pending_start == start
@@ -633,14 +662,12 @@ fn flush_tail(
             let exact = seen.settled && !seen.upload && seen.end == state.pending_start;
             state.tail_digest = exact.then_some(seen.digest);
             let more = !state.pending.is_empty() || !exact;
-            if sync {
-                state.tail_synced_at = Some(Instant::now());
-                state.tail_unsynced = false;
-            } else {
-                state.tail_unsynced = true;
-            }
+            state.tail_unsynced = !sync;
             drop(state);
-            if more || !sync {
+            if !sync {
+                store.tail_written();
+            }
+            if more {
                 store.mark_log_dirty(log);
             }
         }
@@ -902,3 +929,7 @@ mod tests;
 #[cfg(test)]
 #[path = "quit_pass_tests.rs"]
 mod quit_pass_tests;
+
+#[cfg(test)]
+#[path = "tail_sync_tests.rs"]
+mod tail_sync_tests;

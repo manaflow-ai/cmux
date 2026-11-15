@@ -101,6 +101,7 @@ async function screenshot({ width = 3456, height = 2234, kind = "text" }: PasteP
     }
   }
   const blob = await new Promise<Blob>((resolve, reject) =>
+    // l10n-allow: the DEBUG probe's own error, read by whoever ran the verb, never shown in the pane
     canvas.toBlob((png) => (png ? resolve(png) : reject(new Error("no PNG"))), "image/png"),
   );
   // WebKit and Chromium name pasted image data so.

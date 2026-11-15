@@ -665,6 +665,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(12)),
     },
     "layout-claude-chips-below": {
+      composerLook: "claude",
       note: "Claude-style comparison: the composer stays spacious while project, machine, permission and model controls sit in the quiet row below it; paid Fast remains in the model menu.",
       ready: newTab({ template: "default" }),
       snapshot: noChat(manySessions(12)),
@@ -690,6 +691,7 @@ export default agentPaneEntry({
       ).map(([name, width]) => [
         name,
         {
+          composerLook: "claude",
           note: width
             ? "The New Tab composer squeezed to 300 px: the mic and Send stay in the box, the prompt shrinks; the quiet row under it keeps the mode, model and effort."
             : "The New Tab composer: the box holds the prompt, the mic and Send; under it the quiet row with the permission mode on the left and the model and effort on the right.",

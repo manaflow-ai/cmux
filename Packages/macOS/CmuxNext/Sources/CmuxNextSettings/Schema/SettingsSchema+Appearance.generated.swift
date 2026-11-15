@@ -145,7 +145,7 @@ extension UIScaleSetting {
     /// `app.uiScale`.
     public nonisolated static let configPath = ["app", "uiScale"]
     public nonisolated static let fallback: Double = 1
-    public nonisolated static let range: ClosedRange<Double> = 0.85...1.5
+    public nonisolated static let range: ClosedRange<Double> = 0.25...5
     public nonisolated static let placeholder: Double = 1
 }
 

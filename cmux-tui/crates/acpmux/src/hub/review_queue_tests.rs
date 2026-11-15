@@ -435,3 +435,112 @@ async fn queued_prompts_and_age_order_the_queue() {
     let pa = later.iter().find(|i| i["id"] == "acpmux:pa").unwrap();
     assert!(pa["score"].as_f64().unwrap() >= 2.0 * f64::from(super::review_queue::BASE_ASK) - 1.0);
 }
+
+/// One shell call of `session` that runs `script` and prints `output`, through the hub the way a
+/// harness reports it: started, then completed with its output.
+fn run_shell(hub: &Hub, session: &Session, id: &str, script: &str, output: &str) {
+    for update in [
+        json!({"sessionUpdate": "tool_call", "toolCallId": id, "kind": "execute",
+               "status": "in_progress", "rawInput": {"command": script}}),
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed",
+               "content": [{"type": "content", "content": {"type": "text", "text": output}}]}),
+    ] {
+        hub.on_update(session, Some(&json!({"sessionId": session.id, "update": update})), false);
+    }
+}
+
+/// Leo, 2026-11-12, on a Waiting on you page full of pull requests: "We should not have this
+/// many all go to you." A fleet's agents open and land their own pull requests; one a session
+/// merged or closed (its own, or another session's) waits on no one, and stays gone once the
+/// sessions are read back from their metas.
+#[tokio::test]
+async fn a_merged_or_closed_pull_request_waits_on_no_one() {
+    let hub = hub();
+    let now = now_ms();
+    const LANES: usize = 300;
+    let url = |n: usize| format!("https://github.com/o/r/pull/{n}");
+    let mut lanes = vec![];
+    for n in 0..LANES {
+        let id = format!("lane-{n}");
+        lanes.push(hub.insert_test_session(meta(&id, "idle", &[&url(n)], now - 60_000)));
+    }
+    let coordinator = hub.insert_test_session(meta("coord", "idle", &[], now - 60_000));
+    assert_eq!(hub.review_queue_local(now).0.len(), LANES);
+    // Each lane lands its own the way its tools print it; the coordinator lands or closes the rest.
+    for (n, lane) in lanes.iter().enumerate().take(LANES - 3) {
+        let (script, printed) = match n % 3 {
+            // Off a terminal gh prints nothing when it merges; the number names the one with it.
+            0 => (
+                format!("gh pr merge {n} --squash --match-head-commit abc 2>&1 | tail -3"),
+                String::new(),
+            ),
+            1 => (
+                format!("cd /src && gh pr merge {n} --squash"),
+                format!("merged o/r#{n} at 0123456789ab (head fedcba9876)"),
+            ),
+            _ => (
+                format!("gh pr close {n} -c done"),
+                format!("✓ Closed pull request o/r#{n} (lane {n})"),
+            ),
+        };
+        run_shell(&hub, lane, &format!("t{n}"), &script, &printed);
+    }
+    run_shell(
+        &hub,
+        &coordinator,
+        "c1",
+        &format!("gh pr merge {}; gh pr merge {}", LANES - 3, LANES - 2),
+        &format!(
+            "! Pull request o/r#{} was already merged\n✓ Merged pull request o/r#{} (x)",
+            LANES - 3,
+            LANES - 2
+        ),
+    );
+    // Neither --auto (not merged yet) nor a mention outside gh pr merge settles anything.
+    let last = LANES - 1;
+    run_shell(
+        &hub,
+        &coordinator,
+        "c2",
+        &format!("gh pr merge {last} --auto"),
+        &format!(
+            "✓ Pull request o/r#{last} will be automatically merged via squash when all requirements are met"
+        ),
+    );
+    run_shell(
+        &hub,
+        &coordinator,
+        "c3",
+        "cat merges.log",
+        &format!("✓ Closed pull request o/r#{last} (x)"),
+    );
+    let (items, _) = hub.review_queue_local(now);
+    let urls: Vec<_> = items.iter().map(|i| i["prUrl"].clone()).collect();
+    assert_eq!(urls, vec![json!(url(last))]);
+    // The index no longer visits the settled ones.
+    assert_eq!(hub.review_index.sizes().1, 1);
+    assert_eq!(
+        coordinator.meta.lock().unwrap().closed_pull_requests,
+        vec![url(LANES - 3), url(LANES - 2)]
+    );
+
+    // Read back from the metas, coordinator first or last, they stay gone.
+    for coordinator_first in [true, false] {
+        let again = self::hub();
+        let metas: Vec<SessionMeta> =
+            lanes.iter().map(|s| s.meta.lock().unwrap().clone()).collect();
+        let coord = coordinator.meta.lock().unwrap().clone();
+        if coordinator_first {
+            again.insert_test_session(coord.clone());
+        }
+        for m in metas {
+            again.insert_test_session(m);
+        }
+        if !coordinator_first {
+            again.insert_test_session(coord);
+        }
+        let urls: Vec<_> =
+            again.review_queue_local(now).0.iter().map(|i| i["prUrl"].clone()).collect();
+        assert_eq!(urls, vec![json!(url(last))], "coordinator first: {coordinator_first}");
+    }
+}

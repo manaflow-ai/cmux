@@ -67,7 +67,8 @@ public struct UpdateDropBack {
         } catch let refusal as RollbackRefusal {
             return refusal.message
         } catch {
-            return String(describing: error)
+            updater.log.append("rollback failed: \(String(describing: error))")
+            return UpdateFailureText.plain(error)
         }
     }
 

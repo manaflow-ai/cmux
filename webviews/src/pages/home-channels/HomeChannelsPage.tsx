@@ -60,6 +60,8 @@ const NOTICE_MS = 1600;
 export const APP_ACTION_RUN = "cmux.app.action.run";
 /** The app's New Cloud Machine action (CloudActionCatalog): its sheet makes the machine. */
 export const NEW_CLOUD_MACHINE = "newCloudMachine";
+/** The app's Restart cmux-tui… (its own confirm first): the daemon gate's fix for a refused page listener. */
+export const RESTART_SERVER = "palette.restartServer";
 
 export function HomeChannelsPage({
   store,
@@ -227,8 +229,8 @@ export function HomeChannelsPage({
           (reply) => {
             if (reply?.ran === false) say(t("notice.cloudNotRun"));
           },
-          // A refusal (the host's own words) shows as the page's short notice.
-          (error: unknown) => say(error instanceof Error && error.message ? error.message : t("notice.cloudNotRun")),
+          // A refusal shows as the page's own short notice; the host's words stay in its log.
+          () => say(t("notice.cloudNotRun")),
         )
     : undefined;
   const copyLink = (message?: HomeMessage, conversation = snap.selected) => {

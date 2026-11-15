@@ -13,6 +13,11 @@
 //! kind). [`clean_key`] refuses anything else, so no prompt, terminal text,
 //! URL, file path or title can become a key. Free text never reaches this
 //! crate's callers' keys.
+//! One family holds names from outside the program: `install-package`, the
+//! registry name of a package an agent's shell call installed
+//! (`npm:react`), which acpmux keeps only when it passes that registry's own
+//! name rule (`cmux_command_class::package_installs`), never a path, URL or
+//! version.
 //!
 //! Cost stays constant as use grows: a count is one atomic load when off, and
 //! one mutex and two map increments when on. Each family keeps at most
@@ -464,6 +469,9 @@ impl Recorder {
     /// The writer thread's loop ([`install`]): waits with no timeout until a
     /// count or a setting change, then writes what was counted
     /// [`FLUSH_EVERY`] after the last write (at once when counting stopped).
+    /// A wake with nothing counted (the setting went on) starts no timed
+    /// wait. A recorder that has made no write yet writes its first count
+    /// [`FLUSH_EVERY`] after that count.
     /// Each time it wakes, and again before a timed write, it rereads the
     /// setting ([`Recorder::refresh_gate`]), but not when a stop asked for
     /// its last write ([`Recorder::flush_within`]). So a recorder with no watch
@@ -503,10 +511,18 @@ impl Recorder {
                 served = self.writer_flush();
                 continue;
             }
-            let since = {
+            let (dirty, since) = {
                 let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                state.last_flush.map(|last| last.elapsed())
+                (state.dirty, state.last_flush.map(|last| last.elapsed()))
             };
+            // Nothing waits for a write. The wake was a setting that went on
+            // (also the one [`Recorder::open`] leaves when it reads the
+            // setting as on), or a count or a stop's ask that an earlier
+            // write already took. No write is due, so there is no timed
+            // wait; the next count wakes this thread again.
+            if !dirty {
+                continue;
+            }
             let wait = since.map_or(flush_every, |since| flush_every.saturating_sub(since));
             // The one timed wait: a write is due, and only while counts wait for it.
             let pending =

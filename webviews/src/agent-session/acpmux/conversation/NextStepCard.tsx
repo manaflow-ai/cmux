@@ -28,8 +28,10 @@ export const NextStepCard = memo(function NextStepCard({
   registerKey,
   answerKey,
   asker,
+  className,
 }: {
   ask: NextStepAsk;
+  className?: string;
   /// The answer a later prompt picked, or once `superseded`, what the person said after the card.
   answer?: string;
   /// A later card took over: this one folds, with `answer` when there is one.
@@ -94,7 +96,7 @@ export const NextStepCard = memo(function NextStepCard({
     );
   };
   return (
-    <fieldset className="acpmux-next-step" aria-label={ask.question}>
+    <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
       {recap}
       <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
       {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}

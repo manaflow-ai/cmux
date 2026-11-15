@@ -119,6 +119,9 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
 
   const open = async (width: number, variant: string) => {
     const page = await browser!.newPage({ viewport: { width, height: 520 } });
+    // Claude's look, where an empty draft draws no Send: Codex's, the default since #42247, always
+    // draws Send (Composer.tsx).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();

@@ -34,6 +34,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "choice_or_url":
       return has('option[value="__address__"]') ? null : "no Self-Hosted Server… choice";
     case "number":
+      if (row.key === "app.uiScale") return has("select") && !has("input") ? null : "no zoom menu";
       // A time row with a wide range is a menu of durations (DurationEditor), not a slider.
       if (isDuration(row)) return has("select") && !has('input[type="range"]') ? null : "no duration menu";
       return has('input[type="range"]') && has("input.number") ? null : "no slider + field";
@@ -464,10 +465,11 @@ describe("editors", () => {
     expect(page.container.querySelector('[data-section-link="terminal"] [data-badge="warning"]')).not.toBeNull();
   });
 
-  test("unavailable: read-only banner, disabled controls, writes refused and not queued", async () => {
+  test("unavailable: disabled controls at once, writes refused and not queued; the read-only line waits its grace", async () => {
     page = await renderPage({ path: "/settings/privacy" });
     await run(() => page!.provider.setConnected(false));
-    expect(page.container.querySelector("[data-read-only]")?.textContent).toContain("read only");
+    // A drop under the grace (linkDownGrace.test.tsx) shows no line; the controls are still disabled at once.
+    expect(page.container.querySelector("[data-read-only]")).toBeNull();
     const toggle = rowElement(page.container, "history.terminalCommands").querySelector<HTMLButtonElement>(
       "[role=switch]",
     )!;

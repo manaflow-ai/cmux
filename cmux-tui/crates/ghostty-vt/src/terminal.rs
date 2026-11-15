@@ -84,6 +84,8 @@ const _: () = assert!(
 );
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 const MOUSE_DEC_MODES: [u16; 8] = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
+/// DEC private mode 2026, synchronized output.
+const SYNCHRONIZED_OUTPUT_MODE: u16 = 2026;
 
 /// Per-terminal Kitty resource limits that every byte-stream emulator must
 /// share to make admission and eviction deterministic.
@@ -733,6 +735,15 @@ impl Terminal {
         self.active_mouse_format
     }
 
+    /// How many synchronized updates (DEC private mode 2026) the program may
+    /// have started so far, counted as the parser meets each `CSI ? 2026 h`.
+    /// A reader that looks at the mode only now and then compares it with
+    /// the count it last saw: a change means a new update began since, even
+    /// when the last one ended and this one started between two looks.
+    pub fn synchronized_update_starts(&self) -> u64 {
+        self.mouse_mode_change_detector.synchronized_update_starts
+    }
+
     fn current_mouse_mode_bits(&self) -> u8 {
         MOUSE_DEC_MODES
             .into_iter()
@@ -990,19 +1001,6 @@ impl Terminal {
 
     fn cursor_pending_wrap(&self) -> bool {
         self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(true)
-    }
-
-    fn active_prompt_start_row(&self, cursor_y: u16) -> Option<u16> {
-        let mut prompt_y = (0..=cursor_y).rev().find(|&y| {
-            self.active_row_prompt_semantic(y) == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
-        })?;
-        while prompt_y > 0
-            && self.active_row_prompt_semantic(prompt_y - 1)
-                == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
-        {
-            prompt_y -= 1;
-        }
-        Some(prompt_y)
     }
 
     fn active_logical_line_start_row(&self, mut y: u16) -> Option<u16> {

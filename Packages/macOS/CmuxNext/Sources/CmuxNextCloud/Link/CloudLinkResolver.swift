@@ -12,8 +12,10 @@ public protocol CloudLinkResolver: Sendable {
     /// Opens (or reuses) the machine's link for one connect. `intent` is the
     /// connect's idempotency key, new for each connect. Throws ``CloudLinkError``.
     func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket
-    /// Ends the machine's link (machine removed or paused, sign-out, quit). A later `open` starts it again.
+    /// Ends the machine's link for good (machine removed, sign-out, quit).
     func close(_ key: CloudLinkKey) async
+    /// Ends the machine's link while the machine is paused; a later `open` (a resume) starts it again.
+    func park(_ key: CloudLinkKey) async
     /// Why the link refused a connection since the last connect, when it says (a carrier dial's step).
     func refusal(_ key: CloudLinkKey) async -> CloudLinkError?
     /// True when the socket dials the machine once per connection (the carrier): the daemon connection's
@@ -27,6 +29,8 @@ public protocol CloudLinkResolver: Sendable {
 }
 
 extension CloudLinkResolver {
+    /// A resolver whose `close` leaves it reusable parks the same way.
+    public func park(_ key: CloudLinkKey) async { await close(key) }
     public func refusal(_ key: CloudLinkKey) async -> CloudLinkError? { nil }
     public var redials: Bool { false }
     public func observeOwnership(_ key: CloudLinkKey, _ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) async {}

@@ -42,6 +42,7 @@ export const PendingAsks = memo(function PendingAsks({
               </button>
             </div>
             <NextStepCard
+              className="ui-glass ui-glass-floats acpmux-stack-material"
               ask={ask}
               onAnswer={onAnswer}
               registerKey={index === asks.length - 1 ? registerKey : undefined}

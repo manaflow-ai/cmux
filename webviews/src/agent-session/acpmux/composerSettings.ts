@@ -39,8 +39,8 @@
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
-// AgentPaneTunables.cloudEnvironmentsEnabled, read from the bundle's LSEnvironment or the launch
-// environment as CMUX_NEXT_CLOUD_NATIVE_LINK is; no cmux.json key): on, picking Cloud in a new
+// AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
+// environment; no cmux.json key): on, picking Cloud in a new
 // chat's strip adds the Environment chip (CloudEnvironmentChip.tsx). Off unless the host says true.
 import { useSyncExternalStore } from "react";
 

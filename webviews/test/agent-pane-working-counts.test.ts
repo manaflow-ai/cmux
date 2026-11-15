@@ -254,11 +254,10 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     await page.close();
   });
 
-  test("a count moves nothing: the line keeps its box and its label stays put", async () => {
+  test("background counts keep the live line's box within the same row context", async () => {
     for (const width of [900, 420]) {
-      const measure = async (session: string) => {
-        const page = await open(session, width);
-        const box = await line(page).evaluate((node) => {
+      const measure = (page: Page, token: string) =>
+        line(page).evaluate((node, token) => {
           const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
           const row = node.getBoundingClientRect();
           // The tokens are var() chains, so resolve each through a probe's height.
@@ -274,20 +273,35 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
             height: row.height,
             labelLeft: label.left - row.left,
             labelHeight: label.height,
-            // The line's box is the reply footer's slot, so the end-of-turn swap moves nothing
-            // (#31690, transcriptGrid.ts MARK_FOOTER_SLOT).
-            oneLine: px("--cv-footer-row"),
+            oneLine: px(token),
           };
+        }, token);
+      const page = await open(BUSY, width);
+      try {
+        // This line follows subagent steps. Counts must not change that 22px context.
+        const withCounts = await measure(page, "--cv-tool-row-height");
+        expect(withCounts.height).toBe(withCounts.oneLine);
+        expect(withCounts.labelHeight).toBe(20);
+        expect(withCounts.labelLeft).toBe(0);
+        const counts = line(page).locator(".cv-worked__count:has(> .cv-worked__open)");
+        expect(await counts.count()).toBe(2);
+        await counts.evaluateAll((nodes) => {
+          for (const node of nodes) (node as HTMLElement).style.display = "none";
         });
+        expect(await measure(page, "--cv-tool-row-height")).toEqual(withCounts);
+      } finally {
         await page.close();
-        return box;
-      };
-      const busyBox = await measure(BUSY);
-      expect(busyBox).toEqual(await measure(QUIET));
-      // One 20px line, even in a narrow pane: the line's box is the footer slot (fec3ac0e5125,
-      // #31690); a second line would grow it by 20px.
-      expect(busyBox.height).toBe(busyBox.oneLine);
-      expect(busyBox.labelHeight).toBe(20);
+      }
+      const quiet = await open(QUIET, width);
+      try {
+        // With no preceding step, the live line occupies the 32px footer slot.
+        const box = await measure(quiet, "--cv-footer-row");
+        expect(box.height).toBe(box.oneLine);
+        expect(box.labelHeight).toBe(20);
+        expect(box.labelLeft).toBe(0);
+      } finally {
+        await quiet.close();
+      }
     }
   });
 

@@ -4,8 +4,10 @@
 # `ios/scripts/reload.sh --review` and the cmux-next app's `cmux-next-ios/scripts/review.sh`.
 #
 # The caller sets REVIEW_PHONES_FILE, REVIEW_TARGETS=(), REVIEW_FAILED=0, REVIEW_PHONE_STATUS="",
-# DEVICE_ID (an explicitly requested phone, or empty), DEFAULT_DEVICE_ID (the configured default,
-# or empty) and optionally REVIEW_CALLER (the command named in errors, default --review).
+# REQUESTED_DEVICE_ID (a phone asked for with --device-id, recorded before any default fills
+# DEVICE_ID; missing, it is a blocker), DEFAULT_DEVICE_ID (the configured default; missing, a
+# notice), and optionally REVIEW_CALLER (the command named in errors, default --review) and
+# REVIEW_TAILNET_NOTE=0 (no classic tailnet note for a new phone).
 # review_resolve_phones fills REVIEW_TARGETS with "<udid>\t<name> (<model>, <udid>)" lines.
 
 # One line per phone for the report.
@@ -47,7 +49,9 @@ review_register_phone() {
   if ! grep -qi "^$udid" "$REVIEW_PHONES_FILE" 2>/dev/null; then
     printf '%s\t%s\t%s\n' "$udid" "$name" "$model" >> "$REVIEW_PHONES_FILE"
     echo "==> new iPhone registered: $name ($model, $udid) in $REVIEW_PHONES_FILE"
-    echo "==> note: a fleet-built dev app reaches hq's dev backend only on the tailnet; if this phone's auth gate fails, check that it is on the tailnet"
+    # The classic app's fleet build talks to hq's tailnet-only dev backend; cmux-next's does not.
+    [[ "${REVIEW_TAILNET_NOTE:-1}" -eq 0 ]] ||
+      echo "==> note: a fleet-built dev app reaches hq's dev backend only on the tailnet; if this phone's auth gate fails, check that it is on the tailnet"
   fi
   if [[ ! -s "$default_file" ]]; then
     printf '%s\n' "$udid" > "$default_file"
@@ -68,10 +72,13 @@ review_resolve_phones() {
     review_register_phone "$udid" "$name" "$model"
     REVIEW_TARGETS+=("$udid"$'\t'"$name ($model, $udid)")
   done
-  for wanted in "$DEVICE_ID" "$DEFAULT_DEVICE_ID"; do
+  local seen=""
+  for wanted in "${REQUESTED_DEVICE_ID:-}" "$DEFAULT_DEVICE_ID"; do
     [[ -n "$wanted" ]] || continue
+    [[ "$seen" == *"|$wanted|"* ]] && continue
+    seen+="|$wanted|"
     if ! printf '%s\n' ${connected[@]+"${connected[@]}"} | grep -qi "^$wanted"; then
-      if [[ "$wanted" == "$DEVICE_ID" ]]; then
+      if [[ "$wanted" == "${REQUESTED_DEVICE_ID:-}" ]]; then
         echo "error: --device-id $wanted is not connected" >&2
         review_phone_result "$wanted: BLOCKED, requested with --device-id but not connected (unlock it and connect it by USB or Wi-Fi)"
         REVIEW_FAILED=1

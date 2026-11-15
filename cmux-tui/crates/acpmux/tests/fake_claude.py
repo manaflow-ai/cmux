@@ -808,6 +808,11 @@ while True:
         # is synthetic; FAKE_CLAUDE_SIDE_ANSWER names its text (the question echoed otherwise).
         if request.get("subtype") == "side_question":
             said = os.environ.get("FAKE_CLAUDE_SIDE_ANSWER", "side: " + str(request.get("question")))
+            # FAKE_CLAUDE_SIDE_ANSWER_FILE: read at each ask, so a test changes the answer mid-chat.
+            answer_file = os.environ.get("FAKE_CLAUDE_SIDE_ANSWER_FILE")
+            if answer_file and os.path.exists(answer_file):
+                with open(answer_file) as f:
+                    said = f.read()
             answer = {"response": said, "synthetic": False}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "apply_flag_settings":

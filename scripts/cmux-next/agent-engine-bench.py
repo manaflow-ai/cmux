@@ -392,6 +392,7 @@ def run_mode(mode):
     result["focus"] = focus_probe()
     result["shots"] = screen_shots(mode)
     result["typing"] = typing()
+    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
     result["seed"] = pane("seed_rows", count=opts.rows, timeout=60)
     time.sleep(3)  # test harness: the seeded transcript lays out
     pane("fling", seconds=3, wait=True, timeout=60)  # warms the transcript's layout, not reported
@@ -414,6 +415,7 @@ def run_mode(mode):
         "first_chat_mb": round(one - base, 1), f"chats_{opts.chats}_mb": round(many - base, 1),
         "per_more_chat_mb": round((many - one) / max(1, opts.chats - 1), 1),
         "typing_to_frame": result["typing"].get("to_frame"), "typing_to_paint": result["typing"].get("to_paint"),
+        "typing_to_listener": result["typing"].get("to_listener"), "typing_to_work": result["typing"].get("to_work"),
         "session_composer_ms": result["session"].get("composer_ms"),
         "typing_keys": result["typing"].get("keys"), "focus": result["focus"],
         "fling_dropped_frames": [f.get("dropped_frames") for f in result["flings"]],

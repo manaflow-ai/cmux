@@ -1,4 +1,5 @@
 import type { PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 
 export type Origin = "grok-bot" | "muse" | "dots" | "instinct";
 export type RowID =
@@ -84,7 +85,7 @@ export function canImport(snapshot: HistorySnapshot): boolean {
     snapshot.rows.some((row) => row.selected && (row.kind === "text" ? row.text?.trim() : row.source))
   );
 }
-const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const message = (error: unknown): string => userMessage(error);
 
 /** One owner for detection, explicit picks and the complete batch. Export discovery is explicit. */
 export class ImportHistoryStore {

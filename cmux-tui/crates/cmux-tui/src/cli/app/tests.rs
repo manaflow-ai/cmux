@@ -1452,22 +1452,42 @@ fn open_dash_from_a_program_in_a_terminal_is_interactive() {
     // `cmux --quiet open --link -` with the URL on stdin. Stdin is the URL, not the person:
     // stdout alone tells, or the tab opens in the background and Enter seems to do nothing.
     let link = args(&["--link", "--caller", "gh", "-"]);
-    assert!(open_is_interactive(&link, false, true));
-    assert!(!open_is_interactive(&link, false, false), "an agent's pipe stays in the background");
+    assert!(open_is_interactive(&link, false, true, true));
+    assert!(
+        !open_is_interactive(&link, false, false, false),
+        "an agent's pipe stays in the background"
+    );
     let mut stdin = "https://github.com/login/device\n".as_bytes();
     let environment = std::collections::HashMap::new();
-    let AppCommand::Open { requests, .. } =
-        parse_open_with(&link, open_is_interactive(&link, false, true), &environment, &mut stdin)
-            .unwrap()
-    else {
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &link,
+        open_is_interactive(&link, false, true, true),
+        &environment,
+        &mut stdin,
+    )
+    .unwrap() else {
         panic!("expected open command")
     };
     assert_eq!(requests[0].method, "browser.open_link");
     assert_eq!(requests[0].params["focus"], true);
     // A typed `cmux open URL` still needs both; `-` after `--` is a path, not stdin.
-    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true));
-    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true));
-    assert!(!open_is_interactive(&args(&["--", "-"]), false, true));
+    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true, true));
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true, true));
+    assert!(!open_is_interactive(&args(&["--", "-"]), false, true, true));
+}
+
+#[test]
+fn open_dash_from_a_program_with_its_output_elsewhere_is_interactive() {
+    // Lawrence 2026-11-12: `pscale auth login` in a cmux-next terminal printed its device URL,
+    // and no page showed. pscale (Go's `exec.Command("open", url).Run()`, as pkg/browser does)
+    // runs `open` with stdin and stdout on /dev/null, so the shim's `cmux open --link -` has no
+    // terminal on either. The process still has the person's terminal as its controlling
+    // terminal, which an agent's command (run with no terminal) does not: the page takes the focus.
+    let link = args(&["--link", "--caller", "pscale", "-"]);
+    assert!(open_is_interactive(&link, false, false, true), "a program in the person's terminal");
+    assert!(!open_is_interactive(&link, false, false, false), "an agent's command has no terminal");
+    // A typed `cmux open URL` with its output redirected stays as it was: stdin and stdout tell.
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), true, false, true));
 }
 
 #[test]

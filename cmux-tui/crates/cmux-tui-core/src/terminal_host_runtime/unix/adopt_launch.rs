@@ -285,8 +285,10 @@ fn spawn_adopting_host(
     master: RawFd,
 ) -> anyhow::Result<(SpawnedHostProcess, ChildStdinPair)> {
     let orphan_env = host_orphan_env();
+    // macOS: one malloc magazine and no nano zone (host_session.rs).
+    let malloc_env = host_malloc_env();
     let configure = |command: &mut Command| {
-        if let Some((name, value)) = &orphan_env {
+        for (name, value) in orphan_env.iter().chain(&malloc_env) {
             command.env(name, value);
         }
         command
@@ -475,7 +477,7 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
         let _ = fs::remove_file(liveness_path(&record_path, &dead));
     }
     let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
-    attachment.launch_process = Some(process);
+    attachment.launch_process = Some(LaunchedHost::new(process, Default::default()));
     // The terminal's topology already exists: commit the handoff and
     // release the launch barrier at once.
     attachment.commit_launched_host();

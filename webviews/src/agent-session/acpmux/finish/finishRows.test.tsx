@@ -7,6 +7,7 @@ import { PullRequestChip } from "../header/PullRequestChip";
 import type { HeaderPullRequest } from "../header/headerState";
 import type { AcpmuxRow } from "../model";
 import { endFinishMoment, startFinishMoment } from "./finishMoments";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM;
 let root: Root | undefined;
@@ -44,10 +45,11 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   act(() => endFinishMoment());
+  await settleReact();
   dom.window.close();
   for (const key of KEYS) {
     const before = saved.get(key);

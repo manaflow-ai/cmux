@@ -9,10 +9,13 @@ on the person's Mac: Swift and Rust builds and the simulator run on the fleet
 (`scripts/ci/cmux-next-ios-sim.sh`, a `cmux-ci run --class simulator` step).
 `scripts/demo-build.sh` builds on the Mac it runs on: it is for people, not agents.
 
-## Finishing a task
+## Hand-off command (under verification)
 
-A change to this app ends with the task's build on every connected iPhone, signed in and paired
-with the same-tag Mac build, from one command at the pushed head:
+`scripts/review.sh` is new: its phone leg has not yet run end to end (the fleet runs its
+`handoff` step only once it is on feat-cmux-next). Until one green end-to-end run, the root
+[AGENTS.md](../AGENTS.md#finishing-a-task) "Finishing a task" rules stay as they are; use this
+command and report its output beside them. It leaves the task's build on every connected iPhone,
+signed in and paired with the same-tag Mac build, from one command at the pushed head:
 
 ```bash
 cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>]
@@ -37,7 +40,7 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    paired and linked with this tag's Mac, which lists the phone as paired and connected; then a
    credential-free relaunch (the person's own cold launch) comes back signed in and linked; then
    the Mac app quits as the person quits it and starts again, and each phone links to it again.
-5. Prints the report for the task's final message (root [AGENTS.md](../AGENTS.md#finishing-a-task)):
+5. Prints the report, in the root "Finishing a task" format:
 
 ```text
 Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <id>, published to HQ, head <sha>)

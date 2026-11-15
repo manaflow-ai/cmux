@@ -1,0 +1,71 @@
+name: cmux-codecs Windows bench
+
+# Measurement, not a check: codec-bench's H.264 rows on Windows, OpenH264 next to Media
+# Foundation's hardware MFT (`h264-mf`, present only on a runner with a GPU encoder) and its
+# software MFT (`h264-mf-sw`). Nothing gates on it. A pull request never starts it; a push to
+# a `lane/codec-bench-windows*` branch does (a new workflow can't be dispatched until it is on
+# the default branch), and dispatch works once it is.
+on:
+  push:
+    branches: ["lane/codec-bench-windows*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-codecs-windows-bench-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    name: codec-bench H.264 rows (Windows)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # cmux-codecs is its own cargo workspace. VP9 (libvpx's configure and make) and AV1
+      # are left out: these rows are H.264 only.
+      - name: Build codec-bench
+        working-directory: cmux-tui/crates/cmux-codecs
+        run: cargo build --release --locked --no-default-features --bin codec-bench
+
+      # Windows Server ships Media Foundation (and its software H.264 MFT) as an optional
+      # feature; client Windows has it built in. Without it the h264-mf rows say so.
+      - name: Media Foundation feature (Windows Server)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          if (Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue) {
+            $f = Get-WindowsFeature Server-Media-Foundation
+            if ($f -and -not $f.Installed) { Install-WindowsFeature Server-Media-Foundation | Format-List }
+            Get-WindowsFeature Server-Media-Foundation | Format-Table -AutoSize
+          }
+
+      - name: GPUs on this machine
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion | Format-Table -AutoSize | Out-String | Tee-Object -Variable gpus
+          Add-Content $env:GITHUB_STEP_SUMMARY "GPU: $gpus"
+
+      # GitHub runs pwsh steps with $ErrorActionPreference = stop already. The rows go to the
+      # job's own target directory and into the log and step summary; nothing is uploaded.
+      - name: Rows
+        shell: pwsh
+        working-directory: cmux-tui/crates/cmux-codecs
+        run: |
+          $bench = @('--codecs', 'h264,h264-mf,h264-mf-sw', '--scenes', 'page,scroll,drag,typing', '--loss', '0,2,2b', '--rtt-ms', '50', '--seconds', '10', '--json', 'target\codec-bench-windows.jsonl')
+          .\target\release\codec-bench.exe @bench | Tee-Object -Variable table
+          if ($LASTEXITCODE -ne 0) { throw "codec-bench exited with $LASTEXITCODE" }
+          Add-Content $env:GITHUB_STEP_SUMMARY ($table -join [Environment]::NewLine)
+          Write-Output '--- rows (JSON lines) ---'
+          Get-Content target\codec-bench-windows.jsonl

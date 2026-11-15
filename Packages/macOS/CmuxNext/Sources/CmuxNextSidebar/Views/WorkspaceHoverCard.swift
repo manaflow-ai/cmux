@@ -99,6 +99,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     // MARK: HoverCardSource
 
     var hoverCardWindow: NSWindow? { list?.window }
+    /// The sidebar's rows and owner cards share one card that morphs between them.
+    var hoverCardGroup: HoverCardGroup? { .sidebar }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window else { return nil }

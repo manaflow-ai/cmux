@@ -29,10 +29,11 @@ public final class HoverCardCoordinator {
     private var owners: [HoverTargetID: WeakSource] = [:]
     private let timer: DemandTimer
     var panel: HoverCardPanel?
-    /// The source `panel` last showed a card for. A card moves only within its own source (a sidebar
-    /// row to the next, a tab to the next in one strip): another source's card gets a window of its
-    /// own, so it never flies across the screen from the sidebar to a pane's tabs (user 2026-11-09).
-    private var panelSource: ObjectIdentifier?
+    /// The source (or ``HoverCardGroup`` in a window) `panel` last showed a card for. A card moves only
+    /// within its own source or group (a sidebar row to the next, to the update card, a tab to the next
+    /// in one strip): another's card gets a window of its own, so it never flies across the screen from
+    /// the sidebar to a pane's tabs (user 2026-11-09).
+    private var panelSource: AnyHashable?
     /// Card windows of a source the pointer left, fading out where they are.
     var retiring: [HoverCardPanel] = []
     /// A card its owner shows in the one card window (`presentOwned`), nil while none does.
@@ -384,10 +385,20 @@ public final class HoverCardCoordinator {
         pruneOwners()
     }
 
-    /// The card window for a card of `source`: the shown one when it is that source's or hidden, else a
-    /// new one, and the other source's card fades out in place (no slide between sources).
-    private func cardWindow(for source: any HoverCardSource) -> HoverCardPanel {
-        let id = ObjectIdentifier(source)
+    /// Whose card window `source`'s cards use: its group's in its window, else its own.
+    func cardKey(of source: any HoverCardSource) -> AnyHashable {
+        guard let group = source.hoverCardGroup else { return AnyHashable(ObjectIdentifier(source)) }
+        return cardKey(group, in: source.hoverCardWindow)
+    }
+
+    /// `group`'s card window key in `window` (two windows' sidebars do not share a card).
+    func cardKey(_ group: HoverCardGroup, in window: NSWindow?) -> AnyHashable {
+        AnyHashable([AnyHashable(group), AnyHashable(window.map(ObjectIdentifier.init))])
+    }
+
+    /// The card window for a card of `id` (``cardKey(of:)``): the shown one when it is that key's or
+    /// hidden, else a new one, and the other key's card fades out in place (no slide between sources).
+    func cardWindow(for id: AnyHashable) -> HoverCardPanel {
         defer { panelSource = id }
         if let panel, panelSource == id || !panel.isVisible { return panel }
         if let old = panel {
@@ -422,7 +433,7 @@ public final class HoverCardCoordinator {
                 send(.targetRemoved(target.id))
                 return
             }
-            let panel = cardWindow(for: source)
+            let panel = cardWindow(for: cardKey(of: source))
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
                           cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)

@@ -190,8 +190,8 @@ SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
 # against the production Stack project.
 PROD_AUTH=0
-# --review: fleet build + authenticated iPhone install + a signed-in simulator
-# in an open Simulator window (see usage).
+# --review: fleet build + authenticated install on every connected iPhone + a
+# fleet simulator check; nothing runs in a simulator on this Mac (see usage).
 REVIEW=0
 REVIEW_WORKSPACE=""
 
@@ -320,7 +320,8 @@ if [[ "$RELOAD_SIMULATOR" -eq 0 && "$RELOAD_DEVICE" -eq 0 ]]; then
 fi
 
 if [[ "$REVIEW" -eq 1 ]]; then
-  # The review hand-off is always simulator + authenticated iPhone, launched.
+  # The review hand-off is always the authenticated install on every connected
+  # iPhone, launched, plus the fleet simulator check.
   if [[ "$SIMULATOR_ONLY" -eq 1 || "$RELOAD_SIMULATOR" -eq 0 || "$LAUNCH" -eq 0 \
       || "$NO_SIGN_IN" -eq 1 || "$NO_ATTACH" -eq 1 || "$NO_SETUP" -eq 1 \
       || "$PROD_AUTH" -eq 1 || "$SIMULATOR_EXPLICIT" -eq 1 || -n "$DEVICE_NAME" ]]; then
@@ -498,6 +499,8 @@ if [[ "$SIMULATOR_ONLY" -eq 0 && "$RELOAD_DEVICE" -eq 0 && -n "$DEFAULT_DEVICE_I
   RELOAD_DEVICE=1
   echo "==> default iPhone configured; reloading simulator + phone (opt out with --simulator-only)"
 fi
+# --review reports a missing explicit phone as a blocker, a missing default as a notice.
+REQUESTED_DEVICE_ID="$DEVICE_ID"
 if [[ "$RELOAD_DEVICE" -eq 1 && -z "$DEVICE_ID" && -z "$DEVICE_NAME" && -n "$DEFAULT_DEVICE_ID" ]]; then
   DEVICE_ID="$DEFAULT_DEVICE_ID"
 fi
@@ -654,7 +657,7 @@ review_publish_mac() {
   fi
   job_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$receipt")"
   if "$cmux_ci" publish-hq "$job_id" >/dev/null; then
-    REVIEW_MAC_STATUS="fleet job $job_id, published to HQ"
+    REVIEW_MAC_STATUS="fleet job $job_id, head ${sha:0:12}, published to HQ"
   else
     REVIEW_MAC_STATUS="BLOCKED: fleet job $job_id built, but cmux-ci publish-hq failed"
     return 1
@@ -677,6 +680,15 @@ review_fleet_simulator() {
     return 1
   fi
   REVIEW_SIM_STATUS="fleet simulator, signed in (agent account): $evidence (screenshot.png and the recording)"
+}
+
+# "fleet job <id>, head <sha>, published to HQ" from the installer's saved receipt.
+review_mac_job_status() {
+  local sha receipt job_id
+  sha="$(git -C "$IOS_DIR/.." rev-parse HEAD)"
+  receipt="$HOME/Library/Application Support/cmux-dev/ios-builds/$TAG/$sha/cmux-terminal.json"
+  job_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$receipt" 2>/dev/null || true)"
+  printf 'fleet job %s, head %s, published to HQ' "${job_id:-unknown}" "${sha:0:12}"
 }
 
 REVIEW_INSTALLED=()
@@ -706,7 +718,7 @@ if [[ "$REVIEW" -eq 1 ]]; then
       fleet_rc=0
       "${REVIEW_IOS_RELOAD[@]}" "${fleet_args[@]}" || fleet_rc=$?
       if [[ "$fleet_rc" -eq 0 ]]; then
-        REVIEW_MAC_STATUS="fleet build, published to HQ"
+        REVIEW_MAC_STATUS="$(review_mac_job_status)"
         REVIEW_INSTALLED+=("$target")
         review_phone_result "$label: installed, signed in (verify-iphone-auth PASS)"
       else
@@ -1448,7 +1460,7 @@ reload_device() {
         [[ "$NO_ATTACH" -eq 1 ]] && deferred_enqueue_args+=(--no-attach)
         if ! "$QUEUE_SCRIPT" "${deferred_enqueue_args[@]}"; then
           echo "error: iPhone is locked/offline AND the build could NOT be queued; nothing will auto-install" >&2
-          echo "error: retry after unlocking: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
+          echo "error: retry after unlocking: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --readiness app-receipt --auth-profile personal" >&2
           return 1
         fi
         reload_device_notify "iPhone locked/offline: $TAG build queued" \
@@ -1460,7 +1472,7 @@ reload_device() {
         # while the matching tagged Iroh route is absent. Fail closed unless the
         # caller explicitly requested a plain launch above.
         echo "error: installed $BUNDLE_ID, but the iPhone auth gate failed; refusing an unpaired fallback launch" >&2
-        echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
+        echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --readiness app-receipt --auth-profile personal" >&2
         return 1
       elif [[ "$NO_ATTACH" -eq 1 ]]; then
         # Signed launch without pairing (human-authorized opt-out): the auth
@@ -1507,8 +1519,12 @@ if [[ "$REVIEW" -eq 1 ]]; then
   REVIEW_MAC_STATUS="local build"
   for target in "${REVIEW_TARGETS[@]}"; do
     DEVICE_ID="${target%%$'\t'*}"
-    device_rc=0
-    ( reload_device ) || device_rc=$?
+    # `( f ) || rc=$?` would run f with set -e off, so a failed install could fall
+    # through to launching an older build of the tag and pass its gate.
+    set +e
+    ( set -e; reload_device )
+    device_rc=$?
+    set -e
     if [[ "$device_rc" -eq 0 ]]; then
       REVIEW_INSTALLED+=("$target")
       review_phone_result "${target#*$'\t'}: installed, signed in (iPhone auth gate PASS)"
