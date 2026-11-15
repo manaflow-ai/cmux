@@ -333,6 +333,24 @@ pub enum VaultCmd {
     /// Remove this machine's vault env values and its vault state. The daemon
     /// pulls again while the vault is shared with this machine.
     Forget,
+    /// Keep a key an agent made on this machine, with no sign-in or click: the
+    /// value comes piped on stdin (never argv) and goes to the Keychain or
+    /// Secret Service only. Agents started from then on get the placeholder
+    /// `cmux-secret://NAME`, which the egress proxy fills only in HTTPS
+    /// requests to the --host patterns. Example:
+    /// `mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com`.
+    Keep {
+        /// The env name agents get, like DEPLOY_TOKEN.
+        name: String,
+        /// Where the key may be sent: a host or `*.domain` (repeatable).
+        #[arg(long = "host", value_name = "H")]
+        hosts: Vec<String>,
+        /// Give agents the value itself instead (weaker: agents can read it).
+        #[arg(long, conflicts_with = "hosts")]
+        env: bool,
+    },
+    /// Remove a kept key (`keep`) from this machine.
+    Drop { name: String },
 }
 
 #[derive(Subcommand)]

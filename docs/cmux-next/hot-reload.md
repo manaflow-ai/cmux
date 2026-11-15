@@ -505,6 +505,17 @@ breaks the bundle's seal until `rollback` or the next update. The running app do
 `scripts/measure/hot-apply-nightly.sh` runs apply and rollback on a copy of the newest nightly on a
 fleet Mac.
 
+Every receipt has `phases`, the seconds spent in plan, key, fetch, verify, backup, find, swap, reload
+and rollback. stderr prints them, largest first. `apply SHA --dry-run` plans, fetches and verifies
+without changing the app, and its receipt goes only to `history.jsonl`. `--base COMMIT` stands in for
+the app's commit, so `plan` and `--dry-run` also work on a host with no app.
+
+`hot-apply.py prefetch SHA` fetches and checks everything `apply SHA` needs and keeps it in the state
+folder by content: the keys by commit, the published metadata by URL, the builds by sha256, and the
+web bundles by web key (the newest 8). Run it once CI has published SHA, and the `apply` that follows
+only checks the kept files and swaps. A part the app already runs is skipped and listed under
+`unchanged`, and an apply that changed nothing leaves `rollback` to the apply before it.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:

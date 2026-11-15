@@ -1,5 +1,5 @@
 // A running turn is shaped again on every record (turns.ts `shapedTurn` keeps no cache for it): the
-// rows a record did not change stay the objects drawn before (`keepShapedRows`), so the transcript's
+// rows a record did not change stay the objects drawn before (`steadyLiveRows`), so the transcript's
 // layout and row memos keep them and a record costs what it changed, not the whole running turn.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
