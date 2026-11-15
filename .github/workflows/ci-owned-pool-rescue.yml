@@ -212,6 +212,9 @@ jobs:
           # Not `on` (unset): cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER, so the stall move would only
           # re-queue a job at the back of the owned side lane; it moves nothing (owned_pool_rescue.STALL_SWITCH_OFF).
           STALL_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
+          # The side label a cmux-next bot re-run takes while that switch is off: a rescue never sends a job there
+          # while its queue is deeper than the one the job leaves (owned_pool_rescue.rerun_side_label()).
+          SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.

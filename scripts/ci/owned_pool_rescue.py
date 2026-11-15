@@ -36,7 +36,14 @@ snapshot): while the label its re-run would take (the workflow's runs-on
 fallback) is stalled, the job stays queued on its owned pool, and while that
 label has no free slot it moves only after OWNED_WAIT_FLOOR_SECONDS
 (hold_for_destination()). A re-run the picker places again (ci.yml's
-attempt 2) is not held.
+attempt 2) is not held. Nor does any rescue move a job to a label whose queue
+is deeper than the owned label it leaves (deeper_queue(): more jobs queued, or
+as many with an older oldest one, by the same snapshot); a cmux-next re-run
+that stays on the minis is judged by the side label it takes
+(rerun_side_label()). Run 43718265555's daemon tests waited on
+glaeda-gui-std-xcode-26.6, 1 queued, and its re-run of failed jobs sent them to
+glaeda-side-std-xcode-26.6, 61 queued with its oldest waiting 203 minutes
+(2026-11-15).
 
 A run whose pull request is still open at the run's head is never
 cancelled, whatever the watch saw (rescue(), OPEN_HEAD_RULE): run
@@ -435,7 +442,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -3020,8 +3027,9 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
                          floor_seconds: int | None, deadline: dt.datetime, now: Callable[[], dt.datetime],
                          sleep: Callable[[float], None], log: Callable[[str], None],
                          seen: dict[Any, dt.datetime], sign_seen: dict[Any, dt.datetime] | None = None,
-                         sign_text: list[str | None] | None = None) -> tuple[str, str, str]:
-    """Keep a queue rescue off a Blacksmith label with no room: returns (outcome, reason, held).
+                         sign_text: list[str | None] | None = None, side_label: str = "") -> tuple[str, str, str]:
+    """Keep a queue rescue off a Blacksmith label with no room, and off any label with a deeper queue than the owned
+    label its jobs leave (move_verdict()'s "deeper", held like a stalled label): returns (outcome, reason, held).
 
     `sign_seen` and `sign_text` go to its watch() so a signing stall (signing_stall()) found while held keeps
     the times follow() rescues it by.
@@ -3046,8 +3054,10 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         if pull_moved(client, target, sleep, log):
             break
         # assess() reports a stuck job before a refusal; a refused job needs its re-run whatever the queue.
-        turned_away = [job for job in read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
-                       if refused(job)]
+        looked = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        turned_away = [job for job in looked if refused(job)]
+        # The owned labels the moved jobs leave: a re-run never sends them to a deeper queue (deeper_queue()).
+        sources = {str(job_pool(job)) for job in looked if job_pool(job) and job.get("status") != "completed"}
         if turned_away:
             # The refusal path re-runs the failed jobs whether or not the run has finished by the time
             # rescue() reads it (a queued sibling may still run meanwhile); a queue rescue would skip a
@@ -3062,16 +3072,23 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             # watch() reports a stuck job before its deadline check, so the hold ends here (after the
             # refusal look above, so a refusal on the last look still gets its re-run).
             return "stop", "watch limit reached", held
-        verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log)
+        verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log, sources=sources,
+                                      side_label=side_label)
         if verdict == "free" or verdict == "busy" and floor is not None and floor >= OWNED_WAIT_FLOOR_SECONDS:
             break
-        if verdict == "stalled" and nightly_moves(target):
+        if verdict in ("stalled", "deeper") and nightly_moves(target):
             held_since = held_since or now()
             if now() - held_since >= dt.timedelta(seconds=NIGHTLY_HOLD_SECONDS):
+                though = label if verdict == "deeper" else f"the re-run takes {label}, which is stalled"
                 log(f"moving the held nightly job: no mini took it in {NIGHTLY_HOLD_SECONDS}s past its budget, "
-                    f"though the re-run takes {label}, which is stalled")
+                    f"though {though}")
                 break
-        if verdict == "stalled":
+        if verdict == "deeper":
+            held = label
+            log(f"held on the owned pool: {reason}, but the re-run would take {label}; "
+                f"looking again in {STALL_RECHECK_SECONDS}s")
+            sleep(STALL_RECHECK_SECONDS)
+        elif verdict == "stalled":
             held = f"{label} is stalled (simple_pool_picker.blacksmith_stalled())"
             log(f"held on the owned pool: {reason}, but the re-run would take {held}; "
                 f"looking again in {STALL_RECHECK_SECONDS}s")
@@ -3282,13 +3299,75 @@ def nightly_retry_destinations(api: GitHub, target: Target, sleep: Callable[[flo
     return found
 
 
+# cmux-next.yml's Mac fallback for a bot re-run through REFUSAL_RESCUE_ATTEMPT while vars.CI_BLACKSMITH_MACOS is not
+# `on`: `startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-...'`.
+CMUX_NEXT_SIDE_FALLBACK = "glaeda-side-std-xcode-26.6"
+
+
+def rerun_side_label(env: Mapping[str, str]) -> str:
+    """The owned side label a bot's re-run of a cmux-next.yml run's failed jobs takes through REFUSAL_RESCUE_ATTEMPT,
+    from ci-owned-pool-rescue.yml's SIDE_LANE_RUNNER (vars.CI_SIDE_LANE_RUNNER) and STALL_BLACKSMITH_MACOS
+    (vars.CI_BLACKSMITH_MACOS), or "" while that switch is `on` and the re-run takes RUNNER_POOLS' Blacksmith label.
+    The re-run carries attempt 1's placement, so its Mac jobs fall through to
+    `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER` whatever label they waited on: run 43718265555's
+    daemon tests waited on glaeda-gui-std-xcode-26.6 and attempt 2 took the side label (2026-11-15)."""
+    if (env.get("STALL_BLACKSMITH_MACOS") or "").strip() == "on":
+        return ""
+    side = (env.get("SIDE_LANE_RUNNER") or "").strip()
+    return side if side.startswith("glaeda-side-") else CMUX_NEXT_SIDE_FALLBACK
+
+
+def pool_depth(snapshot: Mapping[str, Any], label: str) -> tuple[int, int] | None:
+    """(jobs queued, seconds its oldest queued job has waited) on `label` by the janitor's snapshot: its `pools` entry
+    (queued, oldest_queued_minutes), else the fleet gates' (`gates.labels`: queued, oldest_queued_s), else None (a
+    label the snapshot does not list proves nothing)."""
+    pools = snapshot.get("pools")
+    gates = snapshot.get("gates")
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    try:
+        entry = pools.get(label) if isinstance(pools, Mapping) else None
+        if isinstance(entry, Mapping) and "queued" in entry:
+            return (max(0, int(entry.get("queued") or 0)),
+                    max(0, int(float(entry.get("oldest_queued_minutes") or 0) * 60)))
+        entry = labels.get(label) if isinstance(labels, Mapping) else None
+        if isinstance(entry, Mapping) and "queued" in entry:
+            return max(0, int(entry.get("queued") or 0)), max(0, int(float(entry.get("oldest_queued_s") or 0)))
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def deeper_queue(snapshot: Mapping[str, Any] | None, sources: Iterable[str], destination: str) -> str:
+    """Why `destination` is a deeper queue than one of `sources`, the labels the moved jobs leave, or "": it has more
+    jobs queued, or as many (one or more) with an older oldest one. A rescue never sends a job to a deeper queue than
+    the one it leaves (coord-deputy-2, 2026-11-15: "the rescue must not send a job to a pool deeper than the one it
+    leaves"). A label the snapshot does not list, or no snapshot, proves nothing."""
+    if not isinstance(snapshot, Mapping):
+        return ""
+    there = pool_depth(snapshot, destination)
+    if there is None:
+        return ""
+    for source in sorted(set(sources)):
+        here = pool_depth(snapshot, source) if source != destination else None
+        if here is None:
+            continue
+        if there[0] > here[0] or there[0] == here[0] > 0 and there[1] > here[1]:
+            return (f"{destination} has {there[0]} queued (oldest {there[1] // 60} min), deeper than {source}'s "
+                    f"{here[0]} queued (oldest {here[1] // 60} min)")
+    return ""
+
+
 def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callable[[float], None],
-                 log: Callable[[str], None]) -> tuple[str, str]:
-    """Whether a queue rescue may move the run now: ("free" | "busy" | "stalled", the label it judged).
+                 log: Callable[[str], None], sources: Iterable[str] = (),
+                 side_label: str = "") -> tuple[str, str]:
+    """Whether a queue rescue may move the run now: ("free" | "busy" | "stalled" | "deeper", the label it judged,
+    or for "deeper" why).
 
     "free": every label the re-run may take has a free slot, so it moves at the configured budget.
-    "stalled": one of them is stalled, so it never moves there. "busy" (also an unreadable snapshot):
-    it moves once the job has waited OWNED_WAIT_FLOOR_SECONDS.
+    "stalled": one of them is stalled, so it never moves there. "deeper": one of them has a deeper queue than a label
+    in `sources` (the owned labels the moved jobs leave, deeper_queue()), so it does not move there. "busy" (also an
+    unreadable snapshot): it moves once the job has waited OWNED_WAIT_FLOOR_SECONDS. A cmux-next.yml re-run that stays
+    on the minis takes `side_label` (rerun_side_label()), not Blacksmith, so only that label's depth is judged.
     """
     if repicks(target):
         return "free", ""
@@ -3302,6 +3381,10 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
         snapshot = None
     if not isinstance(snapshot, Mapping):
         return "busy", ""
+    if side_label and target.path == CMUX_NEXT_WORKFLOW_PATH \
+            and not bot_rerun_leaves_owned(target.path, target.attempt):
+        deeper = deeper_queue(snapshot, sources, side_label)
+        return ("deeper", deeper) if deeper else ("free", "")
     states = blacksmith_states(snapshot, now)
     if all(state == "free" for state in states.values()):
         return "free", ""
@@ -3322,10 +3405,15 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
             log(f"could not read {target.path} at {target.head_sha[:12]} ({type(error).__name__}: {error})")
             text = None
         labels = sorted(retry_labels(text))
-    for verdict in ("stalled", "busy"):
-        hit = next((label for label in labels if states.get(label) == verdict), "")
-        if hit:
-            return verdict, hit
+    hit = next((label for label in labels if states.get(label) == "stalled"), "")
+    if hit:
+        return "stalled", hit
+    deeper = next((why for why in (deeper_queue(snapshot, sources, label) for label in labels) if why), "")
+    if deeper:
+        return "deeper", deeper
+    hit = next((label for label in labels if states.get(label) == "busy"), "")
+    if hit:
+        return "busy", hit
     return "free", ""
 
 
@@ -5179,7 +5267,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             light_rescue = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                          now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
-                         stall_destination=stall_destinations_from_env(env))
+                         stall_destination=stall_destinations_from_env(env), side_label=rerun_side_label(env))
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -5212,7 +5300,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         client.end_on_spent = not target.nightly
     try:
         return finish(follow(client, target, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
-                             now=clock, sleep=sleep, log=log, side_seconds=side_seconds))
+                             now=clock, sleep=sleep, log=log, side_seconds=side_seconds,
+                             side_label=rerun_side_label(env)))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it. One that ran out of API budget is an infra
         # skip, green with a warning: nothing about the run was wrong, and the next sweeper looks again.
@@ -5228,7 +5317,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | None,
            now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
            rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None,
-           light_retry: bool = False, side_seconds: int | None = None) -> str:
+           light_retry: bool = False, side_seconds: int | None = None, side_label: str = "") -> str:
     """Watch one run and rescue it when it needs it. Returns the outcome; raises READ_ERRORS or Aborted.
 
     The sweeper stops a watch by making `sleep` raise; a rescue paces itself
@@ -5285,7 +5374,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                 outcome, reason, held = hold_for_destination(
                     client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
                     deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen, sign_seen=sign_seen,
-                    sign_text=sign_text)
+                    sign_text=sign_text, side_label=side_label)
             if outcome == "resume":
                 result = resume_rerun(client, target, now=clock, sleep=rescue_sleep, log=log, every_job=reason == "all",
                                       only_job=int(reason[4:]) if reason.startswith("job:") else None)
@@ -5432,7 +5521,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
             return settle(outcome, reason)[3]
         outcome, reason, held = hold_for_destination(
             client, target, outcome, reason, budget_seconds=effective_seconds, floor_seconds=None,
-            deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
+            deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen, side_label=side_label)
         if outcome == "resume":
             # The hold watches on, and can find the same stopped rescue.
             return settle(outcome, reason)[3]
@@ -5908,7 +5997,8 @@ def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime
                      if (at - when).total_seconds() < STALL_ROOM_WINDOW_SECONDS)
         wanted = max(1, moved_jobs(jobs))
         full = next((why for why in (stall_room(snapshot, at, wanted, recent, label) for label in destination)
-                     if why), "")
+                     if why), "") or next((why for why in (deeper_queue(snapshot, {stall.label for stall in stalls},
+                                                                        label) for label in destination) if why), "")
         if full:
             log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {full}")
             continue
@@ -6076,7 +6166,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           wait: Callable[[float], None] = time.sleep, light_retry: bool = False,
           side_seconds: int | None = None, running_code: Mapping[str, str] | None = None,
           light_rescue: Callable[[], None] | None = None,
-          stall_destination: tuple[str, ...] | None = (STALL_DESTINATION,)) -> dict[str, int]:
+          stall_destination: tuple[str, ...] | None = (STALL_DESTINATION,),
+          side_label: str = "") -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -6112,7 +6203,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         try:
             outcome = follow(client, target, seconds=seconds, queue_rounds=queue_rounds,
                              now=now, sleep=watch_sleep, log=say, rescue_sleep=wait, latest=latest,
-                             light_retry=light_retry, side_seconds=side_seconds)
+                             light_retry=light_retry, side_seconds=side_seconds, side_label=side_label)
         except Stopping:
             outcome = "handed over"
         except QuotaSpent as error:
