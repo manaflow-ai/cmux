@@ -264,6 +264,399 @@
           }
         }
       }
+    },
+    "notifications.control.bannerNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No banner %@: notifications.banners lists the banners this app asked for"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد إشعار %@: يسرد notifications.banners الإشعارات التي طلبها هذا التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema bannera %@: notifications.banners navodi bannere koje je ova aplikacija zatražila"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet banner %@: notifications.banners viser de bannere, denne app har bedt om"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Banner %@: notifications.banners listet die Banner auf, die diese App angefordert hat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún aviso %@: notifications.banners enumera los avisos que pidió esta app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune bannière %@ : notifications.banners liste les bannières demandées par cette app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun banner %@: notifications.banners elenca i banner richiesti da questa app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バナー %@ はありません。notifications.banners でこのアプリが表示を求めたバナーを確認できます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានផ្ទាំងជូនដំណឹង %@ ទេ៖ notifications.banners បង្ហាញផ្ទាំងជូនដំណឹងដែលកម្មវិធីនេះបានស្នើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배너 %@ 없음: notifications.banners가 이 앱이 요청한 배너를 나열합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen banner %@: notifications.banners viser bannerne denne appen har bedt om"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak banera %@: notifications.banners wyświetla banery, o które prosiła ta aplikacja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum banner %@: notifications.banners lista os banners que este app solicitou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет баннера %@: notifications.banners показывает баннеры, которые запросило это приложение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีแบนเนอร์ %@: notifications.banners แสดงแบนเนอร์ที่แอปนี้ขอแสดง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bildirimi yok: notifications.banners bu uygulamanın istediği bildirimleri listeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає банера %@: notifications.banners показує банери, які запросила ця програма"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có biểu ngữ %@: notifications.banners liệt kê các biểu ngữ ứng dụng này đã yêu cầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有横幅 %@：notifications.banners 会列出此 App 请求显示的横幅"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有橫幅 %@：notifications.banners 會列出此 App 要求顯示的橫幅"
+          }
+        }
+      }
+    },
+    "notifications.control.openNeedsID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id names the banner to open (an id notifications.banners lists)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد params.id الإشعار المراد فتحه (معرّف يسرده notifications.banners)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id navodi banner koji treba otvoriti (ID koji navodi notifications.banners)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id angiver det banner, der skal åbnes (et id, som notifications.banners viser)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id nennt das zu öffnende Banner (eine ID, die notifications.banners auflistet)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id indica el aviso que se abrirá (un id que enumera notifications.banners)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id désigne la bannière à ouvrir (un identifiant listé par notifications.banners)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id indica il banner da aprire (un id elencato da notifications.banners)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id には開くバナーを指定します（notifications.banners が一覧表示する ID）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id កំណត់ផ្ទាំងជូនដំណឹងដែលត្រូវបើក (ID ដែល notifications.banners បង្ហាញ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id는 열 배너를 지정합니다(notifications.banners가 나열하는 ID)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id angir banneret som skal åpnes (en ID som notifications.banners viser)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id wskazuje baner do otwarcia (identyfikator z listy notifications.banners)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id indica o banner a abrir (um id listado por notifications.banners)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id указывает баннер, который нужно открыть (ID из списка notifications.banners)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id ระบุแบนเนอร์ที่จะเปิด (ID ที่ notifications.banners แสดง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id açılacak bildirimi belirtir (notifications.banners'ın listelediği bir kimlik)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id вказує банер, який треба відкрити (ID зі списку notifications.banners)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id chỉ định biểu ngữ cần mở (một ID mà notifications.banners liệt kê)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id 指定要打开的横幅（notifications.banners 列出的 ID）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.id 指定要開啟的橫幅（notifications.banners 列出的 ID）"
+          }
+        }
+      }
+    },
+    "notifications.control.openPersonOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ opens only on your click in macOS; notifications.open opens a tab's banner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُفتح الإشعار %@ بنقرتك في macOS فقط؛ يفتح notifications.open إشعار علامة تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ se otvara samo vašim klikom u macOS-u; notifications.open otvara banner kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ åbnes kun med dit klik i macOS; notifications.open åbner en fanes banner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ öffnet sich nur durch deinen Klick in macOS; notifications.open öffnet das Banner eines Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El aviso %@ solo se abre con tu clic en macOS; notifications.open abre el aviso de una pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La bannière %@ ne s’ouvre que sur votre clic dans macOS ; notifications.open ouvre la bannière d’un onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il banner %@ si apre solo con il tuo clic in macOS; notifications.open apre il banner di una scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バナー %@ は macOS でのあなたのクリックでのみ開きます。notifications.open はタブのバナーを開きます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បដា %@ បើកតែដោយការចុចរបស់អ្នកក្នុង macOS ប៉ុណ្ណោះ; notifications.open បើកបដារបស់ផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배너 %@은(는) macOS에서 직접 클릭해야만 열립니다. notifications.open은 탭의 배너를 엽니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ åpnes bare med ditt klikk i macOS; notifications.open åpner en fanes banner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baner %@ otwiera się tylko po Twoim kliknięciu w macOS; notifications.open otwiera baner karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O banner %@ só abre com o seu clique no macOS; notifications.open abre o banner de uma aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Баннер %@ открывается только вашим щелчком в macOS; notifications.open открывает баннер вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบนเนอร์ %@ เปิดได้ด้วยการคลิกของคุณใน macOS เท่านั้น notifications.open เปิดแบนเนอร์ของแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bildirimi yalnızca macOS'te sizin tıklamanızla açılır; notifications.open bir sekmenin bildirimini açar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Банер %@ відкривається лише вашим клацанням у macOS; notifications.open відкриває банер вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biểu ngữ %@ chỉ mở khi bạn bấm trong macOS; notifications.open mở biểu ngữ của một tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "横幅 %@ 只能由你在 macOS 中点按打开；notifications.open 打开的是标签页的横幅"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "橫幅 %@ 只能由你在 macOS 中點按開啟；notifications.open 開啟的是分頁的橫幅"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

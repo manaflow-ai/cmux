@@ -224,36 +224,10 @@ impl HolderClient {
         token: &[u8; 32],
         version: u16,
     ) -> io::Result<(Self, Vec<Listed>)> {
-        let stream = UnixStream::connect(socket)?;
-        wire::tune_socket(stream.as_raw_fd());
-        let mut client = Self {
-            stream,
-            reader: wire::Reader::default(),
-            pending: VecDeque::new(),
-            version: wire::MIN_VERSION,
-        };
-        client.send(Kind::Hello, 0, &Out::default().u16(version).bytes(token).0, None)?;
+        let mut pending = PendingClient::hello(socket, token, version)?;
         let deadline = Instant::now() + Duration::from_secs(10);
-        let count = loop {
-            let frame = client.frame(deadline)?;
-            match Kind::from_u16(frame.kind) {
-                Some(Kind::Welcome) => {
-                    let mut input = In(&frame.payload);
-                    client.version = input.u16()?;
-                    break input.u32()?;
-                }
-                Some(Kind::Error) => return Err(refusal(&frame.payload)),
-                _ => continue,
-            }
-        };
-        let mut listed = Vec::new();
-        while listed.len() < count as usize {
-            let frame = client.frame(deadline)?;
-            if frame.kind == Kind::Listed as u16 {
-                listed.push(Listed::decode(frame.chan, frame.flags, &frame.payload, frame.fds)?);
-            }
-        }
-        Ok((client, listed))
+        pending.welcomed(&|| deadline.saturating_duration_since(Instant::now()))?;
+        Ok(pending.into_client())
     }
 
     /// The authenticated socket, the bytes already read past the handshake
@@ -482,11 +456,18 @@ impl HolderClient {
     }
 
     fn frame(&mut self, deadline: Instant) -> io::Result<wire::Frame> {
+        self.frame_while(&|| deadline.saturating_duration_since(Instant::now()))
+    }
+
+    /// The next frame, waiting for it while `left` is not zero. `left` is
+    /// asked before each read and bounds that read. A `TimedOut` keeps every
+    /// byte read so far in the reader: a later call goes on from there.
+    fn frame_while(&mut self, left: &dyn Fn() -> Duration) -> io::Result<wire::Frame> {
         loop {
             if let Some(frame) = self.reader.next_frame()? {
                 return Ok(frame);
             }
-            let left = deadline.saturating_duration_since(Instant::now());
+            let left = left();
             if left.is_zero() {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "holder did not answer"));
             }
@@ -514,11 +495,112 @@ fn error_message(payload: &[u8]) -> String {
     String::from_utf8_lossy(payload.get(4..).unwrap_or_default()).into_owned()
 }
 
+/// A connect whose HELLO went out and whose answer has not all come: the
+/// holder took the connect and may answer later (it is stopped, or it has no
+/// time yet). The wait for the answer can time out and go on later on the
+/// same socket, so a slow holder gets one connect from a daemon, not one for
+/// each wait.
+pub struct PendingClient {
+    client: HolderClient,
+    /// How many LISTED frames the WELCOME announced, once it came.
+    count: Option<u32>,
+    listed: Vec<Listed>,
+}
+
+impl PendingClient {
+    /// Connect to the holder at `socket` and send the HELLO, which offers
+    /// wire version `version`.
+    pub fn hello(socket: &Path, token: &[u8; 32], version: u16) -> io::Result<Self> {
+        let stream = UnixStream::connect(socket)?;
+        wire::tune_socket(stream.as_raw_fd());
+        let mut client = HolderClient {
+            stream,
+            reader: wire::Reader::default(),
+            pending: VecDeque::new(),
+            version: wire::MIN_VERSION,
+        };
+        client.send(Kind::Hello, 0, &Out::default().u16(version).bytes(token).0, None)?;
+        Ok(Self { client, count: None, listed: Vec::new() })
+    }
+
+    /// Read the holder's WELCOME and its LISTED frames while `left` is not
+    /// zero (it is asked before each read and bounds that read). After a
+    /// `TimedOut` everything read so far is kept: call this again to go on
+    /// waiting on the same connect. Any other error ends the connect.
+    pub fn welcomed(&mut self, left: &dyn Fn() -> Duration) -> io::Result<()> {
+        let count = match self.count {
+            Some(count) => count,
+            None => loop {
+                let frame = self.client.frame_while(left)?;
+                match Kind::from_u16(frame.kind) {
+                    Some(Kind::Welcome) => {
+                        let mut input = In(&frame.payload);
+                        self.client.version = input.u16()?;
+                        let count = input.u32()?;
+                        self.count = Some(count);
+                        break count;
+                    }
+                    Some(Kind::Error) => return Err(refusal(&frame.payload)),
+                    _ => continue,
+                }
+            },
+        };
+        while self.listed.len() < count as usize {
+            let frame = self.client.frame_while(left)?;
+            if frame.kind == Kind::Listed as u16 {
+                self.listed.push(Listed::decode(
+                    frame.chan,
+                    frame.flags,
+                    &frame.payload,
+                    frame.fds,
+                )?);
+            }
+        }
+        Ok(())
+    }
+
+    /// The authenticated link and the terminals the holder runs, once
+    /// [`Self::welcomed`] returned `Ok`.
+    pub fn into_client(self) -> (HolderClient, Vec<Listed>) {
+        (self.client, self.listed)
+    }
+}
+
+/// The holder's refusal of a connect whose link another connect took before
+/// the holder answered this one (ERROR `SUPERSEDED` about the HELLO, with no
+/// WELCOME before it). A holder that writes it runs, and it still runs every
+/// terminal: in the turn in which it read this HELLO it then read the HELLO
+/// of another connect (an older one: it reads the newest first).
+/// Inside the [`io::Error`] of [`PendingClient::welcomed`];
+/// [`link_taken_before_the_answer`] finds it.
+#[derive(Debug)]
+struct LinkTaken(String);
+
+impl std::fmt::Display for LinkTaken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for LinkTaken {}
+
+/// Whether `error` is the holder's refusal of a connect whose link another
+/// connect took before the answer. Such a holder runs: a new connect can
+/// take its link. Any other refusal (a wrong token, no common version) says
+/// that the holder does not serve this daemon.
+pub fn link_taken_before_the_answer(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<LinkTaken>())
+}
+
 /// The error a holder's refusal of the HELLO stands for.
 fn refusal(payload: &[u8]) -> io::Error {
     let code = In(payload.get(2..).unwrap_or_default()).u16().unwrap_or_default();
     if code == crate::holder::error_code::BAD_TOKEN {
         return io::Error::other("holder refused the token");
     }
-    io::Error::other(format!("holder refused the link (code {code}): {}", error_message(payload)))
+    let words = format!("holder refused the link (code {code}): {}", error_message(payload));
+    if code == crate::holder::error_code::SUPERSEDED {
+        return io::Error::other(LinkTaken(words));
+    }
+    io::Error::other(words)
 }
