@@ -46,6 +46,11 @@ use crate::store::{Draft, Generation, Kind};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
+mod text;
+
+pub use text::thumbnail;
+use text::{one_line, redact_serde, slug, unique_name};
+
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
 /// The most entries one collection or library holds.
@@ -53,8 +58,6 @@ pub const MAX_ENTRIES: usize = 500;
 /// The largest collection file import reads.
 pub const MAX_COLLECTION_BYTES: usize = 8 * 1024 * 1024;
 const MAX_WORDS: usize = 20;
-const MAX_SWATCHES: usize = 6;
-const MAX_THUMB_KEYS: usize = 12;
 
 /// What a library entry looks like at a glance: the colors it sets and the
 /// keys it sets. Computed from the profile, never read from a file.
@@ -928,109 +931,4 @@ fn find<'a>(entries: &'a mut [Entry], name: &str) -> Result<&'a mut Entry, Error
         };
         Error::Library(format!("there is no library entry {name:?}; {hint}"))
     })
-}
-
-/// The colors and keys an entry sets.
-pub fn thumbnail(profile: &Profile) -> Thumbnail {
-    let mut swatches: Vec<String> = Vec::new();
-    let mut add = |text: &str| {
-        for color in colors(text) {
-            if swatches.len() < MAX_SWATCHES && !swatches.contains(&color) {
-                swatches.push(color);
-            }
-        }
-    };
-    for value in profile.settings.values() {
-        add(&value.to_string());
-    }
-    for text in profile.files.values() {
-        add(text);
-    }
-    let keys =
-        profile.settings.keys().chain(profile.files.keys()).take(MAX_THUMB_KEYS).cloned().collect();
-    Thumbnail { swatches, keys }
-}
-
-/// `#rgb` and `#rrggbb` colors in `text`, lowercase.
-fn colors(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = text;
-    while let Some((_, after)) = rest.split_once('#') {
-        let run: String = after.chars().take_while(char::is_ascii_hexdigit).collect();
-        let next = after.chars().nth(run.len());
-        let ends = next.is_none_or(|c| !c.is_ascii_alphanumeric());
-        if (run.len() == 6 || run.len() == 3) && ends {
-            out.push(format!("#{}", run.to_ascii_lowercase()));
-        }
-        rest = after;
-    }
-    out
-}
-
-/// A file name from the first words: `make the sidebar compact` becomes
-/// `make-the-sidebar-compact`.
-fn slug(words: &str) -> String {
-    let words = words.strip_prefix("profile ").unwrap_or(words);
-    let mut out = String::new();
-    for c in words.chars() {
-        if c.is_ascii_alphanumeric() {
-            out.push(c.to_ascii_lowercase());
-        } else if !out.ends_with('-') && !out.is_empty() {
-            out.push('-');
-        }
-        if out.len() >= 40 {
-            break;
-        }
-    }
-    let out = out.trim_matches('-').to_owned();
-    if valid_name(&out) { out } else { "change".to_owned() }
-}
-
-fn unique_name(entries: &[Entry], wanted: &str) -> String {
-    let taken = |name: &str| entries.iter().any(|entry| entry.name() == name);
-    if !taken(wanted) {
-        return wanted.to_owned();
-    }
-    let stem: String = wanted.chars().take(56).collect();
-    (2..).map(|n| format!("{stem}-{n}")).find(|name| !taken(name)).unwrap_or_default()
-}
-
-fn one_line(text: &str) -> String {
-    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if line.chars().count() > 200 {
-        let mut short: String = line.chars().take(200).collect();
-        short.push('…');
-        return short;
-    }
-    line
-}
-
-/// A serde message without the value it quoted.
-fn redact_serde(message: &str) -> String {
-    let unquoted = |text: &str| text.split(['`', '"']).next().unwrap_or(text).trim_end().to_owned();
-    match message.split_once(" at line ") {
-        Some((head, tail)) => format!("{} at line {tail}", unquoted(head)),
-        None => unquoted(message),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn colors_are_hex_runs_of_three_or_six() {
-        assert_eq!(
-            colors("a #1E1E2E b #fff #12345 #abcdefg c#00ff00"),
-            ["#1e1e2e", "#fff", "#00ff00"]
-        );
-    }
-
-    #[test]
-    fn a_slug_is_a_profile_name() {
-        assert_eq!(slug("Make the sidebar compact!"), "make-the-sidebar-compact");
-        assert_eq!(slug("profile tiling-look"), "tiling-look");
-        assert_eq!(slug("…"), "change");
-        assert!(valid_name(&slug(&"word ".repeat(40))));
-    }
 }
