@@ -7,7 +7,7 @@ public import Observation
 import os
 import CmuxNextCompat
 
-private let helperLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
+nonisolated private let helperLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// Starts the cmux-cua daemon in a helper app (LaunchServices in the App, a fake in tests).
 @MainActor
