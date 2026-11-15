@@ -11,7 +11,7 @@ import { HEADER_ACTIONS } from "./headerActions";
 import { menuKeycap } from "./chatHeaderToolsModel";
 import { readLastKind, repeatKind, writeLastKind, type NewKind } from "./headerTrio";
 import { tooltipProps, useShortcut } from "../shortcuts";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 
 const KIND_LABELS: Record<NewKind, StringKey> = {
   terminal: "chatMenu.newTerminal",
@@ -36,12 +36,16 @@ const KIND_ACTIONS: Partial<Record<NewKind, string>> = {
 export function HeaderNewButton({
   kinds,
   make,
+  onScreenShare,
   initialLast,
   initialOpen = false,
 }: {
   /// The kinds this chat can make now, in the menu's order (headerTrio.ts newKinds).
   kinds: readonly NewKind[];
   make: (kind: NewKind) => void;
+  /// The current chat's session-bound screen-sharing action. It is deliberately separate from
+  /// `NewKind`: using it must not change which New action the face repeats next time.
+  onScreenShare?: () => void;
   /// The gallery's last kind; the app reads the one kept on this Mac.
   initialLast?: NewKind;
   /// The gallery draws the menu open.
@@ -106,6 +110,15 @@ export function HeaderNewButton({
               {keys[kind] && <kbd className="acpmux-chat-menu-key">{keys[kind]}</kbd>}
             </MenuItem>
           ))}
+          {onScreenShare && (
+            <>
+              <MenuSeparator />
+              <MenuItem data-value="screen-sharing" className="acpmux-chat-menu-item" onSelect={onScreenShare}>
+                <Icon name="remote.display" size={14} />
+                <span className="acpmux-chat-menu-label">{t("sessionInfo.environment.screenSharing")}</span>
+              </MenuItem>
+            </>
+          )}
         </MenuPopup>
       </Menu>
     </div>

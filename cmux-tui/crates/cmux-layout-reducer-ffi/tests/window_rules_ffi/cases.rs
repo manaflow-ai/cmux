@@ -657,7 +657,7 @@ fn screen_share_routes_only_the_explicit_machine_and_current_chat() {
     let (_, body) = call_json(c"window_remote_screen_share", &facts);
     assert_eq!(body, json!({"decision": "shareLocal"}));
     facts["kind"] = json!("cloud");
-    facts["chat"] = serde_json::Value::Null;
+    facts["chat"] = Value::Null;
     let (_, body) = call_json(c"window_remote_screen_share", &facts);
     assert_eq!(body, json!({"decision": "cloudDesktop", "machineId": "studio"}));
     facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "host": "registry:studio", "registryHost": "registry:studio"});

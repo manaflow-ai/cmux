@@ -10,6 +10,7 @@ import { PanelToggle } from "./PanelToggle";
 import { FORK_ICON } from "../icons/forkIcon";
 
 type Props = {
+  chat?: string;
   onTerminal: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
   hasChanges?: boolean;
@@ -148,6 +149,29 @@ export default componentEntry<Props>({
         await openNew(ctx);
         await ctx.click({ selector: '.acpmux-header-new-popover [data-value="terminal"]' });
         await ctx.waitFor(() => ctx.document.querySelector('[data-header-new="terminal"]'));
+      }),
+    },
+    "trio-screen-share": {
+      note: "The New chevron exposes Screen sharing… for the current chat, one step from the header.",
+      props: { ...chat, chat: "session-1" },
+      play: layout("trio", openNew),
+    },
+    "trio-screen-share-hover": {
+      note: "The Screen sharing… row is separated from New kinds and ready to invoke for this chat.",
+      props: { ...chat, chat: "session-1" },
+      play: layout("trio", async (ctx) => {
+        await openNew(ctx);
+        await ctx.hover({ selector: '[data-value="screen-sharing"]' });
+      }),
+    },
+    "trio-without-screen-share": {
+      note: "A header without a bound chat session keeps the chevron limited to New kinds.",
+      props: chat,
+      play: layout("trio", async (ctx) => {
+        await openNew(ctx);
+        if (ctx.document.querySelector('[data-value="screen-sharing"]')) {
+          throw new Error("screen sharing needs a bound chat session");
+        }
       }),
     },
   },
