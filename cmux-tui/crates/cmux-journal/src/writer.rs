@@ -7,12 +7,22 @@
 //! full one, or, when no batch comes, a full sync runs alone. So an ack waits for a drive cache
 //! flush at most once per interval, and never after an idle time.
 //!
-//! Sync markers (`format.rs`): after each successful sync that covered records, the writer appends
-//! a marker that vouches for them, before anything else it writes to that segment, after the
-//! durable listeners ran (so no reply waits for it). The next sync covers the marker; at a seal and
-//! at a rotation one more full sync covers it, so a sealed or full segment ends vouched for on
-//! the disk. Recovery trusts the last segment only up to its last marker and writes the records
-//! after it again into a new segment.
+//! Sync markers (`format.rs`): after each successful sync that covered records, the writer owes a
+//! marker that vouches for them. It appends it in the same write as the next records it writes to
+//! that segment, ahead of them, after the durable listeners ran (so no reply waits for it), and
+//! the next sync covers both; at a seal and at a rotation it appends it at once and one more full
+//! sync covers it, so a sealed or full segment ends vouched for on the disk. Recovery trusts the
+//! last segment only up to its last marker and writes the records after it again into a new
+//! segment.
+//!
+//! The marker waits for the next records because the kernel charges a write by the pages it
+//! dirties (macOS 16 KiB, Linux 4 KiB, each time a clean page becomes dirty), and a sync cleans
+//! the pages it wrote. A marker appended right after its sync dirtied the page again on its own;
+//! the full sync of the power-loss window, or the kernel's writeback, then cleaned it, and the next
+//! batch dirtied it a third time: two pages charged for a lone acked change instead of one
+//! (cmuxterm-hq#11322, `page_charge_tests.rs`). Written with the next records, it shares their
+//! pages. A kill in between only means recovery writes the last synced batch again (step 4 of
+//! `recovery.rs`), as it does for a marker an OS crash lost; nothing acked is lost.
 //!
 //! Failures:
 //! - A failed write (a full disk): the segment is cut back to its size before the write, and the
@@ -368,18 +378,31 @@ impl Writer {
             // records the failed segment holds through `durable` become fully durable too.
             self.create_segment().map_err(Failure::Segment)?;
         }
-        // A marker that a failed write left owed goes first.
-        self.write_marker()?;
         let now = Instant::now();
         if self.written < self.retained.len() {
             let Some(active) = self.active.as_mut() else {
                 return Err(Failure::Segment(no_segment()));
             };
             let unwritten = self.retained.get(self.written..).unwrap_or_default();
-            if let Err(error) = active.file.append(unwritten) {
-                return Err(cut_back(active, error));
+            // The marker the last sync owes goes first, in the same write and the same dirty
+            // pages as the records after it ([module docs](self)).
+            let appended = match self.marker {
+                Some(lsn) => {
+                    let mut bytes = Vec::with_capacity(RECORD_HEADER_LEN + unwritten.len());
+                    format::encode_marker(&mut bytes, lsn);
+                    bytes.extend_from_slice(unwritten);
+                    active.file.append(&bytes).map(|()| bytes.len())
+                }
+                None => active.file.append(unwritten).map(|()| unwritten.len()),
+            };
+            let appended = match appended {
+                Ok(appended) => appended,
+                Err(error) => return Err(cut_back(active, error)),
+            };
+            active.size = active.size.saturating_add(len64(appended));
+            if self.marker.take().is_some() {
+                self.marker_unsynced = true;
             }
-            active.size = active.size.saturating_add(len64(unwritten.len()));
             self.written = self.retained.len();
             self.unmarked = true;
             if self.unsynced_since.is_none() {
@@ -412,12 +435,14 @@ impl Writer {
         if due || (full && owed) {
             let level = if full { SyncLevel::Full } else { SyncLevel::Barrier };
             self.sync(level).map_err(Failure::Segment)?;
-            self.write_marker()?;
         }
-        if (close || full_segment) && self.marker_unsynced {
+        if close || full_segment {
             // A sealed or full segment ends with its marker on the disk, so the next open finds
             // every record vouched for and writes none again.
-            self.sync_marker().map_err(Failure::Segment)?;
+            self.write_marker()?;
+            if self.marker_unsynced {
+                self.sync_marker().map_err(Failure::Segment)?;
+            }
         }
         if full_segment && self.retained.is_empty() {
             // Fully synced: the next record makes the next segment.
@@ -486,8 +511,9 @@ impl Writer {
         Ok(())
     }
 
-    /// Appends the marker `active` owes ([module docs](self)). It is not synced here: the next
-    /// sync covers it, and recovery syncs the last segment before it reads it.
+    /// Appends the marker `active` owes on its own, at a seal or a rotation (otherwise it goes in
+    /// the next records' write: [module docs](self)). It is not synced here: the caller's full sync
+    /// covers it, and recovery syncs the last segment before it reads it.
     fn write_marker(&mut self) -> Result<(), Failure> {
         let Some(lsn) = self.marker else { return Ok(()) };
         let Some(active) = self.active.as_mut() else { return Ok(()) };
