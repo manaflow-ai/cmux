@@ -316,8 +316,13 @@ struct FeedWaiterRegistryTests {
         #expect(stop.handedOff.isEmpty)
         _ = registry.finish(waiting)
 
+        // The next hook takes a waiting request and the handoff in one call.
+        let nextEvent = stamped(.permissionRequest, sentAt: 3_500, request: "next")
+        let next = try #require(registry.register(requestID: "next", event: nextEvent))
+        registry.accepted(next, event: nextEvent, item: item())
         let later = registry.supersede(by: stamped(.preToolUse, sentAt: 4_000))
-        #expect(later.pending.isEmpty)
+        #expect(later.pending.map { $0.0.requestID } == ["next"])
         #expect(later.handedOff.map(\.requestID) == ["timed-out"])
+        _ = registry.finish(next)
     }
 }
