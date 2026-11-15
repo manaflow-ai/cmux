@@ -1,5 +1,6 @@
 public import CmuxNextActions
 import CmuxNextDaemonService
+import CmuxNextDevices
 public import CmuxNextPalette
 import Foundation
 
@@ -49,11 +50,61 @@ public struct MacScreenActions {
     }
 
     static func record(_ invocation: ActionInvocation, pages: MacScreenPages) throws -> MacScreenRecord {
+        try record(invocation, pages: pages, devices: pages.viewableDevices)
+    }
+
+    /// `device` is the hub's device id or, from the CLI and agents, a device name (the Mac's Computer Name) among
+    /// `devices`, the devices the home page lists. Names resolve here, at the action boundary: records and
+    /// `MacScreenPages.record(forDevice:)` take only ids. No `device` opens the home page.
+    static func record(_ invocation: ActionInvocation, pages: MacScreenPages, devices: [HubDevice]) throws -> MacScreenRecord {
         guard let value = invocation["device"] else { return MacScreenRecord(macID: nil) }
-        guard let device = value.stringValue, MacScreenRecord(deviceID: device).deviceID != nil else {
-            throw ActionFailure(message: invalidDevice)
+        guard let text = value.stringValue else { throw ActionFailure(message: missingDevice(among: devices)) }
+        let id = try deviceID(named: text, among: devices)
+        return pages.record(forDevice: id, requesting: isPerson(invocation) ? .view : nil)
+    }
+
+    /// The hub id `text` names: an id as is (listed or not, as before names resolved), else the one device whose
+    /// name matches case-insensitively, else the one whose name matches ignoring punctuation and spacing too
+    /// ("mac-mini" for "Mac Mini", "leos-mac" for "Leo’s Mac"), so a `cmux device list` name finds its Mac.
+    /// An empty, unknown or ambiguous name fails with the devices it could name, as "name (id)".
+    static func deviceID(named text: String, among devices: [HubDevice]) throws -> String {
+        if let id = MacScreenRecord.normalizedDeviceID(text) { return id }
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw ActionFailure(message: missingDevice(among: devices)) }
+        for key: (String) -> String in [Self.folded, Self.slug] {
+            let wanted = key(name)
+            guard !wanted.isEmpty else { continue }
+            let matches = devices.filter { key($0.name) == wanted }
+            if matches.count == 1, let match = matches.first { return match.id }
+            if matches.count > 1 {
+                throw ActionFailure(message: String(format: L.t("macScreen.actions.ambiguousDevice", "More than one device is named “%@”: %@. Pass the id of the one to open."), name, listed(matches)))
+            }
         }
-        return pages.record(forDevice: device, requesting: isPerson(invocation) ? .view : nil)
+        throw ActionFailure(message: unknownDevice(name, among: devices))
+    }
+
+    private static func folded(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+    private static func slug(_ name: String) -> String {
+        folded(name).components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: "-")
+    }
+    /// "Studio (0b6c…), mac-mini (5d1e…)": what a CLI caller can pass back as `--device`.
+    private static func listed(_ devices: [HubDevice]) -> String {
+        let rows = devices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map { "\($0.name) (\($0.id))" }
+        return ListFormatter.localizedString(byJoining: rows)
+    }
+    private static func unknownDevice(_ name: String, among devices: [HubDevice]) -> String {
+        guard !devices.isEmpty else {
+            return String(format: L.t("macScreen.actions.unknownDeviceNoneListed", "No device is named “%@”, and no devices are listed: sign in to cmux on both Macs and turn on Allow Mac Screen on the other Mac."), name)
+        }
+        return String(format: L.t("macScreen.actions.unknownDevice", "No device is named “%@”. Your devices: %@."), name, listed(devices))
+    }
+    private static func missingDevice(among devices: [HubDevice]) -> String {
+        guard !devices.isEmpty else {
+            return L.t("macScreen.actions.missingDeviceNoneListed", "Pass a device name or id. No devices are listed: sign in to cmux on both Macs and turn on Allow Mac Screen on the other Mac.")
+        }
+        return String(format: L.t("macScreen.actions.missingDevice", "Pass a device name or id. Your devices: %@."), listed(devices))
     }
 
     func viewer(_ invocation: ActionInvocation) -> MacScreenPane? {
@@ -75,5 +126,4 @@ public struct MacScreenActions {
     }
     private static var noPane: String { L.t("macScreen.actions.noPane", "Choose a pane or tab to open Screen Sharing.") }
     private static var noViewer: String { L.t("macScreen.actions.noViewer", "Choose a Screen Sharing tab to stop viewing.") }
-    private static var invalidDevice: String { L.t("macScreen.actions.invalidDevice", "Choose a device from Screen Sharing.") }
 }
