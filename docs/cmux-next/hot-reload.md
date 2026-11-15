@@ -493,10 +493,18 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   can't be read, is left;
   `--acpmux-home H` restarts one by its home. Without either, the receipt lists the acpmux daemons
   left on the old build (`acpmux_left_on_old_build`), and `rollback` restarts the ones it restarted.
+  Another session's terminal daemon that runs from the same `bin/cmux` (a Chief's) keeps the build it
+  mapped and is listed in `left_on_old_build`, unless `--restart-sessions` is given. With it, each one is
+  handed to the new build by `server restart` on its socket. Its terminals are kept, and its session,
+  launch flags and environment carry over. It's checked like the app's own: a new owner must answer,
+  running the swapped file. `rollback` hands them back the same way. From ssh on macOS they're left and
+  the receipt says why.
 - **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
   the app's.
 - **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as
-  cmux-mobile-host still need the nightly. `plan` lists them under `left`.
+  cmux-mobile-host still need the nightly. `plan` lists them under `left`. C, Objective-C and Zig
+  sources inside `cmux-tui/` (a companion's shim, the Zig binding) are not resources: the tree build
+  compiles them, so they go with the Rust part unless they sit in an app FFI crate.
 
 Each part is checked after it goes in: `bin/cmux` hashes to the published sha256 and a new daemon
 answers from it, and the overlay names SHA. A part that fails its check is put back. SHA must come

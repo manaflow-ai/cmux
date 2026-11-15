@@ -399,6 +399,131 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(self.sha(), self.old)
 
 
+SHIM = "a3bead27e6599480e2d2654816f9ecdff99ecaf2"  # cmux#43239's remote browser host: Rust plus csrc/rb_shim.mm and .h
+
+
+class NativeSources(unittest.TestCase):
+    """C, Objective-C and Zig inside cmux-tui ride the Rust part: the tree build compiles them."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [SHIM], depth=2)
+
+    def test_a_companion_s_objective_c_shim_is_not_left_for_a_nightly(self):
+        tmp = Path(tempfile.mkdtemp(prefix="hot-apply-native-"))
+        try:
+            env = dict(os.environ, CMUX_HOT_APPLY_STATE_DIR=str(tmp / "state"),
+                       CMUX_HOT_APPLY_TUI_BASE=(tmp / "tree").as_uri())  # nothing published: plan only
+            base = run_git("rev-parse", f"{SHIM}^").stdout.strip()
+            done = subprocess.run([sys.executable, str(SCRIPT), "plan", SHIM, "--base", base, "--app", str(tmp / "none")],
+                                  capture_output=True, text=True, env=env)
+            plan = json.loads(done.stdout)
+            self.assertEqual(plan["parts"], ["rust"], done.stderr)
+            left = [p for paths in plan["left"].values() for p in paths]
+            self.assertFalse([p for p in left if p.endswith((".mm", ".h"))], plan["left"])
+        finally:
+            subprocess.run(["rm", "-rf", str(tmp)])
+
+    def test_only_cmux_tui_native_sources_count(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_native_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_native_under_test"] = hot
+        spec.loader.exec_module(hot)
+        self.assertTrue(hot.NATIVE_IN_TUI.match("cmux-tui/crates/cmux-remote-browser-host/csrc/rb_shim.mm"))
+        self.assertTrue(hot.NATIVE_IN_TUI.match("cmux-tui/bindings/zig/src/resource.zig"))
+        self.assertFalse(hot.NATIVE_IN_TUI.match("ghostty/src/main.zig"))
+        self.assertFalse(hot.NATIVE_IN_TUI.match("Sources/CmuxNextApp/Bridge.m"))
+
+
+
+class OtherSessions(unittest.TestCase):
+    """--restart-sessions: another session's daemon from the app's bin (a Chief's) is handed to the new build
+    with `server restart` on its socket, as the app's own is handed off; without it, it is named and left."""
+
+    APP_SOCK, CHIEF_SOCK = "/tmp/cmux-app-test.sock", "/tmp/cmux-chief-test.sock"
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_sessions_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_sessions_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-sessions-"))
+        self.target = self.tmp / "cmux NIGHTLY.app/Contents/Resources/bin/cmux"
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(b"old")
+        self.new = self.tmp / "new"
+        self.new.write_bytes(b"new")
+        self.want = hashlib.sha256(b"new").hexdigest()
+        self.pids = {self.APP_SOCK: 100, self.CHIEF_SOCK: 200}
+        self.restarted, self.restart_works = [], True
+        test = self
+
+        class Swapper:
+            def __init__(self, _cli, socket, state=None):
+                self.socket = socket
+
+            def owner(self, _cli, timeout=60):
+                return (test.pids[self.socket], test.target) if self.socket in test.pids else None
+
+            @staticmethod
+            def app_file(exe):
+                return exe
+
+            def app_handoff(self, new, _pid, target):
+                target.write_bytes(new.read_bytes())
+                test.pids[self.socket] += 1
+
+        real_run = self.hot.subprocess.run
+
+        def run(argv, **kwargs):
+            if argv[-2:] == ["server", "restart"]:
+                sock = argv[argv.index("--socket") + 1]
+                test.restarted.append(sock)
+                if test.restart_works:
+                    test.pids[sock] += 1
+                return subprocess.CompletedProcess(argv, 0 if test.restart_works else 1, "{}", "")
+            return real_run(argv, **kwargs)
+
+        self.hot.load = lambda name, file: type("rust_live", (), {"Swapper": Swapper})
+        self.hot.find_sockets = lambda app, cli: [self.APP_SOCK, self.CHIEF_SOCK]
+        self.hot.subprocess.run = run
+        self.addCleanup(setattr, self.hot.subprocess, "run", real_run)
+        self.hot.outside_login_session = lambda: False
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def swap(self, sessions):
+        return self.hot.swap_cmux(self.target.parents[3], self.new, self.want, None, self.tmp / "state", sessions)
+
+    def test_not_asked_names_the_chief_s_daemon_and_leaves_it(self):
+        step = self.swap(False)
+        self.assertEqual(step["left_on_old_build"], [self.CHIEF_SOCK])
+        self.assertIn("not asked", step["left_on_old_build_why"])
+        self.assertEqual(self.restarted, [])
+        self.assertEqual(self.pids[self.CHIEF_SOCK], 200)
+
+    def test_asked_hands_the_chief_s_daemon_over_too(self):
+        step = self.swap(True)
+        self.assertNotIn("left_on_old_build", step)
+        self.assertEqual(self.restarted, [self.CHIEF_SOCK])
+        self.assertEqual([(s["socket"], s["old_pid"], s["new_pid"]) for s in step["sessions"]],
+                         [(self.CHIEF_SOCK, 200, 201)])
+        self.assertEqual((step["old_pid"], step["new_pid"]), (100, 101))  # the app's own, as before
+
+    def test_from_ssh_on_macos_it_is_left_and_says_why(self):
+        self.hot.outside_login_session = lambda: True
+        step = self.swap(True)
+        self.assertEqual(step["left_on_old_build"], [self.CHIEF_SOCK])
+        self.assertIn("ssh", step["left_on_old_build_why"])
+        self.assertEqual(self.restarted, [])
+
+    def test_a_restart_that_leaves_no_new_owner_raises_so_the_apply_puts_back(self):
+        self.restart_works = False
+        with self.assertRaises(RuntimeError) as caught:
+            self.swap(True)
+        self.assertIn(self.CHIEF_SOCK, str(caught.exception))
+
 class WebCache(unittest.TestCase):
     """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
 
