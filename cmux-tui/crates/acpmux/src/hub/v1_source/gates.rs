@@ -320,7 +320,14 @@ fn shape_from_env(case: &str) -> crate::god_fixture::Shape {
     if case == "god" {
         crate::god_fixture::Shape::god_from_env()
     } else {
-        crate::god_fixture::Shape::small()
+        let mut small = crate::god_fixture::Shape::small();
+        // Probe: the small chat's turns as large as god's (its largest row the same).
+        if std::env::var_os("CATCHUP_SMALL_GOD_ROWS").is_some() {
+            let god = crate::god_fixture::Shape::god();
+            let per_turn = god.god_bytes / god.god_messages.div_ceil(4) as u64;
+            small.god_bytes = per_turn * small.god_messages.div_ceil(4) as u64;
+        }
+        small
     }
 }
 
