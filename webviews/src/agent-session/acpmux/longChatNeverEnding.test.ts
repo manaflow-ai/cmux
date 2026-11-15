@@ -109,7 +109,8 @@ async function streamed(count: number, following: boolean) {
         // An older page: the newest records before `beforeSeq`, as acpmux pages them.
         if (method === "_acpmux/events" && params.sessionId === target && params.beforeSeq !== undefined) {
           const limit = Number(params.limit ?? 400);
-          const kinds: string[] | undefined = params.kinds;
+          // A prompt read (`fetchTurnOpener`) asks for prompts only; a page asks for the "transcript", every record here.
+          const kinds: string[] | undefined = params.kinds?.includes("transcript") ? undefined : params.kinds;
           const events: EventRecord[] = [];
           for (let seq = params.beforeSeq - 1; seq >= 1 && events.length < limit; seq -= 1) {
             const event = recordAt(target, seq);
