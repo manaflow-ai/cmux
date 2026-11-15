@@ -10,6 +10,7 @@ import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
 import { pageHostFlickerSend, startFlickerLog } from "./flickerLog";
 import { pageHostClient } from "./pageHost";
+import { acpmuxPerf } from "./perf";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
@@ -64,6 +65,8 @@ setHarnessSymbolHost((name) =>
   ),
 );
 export function mountAcpmux(initialChat?: InitialChat): void {
+  // pane.js and its static imports have run: the page load's script part ends here (CMUX-571).
+  acpmuxPerf.markLaunch("bundleEvaluated");
   const root = document.getElementById("root")!;
   // A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
   // the shared page host's popup ops, else the legacy bridge's.

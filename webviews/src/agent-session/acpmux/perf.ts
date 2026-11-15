@@ -157,7 +157,48 @@ type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapsh
  * `liveEvent` the first that arrives within LIVE_EVENT_LAG_MS of when acpmux recorded it: the chat
  * is live, past any backlog.
  */
-type LaunchMark = "handshakeStart" | "handshakeReady" | "connectStart" | "connected" | "firstEvent" | "liveEvent";
+type LaunchMark =
+  | "bundleEvaluated"
+  | "handshakeStart"
+  | "handshakeReady"
+  | "connectStart"
+  | "connected"
+  | "firstEvent"
+  | "liveEvent";
+/**
+ * The page's own load, from the browser's navigation and resource timing (ms since `timeOrigin`),
+ * reported as wall-clock marks beside the launch marks: when the document's bytes arrived, when
+ * pane.js was fetched, when the document was parsed. With `bundleEvaluated` (pane.js and its static
+ * imports ran, before the React root) they split the page's load into its parts (CMUX-571).
+ */
+export function pageLoadMarks(
+  timing: Pick<Performance, "timeOrigin" | "getEntriesByType"> | undefined = typeof performance === "undefined"
+    ? undefined
+    : performance,
+): Record<string, number> {
+  const value: Record<string, number> = {};
+  if (!timing || !Number.isFinite(timing.timeOrigin)) return value;
+  const at = (name: string, ms: number | undefined) => {
+    if (typeof ms === "number" && Number.isFinite(ms) && ms > 0)
+      value[`${name}_epoch_ms`] = Math.round(timing.timeOrigin + ms);
+  };
+  const navigation = timing.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  if (navigation) {
+    at("documentRequest", navigation.requestStart);
+    at("documentResponse", navigation.responseEnd);
+    at("domInteractive", navigation.domInteractive);
+    at("domContentLoaded", navigation.domContentLoadedEventEnd);
+    at("pageLoad", navigation.loadEventEnd);
+  }
+  const script = (timing.getEntriesByType("resource") as PerformanceResourceTiming[]).find((entry) =>
+    /\/pane\.js(?:[?#]|$)/.test(entry.name),
+  );
+  if (script) {
+    at("paneScriptRequest", script.startTime);
+    at("paneScriptFetched", script.responseEnd);
+  }
+  return value;
+}
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
 
@@ -289,7 +330,7 @@ export class AcpmuxPerf {
     if (typeof performance !== "undefined" && Number.isFinite(performance.timeOrigin))
       value.page_origin_epoch_ms = Math.round(performance.timeOrigin);
     for (const [name, at] of Object.entries(this.launchMarks)) if (at !== undefined) value[`${name}_epoch_ms`] = at;
-    return value;
+    return { ...pageLoadMarks(), ...value };
   }
 
   agentLatency(): Record<string, number> {
