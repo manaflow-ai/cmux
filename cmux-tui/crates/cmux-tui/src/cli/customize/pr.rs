@@ -383,9 +383,9 @@ fn request_publish(pr: u64, commit: Option<&str>) -> Option<String> {
     let shown = format!("gh {}", args.join(" "));
     let ran = cmux_process::Command::new("gh")
         .args(&args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
     Some(if ran { format!("asked CI to publish it ({shown})") } else { format!("run `{shown}`") })
