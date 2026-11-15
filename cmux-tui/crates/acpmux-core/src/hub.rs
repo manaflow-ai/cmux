@@ -1221,7 +1221,7 @@ impl Hub {
         let requested = validate_window(sub)?;
         let (key, side) = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     crate::wire::AnchorSide::Before => ReadSide::Before,
                     crate::wire::AnchorSide::After => ReadSide::After,
@@ -1274,7 +1274,7 @@ impl Hub {
         }
         let (key, side) = match request.side() {
             Some((side, Position::List(key))) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     PageSide::Before => ReadSide::Before,
                     PageSide::After => ReadSide::After,
@@ -1317,8 +1317,11 @@ impl Hub {
     /// `read_page` a local connection's `all` page reads, with the origin fixed to `local`.
     fn peer_all_page(&self, request: &crate::wire::Page, max: usize) -> Result<Frame, HubError> {
         let (key, side) = match request.side() {
+            Some((PageSide::Before, Position::List(key))) if key.past => {
+                (Some(peer_past_bound(key)?), ReadSide::Before)
+            }
             Some((side, Position::List(key))) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     PageSide::Before => ReadSide::Before,
                     PageSide::After => ReadSide::After,
@@ -1333,27 +1336,50 @@ impl Hub {
         // `read_page` filters its candidates after it takes them, and its flags and keys name
         // candidates of every origin (decision 93). A peer's keys name this machine's rows
         // only: a piece that holds none of them is skipped here, from the key it ends on,
-        // and the reply's keys are its first and last selected rows.
+        // and the reply's keys are its first and last selected rows. At most
+        // PEER_PAGE_PIECES pieces are read (decision 285); past them the page is empty, its
+        // flag stays set, and its key names a position, never another origin's row.
         let mut anchor = key;
+        let mut pieces = 0;
         let page = loop {
-            let page = index
-                .read_page(
-                    anchor.as_ref(),
-                    side,
-                    false,
-                    MAX_WINDOW_ROWS,
-                    max - 8192 - request.sid.len(),
-                    Some(&filter),
-                )
-                .map_err(|error| self.page_error(error))?;
+            // The first piece is the read a local connection's page makes. A later one is read
+            // only because the one before held no row of this machine, and it is the full
+            // physical piece whatever the budget (decision 291): a skipped candidate costs
+            // nothing in the reply.
+            let read = if pieces == 0 {
+                SummaryIndex::read_page
+            } else {
+                SummaryIndex::read_page_full_piece
+            };
+            let page = read(
+                &index,
+                anchor.as_ref(),
+                side,
+                false,
+                MAX_WINDOW_ROWS,
+                max - 8192 - request.sid.len(),
+                Some(&filter),
+            )
+            .map_err(|error| self.page_error(error))?;
+            pieces += 1;
+            #[cfg(test)]
+            PEER_PIECES.with(|read| {
+                let (count, bytes) = read.get();
+                read.set((count + 1, bytes + page.bytes_read));
+            });
+            #[cfg(test)]
+            PEER_ANCHORS.with(|read| read.borrow_mut().push((anchor.clone(), page.bytes_read)));
             let (more, next) = match side {
                 ReadSide::Before => (page.has_before, &page.before_key),
                 _ => (page.has_after, &page.after_key),
             };
-            if !page.rows.is_empty() || !more || next.is_none() {
+            let Some(next) = next.as_ref().filter(|_| more && page.rows.is_empty()) else {
                 break page;
+            };
+            if pieces == PEER_PAGE_PIECES {
+                return self.peer_resume_page(request, side, next, max);
             }
-            anchor = next.clone();
+            anchor = Some(next.clone());
         };
         let first = page.rows.first().map(|row| SortKey::of(row.as_ref()));
         let last = page.rows.last().map(|row| SortKey::of(row.as_ref()));
@@ -1379,6 +1405,45 @@ impl Hub {
         Ok(frame)
     }
 
+    /// The empty page a peer's `all` walk gets when PEER_PAGE_PIECES pieces held none of its
+    /// rows and more follows on its side: that side's flag stays set, and its key is a `local`
+    /// position ([`peer_resume_key`]) past `last`, the last candidate read in the walk's
+    /// direction, so the next page moves on. When no `local` row can follow, the walk ends.
+    fn peer_resume_page(
+        &self,
+        request: &crate::wire::Page,
+        side: ReadSide,
+        last: &SortKey,
+        max: usize,
+    ) -> Result<Frame, HubError> {
+        let resume = peer_resume_key(side, last);
+        let more = resume.is_some();
+        let (before_key, after_key) = match side {
+            ReadSide::Before => (resume, None),
+            _ => (None, resume),
+        };
+        let reply = crate::wire::PageResult::<PeerRow<'_>> {
+            sid: request.sid.clone(),
+            rows: Vec::new(),
+            // The other side has rows only behind the request's own anchor: an unanchored page
+            // starts at the newest end and has none before it.
+            has_before: if side == ReadSide::Before { more } else { request.after.is_some() },
+            has_after: side == ReadSide::Before || more,
+            cold_unread: false,
+            deeper: Vec::new(),
+            before_key,
+            after_key,
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > max {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(frame)
+    }
+
     fn window_frame_at_cursor(
         &self,
         sub: &Sub,
@@ -1391,7 +1456,7 @@ impl Hub {
         }
         let (key, side) = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     crate::wire::AnchorSide::Before => ReadSide::Before,
                     crate::wire::AnchorSide::After => ReadSide::After,
@@ -1495,7 +1560,7 @@ impl Hub {
         }
         let (key, side) = match request.side() {
             Some((side, Position::List(key))) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     PageSide::Before => ReadSide::Before,
                     PageSide::After => ReadSide::After,
@@ -1592,7 +1657,7 @@ pub(crate) enum PeerPageShape<'a> {
 /// `turns`, `edition` or `fold`, a table filter (`family`, `forks`, `folder`, `cold`), another
 /// origin's filter, key or anchor. It reads nothing, so a refused page reads no row.
 pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageShape<'_>> {
-    use crate::wire::{ListView, PageKey};
+    use crate::wire::{ListFilter, ListView, PageKey};
     if request.stream.as_str() != "list"
         || request.turns
         || request.edition.is_some()
@@ -1603,28 +1668,37 @@ pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageSha
     let local_anchor = match (&request.before, &request.after) {
         (None, None) => true,
         (Some(Position::List(key)), None) | (None, Some(Position::List(key))) => {
-            key.origin == "local"
+            key.origin == "local" && !key.past
         }
         _ => false,
     };
+    // A `past` key (decision 290) is the `before` anchor of a peer's `all` page only, in its
+    // one spelling; see [`peer_past_bound`].
+    let past_anchor = matches!(
+        (&request.before, &request.after),
+        (Some(Position::List(key)), None) if peer_past_bound(key).is_ok()
+    );
     match (request.view, request.keys.as_deref()) {
         (Some(ListView::Live), None) if request.filter.is_none() => Some(PeerPageShape::Live),
         (Some(ListView::All), None) => {
+            // Every field is named, so a field added to the filter must be decided here.
             let narrow = request.filter.as_ref().is_none_or(|filter| {
-                filter.origin.as_deref().is_none_or(|origin| origin == "local")
-                    && filter.family.is_none()
-                    && filter.forks.is_none()
-                    && filter.folder.is_none()
-                    && !filter.cold
+                let ListFilter { workspace: _, origin, state: _, family, folder, forks, cold } =
+                    filter;
+                origin.as_deref().is_none_or(|origin| origin == "local")
+                    && family.is_none()
+                    && forks.is_none()
+                    && folder.is_none()
+                    && !cold
             });
-            (narrow && local_anchor).then_some(PeerPageShape::All)
+            (narrow && (local_anchor || past_anchor)).then_some(PeerPageShape::All)
         }
         (None | Some(ListView::All), Some(keys)) => {
             let local = !keys.is_empty()
                 && keys.len() <= 100
                 && keys
                     .iter()
-                    .all(|key| matches!(key, PageKey::Summary(key) if key.origin == "local"));
+                    .all(|key| matches!(key, PageKey::Summary(key) if key.origin == "local" && !key.past));
             (local
                 && request.filter.is_none()
                 && request.before.is_none()
@@ -1635,11 +1709,85 @@ pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageSha
     }
 }
 
-fn book_key(key: &crate::wire::ListKey) -> SortKey {
-    SortKey {
+/// The pieces one peer `all` page reads before it answers empty (decisions 285, 291 and 294):
+/// the first at the asker's budget, as a local page reads it, and up to three full ones.
+/// Computed, not measured: in memory a piece is MAX_WINDOW_ROWS + 1 hot candidates, so about
+/// 1,600 a page. From a snapshot a full piece is snapshot::PAGE_BYTES (256 KiB) or 400
+/// records, about 1,250 candidates a page at the serve_page gate's row size; an anchored piece
+/// also seeks, one block of at most snapshot::SEEK_BYTES (64 KiB) and a binary search of
+/// 552-byte checkpoints. So a page reads at most PEER_PAGE_PIECES x (PAGE_BYTES + SEEK_BYTES),
+/// 1.25 MiB, plus the checkpoint steps.
+pub(crate) const PEER_PAGE_PIECES: usize = 4;
+
+#[cfg(test)]
+thread_local! {
+    /// The pieces this thread's peer `all` pages read and their snapshot bytes, for the tests
+    /// that count them.
+    pub(crate) static PEER_PIECES: std::cell::Cell<(usize, usize)> =
+        const { std::cell::Cell::new((0, 0)) };
+    /// Each piece's anchor and snapshot bytes, in the order read, for the gate's seek probe.
+    pub(crate) static PEER_ANCHORS: std::cell::RefCell<Vec<(Option<SortKey>, usize)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A `local` position past `last`, the last candidate a peer's `all` walk read on `side`,
+/// naming no other origin's row (decisions 285 and 290). Keys sort newest first, then by
+/// origin, then by chat id. With `last` = (T, o, c), on side `after`:
+/// - `o` local: `last` itself;
+/// - `o` before `local`: (T, local, ""), before every local row at T;
+/// - `o` after `local`: (T - 1, local, ""), past every row at T; at T = 0 the walk ends.
+///
+/// On side `before`, where the walk goes to newer keys:
+/// - `o` local: `last` itself;
+/// - `o` after `local`: (T, local, past), past every local key at T;
+/// - `o` before `local`: (T + 1, local, past), past every local key at T + 1; at
+///   T = u64::MAX the walk ends.
+fn peer_resume_key(side: ReadSide, last: &SortKey) -> Option<crate::wire::ListKey> {
+    use std::cmp::Ordering::{Equal, Greater, Less};
+    debug_assert!(!last.row.chat_id.is_empty(), "a row's chat id is never empty");
+    let origin = last.row.origin.as_ref().cmp("local");
+    if origin == Equal {
+        return Some(wire_key(last.clone()));
+    }
+    let (last_activity, past) = match (side, origin) {
+        (ReadSide::Before, Greater) => (last.last_activity, true),
+        (ReadSide::Before, _) => (last.last_activity.checked_add(1)?, true),
+        (_, Less) => (last.last_activity, false),
+        _ => (last.last_activity.checked_sub(1)?, false),
+    };
+    Some(crate::wire::ListKey {
+        last_activity,
+        chat_id: String::new(),
+        origin: "local".to_owned(),
+        past,
+    })
+}
+
+/// A wire key as the book's key. A `past` key is a position no row has, and only a peer's
+/// `all` page on side `before` takes one ([`peer_past_bound`]): here it is `InvalidPage`.
+fn book_key(key: &crate::wire::ListKey) -> Result<SortKey, HubError> {
+    if key.past {
+        return Err(HubError::InvalidPage);
+    }
+    Ok(SortKey {
         last_activity: key.last_activity,
         row: RowKey::new(key.origin.as_str(), key.chat_id.as_str()),
+    })
+}
+
+/// The origin of the bound a `past` key reads before: "local" followed by the least char.
+/// Every origin after `local` in the order is at least this, and `local` is less, so
+/// (T, PAST_LOCAL, "") is past every (T, local, *) key and before every other origin's at T.
+/// It is a position for the read only; no row and no reply carries it.
+const PAST_LOCAL: &str = "local\u{0}";
+
+/// The book position a peer's `past` key names (decision 290), in its one spelling: origin
+/// `local`, chat id "" and `past` true. Any other spelling is `InvalidPage`.
+fn peer_past_bound(key: &crate::wire::ListKey) -> Result<SortKey, HubError> {
+    if !key.past || key.origin != "local" || !key.chat_id.is_empty() {
+        return Err(HubError::InvalidPage);
     }
+    Ok(SortKey { last_activity: key.last_activity, row: RowKey::new(PAST_LOCAL, "") })
 }
 
 fn wire_key(key: SortKey) -> crate::wire::ListKey {
@@ -1647,6 +1795,7 @@ fn wire_key(key: SortKey) -> crate::wire::ListKey {
         last_activity: key.last_activity,
         chat_id: key.row.chat_id.to_string(),
         origin: key.row.origin.to_string(),
+        past: false,
     }
 }
 
@@ -2060,6 +2209,8 @@ mod origin_gates;
 mod origin_tests;
 #[cfg(test)]
 mod peer_page_gates;
+#[cfg(test)]
+mod peer_page_tests;
 #[cfg(test)]
 mod rebuild_tests;
 #[cfg(test)]
