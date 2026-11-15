@@ -916,9 +916,10 @@ declare global {
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
       /// Toggle Terminal and Chat (togglePlace.ts): the chat's prompts and the one whose turn is in
-      /// view, and the placement at prompt `at`'s turn (null: the latest message) before it shows.
+      /// view, and the placement at prompt `at`'s turn (null: the latest message) before it shows,
+      /// skipped past `until` (ms since 1970): the swap showed the chat without it, so it would jump.
       togglePlace?(): TogglePlace;
-      placeToggle?(at: number | null): boolean;
+      placeToggle?(at: number | null, until?: number): boolean;
       /// A dictation change from the host (CmuxNextAgentPane AgentPaneDictation), spliced at the prompt's cursor.
       dictation?(update: DictationUpdate): void;
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):
@@ -7910,7 +7911,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       togglePlace() {
         return togglePlace(counted.current.transcriptRows, transcriptAnchor.current?.());
       },
-      placeToggle(at) {
+      placeToggle(at, until) {
+        if (until !== undefined && Date.now() > until) return false;
         const rowId = at === null ? null : togglePromptRow(counted.current.transcriptRows, at);
         return rowId !== undefined && (placeTranscript.current?.(rowId) ?? false);
       },

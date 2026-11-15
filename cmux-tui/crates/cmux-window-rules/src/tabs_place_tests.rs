@@ -40,8 +40,13 @@ fn each_prompt_finds_its_own_row_newest_first() {
 
 #[test]
 fn the_terminal_lands_on_the_chats_turn() {
-    let facts =
-        |at| ToTerminal { prompts: prompts(CHAT), at, screen: claude_screen(), columns: 80 };
+    let facts = |at| ToTerminal {
+        prompts: prompts(CHAT),
+        at,
+        screen: claude_screen(),
+        base: 0,
+        columns: 80,
+    };
     assert_eq!(terminal_place(&facts(Some(0))), TerminalPlace::Row { row: 4 });
     assert_eq!(terminal_place(&facts(Some(1))), TerminalPlace::Row { row: 9 });
     assert_eq!(terminal_place(&facts(Some(2))), TerminalPlace::Row { row: 13 });
@@ -54,6 +59,7 @@ fn the_chat_lands_on_the_terminals_turn() {
     let facts = |top, at_bottom| ToChat {
         prompts: prompts(CHAT),
         screen: claude_screen(),
+        base: 0,
         columns: 80,
         top,
         at_bottom,
@@ -78,6 +84,7 @@ fn ten_swaps_keep_the_same_turn() {
             prompts: prompts(CHAT),
             at: Some(at),
             screen: claude_screen(),
+            base: 0,
             columns: 80,
         }) {
             TerminalPlace::Row { row } => row,
@@ -86,6 +93,7 @@ fn ten_swaps_keep_the_same_turn() {
         at = match chat_place(&ToChat {
             prompts: prompts(CHAT),
             screen: claude_screen(),
+            base: 0,
             columns: 80,
             top: row,
             at_bottom: false,
@@ -108,26 +116,39 @@ fn a_prompt_the_screen_lost_falls_back_to_an_older_one() {
     ]);
     let rows = prompt_rows(&chat, &claude_screen(), 80);
     assert_eq!(rows, vec![None, Some(4), Some(9), Some(13)]);
-    let facts =
-        ToTerminal { prompts: chat.clone(), at: Some(0), screen: claude_screen(), columns: 80 };
+    let facts = ToTerminal {
+        prompts: chat.clone(),
+        at: Some(0),
+        screen: claude_screen(),
+        base: 0,
+        columns: 80,
+    };
     // Nothing older on the screen: the terminal stays where it is.
     assert_eq!(terminal_place(&facts), TerminalPlace::Stay);
     // A prompt not drawn (a turn the terminal never printed) lands on the one before it.
     let mut chat = prompts(CHAT);
     chat.insert(2, "a prompt the terminal never drew".into());
-    let facts = ToTerminal { prompts: chat, at: Some(2), screen: claude_screen(), columns: 80 };
+    let facts =
+        ToTerminal { prompts: chat, at: Some(2), screen: claude_screen(), base: 0, columns: 80 };
     assert_eq!(terminal_place(&facts), TerminalPlace::Row { row: 9 });
 }
 
 #[test]
 fn no_shared_prompt_leaves_both_views_where_they_are() {
     let screen = "$ ls\nREADME.md\n$ ".to_string();
-    let to_terminal =
-        ToTerminal { prompts: prompts(CHAT), at: Some(1), screen: screen.clone(), columns: 80 };
+    let to_terminal = ToTerminal {
+        prompts: prompts(CHAT),
+        at: Some(1),
+        screen: screen.clone(),
+        base: 0,
+        columns: 80,
+    };
     assert_eq!(terminal_place(&to_terminal), TerminalPlace::Stay);
-    let to_chat = ToChat { prompts: prompts(CHAT), screen, columns: 80, top: 0, at_bottom: false };
+    let to_chat =
+        ToChat { prompts: prompts(CHAT), screen, base: 0, columns: 80, top: 0, at_bottom: false };
     assert_eq!(chat_place(&to_chat), ChatPlace::Stay);
-    let empty = ToTerminal { prompts: vec![], at: Some(0), screen: claude_screen(), columns: 80 };
+    let empty =
+        ToTerminal { prompts: vec![], at: Some(0), screen: claude_screen(), base: 0, columns: 80 };
     assert_eq!(terminal_place(&empty), TerminalPlace::Stay);
 }
 
@@ -173,4 +194,50 @@ fn a_long_chat_matches_in_one_pass() {
     assert_eq!(rows[0], Some(0));
     assert_eq!(rows[1_999], Some(19_990));
     assert!(started.elapsed() < std::time::Duration::from_millis(250), "{:?}", started.elapsed());
+}
+
+#[test]
+fn a_window_of_the_newest_rows_answers_in_screen_rows() {
+    // The app read only rows 9 on (a long history): rows come back as the screen's, not the window's.
+    let window: String = claude_screen().lines().skip(9).collect::<Vec<_>>().join("\n");
+    let facts = ToTerminal {
+        prompts: prompts(CHAT),
+        at: Some(1),
+        screen: window.clone(),
+        base: 9,
+        columns: 80,
+    };
+    assert_eq!(terminal_place(&facts), TerminalPlace::Row { row: 9 });
+    let facts = ToTerminal {
+        prompts: prompts(CHAT),
+        at: Some(2),
+        screen: window.clone(),
+        base: 9,
+        columns: 80,
+    };
+    assert_eq!(terminal_place(&facts), TerminalPlace::Row { row: 13 });
+    // Turn 0's prompt is above the window: nothing older in it either, so the terminal stays.
+    let facts =
+        ToTerminal { prompts: prompts(CHAT), at: Some(0), screen: window, base: 9, columns: 80 };
+    assert_eq!(terminal_place(&facts), TerminalPlace::Stay);
+}
+
+#[test]
+fn a_window_from_the_viewports_top_names_the_turn_above_it() {
+    // The viewport's top is row 11, inside turn 1's reply; the window starts there, so turn 1's
+    // prompt (row 9) is above it: the turn is the one before the first prompt below the top.
+    let window: String = claude_screen().lines().skip(11).collect::<Vec<_>>().join("\n");
+    let facts = |screen: String| ToChat {
+        prompts: prompts(CHAT),
+        screen,
+        base: 11,
+        columns: 80,
+        top: 11,
+        at_bottom: false,
+    };
+    assert_eq!(chat_place(&facts(window)), ChatPlace::Turn { index: 1 });
+    // A window from the top that is a prompt row names that prompt.
+    let window: String = claude_screen().lines().skip(13).collect::<Vec<_>>().join("\n");
+    let facts = ToChat { base: 13, top: 13, ..facts(window) };
+    assert_eq!(chat_place(&facts), ChatPlace::Turn { index: 2 });
 }

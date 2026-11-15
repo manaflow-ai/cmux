@@ -9,27 +9,33 @@ extension WindowRules {
         public var prompts: [String]
         /// The prompt whose turn the chat has in view; nil at its latest message.
         public var at: Int?
+        /// Screen rows from row `base` on, one line per row.
         public var screen: String
+        public var base: Int
         public var columns: Int
 
-        public init(prompts: [String], at: Int?, screen: String, columns: Int) {
+        public init(prompts: [String], at: Int?, screen: String, base: Int, columns: Int) {
             self.prompts = prompts
             self.at = at
             self.screen = screen
+            self.base = base
             self.columns = columns
         }
     }
 
     public nonisolated struct ToChatPlace: Encodable, Equatable, Sendable {
         public var prompts: [String]
+        /// Screen rows from row `base` on: from the start through the viewport (0), or from the viewport's top.
         public var screen: String
+        public var base: Int
         public var columns: Int
         public var top: Int
         public var atBottom: Bool
 
-        public init(prompts: [String], screen: String, columns: Int, top: Int, atBottom: Bool) {
+        public init(prompts: [String], screen: String, base: Int, columns: Int, top: Int, atBottom: Bool) {
             self.prompts = prompts
             self.screen = screen
+            self.base = base
             self.columns = columns
             self.top = top
             self.atBottom = atBottom
@@ -84,8 +90,8 @@ extension WindowRules {
 /// The terminal face of a pair, as a swap reads and moves it (`TerminalSession+TogglePlace`).
 @MainActor
 public protocol TogglePlaceTerminal: AnyObject, Sendable {
-    func togglePlaceViewport() -> (top: Int, atBottom: Bool)?
-    func togglePlaceScreen() -> (screen: String, columns: Int)?
+    func togglePlaceViewport() -> (top: Int, visible: Int, total: Int, atBottom: Bool)?
+    func togglePlaceRead(fromViewportTop: Bool, throughViewportBottom: Bool) -> (screen: String, columns: Int)?
     func togglePlaceScroll(toRow row: Int?)
 }
 
@@ -93,23 +99,34 @@ public protocol TogglePlaceTerminal: AnyObject, Sendable {
 @MainActor
 public protocol TogglePlaceChat: AnyObject, Sendable {
     var togglePlaceAtLatest: Bool { get }
-    func togglePlacePrompts() async -> (prompts: [String], at: Int?)?
-    @discardableResult func togglePlaceShow(prompt index: Int?) async -> Bool
+    func togglePlacePrompts(by deadline: ContinuousClock.Instant) async -> (prompts: [String], at: Int?)?
+    @discardableResult func togglePlaceShow(prompt index: Int?, by deadline: ContinuousClock.Instant) async -> Bool
 }
 
 /// Moves the face about to show to the turn the other one shows, before it shows, so the swap's
 /// first frame is already there: no jump after it. Nothing to move (both at their latest) asks
 /// nothing of the page, so that swap stays a plain tab selection.
+///
+/// The cost stays flat however long the session: the swap waits on the page at most `budget` in
+/// all, and reads at most `rows` screen rows. Ghostty addresses no window of a long history but
+/// from or through the viewport, so the hidden terminal's viewport is moved to the window's top
+/// to read the newest `rows`; the shown one is read on whichever side of its viewport fits.
 @MainActor
 public struct TerminalChatPlacing {
+    public static let budget: Duration = .milliseconds(60)
+    public static let rows = 20_000
+
     public let chat: (any TogglePlaceChat)?
     public let terminal: (any TogglePlaceTerminal)?
     let rules: WindowRules
+    let rowCap: Int
 
-    public init(chat: (any TogglePlaceChat)?, terminal: (any TogglePlaceTerminal)?, rules: WindowRules = WindowRules()) {
+    public init(chat: (any TogglePlaceChat)?, terminal: (any TogglePlaceTerminal)?, rules: WindowRules = WindowRules(),
+                rows: Int = Self.rows) {
         self.chat = chat
         self.terminal = terminal
         self.rules = rules
+        rowCap = rows
     }
 
     /// Whether the swap moves nothing: a face is missing, or both are at their latest.
@@ -118,40 +135,45 @@ public struct TerminalChatPlacing {
         return chat.togglePlaceAtLatest && viewport.atBottom
     }
 
-    /// Before the terminal shows: to the row of the chat's turn, or its newest rows.
+    /// Before the terminal shows (it is hidden): to the row of the chat's turn, or its newest rows.
     public func placeTerminal() async {
         guard let chat, let terminal, let viewport = terminal.togglePlaceViewport() else { return }
-        if chat.togglePlaceAtLatest {
-            if !viewport.atBottom { terminal.togglePlaceScroll(toRow: nil) }
-            return
+        let deadline = ContinuousClock.now + Self.budget
+        guard let read = await chat.togglePlacePrompts(by: deadline) else { return }
+        guard read.at != nil else { return terminal.togglePlaceScroll(toRow: nil) }
+        // The newest `rowCap` rows: all of a short screen, else read with the viewport at their top.
+        let base = max(0, viewport.total - rowCap)
+        if base > 0 { terminal.togglePlaceScroll(toRow: base) }
+        let place = terminal.togglePlaceRead(fromViewportTop: base > 0, throughViewportBottom: false).flatMap { screen in
+            rules.terminalPlace(.init(prompts: read.prompts, at: read.at, screen: screen.screen, base: base, columns: screen.columns))
         }
-        guard let read = await chat.togglePlacePrompts() else { return }
-        guard read.at != nil else {
-            if !viewport.atBottom { terminal.togglePlaceScroll(toRow: nil) }
-            return
-        }
-        guard let screen = terminal.togglePlaceScreen() else { return }
-        let facts = WindowRules.ToTerminalPlace(prompts: read.prompts, at: read.at, screen: screen.screen, columns: screen.columns)
-        switch rules.terminalPlace(facts) {
-        case .latest?: if !viewport.atBottom { terminal.togglePlaceScroll(toRow: nil) }
-        case .row(let row)? where row != viewport.top: terminal.togglePlaceScroll(toRow: row)
-        case .row?, .stay?, nil: break
+        switch place {
+        case .row(let row)?: terminal.togglePlaceScroll(toRow: row)
+        case .latest?: terminal.togglePlaceScroll(toRow: nil)
+        // Nothing to land on: back where it was.
+        case .stay?, nil: if base > 0 { terminal.togglePlaceScroll(toRow: viewport.atBottom ? nil : viewport.top) }
         }
     }
 
-    /// Before the chat shows: to the turn of the terminal's top row, or its latest message.
+    /// Before the chat shows (the terminal still shows): to the turn of the terminal's top row, or
+    /// its latest message.
     public func placeChat() async {
         guard let chat, let terminal, let viewport = terminal.togglePlaceViewport() else { return }
+        let deadline = ContinuousClock.now + Self.budget
         if viewport.atBottom {
-            if !chat.togglePlaceAtLatest { await chat.togglePlaceShow(prompt: nil) }
+            if !chat.togglePlaceAtLatest { await chat.togglePlaceShow(prompt: nil, by: deadline) }
             return
         }
-        guard let read = await chat.togglePlacePrompts(), let screen = terminal.togglePlaceScreen() else { return }
-        let facts = WindowRules.ToChatPlace(prompts: read.prompts, screen: screen.screen, columns: screen.columns,
-                                            top: viewport.top, atBottom: false)
+        guard let read = await chat.togglePlacePrompts(by: deadline) else { return }
+        // Through the viewport when what is above it fits, else from its top; neither: it stays.
+        let fromTop = viewport.top + viewport.visible > rowCap
+        guard !fromTop || viewport.total - viewport.top <= rowCap,
+              let screen = terminal.togglePlaceRead(fromViewportTop: fromTop, throughViewportBottom: !fromTop) else { return }
+        let facts = WindowRules.ToChatPlace(prompts: read.prompts, screen: screen.screen, base: fromTop ? viewport.top : 0,
+                                            columns: screen.columns, top: viewport.top, atBottom: false)
         switch rules.chatPlace(facts) {
-        case .latest?: if read.at != nil { await chat.togglePlaceShow(prompt: nil) }
-        case .turn(let index)? where index != read.at: await chat.togglePlaceShow(prompt: index)
+        case .latest?: if read.at != nil { await chat.togglePlaceShow(prompt: nil, by: deadline) }
+        case .turn(let index)? where index != read.at: await chat.togglePlaceShow(prompt: index, by: deadline)
         case .turn?, .stay?, nil: break
         }
     }

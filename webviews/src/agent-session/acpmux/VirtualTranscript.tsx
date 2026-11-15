@@ -1949,6 +1949,9 @@ function TranscriptView({
     // comes after (followChase `resume`).
     if (next && !followingRef.current) resumeFollowMotion();
     if (next) heldPlace.current = undefined;
+    // Following starting or stopping is reported at once, not after the scroll settles: Toggle
+    // Terminal and Chat reads the kept place on the next key (AgentPaneView+TogglePlace.swift).
+    if (next !== followingRef.current) queueMicrotask(() => reportAnchorRef.current());
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -2175,9 +2178,6 @@ function TranscriptView({
   const sessionIdRef = useRef(sessionId);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
-  /// A Toggle Terminal and Chat placement asked while the transcript had no height (`placeAt`):
-  /// a row id, null for the latest message, undefined for none.
-  const pendingPlace = useRef<string | null | undefined>(undefined);
   // The native pane's width, distinct from the transcript scroller's width when Push always reserves
   // a Session Info column. The pane-pinned rail uses this so its inset never follows that column.
   const [paneWidth, setPaneWidth] = useState(() => lastTranscriptBox.width);
@@ -5974,18 +5974,14 @@ function TranscriptView({
   // Toggle Terminal and Chat (togglePlace.ts): the turn the terminal showed, at the top of the view,
   // set before the pane shows. A cut, never a glide: the pane is hidden while it moves, so the first
   // frame the reader sees is already there, its rows mounted (`handleScroll` at once, not on the
-  // scroll event a hidden page may not get before it shows).
+  // scroll event a hidden page may not get before it shows). A transcript with no viewport places
+  // nothing: a place kept for later would land after the reader already sees it, a jump.
   const placeAt = (rowId: string | null): boolean => {
     const node = ref.current;
-    if (!node) return false;
+    if (!node || node.clientHeight <= 0) return false;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = rowId === null ? -1 : indexOfRow(shown, rowId, { current: -1 });
     if (rowId !== null && index < 0) return false;
-    if (node.clientHeight <= 0) {
-      pendingPlace.current = rowId;
-      return true;
-    }
-    pendingPlace.current = undefined;
     const latest = Math.max(0, placed.totalHeight - node.clientHeight);
     revealing.current = undefined;
     stopJump();
@@ -6001,12 +5997,19 @@ function TranscriptView({
       follow(false, "toggle");
     }
     handleScroll(node, true);
+    // The host keeps the new place now, not after the settle: a swap straight back reads it.
+    reportAnchorRef.current();
     return true;
   };
-  if (placeNow) placeNow.current = placeAt;
-  useLayoutEffect(() => {
-    if (pendingPlace.current !== undefined && height > 0) placeAt(pendingPlace.current);
-  });
+  const placeAtRef = useRef(placeAt);
+  placeAtRef.current = placeAt;
+  useEffect(() => {
+    if (!placeNow) return;
+    placeNow.current = (rowId) => placeAtRef.current(rowId);
+    return () => {
+      placeNow.current = undefined;
+    };
+  }, [placeNow]);
   /// Jump up (jumpUp.ts): to where the reader left off, holding where the view is; pressed again
   /// (or Esc), back there. The reader asked for this place, so the view stops following the reply.
   /// It glides on Jump to latest's ride (curve, distance duration, move token): a long way skips at

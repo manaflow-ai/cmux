@@ -24,7 +24,10 @@ pub struct ToTerminal {
     /// The prompt (an index into `prompts`) of the turn at the top of the chat's view; None while
     /// the chat follows its latest message.
     pub at: Option<usize>,
+    /// Screen rows from `base` on, one line per row: the newest rows the app read (a bounded
+    /// window of a long history, `base` 0 for all of it).
     pub screen: String,
+    pub base: usize,
     pub columns: usize,
 }
 
@@ -33,7 +36,10 @@ pub struct ToTerminal {
 #[serde(rename_all = "camelCase", default)]
 pub struct ToChat {
     pub prompts: Vec<String>,
+    /// Screen rows from `base` on, one line per row: from the screen's start through the viewport
+    /// (`base` 0), or from the viewport's top (`base` == `top`) to the newest row.
     pub screen: String,
+    pub base: usize,
     pub columns: usize,
     /// The screen row at the top of the terminal's viewport.
     pub top: usize,
@@ -71,9 +77,9 @@ pub fn terminal_place(facts: &ToTerminal) -> TerminalPlace {
         return TerminalPlace::Stay;
     }
     let rows = prompt_rows(&facts.prompts, &facts.screen, facts.columns);
-    // The asked prompt's row, else the nearest older prompt the screen still has.
+    // The asked prompt's row, else the nearest older prompt the window still has.
     match rows[..=at.min(rows.len() - 1)].iter().rev().find_map(|row| *row) {
-        Some(row) => TerminalPlace::Row { row },
+        Some(row) => TerminalPlace::Row { row: facts.base + row },
         None => TerminalPlace::Stay,
     }
 }
@@ -83,7 +89,8 @@ pub fn chat_place(facts: &ToChat) -> ChatPlace {
         return ChatPlace::Latest;
     }
     let rows = prompt_rows(&facts.prompts, &facts.screen, facts.columns);
-    let found = rows.iter().enumerate().filter_map(|(index, row)| row.map(|row| (index, row)));
+    let found =
+        rows.iter().enumerate().filter_map(|(index, row)| row.map(|row| (index, facts.base + row)));
     let mut first = None;
     let mut turn = None;
     for (index, row) in found {
@@ -92,8 +99,14 @@ pub fn chat_place(facts: &ToChat) -> ChatPlace {
             turn = Some(index);
         }
     }
-    // Above every prompt it found: the oldest turn the screen has.
-    match turn.or(first) {
+    if let Some(index) = turn {
+        return ChatPlace::Turn { index };
+    }
+    match first {
+        // Above every prompt of a window from the viewport's top: the turn is the one before the
+        // first prompt below it, whose own prompt is above the window.
+        Some(index) if facts.base > 0 => ChatPlace::Turn { index: index.saturating_sub(1) },
+        // Above every prompt of the whole screen (the harness's welcome): its oldest turn.
         Some(index) => ChatPlace::Turn { index },
         None => ChatPlace::Stay,
     }

@@ -6,17 +6,24 @@ import GhosttyNextKit
 /// row 0 the oldest the screen keeps, the viewport's top at `offsetRows`, and Ghostty's
 /// `scroll_to_row` takes the same numbers.
 extension TerminalSession {
-    /// The viewport's top row and whether it shows the newest rows; nil before Ghostty reports a
-    /// scrollbar. Reads the last report: no surface lock.
-    public func togglePlaceViewport() -> (top: Int, atBottom: Bool)? {
+    /// The viewport's top row, its rows, the screen's rows and whether the viewport shows the
+    /// newest; nil before Ghostty reports a scrollbar. Reads the last report: no surface lock.
+    public func togglePlaceViewport() -> (top: Int, visible: Int, total: Int, atBottom: Bool)? {
         guard let bar = model.scrollbar else { return nil }
-        return (Int(bar.offsetRows), bar.offsetRows + bar.visibleRows >= bar.totalRows)
+        return (Int(bar.offsetRows), Int(bar.visibleRows), Int(bar.totalRows), bar.offsetRows + bar.visibleRows >= bar.totalRows)
     }
 
-    /// The whole screen, history and active area, one line per row, and the grid's columns. Takes
-    /// Ghostty's surface lock: once per swap that needs it, never per frame.
-    public func togglePlaceScreen() -> (screen: String, columns: Int)? {
-        guard let screen = surfaceView.screenRowsText(), let grid = surfaceView.currentGrid else { return nil }
+    /// Screen rows, one line per row, and the grid's columns: from the viewport's top or the
+    /// screen's start, through the viewport's bottom or the newest row. Takes Ghostty's surface
+    /// lock: once per swap that needs it, never per frame. Ghostty addresses no other window of a
+    /// long history (an exact screen point's row is clamped to the grid), so a caller bounds the
+    /// read by where it puts the viewport.
+    public func togglePlaceRead(fromViewportTop: Bool, throughViewportBottom: Bool) -> (screen: String, columns: Int)? {
+        let start = fromViewportTop ? ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: 0)
+            : ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0)
+        let end = ghostty_point_s(tag: throughViewportBottom ? GHOSTTY_POINT_VIEWPORT : GHOSTTY_POINT_SCREEN,
+                                  coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0)
+        guard let screen = surfaceView.rowsText(from: start, to: end), let grid = surfaceView.currentGrid else { return nil }
         return (screen, grid.columns)
     }
 
@@ -27,15 +34,11 @@ extension TerminalSession {
 }
 
 extension TerminalSurfaceView {
-    /// Every row of the screen, history and active area, as a rectangle (one line per row, so line
-    /// N is scrollbar row N; a plain read joins soft-wrapped rows and loses that).
-    func screenRowsText() -> String? {
+    /// The rows from `start` to `end` as a rectangle: one line per row, so line N is row N of
+    /// the read (a plain read joins soft-wrapped rows and loses that).
+    func rowsText(from start: ghostty_point_s, to end: ghostty_point_s) -> String? {
         guard let surface else { return nil }
-        let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
-            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
-            rectangle: true
-        )
+        let selection = ghostty_selection_s(top_left: start, bottom_right: end, rectangle: true)
         var text = ghostty_text_s()
         guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
