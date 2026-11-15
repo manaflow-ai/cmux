@@ -19,6 +19,8 @@ const STRETCH: u64 = 8;
 struct CatchUp {
     /// The largest rise of resident size over the baseline in any stretch, in KiB.
     peak_kib: u64,
+    /// The most bytes the actor thread held at once over its first chunk's, in KiB.
+    held_kib: u64,
     /// The largest buffer the source built, and the chunk bound.
     held_max: u64,
     /// Bytes the store took from the log's files, and the log's length.
@@ -55,6 +57,8 @@ struct Stretch {
     shmem: u64,
     heap: u64,
     free: u64,
+    /// The actor thread's most bytes held in the stretch, over the first chunk's (KiB).
+    held: u64,
     chunks_read: u64,
     bytes_read: u64,
     syncs: u64,
@@ -144,11 +148,34 @@ struct Measured {
     chunks: u64,
     stretches: Arc<std::sync::Mutex<Vec<Stretch>>>,
     home: String,
+    /// The most bytes the actor's thread held at once over what it held at the first chunk, in
+    /// any stretch (the test allocator's count, `peer_snapshot/disk_tests.rs`).
+    held: Arc<AtomicU64>,
+}
+
+impl Measured {
+    /// The actor thread's most bytes held since the last call, over the first chunk's.
+    fn take_held(&self) -> u64 {
+        let most = crate::hub::peer_snapshot::thread_peak_take().unwrap_or(0) as u64;
+        self.held.fetch_max(most, Ordering::SeqCst);
+        most
+    }
+}
+
+impl Drop for Measured {
+    /// The last stretch, through the end's checkpoint: the actor drops its source on its thread.
+    fn drop(&mut self) {
+        self.take_held();
+    }
 }
 
 impl RawSource for Measured {
     fn read_chunk(&mut self, place: u64) -> io::Result<Chunk> {
+        if self.chunks == 0 {
+            crate::hub::peer_snapshot::thread_peak_start();
+        }
         if self.chunks.is_multiple_of(STRETCH) {
+            let held = if self.chunks > 0 { self.take_held() } else { 0 };
             let rise = if self.chunks > 0 {
                 memory_kib("VmHWM:").saturating_sub(self.baseline)
             } else {
@@ -161,6 +188,7 @@ impl RawSource for Measured {
                 let n = self.chunks / STRETCH;
                 let counters = &self.inner.counters;
                 let mut s = sample(n, rise);
+                s.held = held / 1024;
                 s.chunks_read = counters.chunks.load(Ordering::Relaxed);
                 s.bytes_read = counters.read.load(Ordering::Relaxed);
                 s.syncs = counters.syncs.load(Ordering::Relaxed);
@@ -240,6 +268,8 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
     let stretches = Arc::new(std::sync::Mutex::new(Vec::with_capacity(4096)));
     let home_path = home.dir.path().display().to_string();
     let peak = Arc::new(AtomicU64::new(0));
+    let held = Arc::new(AtomicU64::new(0));
+    let measured_held = held.clone();
     let (inner, measured_peak, measured_stretches, measured_home) =
         (log.clone(), peak.clone(), stretches.clone(), home_path.clone());
     let factory: SourceFactory = Arc::new(move || {
@@ -250,6 +280,7 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
             chunks: 0,
             stretches: measured_stretches.clone(),
             home: measured_home.clone(),
+            held: measured_held.clone(),
         }) as Box<dyn RawSource>)
     });
     let mut config = home.config(&log);
@@ -287,7 +318,7 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
         let stretches = stretches.lock().unwrap();
         for s in stretches.iter().chain(std::iter::once(&at_end)) {
             eprintln!(
-                "v2.pr03b.catchup_peak_rss stretch msgs={} n={} rise={} d_anon={} d_file={} d_shmem={} d_heap={} d_free={} chunks={} read={} syncs={} waits_bytes={} idx_rss={}",
+                "v2.pr03b.catchup_peak_rss stretch msgs={} n={} rise={} d_anon={} d_file={} d_shmem={} d_heap={} d_free={} held={} chunks={} read={} syncs={} waits_bytes={} idx_rss={}",
                 shape.god_messages,
                 s.n as i64,
                 s.rise,
@@ -296,6 +327,7 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
                 s.shmem as i64 - b.shmem as i64,
                 s.heap as i64 - b.heap as i64,
                 s.free as i64 - b.free as i64,
+                s.held,
                 s.chunks_read,
                 s.bytes_read,
                 s.syncs,
@@ -308,6 +340,7 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
     let equal = rows == translated(home.store.as_ref());
     CatchUp {
         peak_kib: peak.load(Ordering::SeqCst),
+        held_kib: held.load(Ordering::SeqCst) / 1024,
         held_max: log.counters.held_max.load(Ordering::SeqCst),
         read: log.counters.read.load(Ordering::SeqCst),
         log_bytes,
@@ -362,6 +395,12 @@ fn v2_pr03b_catchup_peak_rss() {
         small.peak_kib,
         god.peak_kib,
         chunk / 1024
+    );
+    eprintln!(
+        "v2.pr03b.catchup_peak_rss held small_kib={} god_kib={} ratio={:.3}",
+        small.held_kib,
+        god.held_kib,
+        god.held_kib as f64 / small.held_kib.max(1) as f64
     );
     if let Ok(path) = std::env::var("V2_GATE_OUT") {
         use std::io::Write;
