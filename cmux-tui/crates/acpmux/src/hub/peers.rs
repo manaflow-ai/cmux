@@ -1858,3 +1858,7 @@ mod restart_notice_tests;
 #[cfg(test)]
 #[path = "resolve_cost_bench.rs"]
 mod resolve_cost_bench;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "peer_list_announce_tests.rs"]
+mod peer_list_announce_tests;
