@@ -24,8 +24,6 @@ import UIKit
     }
 
     static let at = Date(timeIntervalSince1970: 1_700_000_000)
-    /// Keyboard frame notes seen while the off-screen check scrolls (diagnostic).
-    nonisolated(unsafe) static var keyboardNotes = 0
 
     /// Turns of a prompt, a thought, a group of a read and a command, a lone read and an answer.
     static func events(turns: Int, prompt: (Int) -> String = { "prompt \($0)" }) -> [AgentSessionEvent] {
@@ -196,34 +194,13 @@ import UIKit
 
         // Scrolled up until it is off screen, then opened along with a group on screen.
         chat.surface.following = false
-        let offsetBefore = chat.scroll.contentOffset.y
         chat.scroll.contentOffset.y -= chat.scroll.bounds.height * 2.5
-        let offsetSet = chat.scroll.contentOffset.y
-        var trace: [String] = []
-        let keyboard = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification,
-                                                              object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { Self.keyboardNotes += 1 }
-        }
-        defer { NotificationCenter.default.removeObserver(keyboard) }
-        Self.keyboardNotes = 0
-        for _ in 0 ..< 20 {
-            await chat.frame()
-            trace.append("\(Int(chat.scroll.contentOffset.y))/\(chat.surface.following ? "F" : "-")"
-                + "/i\(Int(chat.scroll.contentInset.top)),\(Int(chat.scroll.contentInset.bottom))"
-                + "/c\(Int(chat.scroll.contentSize.height))\(chat.controller.isHoldingFold ? "/H" : "")"
-                + "\(chat.list.layout.holdsHeights ? "/S" : "")")
-        }
+        await chat.frames(20)
         // Off screen: no visible cell (UIKit may keep a hidden one parked for reuse).
         let parked = chat.list.cell(for: x)
         try #require(!chat.scroll.visibleCells.contains { $0 === parked }, """
-            the first group is off screen: offset \(offsetBefore) -> \(offsetSet) -> \(chat.scroll.contentOffset.y), \
-            content \(chat.scroll.contentSize.height), bounds \(chat.scroll.bounds.height), \
-            x frame \(parked?.frame ?? .zero), following \(chat.surface.following), \
-            holding \(chat.controller.isHoldingFold), decelerating \(chat.scroll.isDecelerating), \
-            scroll animations \(chat.scroll.layer.animationKeys() ?? []), \
-            presented offset \(chat.scroll.layer.presentation()?.bounds.origin.y ?? -1), \
-            keyboard notes \(Self.keyboardNotes), \
-            frames (offset/following/insets/content/hold/spring) \(trace.joined(separator: " "))
+            the first group is off screen: offset \(chat.scroll.contentOffset.y), content \(chat.scroll.contentSize.height), \
+            following \(chat.surface.following), x at \(parked?.frame.minY ?? -1)
             """)
         let y = try lowest(chat, "group")
         let keyY = try #require(chat.key(y))
