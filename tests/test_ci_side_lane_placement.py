@@ -390,8 +390,10 @@ class Decide(unittest.TestCase):
                     job = wiring.workflow()["jobs"][name]
                     # PRs use the generic picker cascade. A role runner is never a
                     # prerequisite: the placement's deferred side/std route is the
-                    # bounded fallback when no GUI/session role is available.
-                    expected = values["deferred_runner"] or FALLBACK
+                    # bounded fallback when no GUI/session role is available. A session job the placement
+                    # spilled to an idle session runner (session_spill()) takes it instead.
+                    expected = (values["session_spill_runner"] if f" {name} " in values.get("session_jobs", "")
+                                else values["deferred_runner"] or FALLBACK)
                     self.assertEqual(evaluate(runs_on_route(job, name), context), expected, name)
                     self.assertEqual(evaluate(job_env(job)["CMUX_NEXT_RUNNER"], context), expected, name)
 
@@ -1002,8 +1004,8 @@ class SessionSpill(unittest.TestCase):
 
     def test_it_joins_only_the_shorter_queue(self):
         runners = self.side(4, busy=4) + self.session(4, busy=4)
-        # Session 1 per runner ahead of a new job against side 2: the first job moves, the second ties and stays.
-        self.assertEqual(placement.session_spill(env(), runners, self.seen(**{SIDE: 8, SESSION: 3}), SIDE),
+        # Session 7/4 ahead of a new job against side 8/4: the first job moves, then 8/4 ties and the second stays.
+        self.assertEqual(placement.session_spill(env(), runners, self.seen(**{SIDE: 8, SESSION: 7}), SIDE),
                          (SESSION, ("daemon-test",)))
         # The session queue as deep as the side one: nothing moves.
         self.assertEqual(placement.session_spill(env(), runners, self.seen(**{SIDE: 4, SESSION: 4}), SIDE), ("", ()))
