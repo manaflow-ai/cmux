@@ -1232,7 +1232,7 @@ def main():
                              "PERF-ATTR lines")
     parser.add_argument("--attribute-kinds", default="app,cef-gpu",
                         help="--attribute: the process kinds whose threads and stacks it reads (PERF-IDLE kind names)")
-    parser.add_argument("--attribute-trace", type=int, default=0, metavar="SECONDS",
+    parser.add_argument("--attribute-trace", type=int, default=15, metavar="SECONDS",
                         help="--attribute: also record SECONDS of System Trace per attributed process after each "
                              "window, and print each thread's wakeups per second with its name (thread_wakes.py)")
     parser.add_argument("--diff-tab", choices=("small", "large"),
