@@ -27,6 +27,7 @@ import { movedFrom, slidUnderStillPointer, trackPointerRest, type PointerPlace }
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
+import { usePlaybackStall } from "./mediaStall";
 import { webURL, mediaOpenRequest, formatDuration, loadPlayableMedia, webGranted } from "./replyMediaModel";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useScrimClose } from "../../../ui/scrimClose";
@@ -431,6 +432,9 @@ export function VideoThumbnail({
       void element.play()?.catch(() => {});
     });
   };
+  // A Play whose media never comes falls back as a failed load does, never a spinner forever
+  // (chips/mediaStall.ts).
+  usePlaybackStall(video, started, onError);
   // Mount-only: the ▶ that swapped this player in was the click.
   const autoPlayed = useRef(false);
   useEffect(() => {
