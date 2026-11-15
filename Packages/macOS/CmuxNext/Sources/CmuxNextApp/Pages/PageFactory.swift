@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHistoryPages
 import CmuxNextHomeEngine
+import CmuxNextKeys
 import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextServer
@@ -243,11 +244,7 @@ struct PageFactory {
         }
         provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
         provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
-        let keyRequests = KeyRequests.app
-        provider.keys = SettingsKeys(requests: keyRequests, cli: { [bundled = services.bundledCLI] in
-            await bundled.resolve().map { KeysCLI(binary: $0) }
-        })
-        provider.keysRevision = { keyRequests.revision }
+        provider.keys = SettingsKeys(requests: services.keyRequests, binary: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }

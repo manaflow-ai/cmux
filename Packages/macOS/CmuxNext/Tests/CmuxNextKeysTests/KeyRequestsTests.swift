@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextKeys
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -24,13 +24,13 @@ struct KeyRequestsTests {
 
     @Test func aNewAskForTheSameNameReplacesTheOldOneWhichEndsCancelled() {
         let requests = KeyRequests(), ends = Ends()
-        let first = add(requests, "STRIPE_KEY", ends: ends, tag: "first")
-        let second = add(requests, "STRIPE_KEY", ends: ends, tag: "second")
+        let first = add(requests, "DEPLOY_KEY", ends: ends, tag: "first")
+        let second = add(requests, "DEPLOY_KEY", ends: ends, tag: "second")
         #expect(requests.requests.map(\.id) == [second])
         #expect(ends.outcomes == ["first": .cancelled])
         #expect(requests.finish(first, .declined) == false, "an ended request ends once")
-        #expect(requests.finish(second, .stored(name: "STRIPE_KEY")))
-        #expect(ends.outcomes["second"] == .stored(name: "STRIPE_KEY"))
+        #expect(requests.finish(second, .stored(name: "DEPLOY_KEY")))
+        #expect(ends.outcomes["second"] == .stored(name: "DEPLOY_KEY"))
         #expect(requests.requests.isEmpty)
     }
 
@@ -46,40 +46,80 @@ struct KeyRequestsTests {
         #expect(ends.outcomes == ["KEY_0": .cancelled])
     }
 
-    @Test func aDroppedAskerEndsItsRequest() async {
+    @Test func aCancelledAskEndsItsRequest() async {
         let requests = KeyRequests()
-        let ask = KeyRequestParams(name: "NPM_TOKEN", purpose: "publish", requester: "user=you")
-        let waiting = Task { @MainActor in await requests.ask(ask) }
+        let ask = KeyRequestParams(name: "PUBLISH_TOKEN", purpose: "publish", requester: "user=you")
+        let waiting = Task { await requests.ask(ask) }
         for _ in 0..<100 where requests.requests.isEmpty { await Task.yield() }
-        #expect(requests.requests.map(\.name) == ["NPM_TOKEN"])
+        #expect(requests.requests.map(\.name) == ["PUBLISH_TOKEN"])
         waiting.cancel()
         #expect(await waiting.value == .cancelled)
         for _ in 0..<100 where !requests.requests.isEmpty { await Task.yield() }
         #expect(requests.requests.isEmpty)
     }
 
-    @Test func anAskAnsweredByThePersonEndsStored() async throws {
+    @Test func anAskerThatLeftEndsItsRequestEvenBeforeItIsAdded() async {
         let requests = KeyRequests()
-        let ask = KeyRequestParams(name: "NPM_TOKEN", purpose: "publish", requester: "user=you")
-        @MainActor final class Added { var id: String? }
-        let added = Added()
-        let waiting = Task { @MainActor in await requests.ask(ask) { added.id = $0 } }
-        for _ in 0..<100 where added.id == nil { await Task.yield() }
-        let id = try #require(added.id)
-        requests.finish(id, .declined)
+        let ask = KeyRequestParams(name: "PUBLISH_TOKEN", purpose: "publish", requester: "user=you")
+        let id = KeyRequests.newID()
+        let waiting = Task { await requests.ask(ask, id: id) }
+        for _ in 0..<100 where requests.requests.isEmpty { await Task.yield() }
+        requests.abandon(id)
+        #expect(await waiting.value == .cancelled)
+        #expect(requests.requests.isEmpty)
+        // The connection closed before the ask was added: it ends as soon as it is.
+        let early = KeyRequests.newID()
+        requests.abandon(early)
+        #expect(await requests.ask(ask, id: early) == .cancelled)
+        #expect(requests.requests.isEmpty)
+    }
+
+    @Test func anAskAnsweredByThePersonEndsWithTheirAnswer() async throws {
+        let requests = KeyRequests()
+        let ask = KeyRequestParams(name: "PUBLISH_TOKEN", purpose: "publish", requester: "user=you")
+        let id = KeyRequests.newID()
+        let waiting = Task { await requests.ask(ask, id: id) }
+        for _ in 0..<100 where requests.requests.isEmpty { await Task.yield() }
+        #expect(requests.finish(id, .declined))
         #expect(await waiting.value == .declined)
     }
 
+    @Test func bannersFollowTheRequestsAndTheStreamCarriesOnlyARevision() async throws {
+        let requests = KeyRequests()
+        var posted: [String] = [], withdrawn: [String] = [], revisions: [Int] = []
+        requests.onAdded = { posted.append(KeyRequestBanners.title($0) + " | " + KeyRequestBanners.body($0)) }
+        requests.onEnded = { withdrawn.append($0) }
+        let stop = requests.watch { revisions.append($0) }
+        let first = requests.add(name: "DEPLOY_KEY", purpose: "staging deploys", hosts: [], ttl: nil, requester: "CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0") { _ in }
+        let second = requests.add(name: "DEPLOY_KEY", purpose: "again", hosts: [], ttl: nil, requester: "user=you") { _ in }
+        #expect(posted == ["Claude Code · 4f2a9c1e asks for a key | DEPLOY_KEY: staging deploys", "you asks for a key | DEPLOY_KEY: again"])
+        #expect(withdrawn == [first])
+        stop()
+        requests.finish(second, .declined)
+        #expect(withdrawn == [first, second])
+        #expect(revisions == [1, 2], "the watch stopped")
+        #expect(KeyRequestBanners.isBanner(KeyRequestBanners.prefix + second))
+        // The page's stream sends the revision only.
+        let page = SettingsKeys(requests: requests, cli: { nil })
+        var events: [JSONValue] = []
+        let subscription = try await page.subscribe(SettingsKeys.changedStream, filter: .object([:]), context: PageCallContext(page: "cmux.settings"),
+                                                    onEvent: { events.append($0) })
+        _ = requests.add(name: "PUBLISH_TOKEN", purpose: "publish", hosts: [], ttl: nil, requester: "user=you") { _ in }
+        subscription.cancel()
+        _ = requests.add(name: "OTHER_KEY", purpose: "x", hosts: [], ttl: nil, requester: "user=you") { _ in }
+        #expect(events == [.object(["revision": .number(4)])])
+    }
+
     @Test func paramsAreChecked() throws {
-        let ok = try KeyRequestParams(["name": "STRIPE_KEY", "purpose": " checkout tests ", "hosts": ["API.Stripe.com", "api.stripe.com", ""],
+        let ok = try KeyRequestParams(["name": "DEPLOY_KEY", "purpose": " staging deploys ", "hosts": ["API.Example.com", "api.example.com", ""],
                                        "ttl": "90d", "requester": "CODEX_SESSION_ID=x"])
-        #expect(ok == KeyRequestParams(name: "STRIPE_KEY", purpose: "checkout tests", hosts: ["api.stripe.com"], ttl: "90d", requester: "CODEX_SESSION_ID=x"))
+        #expect(ok == KeyRequestParams(name: "DEPLOY_KEY", purpose: "staging deploys", hosts: ["api.example.com"], ttl: "90d", requester: "CODEX_SESSION_ID=x"))
         #expect(throws: (any Error).self) { try KeyRequestParams(["name": "lower", "purpose": "x"]) }
         #expect(throws: (any Error).self) { try KeyRequestParams(["name": "OK", "purpose": "  "]) }
         #expect(throws: (any Error).self) { try KeyRequestParams(["name": .string(String(repeating: "A", count: 81)), "purpose": "x"]) }
-        #expect(KeyRequestNotices.actorLabel("CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0") == "Claude Code · 4f2a9c1e")
-        #expect(KeyRequestNotices.actorLabel("user=you") == "you")
-        #expect(KeyRequestNotices.actorLabel("unknown") == nil)
+        #expect(KeyRequestBanners.actorLabel("CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0") == "Claude Code · 4f2a9c1e")
+        #expect(KeyRequestBanners.actorLabel("user=you") == "you")
+        #expect(KeyRequestBanners.actorLabel("unknown") == nil)
     }
 
     // MARK: The CLI
@@ -101,12 +141,12 @@ struct KeyRequestsTests {
 
     @Test func putSendsTheValueOnStdinOnly() async throws {
         let fake = FakeCLI()
-        fake.answer = { _ in KeysCLI.Output(status: 0, stdout: Data(#"{"stored":{"id":"local-npm_token","name":"NPM_TOKEN"}}"#.utf8), stderr: Data()) }
-        let answer = try await fake.cli().put(KeysCLI.Put(name: "NPM_TOKEN", purpose: "publish", hosts: ["registry.npmjs.org"], ttl: "30d",
+        fake.answer = { _ in KeysCLI.Output(status: 0, stdout: Data(#"{"stored":{"id":"local-publish_token","name":"PUBLISH_TOKEN"}}"#.utf8), stderr: Data()) }
+        let answer = try await fake.cli().put(KeysCLI.Put(name: "PUBLISH_TOKEN", purpose: "publish", hosts: ["registry.example.com"], ttl: "30d",
                                                           askedBy: "CLAUDE_CODE_SESSION_ID=abc"), value: "the-value")
-        #expect(answer["stored"]?["name"] == .string("NPM_TOKEN"))
+        #expect(answer["stored"]?["name"] == .string("PUBLISH_TOKEN"))
         let run = try #require(fake.runs.first)
-        #expect(run.arguments == ["keys", "put", "NPM_TOKEN", "--purpose", "publish", "--hosts", "registry.npmjs.org", "--ttl", "30d",
+        #expect(run.arguments == ["keys", "put", "PUBLISH_TOKEN", "--purpose", "publish", "--hosts", "registry.example.com", "--ttl", "30d",
                                   "--replace", "--from-person", "--asked-by", "CLAUDE_CODE_SESSION_ID=abc", "--json"])
         #expect(!run.arguments.contains("the-value"))
         #expect(run.stdin == Data("the-value".utf8))
@@ -129,21 +169,21 @@ struct KeyRequestsTests {
 
     @Test func storeEndsTheRequestOnlyAfterThePutSucceeded() async throws {
         let requests = KeyRequests(), ends = Ends(), fake = FakeCLI()
-        let id = add(requests, "STRIPE_KEY", ends: ends)
+        let id = add(requests, "DEPLOY_KEY", ends: ends)
         let page = SettingsKeys(requests: requests, cli: { fake.cli() })
         fake.answer = { _ in KeysCLI.Output(status: 1, stdout: Data(), stderr: Data(#"{"code":"keys.failed","message":"keychain locked"}"#.utf8)) }
         await #expect(throws: PageError.self) { try await page.answer(id, value: "typed") }
         #expect(requests.requests.map(\.id) == [id], "a refused store leaves the request waiting")
         #expect(ends.outcomes.isEmpty)
-        fake.answer = { _ in KeysCLI.Output(status: 0, stdout: Data(#"{"stored":{"id":"local-stripe_key"}}"#.utf8), stderr: Data()) }
+        fake.answer = { _ in KeysCLI.Output(status: 0, stdout: Data(#"{"stored":{"id":"local-deploy_key"}}"#.utf8), stderr: Data()) }
         let answer = try await page.answer(id, value: "typed")
-        #expect(answer == .object(["stored": .bool(true), "name": .string("STRIPE_KEY")]))
-        #expect(ends.outcomes["STRIPE_KEY"] == .stored(name: "STRIPE_KEY"))
+        #expect(answer == .object(["stored": .bool(true), "name": .string("DEPLOY_KEY")]))
+        #expect(ends.outcomes["DEPLOY_KEY"] == .stored(name: "DEPLOY_KEY"))
         #expect(requests.requests.isEmpty)
         #expect(fake.runs.allSatisfy { $0.stdin == Data("typed".utf8) && !$0.arguments.contains("typed") })
         // The list names the request and the CLI's keys, never a value.
         _ = add(requests, "OTHER_KEY", ends: ends)
-        fake.answer = { _ in KeysCLI.Output(status: 0, stdout: Data(#"{"version":1,"providers":[],"keys":[{"id":"local-stripe_key","name":"STRIPE_KEY","state":"live"}]}"#.utf8), stderr: Data()) }
+        fake.answer = { _ in KeysCLI.Output(status: 0, stdout: Data(#"{"version":1,"providers":[],"keys":[{"id":"local-deploy_key","name":"DEPLOY_KEY","state":"live"}]}"#.utf8), stderr: Data()) }
         let list = await page.list()
         #expect(list["available"] == .bool(true))
         #expect(list["keys"]?.arrayValue?.count == 1)
@@ -152,10 +192,10 @@ struct KeyRequestsTests {
 
     @Test func declineAnswersTheAgentDeclined() throws {
         let requests = KeyRequests(), ends = Ends()
-        let id = add(requests, "STRIPE_KEY", ends: ends)
+        let id = add(requests, "DEPLOY_KEY", ends: ends)
         let page = SettingsKeys(requests: requests, cli: { nil })
         _ = try page.decline(id)
-        #expect(ends.outcomes["STRIPE_KEY"] == .declined)
+        #expect(ends.outcomes["DEPLOY_KEY"] == .declined)
         #expect(throws: PageError.self) { try page.decline(id) }
     }
 }

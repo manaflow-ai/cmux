@@ -34,13 +34,13 @@ test("rows: live first, then expired, then revoked; a record without the newer f
   const now = Date.UTC(2026, 10, 15, 12);
   const rows = keyRows(mockKeys(now), now);
   expect(rows.map((row) => [row.id, row.state])).toEqual([
-    ["local-openai_api_key", "live"],
+    ["local-search_api_key", "live"],
     ["cf-7d1e", "expired"],
-    ["local-npm_token", "revoked"],
+    ["local-publish_token", "revoked"],
   ]);
   expect(rows[0]).toMatchObject({
-    hosts: ["api.openai.com"],
-    places: ["gh-secret:acme/search:OPENAI_API_KEY", "api.openai.com ×12"],
+    hosts: ["search.example.com"],
+    places: ["gh-secret:example/search:SEARCH_API_KEY", "search.example.com ×12"],
     by: "Claude Code · 9b1c2d3e",
   });
   // An older Cloudflare record: no label, no state, no hosts; past its expiry it reads expired.
@@ -54,7 +54,7 @@ test("rows: live first, then expired, then revoked; a record without the newer f
   expect(old[0]).toMatchObject({ label: "handoff", state: "expired", hosts: [], places: [] });
   expect(actorLabel("user=you")).toBe("you");
   expect(keyRequestRows(mockKeys(now))[0]).toMatchObject({
-    name: "STRIPE_TEST_KEY",
+    name: "DEPLOY_TOKEN",
     requester: "Claude Code · 4f2a9c1e",
   });
 });
@@ -62,22 +62,22 @@ test("rows: live first, then expired, then revoked; a record without the newer f
 test("the card shows the waiting request and every key, never a value", async () => {
   await open();
   const request = asks()!.querySelector<HTMLElement>('[data-key-request="kr_0001"]')!;
-  expect(request.textContent).toContain("STRIPE_TEST_KEY");
-  expect(request.querySelector("[data-key-request-purpose]")!.textContent).toContain("checkout tests");
+  expect(request.textContent).toContain("DEPLOY_TOKEN");
+  expect(request.querySelector("[data-key-request-purpose]")!.textContent).toContain("staging deploys");
   expect(request.querySelector("[data-key-request-detail]")!.textContent).toBe(
-    "Asked by Claude Code · 4f2a9c1e · For api.stripe.com",
+    "Asked by Claude Code · 4f2a9c1e · For api.example.com",
   );
   expect(field().type).toBe("password");
   expect(field().getAttribute("autocomplete")).toBe("off");
   expect(field().getAttribute("spellcheck")).toBe("false");
-  expect(keyIds()).toEqual(["local-openai_api_key", "cf-7d1e", "local-npm_token"]);
-  const live = card().querySelector<HTMLElement>('[data-key="local-openai_api_key"]')!;
+  expect(keyIds()).toEqual(["local-search_api_key", "cf-7d1e", "local-publish_token"]);
+  const live = card().querySelector<HTMLElement>('[data-key="local-search_api_key"]')!;
   expect(live.querySelector("[data-key-detail]")!.textContent).toContain(
-    "Used in gh-secret:acme/search:OPENAI_API_KEY",
+    "Used in gh-secret:example/search:SEARCH_API_KEY",
   );
   expect(live.querySelector("[data-key-status]")!.textContent).toBe("Active");
   // A revoked key has nothing left to revoke.
-  expect(card().querySelector('[data-key="local-npm_token"] [data-key-action="revoke"]')).toBeNull();
+  expect(card().querySelector('[data-key="local-publish_token"] [data-key-action="revoke"]')).toBeNull();
 });
 
 test("Store sends the typed value once, empties the field, and the request leaves", async () => {
@@ -90,7 +90,7 @@ test("Store sends the typed value once, empties the field, and the request leave
   await settle();
   expect(page!.provider.keyAnswers).toEqual([{ request_id: "kr_0001", value: "example-value" }]);
   expect(asks()).toBeNull();
-  expect(keyIds()).toContain("local-stripe_test_key");
+  expect(keyIds()).toContain("local-deploy_token");
   // The value is nowhere on the page.
   expect(page!.container.innerHTML).not.toContain("example-value");
 });
@@ -119,7 +119,7 @@ test("Decline ends the request without a value", async () => {
 
 test("Revoke asks first; Cancel keeps the key, confirming revokes it", async () => {
   await open();
-  const row = () => card().querySelector<HTMLElement>('[data-key="local-openai_api_key"]')!;
+  const row = () => card().querySelector<HTMLElement>('[data-key="local-search_api_key"]')!;
   await click(row().querySelector<HTMLButtonElement>('[data-key-action="revoke"]')!);
   expect(row().querySelector("[data-key-confirm]")!.textContent).toContain("deleted from this Mac");
   await click(row().querySelector<HTMLButtonElement>('[data-key-action="cancel"]')!);
@@ -128,7 +128,7 @@ test("Revoke asks first; Cancel keeps the key, confirming revokes it", async () 
   await click(row().querySelector<HTMLButtonElement>('[data-key-action="revoke"]')!);
   await click(row().querySelector<HTMLButtonElement>('[data-key-action="confirmRevoke"]')!);
   await settle();
-  expect(page!.provider.keyRevokes).toEqual(["local-openai_api_key"]);
+  expect(page!.provider.keyRevokes).toEqual(["local-search_api_key"]);
   expect(row().dataset.keyState).toBe("revoked");
 });
 

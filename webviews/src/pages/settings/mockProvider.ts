@@ -1994,8 +1994,8 @@ export function mockDevicesState(): DevicesState {
   };
 }
 
-/** Settings > Keys at `now`: Claude Code asks for a Stripe test key for two sites; a live key it
- * stored and wrote to a GitHub secret, an expired R2 key, and a revoked key the person typed. */
+/** Settings > Keys at `now`: Claude Code asks for a deploy token for two sites; a live key it
+ * stored and wrote to a repository secret, an expired provider key, and a revoked key the person typed. */
 export function mockKeys(now: number): KeysState {
   const day = 86_400_000;
   const at = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -2004,25 +2004,25 @@ export function mockKeys(now: number): KeysState {
     requests: [
       {
         id: "kr_0001",
-        name: "STRIPE_TEST_KEY",
-        purpose: "Run the checkout tests against Stripe's test mode",
-        hosts: ["api.stripe.com"],
+        name: "DEPLOY_TOKEN",
+        purpose: "Deploy the preview build to the staging site",
+        hosts: ["api.example.com"],
         requester: "CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0-4d1a-9e3b-0c5d6e7f8a9b",
         asked_at: at(now - 2 * 60_000),
       },
     ],
     keys: [
       {
-        id: "local-openai_api_key",
-        label: "OPENAI_API_KEY",
-        name: "OPENAI_API_KEY",
+        id: "local-search_api_key",
+        label: "SEARCH_API_KEY",
+        name: "SEARCH_API_KEY",
         provider: "local",
         kind: "secret",
         source: "stdin",
         purpose: "Embeddings for the search index",
-        hosts: ["api.openai.com"],
-        stores: ["gh-secret:acme/search:OPENAI_API_KEY"],
-        uses: [{ target: "api.openai.com", last_used_at: at(now - 3_600_000), count: 12 }],
+        hosts: ["search.example.com"],
+        stores: ["gh-secret:example/search:SEARCH_API_KEY"],
+        uses: [{ target: "search.example.com", last_used_at: at(now - 3_600_000), count: 12 }],
         by: "CLAUDE_CODE_SESSION_ID=9b1c2d3e-0000-4000-8000-000000000001",
         asked_by: null,
         created_at: at(now - 3 * day),
@@ -2031,7 +2031,7 @@ export function mockKeys(now: number): KeysState {
       },
       {
         id: "cf-7d1e",
-        label: "R2 handoff (read and write)",
+        label: "Bucket handoff (read and write)",
         provider: "cloudflare",
         kind: "r2",
         source: "cloudflare",
@@ -2047,14 +2047,14 @@ export function mockKeys(now: number): KeysState {
         state: "expired",
       },
       {
-        id: "local-npm_token",
-        label: "NPM_TOKEN",
-        name: "NPM_TOKEN",
+        id: "local-publish_token",
+        label: "PUBLISH_TOKEN",
+        name: "PUBLISH_TOKEN",
         provider: "local",
         kind: "secret",
         source: "person",
         purpose: "Publish the CLI package",
-        hosts: ["registry.npmjs.org"],
+        hosts: ["registry.example.com"],
         stores: [],
         uses: [],
         by: "user=you",

@@ -13,7 +13,7 @@ Surfaces:
 - Settings > Keys (`webviews/src/pages/settings/components/KeysCard.tsx`, rows in `keys.ts`, gallery
   `pages.settings-keys` in `keys.gallery.ts`). Sidebar: Accounts and Devices > Keys, symbol `key`,
   after Accounts. Deep link `#/settings/keys`.
-- The request banner (`CmuxNextApp/Control/AppControl+Keys.swift`, ``KeyRequestNotices``).
+- The request banner (`CmuxNextKeys/KeyRequestControl.swift`, ``KeyRequestBanners``).
 - The control method `keys.request` and the page ops `cmux.settings.keys.list|answer|decline|revoke`
   (`SettingsKeys.swift`, ``KeyRequests``, ``KeysCLI``).
 
@@ -106,7 +106,7 @@ translucent material shows through as on every Settings card.
 Plain words, sentence case for help, Title Case for card titles and buttons (Settings convention):
 Keys, Key Requests, Store, Decline, Revoke, Cancel. Strings live in
 `CmuxNextSettingsWindow/Localizable.xcstrings` (`settingsPage.keys.*`), the category title in
-`CmuxNextSettings` (`settings.category.keys`), the banner in `CmuxNextApp/Resources/Keys.xcstrings`.
+`CmuxNextSettings` (`settings.category.keys`), the banner in `CmuxNextKeys/Resources/Keys.xcstrings`.
 
 ## Gallery variants (`pages.settings-keys`)
 

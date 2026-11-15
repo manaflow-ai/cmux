@@ -34,7 +34,7 @@ import Testing
         var ran: Int { scripts.withLock { $0 } }
     }
 
-    func install(url: String = "https://dashboard.stripe.com/test/apikeys", liveURL: String? = nil) -> (ControlRouter, PageEngine) {
+    func install(url: String = "https://dashboard.example.com/settings/tokens", liveURL: String? = nil) -> (ControlRouter, PageEngine) {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = PageEngine(liveURL: liveURL)
         BrowserPageService(engine: engine).install(on: router)
@@ -71,37 +71,37 @@ import Testing
         #expect(engine.inputs.last?.text == "cats")
     }
 
-    @Test(arguments: [["stripe.com"], ["dashboard.stripe.com"], ["https://Stripe.com/", "example.org"]])
+    @Test(arguments: [["example.com"], ["dashboard.example.com"], ["https://Example.com/", "example.org"]])
     func aSecretGoesToItsSiteOrUnderIt(hosts: [String]) async throws {
         let (router, engine) = install()
         _ = try await fill(router, ["secret": true, "secret_hosts": .array(hosts.map(JSONValue.string))]).get()
         #expect(engine.ran == 1)
     }
 
-    @Test(arguments: ["https://stripe.com.evil.example/", "https://notstripe.com/", "about:blank"])
+    @Test(arguments: ["https://example.com.evil.test/", "https://notexample.com/", "about:blank"])
     func aSecretForAnotherSiteIsRefusedBeforeAnyScriptRuns(url: String) async {
         let (router, engine) = install(url: url)
-        let refused = await fill(router, ["secret": true, "secret_hosts": ["stripe.com"]])
+        let refused = await fill(router, ["secret": true, "secret_hosts": ["example.com"]])
         #expect(refused.failure?.code == "secret_host_mismatch")
-        #expect(refused.failure?.data?["hosts"] == .array(["stripe.com"]))
+        #expect(refused.failure?.data?["hosts"] == .array(["example.com"]))
         #expect(engine.ran == 0)
         #expect(engine.inputs.isEmpty)
     }
 
     @Test func thePagesOwnURLWinsOverALaggingSnapshot() async {
-        // The snapshot still says stripe.com; the page itself redirected elsewhere.
-        let (router, engine) = install(url: "https://stripe.com/login", liveURL: "https://phish.example/login")
-        let refused = await fill(router, ["secret": true, "secret_hosts": ["stripe.com"]])
+        // The snapshot still says example.com; the page itself redirected elsewhere.
+        let (router, engine) = install(url: "https://example.com/login", liveURL: "https://phish.example/login")
+        let refused = await fill(router, ["secret": true, "secret_hosts": ["example.com"]])
         #expect(refused.failure?.code == "secret_host_mismatch")
         #expect(refused.failure?.data?["host"] == .string("phish.example"))
         #expect(engine.ran == 0)
     }
 
     @Test func hostMatching() {
-        #expect(BrowserPageService.host(of: "https://api.stripe.com./v1", isIn: ["stripe.com"]))
-        #expect(BrowserPageService.host(of: "https://STRIPE.com", isIn: ["stripe.com"]))
-        #expect(!BrowserPageService.host(of: "https://xstripe.com", isIn: ["stripe.com"]))
-        #expect(!BrowserPageService.host(of: nil, isIn: ["stripe.com"]))
-        #expect(!BrowserPageService.host(of: "file:///tmp/a.html", isIn: ["stripe.com"]))
+        #expect(BrowserPageService.host(of: "https://api.example.com./v1", isIn: ["example.com"]))
+        #expect(BrowserPageService.host(of: "https://EXAMPLE.com", isIn: ["example.com"]))
+        #expect(!BrowserPageService.host(of: "https://xexample.com", isIn: ["example.com"]))
+        #expect(!BrowserPageService.host(of: nil, isIn: ["example.com"]))
+        #expect(!BrowserPageService.host(of: "file:///tmp/a.html", isIn: ["example.com"]))
     }
 }

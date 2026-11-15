@@ -40,16 +40,16 @@ const many: KeysState = {
   requests: [],
   keys: [
     ...base.keys,
-    local("SENTRY_AUTH_TOKEN", {
+    local("ERRORS_AUTH_TOKEN", {
       purpose: "Upload source maps on release",
-      hosts: ["sentry.io", "us.sentry.io"],
-      stores: ["gh-secret:acme/web:SENTRY_AUTH_TOKEN", "file:/Users/you/acme/web/.env.local"],
-      uses: [{ target: "sentry.io", last_used_at: at(GALLERY_NOW - 600_000), count: 3 }],
+      hosts: ["errors.example.com", "eu.errors.example.com"],
+      stores: ["gh-secret:example/web:ERRORS_AUTH_TOKEN", "file:/Users/you/example/web/.env.local"],
+      uses: [{ target: "errors.example.com", last_used_at: at(GALLERY_NOW - 600_000), count: 3 }],
       created_at: at(GALLERY_NOW - 5 * 60_000),
     }),
-    local("GITHUB_PAT", {
+    local("REPO_TOKEN", {
       source: "generated",
-      hosts: ["api.github.com"],
+      hosts: ["api.example.org"],
       by: "CODEX_SESSION_ID=0c9d8e7f-1111-4000-8000-000000000002",
       created_at: at(GALLERY_NOW - 40 * day),
       expires_at: at(GALLERY_NOW - 10 * day),
@@ -77,10 +77,10 @@ const longPurpose: KeysState = {
   requests: [
     {
       id: "kr_0002",
-      name: "CLOUDFLARE_ACCOUNT_API_TOKEN_FOR_PREVIEW_DEPLOYS",
+      name: "PREVIEW_DEPLOYS_ACCOUNT_API_TOKEN_FOR_EVERY_PULL_REQUEST",
       purpose:
-        "Deploy the preview Worker for every pull request in acme/web, purge its cache after each deploy, and read the account's R2 buckets so the preview can serve the same images as production without copying them",
-      hosts: ["api.cloudflare.com", "dash.cloudflare.com", "acme-preview.workers.dev"],
+        "Deploy the preview site for every pull request in example/web, purge its cache after each deploy, and read the account's storage buckets so the preview can serve the same images as production without copying them",
+      hosts: ["api.example.net", "dash.example.net", "preview.example.dev"],
       requester: "CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0-4d1a-9e3b-0c5d6e7f8a9b",
       asked_at: at(GALLERY_NOW - 30_000),
     },
@@ -105,14 +105,14 @@ export default settingsPageEntry({
     }),
     many: variant({
       keys: many,
-      note: "Seven keys: copies written to GitHub and a file, uses with counts, generated and typed keys, expired and revoked last.",
+      note: "Seven keys: copies written to a repository secret and a file, uses with counts, generated and typed keys, expired and revoked last.",
     }),
     "long-purpose": variant({
       keys: longPurpose,
       note: "Two requests; a long name and purpose wrap inside the row, the field and buttons stay on one line.",
     }),
     "revoke-confirm": variant({
-      steps: [shown, { selector: '[data-key="local-openai_api_key"] [data-key-action="revoke"]', action: "click" }],
+      steps: [shown, { selector: '[data-key="local-search_api_key"] [data-key-action="revoke"]', action: "click" }],
       note: "Revoke asks first, inline, and says what happens to a key kept on this Mac.",
     }),
     typed: variant({

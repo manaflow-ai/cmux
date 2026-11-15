@@ -167,7 +167,7 @@ public struct BrowserPageService: Sendable {
         guard case .array(let items)? = call.request.params["secret_hosts"] else { return [] }
         return items.compactMap { item -> String? in
             guard var host = item.stringValue?.trimmingCharacters(in: .whitespaces).lowercased(), !host.isEmpty else { return nil }
-            if let scheme = host.range(of: "://") { host = String(host[scheme.upperBound...]) }
+            if let rest = host.components(separatedBy: "://").last { host = rest }
             host = String(host.prefix { $0 != "/" && $0 != ":" && $0 != "?" && $0 != "#" })
             while host.hasSuffix(".") { host.removeLast() }
             return host.isEmpty ? nil : host

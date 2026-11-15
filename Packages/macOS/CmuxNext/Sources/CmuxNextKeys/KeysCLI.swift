@@ -10,13 +10,13 @@ import Foundation
 /// answer may come bare or inside an `{ok, result}` envelope.
 nonisolated struct KeysCLI: Sendable {
     /// What a failed command said, for the person (never a value: the CLI never prints one).
-    struct Failure: Error, Sendable, Equatable {
+    nonisolated struct Failure: Error, Sendable, Equatable {
         var code: String
         var message: String
     }
 
     /// One `cmux keys put` for a request the person answered.
-    struct Put: Sendable, Equatable {
+    nonisolated struct Put: Sendable, Equatable {
         var name: String
         var purpose: String?
         var hosts: [String]
@@ -25,7 +25,7 @@ nonisolated struct KeysCLI: Sendable {
     }
 
     /// What one run printed and how it exited.
-    struct Output: Sendable, Equatable {
+    nonisolated struct Output: Sendable, Equatable {
         var status: Int32
         var stdout: Data
         var stderr: Data

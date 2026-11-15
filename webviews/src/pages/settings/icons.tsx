@@ -61,6 +61,12 @@ const paths: Record<string, ReactNode> = {
       <path d="M3.9 12.5c.9-1.5 2.4-2.3 4.1-2.3s3.2.8 4.1 2.3" />
     </>
   ),
+  key: (
+    <>
+      <circle cx="5.2" cy="10.8" r="3" />
+      <path d="m7.3 8.7 6-6M11.2 4.8l1.6 1.6M9.6 6.4l1.2 1.2" />
+    </>
+  ),
   "square.stack": (
     <>
       <rect x="3.2" y="5" width="9.6" height="8.6" rx="1.6" />
