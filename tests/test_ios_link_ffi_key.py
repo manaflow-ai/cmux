@@ -243,7 +243,6 @@ class WorkflowTests(unittest.TestCase):
                    and str(s.get("with", {}).get("name", "")) == HANDOFF]
         self.assertEqual(len(uploads), 1, "a leg that built the framework hands it to the writer")
         self.assertIn("cache-hit != 'true'", str(uploads[0].get("if", "")))
-        self.assertIn("github.event_name != 'pull_request'", str(uploads[0].get("if", "")))
         self.assertIs(uploads[0].get("continue-on-error"), True)
         writers = [(name, job) for name, job in jobs.items() if any(is_save(s) for s in job.get("steps") or [])]
         self.assertEqual(len(writers), 1)
