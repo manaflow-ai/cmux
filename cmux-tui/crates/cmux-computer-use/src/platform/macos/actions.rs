@@ -1338,30 +1338,15 @@ pub(super) fn type_text(
             }
             sent += chunk.chars().count();
         }
-        return Ok(nowhere(d, &t, typed_outcome(route.name(), shows_text, d.expect(check, false))));
+        return Ok(typed_outcome(route.name(), shows_text, d.expect(check, false)));
     }
     unprimed(route, |p| input::type_text(p, text))?;
-    Ok(nowhere(d, &t, typed_outcome(route.name(), shows_text, d.expect(check, false))))
+    Ok(typed_outcome(route.name(), shows_text, d.expect(check, false)))
 }
 
 /// Whether `el` is a text element whose value shows what is typed into it.
 fn is_text_element(el: &Ax) -> bool {
     roles::is_text_input(&el.string("AXRole").unwrap_or_default())
-}
-
-/// Keys sent to an app with no focused element at all (not even its
-/// window) reach nothing that can take them: their effect, if any, can only
-/// show in the window or the app, all of which the engine watches.
-fn nowhere(d: &MacDesktop, t: &Target, out: ActionOutcome) -> ActionOutcome {
-    if out.shows.is_some() {
-        return out;
-    }
-    let no_focus = d.ax_window(t).ok().is_some_and(|(app, _)| {
-        app.element("AXFocusedUIElement").is_none_or(|el| {
-            matches!(el.string("AXRole").as_deref(), Some("AXWindow" | "AXApplication"))
-        })
-    });
-    if no_focus { out.showing("window") } else { out }
 }
 
 fn typed_outcome(route: &str, shows_text: bool, expect: Option<Expect>) -> ActionOutcome {
@@ -1709,7 +1694,6 @@ fn press_keys_inner(
     });
     unprimed(route, |p| input::key(p, code, flags, carries))?;
     let mut out = typed_outcome(route.name(), shows_text, d.expect(check, false));
-    out = nowhere(d, &t, out);
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
