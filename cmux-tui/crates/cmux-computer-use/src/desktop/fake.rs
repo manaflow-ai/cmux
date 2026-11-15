@@ -369,13 +369,13 @@ impl Desktop for FakeDesktop {
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         Ok(self.windows.iter().find(|w| w.id == id).cloned())
     }
-    fn app_window_ids(&self, pid: u32) -> DResult<Vec<String>> {
+    fn window_ids_over(&self, frame: &Rect) -> DResult<Vec<String>> {
         let opened = self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut ids: Vec<String> = self
             .windows
             .iter()
             .chain(opened.iter())
-            .filter(|w| w.pid == pid && w.on_screen && !w.minimized)
+            .filter(|w| w.on_screen && !w.minimized && crate::desktop::intersects(&w.frame, frame))
             .map(|w| w.id.clone())
             .collect();
         ids.sort();

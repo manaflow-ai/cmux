@@ -244,8 +244,9 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["state"]["unchanged"], true);
     assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
-    assert!(out.body["note"].as_str().unwrap().contains("has not taken effect"), "{}", out.body);
-    assert!(out.body["note"].as_str().unwrap().contains("1000 ms"), "{}", out.body);
+    let note = out.body["note"].as_str().unwrap();
+    assert!(note.contains("no visible change within 1000 ms"), "{}", out.body);
+    assert!(note.contains("take a screenshot before retrying"), "{}", out.body);
 }
 
 /// Bug 5 review: the openai and anthropic settle modes capture once (at
@@ -275,6 +276,24 @@ fn a_new_window_of_the_app_is_a_visible_change() {
     let (e, _) = settling_engine(d.clone());
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
     *d.opens_on_input.lock().unwrap() = Some(sheet);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
+    assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+}
+
+/// Review 4 (7): a window of another process opening over the target (a
+/// Save panel served by another process) is a visible change too.
+#[test]
+fn a_window_of_another_process_over_the_target_is_a_visible_change() {
+    let d = Arc::new(FakeDesktop::standard());
+    let target = d.windows.iter().find(|w| w.id == "1").unwrap().clone();
+    let mut panel = target.clone();
+    panel.id = "88".into();
+    panel.pid = target.pid + 1000;
+    panel.on_screen = true;
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    *d.opens_on_input.lock().unwrap() = Some(panel);
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
     assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
     assert_eq!(out.body["evidence"], "delivered", "{}", out.body);

@@ -248,6 +248,38 @@ impl Registry {
     }
 }
 
+impl Registry {
+    /// Whether a scope is open on the app with `pid` (any session's).
+    pub(super) fn is_open(&self, pid: i32) -> bool {
+        self.map().get(&pid).is_some_and(|e| e.1 > 0)
+    }
+
+    /// Waits until no scope is open on `pid`, at most `bound`; whether none
+    /// is. Keys and text are never posted to an app while it is primed (it
+    /// would take them as its active app's).
+    pub(super) fn wait_closed(&self, pid: i32, bound: Duration) -> bool {
+        let start = Instant::now();
+        loop {
+            if !self.is_open(pid) {
+                return true;
+            }
+            if start.elapsed() >= bound {
+                return false;
+            }
+            std::thread::sleep(POLL);
+        }
+    }
+}
+
+/// Whether keys or text may be posted to the app with `pid`: no scope is
+/// open on it, waiting at most [`SCOPE_BOUND`] for one to close.
+pub(super) fn may_post_keys(pid: i32) -> bool {
+    registry().wait_closed(pid, SCOPE_BOUND)
+}
+
+/// The refusal when a scope stayed open on the app.
+pub(super) const PRIMED_KEYS_REFUSAL: &str = "another Computer Use call is making a menu item of this app available right now; keys are never sent to the app meanwhile, so nothing was sent. Try again";
+
 fn registry() -> &'static Registry {
     static R: OnceLock<Registry> = OnceLock::new();
     R.get_or_init(Registry::new)
@@ -386,12 +418,16 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
             epoch: os.stop_epoch(),
             ended: false,
         };
+        let mut scope = scope;
         for (kind, dir) in
             [(RECORD_FOCUS, FOCUS_IN), (RECORD_MAKE_KEY_DOWN, 0), (RECORD_MAKE_KEY_UP, 0)]
         {
             if front() || !os.post(&psn, &record(kind, window, dir)) {
+                // Handed back (or skipped: the app is in front) before the
+                // lock is let go, so no other scope sees it half entered.
+                scope.finish_locked();
                 drop(posting);
-                return None; // the drop hands back (or skips: front)
+                return None;
             }
         }
         drop(posting);
@@ -431,8 +467,18 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
         if self.ended {
             return Ended::Fine;
         }
-        self.ended = true;
         let posting = self.registry.posting();
+        let ended = self.finish_locked();
+        drop(posting);
+        ended
+    }
+
+    /// [`Self::finish`] with the posting lock already held by the caller.
+    fn finish_locked(&mut self) -> Ended {
+        if self.ended {
+            return Ended::Fine;
+        }
+        self.ended = true;
         let after = {
             let mut map = self.registry.map();
             let after = map.get(&self.pid).map_or(0, |e| e.1.saturating_sub(1));
@@ -465,7 +511,6 @@ impl<'a, O: ScopeOs> KeyInApp<'a, O> {
                 return Ended::Fine;
             }
         }
-        drop(posting);
         eprintln!(
             "cmux computer use: could not hand window {name} of pid {} back (defocus record)",
             self.pid

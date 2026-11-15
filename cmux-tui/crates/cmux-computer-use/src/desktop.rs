@@ -351,15 +351,15 @@ pub trait Desktop: Send + Sync {
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         Ok(self.list_windows()?.into_iter().find(|w| w.id == id))
     }
-    /// The ids of the on-screen windows of the app with `pid`, sheets,
-    /// panels and popovers included where the platform lists them (to tell
-    /// whether an action opened one). The default filters
-    /// [`Self::list_windows`].
-    fn app_window_ids(&self, pid: u32) -> DResult<Vec<String>> {
+    /// The ids of the on-screen windows over `frame`, from any process:
+    /// sheets, panels and popovers included where the platform lists them,
+    /// one served by another process too (to tell whether an action opened
+    /// one). The default filters [`Self::list_windows`].
+    fn window_ids_over(&self, frame: &Rect) -> DResult<Vec<String>> {
         let mut ids: Vec<String> = self
             .list_windows()?
             .into_iter()
-            .filter(|w| w.pid == pid && w.on_screen && !w.minimized)
+            .filter(|w| w.on_screen && !w.minimized && intersects(&w.frame, frame))
             .map(|w| w.id)
             .collect();
         ids.sort();

@@ -246,6 +246,13 @@ impl Ax {
 
     /// How long messages to this element may take (a press that runs a
     /// menu-tracking loop answers only when the menu closes).
+    /// The element's AX messaging timeout set to `seconds` until the guard
+    /// drops, then set to `restore` (on every exit).
+    pub fn timeout_until_drop(&self, seconds: f32, restore: f32) -> TimeoutGuard {
+        self.set_timeout(seconds);
+        TimeoutGuard { el: self.clone(), restore }
+    }
+
     pub fn set_timeout(&self, seconds: f32) {
         // SAFETY: self is a live element.
         unsafe { AXUIElementSetMessagingTimeout(self.ptr(), seconds) };
@@ -1005,4 +1012,17 @@ pub fn wait_activated(pid: i32, limit: std::time::Duration, is_front: &dyn Fn() 
         }
     }
     front || is_front()
+}
+
+/// Restores an element's AX messaging timeout when dropped
+/// ([`Ax::timeout_until_drop`]).
+pub struct TimeoutGuard {
+    el: Ax,
+    restore: f32,
+}
+
+impl Drop for TimeoutGuard {
+    fn drop(&mut self) {
+        self.el.set_timeout(self.restore);
+    }
 }

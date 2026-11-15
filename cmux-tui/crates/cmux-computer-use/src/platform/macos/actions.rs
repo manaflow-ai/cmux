@@ -530,18 +530,21 @@ fn enable_menu_item(
     t: &Target,
     item: &Ax,
     element_id: &str,
-) -> DResult<super::activation::KeyInApp<'static>> {
+) -> DResult<(super::activation::KeyInApp<'static>, super::ax::TimeoutGuard)> {
     let title = item.string("AXTitle").unwrap_or_default();
     let key = key_in_app(d, t).ok_or_else(|| {
         DesktopError::Unsupported(format!(
             "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. Use delivery foreground if it is allowed"
         ))
     })?;
-    item.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
-    if key.wait_until(super::activation::VALIDATE_WAIT, &|| item.bool("AXEnabled") != Some(false)) {
-        return Ok(key);
+    // Short reads; the item keeps them while the scope is open (the caller
+    // presses it), and gets the long timeout back on every exit.
+    let short = item.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, super::ax::MESSAGE_TIMEOUT_SECONDS);
+    // Only an AXEnabled read as true counts (unreadable: not enabled).
+    if key.wait_until(super::activation::VALIDATE_WAIT, &|| item.bool("AXEnabled") == Some(true)) {
+        return Ok((key, short));
     }
-    item.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
+    drop(short);
     Err(DesktopError::Unsupported(format!(
         "menu item {title:?} ({element_id}) stays disabled with window {} as the app's key window: the command does not apply to it now, so nothing was pressed",
         t.window.id
@@ -627,6 +630,9 @@ pub(super) fn click(
     // A background app has no key window, so a menu item that acts on one is
     // disabled; the target window is made the app's key window (to the app
     // only) until the press is done.
+    // The item's short AX timeout while a scope is open; the long one comes
+    // back when this drops, on every exit.
+    let mut item_timeout: Option<super::ax::TimeoutGuard> = None;
     let mut menu_key = if spec.delivery == Delivery::Background
         && in_menu_bar
         && el.bool("AXEnabled") == Some(false)
@@ -634,10 +640,11 @@ pub(super) fn click(
     {
         // Never made available: launch-list items and items that open or
         // reveal documents or apps (they can run a denied app).
-        if let Some(why) = prime_block_of(&el) {
+        if let Some(why) = prime_block_of(&el, None) {
             return Err(DesktopError::Unsupported(why.into()));
         }
-        let key = enable_menu_item(d, &t, &el, element_id)?;
+        let (key, short) = enable_menu_item(d, &t, &el, element_id)?;
+        item_timeout = Some(short);
         // Validation can change the item (its title, what it leads to):
         // the deny list and the protected apps are checked again.
         d.refuse_denied_item(&el)?;
@@ -682,7 +689,7 @@ pub(super) fn click(
             && let Err(why) = roles::primed_press(
                 key.live(),
                 focused_on_target(&t),
-                prime_block_of(&el).is_some(),
+                prime_block_of(&el, Some(key)).is_some(),
             )
         {
             return Err(scope_refusal(menu_key.take(), why));
@@ -698,9 +705,7 @@ pub(super) fn click(
             // (a dialog it opened holds it): delivered, may have run.
             Err(_) => press_outcome(Err(super::sys::AX_CANNOT_COMPLETE), &route_name(action))?,
         };
-        if menu_key.is_some() {
-            el.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
-        }
+        drop(item_timeout.take());
         // A menu bar item's frame while its menu is closed is off screen
         // (Safari's View items report y 900): no cursor there.
         if in_menu_bar {
@@ -820,6 +825,12 @@ pub(super) fn type_text(
         d.refuse_other_menus(&t)?;
     }
     let route = d.key_route(&t, delivery)?;
+    // Never into a primed app (another session's scope): wait, else refuse.
+    if let Route::Pid { pid, .. } = route
+        && !super::activation::may_post_keys(pid)
+    {
+        return Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()));
+    }
     input::type_text(route, text)?;
     Ok(ActionOutcome::delivered(route.name()))
 }
@@ -912,7 +923,8 @@ pub(super) fn press_keys(
         // shortcut is never primed, and a chord with no match keeps the
         // background rule.
         let mut primed: Option<super::activation::KeyInApp<'static>> = None;
-        let mut primed_items: Option<(Vec<(Ax, roles::ShortcutMatch)>, bool)> = None;
+        // The first walk, reused when nothing is primed.
+        let mut first_walk: Option<(Vec<(Ax, roles::ShortcutMatch)>, bool)> = None;
         if background && !d.is_persons_app(&t) {
             let (first, first_complete) = shortcut_matches(d, t.window.pid, combo, true);
             let first_matches: Vec<roles::ShortcutMatch> =
@@ -921,49 +933,52 @@ pub(super) fn press_keys(
                 // Never made available: launch-list items and items that
                 // open or reveal documents or apps; a posted chord would not
                 // reach them either, so the chord is refused.
-                if let Some(why) = first.iter().find_map(|(el, _)| prime_block_of(el)) {
+                if let Some(why) = first.iter().find_map(|(el, _)| prime_block_of(el, None)) {
                     return Err(DesktopError::Unsupported(why.into()));
                 }
                 if let Some(key) = key_in_app(d, &t) {
-                    for (el, _) in &first {
-                        el.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
-                    }
+                    // Every AX read inside the scope is short; restored on
+                    // every exit.
+                    let _short: Vec<_> =
+                        first.iter().map(|(el, _)| el.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, super::ax::MESSAGE_TIMEOUT_SECONDS)).collect();
+                    // Only an AXEnabled read as true counts (unreadable: no).
                     if key.wait_until(super::activation::VALIDATE_WAIT, &|| {
-                        first.iter().any(|(el, _)| el.bool("AXEnabled") != Some(false))
+                        first.iter().any(|(el, _)| el.bool("AXEnabled") == Some(true))
                     }) {
+                        // Only the first pass's matches are read again, not
+                        // the whole menu bar; the bound is checked between
+                        // reads.
+                        let mut complete = first_complete;
+                        let mut again = Vec::new();
+                        for (el, _) in first {
+                            if !key.live() {
+                                return Err(scope_refusal(
+                                    Some(key),
+                                    roles::primed_press(false, true, false).unwrap_err(),
+                                ));
+                            }
+                            let (mut m, read_all) = shortcut_match_of(d, &el);
+                            m.enabled &= el.bool("AXEnabled") == Some(true);
+                            complete &= read_all;
+                            again.push((el, m));
+                        }
                         primed = Some(key);
-                        primed_items = Some((first, first_complete));
+                        first_walk = Some((again, complete));
                     } else if key.end() == super::activation::Ended::HandBackFailed {
                         super::activation::append_note(
                             &mut notes,
                             super::activation::HAND_BACK_FAILED,
                         );
                     }
+                } else {
+                    first_walk = Some((first, first_complete));
                 }
+            } else {
+                first_walk = Some((first, first_complete));
             }
         }
-        // Primed: only the first pass's matches are read again (under the
-        // short timeout), not the whole menu bar; a stop, the bound or the
-        // person switching to the app ends it with nothing pressed.
-        let (items, complete) = match primed_items.take() {
-            Some((first, first_complete)) => {
-                if primed.as_ref().is_some_and(|k| !k.live()) {
-                    return Err(scope_refusal(
-                        primed.take(),
-                        roles::primed_press(false, true, false).unwrap_err(),
-                    ));
-                }
-                let mut complete = first_complete;
-                let again: Vec<(Ax, roles::ShortcutMatch)> = first
-                    .into_iter()
-                    .map(|(el, _)| {
-                        let (m, read_all) = shortcut_match_of(d, &el);
-                        complete &= read_all;
-                        (el, m)
-                    })
-                    .collect();
-                (again, complete)
-            }
+        let (items, complete) = match first_walk.take() {
+            Some(walk) => walk,
             None => shortcut_matches(d, t.window.pid, combo, background),
         };
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
@@ -994,20 +1009,20 @@ pub(super) fn press_keys(
         match roles::decide_chord(&facts) {
             roles::ChordAction::PressItem(i) => {
                 let el = &items[i].0;
-                if let Some(key) = primed.as_ref() {
-                    if let Err(why) = roles::primed_press(
+                let _short = primed.as_ref().map(|_| el.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, super::ax::MESSAGE_TIMEOUT_SECONDS));
+                if let Some(key) = primed.as_ref()
+                    && let Err(why) = roles::primed_press(
                         key.live(),
                         focused_on_target(&t),
-                        prime_block_of(el).is_some(),
-                    ) {
-                        return Err(scope_refusal(primed.take(), why));
-                    }
-                    el.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
+                        prime_block_of(el, Some(key)).is_some(),
+                    )
+                {
+                    return Err(scope_refusal(primed.take(), why));
                 }
-                let mut out = press_outcome(el.perform("AXPress"), "ax_menu_shortcut")?;
-                if primed.is_some() {
-                    el.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
-                }
+                let mut out = match press_outcome(el.perform("AXPress"), "ax_menu_shortcut") {
+                    Ok(out) => out,
+                    Err(e) => return Err(with_hand_back(e, primed.take())),
+                };
                 if let Some(key) = primed.take()
                     && key.end() == super::activation::Ended::HandBackFailed
                 {
@@ -1077,6 +1092,13 @@ pub(super) fn press_keys(
         Route::Hid if denies_any => Route::Pid { pid: t.window.pid, window: t.window.id },
         other => other,
     };
+    // Never into a primed app: wait for every scope on it (another
+    // session's too) to end, at most the scope bound.
+    if let Route::Pid { pid, .. } = route
+        && !super::activation::may_post_keys(pid)
+    {
+        return Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()));
+    }
     input::key(route, code, flags, keymap::carries_text(&combo.key, flags))?;
     let mut out = ActionOutcome::delivered(route.name());
     if let Some(title) = disabled_item {
@@ -1135,13 +1157,24 @@ fn chord_is_service(code: u16, flags: u64) -> bool {
 /// whatever app the document names, which the item's title does not show).
 /// Read from the item's own place and key equivalent, with AppKit's
 /// localized titles.
-fn prime_block_of(item: &Ax) -> Option<&'static str> {
-    item.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
+fn prime_block_of(
+    item: &Ax,
+    scope: Option<&super::activation::KeyInApp<'static>>,
+) -> Option<&'static str> {
+    // Short reads; the item keeps the timeout it had (short inside a scope).
+    let restore = if scope.is_some() { super::activation::AX_TIMEOUT_IN_SCOPE } else { super::ax::MESSAGE_TIMEOUT_SECONDS };
+    let _short = item.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, restore);
+    let live = || scope.is_none_or(|k| k.live());
     let mut ancestors = Vec::new();
     let mut complete = true;
     let mut node = item.element("AXParent");
     for _ in 0..10 {
         let Some(n) = node else { break };
+        if !live() {
+            complete = false;
+            break;
+        }
+        n.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
         match n.string("AXRole").as_deref() {
             Some("AXMenuItem") | Some("AXMenuBarItem") => match n.attr("AXTitle") {
                 Ok(t) => ancestors.push(t.and_then(|t| t.as_string()).unwrap_or_default()),
@@ -1156,19 +1189,24 @@ fn prime_block_of(item: &Ax) -> Option<&'static str> {
         }
         node = n.element("AXParent");
     }
-    let title = item.string("AXTitle").unwrap_or_default();
-    let number =
-        |name: &str| item.attr(name).ok().flatten().and_then(|v| v.as_f64()).map(|v| v as i64);
-    let key = keymap::menu_item_key(
-        item.string("AXMenuItemCmdChar").as_deref(),
-        number("AXMenuItemCmdVirtualKey"),
-        number("AXMenuItemCmdGlyph"),
-    );
-    let mods = number("AXMenuItemCmdModifiers").unwrap_or(0);
-    let opens_by_key = roles::is_open_key_equivalent(&key, mods);
-    item.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
+    // Unreadable title or key equivalent: None (blocked).
+    let title =
+        item.attr("AXTitle").ok().map(|t| t.and_then(|t| t.as_string()).unwrap_or_default());
+    let number = |name: &str| -> Result<Option<i64>, ()> {
+        item.attr(name).map(|v| v.and_then(|v| v.as_f64()).map(|v| v as i64)).map_err(|_| ())
+    };
+    let opens_by_key = (|| {
+        let cmd_char = item.attr("AXMenuItemCmdChar").ok()?.and_then(|v| v.as_string());
+        let key = keymap::menu_item_key(
+            cmd_char.as_deref(),
+            number("AXMenuItemCmdVirtualKey").ok()?,
+            number("AXMenuItemCmdGlyph").ok()?,
+        );
+        let mods = number("AXMenuItemCmdModifiers").ok()?.unwrap_or(0);
+        Some(roles::is_open_key_equivalent(&key, mods))
+    })();
     roles::prime_block(
-        &title,
+        title.as_deref(),
         complete.then_some(ancestors.as_slice()),
         opens_by_key,
         workspace::launch_submenu_titles(),

@@ -296,25 +296,30 @@ pub fn press_error_falls_back(code: i32) -> bool {
 /// Why a disabled background menu item must not be made available, if it
 /// must not (pure, for tests): its place is in a launch list (Services,
 /// Open With, Share, Recent Items, Quick Actions, in AppKit's languages) or
-/// could not be read; its title is an open or reveal command
-/// (`open_titles`, English and AppKit's languages); or its key equivalent is
-/// AppKit's Open (Command-O) or Finder's Open (Command-Down), which holds in
-/// any language.
+/// could not be read; a menu above it is an open command (Open Recent's
+/// documents); its title is an open or reveal command (`open_titles`,
+/// English and AppKit's languages); its key equivalent is AppKit's Open
+/// (Command-O) or Finder's Open (Command-Down), which holds in any language;
+/// or its title or key equivalent could not be read (fail closed).
 pub fn prime_block(
-    title: &str,
+    title: Option<&str>,
     ancestors: Option<&[String]>,
-    opens_by_key: bool,
+    opens_by_key: Option<bool>,
     launch_titles: &[String],
     open_titles: &[String],
 ) -> Option<&'static str> {
-    const LAUNCH: &str = "this menu item is in a launch list (Services, Open With, Share, Recent Items or Quick Actions); it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
-    const OPENS: &str = "this menu item opens or reveals documents or apps, which can start another app (a denied one too); it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    const LAUNCH: &str = "this menu item is in a launch list (Services, Open With, Share, Recent Items or Quick Actions) or an open command's submenu, or its place could not be read; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    const OPENS: &str = "this menu item opens or reveals documents or apps, which can start another app (a denied one too), or its title or key could not be read; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    let is_open = |t: &str| {
+        let key = submenu_title_key(t);
+        open_titles.iter().any(|o| key == *o || key.starts_with(&format!("{o} ")))
+    };
     let Some(ancestors) = ancestors else { return Some(LAUNCH) };
-    if ancestors.iter().any(|t| launch_titles.contains(&submenu_title_key(t))) {
+    if ancestors.iter().any(|t| launch_titles.contains(&submenu_title_key(t)) || is_open(t)) {
         return Some(LAUNCH);
     }
-    let key = submenu_title_key(title);
-    if opens_by_key || open_titles.iter().any(|o| key == *o || key.starts_with(&format!("{o} "))) {
+    let (Some(title), Some(opens_by_key)) = (title, opens_by_key) else { return Some(OPENS) };
+    if opens_by_key || is_open(title) {
         return Some(OPENS);
     }
     None

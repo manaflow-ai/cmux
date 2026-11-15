@@ -478,13 +478,18 @@ impl Desktop for MacDesktop {
         Ok(self.windows_from(windows, &apps))
     }
 
-    /// The app's on-screen windows, sheets, panels and popovers included:
-    /// one window server query.
-    fn app_window_ids(&self, pid: u32) -> DResult<Vec<String>> {
-        // One window server query; every layer (sheets, panels, popovers).
+    /// The on-screen windows over `frame` from any process, at the levels
+    /// of normal windows through menus (0..=101: sheets, panels, popovers, a
+    /// Save panel served by another process), in one window server query.
+    fn window_ids_over(&self, frame: &Rect) -> DResult<Vec<String>> {
         let mut ids: Vec<String> = cgwindows::on_screen()
             .into_iter()
-            .filter(|w| w.pid as u32 == pid && w.frame.width >= 2.0 && w.alpha > 0.0)
+            .filter(|w| {
+                (0..=101).contains(&w.layer)
+                    && w.frame.width >= 2.0
+                    && w.alpha > 0.0
+                    && crate::desktop::intersects(&w.frame, frame)
+            })
             .map(|w| w.id.to_string())
             .collect();
         ids.sort();

@@ -142,7 +142,7 @@ fn launch_and_open_items_are_never_primed() {
     let open = vec!["open".to_string(), "open recent".to_string(), "show in finder".to_string()];
     let up = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let block = |title: &str, anc: Option<&[String]>, key: bool| {
-        roles::prime_block(title, anc, key, &launch, &open)
+        roles::prime_block(Some(title), anc, Some(key), &launch, &open)
     };
     assert!(block("Select All", Some(&up(&["Edit"])), false).is_none());
     assert!(block("Zoom In", Some(&up(&["View"])), false).is_none());
@@ -158,6 +158,12 @@ fn launch_and_open_items_are_never_primed() {
     assert!(block("Show in Finder", Some(&up(&["File"])), false).is_some());
     assert!(block("Öffnen", Some(&up(&["Ablage"])), true).is_some(), "Command-O in any language");
     assert!(block("Opener", Some(&up(&["View"])), false).is_none(), "not a word prefix");
+    // Review 4 (4): a document under Open Recent (an open command's submenu).
+    assert!(block("report.txt", Some(&up(&["Open Recent", "File"])), false).is_some());
+    // Review 4 (3): an unreadable title or key equivalent blocks.
+    let edit = up(&["Edit"]);
+    assert!(roles::prime_block(None, Some(&edit), Some(false), &launch, &open).is_some());
+    assert!(roles::prime_block(Some("Select All"), Some(&edit), None, &launch, &open).is_some());
 }
 
 /// Review 3 (2, 3): AppKit's Open (Command-O) and Finder's Open
@@ -289,6 +295,8 @@ fn a_scope_refuses_the_front_app_and_unknown_windows() {
     assert!(activation::KeyInApp::enter_with(&os, &reg, 99, 5).is_none());
     os.fail_posts.set(true);
     assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    // Review 4 (5): ended under the posting lock: nothing is left open.
+    assert!(!reg.is_open(5));
     os.fail_posts.set(false);
     // Nothing left open: a new scope enters.
     assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_some());
@@ -358,6 +366,27 @@ fn the_hand_back_names_a_window_that_still_exists() {
     activation::append_note(&mut note, activation::HAND_BACK_FAILED);
     activation::append_note(&mut note, activation::HAND_BACK_FAILED);
     assert!(note.starts_with("pressed; ") && note.matches("hand-back").count() == 1);
+}
+
+/// Review 4 (1): keys and text are never posted to an app while any scope
+/// on it is open: a chord's own scope ended, but another session's joined
+/// scope keeps the app primed, so posting waits and then refuses; once the
+/// last scope ends, posting goes ahead.
+#[test]
+fn no_keys_are_posted_while_any_scope_on_the_app_is_open() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let short = std::time::Duration::from_millis(60);
+    assert!(reg.wait_closed(5, short), "nothing open: post at once");
+    let own = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("own");
+    let other = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("another session joins");
+    assert!(!reg.wait_closed(5, short), "own scope open: no keys");
+    assert_eq!(own.end(), activation::Ended::Fine);
+    assert!(reg.is_open(5), "the joiner keeps the app primed");
+    assert!(!reg.wait_closed(5, short), "a Post after its own scope ended still waits");
+    assert!(reg.wait_closed(7, short), "another app is not held");
+    drop(other);
+    assert!(reg.wait_closed(5, short), "last scope out: keys may go");
 }
 
 #[test]

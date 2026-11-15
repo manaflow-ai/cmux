@@ -483,7 +483,7 @@ impl Engine {
         // The target app's windows before an observing action: a sheet,
         // popover or window it opens is an effect a window capture misses.
         let windows_before = (tools::OBSERVES.contains(&name) && name != "batch")
-            .then(|| args_str(&args, "window_id").and_then(|id| self.app_window_ids(id)))
+            .then(|| args_str(&args, "window_id").and_then(|id| self.window_ids_over_target(id)))
             .flatten();
         let raising = self.foreground_begin(tool, &args);
         let mut guard = self.focus_begin(&ctx.session, tool, &args);
@@ -904,11 +904,11 @@ impl Engine {
             .or_else(|| saved.is_never(&app.id).then_some(Refusal::NeverAllowed))
     }
 
-    /// The on-screen windows of `window_id`'s app, sorted ids (None when the
-    /// window or its app's windows cannot be read).
-    fn app_window_ids(&self, window_id: &str) -> Option<Vec<String>> {
+    /// The on-screen windows over `window_id`'s window, from any process,
+    /// sorted ids (None when the window or the list cannot be read).
+    fn window_ids_over_target(&self, window_id: &str) -> Option<Vec<String>> {
         let w = self.window(window_id).ok()?;
-        self.desktop.app_window_ids(w.pid).ok()
+        self.desktop.window_ids_over(&w.frame).ok()
     }
 
     fn windows(&self) -> Result<Vec<Window>, ToolOutput> {
@@ -1514,7 +1514,7 @@ impl Engine {
                 && captures >= 2
                 && shot.body["unchanged"] == json!(true)
                 && windows_before
-                    .is_some_and(|b| self.app_window_ids(window_id).as_deref() == Some(b)),
+                    .is_some_and(|b| self.window_ids_over_target(window_id).as_deref() == Some(b)),
             elapsed.as_millis() as u64,
         );
         let mut state = shot.body.clone();
@@ -1831,11 +1831,12 @@ mod focus;
 #[path = "engine_menus.rs"]
 mod menus_glue;
 
-/// The note a `delivered` result gets when the window looked the same in
-/// every capture of the settle wait as in the agent's last capture of it.
+/// The note a `delivered` result gets when nothing visible changed through
+/// a real settle wait: the window's pixels, and the windows over it (sheets,
+/// panels, a Save panel another process serves).
 pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     format!(
-        "this window looked exactly as in your last screenshot of it in every capture for {waited_ms} ms after the action, so if the action should change what this window shows, it has not taken effect. Try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An action whose effect is elsewhere (copy, save, another window) may still have worked."
+        "no visible change within {waited_ms} ms: this window and the windows over it looked the same in every capture. If the action should change what it shows, take a screenshot before retrying, then try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An effect outside this window (copy, save, another app) is not seen here."
     )
 }
 
