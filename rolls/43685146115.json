@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43685146115",
+  "recorded_at": "2026-11-15T06:30:06Z",
+  "reason": "cmux-tui ed8775e3fa40 changes the image's cmux-tui (pinned d6b7784abd22)",
+  "dry_run": false,
+  "cmux_tui": "ed8775e3fa40bc780df58436a5c36ce5eedcbf88",
+  "fixes": [
+    {
+      "sha": "ed8775e3fa40bc780df58436a5c36ce5eedcbf88",
+      "mergedAt": "2026-11-14T22:06:34-08:00",
+      "subject": "cmux keys: store a key from any provider and enter it by name (#43550)"
+    },
+    {
+      "sha": "1933857f513a707b23b8408ae9b3fcec7735c3f2",
+      "mergedAt": "2026-11-15T05:59:28Z",
+      "subject": "acpmux v2 3b: catchup_peak_rss holds god's own resident growth, and goes red without the sync wait clear (#43461)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T06:30:06Z",
+    "snapshot_id": "sh-6c5bcc2179d842f49f818a3e8afcaa5f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43685146115): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c51eced68b9dffe91faf0fcda0205d3efe716960",
+    "image": "cloud-native-auto-ed8775e3-43685146115-1",
+    "revision": "ci-43685146115-1",
+    "at": "2026-11-15T06:30:06Z"
+  },
+  "rolled_back": false
+}
