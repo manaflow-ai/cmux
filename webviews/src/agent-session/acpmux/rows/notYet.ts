@@ -43,6 +43,12 @@ export const NOT_YET: readonly NotYet[] = [
   { field: "assistant.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
   { field: "tool.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
   { field: "turnSummary.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
+  {
+    field: "row:permissionRecord",
+    home: "a",
+    builder: "A0",
+    note: "an approved ask whose call has no tool row: v1 keeps its receipt, the adapter draws none (parity seq 53-54)",
+  },
 ];
 
 /// The fields FIELDS.md has under "Not yet" that no corpus row shows, so the parity test cannot
