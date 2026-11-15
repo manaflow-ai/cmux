@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43660091669",
+  "recorded_at": "2026-11-15T01:00:55Z",
+  "reason": "cmux-tui 8007b4d10cd0 changes the image's cmux-tui (pinned 0651577f923b)",
+  "dry_run": false,
+  "cmux_tui": "8007b4d10cd0fb6941f73fc7000a438a31fbe2bd",
+  "fixes": [
+    {
+      "sha": "8007b4d10cd0fb6941f73fc7000a438a31fbe2bd",
+      "mergedAt": "2026-11-14T16:28:32-08:00",
+      "subject": "acpmux: bg_list and bg_stop act on the caller's own tasks (#43377)"
+    },
+    {
+      "sha": "1f9fa7357211f56471f90287400078e5f2a42d81",
+      "mergedAt": "2026-11-14T16:27:41-08:00",
+      "subject": "acpmux v2 3c: the append gate's all-sample hold back, and god's page faults kept out of its ratio (#43280)"
+    },
+    {
+      "sha": "5b9841cb791f40c88e8113c47bdc2d36579e66d5",
+      "mergedAt": "2026-11-14T16:25:58-08:00",
+      "subject": "Cut the work of each list-workspaces and session.snapshot request in a large session (#43198)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T01:00:55Z",
+    "snapshot_id": "sh-afd05f7baea5441b9e6610762ee8f1cc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43660091669): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "831d4b53fd78d4b803fe9a3ff6a4cb92b0e3f4f1",
+    "image": "cloud-native-auto-8007b4d1-43660091669-1",
+    "revision": "ci-43660091669-1",
+    "at": "2026-11-15T01:00:55Z"
+  },
+  "rolled_back": false
+}
