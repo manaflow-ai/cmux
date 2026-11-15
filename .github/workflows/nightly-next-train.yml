@@ -172,7 +172,7 @@ jobs:
           name: nightly-next-train-${{ github.run_id }}
           path: train-result.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 7
 
   # The candidate compile's route, picked on Linux right before it queues: an
   # owned Mac while one of its runners is idle now, else the Blacksmith macOS 26
