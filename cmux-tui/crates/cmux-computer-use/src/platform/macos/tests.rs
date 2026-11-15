@@ -2745,6 +2745,13 @@ fn a_web_walk_that_stops_short_is_unknown() {
 /// (they would land in whatever field has focus).
 #[test]
 fn keys_follow_a_focus_write_only_once_the_target_is_focused() {
-    assert!(roles::focus_is_target(true));
-    assert!(!roles::focus_is_target(false));
+    use roles::focus_is_target;
+    assert!(focus_is_target(Some(true), Some(true)));
+    assert!(!focus_is_target(Some(false), Some(true)), "the app names another element");
+    assert!(
+        focus_is_target(None, Some(true)),
+        "a background app reports none; the field says it is"
+    );
+    assert!(!focus_is_target(None, Some(false)));
+    assert!(!focus_is_target(None, None));
 }

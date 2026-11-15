@@ -246,11 +246,18 @@ pub fn step_tolerance(step: f64) -> f64 {
 /// The refusal when an element that may open a menu cannot be read.
 pub const MENU_UNREAD_REFUSAL: &str = "this element could not be read well enough to tell whether it opens a menu, so nothing was done; try again, or take a screenshot and use another element";
 
-/// Whether keys may follow an AX focus write: only once the app's focused
-/// element is the target (`same`); anything else, an unreadable focus
-/// included, posts no keys.
-pub fn focus_is_target(same: bool) -> bool {
-    same
+/// Whether keys may follow an AX focus write, from the app's focused
+/// element (`Some(true)`: it is the target; `Some(false)`: another element;
+/// `None`: the app reports none, as a background app with no key window
+/// does) and the target's own `AXFocused`. The app naming another element
+/// posts no keys (they would land there); naming none, the target must say
+/// it is focused itself (Safari's background web field, macOS 27.0.1: the
+/// app reports no focused element, the field reads AXFocused 1).
+pub fn focus_is_target(app_focus_is_target: Option<bool>, own_focused: Option<bool>) -> bool {
+    match app_focus_is_target {
+        Some(same) => same,
+        None => own_focused == Some(true),
+    }
 }
 
 /// How a posted press is aimed, from the two readings of the front app

@@ -1290,10 +1290,10 @@ const FOCUS_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 fn wait_focused(d: &MacDesktop, t: &Target, el: &Ax) -> bool {
     let Ok((app, _)) = d.ax_window(t) else { return false };
     let is_target = || {
-        app.try_element("AXFocusedUIElement")
-            .ok()
-            .flatten()
-            .is_some_and(|f| roles::focus_is_target(f.same(el)))
+        // Read strictly: an unreadable focus posts no keys.
+        let Ok(app_focus) = app.try_element("AXFocusedUIElement") else { return false };
+        let Ok(own) = el.try_bool("AXFocused") else { return false };
+        roles::focus_is_target(app_focus.map(|f| f.same(el)), own)
     };
     is_target() || super::menus::wait_for(FOCUS_WAIT, is_target)
 }
