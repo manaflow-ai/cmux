@@ -1023,7 +1023,8 @@ class LightRerunRoute(unittest.TestCase):
             "idle std takes them": (self.values(), [*(runner(f"mini-{host}-glaeda-3") for host in "abcdefg"), *idle],
                                     None),
             "a person's re-run": (self.values(GITHUB_TRIGGERING_ACTOR="teamleaderleo"), idle, None),
-            "past the bot's last placed attempt": (self.values(GITHUB_RUN_ATTEMPT="4"), idle, None),
+            "a person's later re-run": (self.values(GITHUB_RUN_ATTEMPT="4", GITHUB_TRIGGERING_ACTOR="teamleaderleo"),
+                                        idle, None),
             "no fit jobs (push, fork)": (self.values(LIGHT_FIT_JOBS=""), idle, None),
             "nightly waits on light": (self.values(), idle,
                                        light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})),
@@ -1251,6 +1252,34 @@ class PlacementTakesTheShallowerOwnedQueue(unittest.TestCase):
                            {small: 50})
         self.assertEqual(lines["gui_runner"], GUI)
         self.assertEqual(lines["session_runner"], GUI)
+
+    def test_the_rescues_attempt_5_is_placed_and_takes_the_shallower_gui_queue(self):
+        # Run 43716323834 (#43733): the rescue re-ran 'cmux-next generated files' as attempt 5 and it queued on
+        # glaeda-side-std-xcode-26.6 again while glaeda-gui-std-xcode-26.6 had 0 queued: macos-placement ran only
+        # on attempt 1 and the bot's attempts up to 3.
+        job = CmuxNextWiring().workflow()["jobs"]["macos-placement"]
+        bots = "contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)"
+        self.assertIn(f"(github.run_attempt == 1 || {bots})", job["if"])
+        self.assertNotIn("run_attempt <= 3", job["if"])
+        for actor in RESCUE_BOTS:
+            with self.subTest(actor=actor):
+                values = env(GITHUB_RUN_ATTEMPT="5", GITHUB_TRIGGERING_ACTOR=actor)
+                self.assertTrue(placement.cascade.bot_rerun(values))
+                runners, seen = self.runners(), self.seen(**{SIDE: (42, 47), GUI: (0, 0)})
+                with tempfile.TemporaryDirectory() as tmp:
+                    output = Path(tmp) / "out"
+                    free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+                    printed = io.StringIO()
+                    with mock.patch.object(placement.pool, "GitHub") as github, \
+                            mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), seen)), \
+                            contextlib.redirect_stdout(printed):
+                        github.return_value.runners.return_value = runners
+                        placement.main({**values, "GITHUB_OUTPUT": str(output), "ROUTE_TOKEN": "t",
+                                        "GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+                    lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+                self.assertIn("the rescue's re-run", printed.getvalue())
+                self.assertEqual(lines["session_spill_runner"], GUI)
+                self.assertIn(" generated-files ", lines["session_jobs"])
 
 
 class FreshRoute(unittest.TestCase):

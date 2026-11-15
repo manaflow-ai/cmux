@@ -1046,15 +1046,19 @@ class Rerun(unittest.TestCase):
         result = cascade.place(values, (), live, waiting)
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("cmux-scheme-compile",)}))
         self.assertIn("the rescue's re-run (attempt 3) is placed afresh", result.why)
-        self.assertEqual(cascade.LAST_PLACED_ATTEMPT, 3)
+        # Every later bot attempt is placed afresh too: run 43716323834's attempt 5 (#43733, 2026-11-15) took the
+        # side label again while the gui label had nothing queued.
+        for attempt in ("4", "5", "9"):
+            with self.subTest(attempt=attempt):
+                self.assertTrue(cascade.bot_rerun(self.rerun(GITHUB_RUN_ATTEMPT=attempt)))
+                self.assertEqual(cascade.skipped(self.rerun(GITHUB_RUN_ATTEMPT=attempt)), "")
 
-    def test_a_persons_rerun_and_later_attempts_keep_their_route(self):
+    def test_a_persons_rerun_keeps_its_route(self):
         free = {LARGE: 0, SMALL: 0}
-        for attempt, actor in (("2", "teamleaderleo"), ("4", BOT), ("3", "teamleaderleo"), ("2", "")):
+        for attempt, actor in (("2", "teamleaderleo"), ("5", "teamleaderleo"), ("3", "teamleaderleo"), ("2", "")):
             with self.subTest(attempt=attempt, actor=actor):
                 overrides = self.rerun(GITHUB_RUN_ATTEMPT=attempt, GITHUB_TRIGGERING_ACTOR=actor)
                 self.assertFalse(cascade.bot_rerun(overrides))
-                # Attempt 4 by the bot too: it is the rescue's last overflow attempt, not a fresh placement.
                 self.assertEqual(cascade.skipped(overrides), "a person re-run keeps its own route")
                 self.assertEqual(cascade.place(overrides, (), free, free).jobs, none_placed())
 
@@ -1084,16 +1088,17 @@ class Rerun(unittest.TestCase):
         job = workflow["jobs"]["macos-placement"]
         own, shared = env_of(job)["CMUX_NEXT_SIDE_ROUTE"], workflow["env"]["CMUX_NEXT_SIDE_ROUTE"]
         for attempt, actor, expected in (("1", "teamleaderleo", SIDE), ("2", BOT, SIDE), ("3", BOT, SIDE),
-                                         ("2", "teamleaderleo", SMALL), ("4", BOT, SMALL)):
+                                         ("2", "teamleaderleo", SMALL), ("4", BOT, SIDE), ("5", BOT, SIDE)):
             with self.subTest(attempt=attempt, actor=actor):
                 context = self.route_context(attempt, actor)
                 self.assertEqual(evaluate(own, context), expected)
                 # Every other case is the workflow's route, which the Mac jobs restate.
-                if (attempt, actor) not in (("2", BOT), ("3", BOT)):
+                if actor != BOT:
                     self.assertEqual(evaluate(own, context), evaluate(shared, context))
-                # The job itself runs on attempt 1 and the bot's attempts 2 and 3.
-                self.assertIn("github.run_attempt <= 3 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
+                # The job itself runs on attempt 1 and on every bot attempt; the rescue on main reads this text.
+                self.assertIn("(github.run_attempt == 1 || contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor))",
                               job["if"])
+                self.assertNotIn("run_attempt <= 3", job["if"])
         place = next(step for step in job["steps"] if step.get("id") == "place")
         self.assertEqual(place["env"]["SIDE_LABEL"], "${{ env.CMUX_NEXT_SIDE_ROUTE }}")
 
@@ -1239,7 +1244,8 @@ class Rerun(unittest.TestCase):
         context["inputs"] = {"dev_daily": True}
         for attempt, actor, expected in (("1", "teamleaderleo", "cmux-scheme-compile"),
                                          ("2", BOT, "cmux-scheme-compile"), ("2", "teamleaderleo", ""),
-                                         ("3", BOT, "cmux-scheme-compile"), ("4", BOT, "")):
+                                         ("3", BOT, "cmux-scheme-compile"), ("5", BOT, "cmux-scheme-compile"),
+                                         ("4", "teamleaderleo", "")):
             with self.subTest(attempt=attempt, actor=actor):
                 context["github"].update(run_attempt=attempt, triggering_actor=actor)
                 self.assertEqual(evaluate(fresh, context), expected)
