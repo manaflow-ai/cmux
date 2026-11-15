@@ -27,6 +27,19 @@ function stackParts(dock: Element | null | undefined): string[] {
   });
 }
 
+/// The asks stack and what it holds, each with its height, margins, padding and font: what differs when
+/// the stack does between the copy and the live page.
+function askParts(scope: ParentNode): string[] {
+  const stack = scope.querySelector(".acpmux-dock > .acpmux-asks-stack");
+  if (!stack) return [];
+  return [stack, ...stack.querySelectorAll("*")].slice(0, 24).map((node) => {
+    const style = getComputedStyle(node);
+    const name = (node.getAttribute("class") || node.tagName.toLowerCase()).split(" ")[0];
+    const h = Math.round(node.getBoundingClientRect().height * 10) / 10;
+    return `${name} h${h} m${style.marginTop}/${style.marginBottom} p${style.paddingTop}/${style.paddingBottom} f${style.fontFamily.slice(0, 24)} ${style.fontSize}/${style.lineHeight} w${style.whiteSpace}`;
+  });
+}
+
 function boxesIn(scope: ParentNode): Record<string, Box> {
   const boxes: Record<string, Box> = {};
   const add = (name: string, node: Element | null | undefined) => {
@@ -62,6 +75,8 @@ export type SwapDiff = {
   changed: Record<string, { copy?: Box; live?: Box }>;
   copyStack: string[];
   liveStack: string[];
+  copyAsk: string[];
+  liveAsk: string[];
   /// How long the swap waited for the live page to match the copy (``liveMatchesCopy``), and whether it did.
   held_ms?: number;
   matched?: boolean;
@@ -98,6 +113,8 @@ export function noteSwap(
       changed,
       copyStack: stackParts(copy.querySelector(".acpmux-dock")),
       liveStack: stackParts(dock),
+      copyAsk: askParts(copy),
+      liveAsk: askParts(live),
       ...(held ? { held_ms: Math.round(held.ms), matched: held.matched } : {}),
       after: [],
     };
