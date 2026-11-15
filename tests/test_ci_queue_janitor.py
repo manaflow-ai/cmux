@@ -2320,6 +2320,70 @@ class OutOfBudgetSweepTests(unittest.TestCase):
         # Still never moved onto the workflow token (GitHub.request()).
         self.assertEqual(sent, ["Bearer app"])
 
+    def limited_then(self, reset_in, second):
+        """main() with a sweep() refused at epoch 1_000_000 on a core budget that resets `reset_in` s later, whose
+        next call runs `second(argv, clients)`. Returns (code, printed, sleeps, calls)."""
+        calls, sleeps, printed = [], [], []
+
+        def fake_sweep(argv, clients):
+            calls.append(argv)
+            if len(calls) == 1:
+                client = janitor.GitHub("app", "manaflow-ai/cmux")
+                client.rate_limits["core"] = {"limit": 12500, "remaining": 0, "used": 12500,
+                                              "reset": 1_000_000 + reset_in}
+                clients.append(client)
+                raise janitor.RateLimited("GET /repos/manaflow-ai/cmux/actions/runs failed (403: rate limit)")
+            return second(argv, clients)
+
+        with mock.patch.object(janitor, "sweep", fake_sweep), \
+                mock.patch.object(janitor.time, "time", lambda: 1_000_000.0), \
+                mock.patch.object(janitor.time, "sleep", sleeps.append), \
+                mock.patch("builtins.print", lambda *args, **kwargs: printed.append(" ".join(map(str, args)))):
+            code = janitor.main(["--pool-load", "load.json"])
+        return code, printed, sleeps, calls
+
+    def test_a_refusal_just_before_the_reset_waits_for_it_and_publishes_the_snapshot(self):
+        # Run 43759822026, 2026-11-15: refused at 20:45:21Z on a budget resetting at 20:45:54Z, it wrote no
+        # macos-pool-load, and the census and the rescue depth rule lost queue depth for 10-20 min. Waiting
+        # 33 s would have done.
+        swept = []
+
+        def second(argv, clients):
+            clients.append(janitor.GitHub("app", "manaflow-ai/cmux"))
+            swept.append(argv)
+            return 0
+
+        code, printed, sleeps, calls = self.limited_then(33, second)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 2, printed)
+        self.assertEqual(swept, [["--pool-load", "load.json"]])
+        self.assertEqual(len(sleeps), 1)
+        self.assertGreaterEqual(sleeps[0], 33)
+        self.assertLessEqual(sleeps[0], 33 + janitor.RESET_WAIT_SLACK_SECONDS)
+        self.assertTrue(any("waiting" in line and "reset" in line for line in printed), printed)
+        self.assertFalse(any(line.startswith("::warning") for line in printed), printed)
+
+    def test_a_refusal_long_before_the_reset_says_no_snapshot_was_published(self):
+        code, printed, sleeps, calls = self.limited_then(
+            janitor.RESET_WAIT_MAX_SECONDS + 60, lambda argv, clients: self.fail("swept again"))
+        self.assertEqual(code, 0)
+        self.assertEqual((len(calls), sleeps), (1, []))
+        warnings = [line for line in printed if line.startswith("::warning title=queue janitor out of API budget::")]
+        self.assertEqual(len(warnings), 1, printed)
+        self.assertIn("no macos-pool-load snapshot", warnings[0])
+        self.assertIn("stale", warnings[0])
+
+    def test_a_second_refusal_after_the_wait_stops_with_the_warning(self):
+        def second(argv, clients):
+            raise janitor.RateLimited("GET /repos/manaflow-ai/cmux/actions/runs failed (403: rate limit)")
+
+        code, printed, sleeps, calls = self.limited_then(10, second)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(sleeps), 1)
+        self.assertTrue(any("no macos-pool-load snapshot" in line for line in printed if line.startswith("::warning")),
+                        printed)
+
     def test_a_rate_limit_in_the_job_listings_ends_green_too(self):
         run = make_run(status="queued", branch="limited")
 
