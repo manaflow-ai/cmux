@@ -43,6 +43,7 @@ public final class NotificationSoundActions {
     /// Binds the actions, the palette's sound and agent lists, and the menus' checked sound.
     public func bind(into registry: ActionRegistry) {
         gate.groups = { [weak host] in host?.soundGroups(ofWorkspace: $0) ?? [] }
+        gate.length = { [weak host] in host?.soundPreferences.sounds.length(for: $0) }
         refreshNames()
         registry.bindEffect("notifications.setWorkspaceSound", effect: { [self, weak registry] invocation in
             level(registry, "notifications.setWorkspaceSound", invocation) { try .workspace(self.host.soundWorkspace($0)) }

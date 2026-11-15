@@ -15,14 +15,24 @@ public final class NotificationSoundGate {
     /// A workspace's groups by its id, innermost first, for its sound rules; the App's composition root
     /// sets it (the person's sidebar groups live there).
     public var groups: @MainActor (String) -> [NotificationSoundScope.Group] = { _ in [] }
+    /// How long a sound plays, in seconds (nil: its whole file); the App's composition root sets it
+    /// from `notifications.sounds` (``NotificationSoundPreferences/length(for:)``). The default player
+    /// reads it.
+    public var length: @MainActor (String) -> Double? = { _ in nil }
 
     /// - Parameters:
-    ///   - player: The sound output (`NSSound` by default).
+    ///   - player: The sound output; nil makes an `NSSound` player that stops each sound at ``length``.
     ///   - now: The cooldown's clock.
-    public init(player: any NotificationSoundPlaying = NotificationSoundPlayer(),
+    public init(player: (any NotificationSoundPlaying)? = nil,
                 now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }) {
-        self.player = player
         self.now = now
+        if let player {
+            self.player = player
+        } else {
+            let own = NotificationSoundPlayer()
+            self.player = own
+            own.length = { [weak self] in self?.length($0) }
+        }
     }
 
     /// Clears `decision`'s sound when the cooldown holds it: an event no more urgent than the last

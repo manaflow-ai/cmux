@@ -1235,6 +1235,55 @@
           ]
         },
         {
+          "key": "notifications.sounds.maxSeconds",
+          "name": "maxLength",
+          "title": {
+            "key": "settings.notifications.sounds.maxLength",
+            "text": "Longest Sound"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.maxLength.help",
+            "text": "A sound cmux plays itself stops after this long; a shorter file ends on its own. 0 plays every file to its end."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 30,
+            "step": 0.5,
+            "unit": "seconds"
+          },
+          "default": 0,
+          "keywords": [
+            "sound",
+            "length",
+            "duration",
+            "long",
+            "stop",
+            "cut"
+          ]
+        },
+        {
+          "key": "notifications.sounds.lengths",
+          "title": {
+            "key": "settings.notifications.sounds.lengths",
+            "text": "Sound Lengths"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.lengths.help",
+            "text": "How long each sound plays, in seconds, by sound name or file path, such as \"Chime\": \"2.5\". It wins over Longest Sound; \"0\" plays that file to its end."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "sound",
+            "length",
+            "duration",
+            "file",
+            "per sound",
+            "trim"
+          ]
+        },
+        {
           "key": "notifications.sounds.workspaces",
           "title": {
             "key": "settings.notifications.sounds.workspaces",

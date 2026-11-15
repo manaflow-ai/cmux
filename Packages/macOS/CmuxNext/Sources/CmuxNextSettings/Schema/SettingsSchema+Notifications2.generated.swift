@@ -324,6 +324,26 @@ extension NotificationSettingsSchema {
                 keywords: ["sound", "rate limit", "throttle", "burst"]
             ),
             SettingDescriptor(
+                NotificationSoundPreferences.maxLengthPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.maxLength", "Longest Sound"),
+                help: SettingsText.keyed("settings.notifications.sounds.maxLength.help", "A sound cmux plays itself stops after this long; a shorter file ends on its own. 0 plays every file to its end."),
+                kind: .number(SettingNumber(NotificationSoundPreferences.maxLengthRange, step: 0.5, unit: .seconds)),
+                default: .number(NotificationSoundPreferences.maxLengthDefault),
+                keywords: ["sound", "length", "duration", "long", "stop", "cut"]
+            ),
+            SettingDescriptor(
+                NotificationSoundPreferences.lengthsPath,
+                section: .notifications,
+                group: group,
+                title: SettingsText.keyed("settings.notifications.sounds.lengths", "Sound Lengths"),
+                help: SettingsText.keyed("settings.notifications.sounds.lengths.help", "How long each sound plays, in seconds, by sound name or file path, such as \"Chime\": \"2.5\". It wins over Longest Sound; \"0\" plays that file to its end."),
+                kind: .stringMap,
+                default: NotificationSoundPreferences.lengthsDefault,
+                keywords: ["sound", "length", "duration", "file", "per sound", "trim"]
+            ),
+            SettingDescriptor(
                 NotificationSoundPreferences.workspacesPath,
                 section: .notifications,
                 group: group,

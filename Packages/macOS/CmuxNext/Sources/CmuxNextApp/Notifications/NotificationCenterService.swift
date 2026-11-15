@@ -560,7 +560,7 @@ final class NotificationCenterService {
                 post(notification, tab: nil, workspace: workspace?.id, workspaceName: workspace?.displayName,
                      sound: decision.sound, volume: decision.soundVolume)
             }
-            if !notification.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: false) }
+            if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: false) }
             if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
         }
@@ -649,7 +649,7 @@ final class NotificationCenterService {
                                                                        table: "NotificationsPanel", bundle: .module) },
                  owner: located.tab)
         }
-        if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }
+        if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: false) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
         if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }
