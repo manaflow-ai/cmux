@@ -54,7 +54,7 @@ jobs:
           "$client" run --class light --display --script scripts/ci/package-test-lane.sh \
             --ref "$REF" --key "native-sidebar-gallery-$REF-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --timeout 3600 --queue-timeout 1200 --env CMUX_TEST_REQUIRE_GUI=1 \
-            --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests/NativeSidebarGalleryTests \
+            --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests.NativeSidebarGalleryTests \
             --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar 2> "$log" || status=$?
           id=""
           step_re='^cmux-ci: step ([0-9a-f]{6,64}) '

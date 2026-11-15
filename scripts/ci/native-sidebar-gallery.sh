@@ -12,7 +12,7 @@ status=0
 "$client" run --class light --display --script scripts/ci/package-test-lane.sh \
   --ref "$ref" --key "$key" --timeout 2400 \
   --env CMUX_TEST_REQUIRE_GUI=1 \
-  --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests/NativeSidebarGalleryTests \
+  --arg suite --arg Packages/macOS/CmuxNext --arg CmuxNextAppTests.NativeSidebarGalleryTests \
   --artifact Packages/macOS/CmuxNext/native-sidebar-gallery.tar 2> "$receipt" || status=$?
 cat "$receipt" >&2
 [[ "$status" == 0 ]] || exit "$status"

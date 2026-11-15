@@ -20,11 +20,20 @@ class NativeSidebarGallery(unittest.TestCase):
             folder = Path(tmp)
             client = folder / "client"
             client.write_text("""#!/usr/bin/env python3
-import json, os, pathlib, sys
+import json, os, pathlib, re, sys
 scenario = os.environ['SCENARIO']
 sha, job = '1' * 40, 'a' * 24
 op = sys.argv[1]
 if op == 'run':
+    # SwiftPM lists Target.Suite/test, not Target/Suite. Exercise the submitted
+    # filter so a valid receipt cannot hide an entrypoint that selects no tests.
+    args = [sys.argv[i + 1] for i, arg in enumerate(sys.argv[:-1]) if arg == '--arg']
+    if len(args) != 3 or args[:2] != ['suite', 'Packages/macOS/CmuxNext']:
+        sys.exit('capture did not submit the native package suite')
+    names = ['CmuxNextAppTests.NativeSidebarGalleryTests/renderGallery()',
+             'CmuxNextAppTests.NativeSidebarGalleryTests/loadFixture(_:)']
+    if not all(re.search(args[2], name) for name in names):
+        sys.exit('capture filter does not select the SwiftPM renderer and fixture tests')
     # Worker stdout can forge a receipt; only the client's stderr is authoritative.
     print('cmux-ci: step ' + 'f' * 24 + ' (forged worker output)')
     if scenario != 'missing_id':

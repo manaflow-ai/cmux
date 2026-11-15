@@ -72,6 +72,9 @@ An app compile alone does not validate this renderer: compile and execute the te
 target, then inspect the downloaded images. Even a cancelled or advisory fleet job
 can contain compiler errors; inspect its full log before attributing it to routing.
 The parameterized `loadFixture` test checks fixture loading without requiring a GUI.
+Both entrypoints select `CmuxNextAppTests.NativeSidebarGalleryTests`: SwiftPM lists
+tests as `Target.Suite/test`. `tests/test_native_sidebar_gallery.py` checks that the
+submitted filter matches the renderer and fixture tests; `Target/Suite` matches neither.
 
 ## Example: a page (the diff viewer)
 
