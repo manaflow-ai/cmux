@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4370578653101",
+  "notes": "notes/4370578653101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43666,
+      "title": "ci(guards): a Python warning line is not a failure name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43518,
+      "title": "cmux-tui-core: a bounded wait for a worktree's port lock; a setup's log and lock files with a second name are not used",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43655,
+      "title": "cmux-journal: write the sync marker with the next records, not on its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43665,
+      "title": "base_red_excuse: a shared build 'catalog' verdict the base fails is the base's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43623,
+      "title": "acpmux: reload_config applies remoteDaemon, and every config field is reloaded or named restart-only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43670,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-b22d2aebe904648ad36a2cb1b64f4a24236e6b85",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43641,
+      "title": "Cloud start: the daemon names a signed-out agent (sign_in_required) and signs it in before a session",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
