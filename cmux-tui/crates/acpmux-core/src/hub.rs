@@ -47,7 +47,7 @@ pub use mirror::{
     MAX_FRAME_CHANGES, MAX_TURN_UNIT_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit,
     TakeoverTurns, UnitChange,
 };
-pub use origins::{Source, refused_held_rows};
+pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
 
 pub use crate::wire::{DeltaFrame, Window};
 
