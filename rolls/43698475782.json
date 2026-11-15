@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43698475782",
+  "recorded_at": "2026-11-15T09:28:27Z",
+  "reason": "cmux-tui e0370bccf89e changes the image's cmux-tui (pinned 0e250d474be8)",
+  "dry_run": false,
+  "cmux_tui": "e0370bccf89e1e3f5dd7b8ff4c87cb942724c542",
+  "fixes": [
+    {
+      "sha": "e0370bccf89e1e3f5dd7b8ff4c87cb942724c542",
+      "mergedAt": "2026-11-15T00:59:30-08:00",
+      "subject": "acpmux: Cloud Codex with no sign-in gets the team key in its launch env (#43633)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T09:28:27Z",
+    "snapshot_id": "sh-8c99e6d8bcee4a4c8a2498a5db1dc2ae",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43698475782): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7e256dae1e3e12aec5c97467e717e855355b926f",
+    "image": "cloud-native-auto-e0370bcc-43698475782-1",
+    "revision": "ci-43698475782-1",
+    "at": "2026-11-15T09:28:27Z"
+  },
+  "rolled_back": false
+}
