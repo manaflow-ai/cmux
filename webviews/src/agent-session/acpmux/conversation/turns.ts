@@ -1240,7 +1240,62 @@ function shapedTurn(
       endedByPerson,
       rows: shaped,
     });
+  else shaped = steadyLiveRows(user, shaped);
   return shaped;
+}
+
+/// The running turn's drawn rows from its last shaping, by id. That turn is shaped again on every
+/// record (`shapedTurn` keeps no cache for it), and its folds and groups come back as new objects
+/// even where nothing in them changed. Downstream everything keys on row identity: the layout keeps
+/// a row only while it is the same object (`layoutConversation`), the height cache is a WeakMap by
+/// row, and each mounted row re-renders when its object changes. A coordinator's running turn holds
+/// thousands of rows, so every streamed token re-laid, re-measured and re-rendered all of them
+/// (Leo's long chat: 110% renderer CPU, frames every 283 ms). A row equal to the one drawn last
+/// time keeps that object, so a token costs only the rows it changed.
+const liveTurnRows = new WeakMap<AcpmuxRow, Map<string, AcpmuxRow>>();
+
+function steadyLiveRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
+  const before = liveTurnRows.get(user);
+  const next = new Map<string, AcpmuxRow>();
+  let out: AcpmuxRow[] | undefined;
+  for (let at = 0; at < shaped.length; at += 1) {
+    const row = shaped[at]!;
+    const prior = before?.get(row.id);
+    const kept = prior !== undefined && prior !== row && sameShape(prior, row, ROW_COMPARE_DEPTH) ? prior : row;
+    if (kept !== row) (out ??= shaped.slice())[at] = kept;
+    next.set(row.id, kept);
+  }
+  liveTurnRows.set(user, next);
+  return out ?? shaped;
+}
+
+/// How deep `sameShape` compares: a row, its fields' objects and arrays (a group's rows, a tool
+/// call's content), and theirs. Deeper values must be the same object.
+const ROW_COMPARE_DEPTH = 4;
+
+/// `a` and `b` hold the same values: the same object, or plain objects and arrays whose entries are
+/// the same down to `depth` levels. Equal values draw the same, so the older object can stand in.
+export function sameShape(a: unknown, b: unknown, depth: number): boolean {
+  if (a === b) return true;
+  if (depth <= 0 || typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let at = 0; at < a.length; at += 1) if (!sameShape(a[at], b[at], depth - 1)) return false;
+    return true;
+  }
+  if (
+    Array.isArray(b) ||
+    Object.getPrototypeOf(a) !== Object.prototype ||
+    Object.getPrototypeOf(b) !== Object.prototype
+  )
+    return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    if (!sameShape((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key], depth - 1)) return false;
+  }
+  return true;
 }
 
 /// "New since you looked" draws above the "Worked for" that holds or just precedes it, never under
