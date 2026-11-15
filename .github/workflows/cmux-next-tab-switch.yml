@@ -1,4 +1,4 @@
-name: cmux-next tab switch
+name: cmux-next tab switch (advisory)
 
 # A pull request into feat-cmux-next that touches a tab, a pane or the chat pane (tab_switch_gate.py SCOPE) is
 # measured on a display Mac: scripts/measure/tab-switch.sh builds the head, switches tabs for 3 rounds idle, under
@@ -11,6 +11,11 @@ name: cmux-next tab switch
 # Every pull request runs it (no paths): the verdict job's name is the one context a ruleset can require, and a
 # required check must report. Out of scope, it is green at once and takes no Mac. GATE_MODE below says whether a
 # budget miss fails the check (enforce) or only warns (report); a pull request flips it, not a setting.
+#
+# Advisory for now (coordinator, 2026-11-15): GATE_MODE is report and the workflow name ends "(advisory)", so
+# merge_hold's ADVISORY_WORKFLOW does not hold a pull request while the display run waits in the exclusive queue.
+# Once the remount fix's pull request passes it, a pull request sets GATE_MODE: enforce, drops the suffix, and the
+# ruleset adds the verdict job's context.
 #
 # The display run is an exclusive fleet measure step (one app alone on an idle display worker), submitted by the
 # build-fleet gateway runner's thin cmux-ci client, as cmux-next-perf-bench.yml and cmux-next-hot-verify.yml do. The
