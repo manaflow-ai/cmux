@@ -2259,7 +2259,7 @@ jobs:
           name: cmux-nightly-unsigned-resume-receipt
           path: unsigned-resume/receipt.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
       - name: Retain unsigned resume provenance (retry)
         if: "!cancelled() && steps.upload-retain-unsigned-resume-provenance.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
@@ -2268,7 +2268,7 @@ jobs:
           name: cmux-nightly-unsigned-resume-receipt
           path: unsigned-resume/receipt.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
           overwrite: true
 
       - *clear-stale-git-locks-self-hos-2
@@ -2940,7 +2940,7 @@ jobs:
           name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           path: build-universal/Build/Products/Release/**/*.dSYM
           if-no-files-found: warn
-          retention-days: 21
+          retention-days: 7
           compression-level: 6
           # A failed-jobs re-run recompiles under the same build number; the newest symbols win.
           overwrite: true
@@ -3076,7 +3076,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           # A picker re-run (owned-pool rescue) re-runs this job after it succeeded beside a stuck app build.
           overwrite: true
 
@@ -3088,7 +3088,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
   attest-nightly-remote-daemon:
@@ -4608,7 +4608,7 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
             recovery-source-archive/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload pending notarization recovery artifact (retry)
         if: "!cancelled() && steps.upload-pending-notarization-recovery-artifact.outcome == 'failure' && (always() && steps.prepare-notarization-recovery.outcome == 'success')"
@@ -4625,7 +4625,7 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
             recovery-source-archive/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
 
@@ -4752,7 +4752,7 @@ jobs:
           overwrite: true
           path: notary-receipt/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload notary test receipt (retry)
         if: "!cancelled() && steps.upload-notary-test-receipt.outcome == 'failure' && (always() && steps.notary-receipt.outcome == 'success')"
@@ -4761,7 +4761,7 @@ jobs:
           name: cmux-notary-test-receipt-${{ needs.decide.outputs.import_variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: notary-receipt/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           overwrite: true
 
 
