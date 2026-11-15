@@ -21,6 +21,21 @@ fn key(prompt_suggestions: Option<bool>) -> PoolKey {
         machine: None,
         prompt_suggestions,
         tool_servers: String::new(),
+        settings_file: PathBuf::from("/home/.config/cmux/cmux-next.json"),
+    }
+}
+
+/// An agent pooled under key `pooled`, then a chat that asks for key `asked`: the pool serves it
+/// only when the keys match, and discards it otherwise.
+fn served(pooled: PoolKey, asked: &PoolKey) -> bool {
+    let mut pool: Pool<&'static str> = Pool::new(Duration::from_secs(600));
+    let now = Duration::from_secs(1);
+    let generation = pool.want(Role::Spare, pooled.clone(), now).start.expect("a start");
+    assert!(pool.complete(&pooled, generation, "warm", now).is_none());
+    match pool.take(asked) {
+        Take::Ready(_) => true,
+        Take::Discard(Some("warm")) => false,
+        _ => panic!("the warm agent was neither served nor discarded"),
     }
 }
 
@@ -77,7 +92,21 @@ fn a_change_to_cmux_tools_leaves_a_pooled_key_unmatched() {
     let off = tool_servers(tools(r#"{"agents": {"cmuxMcp": "off"}}"#), &env, None);
     assert_eq!(on, "cmux");
     assert_eq!(off, "");
-    assert_ne!(key(None), PoolKey { tool_servers: on, ..key(None) });
+    // Through the pool: a spare started with `cmux` is discarded once the answer is off, and the
+    // other way round; the same servers are served.
+    let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
+    assert!(!served(with(&on), &with(&off)));
+    assert!(!served(with(&off), &with(&on)));
+    assert!(served(with(&on), &with(&on)));
+}
+
+/// A pooled agent's `cmux` server was told to read the settings file of its start: a chat that
+/// would read another file (the app now runs on its own file) never takes it.
+#[test]
+fn another_settings_file_leaves_a_pooled_key_unmatched() {
+    let at = |file: &str| PoolKey { settings_file: PathBuf::from(file), ..key(None) };
+    assert!(!served(at("/home/.config/cmux/cmux-next.json"), &at("/tmp/tagged/cmux-next.json")));
+    assert!(served(at("/tmp/tagged/cmux-next.json"), &at("/tmp/tagged/cmux-next.json")));
 }
 
 /// A Codex spare started before the person added their own HTTP server named `cmux` to Codex's
@@ -110,15 +139,20 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
         "CODEX_HOME".to_owned(),
         codex_home.to_string_lossy().into_owned(),
     )]);
-    let before = tool_servers(tools(), &env, Some(&work));
+    let argv = vec!["codex".to_owned(), "app-server".to_owned()];
+    let codex = || Some(crate::agent_tools::CodexLaunch { cwd: &work, argv: &argv });
+    let before = tool_servers(tools(), &env, codex());
     std::fs::write(
         codex_home.join("config.toml"),
         "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
     )
     .unwrap();
-    let after = tool_servers(tools(), &env, Some(&work));
+    let after = tool_servers(tools(), &env, codex());
     assert_eq!(before, "cmux");
     assert_eq!(after, "");
+    // Through the pool: the spare started before the entry is discarded, not served.
+    let with = |servers: &str| PoolKey { tool_servers: servers.to_owned(), ..key(None) };
+    assert!(!served(with(&before), &with(&after)));
     // Not Codex: the person's Codex config does not matter.
     assert_eq!(tool_servers(tools(), &env, None), "cmux");
 }

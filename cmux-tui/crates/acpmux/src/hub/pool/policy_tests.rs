@@ -17,6 +17,7 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         machine: None,
         prompt_suggestions: None,
         tool_servers: String::new(),
+        settings_file: PathBuf::new(),
     }
 }
 

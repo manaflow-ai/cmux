@@ -16,14 +16,17 @@
 //! cmux's server in agents started elsewhere runs the `manual` lines this
 //! report names themselves, and removes them the same way.
 //!
-//! An older cmux wrote a `cmux` entry into the person's own config
-//! (`~/.claude.json`, `$CODEX_HOME/config.toml`) that runs `cmux mcp serve`
-//! (`cmux_serve.rs`): each client row names one it finds (`leftover`, with
-//! the exact line that removes it). Inside cmux the agent's own `cmux`
-//! replaces or overrides it; outside cmux it still starts. Nothing takes it
-//! out on its own: `cmux setup mcp --remove CLIENT` does, when the person asks
-//! (Settings' Remove button), only for such an entry, and names the line that
-//! puts it back.
+//! A `cmux` entry in the person's own config (`~/.claude.json`,
+//! `$CODEX_HOME/config.toml`) that runs `cmux mcp serve` (`cmux_serve.rs`),
+//! one an older cmux wrote or one the person added: each client row names one
+//! it finds (`leftover`, with the exact line that removes it), but for the
+//! very `manual` line this build names, which the person added on purpose.
+//! Inside cmux the agent's own `cmux` replaces or overrides it; outside cmux
+//! it is what starts. Nothing takes it out on its own: `cmux setup mcp
+//! --remove CLIENT` does, when the person asks (Settings' Remove button), and
+//! names the line that puts it back; `--dry-run` only names the line. An
+//! entry with anything cmux could not put back (another field, an `env` key
+//! outside [`RESTORABLE_ENV`]) is kept and named, its values never printed.
 //!
 //! The only cmux commands that write an agent's own config are two other
 //! features the person runs themselves, each with its own server name:
@@ -53,6 +56,13 @@ const TASK: &str = "mcp";
 
 /// The name the cmux server has in every agent cmux starts.
 const SERVER: &str = crate::agent_computer_use::SERVER;
+
+/// The `env` keys of a `cmux` entry whose values setup may print and put
+/// back: cmux's own routing and settings-file keys, none of them a secret.
+/// Any other key (a token, a proxy, `CMUX_SOCKET_PASSWORD`) is never printed,
+/// and an entry with one is never removed (cmux could not put it back).
+const RESTORABLE_ENV: [&str; 4] =
+    ["CMUX_NEXT_CONFIG_FILE", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_TUI_SOCKET"];
 
 /// The longest `claude mcp remove` or `codex mcp remove` may take.
 const CLI_TIMEOUT: Duration = Duration::from_secs(30);
@@ -116,8 +126,9 @@ impl Client {
     }
 
     /// The `cmux` entry in the person's own config, when it runs cmux's server
-    /// (an older cmux wrote it). `Err` for a config it cannot read.
-    fn leftover(self) -> Result<Option<Leftover>, String> {
+    /// and is not exactly this build's [`Self::manual`] line (`cli`), which the
+    /// person added on purpose. `Err` for a config it cannot read.
+    fn leftover(self, cli: &str) -> Result<Option<Leftover>, String> {
         let Some(file) = self.config() else { return Ok(None) };
         let shown = file.display();
         let entry: Option<Value> = match self {
@@ -151,27 +162,47 @@ impl Client {
             super::cmux_serve::CmuxServe::Path(path) => path.to_owned(),
             super::cmux_serve::CmuxServe::Published => "a published cmux package".to_owned(),
         };
-        let env: Vec<(String, String)> = entry
-            .get("env")
-            .and_then(Value::as_object)
+        let all_env = entry.get("env").and_then(Value::as_object);
+        // Only cmux's own keys are kept, values and all: another key's value
+        // may be a secret, so it is named, never held or printed.
+        let env: Vec<(String, String)> = all_env
             .into_iter()
             .flatten()
+            .filter(|(k, _)| RESTORABLE_ENV.contains(&k.as_str()))
             .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
             .collect();
         let kept = ["type", "command", "args", "env"];
-        let mut extra: Vec<String> =
+        let mut unrestorable: Vec<String> =
             entry.keys().filter(|k| !kept.contains(&k.as_str())).cloned().collect();
-        if entry
-            .get("env")
-            .and_then(Value::as_object)
-            .is_some_and(|env| env.values().any(|v| !v.is_string()))
-        {
-            extra.push("env".into());
+        unrestorable.extend(
+            all_env
+                .into_iter()
+                .flatten()
+                .filter(|(k, v)| !RESTORABLE_ENV.contains(&k.as_str()) || !v.is_string())
+                .map(|(k, _)| format!("env {k}")),
+        );
+        let stdio = entry.get("type").is_none_or(|t| t == "stdio");
+        let manual = stdio
+            && unrestorable.is_empty()
+            && env.is_empty()
+            && args == ["mcp", "serve"]
+            && same_file(command, cli);
+        if manual {
+            return Ok(None);
         }
-        Ok(Some(Leftover { config: file, command: command.to_owned(), args, env, extra, runs }))
+        Ok(Some(Leftover {
+            config: file,
+            command: command.to_owned(),
+            args,
+            env,
+            unrestorable,
+            runs,
+        }))
     }
 
-    /// The line that adds `leftover` back, as it was.
+    /// The line that adds `leftover` back, as it was: only for an entry with
+    /// nothing [`Leftover::unrestorable`], so every `env` value it prints is
+    /// one of [`RESTORABLE_ENV`].
     fn add_back(self, leftover: &Leftover) -> String {
         let mut args = vec!["mcp".to_owned(), "add".to_owned()];
         for (key, value) in &leftover.env {
@@ -202,9 +233,11 @@ struct Leftover {
     config: PathBuf,
     command: String,
     args: Vec<String>,
+    /// Its [`RESTORABLE_ENV`] keys and values.
     env: Vec<(String, String)>,
-    /// Fields cmux would not put back if it removed it.
-    extra: Vec<String>,
+    /// What cmux could not put back if it removed it: other fields, and
+    /// `env KEY` for each other `env` key (named, never its value).
+    unrestorable: Vec<String>,
     /// The cmux CLI or launcher it runs, or that it fetches a published one.
     runs: String,
 }
@@ -223,10 +256,10 @@ impl Leftover {
 
 pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let request = parse(args)?;
-    if let Some(client) = request.remove {
-        return Ok(remove(client));
-    }
     let cli = this_cli()?;
+    if let Some(client) = request.remove {
+        return Ok(remove(client, &cli, request.dry_run));
+    }
     let (settings, enabled) = super::super::mcp::outside_chats();
     let choice = AgentsCmuxMcp::from_config_file(&settings);
     let serves = choice == AgentsCmuxMcp::On && enabled == Ok(true);
@@ -249,7 +282,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                 "user_action": Value::Null,
                 "error": Value::Null,
             });
-            match client.leftover() {
+            match client.leftover(&cli) {
                 Ok(Some(leftover)) => {
                     row.set("leftover", leftover.json(client));
                 }
@@ -376,30 +409,33 @@ struct Request {
     remove: Option<Client>,
 }
 
-/// `--remove CLIENT`: takes out the `cmux` entry an older cmux wrote into
-/// `client`'s own config, through its own `mcp remove`, and names the line
-/// that puts it back. Only an entry that runs `cmux mcp serve` with nothing
-/// cmux would not put back; any other is left, and the line to run is named.
-fn remove(client: Client) -> Outcome {
+/// `--remove CLIENT`: takes out the `cmux` entry in `client`'s own config
+/// that runs `cmux mcp serve` ([`Client::leftover`]), through its own `mcp
+/// remove`, and names the line that puts it back. An entry with anything cmux
+/// could not put back is left, and the line to run is named. `dry_run` only
+/// names the line (`plan`).
+fn remove(client: Client, cli: &str, dry_run: bool) -> Outcome {
     let mut report = json!({
         "schema_version": 1,
         "task": TASK,
         "action": "remove",
         "client": client.id(),
         "state": "ok",
+        "dry_run": dry_run,
+        "plan": Value::Null,
         "undo": Value::Null,
         "user_action": Value::Null,
         "error": Value::Null,
     });
     let line = client.line(&client.remove_args());
-    match client.leftover() {
+    match client.leftover(cli) {
         Err(error) => {
             report.set("state", json!("failed"));
             report.set("error", json!(error));
             return Outcome { report, failed: true };
         }
         Ok(None) => {}
-        Ok(Some(leftover)) if !leftover.extra.is_empty() => {
+        Ok(Some(leftover)) if !leftover.unrestorable.is_empty() => {
             report.set("state", json!("needs_user"));
             report.set(
                 "user_action",
@@ -409,12 +445,15 @@ fn remove(client: Client) -> Outcome {
                         "{}'s cmux entry has settings cmux would not put back ({}), so it is left \
                          as it is. Keep what you need from it, then run `{line}`",
                         client.name(),
-                        leftover.extra.join(", ")
+                        leftover.unrestorable.join(", ")
                     ),
                     "command": line,
                     "url": Value::Null,
                 }),
             );
+        }
+        Ok(Some(_)) if dry_run => {
+            report.set("plan", json!(line));
         }
         Ok(Some(leftover)) => match run_cli(client, &client.remove_args()) {
             Ok(()) => {
@@ -486,7 +525,7 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     for arg in args {
         match arg.as_str() {
             "--remove" => removing = true,
-            // Accepted for `cmux setup local --dry-run`: nothing is written either way.
+            // Nothing is written by a report either way; with --remove, only the plan.
             "--dry-run" => request.dry_run = true,
             flag if flag.starts_with('-') => {
                 return Err(Refusal::Usage(format!(
@@ -510,7 +549,7 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
         let [client] = request.named.as_slice() else {
             return Err(Refusal::Usage(
                 "cmux: setup mcp: --remove takes one agent, claude or codex: it takes out the \
-                 cmux entry an older cmux wrote into that agent's own settings"
+                 cmux entry in that agent's own settings that runs `cmux mcp serve`"
                     .into(),
             ));
         };
@@ -518,6 +557,13 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     }
     request.clients = request.named.clone();
     Ok(request)
+}
+
+/// Whether `command` is the file `cli` (links followed): an entry that runs
+/// this very cmux.
+fn same_file(command: &str, cli: &str) -> bool {
+    let canonical = |path: &str| std::fs::canonicalize(path).ok();
+    command == cli || canonical(command).is_some_and(|c| Some(c) == canonical(cli))
 }
 
 /// This cmux's own path, links followed: the command the manual lines run.

@@ -100,7 +100,8 @@ async fn a_chat_a_peer_daemon_started_runs_with_that_macs_answer() {
     for (tag, origin, auth, sent, seen) in [
         ("peer-off", Origin::Peer, ConnAuth::PeerToken, Some("off"), "off"),
         ("peer-on", Origin::Peer, ConnAuth::PeerToken, Some("on"), "on"),
-        ("carrier-off", Origin::Peer, ConnAuth::CarrierOwner, Some("off"), "off"),
+        // The Cloud carrier's owner connection (`ConnAuth::CarrierOwner`) needs an attested
+        // carrier, which an in-process connection has not: the unit tests pin that it counts.
         // Not a peer daemon: whatever it sends, the chat has no answer from elsewhere.
         ("web", Origin::Web, ConnAuth::ListenerToken, Some("on"), ""),
         // A peer daemon that sent none (an older Mac): this machine's own file applies.

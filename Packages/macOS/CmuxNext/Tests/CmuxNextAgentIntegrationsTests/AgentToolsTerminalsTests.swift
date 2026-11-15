@@ -44,4 +44,16 @@ struct AgentToolsTerminalsTests {
         let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
         #expect(agents.map(\.leftover) == ["claude mcp remove --scope user cmux", nil])
     }
+
+    /// Remove's result: gone (or none was there), kept with the CLI's reason (an entry with settings
+    /// cmux could not put back; the card shows that text), or failed.
+    @Test func removeSaysWhyItKeptAnEntry() {
+        let kept = #"{"state": "needs_user", "user_action": {"kind": "keep", "text": "Claude Code's cmux entry has settings cmux would not put back (env API_TOKEN), so it is left as it is."}}"#
+        #expect(AgentToolsRemoval(removeReport: Data(kept.utf8))
+            == .kept("Claude Code's cmux entry has settings cmux would not put back (env API_TOKEN), so it is left as it is."))
+        #expect(AgentToolsRemoval(removeReport: Data(#"{"state": "changed"}"#.utf8)) == .removed)
+        #expect(AgentToolsRemoval(removeReport: Data(#"{"state": "ok"}"#.utf8)) == .removed)
+        #expect(AgentToolsRemoval(removeReport: Data(#"{"state": "failed"}"#.utf8)) == .failed)
+        #expect(AgentToolsRemoval(removeReport: Data("not json".utf8)) == .failed)
+    }
 }

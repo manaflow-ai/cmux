@@ -46,8 +46,8 @@
 //! `cmux` for the launch; outside cmux terminals, and with the answer off,
 //! the person's configs are untouched. cmux never writes them on its own:
 //! only `cmux acp desktop link` and `cmux acp bridge connect` do, when the
-//! person runs them, and Settings' Remove takes out an old `cmux` entry an
-//! older cmux wrote (`cmux setup mcp --remove`), on the person's click.
+//! person runs them, and Settings' Remove takes out a `cmux` entry that runs
+//! `cmux mcp serve` (`cmux setup mcp --remove`), on the person's click.
 //!
 //! "Always allow" on a tool of the shim's server is not written to any
 //! config: Codex 0.160.1 persists an MCP tool approval only for a server a

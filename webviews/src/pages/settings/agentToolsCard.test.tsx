@@ -97,7 +97,7 @@ test("an old cmux entry in an agent's own settings shows its remove line, and on
   const element = card(page.container);
   const notice = element.querySelectorAll<HTMLElement>("[data-agent-tools-leftover]");
   expect(notice.length).toBe(1);
-  expect(notice[0]!.textContent).toBe("Its own settings still have an old cmux entry.");
+  expect(notice[0]!.textContent).toBe("Its own settings have a cmux entry, used outside cmux.");
   expect(element.querySelector("[data-agent-tools-leftover-line]")!.textContent).toBe(
     "claude mcp remove --scope user cmux",
   );
@@ -107,5 +107,29 @@ test("an old cmux entry in an agent's own settings shows its remove line, and on
   await settle();
   expect(page.provider.agentToolsRuns).toEqual([{ action: "removeLeftover", id: "claude" }]);
   expect(element.querySelector("[data-agent-tools-leftover]")).toBeNull();
+  page.unmount();
+});
+
+test("when Remove keeps an entry with settings cmux could not put back, the card says why", async () => {
+  const why =
+    "Claude Code's cmux entry has settings cmux would not put back (env API_TOKEN), so it is left as it is.";
+  const page = await renderPage({
+    path: "/settings/agents",
+    setup: (provider) => {
+      provider.agentToolsKeeps = why;
+      provider.agentTools = {
+        ...provider.agentTools,
+        rows: [{ id: "claude", name: "Claude Code", state: "ready", leftover: "claude mcp remove --scope user cmux" }],
+      };
+    },
+  });
+  await settle();
+  const element = card(page.container);
+  expect(element.querySelector("[data-agent-tools-note]")).toBeNull();
+  await act(async () => button(element, "removeLeftover")!.click());
+  await settle();
+  expect(element.querySelector("[data-agent-tools-note]")!.textContent).toBe(why);
+  // Still listed, still removable once the person has kept what they need.
+  expect(element.querySelector("[data-agent-tools-leftover]")).not.toBeNull();
   page.unmount();
 });

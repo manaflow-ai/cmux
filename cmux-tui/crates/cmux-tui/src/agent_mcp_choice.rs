@@ -3,9 +3,10 @@
 //! applied to the `claude` and `codex` shims: the MCP server they pass to an
 //! agent started in a cmux terminal (agent_computer_use.rs) goes only once
 //! the answer is `on`. Unanswered (`ask`) and `off` pass none (the app asks
-//! at launch). The hooks are not MCP and are passed either way. The answer
-//! never writes the person's own agent configs: only `cmux setup mcp
-//! --global`, which they run, does (cli/setup/mcp.rs).
+//! at launch). The hooks are not MCP and are passed either way. Nothing
+//! here writes the person's own agent configs: `cmux setup mcp` only names
+//! the lines a person runs to add cmux's server to an agent started
+//! elsewhere (cli/setup/mcp.rs).
 
 use std::ffi::OsString;
 use std::path::Path;

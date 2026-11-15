@@ -835,13 +835,13 @@ fn the_refusal_names_the_setting_the_person_turns_on() {
             Some(text) => std::fs::write(&path, text).unwrap(),
             None => drop(std::fs::remove_file(&path)),
         }
-        let message = refusal_for(&path, Caller::Outside).expect("off");
+        let message = refusal_for(&path, Caller::Outside, None).expect("off");
         assert!(message.contains("agents.cmuxMcp on --confirm"), "{message}");
         assert!(!message.contains("mcp.enabled"), "{message}");
         assert!(message.contains(&path.display().to_string()), "{message}");
     }
     std::fs::write(&path, r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#).unwrap();
-    let message = refusal_for(&path, Caller::Outside).expect("off");
+    let message = refusal_for(&path, Caller::Outside, None).expect("off");
     assert!(message.contains("\"mcp\": {\"enabled\": false}"), "{message}");
     let [english, _] = messages::all();
     assert!(

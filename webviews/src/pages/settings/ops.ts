@@ -1071,8 +1071,9 @@ export type AgentToolsCardRow = {
   name: string;
   /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
   state: "ready" | "terminals" | "failed";
-  /** The line that removes a `cmux` entry an older cmux wrote into the agent's own settings (it runs
-   * `cmux mcp serve`); null or absent for none. Remove runs it only on the person's click. */
+  /** The line that removes a `cmux` entry in the agent's own settings that runs `cmux mcp serve`, used
+   * outside cmux (not this build's own manual line); null or absent for none. Remove runs it only on
+   * the person's click. */
   leftover?: string | null;
 };
 
@@ -1090,6 +1091,9 @@ export type AgentToolsCardState = {
   /** The lines a person runs themselves to use cmux's tools in agents started elsewhere (cmux never
    * runs them). Absent from older hosts. */
   manual?: string[];
+  /** Why the last Remove kept the entry (it holds settings cmux could not put back), as the CLI
+   * says it; null or absent otherwise. */
+  note?: string | null;
 };
 
 /** One Agents on This Mac gesture; `turnOn` and `removeLeftover` run only on a click. */

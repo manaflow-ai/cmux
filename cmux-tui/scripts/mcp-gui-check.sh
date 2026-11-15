@@ -22,9 +22,15 @@
 #      server in guest mode, ACPMUX_MCP_GUEST=codex): Codex merges it into
 #      cmux's, which still runs this build's server with ACPMUX_MCP_GUEST empty,
 #      and the chat keeps its acpmux tools;
-#   6. agents.cmuxMcp off beside a `cmux` entry an older cmux wrote into Claude
-#      Code's own settings: `cmux setup mcp` names it and its remove line, and
-#      the server it runs for a chat (CMUX_AGENT_SESSION set) is the off server.
+#   6. agents.cmuxMcp off beside a `cmux` entry in Claude Code's own settings
+#      that runs `cmux mcp serve`: `cmux setup mcp` names it and its remove
+#      line, and the server it runs for a chat (CMUX_AGENT_SESSION set) is the
+#      off server;
+#   7. a real Codex chat's own `cmux mcp serve` carries CMUX_AGENT_SESSION
+#      (Codex passes a stdio server only its own env and an allowlist), so it
+#      is an agent chat: run again with that env and the answer turned off
+#      (with "mcp": {"enabled": true}, which serves a caller outside chats),
+#      it is the off server.
 # Needs `node`, `claude` and `codex` on PATH; no sign-in. Never run it on a
 # person's laptop. Prints PASS or FAIL per check and exits 1 on any FAIL.
 set -u
@@ -169,6 +175,53 @@ assert "result" in call and not call["result"].get("isError"), call
 PY
 check "agent chat [claude]: its cmux server answers tools/list and a cmux tool call (cmux_docs)" $?
 
+# 7. The Codex chat's own `cmux mcp serve`, as Codex started it: the keys of its env that decide
+# who calls, run again with the answer off and "mcp": {"enabled": true} (which serves a caller
+# outside cmux's chats). An agent chat gets the off server.
+cat > "$D/codex-env.py" <<'PY'
+import re, subprocess, sys
+cmux, session = sys.argv[1:]
+for line in subprocess.run(["ps", "-Ao", "pid=,command="], capture_output=True, text=True).stdout.splitlines():
+    pid, cmd = line.strip().split(None, 1)
+    if not cmd.startswith(cmux + " mcp serve"):
+        continue
+    env = subprocess.run(["ps", "eww", "-o", "command=", "-p", pid], capture_output=True, text=True).stdout
+    if f"CMUX_AGENT_SESSION={session}" not in env:
+        continue
+    keys = ["CMUX_AGENT_SESSION", "CMUX_MCP_TOOLS", "CMUX_NEXT_CONFIG_FILE", "ACPMUX_MCP_GUEST", "CMUX_AGENT_TOOLS_ANSWER"]
+    for key in keys:
+        m = re.search(r"(?:^| )" + key + r"=(\S*)", env)
+        if m:
+            print(f"{key}={m.group(1)}")
+    break
+PY
+python3 "$D/codex-env.py" "$CMUX" "$(session_id gui-codex-on)" > "$D/codex-chat.env"
+cp "$CMUX_NEXT_CONFIG_FILE" "$D/settings-on.json"
+echo '{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}' > "$CMUX_NEXT_CONFIG_FILE"
+python3 - "$CMUX" "$D/codex-chat.env" <<'PY'
+import json, os, subprocess, sys
+cmux, envfile = sys.argv[1:]
+pairs = dict(line.strip().split("=", 1) for line in open(envfile) if "=" in line)
+assert pairs.get("CMUX_AGENT_SESSION"), f"the Codex chat's server has no CMUX_AGENT_SESSION: {pairs}"
+env = {"HOME": os.environ["HOME"], "PATH": os.environ["PATH"], **pairs}
+p = subprocess.Popen([cmux, "mcp", "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                     stderr=subprocess.DEVNULL, env=env, text=True)
+def ask(i, method, params):
+    p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n"); p.stdin.flush()
+    while True:
+        m = json.loads(p.stdout.readline())
+        if m.get("id") == i: return m
+init = ask(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "gui-check", "version": "1"}})
+p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"); p.stdin.flush()
+tools = [t["name"] for t in ask(2, "tools/list", {})["result"]["tools"]]
+p.kill()
+text = init["result"].get("instructions", "")
+print(f"env {sorted(pairs)}; tools {tools}")
+assert len(tools) == 1 and "agents.cmuxMcp on --confirm" in text, (tools, text[:200])
+PY
+check "agent chat [codex]: its own cmux mcp serve carries CMUX_AGENT_SESSION, so with the answer off it is the off server" $?
+cp "$D/settings-on.json" "$CMUX_NEXT_CONFIG_FILE"
+
 # 3. A Codex chat over the person's own global `cmux` entry, turned off, in a folder of its own:
 # the chat's server is still this build's, on (cmux-codex-acp sends enabled and the session's cwd).
 L=$D/person.log; : > "$L"
@@ -229,20 +282,23 @@ for value in off ask; do
   done
 done
 
-# 6. Off, beside a `cmux` entry an older cmux wrote into Claude Code's own (scratch) settings.
+# 6. Off, beside a `cmux` entry that runs `cmux mcp serve` in Claude Code's own (scratch) settings.
 answer off
+leftover_of() { # the Claude row's leftover in `cmux setup mcp`, as JSON
+  "$CMUX" setup mcp 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin); print(json.dumps(next(c for c in r["clients"] if c["id"] == "claude")["leftover"]))'
+}
+# This build's own manual line, added on purpose: not listed.
 printf '{"mcpServers": {"cmux": {"type": "stdio", "command": "%s", "args": ["mcp", "serve"], "env": {}}}}\n' \
   "$CMUX" > "$CLAUDE_CONFIG_DIR/.claude.json"
-"$CMUX" setup mcp > "$D/setup.json" 2>&1
-python3 - "$D/setup.json" <<'PY'
-import json, sys
-report = json.load(open(sys.argv[1]))
-row = next(c for c in report["clients"] if c["id"] == "claude")
-left = row["leftover"]
-print(left)
-assert left and left["remove"] == "claude mcp remove --scope user cmux", left
-PY
-check "cmux setup mcp names the old cmux entry in Claude Code's settings and its remove line" $?
+got=$(leftover_of)
+[ "$got" = null ]
+check "cmux setup mcp leaves out this build's own manual line in Claude Code's settings ($got)" $?
+# Another cmux's (a published package's): listed, with its remove line.
+printf '{"mcpServers": {"cmux": {"type": "stdio", "command": "npx", "args": ["-y", "cmux", "mcp", "serve"], "env": {}}}}\n' \
+  > "$CLAUDE_CONFIG_DIR/.claude.json"
+got=$(leftover_of)
+case "$got" in *'"remove": "claude mcp remove --scope user cmux"'*) ok=0 ;; *) ok=1 ;; esac
+check "cmux setup mcp names another cmux's entry in Claude Code's settings and its remove line ($got)" $ok
 python3 - "$CMUX" <<'PY'
 import json, os, subprocess, sys
 env = dict(os.environ, CMUX_AGENT_SESSION="gui-check-chat")

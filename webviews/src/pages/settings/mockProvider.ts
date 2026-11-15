@@ -608,6 +608,10 @@ export class MockSettingsProvider {
         if (run.action === "refresh") return this.agentTools;
         this.agentToolsRuns.push(run);
         // Like the host: Remove takes out that agent's old cmux entry.
+        if (run.action === "removeLeftover" && this.agentToolsKeeps) {
+          this.agentTools = { ...this.agentTools, note: this.agentToolsKeeps };
+          return this.agentTools;
+        }
         if (run.action === "removeLeftover") {
           this.agentTools = {
             ...this.agentTools,
@@ -1178,6 +1182,9 @@ export class MockSettingsProvider {
   };
   /** Agents on This Mac gestures the page sent (turnOn). */
   readonly agentToolsRuns: AgentToolsCardRun[] = [];
+  /** When set, Remove keeps the entry and the host says why (`note`), as for an entry with
+   * settings cmux could not put back. */
+  agentToolsKeeps: string | null = null;
 
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];

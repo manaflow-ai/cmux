@@ -46,11 +46,10 @@ public final class AgentToolsCLISource: AgentToolsSource {
         return AgentToolsReport(agents: agents, manual: AgentToolsAgent.manualCommands(setupReport: report))
     }
 
-    public func removeLeftoverEntry(_ id: String) async -> Bool {
+    public func removeLeftoverEntry(_ id: String) async -> AgentToolsRemoval {
         guard ["claude", "codex"].contains(id), let cli = await cli(),
-              let data = await Self.setupMCP(cli, ["--remove", id]),
-              let report = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        return ["changed", "ok"].contains(report["state"] as? String ?? "")
+              let data = await Self.setupMCP(cli, ["--remove", id]) else { return .failed }
+        return AgentToolsRemoval(removeReport: data)
     }
 
     /// `cmux --json setup mcp <arguments>` off the main thread; its stdout (a failed run prints its

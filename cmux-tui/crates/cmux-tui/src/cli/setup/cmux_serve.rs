@@ -1,7 +1,8 @@
 //! Whether an MCP server entry in a person's own agent config runs cmux's
 //! server (`cmux mcp serve`), from any build or install: how `cmux setup
-//! mcp` finds a `cmux` entry an older cmux wrote, which Settings offers to
-//! remove on the person's click (`mcp.rs`).
+//! mcp` finds a `cmux` entry that runs it (an older cmux's, or one the
+//! person added), which Settings offers to remove on the person's click
+//! (`mcp.rs`).
 
 use std::path::Path;
 

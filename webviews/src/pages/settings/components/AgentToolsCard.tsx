@@ -1,10 +1,12 @@
 // Settings > Agents > Agents on This Mac, under the `agents.cmuxMcp` choice row (the onboarding step's
 // question): each coding agent found on this Mac and whether it gets cmux's MCP server when cmux starts
 // it (its terminals and agent chats), read with `cmux setup mcp` (nothing is written). Turn On answers
-// yes, only on a click (the host refuses a page script). An agent whose own settings still hold a
-// `cmux` entry an older cmux wrote shows a notice with the exact line that removes it and a Remove
-// button: only the person's click runs it. Below, the manual lines a person runs themselves to use
-// cmux's tools in agents started elsewhere, each with Copy: cmux never runs them.
+// yes, only on a click (the host refuses a page script). An agent whose own settings hold a `cmux`
+// entry that runs `cmux mcp serve` (used outside cmux; not this build's own manual line) shows a
+// notice with the exact line that removes it and a Remove button: only the person's click runs it.
+// When cmux keeps the entry (settings it could not put back), the host's `note` says why. Below, the
+// manual lines a person runs themselves to use cmux's tools in agents started elsewhere, each with
+// Copy: cmux never runs them.
 import { useCallback, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
@@ -97,6 +99,11 @@ export function AgentToolsCard() {
         </div>
       )}
       {state?.failed && <div className="row-error">{t("settingsWindow.agentTools.failed")}</div>}
+      {state?.note && (
+        <div className="row-error" data-agent-tools-note="">
+          {state.note}
+        </div>
+      )}
       {!on && (
         <div className="accounts-header">
           <Button

@@ -145,7 +145,8 @@ impl Hub {
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
         // A fork through this child asks for the same list (`fork.rs`).
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
-        let codex = crate::agent_tools::is_codex(meta, Some(profile)).then_some(meta.cwd.as_path());
+        let codex = crate::agent_tools::is_codex(meta, Some(profile))
+            .then_some(crate::agent_tools::CodexLaunch { cwd: &meta.cwd, argv: &profile.argv });
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all, codex);
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());

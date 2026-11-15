@@ -285,6 +285,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
+pub mod cmux_tools_answer;
 mod hunk_summary;
 pub mod person;
 pub mod presence;

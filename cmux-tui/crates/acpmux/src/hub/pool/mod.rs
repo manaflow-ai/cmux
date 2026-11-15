@@ -263,11 +263,11 @@ fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) 
 fn tool_servers(
     tools: crate::agent_tools::AgentTools,
     env: &std::collections::BTreeMap<String, String>,
-    codex_cwd: Option<&std::path::Path>,
+    codex: Option<crate::agent_tools::CodexLaunch<'_>>,
 ) -> String {
     let tools = tools.scoped(env);
-    let tools = match codex_cwd {
-        Some(cwd) => tools.without_cmux_beside_an_http_entry(cwd, env),
+    let tools = match codex {
+        Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
         None => tools,
     };
     tools.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(",")
@@ -382,10 +382,13 @@ impl Hub {
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
             ),
+            settings_file: crate::user_settings::resolved_path(),
             tool_servers: tool_servers(
                 crate::agent_tools::current(),
                 &spawn.env,
-                crate::agent_tools::is_codex(draft, Some(profile)).then_some(draft.cwd.as_path()),
+                crate::agent_tools::is_codex(draft, Some(profile)).then_some(
+                    crate::agent_tools::CodexLaunch { cwd: &draft.cwd, argv: &spawn.argv },
+                ),
             ),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })

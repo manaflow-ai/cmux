@@ -150,6 +150,12 @@ pub const CMUX_SERVER: &str = "cmux";
 /// The person's answer to "should agents you start in cmux get cmux's tools?".
 pub const AGENTS_CMUX_MCP_KEY: &str = "agents.cmuxMcp";
 
+/// A session env key: the answer (`on` or `off`) of the Mac that started this chat on another
+/// machine (`hub/cmux_tools_answer.rs`), which the chat follows over this machine's
+/// [`AGENTS_CMUX_MCP_KEY`]: in its tool list ([`AgentTools::scoped`]) and in any `cmux mcp serve`
+/// it starts (cmux-tui `cli/mcp.rs` `refusal`).
+pub const TOOLS_ANSWER_ENV: &str = "CMUX_AGENT_TOOLS_ANSWER";
+
 /// Whether agents cmux starts get the `cmux` server: the settings text says
 /// `agents.cmuxMcp` is `on` (nested or flat, JSONC). No file, no key, `ask`,
 /// `off`, another value or a file that does not parse: no. cmux-tui's
@@ -515,16 +521,24 @@ pub fn acp_servers_for(
     env: &BTreeMap<String, String>,
     session_id: &str,
     all_tools: bool,
-    codex_cwd: Option<&Path>,
+    codex: Option<CodexLaunch<'_>>,
 ) -> Value {
     if left_out(remote_origin, env, &[]) {
         return json!([]);
     }
-    acp_servers_with(current(), env, session_id, all_tools, codex_cwd)
+    acp_servers_with(current(), env, session_id, all_tools, codex)
+}
+
+/// A Codex session's launch, for [`AgentTools::without_cmux_beside_an_http_entry`]: its folder and
+/// its profile's argv (the program first), whose `-c`, `--profile` and `-C` Codex reads too.
+#[derive(Clone, Copy, Debug)]
+pub struct CodexLaunch<'a> {
+    pub cwd: &'a Path,
+    pub argv: &'a [String],
 }
 
 /// `mcpServers` from `tools` for acpmux session `session_id`'s ACP harness; `all_tools`
-/// from [`lists_all_tools`]. `codex_cwd` is the session's folder when the
+/// from [`lists_all_tools`]. `codex` is the session's launch when the
 /// harness is Codex: cmux-codex-acp gives Codex these servers as its thread's
 /// `mcp_servers.<name>` override, which Codex merges into the person's own
 /// entry of that name, and where that is an HTTP server named `cmux` the
@@ -535,11 +549,11 @@ pub fn acp_servers_with(
     env: &BTreeMap<String, String>,
     session_id: &str,
     all_tools: bool,
-    codex_cwd: Option<&Path>,
+    codex: Option<CodexLaunch<'_>>,
 ) -> Value {
     let tools = tools.scoped(env);
-    let tools = match codex_cwd {
-        Some(cwd) => tools.without_cmux_beside_an_http_entry(cwd, env),
+    let tools = match codex {
+        Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
         None => tools,
     };
     tools.for_session(session_id).listing(all_tools).folded().acp_servers()
@@ -770,7 +784,13 @@ impl AgentTools {
         // through those tools (agents_snapshot, agents_terminal_send, …), and its
         // preset already limits them to that list, so it keeps the server
         // whatever the answer (decided 2026-11-14).
-        if !self.cmux_for_agents && !session_env.contains_key(MCP_TOOLS_ENV) {
+        // A chat started from another Mac follows that Mac's answer (`TOOLS_ANSWER_ENV`).
+        let yes = match session_env.get(TOOLS_ANSWER_ENV).map(String::as_str) {
+            Some("on") => true,
+            Some(_) => false,
+            None => self.cmux_for_agents,
+        };
+        if !yes && !session_env.contains_key(MCP_TOOLS_ENV) {
             self.servers.retain(|s| s.name != CMUX_SERVER);
         }
         let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
@@ -971,20 +991,23 @@ impl AgentTools {
         self
     }
 
-    /// Without the `cmux` server for a Codex chat in `cwd` whose config layers hold the person's
-    /// own HTTP server named `cmux` (`codex_cmux_entry`, the rule the `codex` terminal shim
-    /// follows): Codex would refuse the merged entry and the chat would not start. The person's
-    /// server keeps the name; the session's other servers stay, standalone. `CODEX_HOME` and
-    /// `HOME` are the ones the Codex child gets: this daemon's, the login shell's over them, then
-    /// the session's `env` (`login_env::effective_for`).
+    /// Without the `cmux` server for a Codex chat whose config holds the person's own HTTP server
+    /// named `cmux` (`codex_cmux_entry`, the rule the `codex` terminal shim follows): in a config
+    /// layer for its folder, or in its profile's own arguments (`-c mcp_servers.cmux.url=…`,
+    /// `--profile`, `-C`; `launch.argv`). Codex would refuse the merged entry and the chat would
+    /// not start. The person's server keeps the name; the session's other servers stay,
+    /// standalone. `CODEX_HOME` and `HOME` are the ones the Codex child gets: this daemon's, the
+    /// login shell's over them, then the session's `env` (`login_env::effective_for`).
     pub fn without_cmux_beside_an_http_entry(
         mut self,
-        cwd: &Path,
+        launch: CodexLaunch<'_>,
         env: &BTreeMap<String, String>,
     ) -> Self {
         let effective = crate::login_env::effective_for(Some("codex"), env);
         let getenv = |key: &str| effective.get(key).map(std::ffi::OsString::from);
-        if crate::codex_cmux_entry::http_cmux_entry(&[], cwd, &getenv) {
+        let args: Vec<std::ffi::OsString> =
+            launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect();
+        if crate::codex_cmux_entry::http_cmux_entry(&args, launch.cwd, &getenv) {
             self.servers.retain(|s| s.name != CMUX_SERVER);
         }
         self
