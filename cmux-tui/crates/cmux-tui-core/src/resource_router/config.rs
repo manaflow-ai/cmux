@@ -161,7 +161,7 @@ fn edit_file(fields: &Map<String, Value>) -> Result<Option<&str>, ResourceError>
 fn file_mismatch(file: &str, served: &Path) -> ResourceError {
     ResourceError::new(
         "settings.file_mismatch",
-        &format!(
+        format!(
             "this daemon's settings owner serves {}, not {file}; nothing was written",
             served.display()
         ),
