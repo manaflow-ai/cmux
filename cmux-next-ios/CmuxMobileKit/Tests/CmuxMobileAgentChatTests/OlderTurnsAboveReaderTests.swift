@@ -32,6 +32,9 @@ import UIKit
         // come back above what they read.
         chat.surface.following = false
         chat.scroll.contentOffset.y -= chat.scroll.bounds.height * 2.5
+        // The rows at the new offset get their cells now; the read-back lands on a later turn of
+        // the main queue (its page comes from disk).
+        chat.controller.view.layoutIfNeeded()
         let reading = try #require(chat.onScreen().first, "a row on screen")
         let readingTop = try #require(chat.span(reading)).top
         for _ in 0 ..< 300 where store.turnsOnDisk > 0 || store.turns.count < turns { await chat.frame() }
