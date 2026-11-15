@@ -91,6 +91,7 @@ impl Peer {
             read_tokens: tokens::TokenCache::default(),
             linked_once: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
+            login_refused: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -104,6 +105,7 @@ impl Peer {
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
             stop_changed: tokio::sync::watch::channel(false).0,
+            network: StdMutex::new(network::changes()),
             wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
@@ -403,6 +405,9 @@ impl Peer {
     pub(super) fn note_ssh_failure(&self, reason: Option<&str>) {
         if reason == Some(ssh_errors::BANNER_TIMEOUT) {
             self.slow_banner.store(true, Ordering::SeqCst);
+        }
+        if ssh_errors::login_refused(reason) {
+            self.login_refused.store(true, Ordering::SeqCst);
         }
     }
 

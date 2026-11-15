@@ -917,8 +917,11 @@ class NotifyNeverLost(unittest.TestCase):
     def test_the_workflow_records_a_refused_notify_and_every_feat_push_sweeps_it(self):
         text = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
         publish = text.split("      - name: Start the cmux-next tree jobs that waited for this tree", 1)[1][:900]
-        self.assertIn("GH_TOKEN_SPARE: ${{ steps.notify-spare-token.outputs.token }}", publish)
         self.assertIn('--pending-file "$pending"', publish)
+        # publish-tree runs in the artifacts environment (R2 secrets only): the
+        # App token that retries a refused notify is the sweep's, never its own.
+        publish_tree = text.split("\n  publish-tree:\n", 1)[1].split("\n  publish-tree-tested:", 1)[0]
+        self.assertNotIn("CMUX_BOT_APP_KEY", publish_tree)
         self.assertIn("name: cmux-next-tree-notify-pending", text)
         sweep = text.split("\n  sweep-commit-manifests:\n", 1)[1].split("\n  point-machine-channel-early:", 1)[0]
         self.assertIn("cmux_next_tree_notify.py --repo \"$GITHUB_REPOSITORY\" --sweep-pending", sweep)

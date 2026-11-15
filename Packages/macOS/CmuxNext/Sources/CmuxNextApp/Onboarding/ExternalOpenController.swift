@@ -131,12 +131,9 @@ final class ExternalOpenController {
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
             // cmux forward. Agent links are addresses published in public
-            // trailers, so they must not put an agent composer or terminal
-            // under the next keystroke from the opening app.
-            let isAgent = DeepLink.read(url, scheme: services.linkScheme).map { link in
-                if case .agent = link.link.target { return true }
-                return false
-            } == true
+            // trailers (opaque `?id=aid-…` ones too), so they must not put an agent
+            // composer or terminal under the next keystroke from the opening app.
+            let isAgent = DeepLink.opensAgentChat(url, linkScheme: services.linkScheme)
             var arguments: [String: ActionValue] = ["url": .string(url.absoluteString)]
             if isAgent { arguments["background"] = .bool(true) }
             services.registry.perform("link.open", invocation: ActionInvocation(arguments: arguments))

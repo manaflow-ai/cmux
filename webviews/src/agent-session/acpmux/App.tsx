@@ -665,6 +665,7 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   nextRetryDelay,
+  quickRetry,
   offersAcpmuxRestart,
   readHostRestoring,
   hostSelfRetrying,
@@ -7973,6 +7974,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     let retryTimer: number | undefined;
     let retryDelay = 250;
+    /// The last handshake named a socket this page opens itself (`acpmux-websocket`), which the browser
+    /// holds back after many failed opens: no quick asks (hostRetry.ts `quickRetry`).
+    let browserSocket = false;
     /// When the last client connected: its loss starts the backoff over only if it stayed up
     /// (hostRetry.ts `lostRetryDelay`).
     let connectedAt = 0;
@@ -8251,6 +8255,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           );
         // The app's host owns the socket (`acpmux-bridge`); the page never gets an endpoint or token.
         const bridge = host.transport === "acpmux-bridge";
+        // The page opens its own WebSocket only on the dev slot (hostRetry.ts `quickRetry`).
+        browserSocket = !mock && !bridge;
         if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
           // A host with no daemon to reach has nothing left to fail.
           setHostError(undefined);
@@ -9808,7 +9814,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // A reply too large to send is the same at every ask: only the line's Retry asks again.
           if (!tooLarge && restartGate.mayAsk()) {
             retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
-            retryDelay = nextRetryDelay(retryDelay, reconnect || recovering);
+            retryDelay = nextRetryDelay(
+              retryDelay,
+              reconnect || recovering,
+              quickRetry({
+                shown: document.visibilityState === "visible",
+                failingForMs: Date.now() - failingSince,
+                browserSocket,
+              }),
+            );
           }
         }
       } finally {
@@ -13819,6 +13833,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     copy={snapshot.peerCopy}
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
+                    asked={peerMachine.asked}
                     onReconnect={reconnectPeer}
                     // An ssh peer's offline copy waits out acpmux's own redial (LINK_DOWN_SAID_MS): a
                     // drop that heals on its own says nothing (Leo, 2026-11-14).
