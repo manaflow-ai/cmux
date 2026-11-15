@@ -1646,3 +1646,185 @@ fn a_resize_withdraws_what_is_drawn() {
     session.engine.layout_changed(session.clock);
     assert_eq!(session.drawn(), "");
 }
+
+/// A shell at `prompt` whose line editor echoed `ls`: the prompt is known.
+fn session_at_prompt(prompt: &str) -> Session {
+    let mut session = Session::new();
+    session.remote(prompt);
+    session.advance(ms(500));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session
+}
+
+#[test]
+fn the_first_key_at_a_known_prompt_draws_with_the_press() {
+    // Return's answer ends at the prompt the line editor echoed after: the
+    // next command's first key shows at once, not two echoes later.
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\r\nCargo.toml  src\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.status(), Status::Predicting);
+    assert_eq!(session.drawn(), "g");
+    session.type_key("i");
+    assert_eq!(session.drawn(), "gi");
+    session.remote("g");
+    session.remote("i");
+    session.engine.presented_frame(session.clock);
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_styled_prompt_with_mode_and_clear_sequences_is_known_again() {
+    // zsh: CR, SGR resets, clear below, a coloured prompt, clear right,
+    // bracketed paste on, and shell-integration marks.
+    let prompt = "\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\x1b]133;A\x07\x1b[32m~/cmux\x1b(B\x1b[m % \x1b[K\x1b[?2004h";
+    let mut session = session_at_prompt(prompt);
+    session.type_key("\r");
+    session.remote(&format!("\x1b[?2004l\r\r\nok\r\n{prompt}"));
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "g");
+}
+
+#[test]
+fn a_password_prompt_after_a_known_prompt_never_displays_a_typed_character() {
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\r\n[sudo] password for leo: ");
+    for character in ["h", "u", "n", "t", "e", "r", "2"] {
+        session.type_key(character);
+        assert_eq!(session.drawn(), "");
+    }
+    assert_eq!(session.status(), Status::Listening);
+}
+
+#[test]
+fn a_prompt_that_answers_an_older_key_keeps_the_two_echo_rule() {
+    // A key typed before Return's answer arrived is still on its way: the
+    // prompt does not answer it, so nothing arms.
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.type_key("g");
+    session.remote("\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("i");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_row_the_engine_cannot_read_is_never_a_known_prompt() {
+    // The cursor moved after the prompt text (a right prompt drawn, then a
+    // jump back): where it stands is not known.
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\r\n$ \x1b[70Cmain\x1b[74D");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_full_screen_program_never_arms_at_a_known_prompt() {
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\x1b[?1049h\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("j");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn return_typed_behind_a_barrier_still_arms_at_the_prompt_it_brings_back() {
+    // A glyph in flight, Left (a barrier), then Return behind it: the remote
+    // reads them in order, so the prompt after Return answers all three.
+    let mut session = session_at_prompt("\r\n$ ");
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x");
+    session.type_key("\x1b[D");
+    session.type_key("\r");
+    session.remote("x");
+    session.remote("\x08");
+    session.remote("\r\nx: command not found\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "g");
+}
+
+#[test]
+fn a_run_that_arms_late_in_the_line_still_learns_the_prompt() {
+    // The first keys' echoes come back ambiguous (an untracked key was in
+    // flight), so the run arms only near the end of the command; the prompt
+    // the line started at is still the one learned.
+    let mut session = Session::new();
+    session.remote("$ ");
+    session.advance(ms(500));
+    session.type_key("\x1b[I");
+    for character in ["e", "c", "h", "o"] {
+        session.type_key_after(character, ms(140));
+    }
+    for character in ["e", "c", "h", "o"] {
+        session.remote_after(character, ms(140));
+    }
+    session.advance(ms(1_000));
+    for character in [" ", "h", "i"] {
+        session.type_key(character);
+        session.remote(character);
+    }
+    session.engine.presented_frame(session.clock);
+    session.type_key("\r");
+    session.remote("\r\nhi\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "g");
+}
+
+#[test]
+fn a_pause_inside_a_command_does_not_learn_the_line_so_far_as_a_prompt() {
+    // Typing `gi`, a pause long enough for every echo to land, then `t`: the
+    // row `$ gi` is not a prompt, so a Return answered with it arms nothing.
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\r\n$ ");
+    session.advance(ms(400));
+    for character in ["g", "i"] {
+        session.type_key(character);
+        session.remote(character);
+    }
+    session.engine.presented_frame(session.clock);
+    session.advance(ms(400));
+    for character in ["t", " "] {
+        session.type_key(character);
+        session.remote(character);
+    }
+    session.engine.presented_frame(session.clock);
+    session.type_key("\x03");
+    session.remote("^C\r\n$ gi");
+    session.advance(ms(400));
+    session.type_key("x");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_layout_change_after_the_first_prompt_still_learns_it() {
+    // The phone lays the surface out after the shell's first prompt arrived.
+    let mut session = Session::new();
+    session.remote("$ ");
+    session.engine.layout_changed(session.clock);
+    session.advance(ms(600));
+    for character in ["l", "s"] {
+        session.type_key(character);
+        session.remote(character);
+    }
+    session.engine.presented_frame(session.clock);
+    session.type_key("\r");
+    session.remote("\r\nCargo.toml\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "g");
+}

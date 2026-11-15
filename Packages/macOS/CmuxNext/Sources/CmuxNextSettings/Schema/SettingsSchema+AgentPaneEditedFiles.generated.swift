@@ -8,7 +8,7 @@ extension AgentPaneEditedFilesSetting {
     public nonisolated static let showValues = ["always", "collapsed", "never"]
     /// `agentPane.editedFiles.maxRows`: Rows before Show N more.
     public nonisolated static let maxRowsPath = ["agentPane", "editedFiles", "maxRows"]
-    public nonisolated static let maxRowsDefault: Double = 5
+    public nonisolated static let maxRowsDefault: Double = 3
     public nonisolated static let maxRowsRange: ClosedRange<Double> = 1...50
     /// `agentPane.editedFiles.scope`: turn (a card per turn) or session (one card, at the session's latest edit).
     public nonisolated static let scopePath = ["agentPane", "editedFiles", "scope"]

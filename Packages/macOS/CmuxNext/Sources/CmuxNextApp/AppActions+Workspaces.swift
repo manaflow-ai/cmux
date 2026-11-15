@@ -283,9 +283,10 @@ extension AppActions {
                     if failure == nil, let personalGroup {
                         PersonalGroupLife(machines: services.machines).deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
                     }
-                    // A person's close of a Cloud workspace keeps its machine (Leo, 2026-11-08): say so, and until when.
-                    if failure == nil, invocation.origin == .user, let machine = services.machines.session(daemon.machineID)?.machine, let shown = controller?.window ?? services.windows.active?.window {
-                        CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: machine.evictAt), duration: .seconds(8)), in: shown)
+                    // A person's close of a Cloud workspace keeps its machine (Leo, 2026-11-08): say so, and until when, once per machine.
+                    if failure == nil, invocation.origin == .user, let session = services.machines.session(daemon.machineID), !session.toldKeptOnClose, let shown = controller?.window ?? services.windows.active?.window {
+                        session.toldKeptOnClose = true
+                        CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: session.machine.evictAt), duration: .seconds(8)), in: shown)
                     }
                     if hidden, failure == nil { ClosingWorkspaces.shared.end(id, refused: false, in: nil) } // refused: the effect's `takeBack`
                     return failure

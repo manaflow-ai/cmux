@@ -2,6 +2,7 @@
 // React reads it through `useSyncExternalStore`. It reads on start, when the window or grouping
 // changes and on Refresh; never on a timer. A reply for a choice the person already left is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { ChiefUsageOps, type UsageBy, type UsageQuery, type UsageSummary, type UsageWindow } from "./types";
 
 /** How many of the most expensive units the page lists. */
@@ -80,7 +81,7 @@ export class ChiefUsageStore {
         window,
         by,
         loading: false,
-        failed: { message: unavailable ? error.message : undefined },
+        failed: { message: unavailable ? userMessage(error, { [error.code]: OWNER_SENTENCE }) : undefined },
       });
     }
   }

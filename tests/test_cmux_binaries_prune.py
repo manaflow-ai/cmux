@@ -114,6 +114,21 @@ class Prune(unittest.TestCase):
         run(bucket)
         self.assertEqual({key.split("/")[1] for key in bucket.deleted}, {sha(7)})
 
+    def test_a_machine_copy_is_kept_30_days_then_deleted_apart_from_its_commit(self):
+        # cmux-tui/<sha>/machine/: the Cloud machine channel's thin copy, its own family. A pinned
+        # commit keeps its shipped prefix; its machine copy still goes after 30 days.
+        pinned, young = trunk(2), trunk(3)
+        bucket = FakeBucket(files={
+            f"cmux-tui/{pinned}/cmux-tui-x86_64-unknown-linux-musl": 40,
+            f"cmux-tui/{pinned}/manifest.json": 40,
+            f"cmux-tui/{pinned}/machine/cmux-tui-x86_64-unknown-linux-musl": 40,
+            f"cmux-tui/{pinned}/machine/early-claim.json": 40,
+            f"cmux-tui/{young}/machine/cmux-tui-x86_64-unknown-linux-musl": 20,
+        }, bodies={"cmux-tui/latest/manifest.json": json.dumps({"commit": MAIN})})
+        run(bucket, pins=[pinned])
+        self.assertEqual(sorted(bucket.deleted), [f"cmux-tui/{pinned}/machine/cmux-tui-x86_64-unknown-linux-musl",
+                                                  f"cmux-tui/{pinned}/machine/early-claim.json"])
+
     def test_other_prefixes_and_trees_are_never_touched(self):
         bucket = FakeBucket(files={
             "mux/latest/cmux-mux-linux": 400, f"mux/{sha(8)}/cmux-mux-linux": 400,

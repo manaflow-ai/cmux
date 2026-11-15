@@ -4629,6 +4629,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_capabilities", std::move(encoded).value());
     }
+    if (value.machine_device) {
+        auto encoded = encode_value(*value.machine_device);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_device", std::move(encoded).value());
+    }
     if (value.machine_id) {
         auto encoded = encode_value(*value.machine_id);
         if (!encoded) return std::move(encoded).error();
@@ -4644,6 +4649,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_platform", std::move(encoded).value());
     }
+    if (value.machine_symbol) {
+        auto encoded = encode_value(*value.machine_symbol);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_symbol", std::move(encoded).value());
+    }
     if (!value.min_api_revision.is_absent()) {
         auto encoded = encode_value(value.min_api_revision);
         if (!encoded) return std::move(encoded).error();
@@ -4658,6 +4668,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     auto encoded_registry_id = encode_value(value.registry_id);
     if (!encoded_registry_id) return std::move(encoded_registry_id).error();
     object.emplace("registry_id", std::move(encoded_registry_id).value());
+    if (!value.screen_device_id.is_absent()) {
+        auto encoded = encode_value(value.screen_device_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("screen_device_id", std::move(encoded).value());
+    }
     auto encoded_session = encode_value(value.session);
     if (!encoded_session) return std::move(encoded_session).error();
     object.emplace("session", std::move(encoded_session).value());
@@ -4822,6 +4837,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.machine_capabilities = std::move(decoded).value();
     }
+    const Json* field_machine_device = value.find("machine_device");
+    if (field_machine_device) {
+        auto decoded = decode_value<std::string>(*field_machine_device);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_device = std::move(decoded).value();
+    }
     const Json* field_machine_id = value.find("machine_id");
     if (field_machine_id) {
         auto decoded = decode_value<std::string>(*field_machine_id);
@@ -4839,6 +4860,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<MachinePlatform>(*field_machine_platform);
         if (!decoded) return std::move(decoded).error();
         result.machine_platform = std::move(decoded).value();
+    }
+    const Json* field_machine_symbol = value.find("machine_symbol");
+    if (field_machine_symbol) {
+        auto decoded = decode_value<std::string>(*field_machine_symbol);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_symbol = std::move(decoded).value();
     }
     const Json* field_min_api_revision = value.find("min_api_revision");
     if (field_min_api_revision) {
@@ -4876,6 +4903,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_registry_id);
         if (!decoded) return std::move(decoded).error();
         result.registry_id = std::move(decoded).value();
+    }
+    const Json* field_screen_device_id = value.find("screen_device_id");
+    if (field_screen_device_id) {
+        if (field_screen_device_id->is_null()) {
+            result.screen_device_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_screen_device_id);
+            if (!decoded) return std::move(decoded).error();
+            result.screen_device_id = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_session = value.find("session");
     if (!field_session) {
@@ -5465,6 +5502,109 @@ Result<ListTerminalsResult> Codec<ListTerminalsResult>::decode(const Json& value
         auto decoded = decode_value<std::vector<TerminalRecord>>(*field_terminals);
         if (!decoded) return std::move(decoded).error();
         result.terminals = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ListWorkspacesKnown>::encode(const ListWorkspacesKnown& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.generation.is_absent()) {
+        auto encoded = encode_value(value.generation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("generation", std::move(encoded).value());
+    }
+    if (!value.pane_revision.is_absent()) {
+        auto encoded = encode_value(value.pane_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane_revision", std::move(encoded).value());
+    }
+    if (!value.registry_id.is_absent()) {
+        auto encoded = encode_value(value.registry_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("registry_id", std::move(encoded).value());
+    }
+    if (!value.terminal_revision.is_absent()) {
+        auto encoded = encode_value(value.terminal_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_revision", std::move(encoded).value());
+    }
+    if (!value.tree_revision.is_absent()) {
+        auto encoded = encode_value(value.tree_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("tree_revision", std::move(encoded).value());
+    }
+    if (!value.workspace_revision.is_absent()) {
+        auto encoded = encode_value(value.workspace_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("workspace_revision", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<ListWorkspacesKnown> Codec<ListWorkspacesKnown>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ListWorkspacesKnown result{};
+    const Json* field_generation = value.find("generation");
+    if (field_generation) {
+        if (field_generation->is_null()) {
+            result.generation = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_generation);
+            if (!decoded) return std::move(decoded).error();
+            result.generation = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_pane_revision = value.find("pane_revision");
+    if (field_pane_revision) {
+        if (field_pane_revision->is_null()) {
+            result.pane_revision = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_pane_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.pane_revision = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_registry_id = value.find("registry_id");
+    if (field_registry_id) {
+        if (field_registry_id->is_null()) {
+            result.registry_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_registry_id);
+            if (!decoded) return std::move(decoded).error();
+            result.registry_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_revision = value.find("terminal_revision");
+    if (field_terminal_revision) {
+        if (field_terminal_revision->is_null()) {
+            result.terminal_revision = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_terminal_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_revision = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_tree_revision = value.find("tree_revision");
+    if (field_tree_revision) {
+        if (field_tree_revision->is_null()) {
+            result.tree_revision = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_tree_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.tree_revision = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_workspace_revision = value.find("workspace_revision");
+    if (field_workspace_revision) {
+        if (field_workspace_revision->is_null()) {
+            result.workspace_revision = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_workspace_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.workspace_revision = Field<std::uint64_t>(std::move(decoded).value());
+        }
     }
     return result;
 }
@@ -16269,6 +16409,21 @@ Result<Json> Codec<Tree>::encode(const Tree& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("terminal_revision", std::move(encoded).value());
     }
+    if (value.total) {
+        auto encoded = encode_value(*value.total);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("total", std::move(encoded).value());
+    }
+    if (value.tree_revision) {
+        auto encoded = encode_value(*value.tree_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("tree_revision", std::move(encoded).value());
+    }
+    if (value.unchanged) {
+        auto encoded = encode_value(*value.unchanged);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("unchanged", std::move(encoded).value());
+    }
     if (value.workspace_revision) {
         auto encoded = encode_value(*value.workspace_revision);
         if (!encoded) return std::move(encoded).error();
@@ -16307,6 +16462,24 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_terminal_revision);
         if (!decoded) return std::move(decoded).error();
         result.terminal_revision = std::move(decoded).value();
+    }
+    const Json* field_total = value.find("total");
+    if (field_total) {
+        auto decoded = decode_value<std::uint64_t>(*field_total);
+        if (!decoded) return std::move(decoded).error();
+        result.total = std::move(decoded).value();
+    }
+    const Json* field_tree_revision = value.find("tree_revision");
+    if (field_tree_revision) {
+        auto decoded = decode_value<std::string>(*field_tree_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.tree_revision = std::move(decoded).value();
+    }
+    const Json* field_unchanged = value.find("unchanged");
+    if (field_unchanged) {
+        auto decoded = decode_value<bool>(*field_unchanged);
+        if (!decoded) return std::move(decoded).error();
+        result.unchanged = std::move(decoded).value();
     }
     const Json* field_workspace_revision = value.find("workspace_revision");
     if (field_workspace_revision) {
@@ -17035,10 +17208,20 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("mode", std::move(encoded).value());
     }
+    if (!value.output_coalesce_ms.is_absent()) {
+        auto encoded = encode_value(value.output_coalesce_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("output_coalesce_ms", std::move(encoded).value());
+    }
     if (!value.replay_history_rows.is_absent()) {
         auto encoded = encode_value(value.replay_history_rows);
         if (!encoded) return std::move(encoded).error();
         object.emplace("replay_history_rows", std::move(encoded).value());
+    }
+    if (!value.replay_history_start.is_absent()) {
+        auto encoded = encode_value(value.replay_history_start);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("replay_history_start", std::move(encoded).value());
     }
     if (!value.rows.is_absent()) {
         auto encoded = encode_value(value.rows);
@@ -17122,6 +17305,16 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             result.mode = Field<AttachSurfaceRequestMode>(std::move(decoded).value());
         }
     }
+    const Json* field_output_coalesce_ms = value.find("output_coalesce_ms");
+    if (field_output_coalesce_ms) {
+        if (field_output_coalesce_ms->is_null()) {
+            result.output_coalesce_ms = Field<std::uint32_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint32_t>(*field_output_coalesce_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.output_coalesce_ms = Field<std::uint32_t>(std::move(decoded).value());
+        }
+    }
     const Json* field_replay_history_rows = value.find("replay_history_rows");
     if (field_replay_history_rows) {
         if (field_replay_history_rows->is_null()) {
@@ -17130,6 +17323,16 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             auto decoded = decode_value<std::uint32_t>(*field_replay_history_rows);
             if (!decoded) return std::move(decoded).error();
             result.replay_history_rows = Field<std::uint32_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_replay_history_start = value.find("replay_history_start");
+    if (field_replay_history_start) {
+        if (field_replay_history_start->is_null()) {
+            result.replay_history_start = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_replay_history_start);
+            if (!decoded) return std::move(decoded).error();
+            result.replay_history_start = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_rows = value.find("rows");
@@ -26302,6 +26505,16 @@ Result<ListWorkspaceGroupsRequest> Codec<ListWorkspaceGroupsRequest>::decode(con
 Result<Json> Codec<ListWorkspacesRequest>::encode(const ListWorkspacesRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.known.is_absent()) {
+        auto encoded = encode_value(value.known);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("known", std::move(encoded).value());
+    }
+    if (!value.limit.is_absent()) {
+        auto encoded = encode_value(value.limit);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("limit", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -26309,6 +26522,26 @@ Result<ListWorkspacesRequest> Codec<ListWorkspacesRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ListWorkspacesRequest result{};
+    const Json* field_known = value.find("known");
+    if (field_known) {
+        if (field_known->is_null()) {
+            result.known = Field<ListWorkspacesKnown>::null();
+        } else {
+            auto decoded = decode_value<ListWorkspacesKnown>(*field_known);
+            if (!decoded) return std::move(decoded).error();
+            result.known = Field<ListWorkspacesKnown>(std::move(decoded).value());
+        }
+    }
+    const Json* field_limit = value.find("limit");
+    if (field_limit) {
+        if (field_limit->is_null()) {
+            result.limit = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_limit);
+            if (!decoded) return std::move(decoded).error();
+            result.limit = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
     return result;
 }
 
@@ -41091,6 +41324,11 @@ Result<Json> Codec<ResizedEvent>::encode(const ResizedEvent& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("data", std::move(encoded).value());
     }
+    if (value.history_rows_omitted) {
+        auto encoded = encode_value(*value.history_rows_omitted);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("history_rows_omitted", std::move(encoded).value());
+    }
     if (value.kitty_graphics_state) {
         auto encoded = encode_value(*value.kitty_graphics_state);
         if (!encoded) return std::move(encoded).error();
@@ -41139,6 +41377,12 @@ Result<ResizedEvent> Codec<ResizedEvent>::decode(const Json& value) {
         auto decoded = decode_value<Base64>(*field_data);
         if (!decoded) return std::move(decoded).error();
         result.data = std::move(decoded).value();
+    }
+    const Json* field_history_rows_omitted = value.find("history_rows_omitted");
+    if (field_history_rows_omitted) {
+        auto decoded = decode_value<std::uint64_t>(*field_history_rows_omitted);
+        if (!decoded) return std::move(decoded).error();
+        result.history_rows_omitted = std::move(decoded).value();
     }
     const Json* field_kitty_graphics_state = value.find("kitty_graphics_state");
     if (field_kitty_graphics_state) {
@@ -41398,6 +41642,49 @@ Result<ScreenClosedEvent> Codec<ScreenClosedEvent>::decode(const Json& value) {
     }
     if (field_event) {
         if (*field_event != Json(std::string("screen-closed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<ScreenDeviceChangedEvent>::encode(const ScreenDeviceChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("screen-device-changed")));
+    if (value.screen_device_id) {
+        auto encoded = encode_value(*value.screen_device_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("screen_device_id", std::move(encoded).value());
+    } else {
+        object.emplace("screen_device_id", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<ScreenDeviceChangedEvent> Codec<ScreenDeviceChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ScreenDeviceChangedEvent result{};
+    const Json* field_screen_device_id = value.find("screen_device_id");
+    if (!field_screen_device_id) {
+        return make_error(ErrorCode::decode, "missing required field 'screen_device_id'");
+    }
+    if (field_screen_device_id) {
+        if (field_screen_device_id->is_null()) {
+            result.screen_device_id.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_screen_device_id);
+            if (!decoded) return std::move(decoded).error();
+            result.screen_device_id = std::move(decoded).value();
+        }
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("screen-device-changed"))) {
             return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
         }
     }
@@ -42909,6 +43196,11 @@ Result<Json> Codec<VtStateEvent>::encode(const VtStateEvent& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("history_rows_omitted", std::move(encoded).value());
     }
+    if (value.history_rows_skipped) {
+        auto encoded = encode_value(*value.history_rows_skipped);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("history_rows_skipped", std::move(encoded).value());
+    }
     if (value.kitty_graphics_state) {
         auto encoded = encode_value(*value.kitty_graphics_state);
         if (!encoded) return std::move(encoded).error();
@@ -42961,6 +43253,12 @@ Result<VtStateEvent> Codec<VtStateEvent>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_history_rows_omitted);
         if (!decoded) return std::move(decoded).error();
         result.history_rows_omitted = std::move(decoded).value();
+    }
+    const Json* field_history_rows_skipped = value.find("history_rows_skipped");
+    if (field_history_rows_skipped) {
+        auto decoded = decode_value<std::uint64_t>(*field_history_rows_skipped);
+        if (!decoded) return std::move(decoded).error();
+        result.history_rows_skipped = std::move(decoded).value();
     }
     const Json* field_kitty_graphics_state = value.find("kitty_graphics_state");
     if (field_kitty_graphics_state) {
@@ -45709,6 +46007,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "screen-device-changed") {
+        auto decoded = decode_value<ScreenDeviceChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "screen-renamed") {
         auto decoded = decode_value<ScreenRenamedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -45869,12 +46172,14 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 11> kCommand4FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 13> kCommand4FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
     {"expected_generation", 0U, "attach-identity-v1"},
     {"expected_terminal_id", 0U, "attach-identity-v1"},
     {"mode", 7U, ""},
+    {"output_coalesce_ms", 0U, "attach-output-coalesce-v1"},
     {"replay_history_rows", 0U, "attach-replay-history-rows-v1"},
+    {"replay_history_start", 0U, "attach-replay-history-window-v1"},
     {"rows", 0U, "attach-initial-size"},
     {"snapshot", 0U, "terminal-snapshot-v1"},
     {"snapshot_images", 0U, "terminal-snapshot-images-v1"},
@@ -45935,6 +46240,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand108FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 2> kCommand127FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
     {"revisions", 12U, ""},
+}};
+constexpr std::array<CommandFieldRequirement, 2> kCommand143FieldRequirements{{
+    {"known", 12U, "list-workspaces-known-v1"},
+    {"limit", 12U, "list-workspaces-limit-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand156FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
@@ -46259,7 +46568,7 @@ constexpr std::array<CommandMetadata, 301> kCommands{{
     {"list-terminal-commands", "local-admin", 12U, "terminal-command-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-terminals", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-workspace-groups", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"list-workspaces", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"list-workspaces", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand143FieldRequirements)},
     {"machine-listening-tcp", "control", 12U, "machine-listening-tcp-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"machine-usage", "control", 12U, "machine-usage-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mark-workspaces-provider-managed", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -46418,7 +46727,7 @@ constexpr std::array<CommandMetadata, 301> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 93> kEvents{{
+constexpr std::array<EventMetadata, 94> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -46481,6 +46790,7 @@ constexpr std::array<EventMetadata, 93> kEvents{{
     {"screen-added", 7U, "", "subscribe-deltas", "emitted"},
     {"screen-changed", 12U, "screen-metadata-v1", "subscribe-deltas", "emitted"},
     {"screen-closed", 7U, "", "subscribe-deltas", "emitted"},
+    {"screen-device-changed", 12U, "screen-device-identity-v1", "subscribe", "emitted"},
     {"screen-renamed", 7U, "", "subscribe-deltas", "emitted"},
     {"scroll-changed", 6U, "", "subscribe,attach-byte,attach-render,attach-browser", "emitted"},
     {"selection-changed", 12U, "tree-selection-deltas-v1", "subscribe-deltas", "emitted"},

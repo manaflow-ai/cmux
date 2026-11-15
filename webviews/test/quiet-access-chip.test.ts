@@ -74,6 +74,9 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
   /** The composer's Codex access-menu stage with Full access picked and the menu closed. */
   const fullAccess = async (engine: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+    // Claude's look, whose access chip is quiet: Codex's (the default since #42247) draws Full access
+    // in the accent on purpose (composerLook.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     await installPaintedFrames(page);
     await page.goto(stageURL("agent-pane.composer", "access-menu-codex"));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {

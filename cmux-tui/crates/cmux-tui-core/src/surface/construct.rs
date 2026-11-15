@@ -214,6 +214,7 @@ impl Surface {
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let HostLaunch { terminal_id, seed, workspace_key, standby } = launch;
+            let seating = terminal_runtime::host_seating(&mux, &terminal_public_id);
             let launched = match terminal_id {
                 Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
                     &opts,
@@ -222,6 +223,7 @@ impl Surface {
                     terminal_id,
                     standby,
                     (seed, workspace_key),
+                    &seating,
                 ),
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
@@ -229,6 +231,7 @@ impl Surface {
                     default_colors,
                     cell_pixels,
                     initial_kitty_limits,
+                    &seating,
                 ),
             };
             crate::debug_spans::mark("surface.host_launched");
@@ -294,6 +297,7 @@ impl Surface {
                 cmd.env(k, v);
             }
         }
+        cmd.terminal_identity();
         for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
             cmd.env_remove(key);
         }

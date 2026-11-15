@@ -1399,7 +1399,7 @@
               }
             }
           ],
-          "default": "afterCurrent",
+          "default": "top",
           "keywords": [
             "workspace",
             "new",

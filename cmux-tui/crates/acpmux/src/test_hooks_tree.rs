@@ -2,10 +2,10 @@
 //! cmux-source-scan (crates/cmux-source-scan/src/test_hooks.rs) over this crate's `src`, run by
 //! `cargo test -p acpmux --lib`. Its rows and the property are in that crate.
 
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Instant;
 
+use cmux_source_scan::rows::unmatched;
 use cmux_source_scan::source::rust_files;
 use cmux_source_scan::test_hooks::{Finding, judge_tree};
 
@@ -20,24 +20,47 @@ const KNOWN: &[&str] = &[];
 fn the_crate_adds_no_process_wide_test_hook() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let started = Instant::now();
-    let files = rust_files(&dir.join("src")).len();
-    let found = judge_tree(dir);
+    // A source the check cannot read fails here, naming it, rather than reading as clean.
+    let files = rust_files(&dir.join("src")).unwrap_or_else(|e| panic!("{e}")).len();
+    let found = judge_tree(dir).unwrap_or_else(|e| panic!("{e}"));
     eprintln!("test hooks: {files} files, {} findings in {:?}", found.len(), started.elapsed());
     for finding in &found {
         eprintln!("{finding}");
     }
+    let drift = tree_drift(&found, KNOWN);
+    assert!(drift.is_empty(), "{}", drift.join("\n"));
+}
+
+/// What is wrong with the crate's findings against KNOWN: one line each, none when they agree.
+/// Each KNOWN row stands for one finding, so a second finding with its key is new (#42341 F1).
+fn tree_drift(found: &[Finding], known: &[&str]) -> Vec<String> {
     let key = |f: &Finding| format!("{} {}", f.rel.trim_start_matches(SRC), f.name);
-    let keys: BTreeSet<String> = found.iter().map(key).collect();
-    let new: Vec<String> = found
-        .iter()
-        .filter(|f| !KNOWN.contains(&key(f).as_str()))
-        .map(ToString::to_string)
-        .collect();
-    let gone: Vec<&&str> = KNOWN.iter().filter(|k| !keys.contains(**k)).collect();
-    assert!(
-        new.is_empty(),
-        "process-wide test hooks: a parallel test can replace or clear another's hook (cmux#41350):\n{}",
-        new.join("\n")
-    );
-    assert!(gone.is_empty(), "these KNOWN rows have no finding any more; take them out: {gone:?}");
+    let left = unmatched(known, found, |k, f| *k == key(f));
+    let new: Vec<String> = left.extra.iter().map(ToString::to_string).collect();
+    let gone: Vec<&&str> = left.missing;
+    let mut out = Vec::new();
+    if !new.is_empty() {
+        out.push(format!(
+            "process-wide test hooks: a parallel test can replace or clear another's hook (cmux#41350):\n{}",
+            new.join("\n")
+        ));
+    }
+    if !gone.is_empty() {
+        out.push(format!("these KNOWN rows have no finding any more; take them out: {gone:?}"));
+    }
+    out
+}
+
+/// #42341 review F1: a KNOWN row stands for one finding, so a second finding with its key (a
+/// static of the same name in another module of the file) fails the check.
+#[test]
+fn a_known_row_covers_one_finding_not_two() {
+    let finding = |line| Finding {
+        rel: format!("{SRC}hub/x.rs"),
+        line,
+        name: "HOOK".to_string(),
+        why: "a closure in a process-wide cell".to_string(),
+    };
+    let drift = tree_drift(&[finding(3), finding(9)], &["hub/x.rs HOOK"]);
+    assert!(drift.iter().any(|d| d.contains("hub/x.rs:9:")), "the second HOOK passed: {drift:?}");
 }

@@ -345,7 +345,9 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-fn lock(dir: &Path) -> Result<File> {
+/// The record lock; its drop unlocks before it closes, so a child another daemon thread forks
+/// meanwhile keeps no lock.
+fn lock(dir: &Path) -> Result<cmux_file_lock::FileLock> {
     crate::config::private_state_dir(dir)?;
     // Made in the held home (`home_fs`): a home replaced after the check above never gets the
     // lock file (#41462 review F2).
@@ -354,8 +356,8 @@ fn lock(dir: &Path) -> Result<File> {
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
     let file = options.open(dir.join("record.lock"))?;
-    file.lock().context("lock workflow record")?;
-    Ok(file)
+    cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive)
+        .context("lock workflow record")
 }
 
 fn read(path: &Path) -> Result<RunRecord> {

@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 public import Foundation
+import os
 
 /// The host half of a page's bridge, engine neutral: it reads pane-protocol envelopes
 /// (plans/cmux-next/pane-protocol.md "Wire") from the page, checks them against the page's
@@ -47,6 +48,7 @@ public final class PageRouter {
     /// Rebinds a pooled router to a new document and ends every operation owned by the old page.
     func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
         reset()
+        heldCommand = nil  // meant for the old document
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
@@ -101,7 +103,7 @@ public final class PageRouter {
             } catch let error as PageError {
                 return Self.error(id: id, error)
             } catch {
-                return Self.error(id: id, PageError(code: "cmux.page.failed", message: String(describing: error)))
+                return Self.error(id: id, failure(error, in: op))
             }
         case "sub":
             guard let stream = message["stream"]?.stringValue else { return Self.error(id: id, .invalidParams("missing stream")) }
@@ -111,7 +113,7 @@ public final class PageRouter {
             } catch let error as PageError {
                 return Self.error(id: id, error)
             } catch {
-                return Self.error(id: id, PageError(code: "cmux.page.failed", message: String(describing: error)))
+                return Self.error(id: id, failure(error, in: stream))
             }
         case "cancel":
             // A cancel of an unknown or finished id is a no-op; it gets no reply.
@@ -140,9 +142,11 @@ public final class PageRouter {
     /// The page is done with forwarded swipe gesture `g` (`cmux.app.swipe.release`): stop sending it.
     public var swipeRelease: (@MainActor (Int) -> Void)?
 
-    /// The page's heartbeat (``PageNativeOp/pageHeartbeat``) with its handled-input count and whether
-    /// it holds unsaved edits: the page view feeds app health. Nil (tests, a view not wired) still answers the beat.
-    public var heartbeat: (@MainActor (_ handled: UInt64, _ edits: Bool) -> Void)?
+    /// The page's heartbeat (``PageNativeOp/pageHeartbeat``) with its handled-input count, whether
+    /// it holds unsaved edits and whether it now rests (beats no more until something happens in it):
+    /// the page view feeds app health. Returns whether the host takes rest beats (the page may stop
+    /// beating). Nil (tests, a view not wired) still answers the beat.
+    public var heartbeat: (@MainActor (_ handled: UInt64, _ edits: Bool, _ rest: Bool) -> Bool)?
 
     /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
     public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
@@ -190,6 +194,7 @@ public final class PageRouter {
             let sub = nextSubscription
             nextSubscription += 1
             builtIn[sub] = stream
+            if stream == PageNativeOp.pageCommand { deliverHeldCommand() }
             if stream == PageNativeOp.pageConnection {
                 // The current state, after the subscribe reply that names `sub` reaches the page.
                 let connected = connected
@@ -280,15 +285,44 @@ public final class PageRouter {
     // MARK: Built-in streams
 
     /// Sends a dispatcher command to the page's command subscribers. False when the command is
-    /// not a page command or no subscriber listens.
+    /// not a page command, or no subscriber listens and the command is not one of
+    /// ``heldUntilReady``: those (Cmd-F's `find`) wait for a page that still loads, the newest
+    /// one only, and reach it when it subscribes to its command stream (true).
     @discardableResult
-    public func publishCommand(_ command: String, arguments: [String: JSONValue] = [:]) -> Bool {
+    public func publishCommand(_ command: String, arguments: [String: JSONValue] = [:],
+                               now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
         guard descriptor.commands.contains(command) else { return false }
         var data = arguments
         data["command"] = .string(command)
         let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()
         for sub in subs { deliver(sub: sub, .object(data)) }
-        return !subs.isEmpty
+        if !subs.isEmpty { heldCommand = nil; return true }
+        // CMD-F FIRST PRESS (user 2026-11-15): the first Cmd-F after a launch or a tab switch came
+        // while the page loaded and was lost; the second worked.
+        guard Self.heldUntilReady.contains(command), !closed else { return false }
+        heldCommand = (.object(data), now)
+        return true
+    }
+
+    /// The commands a page that still loads gets once it listens (``publishCommand(_:arguments:now:)``).
+    nonisolated static let heldUntilReady: Set<String> = ["find", "focusSearch"]
+    /// How long a held command waits for its page: past it, a page that never loaded in time
+    /// (a crash, a hang) does not open Find long after the press.
+    public nonisolated static let heldCommandLifetime: TimeInterval = 10
+    /// The command waiting for the page's first command subscription, and when it was sent.
+    private var heldCommand: (data: JSONValue, sent: TimeInterval)?
+
+    /// Delivers the held command to the command subscribers after the subscribe reply reaches the page.
+    private func deliverHeldCommand() {
+        guard let held = heldCommand else { return }
+        heldCommand = nil
+        guard ProcessInfo.processInfo.systemUptime - held.sent <= Self.heldCommandLifetime else { return }
+        // task-owner: one event delivery after the reply; ends with the router
+        // main-hop-allow: the event must follow the subscribe reply that names its sub, which the bridge sends after subscribe returns (as the connection stream's first event above); one delivery of one held command
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for sub in builtIn.filter({ $0.value == PageNativeOp.pageCommand }).keys.sorted() { deliver(sub: sub, held.data) }
+        }
     }
 
     /// Sends a popup event (`{type, id?}`) to the page's popup subscribers.
@@ -366,6 +400,15 @@ public final class PageRouter {
             ["id": .number(Double(id)), "op": .string(call.op), "age_ms": .number(((now - call.started) * 1000).rounded())]
         }
     }
+
+    /// A provider's failure that is not a ``PageError``: logged with its Debug text, answered with
+    /// the fixed message (``PageError/failed(_:code:retryable:)``).
+    private func failure(_ error: any Error, in name: String) -> PageError {
+        Self.logger.error("page \(self.descriptor.id, privacy: .public) \(name, privacy: .public) failed: \(String(describing: error))")
+        return .failed(error)
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
 
     static func error(id: UInt64, _ error: PageError) -> JSONValue {
         var envelope: [String: JSONValue] = [

@@ -94,7 +94,7 @@ public struct CloudMoveStrings {
                               table: "Cloud", bundle: .module), machine)
     }
     public static func moveFailed(_ detail: String) -> String {
-        String(format: String(localized: "cloud.move.failed", defaultValue: "Couldn't move the chat. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@", table: "Cloud", bundle: .module), detail)
+        String(format: String(localized: "cloud.move.failedPlain", defaultValue: "Couldn't move the chat. %@", table: "Cloud", bundle: .module), detail)
     }
     public static func tabFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",
