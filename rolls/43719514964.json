@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43719514964",
+  "recorded_at": "2026-11-15T13:42:47Z",
+  "reason": "cmux-tui 1581e11e4e4c changes the image's cmux-tui (pinned b3f54727d579)",
+  "dry_run": false,
+  "cmux_tui": "1581e11e4e4c3d48c5860a517bef180a0dad639d",
+  "fixes": [
+    {
+      "sha": "1581e11e4e4c3d48c5860a517bef180a0dad639d",
+      "mergedAt": "2026-11-15T05:17:02-08:00",
+      "subject": "customize: name a hand-installed web-dev overlay, its age and an ABI refusal (#43687)"
+    },
+    {
+      "sha": "268248f676e120f809bb48e97aad8d43242caec6",
+      "mergedAt": "2026-11-15T05:15:33-08:00",
+      "subject": "cmux ext new --kind sidebar|pane|command: a working extension on the SDK, reloading a save in under a second (#43371)"
+    },
+    {
+      "sha": "af330854e38becfdb101662d0466cb2589eb2113",
+      "mergedAt": "2026-11-15T05:10:57-08:00",
+      "subject": "acpmux: a daemon restart wakes no hibernated chat its viewers open again (#43542)"
+    },
+    {
+      "sha": "a01de096d93b897ac71fc404f1958284552ccbd6",
+      "mergedAt": "2026-11-15T05:06:31-08:00",
+      "subject": "Daemon start: check the registry foreign keys once and read each topology table once (#43697)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T13:42:47Z",
+    "snapshot_id": "sh-6c98592237b840e2be9109134b144038",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43719514964): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c5774279115e3a25783193db97529cd14121afbd",
+    "image": "cloud-native-auto-1581e11e-43719514964-1",
+    "revision": "ci-43719514964-1",
+    "at": "2026-11-15T13:42:47Z"
+  },
+  "rolled_back": false
+}
