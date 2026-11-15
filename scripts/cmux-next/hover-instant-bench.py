@@ -242,7 +242,9 @@ def verify_helper(app):
 def nightly_helper():
     """The newest NEXT nightly's "cmux Computer Use.app", cached by build number; RuntimeError naming why not."""
     import re, shutil, urllib.request
-    feed = urllib.request.urlopen(NIGHTLY_FEED, timeout=30).read().decode("utf-8", "replace")
+    # The feed host refuses urllib's default User-Agent (HTTP 403, step b1d49ea5); name the bench instead.
+    fetch = lambda target: urllib.request.Request(target, headers={"User-Agent": "cmux-hover-instant-bench/1"})
+    feed = urllib.request.urlopen(fetch(NIGHTLY_FEED), timeout=30).read().decode("utf-8", "replace")
     urls = re.findall(r'<enclosure url="([^"]+-(\d+)\.dmg)"', feed)
     if not urls:
         raise RuntimeError("the NEXT appcast names no dmg")
@@ -252,7 +254,7 @@ def nightly_helper():
     if not os.path.isdir(app):
         with tempfile.TemporaryDirectory(prefix="hover-helper-", dir=HELPER_CACHE) as tmp:
             dmg, mount = os.path.join(tmp, "nightly.dmg"), os.path.join(tmp, "mnt")
-            with urllib.request.urlopen(url, timeout=120) as body, open(dmg, "wb") as out:
+            with urllib.request.urlopen(fetch(url), timeout=120) as body, open(dmg, "wb") as out:
                 shutil.copyfileobj(body, out, 1 << 20)
             attach = subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount,
                                      dmg], capture_output=True, text=True, timeout=120)
