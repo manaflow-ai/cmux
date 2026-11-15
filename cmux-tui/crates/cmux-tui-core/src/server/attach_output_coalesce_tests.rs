@@ -3,6 +3,7 @@
 //! capability.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -82,39 +83,46 @@ struct Output {
 }
 
 impl Viewer {
-    /// Every `output` read until `quiet` passes with none.
-    fn outputs_until_quiet(&self, quiet: Duration) -> Vec<Output> {
-        let mut outputs = Vec::new();
-        let mut last = Instant::now();
-        while last.elapsed() < quiet {
-            if let Some(output) = self.next_output(Duration::from_millis(1)) {
-                outputs.push(output);
-                last = Instant::now();
-            }
-        }
-        outputs
-    }
-
     /// The next `output` within `timeout`; other events are skipped.
     fn next_output(&self, timeout: Duration) -> Option<Output> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if let Some(message) = self.outbound.try_pop() {
-                let value: Value = serde_json::from_str(&message).expect("outbound JSON");
-                if value["event"] != "output" {
-                    continue;
-                }
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(value["data"].as_str().expect("data"))
-                    .expect("base64");
-                return Some(Output { at: Instant::now(), line: message.to_string(), bytes });
+        next_output(&self.outbound, timeout)
+    }
+}
+
+/// The next `output` on `outbound` within `timeout`; other events are skipped.
+fn next_output(outbound: &BoundedOutbound, timeout: Duration) -> Option<Output> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(message) = outbound.try_pop() {
+            let value: Value = serde_json::from_str(&message).expect("outbound JSON");
+            if value["event"] != "output" {
+                continue;
             }
-            if Instant::now() >= deadline {
-                return None;
-            }
-            std::thread::sleep(Duration::from_micros(500));
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(value["data"].as_str().expect("data"))
+                .expect("base64");
+            return Some(Output { at: Instant::now(), line: message.to_string(), bytes });
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_micros(500));
+    }
+}
+
+/// Reads every `output` as it comes, as a client does (an unread connection
+/// backs up and the daemon merges queued reads), until `done` is set and
+/// `quiet` passes with none.
+fn read_outputs(outbound: &BoundedOutbound, done: &AtomicBool, quiet: Duration) -> Vec<Output> {
+    let mut outputs = Vec::new();
+    let mut last = Instant::now();
+    while !done.load(Ordering::Acquire) || last.elapsed() < quiet {
+        if let Some(output) = next_output(outbound, Duration::from_millis(1)) {
+            outputs.push(output);
+            last = Instant::now();
         }
     }
+    outputs
 }
 
 fn joined(outputs: &[Output]) -> Vec<u8> {
@@ -145,24 +153,35 @@ fn a_coalescing_viewer_reads_at_most_one_output_per_frame() {
     let coalesced = attach(&mux, &surface, true, json!({}));
     let period = Duration::from_millis(5);
     let length = Duration::from_secs(2);
-    let start = Instant::now();
-    let mut writes = 0u32;
-    while start.elapsed() < length {
-        surface.inject_output_for_test(
-            format!(
-                "\x1b[1;32m   Compiling\x1b[0m crate-{writes} v0.1.0 (/src/crate-{writes})\r\n"
-            )
-            .as_bytes(),
-        );
-        writes += 1;
-        let next = start + period * writes;
-        if let Some(wait) = next.checked_duration_since(Instant::now()) {
-            std::thread::sleep(wait);
+    let done = AtomicBool::new(false);
+    let quiet = Duration::from_millis(500);
+    let (writes, seconds, plain_outputs, coalesced_outputs) = std::thread::scope(|scope| {
+        let plain_reader = scope.spawn(|| read_outputs(&plain.outbound, &done, quiet));
+        let coalesced_reader = scope.spawn(|| read_outputs(&coalesced.outbound, &done, quiet));
+        let start = Instant::now();
+        let mut writes = 0u32;
+        while start.elapsed() < length {
+            surface.inject_output_for_test(
+                format!(
+                    "\x1b[1;32m   Compiling\x1b[0m crate-{writes} v0.1.0 (/src/crate-{writes})\r\n"
+                )
+                .as_bytes(),
+            );
+            writes += 1;
+            let next = start + period * writes;
+            if let Some(wait) = next.checked_duration_since(Instant::now()) {
+                std::thread::sleep(wait);
+            }
         }
-    }
-    let seconds = start.elapsed().as_secs_f64();
-    let plain_outputs = plain.outputs_until_quiet(Duration::from_millis(500));
-    let coalesced_outputs = coalesced.outputs_until_quiet(Duration::from_millis(500));
+        let seconds = start.elapsed().as_secs_f64();
+        done.store(true, Ordering::Release);
+        (
+            writes,
+            seconds,
+            plain_reader.join().expect("plain reader"),
+            coalesced_reader.join().expect("coalesced reader"),
+        )
+    });
     assert!(!plain_outputs.is_empty() && !coalesced_outputs.is_empty());
     assert_eq!(
         joined(&coalesced_outputs),
