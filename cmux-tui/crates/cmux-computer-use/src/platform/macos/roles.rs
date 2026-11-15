@@ -401,7 +401,7 @@ pub fn text_chunks(text: &str, n: usize) -> Vec<String> {
             0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF
             | 0xFE00..=0xFE0F | 0xFE20..=0xFE2F | 0x200D | 0x1F3FB..=0x1F3FF
             | 0xE0020..=0xE007F | 0xE0100..=0xE01EF)
-            || matches!(unicode_category_mark(c), true)
+            || unicode_category_mark(c)
     };
     let regional = |c: char| (0x1F1E6..=0x1F1FF).contains(&(c as u32));
     let chars: Vec<char> = text.chars().collect();
