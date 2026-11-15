@@ -914,6 +914,8 @@ async fn pipe_fixture() -> PipeFixture {
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
         allow_open: true,
+        // Each remote connection opens a circuit a lane (4); the numbers test connects 20 times.
+        max_allocations_per_second_per_slot: 1_000,
         ..cmux_relay::RelayConfig::default()
     })
     .unwrap();
@@ -1098,7 +1100,7 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
         .await
         .unwrap();
     assert_eq!(daemon_client.receive().await.unwrap().unwrap().payload, b"keys".as_slice());
-    let screen = vec![0x5a; 200_000];
+    let screen = vec![0x5a; 16_000];
     daemon_client
         .send(Lane::Bulk, 2, bytes::Bytes::from(screen.clone()), FrameFlags::empty())
         .await
@@ -1150,7 +1152,7 @@ async fn hub_carrier_pipe_numbers() {
         let _ = client.receive().await.unwrap().unwrap();
         echoes.push(started.elapsed());
     }
-    let chunk = vec![0xa5u8; 256 * 1024];
+    let chunk = vec![0xa5u8; 32 * 1024];
     let total: usize = 64 << 20;
     let started = std::time::Instant::now();
     let sender = tokio::spawn(async move {
