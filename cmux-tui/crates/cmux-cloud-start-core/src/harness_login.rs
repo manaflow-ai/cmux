@@ -283,12 +283,6 @@ pub struct Decision {
     /// A known login on an owned spare can be reused without another guest read.
     /// `Working` is deliberately excluded: it also represents an unreachable provider.
     pub warm_verified: bool,
-    /// The start chose to give the machine the person's Codex login (the Mac's broker) and it did
-    /// not arrive: the outcome is a failure. That machine's Codex has no sign-in of its own, so a
-    /// start that went on would only fail its first turn on "Missing environment variable:
-    /// `OPENAI_API_KEY`." (Leo's NIGHTLY, 2026-11-15). `cloud start-session` refuses instead, naming
-    /// the failure. Claude's failed copy keeps its own recovery (the chat's Sign in card, #26148).
-    pub undelivered: bool,
     /// One line for the log and the `cloud.machines` row; no token, path or provider output.
     pub summary: String,
 }
@@ -527,22 +521,9 @@ pub fn decide(d: &Inputs) -> Decision {
             && kind == Some("owner")
             && matches!(d.machine_login, Some(MachineLogin::Cached | MachineLogin::Session))
             && d.machine_probe.as_ref().is_none_or(|probe| probe.exit_code == 0),
-        undelivered: undelivered(d, step, reason),
         summary: summary(d, step, reason),
     }
 }
-
-/// [`Decision::undelivered`]: a Codex broker install whose recorded outcome is a failure (the app's
-/// `failed: <text>`), never one that was cancelled with its start.
-fn undelivered(d: &Inputs, step: Step, reason: Reason) -> bool {
-    d.provider == Some(Provider::Codex)
-        && step == Step::Install
-        && reason == Reason::CodexBroker
-        && d.outcome.as_deref().is_some_and(|o| o.starts_with(FAILED_OUTCOME))
-}
-
-/// The prefix of the outcome the app records for a login that threw (`CloudSpareWarm.loginFailed`).
-pub const FAILED_OUTCOME: &str = "failed: ";
 
 /// The provider whose login a start needs; `None` for a harness that has no
 /// transfer (pi, opencode). No harness named is the app's default agent,

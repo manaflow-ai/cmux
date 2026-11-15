@@ -796,29 +796,3 @@ fn a_start_that_keeps_the_machines_login_never_waits_on_a_warm_copy() {
         assert!(d.reads_machine && !d.warm_copy_conflict, "{login:?}");
     }
 }
-
-/// A Codex start whose broker delivery failed is undelivered (`cloud start-session` refuses it);
-/// one that installed, was cancelled, kept the machine's login, or is Claude's, is not.
-#[test]
-fn a_failed_codex_delivery_is_undelivered() {
-    let codex = Inputs {
-        provider: Some(Provider::Codex),
-        requested: Some(Choice::Pass),
-        requested_by_person: true,
-        ..owner()
-    };
-    let failed =
-        Inputs { outcome: Some("failed: x-cmux-team must name a team id".into()), ..codex.clone() };
-    let decision = decide(&failed);
-    assert_eq!((decision.step, decision.reason), (Step::Install, Reason::CodexBroker));
-    assert!(decision.undelivered);
-    assert_eq!(serde_json::to_value(&decision).unwrap()["undelivered"], true);
-    for outcome in [None, Some("installed"), Some("cancelled"), Some("already delivered")] {
-        let other = Inputs { outcome: outcome.map(str::to_owned), ..codex.clone() };
-        assert!(!decide(&other).undelivered, "{outcome:?}");
-    }
-    let claude = Inputs { outcome: Some("failed: no".into()), ..owner() };
-    assert!(!decide(&claude).undelivered);
-    let kept = Inputs { requested: Some(Choice::Machine), ..failed };
-    assert!(!decide(&kept).undelivered);
-}
