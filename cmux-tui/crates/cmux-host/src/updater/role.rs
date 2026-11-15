@@ -857,7 +857,7 @@ fn check_inner(
             short_hex(&plan.commit)
         ));
         inside.flip_restart_queued(wall_ms(), crate::linux::realtime_minus_boottime_ns());
-        restart_after_flip(&store_binary(&plan.old_cmux_tui));
+        restart_after_flip(paths, &store_binary(&plan.old_cmux_tui));
         Ok::<(), std::io::Error>(())
     });
     drop(commit);
@@ -960,7 +960,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         short_hex(&plan.cmux_tui.sha256),
         short_hex(&plan.commit)
     ));
-    restart_after_flip(&store_binary(&plan.old_cmux_tui));
+    restart_after_flip(paths, &store_binary(&plan.old_cmux_tui));
     drop(commit);
     Outcome::Updating(plan.commit)
 }
@@ -1609,7 +1609,7 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
             disarm_guard();
         }
         inside.restart_queued(wall_ms());
-        restart_after_flip(&store_binary(&pending.cmux_tui));
+        restart_after_flip(paths, &store_binary(&pending.cmux_tui));
     });
 }
 
@@ -1680,9 +1680,30 @@ pub(super) fn disarm_guard() {
 
 /// Restarts what runs `old` (the binary just replaced): the work user's
 /// acpmux, the other `cmux-*` system services, and last `cmux-host.service`.
-fn restart_after_flip(old: &Path) {
-    restart_others(old);
-    let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
+/// First it tells the Cloud the machine is stopping, within
+/// [`crate::cloud::role::STOPPING_REPORT_BOUND`] ([`report_then_restart`]).
+fn restart_after_flip(paths: &Paths, old: &Path) {
+    report_then_restart(
+        || crate::cloud::role::report_stopping(paths, crate::cloud::role::STOPPING_REPORT_BOUND),
+        || {
+            restart_others(old);
+            let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
+        },
+    );
+}
+
+/// A restart of the services after a flip: `report` (the bounded `stopping` report, so the Cloud
+/// clears the machine's ready and hands no spare out while its services restart), then `restart`
+/// whatever the report did. A failed report is logged, never fatal.
+pub(super) fn report_then_restart(
+    report: impl FnOnce() -> Result<(), String>,
+    restart: impl FnOnce(),
+) {
+    match report() {
+        Ok(()) => log("reported stopping to the Cloud before the restart"),
+        Err(e) => log(&format!("the stopping report before the restart: {e}")),
+    }
+    restart();
 }
 
 /// [`restart_after_flip`] but `cmux-host.service`: the work user's acpmux and the
