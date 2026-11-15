@@ -1337,7 +1337,8 @@ pub trait Store: Send + Sync {
     /// `scan_kinds`, visiting only the records whose head (`store/kind_heads.rs`) `keep` keeps,
     /// shown in order: a caller that wants one prompt's few records out of a chat's many says so,
     /// and a file store reads and parses no other once it knows the chat's heads. `keep` may
-    /// keep more than the caller needs (an unread head, a list of prompts), never fewer.
+    /// keep more than the caller needs (an unread head, a list of prompts), never fewer, and may
+    /// be shown a head more than once (a fork's join, a segment read again whole).
     fn scan_kinds_keyed(
         &self,
         id: &str,

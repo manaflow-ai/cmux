@@ -369,13 +369,9 @@ impl LocalStore {
         let mut heads = match held {
             Some(heads) => heads,
             None => {
-                // No copy yet: a scan of the segment makes one (on a system that names a birth
-                // time), whose heads are read below.
-                let mut copy = self.read_kind_index(id, index, &stamp);
-                if copy.is_none() {
-                    self.scan_segment(id, index, path, &scan, &mut |_| true)?;
-                    copy = self.read_kind_index(id, index, &stamp);
-                }
+                // No copy yet: the segment is scanned whole, which makes one (on a system that
+                // names a birth time); the next keyed scan reads its heads from it.
+                let copy = self.read_kind_index(id, index, &stamp);
                 let Some((lines, from, _)) = copy else {
                     return self.keyed_whole(id, index, path, &scan, keep, visit);
                 };
