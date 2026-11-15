@@ -179,8 +179,9 @@ enum Queue {
     Enqueued(String),
     /// Taken out of the queue: `absorbed` when the running turn took it (its attachment follows).
     Removed { text: String, absorbed: bool },
-    /// Taken into the running turn; `source` is the uuid it was sent with.
-    Absorbed { text: String, source: Option<String> },
+    /// Taken into the running turn; `source` is the uuid it was sent with, `human` whether the
+    /// person typed it (`origin.kind`; no origin reads as typed).
+    Absorbed { text: String, source: Option<String>, human: bool },
 }
 
 fn queue_line(record: &Value) -> Option<Queue> {
@@ -207,7 +208,9 @@ fn queue_line(record: &Value) -> Option<Queue> {
                 return None;
             }
             let source = a.get("source_uuid").and_then(Value::as_str).map(str::to_owned);
-            Some(Queue::Absorbed { text: text(a.get("prompt"))?, source })
+            let human =
+                a.pointer("/origin/kind").and_then(Value::as_str).is_none_or(|k| k == "human");
+            Some(Queue::Absorbed { text: text(a.get("prompt"))?, source, human })
         }
         _ => None,
     }
@@ -469,11 +472,11 @@ impl Hub {
             {
                 match queue {
                     Queue::Enqueued(text) => {
-                        // A prompt acpmux delivered shows by its own line, under its id: this
-                        // `enqueue` line is that delivery's, once (`claim_enqueued`).
-                        if let Some(uuid) = super::bridge::claim_enqueued(&session.id, &text) {
-                            claims.push(super::bridge::Claim::Enqueued(uuid));
-                        } else if watching.queued.len() < MAX_QUEUED {
+                        // It may be a chat send's own queue line: it shows when it runs, by its
+                        // attachment or its line, under the right id (`may_be_delivery`).
+                        if !super::bridge::may_be_delivery(&session.id, &text)
+                            && watching.queued.len() < MAX_QUEUED
+                        {
                             if let Some(turn) = open.take() {
                                 self.end_watched_turn(session, &turn, at);
                             }
@@ -485,13 +488,27 @@ impl Hub {
                     Queue::Removed { text, absorbed: false } => {
                         if let Some(i) = watching.queued.iter().position(|q| *q == text) {
                             watching.queued.remove(i);
+                            // The open turn is the newest queued prompt's: it never runs.
+                            if i == watching.queued.len()
+                                && let Some(turn) = open.take()
+                            {
+                                self.end_watched_turn(session, &turn, at);
+                            }
+                        } else {
+                            // A chat send's: its sender hears at once.
+                            super::bridge::taken_back(&session.id, &text);
                         }
                     }
                     Queue::Removed { absorbed: true, .. } => {}
-                    Queue::Absorbed { text, source } => {
+                    Queue::Absorbed { text, source, human } => {
                         let bridged = source
                             .as_deref()
-                            .and_then(|uuid| super::bridge::delivered(&session.id, uuid));
+                            .and_then(|uuid| super::bridge::delivered(&session.id, uuid))
+                            .or_else(|| {
+                                (!human)
+                                    .then(|| super::bridge::delivered_queued(&session.id, &text))
+                                    .flatten()
+                            });
                         let typed = bridged
                             .is_none()
                             .then(|| watching.queued.iter().position(|q| *q == text))
@@ -500,13 +517,11 @@ impl Hub {
                             // Shown when it was typed.
                             watching.queued.remove(i);
                         } else {
-                            let bridged = bridged
-                                .or_else(|| super::bridge::delivered_enqueued(&session.id, &text));
                             if let Some(turn) = open.take() {
                                 self.end_watched_turn(session, &turn, at);
                             }
-                            // A delivery under its id; else typed with no `enqueue` line read
-                            // (before the watch began, or past the cap): shown now.
+                            // A delivery under its id; else typed and not shown yet (its enqueue
+                            // was before the watch, past the cap, or may have been a delivery's).
                             let prompt = match bridged {
                                 Some((uuid, prompt_id, sent)) => {
                                     claims.push(super::bridge::Claim::Shown(uuid));
@@ -949,41 +964,81 @@ mod tests {
     }
 
     /// A terminal prompt whose text contains, or repeats, a pending chat delivery's still shows as
-    /// typed; the delivery shows once under its own id (review P1-F1, P2-F3).
+    /// typed, in either order of the two queue lines; the delivery shows once under its own id
+    /// (review P1-F1, P2-F3). A cancelled delivery ends at once, and its row never shows.
     #[tokio::test(flavor = "current_thread")]
     async fn terminal_prompts_overlapping_a_delivery_still_show() {
-        let (hub, session) = queue_hub("overlap").await;
-        super::super::bridge::test_delivery(&session.id, "p-test", "u-test", "test");
-        let enqueue = |t: &str| {
-            json!({"type": "queue-operation", "operation": "enqueue", "content": t}).to_string()
+        for typed_first in [false, true] {
+            let (hub, session) = queue_hub(&format!("overlap-{typed_first}")).await;
+            let delivery = format!("u-test-{typed_first}");
+            super::super::bridge::test_delivery(&session.id, "p-test", &delivery, "test");
+            let enqueue = |t: &str| {
+                json!({"type": "queue-operation", "operation": "enqueue", "content": t}).to_string()
+            };
+            let absorbed = |t: &str, source: &str, kind: &str| {
+                json!({"type": "attachment", "attachment": {"type": "queued_command", "prompt": t,
+                    "source_uuid": source, "commandMode": "prompt", "origin": {"kind": kind}}})
+                .to_string()
+            };
+            let typed = uuid::Uuid::now_v7().to_string();
+            // The delivery's queue line and the same text typed in the terminal, in either order.
+            let both = if typed_first {
+                [enqueue("test"), enqueue("test")]
+            } else {
+                [enqueue("test"), enqueue("test")]
+            };
+            let mut lines = vec![enqueue("please test the migration")];
+            lines.extend(both);
+            let (first, second) = if typed_first {
+                (absorbed("test", &typed, "human"), absorbed("test", &delivery, "peer"))
+            } else {
+                (absorbed("test", &delivery, "peer"), absorbed("test", &typed, "human"))
+            };
+            lines.push(absorbed("please test the migration", "x", "human"));
+            lines.push(first);
+            lines.push(second);
+            assert!(hub.show_watched(&session, &lines, 128).await);
+            let mut shown = prompts_of(&hub, &session);
+            shown.sort();
+            assert_eq!(
+                shown,
+                [
+                    ("please test the migration".to_owned(), "watch".to_owned()),
+                    ("test".to_owned(), "bridge".to_owned()),
+                    ("test".to_owned(), "watch".to_owned()),
+                ],
+                "typed first: {typed_first}"
+            );
+            hub.shutdown_all().await;
+        }
+    }
+
+    /// A queued prompt taken back in the terminal settles the turn shown for it, and a chat send
+    /// taken back ends with why instead of waiting half an hour (review P1-F2, P2-F2 of 94dffc97).
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_queued_prompt_taken_back_settles_and_a_taken_back_send_ends() {
+        let (hub, session) = queue_hub("taken-back").await;
+        let rx = {
+            super::super::bridge::test_delivery(&session.id, "p-back", "u-back", "from the chat");
+            super::super::bridge::delivery_turn(&session.id, "p-back").unwrap()
         };
-        let absorbed = |t: &str| {
-            json!({"type": "attachment", "attachment": {"type": "queued_command", "prompt": t,
-                "source_uuid": uuid::Uuid::now_v7().to_string(), "commandMode": "prompt"}})
-            .to_string()
+        let op = |op: &str, t: &str| {
+            json!({"type": "queue-operation", "operation": op, "content": t}).to_string()
         };
         let lines = vec![
-            // Typed in the terminal: contains the delivery's text.
-            enqueue("please test the migration"),
-            // The delivery's own queue line, then the same text typed in the terminal.
-            enqueue("test"),
-            enqueue("test"),
-            // At the tool boundary all three go into the running turn.
-            absorbed("please test the migration"),
-            absorbed("test"),
-            absorbed("test"),
+            op("enqueue", "typed then cancelled"),
+            op("remove", "typed then cancelled"),
+            op("enqueue", "from the chat"),
+            op("remove", "from the chat"),
         ];
         assert!(hub.show_watched(&session, &lines, 128).await);
-        let mut shown = prompts_of(&hub, &session);
-        shown.sort();
-        assert_eq!(
-            shown,
-            [
-                ("please test the migration".to_owned(), "watch".to_owned()),
-                ("test".to_owned(), "bridge".to_owned()),
-                ("test".to_owned(), "watch".to_owned()),
-            ]
+        assert!(
+            session.meta().watching.unwrap().open.is_none(),
+            "the cancelled prompt's turn is settled"
         );
+        assert!(matches!(&*rx.borrow(), Some(Err(why)) if why.contains("taken back")));
+        let shown: Vec<String> = prompts_of(&hub, &session).into_iter().map(|(t, _)| t).collect();
+        assert_eq!(shown, ["typed then cancelled"]);
         hub.shutdown_all().await;
     }
 

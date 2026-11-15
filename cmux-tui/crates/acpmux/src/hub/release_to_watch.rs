@@ -98,6 +98,8 @@ impl Hub {
                     session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching.as_mut()
                 {
                     w.terminal = Some(driver(pid, root));
+                    // A new terminal: what the last one had queued is not its own.
+                    w.queued.clear();
                 }
                 self.save_meta(session);
                 self.mark_terminal_driven(session, &family);
@@ -274,7 +276,7 @@ impl Hub {
                 let ours = || crate::adopt_live::pid_start_ms(pid) == driver.started;
                 match crate::daemon::owner_exit::wait_process_exit(pid, ours) {
                     Ok(()) => {
-                        runtime.spawn(async move { hub.terminal_ended(&session, pid).await });
+                        runtime.spawn(async move { hub.terminal_ended(&session, &driver).await });
                     }
                     Err(error) => {
                         tracing::debug!(pid, %error, "the terminal's exit is not followed")
@@ -286,15 +288,21 @@ impl Hub {
         }
     }
 
-    /// The terminal process `pid` a chat's watch was bound to is gone: the binding and its tags go,
-    /// so the chat is a watch as any other (read-only, Take Over). Under the watch's turn gate,
+    /// The terminal `gone` a chat's watch was bound to ended: the binding, what it had queued and
+    /// its tags go, so the chat is a watch as any other (read-only, Take Over). Only that very
+    /// binding (pid and start time) goes: a later terminal's stays. Under the watch's turn gate,
     /// since a watched batch writes its state back whole.
-    pub(super) async fn terminal_ended(&self, session: &Session, pid: u32) {
+    pub(super) async fn terminal_ended(
+        &self,
+        session: &Session,
+        gone: &crate::store::TerminalDriver,
+    ) {
         let _turn = session.turn_lock.lock().await;
         let cleared = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             match m.watching.as_mut() {
-                Some(w) if w.terminal.as_ref().is_some_and(|d| d.pid == pid) => {
+                Some(w) if w.terminal.as_ref() == Some(gone) => {
+                    w.queued.clear();
                     w.terminal = None;
                     true
                 }
