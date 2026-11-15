@@ -407,59 +407,6 @@ fn dir_size(dir: &Path) -> Option<u64> {
     Some(total)
 }
 
-/// The `data.reason` of a start whose agent answered `session/new` that it is not signed in.
-/// cmux-tui passes it on as `agent_session.sign_in_required`, so a client names the agent and
-/// offers its sign-in instead of a bare refusal (hq#11225). Never rename it.
-pub const SIGN_IN_REQUIRED: &str = "agent.sign_in_required";
-
-/// ACP's `auth_required` error code: an agent answers `session/new` with it when it has no
-/// usable sign-in (cursor-agent's "Authentication required").
-pub const ACP_AUTH_REQUIRED: i64 = -32000;
-
-/// Type `e`, the agent's own answer to `session/new` for `harness`, as a missing or expired
-/// sign-in when it is one: ACP's `auth_required`, a sign-in failure [`auth_kind`] knows, or an
-/// agent's own "API key missing" or "Authentication required". It gains `reason`
-/// [`SIGN_IN_REQUIRED`], `errorKind`, a `recovery` naming the harness's login, and
-/// `details.harness`. Only the agent's own answer is typed here: acpmux's own -32000 refusals
-/// never reach this. Returns whether it was typed.
-pub fn start_sign_in(e: &mut RpcError, harness: &str) -> bool {
-    let lower = e.message.to_ascii_lowercase();
-    let kind = match auth_kind(&e.message) {
-        Some(kind) => kind,
-        None if crate::hub::turn_errors::says_unreachable(&e.message) => return false,
-        None if e.code == ACP_AUTH_REQUIRED
-            || lower.contains("authentication required")
-            || lower.contains("api key missing")
-            || lower.contains("api key is missing")
-            || lower.contains("not authenticated") =>
-        {
-            kind::AUTH_SIGNED_OUT
-        }
-        None => return false,
-    };
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return false,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return false };
-            data
-        }
-    };
-    data.insert("reason".into(), json!(SIGN_IN_REQUIRED));
-    data.insert("errorKind".into(), json!(kind));
-    data.insert(
-        "recovery".into(),
-        json!(format!(
-            "{harness} is not signed in on this machine. Sign in with `cmux harness login \
-             {harness}` (or the harness's own login in a terminal on this machine), then start \
-             the chat again."
-        )),
-    );
-    data.insert("details".into(), json!({"harness": harness}));
-    true
-}
-
 /// A harness whose process could not start: `spawn.failed` naming the program and folder,
 /// when the cause is the OS refusing the start (a missing program or folder, a permission). Any
 /// other start error (a terminal harness, an empty command) stays as it was.
@@ -663,42 +610,6 @@ mod tests {
                 let recovery = e.data.as_ref().unwrap()["recovery"].as_str().unwrap().to_owned();
                 assert!(recovery.contains("cmux harness login"), "{recovery}");
             }
-        }
-    }
-
-    /// A start the agent refused for its sign-in (cursor-agent's ACP auth_required, gemini's
-    /// "API key missing", grok's "Authentication required") gains `agent.sign_in_required`
-    /// naming the harness; any other start error, or an outage that mentions a token, does not
-    /// (hq#11225).
-    #[test]
-    fn a_start_refused_for_its_sign_in_names_the_harness() {
-        for (code, message, harness) in [
-            (ACP_AUTH_REQUIRED, "Authentication required", "cursor"),
-            (-32603, "API key missing", "gemini"),
-            (-32603, "agent process closed (grok): Authentication required", "grok"),
-            (-32603, "Invalid API key · Please run /login", "claude"),
-        ] {
-            let mut e = RpcError::new(code, message);
-            assert!(start_sign_in(&mut e, harness), "{message}");
-            let data = e.data.unwrap();
-            assert_eq!(data["reason"], SIGN_IN_REQUIRED, "{message}");
-            assert_eq!(data["errorKind"], kind::AUTH_SIGNED_OUT, "{message}");
-            assert_eq!(data["details"]["harness"], harness);
-            let recovery = data["recovery"].as_str().unwrap();
-            assert!(recovery.contains(&format!("cmux harness login {harness}")), "{recovery}");
-            assert_eq!(e.message, message, "the agent's own words stay");
-        }
-        let mut expired = RpcError::new(-32603, "OAuth token has expired");
-        assert!(start_sign_in(&mut expired, "claude"));
-        assert_eq!(expired.data.unwrap()["errorKind"], kind::AUTH_EXPIRED);
-        for (code, message) in [
-            (-32603, "spawn harness process: No such file or directory"),
-            (-32603, "HTTP 503: authentication_failed"),
-            (-32602, "bad params"),
-        ] {
-            let mut e = RpcError::new(code, message);
-            assert!(!start_sign_in(&mut e, "cursor"), "{message}");
-            assert!(e.data.is_none(), "{message}");
         }
     }
 }
