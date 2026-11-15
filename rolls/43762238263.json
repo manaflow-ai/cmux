@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43762238263",
+  "recorded_at": "2026-11-15T21:14:48Z",
+  "reason": "cmux-tui d1673b77b47d changes the image's cmux-tui (pinned 6eb08678a946)",
+  "dry_run": false,
+  "cmux_tui": "d1673b77b47d36253f9e1ce9aaf13d4fd72d1dc0",
+  "fixes": [
+    {
+      "sha": "d1673b77b47d36253f9e1ce9aaf13d4fd72d1dc0",
+      "mergedAt": "2026-11-15T12:53:39-08:00",
+      "subject": "acpmux: a churn lab for one peer's session list, and a gauge of the lists waiting for the hub (#43848)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T21:14:48Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
