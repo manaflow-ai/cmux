@@ -13,7 +13,8 @@
 import { useContext, useEffect, useState } from "react";
 import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
-import { isTrustCause, retryHelps, sendCause } from "../sendFailure";
+import { isTrustCause, retryHelps, sendCause, startsNewChat } from "../sendFailure";
+import { Button } from "../../../ui/Button";
 import { copyText } from "./clipboard";
 import { Clock } from "./icons";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -76,6 +77,8 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const trust = isTrustCause(cause);
   const retryWaits = trust ? sends?.trustBlock : undefined;
   const fix = trust ? sends?.trustFolder : undefined;
+  // A chat this device may not send to: New chat is the one way out, drawn as the card's button.
+  const newChat = startsNewChat(cause) ? sends?.newChat : undefined;
   const act = (name: string) => void window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id, rowIds });
   const codes = [...new Set([delivery?.reason, delivery?.code].filter(Boolean))];
   const since = (ms: number | undefined) =>
@@ -91,12 +94,18 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
         {row.error ?? t("prompt.notSent", { reason: t("transport.refused") })}
       </div>
       <div className="cv-user__failure">
+        {newChat && (
+          <Button variant="solid" size="sm" className="cv-user__new-chat" onClick={newChat}>
+            {t("prompt.failure.newChatButton")}
+          </Button>
+        )}
         {fix && (
           <button type="button" className="cv-user__cancel cv-user__fix" onClick={fix}>
             {t("trust.trustFolder")}
           </button>
         )}
-        {/* A prompt too large to send is refused the same way again: Edit takes an attachment out. */}
+        {/* A prompt too large to send is refused the same way again: Edit takes an attachment out.
+            So is one to a chat this device may not send to: New chat is its way out. */}
         {retryHelps(cause) && (
           <button
             type="button"

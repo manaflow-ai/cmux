@@ -10,7 +10,7 @@ import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import type { AcpmuxRow, AcpmuxSnapshot, PromptDelivery } from "../model";
 import type { ComposerAttachment } from "../attachments";
-import { failedRuns, failedSendText } from "../sendFailure";
+import { failedRuns, failedSendText, retryHelps, sendCause } from "../sendFailure";
 import { messageMenuTarget } from "./messageMenu";
 import { DeliveryFailure } from "./PromptDelivery";
 import { FailedSendsContext, type FailedSends } from "./promptDeliveryModel";
@@ -205,4 +205,60 @@ test("a prompt too large to send names its largest attachment and offers Edit, n
   const snapshot = { rows: [row, other], connection: "connected" } as unknown as AcpmuxSnapshot;
   expect(messageMenuTarget(snapshot, "a")?.retryRowId).toBeUndefined();
   expect(messageMenuTarget(snapshot, "b")?.retryRowId).toBe("b");
+});
+
+/// A Claude chat its Mac started refuses a send from another account's device (acpmux D13,
+/// `remote.local_claude_session`, `action: new_chat`). Leo, 2026-11-14, of the sentence that refusal
+/// used to show: "wtf do i do these options dont do anything"; and then: "Where a refusal stays
+/// (another account), name the one action that works, as a button." The card says one sentence that
+/// names no step for another device, offers New chat as its button, and never Retry (refused the same
+/// way again).
+test("a send refused for a chat its Mac started offers New chat as its button, not Retry", async () => {
+  const refusal = {
+    code: -32000,
+    reason: "remote.local_claude_session",
+    action: "new_chat",
+    message:
+      "Only the cmux app on this Mac can control a Claude chat started on this Mac. From another device, start a new chat there. On this Mac itself, close and reopen the chat to reconnect.",
+  };
+  const sentence = failedSendText(refusal, false);
+  expect(sentence).toBe(translate("prompt.failure.newChat"));
+  expect(sentence).not.toContain("close and reopen");
+  expect(failedSendText(refusal, true)).toBe(sentence);
+  // acpmux's `action` alone names the way out; a delivery record keeps only the reason.
+  expect(sendCause({ action: "new_chat" })).toBe("new-chat");
+  expect(sendCause({ reason: "remote.local_claude_session" })).toBe("new-chat");
+  expect(retryHelps("new-chat")).toBe(false);
+
+  const row: AcpmuxRow = {
+    ...failed("a", "hello", { reason: "remote.local_claude_session", code: "-32000", error: refusal.message }),
+    error: sentence,
+  };
+  let started = 0;
+  const container = await render(transcript([row], { newChat: () => (started += 1) }));
+  const card = container.querySelector<HTMLElement>(".cv-user__status--failed")!;
+  expect(card.dataset.failureCause).toBe("new-chat");
+  expect(card.querySelector(".cv-user__failure-text")!.textContent).toBe(sentence);
+  const newChat = button(card, translate("prompt.failure.newChatButton"))!;
+  expect(newChat.textContent).toBe("New chat");
+  // The one action that works leads the card, as the design system's primary button.
+  expect(card.querySelector(".cv-user__failure button")).toBe(newChat);
+  expect(newChat.dataset.variant).toBe("solid");
+  expect(button(card, "Retry")).toBeUndefined();
+  expect(button(card, "Edit")).toBeDefined();
+  await act(async () => newChat.click());
+  expect(started).toBe(1);
+  // Nor Retry from the message's menu.
+  const snapshot = { rows: [row], connection: "connected" } as unknown as AcpmuxSnapshot;
+  expect(messageMenuTarget(snapshot, "a")?.retryRowId).toBeUndefined();
+});
+
+/// Another cause's card never draws New chat, even where the pane can start one.
+test("New chat shows only for the refusal it answers", async () => {
+  const container = await render(
+    transcript([failed("a", "deploy", { code: "timeout", error: "no answer" })], { newChat: () => undefined }),
+  );
+  const card = container.querySelector<HTMLElement>(".cv-user__status--failed")!;
+  expect(button(card, translate("prompt.failure.newChatButton"))).toBeUndefined();
+  expect(button(card, "Retry")).toBeDefined();
 });

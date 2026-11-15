@@ -950,7 +950,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
             openSession: { [weak self] sessionID, harness, title in
                 let chat = AgentChatListing(id: sessionID, title: title, harness: harness, cwd: "", status: "idle", updatedAt: nil, archived: false)
                 if let refusal = await self?.openAgentChat(chat) { self?.show(refusal) }
-            }
+            },
+            // A send this phone may not make (D13): New chat opens one of the same agent beside it.
+            newChat: { [weak self] in await self?.newChat(besides: id) }
         )
         surfaces[id] = surface
         return surface
@@ -1409,9 +1411,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     /// The Mac's New Tab of the Same Kind, to the Right, at Start and at End: a tab of this
-    /// tab's kind in its pane, at `position`; goes to it once the Mac lists it.
-    public func newTab(besides id: TabsKitTab.ID, at position: NewTabPosition) async {
-        guard let workspace, let creator, let tab = workspaceTab(id), pendingTabTitle == nil else { return }
+    /// tab's kind in its pane, at `position`; goes to it once the Mac lists it. Returns the new
+    /// tab (nil: none was made; the reason shows).
+    @discardableResult
+    public func newTab(besides id: TabsKitTab.ID, at position: NewTabPosition) async -> TabsKitTab.ID? {
+        guard let workspace, let creator, let tab = workspaceTab(id), pendingTabTitle == nil else { return nil }
         pendingTabTitle = position.title
         defer { pendingTabTitle = nil }
         do {
@@ -1424,6 +1428,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             if created.kind == .agent { surface(created.id).composerFocused = true }
             activate(created.id)
             openedTab = created.id
+            return created.id
         } catch let error as WorkspaceCreationError where error.isForPerson {
             show(named(error.message))
             CmuxMobileTheme.standard.haptics.error()
@@ -1431,6 +1436,25 @@ public final class WorkspaceTabsSource: TabsDataSource {
             show(TabNotice(action: .open(optionTitle: position.title), macName: macName, reason: Self.message(error)))
             CmuxMobileTheme.standard.haptics.error()
         }
+        return nil
+    }
+
+    /// New chat on a send this phone may not make (``AgentChatStore/newChatNotice``): a chat of
+    /// the same agent opens beside it, as New Tab to the Right, and the words the refused send put
+    /// back in this chat's composer move to the new chat's, so Send there sends them.
+    func newChat(besides id: TabsKitTab.ID) async {
+        guard let created = await newTab(besides: id, at: .afterCurrent), created != id else { return }
+        let old = surface(id)
+        let new = surface(created)
+        if new.text.isEmpty, !old.text.isEmpty {
+            new.text = old.text
+            old.text = ""
+        }
+        if !old.attachments.isEmpty {
+            new.attachments += old.attachments
+            old.attachments = []
+        }
+        if let workspace { sessions.existingStore(id: id, macID: workspace.macID)?.clientError = nil }
     }
 
     /// The Mac's Clear Tab Name: the tab's own title comes back once the Mac lists it.

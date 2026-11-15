@@ -1510,6 +1510,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let error = error as? AcpmuxConnection.RPCError {
             // The chat clears this notice by its exact text when full access turns on.
             if error.reason == "remote.full_access_required" { return AgentChatStore.fullAccessOffNotice }
+            // A chat this phone may not send to, where a new chat works (D13): the composer draws
+            // this notice with New chat, never acpmux's words, which name steps for other devices.
+            if error.action == "new_chat" || error.reason == "remote.local_claude_session" {
+                return AgentChatStore.newChatNotice
+            }
             // An agent's own refusal ("model unavailable") says what is wrong in the chat;
             // a dump (a type name, JSON) or an empty message falls through to the type's copy.
             let raw = error.message.trimmingCharacters(in: .whitespacesAndNewlines)

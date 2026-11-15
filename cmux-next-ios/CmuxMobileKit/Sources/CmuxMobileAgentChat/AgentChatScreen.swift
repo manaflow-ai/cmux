@@ -719,7 +719,14 @@ public struct AgentChatBottomStack: View {
     public var body: some View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
-                if let error = store.clientError {
+                if let error = store.clientError, error == AgentChatStore.newChatNotice, let newChat = surface.tabActions?.newChat {
+                    // A send this phone may not make (D13): Send would be refused again, so the
+                    // notice names the one action that works, as a button (Leo, 2026-11-14).
+                    NewChatNotice(text: error, newChat: newChat) {
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                    }
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                } else if let error = store.clientError {
                     // One symbol, no Retry: the draft is back in the composer, so Send retries it.
                     Button {
                         withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }

@@ -19,13 +19,64 @@ public struct AgentChatTabActions {
     /// showing it, else a new one) that comes to the front: the who-else card's session chips. The
     /// tab owner says why when it can't. Nil: chips don't open.
     public var openSession: (@MainActor (_ sessionID: String, _ harness: String, _ title: String?) async -> Void)?
+    /// New chat: a chat of the same agent opens as a new tab beside this one, on the same Mac, in
+    /// the workspace's folder (the tab menu's New Tab to the Right), and comes to the front with
+    /// the composer's words. The way out of ``AgentChatStore/newChatNotice``. Nil: not offered.
+    public var newChat: (@MainActor () async -> Void)?
 
     public init(fork: @escaping @MainActor () async -> Void,
                 editAndResend: @escaping @MainActor (_ throughSeq: Int, _ prompt: String) async -> Bool,
-                openSession: (@MainActor (_ sessionID: String, _ harness: String, _ title: String?) async -> Void)? = nil) {
+                openSession: (@MainActor (_ sessionID: String, _ harness: String, _ title: String?) async -> Void)? = nil,
+                newChat: (@MainActor () async -> Void)? = nil) {
         self.fork = fork
         self.editAndResend = editAndResend
         self.openSession = openSession
+        self.newChat = newChat
+    }
+}
+
+/// Over the composer, for a send this phone may not make (``AgentChatStore/newChatNotice``): the
+/// sentence, and New chat as its button, the one action that works (Leo, 2026-11-14: "Where a
+/// refusal stays (another account), name the one action that works, as a button."). The
+/// sentence dismisses it, as the plain notice's does.
+struct NewChatNotice: View {
+    let text: String
+    let newChat: @MainActor () async -> Void
+    let dismiss: () -> Void
+    @State private var starting = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: dismiss) {
+                Label(text, systemImage: "exclamationmark.circle")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Dismiss")
+            Button {
+                guard !starting else { return }
+                starting = true
+                Task { @MainActor in
+                    await newChat()
+                    starting = false
+                }
+            } label: {
+                Label(String(localized: "mobile.agentChat.newChat", defaultValue: "New chat", bundle: .module),
+                      systemImage: "square.and.pencil")
+                    .font(.footnote.weight(.semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.small)
+            .disabled(starting)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 12)
     }
 }
 

@@ -3280,6 +3280,34 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="too-large"]'));
       },
     },
+    "failed-send-new-chat": {
+      note: "A Claude chat its Mac started, sent to from another account's device (acpmux D13, remote.local_claude_session): one sentence and New chat, the one action that works, as the card's button; no Retry, which is refused the same way (Leo, 2026-11-14: \"name the one action that works, as a button\").",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("hello", 1, {
+          failed: true,
+          error:
+            "Not sent: only the Mac that started this Claude chat can send to it. Start a new chat to send from here.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 220,
+            hop: "acpmux",
+            code: "-32000",
+            reason: "remote.local_claude_session",
+            error:
+              "Only the cmux app on this Mac can control a Claude chat started on this Mac. From another device, start a new chat there. On this Mac itself, close and reopen the chat to reconnect.",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="new-chat"] .cv-user__new-chat'));
+      },
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
