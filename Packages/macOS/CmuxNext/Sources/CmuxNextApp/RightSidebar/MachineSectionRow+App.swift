@@ -28,7 +28,7 @@ extension MachineSectionRow {
                                      kind: kind(daemon.machineID, isLocal: daemon.isLocal, in: machines), isConnecting: connecting,
                                      serverState: cloud.flatMap { .cloud($0.machine.status, stagePaused: $0.stage.isPaused, stageFailed: $0.stage.failure != nil) },
                                      health: report?.health, healthStep: report?.worstStep?.step,
-                                     joined: daemon.isLocal ? nil : byPeer[daemon.machineID])
+                                     joined: daemon.isLocal ? nil : byPeer[daemon.machineID], symbol: daemon.store.identity?.machineSymbol)
         }
         let known = Set(machines.daemons.filter { !$0.isLocal }.map(\.machineID))
         let mesh = all.filter { $0.meshPeerId.map { !known.contains($0) } ?? true }
