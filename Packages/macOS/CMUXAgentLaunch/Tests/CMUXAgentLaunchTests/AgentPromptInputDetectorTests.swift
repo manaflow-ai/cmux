@@ -164,6 +164,18 @@ struct AgentPromptInputDetectorTests {
         #expect(AgentPromptInputState(screenRows: screen, promptStyles: []) == .unknown)
     }
 
+    @Test("A hint above another agent's prompt-glyph rows is not a dialog")
+    func otherAgentTranscriptHintIgnored() {
+        let screen = [
+            [span("\u{25CF} Run the installer, then press enter to confirm the defaults.")],
+            [span("\u{276F}\u{00A0}npm test")],
+            [span("  12 passing")],
+            [],
+            [span("\u{2503}"), span(" ", at: 1)],
+        ]
+        #expect(AgentPromptInputState(screenRows: screen, promptStyles: []) == .unknown)
+    }
+
     @Test("Each prompt glyph is read only for its own agent")
     func glyphsMatchTheirAgent() {
         let claude = claudeScreen(input: [[span("\u{276F}\u{00A0}half typed"), span(" ", at: 12)]])
