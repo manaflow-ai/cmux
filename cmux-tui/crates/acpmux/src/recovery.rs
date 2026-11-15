@@ -713,6 +713,41 @@ mod tests {
         }
     }
 
+    /// grok 1.0.77, signed out on a fresh Cloud machine, answers `session/new` with -32000
+    /// "Authentication required" and the string data "no auth method id provided" (its own
+    /// words, run by hand against `grok agent stdio`). A start typed only object data, so grok's
+    /// start reached the app as a bare `agent_session.refused` (cloud harness matrix,
+    /// grok-app-start). The sign-in is typed, and the agent's data stays under `agentData`.
+    #[test]
+    fn a_signed_out_start_with_string_data_names_the_harness() {
+        let mut e = RpcError::new(ACP_AUTH_REQUIRED, "Authentication required");
+        e.data = Some(json!("no auth method id provided"));
+        assert!(start_sign_in(&mut e, "grok"));
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], SIGN_IN_REQUIRED);
+        assert_eq!(data["details"]["harness"], "grok");
+        assert_eq!(data["agentData"], "no auth method id provided");
+
+        // The same class in the other typers: a turn error or a peer's full disk with an agent's
+        // string data is still typed, and an untyped one keeps the agent's data as it was.
+        let mut full = RpcError::new(-32603, "No space left on device (os error 28)");
+        full.data = Some(json!("write failed"));
+        annotate_peer(&mut full, "box");
+        let data = full.data.unwrap();
+        assert_eq!(data["errorKind"], kind::DISK_FULL);
+        assert_eq!(data["agentData"], "write failed");
+
+        let mut full = RpcError::new(-32603, "No space left on device (os error 28)");
+        full.data = Some(json!(["write failed"]));
+        annotate(&mut full, None);
+        assert_eq!(full.data.unwrap()["errorKind"], kind::DISK_FULL);
+
+        let mut other = RpcError::new(-32602, "bad params");
+        other.data = Some(json!("the agent's own"));
+        annotate(&mut other, None);
+        assert_eq!(other.data, Some(json!("the agent's own")));
+    }
+
     /// The gateway's 401 for a Gemini or Grok call with no team or owner key says
     /// `agent.sign_in_required`: a turn or start that fails on it is a sign-in, typed
     /// `auth.signed_out`, and a start's refusal names the harness (hq#11225).
