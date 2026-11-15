@@ -882,3 +882,16 @@ fn once_loads_the_web_pane_example() {
     assert!(outcome.line().contains("1 web pane reloads in place"), "{}", outcome.line());
     assert!(!fake.cmds().contains(&"apps-mount".to_string()));
 }
+
+/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+#[test]
+fn a_new_tab_page_is_placed_where_the_person_picks_it() {
+    let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
+    let placed = dev::placements(&manifest, true);
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0]["interface"], "cmux.newtab/1");
+    assert!(
+        placed[0]["where"].as_str().is_some_and(|w| w.contains("tabs.newTabApp")),
+        "{placed:?}"
+    );
+}

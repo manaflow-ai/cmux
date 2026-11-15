@@ -29,6 +29,7 @@ mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
+mod cua_recovery;
 mod customize_tools;
 mod keybinding_tools;
 mod live_code_tools;
@@ -568,6 +569,11 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         .into_iter()
         .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
         .collect();
+    // An idle chat's other servers end (`upstream::IDLE_STOP`) while the harness keeps this one.
+    let idle = server.upstreams.iter().map(|p| std::sync::Arc::downgrade(&p.inner)).collect();
+    if let Err(error) = upstream::stop_idle(idle, upstream::IDLE_STOP) {
+        eprintln!("cmux mcp: idle servers keep running: no thread: {error}");
+    }
     server.run(io::stdin().lock(), &output)
 }
 

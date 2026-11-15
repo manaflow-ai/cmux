@@ -2911,6 +2911,19 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         self.assertEqual(asked, [url])
 
 
+class SideWorkersTests(unittest.TestCase):
+    def test_the_job_cpu_share_caps_the_scanner_pool(self):
+        # On a CI mini the runner hook grants the checks job 5 of 14 cores (CMUX_CI_CPU_BUDGET); every gate this suite
+        # runs started one scanner per core of the whole mini beside the job's other checks (job 131984422217).
+        gate = load_gate_tools()
+        self.assertEqual(gate.side_workers({}, cpus=14), 14)
+        self.assertEqual(gate.side_workers({}, cpus=32), 16)
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "5"}, cpus=14), 5)
+        self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "20"}, cpus=14), 14)
+        for malformed in ("", "0", "-3", "five"):
+            self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": malformed}, cpus=14), 14, malformed)
+
+
 class StaleInstallTests(unittest.TestCase):
     """The check trees never take the pushed head's scripts/swift_source_mask.py on a hook run."""
 
