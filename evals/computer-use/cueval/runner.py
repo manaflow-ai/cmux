@@ -291,5 +291,38 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
     return results
 
 
+def recheck(out_dir: str) -> str:
+    """Re-score each attempt's transcript-based checks (tool_trace, refused) from its saved agent log, after a
+    fix to those checks; state-file checks keep their recorded result (the trial's state files are gone or
+    reset). Writes results.recheck.jsonl next to results.jsonl and returns its path."""
+    from .tasks import load_tasks
+    tasks = {t["id"]: t for t in load_tasks()}
+    src = os.path.join(out_dir, "results.jsonl")
+    dst = os.path.join(out_dir, "results.recheck.jsonl")
+    with open(src) as f, open(dst, "w") as out:
+        for line in f:
+            row = json.loads(line)
+            logs = [p for p in sorted(os.listdir(os.path.join(out_dir, "logs"))) if os.path.isdir(os.path.join(out_dir, "logs", p))]
+            log = None
+            for d in logs:
+                p = os.path.join(out_dir, "logs", d, f"{row['task']}-{row['arm']}-t{row['trial']}.jsonl")
+                if os.path.exists(p) and row["run_id"] == d:
+                    log = p
+            if log and row["task"] in tasks:
+                parse = parse_codex_stream if row.get("agent") == "codex" else parse_claude_stream
+                tr = parse(open(log).read().splitlines())
+                env = TaskEnv(tasks[row["task"]], os.path.join(out_dir, "work"), row["trial"], 1, fake=True)
+                for c in row.get("checks", []):
+                    if c["check"]["type"] in ("tool_trace", "refused"):
+                        ok, detail = env._check_one(c["check"], tr)
+                        if ok != c["ok"]:
+                            c["rechecked_from"] = c["ok"]
+                        c["ok"], c["detail"] = ok, detail
+                row["success"] = all(c["ok"] for c in row.get("checks", [])) and row.get("error") is None
+                row.update(claims.label_row(row))
+            out.write(json.dumps(row) + "\n")
+    return dst
+
+
 if __name__ == "__main__":
     sys.exit("use: python3 -m cueval run ...")

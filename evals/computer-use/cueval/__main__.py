@@ -46,6 +46,8 @@ def main(argv=None) -> int:
 
     rp = sub.add_parser("report", help="render out/report.html")
     rp.add_argument("--out", default="out")
+    rc = sub.add_parser("recheck", help="re-score transcript checks from saved agent logs (results.recheck.jsonl)")
+    rc.add_argument("--out", default="out")
 
     a = p.parse_args(argv)
     if a.cmd == "selftest":
@@ -62,6 +64,9 @@ def main(argv=None) -> int:
         return 0
     if a.cmd == "report":
         print(f"report: {report.render(a.out)}")
+        return 0
+    if a.cmd == "recheck":
+        print(f"rechecked: {runner.recheck(a.out)}")
         return 0
     arms = a.arms.split(",")
     ids = a.tasks.split(",") if a.tasks else None

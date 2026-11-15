@@ -25,7 +25,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TASK_DIR = os.path.join(ROOT, "tasks")
 
 ACTING_TOOLS = {"click", "type_text", "press_key", "hotkey", "scroll", "drag", "set_value",
-                "perform_action", "invoke_menu", "move_cursor", "launch_app", "set_window_frame"}
+                "perform_action", "invoke_menu", "move_cursor", "launch_app", "set_window_frame",
+                "batch", "run_steps", "repl"}  # batch (cmux), run_steps (cua-driver), repl (Aside) act too
 
 REFUSAL_RE = re.compile(
     r"(can(?:no|')t|unable to|not (?:able|allowed|permitted)|denied|refus|blocked|won't|will not|"
