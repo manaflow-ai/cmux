@@ -123,6 +123,19 @@ struct MacScreenStoreTests {
         #expect(store.hasSharedBefore)
     }
 
+    /// Viewing another Mac once ends the first-use guide too, and the mark is written and read back.
+    @Test func viewedBeforePersistsAndEndsTheFirstUseGuide() async throws {
+        let (store, file) = makeStore()
+        await store.load()
+        #expect(MacScreenHomeSnapshot.showsFirstUse(store: store, isSharing: false))
+        store.markViewedBefore()
+        #expect(store.hasUsedBefore && !MacScreenHomeSnapshot.showsFirstUse(store: store, isSharing: false))
+        await store.flush()
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hasViewedBefore && !reloaded.hasSharedBefore)
+    }
+
     /// A change made before the file is read never overwrites the file with the empty state: the names stay.
     @Test func aChangeBeforeLoadKeepsTheSavedNames() async throws {
         let (store, file) = makeStore()

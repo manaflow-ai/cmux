@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::code::{WebBase, WebTarget, read_object};
+use super::code::{CodeKind, WebBase, WebTarget, read_object};
 use super::overlay::{Overlay, now_ms};
 use super::text::one_line;
 use super::{Changed, Entry, web_top};
@@ -32,17 +32,22 @@ use crate::{Customize, Error};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ActiveLayer {
     pub name: String,
-    /// `pr` (an unmerged pull request's code), else what it sets:
-    /// `settings`, `files`, `settings+files`, or `empty`.
+    /// A code layer's kind (`pr`, `branch`, `sha`, `dir`, `fork`: code not in
+    /// your build), else what it sets: `settings`, `files`, `settings+files`,
+    /// or `empty`.
     pub kind: &'static str,
     /// The pull request a `pr` entry is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr: Option<u64>,
+    /// Where a code layer comes from, as a person says it: `#43496`, `branch
+    /// feat-x`, `commit dbb1e3e`, `folder /Users/me/cmux`, `fork me/cmux@main`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// Its head, short (7).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub head: Option<String>,
-    /// A `pr` entry's web layer is the one web-dev.json serves (`false`:
-    /// a higher PR's wins, or it has no web part).
+    /// A code entry's web layer is the one web-dev.json serves (`false`: a
+    /// higher code entry's wins, or it has no web part).
     pub web: bool,
     /// The entry's last note (a refresh's word, the reason it was turned off).
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -120,7 +125,7 @@ impl Customize {
         Layers { on, line, overlay, stray_overlay, problem, web_dev }
     }
 
-    /// Turns every pull request entry off and records `reason` (one line) as
+    /// Turns every code entry off and records `reason` (one line) as
     /// the note of each one that was on. What the app runs when a layer's
     /// pages fail to load: `cmux customize library off --code --reason TEXT`.
     pub fn library_off_code(
@@ -132,7 +137,7 @@ impl Customize {
         let reason = reason.map(one_line).filter(|reason| !reason.is_empty());
         let mut turned_off = Vec::new();
         let mut notes = Vec::new();
-        let label = "library: every pull request off";
+        let label = "library: every code layer off";
         let change = match self.library_change(label, origin, now_ms, |library| {
             for entry in library.entries.iter_mut() {
                 let Some(code) = entry.code.as_mut() else { continue };
@@ -208,7 +213,7 @@ impl Customize {
             }
             Err(error) => {
                 out.notes.push(format!(
-                    "every pull request is off, but the other entries are still on: {error}"
+                    "every code layer is off, but the other entries are still on: {error}"
                 ));
                 out.complete = false;
             }
@@ -217,7 +222,7 @@ impl Customize {
         Ok(out)
     }
 
-    /// The pull request entries off without the store: library.json read as
+    /// The code entries off without the store: library.json read as
     /// plain JSON, its code entries turned off in place and its web base
     /// written back to web-dev.json.
     fn force_code_off(
@@ -310,17 +315,18 @@ impl Customize {
 }
 
 fn active(entries: &[Entry]) -> Vec<ActiveLayer> {
-    let serving = web_top(entries).map(|code| code.pr);
+    let serving = web_top(entries);
     entries
         .iter()
         .filter(|entry| entry.on)
         .map(|entry| match &entry.code {
             Some(code) => ActiveLayer {
                 name: entry.name().to_owned(),
-                kind: "pr",
-                pr: Some(code.pr),
+                kind: code.kind.as_str(),
+                pr: (code.kind == CodeKind::Pr).then_some(code.pr),
+                source: Some(code.source_label()),
                 head: Some(code.head.chars().take(7).collect()),
-                web: code.has_web() && serving == Some(code.pr),
+                web: code.has_web() && serving.is_some_and(|top| top.same_source(code)),
                 note: code.note.clone(),
             },
             None => ActiveLayer {
@@ -332,6 +338,7 @@ fn active(entries: &[Entry]) -> Vec<ActiveLayer> {
                     (true, true) => "empty",
                 },
                 pr: None,
+                source: None,
                 head: None,
                 web: false,
                 note: String::new(),
@@ -350,7 +357,7 @@ pub fn summary_line(on: &[ActiveLayer], unreadable: bool, stray_overlay: bool) -
         let names: Vec<String> = on
             .iter()
             .map(|layer| match (&layer.head, layer.kind) {
-                (Some(head), "pr") => {
+                (Some(head), _) => {
                     format!(
                         "{} @{head} ({})",
                         layer.name,
