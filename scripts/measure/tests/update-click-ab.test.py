@@ -32,6 +32,13 @@ class UpdateClickAbTests(unittest.TestCase):
         self.assertEqual(m["v2_home_first_page"], 1300)
         self.assertEqual(m["click_to_home"], 4700)
 
+    def test_prewarm_total_is_the_closing_lines_ms_in_all(self):
+        result = timeline(3000, 1300)
+        result["prewarm_log"] = ["launch pre-warm of 200: started", "launch pre-warm of 200: cmux exit 0 900 ms",
+                                 "launch pre-warm of 200 (cmux.app): cmux exit 0 900 ms, cmux Helper exit 255 2100 ms; 2350 ms in all"]
+        self.assertEqual(uca.metrics(result)["prewarm_total"], 2350)
+        self.assertIsNone(uca.metrics(timeline(3000, 1300))["prewarm_total"], "a pre-warm the relaunch cut short has no total")
+
     def test_no_wait_and_no_home_page(self):
         m = uca.metrics(timeline(2000, None))
         self.assertEqual(m["prewarm_wait"], 0)

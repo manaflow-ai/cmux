@@ -11,8 +11,10 @@
 #     --artifact .build/update-click-ab/report.tgz --timeout 7200
 #   base=SHA, head=SHA  40-hex commits; head defaults to the checkout
 #   rounds=N            1 to 5 (default 3); click_delay=S  seconds from staged to the click (default 3)
+#   stress=K            K busy loops per core during each update (default 0), for a Mac as loaded as Leo's
 # Prints UCA <side> <round> {...} per update and UCA-MEDIAN <side> {...} (scripts/measure/update-click-ab.py), in ms:
-# click_to_relaunch (install_clicked to will_relaunch), click_to_v1_exit, prewarm_wait, v2_first_frame and
+# click_to_relaunch (install_clicked to will_relaunch), click_to_v1_exit, prewarm_wait, prewarm_total (the pre-warm's
+# own "N ms in all", when it ended before the relaunch), v2_first_frame and
 # v2_home_first_page (from v2's process start), click_to_home (install_clicked to v2's Home first page).
 set -uo pipefail
 
@@ -23,7 +25,7 @@ main() {
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # The harness and summary as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/"
-  local base="" head rounds=3 delay=3 arg rc=0 i side
+  local base="" head rounds=3 delay=3 stress=0 arg rc=0 i side
   head="$(git rev-parse HEAD)"
   local checkout="$head"
   for arg in "$@"; do
@@ -32,11 +34,13 @@ main() {
       head=*) head="${arg#head=}" ;;
       rounds=*) rounds="${arg#rounds=}" ;;
       click_delay=*) delay="${arg#click_delay=}" ;;
+      stress=*) stress="${arg#stress=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$rounds" =~ ^[1-5]$ ]] || { echo "rounds= must be 1 to 5" >&2; exit 2; }
   [[ "$delay" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "click_delay= takes seconds" >&2; exit 2; }
+  [[ "$stress" =~ ^[0-9]{1,2}$ ]] || { echo "stress= takes busy loops per core, 0 to 99" >&2; exit 2; }
   [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }
   echo "UCA host chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   for side in base head; do
@@ -49,10 +53,12 @@ main() {
   for ((i = 1; i <= rounds; i++)); do
     for side in base head; do
       echo "UCA-ROUND $i $side"
+      start_stress "$stress"
       GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$tools/update-harness/run.py" \
         --app "$out/$side/cmux DEV ucab.app" --tag ucab --out "$out/run-$side-$i" --click-at-stage --click-delay "$delay" \
         2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
       [[ ${PIPESTATUS[0]} == 0 ]] || rc=1
+      stop_stress
     done
   done
   python3 -I "$tools/update-click-ab.py" "$out"
@@ -60,6 +66,28 @@ main() {
   tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
 }
+
+# stress=K: K busy loops per core for the whole update (a Mac under a load like Leo's, about 150-200),
+# each ended by its own recorded pid.
+STRESS_PIDS=()
+start_stress() {
+  local per_core="$1" cores n
+  STRESS_PIDS=()
+  [[ "$per_core" -gt 0 ]] || return 0
+  cores="$(sysctl -n hw.ncpu)"
+  for ((n = 0; n < per_core * cores; n++)); do
+    yes >/dev/null &
+    STRESS_PIDS+=("$!")
+  done
+  echo "UCA stress $((per_core * cores)) busy loops on $cores cores"
+}
+stop_stress() {
+  local pid
+  for pid in ${STRESS_PIDS[@]+"${STRESS_PIDS[@]}"}; do kill "$pid" 2>/dev/null; done
+  for pid in ${STRESS_PIDS[@]+"${STRESS_PIDS[@]}"}; do wait "$pid" 2>/dev/null; done
+  STRESS_PIDS=()
+}
+trap stop_stress EXIT
 
 fetch_checkout() {
   local sha="$1" depth=()
