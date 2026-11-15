@@ -14,13 +14,26 @@ let takenPost: ChatRowsPost | undefined;
 
 type ChatRowsGlobal = { cmuxChatRows?: { receive(event: ChatRowsBatch): void } };
 
-/// Adds a host client to the document's receiver, installing it once: before the host's first
-/// `chat.rows.open`, so no batch comes with nothing to take it.
+/// Adds a host client to the document's receiver. The receiver itself is installed by
+/// `listenForChatRows`, before the host's first `chat.rows.open`.
 export function addChatRowsHost(host: ChatRowsHost, post: ChatRowsPost): void {
   hosts.add(host);
   takenPost = post;
+}
+
+/// Installs the document's receiver once, before a `chat.rows.open` is posted, so no batch comes with
+/// nothing to take it. A document that never opens a chat on the store has no receiver.
+export function listenForChatRows(): void {
   const scope = globalThis as ChatRowsGlobal;
   scope.cmuxChatRows ??= { receive: receiveChatRows };
+}
+
+/// Tests: the document's receiver taken away, as a new document starts.
+export function resetChatRowsReceiver(): void {
+  const scope = globalThis as ChatRowsGlobal;
+  if (scope.cmuxChatRows?.receive === receiveChatRows) delete scope.cmuxChatRows;
+  hosts.clear();
+  takenPost = undefined;
 }
 
 /// A pane client the page dropped: its host takes no more changes.

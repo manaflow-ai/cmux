@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
 import { HOLD_KINDS } from "./rows/holdKinds";
+import { resetChatRowsReceiver } from "./rows/receiver";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -160,5 +161,6 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
     expect(rows).not.toBe(kept);
   } finally {
     client.close?.();
+    resetChatRowsReceiver();
   }
 });

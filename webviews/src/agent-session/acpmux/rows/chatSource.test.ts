@@ -7,7 +7,7 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { ChatSource, HOLD_ATTACH_CAPABILITY, KEPT_WINDOWS, chatRowsState, resetChatRowsState } from "./chatSource";
 import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, OPEN_ANSWER_MS } from "./host";
-import { receiveChatRows } from "./receiver";
+import { receiveChatRows, resetChatRowsReceiver } from "./receiver";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
 const HOLDS: ReadonlySet<string> = new Set([HOLD_ATTACH_CAPABILITY]);
@@ -65,6 +65,7 @@ function source(answer?: (post: Post) => Promise<unknown> | undefined, prefix = 
 afterEach(() => {
   for (const rows of made.splice(0)) rows.dispose();
   resetChatRowsState();
+  resetChatRowsReceiver();
 });
 
 test("no open is asked of a daemon without the hold, and a host's off is remembered", async () => {
@@ -281,7 +282,8 @@ test("window.cmuxChatRows routes each change to its store and takes a batch once
   two.rows.dispose();
   expect(two.posts.at(-1)).toEqual({ method: "chat.rows.close", params: { sid: "two.1" } });
   receiver.receive({ batch: 8, changes: renamed(chat.get("ops")!, "two.1") });
-  expect(one.posts.filter((post) => post.method === "chat.rows.taken").map((post) => post.params.batch)).toEqual([8]);
+  const takenAfter = [...one.posts, ...two.posts].filter((post) => post.method === "chat.rows.taken");
+  expect(takenAfter.map((post) => post.params.batch)).toEqual([7, 8]);
 });
 
 test("a batch is taken after the last client left the receiver", async () => {

@@ -7,7 +7,7 @@
 // where v1's kept tail would be; the store's first window then replaces it in one step.
 import { type AdaptedChat, ChatAdapter, type ChatRowsContext } from "./adapter";
 import { CHAT_ROWS_OFF, ChatRowsHost, type ChatRowsPost } from "./host";
-import { addChatRowsHost, receiveChatRows, removeChatRowsHost } from "./receiver";
+import { addChatRowsHost, listenForChatRows, receiveChatRows, removeChatRowsHost } from "./receiver";
 import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 
 /// What this document knows of the host's switch: `off` once a host said it has no such operation
@@ -93,6 +93,7 @@ export class ChatSource {
     if (!this.asks(capabilities) || this.fallen.has(chat)) return this.toV1(chat);
     const ask = { chat };
     this.opening = ask;
+    listenForChatRows();
     const opened = await this.host.open(chat);
     if (this.opening !== ask) {
       if ("sid" in opened) this.host.close(opened.sid);
