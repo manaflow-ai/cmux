@@ -77,8 +77,7 @@ fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
 /// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
 /// field of the row is still compared. A listed field the dump already shows as this crate has
 /// it fails: the re-pin landed, so take it off.
-const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] =
-    &[("palette.toggleTerminalChat", &["/defaultShortcut"])];
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[];
 
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.
