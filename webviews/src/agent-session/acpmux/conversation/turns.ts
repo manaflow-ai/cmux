@@ -988,6 +988,60 @@ type ShapedTurn = {
 };
 const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
 
+/// The running turn's rows as last shaped, by id. A running turn changes with every record, so it is
+/// shaped again each time and never read from `shapedTurns`, and shaping builds its derived rows (a
+/// group of calls, the Worked for line, a run's fold) as new objects: every row of the running turn
+/// read as changed on every record. The transcript's layout then placed and measured the whole turn
+/// again from its first row (model.ts `layoutConversation` keeps rows by object; its height cache is
+/// keyed by object) and every mounted row of it rendered again, a cost that grew with the turn, which
+/// for a coordinator steered all day is most of the chat. A row shaped to the same fields as before
+/// is the object drawn before (`keepShapedRows`), so a record costs the rows it changed.
+const liveShapedRows = new WeakMap<AcpmuxRow, Map<string, AcpmuxRow>>();
+
+/// Whether two values hold the same things: the same value, or arrays or plain objects whose
+/// entries are, `depth` levels down. A shaped row's fields are its source rows' own objects or
+/// lists of them, so a few levels cover them without walking a tool's output.
+function sameShaped(a: unknown, b: unknown, depth: number): boolean {
+  if (Object.is(a, b)) return true;
+  if (depth === 0 || !a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let index = 0; index < a.length; index += 1) if (!sameShaped(a[index], b[index], depth - 1)) return false;
+    return true;
+  }
+  if (
+    Array.isArray(b) ||
+    Object.getPrototypeOf(a) !== Object.prototype ||
+    Object.getPrototypeOf(b) !== Object.prototype
+  )
+    return false;
+  const before = a as Record<string, unknown>;
+  const after = b as Record<string, unknown>;
+  const keys = Object.keys(after);
+  if (keys.length !== Object.keys(before).length) return false;
+  for (const key of keys) if (!(key in before) || !sameShaped(before[key], after[key], depth - 1)) return false;
+  return true;
+}
+
+/// `shaped` with each row that holds what the row of its id held when its turn was last shaped
+/// (`liveShapedRows`) replaced, in place, by that row. Kept for the next shape while the turn runs;
+/// the shape that ends it keeps the objects too, and lets the map go.
+export function keepShapedRows(user: AcpmuxRow, shaped: AcpmuxRow[], live: boolean): AcpmuxRow[] {
+  const before = liveShapedRows.get(user);
+  if (before)
+    for (let index = 0; index < shaped.length; index += 1) {
+      const row = shaped[index]!;
+      const old = before.get(row.id);
+      if (old && old !== row && sameShaped(old, row, 3)) shaped[index] = old;
+    }
+  if (live) {
+    const ids = new Map<string, AcpmuxRow>();
+    for (const row of shaped) ids.set(row.id, row);
+    liveShapedRows.set(user, ids);
+  } else if (before) liveShapedRows.delete(user);
+  return shaped;
+}
+
 /// A completed turn has one disclosure, keyed by its original prompt. Live rows do not read it,
 /// so a remembered open state never changes the transcript while the next turn is running. A
 /// history page can begin at a landed steer; accept that provisional key until the older prompt
@@ -1221,6 +1275,7 @@ function shapedTurn(
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
   }
+  keepShapedRows(user, shaped, live);
   if (!live)
     shapedTurns.set(user, {
       source,
