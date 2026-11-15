@@ -588,3 +588,27 @@ fn a_turn_the_chief_ends_after_send_is_active_and_replied() {
     let out = catalog::map(&end, &mut state, ts);
     assert!(out.iter().all(|e| e.name != "chief_daily_active"));
 }
+
+/// A failing compactor loop sends a sample per hour, not every failure.
+#[test]
+fn repeated_failures_are_capped_per_hour_with_a_count() {
+    let mut state = State::default();
+    let fail = json!({"ev": "node", "ok": false, "harness": "claude"});
+    let hour = 1_800_000_000_000 / 3_600_000 * 3_600_000;
+    let sent: usize = (0..500)
+        .map(|i| catalog::map(&fail, &mut state, hour + i).len())
+        .sum();
+    assert_eq!(sent, catalog::BURST_PER_HOUR as usize);
+    // Another reason has its own cap.
+    let cap = json!({"ev": "compactor.capacity", "route": "claude", "status": 429});
+    assert_eq!(catalog::map(&cap, &mut state, hour + 1).len(), 1);
+    // The next hour sends again and says how many were held back.
+    let next = catalog::map(&fail, &mut state, hour + 3_600_000);
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].properties["repeats_dropped"], json!(490));
+    // The cap is not saved: state.json does not change per failure.
+    assert_eq!(
+        serde_json::to_value(&state).unwrap(),
+        serde_json::to_value(State::default()).unwrap()
+    );
+}

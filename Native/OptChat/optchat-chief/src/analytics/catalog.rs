@@ -63,6 +63,56 @@ pub struct State {
     pub usage: Usage,
     /// Events dropped since the last `chief_analytics_dropped` (full queue).
     pub dropped: u64,
+    /// What only this host's run needs: never saved.
+    #[serde(skip)]
+    pub live: Live,
+}
+
+/// Per-run memory of `map`: the turn that posted a reply by tool, and the
+/// hourly caps on repeated failure events. Not saved, and equal to any
+/// other `Live`, so changing it never rewrites `state.json`.
+#[derive(Clone, Debug, Default)]
+pub struct Live {
+    /// The turn whose `send` or `reply` tool call succeeded last.
+    replied_turn: String,
+    /// `event:reason` -> (UTC hour, sent this hour, held back since sent).
+    bursts: std::collections::HashMap<String, (u64, u32, u64)>,
+}
+
+impl PartialEq for Live {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// At most this many `chief_compactor_failed` or `chief_error` events of one
+/// reason or kind per install and hour: a failing loop (25,075 compactor
+/// failures from 4 installs in a day, 2026-11-15) sends a sample, and the
+/// next one sent carries `repeats_dropped`, the count held back before it.
+pub const BURST_PER_HOUR: u32 = 10;
+
+fn capped(state: &mut State, mut e: Event, now_ms: u64) -> Option<Event> {
+    let reason = ["reason", "kind"]
+        .iter()
+        .find_map(|k| e.properties.get(*k).and_then(Value::as_str))
+        .unwrap_or("");
+    let key = format!("{}:{reason}", e.name);
+    let hour = now_ms / 3_600_000;
+    let slot = state.live.bursts.entry(key).or_insert((hour, 0, 0));
+    if slot.0 != hour {
+        slot.0 = hour;
+        slot.1 = 0;
+    }
+    if slot.1 >= BURST_PER_HOUR {
+        slot.2 += 1;
+        return None;
+    }
+    slot.1 += 1;
+    if slot.2 > 0 {
+        e.properties.insert("repeats_dropped".into(), json!(slot.2));
+        slot.2 = 0;
+    }
+    Some(e)
 }
 
 /// One day's billable units, by kind (from the usage ledger's lines).
@@ -205,7 +255,11 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
                 .get("error")
                 .filter(|e| !e.is_null())
                 .map(|e| error_class(e.get("prefix").and_then(Value::as_str).unwrap_or("")));
-            let replied = trace.get("reply").is_some_and(|r| !r.is_null());
+            // The Chief answers by its `send` tool and then ends the turn
+            // itself (`stopped`): that is a replied, finished turn.
+            let replied = trace.get("reply").is_some_and(|r| !r.is_null())
+                || (!state.live.replied_turn.is_empty()
+                    && trace.get("turn").and_then(Value::as_str) == Some(state.live.replied_turn.as_str()));
             out.push(event(
                 "chief_turn_completed",
                 json!({
@@ -235,7 +289,7 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
                     "harness_refused": bool_of(trace, "harness_refused"),
                 }),
             ));
-            if status == "ok" {
+            if status == "ok" || (status == "stopped" && replied) {
                 let day = utc_day(now_ms);
                 if state.active_day != day {
                     state.active_day = day;
@@ -252,6 +306,9 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
         }
         "tool" if trace.get("turn").is_some() => {
             let name = tool(str_of(trace, "name"));
+            if matches!(name, "send" | "reply") && trace.get("ok") != Some(&Value::Bool(false)) {
+                state.live.replied_turn = str_of(trace, "turn").unwrap_or("").to_owned();
+            }
             let day = utc_day(now_ms);
             if state.tools_day != day {
                 state.tools_day = day;
@@ -355,7 +412,12 @@ pub fn map(trace: &Value, state: &mut State, now_ms: u64) -> Vec<Event> {
         }
         _ => {}
     }
-    out
+    out.into_iter()
+        .filter_map(|e| match e.name {
+            "chief_compactor_failed" | "chief_error" => capped(state, e, now_ms),
+            _ => Some(e),
+        })
+        .collect()
 }
 
 fn error_event(kind: &str, trace: &Value) -> Event {
