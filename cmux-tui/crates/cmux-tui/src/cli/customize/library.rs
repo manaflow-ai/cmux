@@ -5,7 +5,7 @@
 use std::io::{Read, Write};
 
 use base64::Engine;
-use cmux_customize::library::{Changed, Collection, Listing, Position};
+use cmux_customize::library::{Changed, Collection, Listing, Position, Recovered};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 
@@ -24,7 +24,19 @@ pub(in crate::cli) enum Request {
     },
     Off {
         name: String,
+        /// One line kept as a pull request entry's note.
+        reason: Option<String>,
     },
+    /// Every pull request entry off, `reason` the note of each one that was
+    /// on: what the app runs when a layer's pages fail to load.
+    OffCode {
+        reason: Option<String>,
+    },
+    /// Every entry off, back to what was there before any layer (`off --all`,
+    /// `reset`).
+    OffAll,
+    /// The entries that are on, in the one line a bug report carries.
+    Status,
     Order {
         name: String,
         position: Position,
@@ -46,7 +58,7 @@ pub(in crate::cli) enum Request {
     Refresh,
 }
 
-const USAGE: &str = "customize library takes list, refresh, on NAME, off NAME, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
+const USAGE: &str = "customize library takes list, status, refresh, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
 
 /// Parses the words after `library`.
 pub(super) fn parse(words: &[String]) -> Result<Request, String> {
@@ -58,8 +70,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
     match verb.as_str() {
         "list" | "ls" if rest.is_empty() => Ok(Request::List),
         "refresh" if rest.is_empty() => Ok(Request::Refresh),
+        "status" if rest.is_empty() => Ok(Request::Status),
+        "reset" if rest.is_empty() => Ok(Request::OffAll),
         "on" | "enable" => Ok(Request::On { name: name(rest, "on")? }),
-        "off" | "disable" => Ok(Request::Off { name: name(rest, "off")? }),
+        "off" | "disable" => parse_off(rest),
         "remove" | "rm" => Ok(Request::Remove { name: name(rest, "remove")? }),
         "order" | "move" => {
             match rest {
@@ -110,6 +124,37 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
     }
 }
 
+/// `off NAME [--reason TEXT]`, `off --code [--reason TEXT]`, `off --all`.
+fn parse_off(rest: &[String]) -> Result<Request, String> {
+    const OFF_USAGE: &str =
+        "customize library off takes NAME [--reason TEXT], --code [--reason TEXT] or --all";
+    let (mut name, mut all, mut code, mut reason) = (None, false, false, None);
+    let mut iter = rest.iter();
+    while let Some(word) = iter.next() {
+        match word.as_str() {
+            "--all" => all = true,
+            "--code" => code = true,
+            "--reason" => {
+                reason = Some(iter.next().cloned().ok_or("--reason needs one line of text")?);
+            }
+            flag if flag.starts_with("--reason=") => {
+                reason = flag.strip_prefix("--reason=").map(str::to_owned);
+            }
+            flag if flag.starts_with('-') => {
+                return Err(format!("customize library off does not take {flag:?}; {OFF_USAGE}"));
+            }
+            _ if name.is_none() => name = Some(word.clone()),
+            _ => return Err(OFF_USAGE.to_owned()),
+        }
+    }
+    match (name, all, code) {
+        (Some(name), false, false) => Ok(Request::Off { name, reason }),
+        (None, false, true) => Ok(Request::OffCode { reason }),
+        (None, true, false) if reason.is_none() => Ok(Request::OffAll),
+        _ => Err(OFF_USAGE.to_owned()),
+    }
+}
+
 /// One library verb.
 pub(super) fn execute(
     customize: &Customize,
@@ -125,7 +170,49 @@ pub(super) fn execute(
         }
         Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
         Request::On { name } => changed(customize.library_set_on(&name, true, origin, now_ms)?),
-        Request::Off { name } => changed(customize.library_set_on(&name, false, origin, now_ms)?),
+        Request::Off { name, reason: Some(reason) }
+            if customize
+                .library()?
+                .entries
+                .iter()
+                .any(|entry| entry.name == name && entry.code.is_some()) =>
+        {
+            changed(customize.library_settle_code(&name, &reason, Some(false), origin, now_ms)?)
+        }
+        Request::Off { name, .. } => {
+            changed(customize.library_set_on(&name, false, origin, now_ms)?)
+        }
+        Request::OffCode { reason } => {
+            recovered(customize.library_off_code(reason.as_deref(), origin, now_ms)?)
+        }
+        Request::OffAll => recovered(customize.library_off_all(origin, now_ms)?),
+        Request::Status => {
+            let layers = customize.layers();
+            let mut human = format!("{}\n", layers.line);
+            for layer in &layers.on {
+                human.push_str(&format!("  {} ({})", layer.name, layer.kind));
+                if let (Some(pr), Some(head)) = (layer.pr, &layer.head) {
+                    human.push_str(&format!(
+                        " #{pr} @{head}{}",
+                        if layer.web { ", serving web" } else { "" }
+                    ));
+                }
+                if !layer.note.is_empty() {
+                    human.push_str(&format!(": {}", layer.note));
+                }
+                human.push('\n');
+            }
+            if let Some(overlay) = &layers.overlay {
+                human.push_str(&format!("  web-dev.json overlay: {overlay}\n"));
+            }
+            if layers.problem.is_some() || layers.stray_overlay || !layers.on.is_empty() {
+                human.push_str("  cmux customize library off --code   every pull request off\n");
+                human.push_str(
+                    "  cmux customize library reset        everything back to before any layer\n",
+                );
+            }
+            Answer::Library { json: json!({ "layers": layers }), human }
+        }
         Request::Order { name, position } => {
             changed(customize.library_order(&name, position, origin, now_ms)?)
         }
@@ -173,6 +260,27 @@ fn changed(change: Changed) -> Answer {
     let mut human = change_lines(&change);
     human.push_str(&list_lines(&change.library));
     Answer::Library { json: json!(change), human }
+}
+
+fn recovered(recovered: Recovered) -> Answer {
+    let mut human = String::new();
+    if recovered.turned_off.is_empty() {
+        human.push_str("nothing was on to turn off\n");
+    } else {
+        human.push_str(&format!("turned off: {}\n", recovered.turned_off.join(", ")));
+    }
+    for note in &recovered.notes {
+        human.push_str(&format!("  {note}\n"));
+    }
+    match &recovered.overlay {
+        Some(overlay) => human.push_str(&format!("web-dev.json overlay: {overlay}\n")),
+        None => human.push_str("web-dev.json has no overlay: cmux serves its own pages\n"),
+    }
+    if let Some(change) = &recovered.change {
+        human.push_str(&change_lines(change));
+    }
+    let complete = recovered.complete;
+    Answer::Recovery { json: json!(recovered), human, complete }
 }
 
 fn change_lines(change: &Changed) -> String {
@@ -246,6 +354,9 @@ fn list_lines(listing: &Listing) -> String {
     }
     out.push_str("  cmux customize library on|off NAME        turn one on or off\n");
     out.push_str("  cmux customize library order NAME top|N   move it (higher wins)\n");
+    out.push_str(
+        "  cmux customize library reset              all off: back to before any of them\n",
+    );
     out.push_str(
         "  cmux customize library export FILE        share them as one file (--link: as a link)\n",
     );
