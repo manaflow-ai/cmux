@@ -1,7 +1,6 @@
 #if DEBUG
 import CmuxNextDesign
 import Observation
-import SwiftUI
 
 /// DEBUG ONLY: the playground's state. Changing the style, server or phase rebuilds the flow from
 /// the start and walks it to the phase.

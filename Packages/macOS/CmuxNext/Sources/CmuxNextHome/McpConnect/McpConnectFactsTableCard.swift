@@ -1,47 +1,27 @@
-import SwiftUI
+import AppKit
 
 /// Styles 2 and 6: title and badge, the agent's reason, the facts table, the scope, the controls.
 /// `riskFirst` (style 6) puts the risk lines above the title.
-struct McpConnectFactsTableCard: View {
-    let flow: McpConnectCardFlow
-    let colors: McpConnectCardColors
-    let actions: McpConnectCardActions
+struct McpConnectFactsTableCard {
+    let parts: McpConnectParts
     let riskFirst: Bool
 
-    var body: some View {
-        let card = flow.card
-        VStack(alignment: .leading, spacing: 10) {
-            if riskFirst { McpConnectRiskLines(card: card, colors: colors) }
-            HStack(spacing: 10) {
-                McpConnectMark(title: card.title, size: 28, colors: colors)
-                Text(McpConnectStrings.connectTitle(card.title)).font(colors.title).foregroundStyle(colors.text)
-                Spacer(minLength: 8)
-                McpConnectBadge(card: card, colors: colors)
-            }
-            McpConnectReason(card: card, colors: colors)
-            McpConnectFacts(card: card, colors: colors)
-            if flow.phase == .ask {
-                HStack(spacing: 12) {
-                    Text(McpConnectStrings.forScope).font(colors.caption).foregroundStyle(colors.tertiary)
-                    McpConnectScopeMenu(flow: flow, colors: colors, actions: actions)
-                }
-            }
-            if !riskFirst { McpConnectRiskLines(card: card, colors: colors) }
-            McpConnectControls(flow: flow, colors: colors, actions: actions)
+    @MainActor func make() -> NSView {
+        let card = parts.card
+        let colors = parts.colors
+        var views: [NSView] = []
+        if riskFirst { views.append(parts.risks()) }
+        views.append(parts.row([parts.mark(size: 28),
+                                parts.label(McpConnectStrings.connectTitle(card.title), font: colors.title, color: colors.text),
+                                parts.spacer(min: 8), parts.badge()], spacing: 10))
+        if let reason = parts.reason() { views.append(reason) }
+        views.append(parts.facts())
+        if parts.flow.phase == .ask {
+            views.append(parts.row([parts.label(McpConnectStrings.forScope, font: colors.caption, color: colors.tertiary),
+                                    parts.scopeMenu()], spacing: 12))
         }
-    }
-}
-
-/// "Chief asks: …", the agent's own sentence in quotes.
-struct McpConnectReason: View {
-    let card: McpConnectCard
-    let colors: McpConnectCardColors
-
-    var body: some View {
-        if !card.reason.isEmpty {
-            (Text(McpConnectStrings.asks(card.agent) + " ").foregroundStyle(colors.tertiary)
-                + Text("“" + card.reason + "”").foregroundStyle(colors.secondary))
-                .font(colors.body)
-        }
+        if !riskFirst { views.append(parts.risks()) }
+        views.append(parts.controls())
+        return parts.column(views, spacing: 10)
     }
 }
