@@ -92,7 +92,7 @@ jobs:
           skip-token-revoke: true
       - name: "CLA Assistant"
         id: cla
-        uses: manaflow-ai/cla-github-action@bb9c7f4446683042d4427f4cd43ad21ae8b0ee5f
+        uses: manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CLA_READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
