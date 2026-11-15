@@ -568,7 +568,7 @@ fn a_dropped_scope_reports_its_failed_hand_back() {
 /// long typing loop cannot keep it out between chunks.
 #[test]
 fn input_yields_to_a_waiting_scope_entry() {
-    let reg = std::sync::Arc::new(activation::Registry::new());
+    let reg = Arc::new(activation::Registry::new());
     let (tx, rx) = std::sync::mpsc::channel();
     let r2 = reg.clone();
     // Hold the app's lock as a chunk would, while an entry starts waiting.
