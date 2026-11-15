@@ -1366,6 +1366,7 @@ class RunningAcpmux(unittest.TestCase):
 
 
 FFI_FIX = "2d7bfe48c026a2382c834b04007492dd92c88e3b"  # cmux-layout-reducer only: an app FFI input
+FFI_FIX_PIN = "387615ca1bafb7d63f255da52edde22e64132fe5"  # the release FFI_FIX^ pins: the additive check diffs it
 
 
 class HotApplyFFI(unittest.TestCase):
@@ -1373,7 +1374,8 @@ class HotApplyFFI(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        git_history.require_history(ROOT, [FFI_FIX], depth=2)
+        # The pairing check diffs the app's pinned source against FFI_FIX: a shallow checkout (CI, Linux) lacks it.
+        git_history.require_history(ROOT, [FFI_FIX, FFI_FIX_PIN], depth=2)
         sys.path.insert(0, str(SCRIPT.parent))
         sys.path.insert(0, str(ROOT / "scripts/ci"))
         import hot_apply_ffi
@@ -1514,6 +1516,69 @@ class HotApplyFFI(unittest.TestCase):
         plist = Path(calls[1][3])
         self.assertFalse(plist.parent.exists(), "the one-shot agent's plist is removed")
         self.assertEqual(calls[2][2], f"gui/{os.getuid()}/{plist.stem}")
+
+
+REPIN = "01936a9c77c22a3735bee357aa417eb7f0bf110e"  # app-ffi-repin: app-ffi-pin.json and Package.swift's checksum line
+REPIN_FROM = "e238ea5486824ff4fc766954d4bc91d37b90af0c"  # the release its parent pins
+REPIN_TO = "fcd50f439039123ef3e0425d74655159d4011798"  # the release it pins
+
+
+class HotApplyFFIPin(unittest.TestCase):
+    """The ffi part for a commit that only moves the pin: an app links the release its commit pins, which lags its
+    FFI sources until app-ffi-repin lands, so the re-pin commit is what brings the app's library up to date."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [REPIN, REPIN_FROM, REPIN_TO], depth=2)
+        sys.path.insert(0, str(SCRIPT.parent))
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import hot_apply_ffi
+        cls.ffi = hot_apply_ffi
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-ffi-pin-test-"))
+        self.base = run_git("rev-parse", f"{REPIN}^").stdout.strip()
+        self.app = self.tmp / "cmux NIGHTLY.app"
+        (self.app / "Contents/Resources/bin").mkdir(parents=True)
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.base, "CFBundleExecutable": "cmux"}, handle)
+        self.env = dict(os.environ, CMUX_HOT_APPLY_FFI_BASE=(self.tmp / "releases").as_uri(),
+                        CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
+                        CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
+                        CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def plan(self, *args):
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", REPIN, *args], capture_output=True, text=True,
+                              env=self.env)
+        self.assertIn(done.returncode, (0, 3), done.stderr)  # 3: something is left for a new app
+        return json.loads(done.stdout)
+
+    def test_a_commit_that_moves_the_pin_takes_the_ffi_part(self):
+        (self.app / "Contents/Frameworks").mkdir(parents=True)
+        (self.app / self.ffi.DYLIB).write_bytes(b"old library")
+        plan = self.plan("--app", str(self.app))
+        self.assertIn("ffi", plan["parts"], plan)
+        self.assertEqual(plan["ffi"]["source"], REPIN_TO)
+        self.assertEqual(plan["ffi"]["release"], f"cmux-app-ffi-{REPIN_TO}")
+        self.assertEqual(plan["ffi"]["app_pin_source"], REPIN_FROM)
+        self.assertEqual(plan["ffi"]["via"], "pin")
+        # The pin file and Package.swift's checksum line are the ffi part's change, not Swift that needs an app.
+        self.assertEqual(plan["left"], {}, plan)
+        self.assertEqual(self.plan("--base", self.base)["ffi"]["source"], REPIN_TO)
+
+    def test_an_app_linking_the_ffi_statically_still_needs_an_app_for_a_new_pin(self):
+        plan = self.plan("--app", str(self.app))
+        self.assertNotIn("ffi", plan["parts"])
+        self.assertTrue(any("links the app FFI statically" in note for note in plan["notes"]), plan["notes"])
+
+    def test_pin_packaging_is_only_the_pin(self):
+        self.assertEqual(self.ffi.pin_packaging(ROOT, self.base, REPIN),
+                         {self.ffi.PIN_FILE, self.ffi.PACKAGE_SWIFT})
+        # Package.swift with more than the checksum line changed is Swift again.
+        self.assertNotIn(self.ffi.PACKAGE_SWIFT, self.ffi.pin_packaging(ROOT, REPIN_FROM, REPIN))
 
 
 def load_hot(name):
