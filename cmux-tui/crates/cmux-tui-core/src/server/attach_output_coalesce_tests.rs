@@ -321,7 +321,11 @@ fn a_coalescing_viewer_reads_the_newest_scroll_position_once_per_frame() {
     }
     let plain_offsets = scroll_offsets(&plain.outbound, Duration::from_millis(400));
     let coalesced_offsets = scroll_offsets(&coalesced.outbound, Duration::from_millis(400));
-    assert_eq!(plain_offsets.len(), 40, "every position without the capability");
+    // Without the capability: every position the event mailbox kept (it
+    // already keeps only the newest one per surface for a reader that is
+    // behind), so about one per emit.
+    assert_eq!(plain_offsets.last().map(|(_, offset)| *offset), Some(40), "{plain_offsets:?}");
+    assert!(plain_offsets.len() >= 20, "{} plain positions", plain_offsets.len());
     let first = coalesced_offsets.first().expect("a position");
     assert_eq!(first.1, 1, "the first position goes out at once");
     assert_eq!(coalesced_offsets.last().map(|(_, offset)| *offset), Some(40), "the newest last");
