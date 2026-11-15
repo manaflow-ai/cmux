@@ -39,19 +39,23 @@ Two group cards, in the Settings card look (transparent groups, hairline rows, n
 1. **Key Requests** (only while one waits; `data-card="keyRequests"`). One row per request, oldest
    first:
    - Title: the key's name in the mono face (`keys-name`).
-   - The purpose, in primary ink, wrapping (`keys-purpose`, `overflow-wrap: anywhere`).
-   - One muted line: `Asked by <agent> · For <host, host>` (the agent's product and the start of its
-     session id, from the CLI's `CLAUDE_CODE_SESSION_ID=…`; a user name for `user=…`).
+   - The purpose, in primary ink, wrapping (`keys-purpose`, `overflow-wrap: anywhere`), selectable:
+     the agent's own words.
+   - One muted line: `Asked by <agent>` (the agent's product and the start of its session id, from
+     the CLI's `CLAUDE_CODE_SESSION_ID=…`; a user name for `user=…`).
+   - One muted, selectable line: `For <host, host>` when the request names sites.
    - One line: the private field (`type=password`, `autocomplete=off`, `spellcheck=false`, max
      320 px, placeholder "Paste the value"), Store (solid, off while the field is empty), Decline.
-   - One muted line: "Stored in this Mac’s keychain. It never shows here or in the chat."
+   - One muted line: "Kept in the keychain. Never shown in chat."
    - An error line in danger ink under it when the host refused.
 2. **Keys** (`data-card="keys"`). One row per key: live first, then expired, then revoked; newest
    first within each.
    - Title: the label, then the name in mono when it differs.
-   - The purpose when there is one.
-   - One muted line: `For <hosts>` or `Any site` · `Used in <stores and uses>` or `Not used yet` ·
-     `Added by <agent> (<who asked>)` · `Expires <date>` or `Doesn’t expire`.
+   - The purpose when there is one (selectable).
+   - One muted, selectable line of values: `For <hosts>` or `Any site` · `Used in <stores and uses>`
+     or `Not used yet` · `Expires <date>` or `Doesn’t expire`.
+   - One muted line: `Added by <agent> (<who asked>)`. Every description line fits 60 characters in
+     every language (rowSummary.test.tsx); the long values sit on the selectable line.
    - At the row's end: the status (dot and word: Active in success, Expired in attention, Revoked
      neutral at 40 %), then Revoke (ghost, danger) unless already revoked.
    - Revoke opens the confirm inline under the row: "Revoke NAME?", what happens (a local key's

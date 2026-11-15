@@ -90138,127 +90138,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stored in this Mac’s keychain. It never shows here or in the chat."
+            "value": "Kept in the keychain. Never shown in chat."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يُحفظ في سلسلة مفاتيح هذا الـ Mac. لا يظهر هنا ولا في الدردشة أبدًا."
+            "value": "يُحفظ في سلسلة المفاتيح. لا يظهر في الدردشة أبدًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Čuva se u keychainu ovog Maca. Nikad se ne prikazuje ovdje ni u chatu."
+            "value": "Čuva se u keychainu. Nikad se ne prikazuje u chatu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gemmes i denne Macs nøglering. Den vises aldrig her eller i chatten."
+            "value": "Gemmes i nøgleringen. Vises aldrig i chatten."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wird im Schlüsselbund dieses Mac gespeichert. Er erscheint nie hier oder im Chat."
+            "value": "Im Schlüsselbund gesichert. Nie im Chat sichtbar."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Se guarda en el llavero de este Mac. Nunca se muestra aquí ni en el chat."
+            "value": "Se guarda en el llavero. Nunca aparece en el chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enregistrée dans le trousseau de ce Mac. Elle n’apparaît jamais ici ni dans le chat."
+            "value": "Gardée dans le trousseau. Jamais affichée dans le chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salvata nel portachiavi di questo Mac. Non viene mai mostrata qui né nella chat."
+            "value": "Salvata nel portachiavi. Mai mostrata nella chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "この Mac のキーチェーンに保存されます。ここやチャットに表示されることはありません。"
+            "value": "キーチェーンに保存され、チャットには表示されません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រក្សាទុកក្នុង keychain របស់ Mac នេះ។ វាមិនបង្ហាញនៅទីនេះ ឬក្នុងការជជែកឡើយ។"
+            "value": "រក្សាទុកក្នុង keychain។ មិនបង្ហាញក្នុងការជជែកឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 Mac의 키체인에 저장됩니다. 여기나 채팅에 표시되지 않습니다."
+            "value": "키체인에 저장되며 채팅에 표시되지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lagres i nøkkelringen på denne Macen. Den vises aldri her eller i chatten."
+            "value": "Lagres i nøkkelringen. Vises aldri i chatten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zapisywany w pęku kluczy tego Maca. Nigdy nie jest pokazywany tutaj ani na czacie."
+            "value": "Zapisany w pęku kluczy. Nigdy nie widać go na czacie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Guardada nas Chaves deste Mac. Nunca aparece aqui nem no chat."
+            "value": "Guardada nas Chaves. Nunca aparece no chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Хранится в связке ключей этого Mac. Никогда не показывается здесь или в чате."
+            "value": "Хранится в связке ключей и не показывается в чате."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "จัดเก็บในพวงกุญแจของ Mac เครื่องนี้ จะไม่แสดงที่นี่หรือในแชท"
+            "value": "เก็บในพวงกุญแจ ไม่แสดงในแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Mac’in anahtar zincirinde saklanır. Burada veya sohbette asla görünmez."
+            "value": "Anahtar zincirinde saklanır. Sohbette asla görünmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Зберігається у в’язці ключів цього Mac. Ніколи не показується тут чи в чаті."
+            "value": "Зберігається у в’язці ключів і не показується в чаті."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Được lưu trong chuỗi khóa của máy Mac này. Không bao giờ hiện ở đây hay trong cuộc trò chuyện."
+            "value": "Lưu trong chuỗi khóa, không hiện trong trò chuyện."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "存储在这台 Mac 的钥匙串中。它不会显示在这里或聊天中。"
+            "value": "存储在钥匙串中，不会显示在聊天中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "儲存在這部 Mac 的鑰匙圈中。它不會顯示在這裡或聊天中。"
+            "value": "儲存在鑰匙圈中，不會顯示在聊天中。"
           }
         }
       }

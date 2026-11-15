@@ -155,18 +155,21 @@ function KeyRequestForm({
           <code className="keys-name">{request.name}</code>
         </div>
         {request.purpose && (
-          <div className="row-help keys-purpose" data-key-request-purpose="">
+          // The agent's own words, as it sent them: a value the person may copy, not a description.
+          <div className="row-help selectable keys-purpose" data-key-request-purpose="">
             {request.purpose}
           </div>
         )}
-        <div className="row-help" data-key-request-detail="">
-          {[
-            request.requester && t("settingsPage.keys.askedBy", request.requester),
-            request.hosts.length > 0 && t("settingsPage.keys.forHosts", request.hosts.join(", ")),
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </div>
+        {request.requester && (
+          <div className="row-help" data-key-request-detail="">
+            {t("settingsPage.keys.askedBy", request.requester)}
+          </div>
+        )}
+        {request.hosts.length > 0 && (
+          <div className="row-help selectable" data-key-request-hosts="">
+            {t("settingsPage.keys.forHosts", request.hosts.join(", "))}
+          </div>
+        )}
       </div>
       <div className="keys-answer">
         <Input
@@ -209,20 +212,21 @@ function KeyRequestForm({
 
 const tones = { live: "success", expired: "attention", revoked: "neutral" } as const;
 
-/** The detail line under a key's label: where it may go · where it went · who added it · its end. */
-export function keyDetail(row: KeyRow, now: number): string {
-  const lang = locale();
-  const added = row.askedBy && row.askedBy !== row.by ? `${row.by ?? ""} (${row.askedBy})`.trim() : row.by;
+/** A key's facts, values the person may copy: where it may go · where it went · when it ends. */
+export function keyFacts(row: KeyRow, now: number): string {
   return [
     row.hosts.length > 0 ? t("settingsPage.keys.forHosts", row.hosts.join(", ")) : t("settingsPage.keys.anySite"),
     row.places.length > 0 ? t("settingsPage.keys.usedIn", row.places.join(", ")) : t("settingsPage.keys.notUsed"),
-    added ? t("settingsPage.keys.addedBy", added) : null,
     row.expiresAt === null
       ? t("settingsPage.keys.noExpiry")
-      : t("settingsPage.keys.expires", keyDate(row.expiresAt, now, lang)),
-  ]
-    .filter((part): part is string => !!part)
-    .join(" · ");
+      : t("settingsPage.keys.expires", keyDate(row.expiresAt, now, locale())),
+  ].join(" · ");
+}
+
+/** Who added a key, and who asked for it when that was someone else; null when the record names nobody. */
+export function keyAddedBy(row: KeyRow): string | null {
+  const added = row.askedBy && row.askedBy !== row.by ? `${row.by ?? ""} (${row.askedBy})`.trim() : row.by;
+  return added ? t("settingsPage.keys.addedBy", added) : null;
 }
 
 function KeyRowView({ row, now, onRevoke }: { row: KeyRow; now: number; onRevoke: () => Promise<string | null> }) {
@@ -244,6 +248,7 @@ function KeyRowView({ row, now, onRevoke }: { row: KeyRow; now: number; onRevoke
         : "settingsPage.keys.stateRevoked",
   );
   const confirmTitle = t("settingsPage.keys.revokeTitle", row.label);
+  const addedBy = keyAddedBy(row);
   return (
     <div className="row" data-key={row.id} data-key-state={row.state}>
       <div className="row-main">
@@ -257,10 +262,15 @@ function KeyRowView({ row, now, onRevoke }: { row: KeyRow; now: number; onRevoke
               </>
             )}
           </div>
-          {row.purpose && <div className="row-help keys-purpose">{row.purpose}</div>}
-          <div className="row-help" data-key-detail="">
-            {keyDetail(row, now)}
+          {row.purpose && <div className="row-help selectable keys-purpose">{row.purpose}</div>}
+          <div className="row-help selectable" data-key-detail="">
+            {keyFacts(row, now)}
           </div>
+          {addedBy && (
+            <div className="row-help" data-key-added="">
+              {addedBy}
+            </div>
+          )}
         </div>
         <span className="row-control keys-control">
           <span className="accounts-status devices-status" data-tone={tones[row.state]} data-key-status="">

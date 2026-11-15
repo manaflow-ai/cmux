@@ -63,10 +63,11 @@ test("the card shows the waiting request and every key, never a value", async ()
   await open();
   const request = asks()!.querySelector<HTMLElement>('[data-key-request="kr_0001"]')!;
   expect(request.textContent).toContain("DEPLOY_TOKEN");
-  expect(request.querySelector("[data-key-request-purpose]")!.textContent).toContain("staging deploys");
-  expect(request.querySelector("[data-key-request-detail]")!.textContent).toBe(
-    "Asked by Claude Code · 4f2a9c1e · For api.example.com",
-  );
+  expect(request.querySelector("[data-key-request-purpose]")!.textContent).toContain("staging site");
+  expect(request.querySelector("[data-key-request-detail]")!.textContent).toBe("Asked by Claude Code · 4f2a9c1e");
+  // The sites and the agent's words are values (copyable); the description lines stay short.
+  expect(request.querySelector("[data-key-request-hosts]")!.textContent).toBe("For api.example.com");
+  expect(request.querySelector("[data-key-request-hosts]")!.classList.contains("selectable")).toBe(true);
   expect(field().type).toBe("password");
   expect(field().getAttribute("autocomplete")).toBe("off");
   expect(field().getAttribute("spellcheck")).toBe("false");
@@ -75,6 +76,7 @@ test("the card shows the waiting request and every key, never a value", async ()
   expect(live.querySelector("[data-key-detail]")!.textContent).toContain(
     "Used in gh-secret:example/search:SEARCH_API_KEY",
   );
+  expect(live.querySelector("[data-key-added]")!.textContent).toBe("Added by Claude Code · 9b1c2d3e");
   expect(live.querySelector("[data-key-status]")!.textContent).toBe("Active");
   // A revoked key has nothing left to revoke.
   expect(card().querySelector('[data-key="local-publish_token"] [data-key-action="revoke"]')).toBeNull();

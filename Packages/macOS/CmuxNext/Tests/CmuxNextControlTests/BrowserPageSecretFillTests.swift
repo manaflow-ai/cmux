@@ -45,7 +45,7 @@ import Testing
         return (router, engine)
     }
 
-    func fill(_ router: ControlRouter, _ verb: String = "fill", _ extra: [String: JSONValue]) async -> Result<JSONValue, ControlError> {
+    func fill(_ router: ControlRouter, verb: String = "fill", _ extra: [String: JSONValue]) async -> Result<JSONValue, ControlError> {
         var params: [String: JSONValue] = ["tab": "tab_0123abcd", "selector": "#key", "text": "s3cr3t-value"]
         for (key, value) in extra { params[key] = value }
         return await router.handle(ControlRequest(method: "browser.page." + verb, params: params))
@@ -54,7 +54,7 @@ import Testing
     @Test(arguments: ["fill", "type"])
     func aSecretFillMasksTheCursorAndNeverAnswersTheValue(verb: String) async throws {
         let (router, engine) = install()
-        let result = try await fill(router, verb, ["secret": true]).get()
+        let result = try await fill(router, verb: verb, ["secret": true]).get()
         #expect(result["value"] == Optional<JSONValue>.none, "no value key at all")
         #expect(result["secret"] == .bool(true))
         let input = try #require(engine.inputs.last)
