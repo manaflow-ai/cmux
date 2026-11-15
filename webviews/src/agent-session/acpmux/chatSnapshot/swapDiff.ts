@@ -40,6 +40,15 @@ function askParts(scope: ParentNode): string[] {
   });
 }
 
+/// The type-scale variables where they decide the ask's size: on the page's root, the copy's root
+/// stand-in, and each side's ask detail line.
+const SCALE_VARS = ["--text-detail", "--cmux-interface-scale", "--acpmux-density-text", "--text-body"];
+function scaleVars(node: Element | null | undefined): string {
+  if (!node) return "none";
+  const style = getComputedStyle(node);
+  return SCALE_VARS.map((name) => `${name}=${style.getPropertyValue(name).trim() || "unset"}`).join(" ");
+}
+
 function boxesIn(scope: ParentNode): Record<string, Box> {
   const boxes: Record<string, Box> = {};
   const add = (name: string, node: Element | null | undefined) => {
@@ -77,6 +86,7 @@ export type SwapDiff = {
   liveStack: string[];
   copyAsk: string[];
   liveAsk: string[];
+  vars: Record<string, string>;
   /// How long the swap waited for the live page to match the copy (``liveMatchesCopy``), and whether it did.
   held_ms?: number;
   matched?: boolean;
@@ -115,6 +125,14 @@ export function noteSwap(
       liveStack: stackParts(dock),
       copyAsk: askParts(copy),
       liveAsk: askParts(live),
+      vars: {
+        page: scaleVars(view.document.documentElement),
+        pageStyle: (view.document.documentElement.getAttribute("style") ?? "").slice(0, 400),
+        copyRoot: scaleVars(copy.querySelector(".cmux-snapshot-root") ?? copy.firstElementChild),
+        copyRootStyle: (copy.querySelector(".cmux-snapshot-root")?.getAttribute("style") ?? "").slice(0, 400),
+        copyDetail: scaleVars(copy.querySelector(".acpmux-trust-ask-detail")),
+        liveDock: scaleVars(live.querySelector(".acpmux-dock")),
+      },
       ...(held ? { held_ms: Math.round(held.ms), matched: held.matched } : {}),
       after: [],
     };
@@ -132,6 +150,11 @@ export function noteSwap(
       if (now === height) return;
       height = now;
       diff.after.push({ at_ms: Math.round(at), h: now, parts: stackParts(dock) });
+      // The live ask once it came: its parts and the scale where it draws, against the copy's.
+      if (diff.liveAsk.length === 0 && dock.querySelector(".acpmux-asks-stack")) {
+        diff.liveAsk = askParts(live);
+        diff.vars.liveDetail = scaleVars(live.querySelector(".acpmux-trust-ask-detail"));
+      }
     });
     observer.observe(dock);
     view.setTimeout(() => observer.disconnect(), AFTER_MS);
