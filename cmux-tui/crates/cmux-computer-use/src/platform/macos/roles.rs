@@ -385,7 +385,7 @@ pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &
         }
         WebKind::Area => {
             return Err(
-                "this is a web text area; Safari shows a native text area and a rich editor alike, so its value is not written through accessibility; use delivery foreground",
+                "this is a web text area; a browser shows a native text area and a rich editor alike to accessibility, so its value is not written through accessibility, and the field could not be focused for keys in the background; use delivery foreground",
             );
         }
         WebKind::Other => {
@@ -403,15 +403,12 @@ pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &
 }
 
 /// Whether a web field the gate refuses only for being out of its window
-/// is first scrolled into view (a field the page is scrolled past); an
-/// input helper placed off the page cannot be scrolled into view, and a
-/// tiny, hidden or rich one is refused as it is.
-pub fn scroll_into_view_first(f: &WebField) -> bool {
-    !f.on_screen
-        && !f.hidden
-        && f.kind == WebKind::Plain
-        && f.width >= WEB_FIELD_MIN
-        && f.height >= WEB_FIELD_MIN
+/// is first scrolled into view (a field the page is scrolled past): every
+/// other rule of the gate holds first ([`web_value_gate_but_view`]), so a
+/// tiny, hidden, rich or password field is refused without scrolling; an
+/// input placed off the page cannot be scrolled into view.
+pub fn scroll_into_view_first(f: &WebField, secure: SecureField) -> bool {
+    !f.on_screen && web_value_gate_but_view(f, secure).is_ok()
 }
 
 /// Whether a web field may take a value write: only while it holds its
@@ -436,7 +433,7 @@ pub fn write_not_applied(e: super::sys::AXError) -> bool {
 
 /// The note of a web value write at UTF-16 position `at` that replaced
 /// `replaced` selected characters.
-pub fn web_value_note(at: isize, replaced: isize, limited: bool) -> String {
+pub fn web_value_note(at: isize, replaced: isize, limited: bool, scrolled: bool) -> String {
     let what = match replaced {
         0 => String::new(),
         1 => ", replacing the 1 selected character,".into(),
@@ -450,7 +447,43 @@ pub fn web_value_note(at: isize, replaced: isize, limited: bool) -> String {
     if limited {
         note.push_str("; the field has a length limit, which was not applied");
     }
+    if scrolled {
+        note.push_str("; the page was scrolled to bring the field into view first");
+    }
     note
+}
+
+/// The gate's rules except being in view, which scrolling can fix: every
+/// other rule refuses before anything is scrolled.
+pub fn web_value_gate_but_view(f: &WebField, secure: SecureField) -> Result<(), &'static str> {
+    web_value_gate(Some(&WebField { on_screen: true, ..f.clone() }), secure)
+}
+
+/// Where background typing into web content goes once the focus write was
+/// tried: keys when the guard proved focus; else the value route when the
+/// field is eligible for it; else the reason it is not (no keys, nothing
+/// written).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WebTyping {
+    Keys,
+    Value,
+    Refuse(&'static str),
+}
+
+pub fn web_typing(focused: bool, eligible: Result<(), &'static str>) -> WebTyping {
+    match (focused, eligible) {
+        (true, _) => WebTyping::Keys,
+        (false, Ok(())) => WebTyping::Value,
+        (false, Err(why)) => WebTyping::Refuse(why),
+    }
+}
+
+/// Whether a web field still held the page's focus after a value write:
+/// its own AXFocused read true, and the web area's focused element, where
+/// it could be read, is the field. Otherwise the write may have gone into
+/// another field.
+pub fn kept_focus(own: Option<bool>, area_names_target: Option<bool>) -> bool {
+    own == Some(true) && area_names_target != Some(false)
 }
 
 /// How a posted press is aimed, from the two readings of the front app

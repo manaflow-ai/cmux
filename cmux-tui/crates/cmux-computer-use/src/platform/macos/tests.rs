@@ -2885,7 +2885,8 @@ fn only_a_childless_web_text_field_is_plain() {
 }
 
 /// A plain field the page is scrolled past is scrolled into view before the
-/// gate; a tiny, hidden or rich one, or one on screen, is not.
+/// gate, and only once every other rule holds: a tiny, hidden, rich or
+/// password field (for typing) is refused without scrolling.
 #[test]
 #[allow(clippy::redundant_clone)]
 fn only_a_plain_field_scrolled_past_is_scrolled_into_view() {
@@ -2899,14 +2900,42 @@ fn only_a_plain_field_scrolled_past_is_scrolled_into_view() {
         limited: false,
         center: Point { x: 0.0, y: 0.0 },
     };
-    assert!(roles::scroll_into_view_first(&past));
-    assert!(!roles::scroll_into_view_first(&roles::WebField { on_screen: true, ..past.clone() }));
-    assert!(!roles::scroll_into_view_first(&roles::WebField { hidden: true, ..past.clone() }));
-    assert!(!roles::scroll_into_view_first(&roles::WebField { width: 1.0, ..past.clone() }));
-    assert!(!roles::scroll_into_view_first(&roles::WebField {
-        kind: roles::WebKind::Area,
-        ..past.clone()
-    }));
+    let typing = roles::SecureField::Refuse;
+    let setting = roles::SecureField::Allow;
+    let scrolls = |f: &roles::WebField, s| roles::scroll_into_view_first(f, s);
+    assert!(scrolls(&past, typing));
+    assert!(roles::web_value_gate_but_view(&past, typing).is_ok());
+    assert!(roles::web_value_gate(Some(&past), typing).is_err(), "out of view until scrolled");
+    assert!(!scrolls(&roles::WebField { on_screen: true, ..past.clone() }, typing));
+    assert!(!scrolls(&roles::WebField { hidden: true, ..past.clone() }, typing));
+    assert!(!scrolls(&roles::WebField { width: 1.0, ..past.clone() }, typing));
+    assert!(!scrolls(&roles::WebField { kind: roles::WebKind::Area, ..past.clone() }, setting));
+    let password = roles::WebField { secure: true, ..past.clone() };
+    assert!(!scrolls(&password, typing), "typing refuses a password field first");
+    assert!(scrolls(&password, setting));
+}
+
+/// Background typing into web content tries keys first: the value route is
+/// the fallback only when the guard refused focus and the field is
+/// eligible; else the gate's reason (a Chrome or Electron composer, a
+/// textarea, a contenteditable or text with Enter take keys when focused).
+#[test]
+fn web_typing_tries_keys_before_the_value_route() {
+    assert_eq!(roles::web_typing(true, Ok(())), roles::WebTyping::Keys);
+    assert_eq!(roles::web_typing(true, Err("textarea")), roles::WebTyping::Keys, "a composer");
+    assert_eq!(roles::web_typing(false, Ok(())), roles::WebTyping::Value);
+    assert_eq!(roles::web_typing(false, Err("textarea")), roles::WebTyping::Refuse("textarea"));
+}
+
+/// After a web value write: confirmed only while the field still holds the
+/// page's focus (its own, and the web area's focused element where read).
+#[test]
+fn a_web_value_write_is_kept_only_while_focus_stays() {
+    assert!(roles::kept_focus(Some(true), Some(true)));
+    assert!(roles::kept_focus(Some(true), None), "the area's focus unread");
+    assert!(!roles::kept_focus(Some(true), Some(false)), "the area names another field");
+    assert!(!roles::kept_focus(Some(false), Some(true)));
+    assert!(!roles::kept_focus(None, Some(true)));
 }
 
 /// Safari puts a text field's AXValue write into the field holding the
@@ -2937,10 +2966,11 @@ fn only_a_refusing_ax_error_means_the_value_was_not_written() {
 /// The note says where the text went and how much it replaced.
 #[test]
 fn the_web_value_note_names_the_position_and_the_replaced_characters() {
-    let n = roles::web_value_note(3, 0, false);
+    let n = roles::web_value_note(3, 0, false, false);
     assert!(n.contains("position 3") && !n.contains("replac"), "{n}");
-    let n = roles::web_value_note(0, 5, true);
+    let n = roles::web_value_note(0, 5, true, true);
     assert!(n.contains("replacing the 5 selected characters"), "{n}");
     assert!(n.contains("length limit") && !n.contains("pattern"), "{n}");
-    assert!(roles::web_value_note(0, 1, false).contains("the 1 selected character,"));
+    assert!(n.contains("scrolled to bring the field into view"), "{n}");
+    assert!(roles::web_value_note(0, 1, false, false).contains("the 1 selected character,"));
 }
