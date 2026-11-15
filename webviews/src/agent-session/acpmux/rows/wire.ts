@@ -92,7 +92,10 @@ export type ChatChange =
   | { kind: "chatPage"; page: ChatPageResult }
   | { kind: "chatBlob"; sid: string; head: ChatBlobHead; nextStart: number; text: string }
   | { kind: "chatDropped"; sid: string; cursor?: number | null }
-  | { kind: "chatError"; sid?: string | null; method: string; id?: string | null; code: string };
+  | { kind: "chatError"; sid?: string | null; method: string; id?: string | null; code: string }
+  /// The connection fell to v1 (6b's fallback stream): each open sub had its own `chatError`
+  /// first, so the store has nothing left to do.
+  | { kind: "fallback" };
 
 /// One change string as the host passes it. A blob's string is its JSON, one newline, then the
 /// text; every other change is one compact JSON value, which holds no raw newline. Null for a
@@ -121,6 +124,8 @@ export function changeSid(change: ChatChange): string | null {
       return change.page.sid;
     case "chatError":
       return change.sid ?? null;
+    case "fallback":
+      return null;
     default:
       return change.sid;
   }

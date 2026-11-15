@@ -228,6 +228,22 @@ impl Hub {
         (hosts, keys)
     }
 
+    /// The session ids of machine `host`'s hub rows, read from its own range of the book: what
+    /// the v2 list offers again when a slot of its index frees (`list_tee/refused.rs`).
+    pub(super) fn mesh_book_ids(&self, host: &str) -> Vec<String> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let start = format!("{host}/");
+        book.rows
+            .range::<str, _>((
+                std::ops::Bound::Included(start.as_str()),
+                std::ops::Bound::Unbounded,
+            ))
+            .take_while(|(key, _)| key.starts_with(&start))
+            .filter(|(_, (_, r))| r.peer == host)
+            .map(|(_, (_, r))| r.receipt.mux_session_id.clone())
+            .collect()
+    }
+
     /// The hub rows `keep` takes, cloning no other.
     pub(super) fn mesh_book_rows(
         &self,
