@@ -3054,6 +3054,20 @@ only, one job per idle light runner beyond its queue, never while a nightly or r
 light family, and nothing with an unread or stale pool snapshot. Each job's runs-on and its
 CMUX_NEXT_RUNNER copy read `light_jobs` right after the fork clause.
 
+Also above `LIGHT_FIT_JOBS`, beside `LIGHT_SPILL_JOBS`: the re-run's light move.
+
+Leo, 2026-11-15: "you can decide on best routing for stuff". On 2026-11-15 from 01:10Z, 32 jobs on
+glaeda-side-std-xcode-26.6 (generated files, the fast tier, the app scheme compile) stayed queued after light
+side runners freed: note-348's spill places attempt 1 only, and GitHub never moves a queued job. The rescue on
+main (owned_pool_rescue.light_wait()) now cancels such a pull request run and re-runs its placement once a job
+it can move has waited LIGHT_MOVE_SECONDS on the std side label while the fleet gates show a light side runner
+listening, and the bot's re-run (side_lane_placement.light_rerun_route()) gives each LIGHT_FIT_JOBS job no idle
+std side runner took an idle light side runner. LIGHT_FIT_JOBS is the measured set in `.github/runners.json`
+`light_fit` (runs and success rate on the 16 GiB light minis against the std minis). The fast tier,
+daemon-test and generated-files runs-on read `light_jobs` on the attempt their placement ran
+(`placed_attempt == run_attempt`), not only attempt 1, so the re-run takes the label it was given (#18147: a
+re-run reused attempt 1's placement); a person's re-run carries attempt 1's placement and keeps its route.
+
 ## note-349
 
 Above `checks: timeout-minutes` in `.github/workflows/cmux-next.yml`.
@@ -3127,3 +3141,9 @@ failed tree posts `same-tree cmux-tui unavailable: <reason>` unless same-tree-cm
 handed the tree over. A post GitHub refuses three times is the reporter's red. Pattern page: cmuxterm-hq
 `docs/handbook/status-posted-by-the-job-it-reports.md`; detector:
 `tests/test_cmux_next_same_tree_status_never_silent.py` `test_no_status_is_posted_from_inside_the_job_it_reports`.
+
+SAME_TREE_STATUS_SPARE_TOKEN (hq#11150): each reporter also mints a cmux-bot App token (statuses: write) and
+passes it as GH_TOKEN_SPARE. github.token shares one hourly budget with every workflow run in the repository; on
+2026-11-15 ~750 queued runs had spent it, and run 43660624788's post got HTTP 403 three times over. The first
+rate-limited call moves to the App token, which has its own budget. The App key is a repository secret, so the
+reporters run in the secrets-only `ci-routing-agent` environment off pull_request events, like compile-status.

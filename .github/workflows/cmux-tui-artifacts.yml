@@ -4046,29 +4046,19 @@ jobs:
       # cmux-next runs that probed this tree before it was published left a
       # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner
       # waited). Start them now: cmux-next.yml same-tree mode.
-      # NOTIFY_NEVER_LOST (lw#5184): a spent github.token moves the notify to
-      # the cmux-bot App's token (SPARE_TOKEN_SWITCH), and a notify GitHub
-      # still refuses leaves a cmux-next-tree-notify-pending record that the
-      # next feat-cmux-next push's sweep-commit-manifests makes again.
-      - name: Mint the tree notify's spare token
-        id: notify-spare-token
-        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && github.repository == 'manaflow-ai/cmux' && vars.CMUX_BOT_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.CMUX_BOT_APP_ID }}
-          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          permission-actions: write
-          permission-pull-requests: read
-
+      # NOTIFY_NEVER_LOST (lw#5184): a notify GitHub refuses (a spent
+      # github.token included) leaves a cmux-next-tree-notify-pending record
+      # that the next feat-cmux-next push's sweep-commit-manifests makes again
+      # on the cmux-bot App's token. publish-tree mints no App token itself: it
+      # runs in the `artifacts` environment, for cmux-tui-pin-* helper branches
+      # too, which holds only R2 upload secrets
+      # (tests/test_ci_production_secrets_protected_env.py).
       - name: Start the cmux-next tree jobs that waited for this tree
         id: tree-notify
         if: env.CMUX_TUI_PUBLISH_PASS == 'unix'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_TOKEN_SPARE: ${{ steps.notify-spare-token.outputs.token }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
         run: |
           pending="$RUNNER_TEMP/tree-notify-pending/pending.json"
