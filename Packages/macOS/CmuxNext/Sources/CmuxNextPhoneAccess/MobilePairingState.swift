@@ -29,7 +29,8 @@ public nonisolated enum MobilePairingState: Sendable, Equatable {
         case .unavailable(let reason): return .failed(reason)
         case .removed: return .failed(removedReason)
         // Starting, registering or retrying: hostd gets there by itself.
-        case .off, .connecting, .waiting: return .preparing
+        // A refused device id: the iPhone host registers a new one by itself.
+        case .off, .connecting, .waiting, .deviceIDTaken: return .preparing
         }
     }
 

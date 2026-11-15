@@ -151,8 +151,8 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     /// Who registered the Mac (nil when not known: mock data, older snapshots).
     public var ownerUserID: String?
     /// The computer it runs on (PROTOCOL.md "Devices"): the same for every cmux
-    /// build on one Mac, so ``MacRoster`` lists that Mac once. Nil when the Mac
-    /// never said (an older host); a name is never used instead.
+    /// build of one account on one Mac. Lists do not group by it (``MacRoster``
+    /// lists each build as its own Mac). Nil when the Mac never said (an older host).
     public var machineID: String?
 
     public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, ownerUserID: String? = nil,

@@ -46,6 +46,9 @@ public enum MobileHostEvent: Sendable, Equatable {
     /// The owner removed this Mac from the account's devices; hostd exits and must not
     /// be restarted until the person allows iPhone connections again.
     case removed
+    /// The service answered `not_owner` for this Mac's device id (another account registered it);
+    /// hostd exits (status 79) so the app can start it again with a new id for this account.
+    case deviceIDTaken
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
@@ -113,6 +116,8 @@ public enum MobileHostEvent: Sendable, Equatable {
             self = .surfaceStop(tab: tab)
         case "removed":
             self = .removed
+        case "device_not_owned":
+            self = .deviceIDTaken
         default:
             return nil
         }

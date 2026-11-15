@@ -298,17 +298,17 @@ import Testing
         #expect(!live.accept(again))
     }
 
-    /// A code from the other build on a listed computer (MacRoster lists one build per computer)
-    /// dials that build, though the listed one keeps the focus, even while every link is taken.
+    /// A code from another build on a computer (each build is its own listed Mac) dials that
+    /// build, though the focused one keeps the focus, even while every link is taken.
     @Test func aCodeFromTheOtherBuildOnAComputerDialsThatBuild() async throws {
         let userID = "user-a", teamID = "t-hidden-\(UUID().uuidString.prefix(8))"
         let pick = "cmuxMobile.live.mac.\(teamID)"
         defer { UserDefaults.standard.removeObject(forKey: pick) }
         let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
-        // m1 to m5 on five computers fill the four links Workspaces keeps; m1b is m1's other build.
+        // m1 to m5 on five computers fill the four links Workspaces keeps; m1b is m1's NIGHTLY build.
         let macs = [
             MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
-            MacDevice(id: "m1b", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m1b", name: "cmux mini (NIGHTLY)", isOnline: true, ownerUserID: userID, machineID: machine),
         ] + (2...5).map {
             MacDevice(id: "m\($0)", name: "Mac \($0)", isOnline: true, ownerUserID: userID, machineID: String(repeating: "\($0)", count: 32))
         }
@@ -337,8 +337,7 @@ import Testing
         defer { live.stop() }
         live.showing(macIDs: nil)
         for _ in 0..<3000 where store.macConnection["m1"] != .connected { try? await Task.sleep(for: .milliseconds(1)) }
-        #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1", "m2", "m3", "m4", "m5"])
-        #expect(dialer.dialCount("m1b") == 0)
+        #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1", "m1b", "m2", "m3", "m4", "m5"])
         let invite = try #require(PairInvite(text: PairInviteTests.url(mac: "m1b", team: teamID)))
         #expect(live.accept(invite))
         for _ in 0..<3000 where dialer.dialCount("m1b") == 0 { try? await Task.sleep(for: .milliseconds(1)) }

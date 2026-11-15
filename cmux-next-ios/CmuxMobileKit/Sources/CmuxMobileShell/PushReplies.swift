@@ -24,7 +24,7 @@ extension LiveCoordinator {
             api: api,
             identity: DeviceIdentity.load(userID: user.id),
             userID: user.id,
-            deviceName: UIDevice.current.name,
+            deviceName: DeviceInstanceName(device: UIDevice.current.name, bundle: .main).value,
             transport: transport.link,
             relayOnly: DeveloperOptions.relayOnly,
             blockUDP: DeveloperOptions.blockUDP,

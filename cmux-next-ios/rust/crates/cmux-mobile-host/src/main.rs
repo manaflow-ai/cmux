@@ -45,8 +45,8 @@ async fn main() -> Result<()> {
     let supplied = cmux_mobile_host::control::enabled().then(cmux_mobile_host::control::spawn_stdin_reader);
     let config = cmux_mobile_host::config::HostConfig::from_env(supplied)?;
     tracing::info!(device_id = config.device_id, team = config.team_id, "starting");
-    // `run` returns only when the owner removed this Mac: exit with its own status so
-    // a supervisor never restarts it.
-    cmux_mobile_host::host::run(config).await?;
-    std::process::exit(cmux_mobile_host::host::EXIT_REMOVED)
+    // `run` returns only when retrying cannot help (the owner removed this Mac, or another
+    // account owns its device id): exit with that status so a supervisor does not restart it as is.
+    let stopped = cmux_mobile_host::host::run(config).await?;
+    std::process::exit(stopped.exit_status())
 }

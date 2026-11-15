@@ -83,7 +83,7 @@ struct DevicesPage: View {
         // Once per pass, not once per row (each row's subtitle rebuilt the Mac
         // rows and the same-name tags).
         let macs = macs
-        let rows = DeviceRowContext(sameNames: sameNames, otherBuilds: SettingsDeviceRows.otherBuilds(macs))
+        let rows = DeviceRowContext(sameNames: sameNames)
         List {
             if let relay = directory?.relayAvailable, !relay {
                 Section {
@@ -196,8 +196,6 @@ struct DevicesPage: View {
     /// What every row reads from the whole list, worked out once per pass.
     private struct DeviceRowContext {
         let sameNames: MacNameDisambiguation
-        /// Mac rows that are another cmux build of a listed Mac.
-        let otherBuilds: Set<String>
     }
     private var phones: [SettingsDevice] { list.phones }
 
@@ -327,10 +325,9 @@ struct DevicesPage: View {
         } else {
             presence = "Offline"
         }
-        let build = rows.otherBuilds.contains(device.id) ? ["Another cmux build on this Mac"] : []
         // Same-name Macs: when each was added (the tag is next to the name).
         let added = rows.sameNames.added(for: device.id, addedAt: device.addedAt).map { [$0] } ?? []
-        return ([presence] + build + added).joined(separator: " · ")
+        return ([presence] + added).joined(separator: " · ")
     }
 
     /// Presence plus this phone's own connection, for a Mac this phone knows:

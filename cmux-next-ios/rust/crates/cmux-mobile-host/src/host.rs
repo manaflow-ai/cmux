@@ -122,13 +122,36 @@ fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing:
     })
 }
 
-/// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
-/// the owner removed this Mac (`removed`): registering again would undo that.
-pub async fn run(config: HostConfig) -> Result<()> {
+/// Why [`run`] returned: hostd stops for good and exits with the matching status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stopped {
+    /// The owner removed this Mac (`removed`): registering again would undo that ([`EXIT_REMOVED`]).
+    Removed,
+    /// The service refused this Mac's device id: another account registered it (`403 not_owner`).
+    /// Retrying with the same id never helps; the app makes a new id ([`EXIT_NOT_OWNED`]).
+    DeviceNotOwned,
+}
+
+impl Stopped {
+    /// The process exit status a supervisor reads.
+    pub fn exit_status(self) -> i32 {
+        match self {
+            Self::Removed => EXIT_REMOVED,
+            Self::DeviceNotOwned => EXIT_NOT_OWNED,
+        }
+    }
+}
+
+/// Run until the process is stopped, reconnecting with backoff. Returns only when
+/// retrying cannot help ([`Stopped`]).
+pub async fn run(config: HostConfig) -> Result<Stopped> {
     run_with_changes(config, crate::netwatch::changes()).await
 }
 
-async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::Receiver<u64>) -> Result<()> {
+async fn run_with_changes(
+    config: HostConfig,
+    mut changes: tokio::sync::watch::Receiver<u64>,
+) -> Result<Stopped> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
@@ -213,7 +236,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
                 // Registering again would undo the owner's removal: stop for good.
                 tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
                 control::emit(&Event::Removed);
-                return Ok(());
+                return Ok(Stopped::Removed);
             }
             Ok(reason) => {
                 tracing::warn!(reason, "signaling ended; reconnecting");
@@ -223,6 +246,13 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
                 backoff =
                     if started.elapsed() > LONG_LIVED { QUICK_RECONNECT } else { Duration::from_secs(1) };
                 reason
+            }
+            Err(error) if not_owner(&error) => {
+                // Another account registered this device id (an id an older build kept for
+                // whoever signed in first, say): the same id is refused every time.
+                tracing::warn!("the service says another account owns this Mac's device id; stopping");
+                control::emit(&Event::DeviceNotOwned);
+                return Ok(Stopped::DeviceNotOwned);
             }
             Err(error) => {
                 tracing::warn!("connection attempt failed: {error:#}");
@@ -328,6 +358,10 @@ impl Drop for ConnectionLifetime {
 /// hostd's exit status after the owner removed this Mac (`removed`): a supervisor must not restart it.
 pub const EXIT_REMOVED: i32 = 78;
 
+/// hostd's exit status after the service refused this Mac's device id (`not_owner`): the app
+/// forgets that id for the account and starts hostd with a new one.
+pub const EXIT_NOT_OWNED: i32 = 79;
+
 /// Whether the signaling socket closed because the owner removed this device
 /// (`DELETE /v1/devices/:id` closes it with 4002 `removed`, PROTOCOL.md).
 pub fn removed(reason: &str) -> bool {
@@ -336,6 +370,17 @@ pub fn removed(reason: &str) -> bool {
 
 /// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
 /// the signaling upgrade).
+/// Whether registering this device was refused because another account owns its id
+/// (`POST /v1/devices` answered `403 not_owner`, PROTOCOL.md).
+pub fn not_owner(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<cmux_mobile_link::api::ApiError>(),
+            Some(cmux_mobile_link::api::ApiError::Status { status: 403, body }) if body.contains("\"not_owner\"")
+        )
+    })
+}
+
 pub fn unauthorized(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         if let Some(cmux_mobile_link::api::ApiError::Status { status, .. }) =
@@ -664,6 +709,26 @@ mod tests {
         assert!(!removed("signaling closed by server: 4001 moved"));
         assert!(!removed("signaling read failed: 4002"));
         assert!(!removed("signaling socket closed"));
+    }
+
+    #[test]
+    fn only_a_not_owner_refusal_of_the_registration_stops_hostd() {
+        let refused = anyhow::Error::new(cmux_mobile_link::api::ApiError::Status {
+            status: 403,
+            body: r#"{"error":{"code":"not_owner","message":"this deviceId belongs to another user"}}"#
+                .into(),
+        })
+        .context("POST /v1/devices");
+        assert!(not_owner(&refused));
+        let member = anyhow::Error::new(cmux_mobile_link::api::ApiError::Status {
+            status: 403,
+            body: r#"{"error":{"code":"not_member","message":"not a member"}}"#.into(),
+        })
+        .context("POST /v1/devices");
+        assert!(!not_owner(&member));
+        assert!(!not_owner(&anyhow::anyhow!("signaling connect")));
+        assert_eq!(Stopped::DeviceNotOwned.exit_status(), 79);
+        assert_eq!(Stopped::Removed.exit_status(), 78);
     }
 
     #[test]

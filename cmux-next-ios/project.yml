@@ -46,6 +46,12 @@ settings:
     CMUX_MOBILE_TAG: ""
     CMUX_MOBILE_SOURCE_COMMIT: ""
     CMUX_MOBILE_DISPLAY_NAME: cmux
+    # How this build names the phone to the account's Macs (Info.plist CmuxMobileInstanceLabel,
+    # CmuxMobileLive DeviceInstanceName): the phone's name plus this label in parentheses. Each build
+    # on a phone is its own device, so the label tells them apart. The App Store build has none (the
+    # phone's name alone); every other configuration sets its own. A future BETA configuration
+    # (dev.cmux.app.beta) sets BETA.
+    CMUX_MOBILE_INSTANCE_LABEL: DEV
     # The cmux-mobile-api base URL baked into Info.plist (CmuxMobileAPIBase). DEBUG
     # builds fall back to the dev Worker when it is empty; a non-DEBUG build
     # with no value has no live data, so every shipping config sets it.
@@ -105,13 +111,16 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
   configs:
     Release:
+      CMUX_MOBILE_INSTANCE_LABEL: RELEASE
       # Release (the `xcodebuild archive` default) is a production build too.
       CMUX_MOBILE_API_BASE: https:/$()/mobile-api.cmux.dev
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
     Demo:
+      CMUX_MOBILE_INSTANCE_LABEL: DEMO
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CMUX_MOBILE_DEMO
       SWIFT_OPTIMIZATION_LEVEL: -O
     Production:
+      CMUX_MOBILE_INSTANCE_LABEL: PROD
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION
       SWIFT_OPTIMIZATION_LEVEL: -O
       CMUX_MOBILE_TAG: .prod
@@ -120,10 +129,12 @@ settings:
       CMUX_MOBILE_API_BASE: https:/$()/mobile-api.cmux.dev
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
     Release:
+      CMUX_MOBILE_INSTANCE_LABEL: RELEASE
       # A non-DEBUG build with no service address signs in to an empty app.
       CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_PROD_API_BASE)
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
     TestFlight:
+      CMUX_MOBILE_INSTANCE_LABEL: INTERNAL
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT
       SWIFT_OPTIMIZATION_LEVEL: -O
       CMUX_MOBILE_TAG: ""
@@ -133,6 +144,7 @@ settings:
       CMUX_MOBILE_API_BASE: $(CMUX_MOBILE_PROD_API_BASE)
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_PROD_CLOUD_API_BASE)
     TestFlightStaging:
+      CMUX_MOBILE_INSTANCE_LABEL: "INTERNAL STAGING"
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT
       SWIFT_OPTIMIZATION_LEVEL: -O
       CMUX_MOBILE_TAG: ""
@@ -142,6 +154,7 @@ settings:
       CMUX_MOBILE_CLOUD_API_BASE: $(CMUX_MOBILE_STAGING_CLOUD_API_BASE)
       CMUX_MOBILE_STACK_ENVIRONMENT: development
     AppStore:
+      CMUX_MOBILE_INSTANCE_LABEL: ""
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CMUX_MOBILE_PRODUCTION CMUX_MOBILE_APPSTORE
       SWIFT_OPTIMIZATION_LEVEL: -O
       CMUX_MOBILE_TAG: ""
@@ -281,6 +294,7 @@ targets:
         CFBundleAllowMixedLocalizations: true
         LSRequiresIPhoneOS: true
         CmuxMobileTag: $(CMUX_MOBILE_TAG)
+        CmuxMobileInstanceLabel: $(CMUX_MOBILE_INSTANCE_LABEL)
         CmuxMobileAPIBase: $(CMUX_MOBILE_API_BASE)
         CmuxMobileCloudAPIBase: $(CMUX_MOBILE_CLOUD_API_BASE)
         CmuxMobileStackEnvironment: $(CMUX_MOBILE_STACK_ENVIRONMENT)

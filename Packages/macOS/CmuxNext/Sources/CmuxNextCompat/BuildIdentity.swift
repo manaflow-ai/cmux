@@ -141,6 +141,28 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
     /// NIGHTLY (`com.cmuxterm.app.nightly`) only.
     public var keepsSharedRoots: Bool { bundleID.map { Array($0.utf8) == Array(Self.nightlyBundleID.utf8) } ?? false }
 
+    /// The Stable lane's bundles: the release bundle and cmux NEXT Stable
+    /// (`scripts/ci/stable-next-identity.sh`), which ships the nightly's bits under its own id.
+    public static let stableBundleIDs: Set<String> = ["com.cmuxterm.app", "com.cmuxterm.app.nightly.cmux-next-stable"]
+
+    /// How a person tells this build from another cmux on the same Mac, where it names itself to
+    /// other devices (the iPhone app lists each build as its own Mac): nil for the Stable lane,
+    /// which carries no decoration; `NIGHTLY` for cmux NIGHTLY; else the kind plus its tag
+    /// (`DEV my-tag`, `RC`, `STAGING my-tag`, `NIGHTLY other`).
+    public var instanceLabel: String? {
+        guard let bundleID else { return "DEV" }
+        if Self.stableBundleIDs.contains(bundleID) { return nil }
+        let kindLabel: String = switch kind {
+        case .nightly: "NIGHTLY"
+        case .rc: "RC"
+        case .staging: "STAGING"
+        case .dev, .release, .unbundled: "DEV"
+        }
+        // cmux NIGHTLY itself has no tag; a tagged build of any kind names its tag.
+        guard let tag, !tag.isEmpty, bundleID != Self.nightlyBundleID else { return kindLabel }
+        return "\(kindLabel) \(tag)"
+    }
+
     private var ownsRoots: Bool { !keepsSharedRoots && kind != .unbundled }
 
     /// The folder of every build's Chief home: `~/.cmux/chief`.

@@ -42,9 +42,9 @@ fn siblings_are_the_other_builds_device_ids_on_this_mac() {
     put("cmux-mobile-host/device-id", standalone);
     put("org.other/cmux-mobile-host/device-id", "not a uuid");
     put("org.dupe/cmux-mobile-host/device-id", nightly);
-    let ids = sibling_device_ids(root.path(), &own.to_uppercase(), MINE);
+    let ids = sibling_device_ids(root.path(), "owner", &own.to_uppercase(), MINE);
     assert_eq!(ids, vec![standalone.to_owned(), nightly.to_owned(), deleted.to_owned()]);
-    assert!(sibling_device_ids(&root.path().join("missing"), own, MINE).is_empty());
+    assert!(sibling_device_ids(&root.path().join("missing"), "owner", own, MINE).is_empty());
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn at_most_sixteen_siblings() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, uuid::Uuid::new_v4().to_string()).unwrap();
     }
-    assert_eq!(sibling_device_ids(root.path(), "x", MINE).len(), MAX_SIBLINGS);
+    assert_eq!(sibling_device_ids(root.path(), "owner", "x", MINE).len(), MAX_SIBLINGS);
 }
 #[test]
 fn a_mac_registration_carries_its_machine_id_and_siblings() {
@@ -96,7 +96,10 @@ fn a_folder_from_another_machine_is_not_a_sibling() {
     put("b.same/cmux-mobile-host/device-id", same);
     put(&format!("b.same/cmux-mobile-host/{MACHINE_MARKER}"), &MINE.to_uppercase());
     put("c.legacy/cmux-mobile-host/device-id", legacy);
-    assert_eq!(sibling_device_ids(root.path(), "own", MINE), vec![same.to_owned(), legacy.to_owned()]);
+    assert_eq!(
+        sibling_device_ids(root.path(), "owner", "own", MINE),
+        vec![same.to_owned(), legacy.to_owned()]
+    );
 }
 
 #[test]
@@ -121,8 +124,11 @@ fn an_overridden_machine_id_claims_no_siblings() {
     let path = root.path().join("old.build/cmux-mobile-host/device-id");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, "88888888-8888-4888-8888-888888888888").unwrap();
-    assert_eq!(registration_siblings(root.path(), "own", MINE, false), vec!["88888888-8888-4888-8888-888888888888".to_owned()]);
-    assert!(registration_siblings(root.path(), "own", MINE, true).is_empty());
+    assert_eq!(
+        registration_siblings(root.path(), "owner", "own", MINE, false),
+        vec!["88888888-8888-4888-8888-888888888888".to_owned()]
+    );
+    assert!(registration_siblings(root.path(), "owner", "own", MINE, true).is_empty());
 }
 
 /// The registration itself: an override sends no siblings and writes no
@@ -134,11 +140,37 @@ fn a_registration_with_an_override_sends_no_siblings_and_writes_no_marker() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, "99999999-9999-4999-8999-999999999999").unwrap();
     let state = root.path().join("rig.app/cmux-mobile-host");
-    let (id, siblings) = registration_machine(Some(MINE.into()), true, &state, root.path(), "own");
+    let (id, siblings) = registration_machine(Some(MINE.into()), true, &state, root.path(), "owner", "own");
     assert_eq!(id.as_deref(), Some(MINE));
     assert!(siblings.is_empty());
     assert!(!state.join(MACHINE_MARKER).exists());
-    let (_, siblings) = registration_machine(Some(MINE.into()), false, &state, root.path(), "own");
+    let (_, siblings) = registration_machine(Some(MINE.into()), false, &state, root.path(), "owner", "own");
     assert_eq!(siblings, vec!["99999999-9999-4999-8999-999999999999".to_owned()]);
     assert_eq!(std::fs::read_to_string(state.join(MACHINE_MARKER)).unwrap(), MINE);
+}
+
+/// Since the Mac app keeps a device id per account (`device-id.<owner>`), a build's id for this
+/// owner is its sibling; another account's id in the same folder is never read, and an id whose
+/// `.machine` names another computer (a copied folder) is skipped.
+#[test]
+fn per_account_ids_are_read_for_this_owner_only() {
+    let root = tempfile::tempdir().unwrap();
+    let put = |rel: &str, text: &str| {
+        let path = root.path().join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    let mine = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let theirs = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let copied = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    put("com.cmuxterm.app.nightly/cmux-mobile-host/device-id.owner", mine);
+    put("com.cmuxterm.app.nightly/cmux-mobile-host/device-id.owner.machine", MINE);
+    put("com.cmuxterm.app.nightly/cmux-mobile-host/device-id.someone-else", theirs);
+    put("com.cmuxterm.app.debug.x/cmux-mobile-host/device-id.owner", copied);
+    put(
+        "com.cmuxterm.app.debug.x/cmux-mobile-host/device-id.owner.machine",
+        "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    );
+    assert_eq!(sibling_device_ids(root.path(), "owner", "own", MINE), vec![mine.to_owned()]);
+    assert!(cmux_mobile_host::config::owner_file_component("../x").is_none());
 }

@@ -57,6 +57,8 @@ esac
 team=7WLXT3NR37
 bundle_id="dev.cmux.mobile.$tag"
 display_name="cmux mobile"; [[ "$tag" == demo || "$tag" == prod ]] || display_name="mobile $tag"
+# The label this build adds to the phone's name on the account (project.yml CMUX_MOBILE_INSTANCE_LABEL).
+instance_label="DEMO"; [[ "$tag" == demo ]] || instance_label="DEV $tag"
 jobs=${JOBS:-8}
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(git -C "$script_dir" rev-parse --show-toplevel)
@@ -130,7 +132,7 @@ if [[ $config == Production ]]; then
 else
   # Refs from before the Demo configuration build Debug with the same overrides.
   grep -q '^  Demo: release' project.yml || { config=Debug; notes+=("This ref has no Demo configuration; built Debug (no Settings → Developer)."); }
-  common+=(CMUX_MOBILE_TAG=".$tag" "CMUX_MOBILE_DISPLAY_NAME=$display_name"
+  common+=(CMUX_MOBILE_TAG=".$tag" "CMUX_MOBILE_DISPLAY_NAME=$display_name" "CMUX_MOBILE_INSTANCE_LABEL=$instance_label"
            # $(inherited) keeps each package's own conditions (swift-crypto needs them).
            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
 fi
