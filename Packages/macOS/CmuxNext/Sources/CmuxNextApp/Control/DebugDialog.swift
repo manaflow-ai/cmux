@@ -14,8 +14,7 @@ import CmuxNextSettings
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
-/// - `{open: "classicImport" | "classicImportManual" | "classicImportCautions" | "classicImportBefore" | "classicImportCountTitle" | "classicImportList"}`:
-///   the classic import prompt and its gallery variants (`ClassicImportPromptGallery`).
+/// - `{open: "classicImport" | "classicImportManual" | "classicImportCautions" | "classicImportBefore" | "classicImportCountTitle" | "classicImportList"}` (`ClassicImportPromptGallery`).
 /// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceSized" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
 ///   scope: "window" | "app", origin?}`
 ///   shows a fixture (screenshots, latency) and returns its id.

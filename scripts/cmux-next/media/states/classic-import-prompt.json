@@ -1,5 +1,5 @@
 {
-  "title": "The classic import prompt and its after-Cancel toast: before, the landed look and the gallery variants (DebugClassicImportGallery). Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/classic-import-prompt.json",
+  "title": "The classic import prompt and its after-Not Now toast: before, the landed look and the gallery variants (ClassicImportPromptGallery). Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/classic-import-prompt.json",
   "steps": [
     {
       "title": "Launch",
@@ -27,7 +27,7 @@
           "path": "{collect}"
         }
       },
-      "collect": "prompt-classicImportBefore.png",
+      "collect": "prompt-before.png",
       "wait": 0.3
     },
     {
@@ -62,7 +62,7 @@
           "path": "{collect}"
         }
       },
-      "collect": "prompt-classicImport.png",
+      "collect": "prompt-landed.png",
       "wait": 0.3
     },
     {
@@ -97,7 +97,7 @@
           "path": "{collect}"
         }
       },
-      "collect": "prompt-classicImportCountTitle.png",
+      "collect": "prompt-variant-count-title.png",
       "wait": 0.3
     },
     {
@@ -132,7 +132,7 @@
           "path": "{collect}"
         }
       },
-      "collect": "prompt-classicImportList.png",
+      "collect": "prompt-variant-list.png",
       "wait": 0.3
     },
     {
@@ -167,7 +167,7 @@
           "path": "{collect}"
         }
       },
-      "collect": "prompt-classicImportCautions.png",
+      "collect": "prompt-landed-cautions.png",
       "wait": 0.3
     },
     {
@@ -202,7 +202,7 @@
           "path": "{collect}"
         }
       },
-      "collect": "prompt-classicImportManual.png",
+      "collect": "prompt-landed-manual.png",
       "wait": 0.3
     },
     {

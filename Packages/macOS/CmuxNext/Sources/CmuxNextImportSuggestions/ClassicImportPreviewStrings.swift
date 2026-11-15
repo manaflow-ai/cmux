@@ -118,6 +118,15 @@ public nonisolated struct ClassicImportPreviewStrings: Sendable {
                table: "ImportSuggestions", bundle: .module)
     }
 
+    /// The toast after the launch's Not Now: one short line, and ``importAgain`` asks again (Leo 2026-11-15, on
+    /// the two-sentence toast with Don't Show Again it replaced: "the styling for that + this is just kinda awkward").
+    public static var notImported: String {
+        String(localized: "classicImport.toast.notImported", defaultValue: "Classic workspaces weren’t imported.", table: "ImportSuggestions", bundle: .module)
+    }
+    public static var importAgain: String {
+        String(localized: "classicImport.toast.importAgain", defaultValue: "Import…", table: "ImportSuggestions", bundle: .module)
+    }
+
     /// The classic app that saves under `bundle` (a classic bundle id), as its Dock names it.
     public static func appName(_ bundle: String) -> String {
         let channel = { (name: String) in bundle == name || bundle.hasPrefix(name + ".") }

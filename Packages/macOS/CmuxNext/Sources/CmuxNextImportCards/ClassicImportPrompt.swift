@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextDaemon
 public import CmuxNextDesign
 import CmuxNextImportSuggestions
@@ -21,6 +22,15 @@ public enum ClassicImportPrompt {
             ],
             identifier: identifier
         )
+    }
+
+    /// The classic import's toast; `importAgain` adds Import… (after the launch's Not Now: one short line and a
+    /// button, never two sentences beside Don't Show Again; Leo 2026-11-15: "the styling for that + this is just
+    /// kinda awkward"), which runs it.
+    @MainActor public static func toast(_ message: String, in window: NSWindow, importAgain: (() -> Void)? = nil) {
+        let action = importAgain.map { _ in CmuxToast.Action(title: ClassicImportPreviewStrings.importAgain) }
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "classicImport", message: message, action: action), in: window)
+        if let importAgain { handle.onAction = importAgain }
     }
 
     public static func lines(_ preview: ClassicImportPreview, atLaunch: Bool) -> [String] {
@@ -91,8 +101,8 @@ public enum ClassicImportPromptGallery {
     }
 
     /// The toast after Cancel, by variant: `before` (what Leo saw), `short` (one line, the way back in the
-    /// tooltip), `action` (one line and an Import button that asks again). `none` (no toast) is the landed
-    /// look: the prompt itself says where the import waits.
+    /// tooltip), `action` (one line and Import…, which asks again: the landed look). `none` shows no toast
+    /// (the prompt itself says where the import waits).
     public static let toasts: [String: CmuxToast] = [
         "before": CmuxToast(id: "classicImport", message: "Classic workspaces stay in classic cmux. Import them any time from Settings › Import."),
         "short": CmuxToast(id: "classicImport", message: "Classic workspaces stay in classic cmux.",

@@ -186,8 +186,8 @@ enum ClassicImportStrings {
         return (opened + stayed).joined(separator: " ")
     }
 
-    @MainActor static func toast(_ message: String, in window: NSWindow?) {
+    @MainActor static func toast(_ message: String, in window: NSWindow?, importAgain: (() -> Void)? = nil) {
         guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        _ = CmuxToastCenter.shared.show(CmuxToast(id: "classicImport", message: message), in: window)
+        ClassicImportPrompt.toast(message, in: window, importAgain: importAgain)
     }
 }

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -64,7 +65,9 @@ extension AppOnboardingServices {
             let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
                                                    confirmation: { await self.confirmClassicImport($0, atLaunch: true) })
             guard let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
-            ClassicImportStrings.toast(notice, in: services.windows.active?.window)
+            let registry = services.registry
+            ClassicImportStrings.toast(notice, in: services.windows.active?.window,
+                                       importAgain: notice == ClassicImportPreviewStrings.notImported ? { _ = registry.perform("workspace.importClassic") } : nil)
         } catch {
             services.daemon.logger.error("classic migration failed: \(String(describing: error), privacy: .public)")
         }
@@ -163,10 +166,9 @@ extension AppOnboardingServices {
             // The launch's No is kept: later launches stop asking. Import Workspaces from Classic cmux still runs.
             // A declined resume ends too (its half-made workspaces close on the next manual run).
             guard mode == .automatic else { return outcome }
-            // No toast after it: the prompt the person just answered said where the import waits (Settings › Import),
-            // and a toast repeating it right after an explicit Not Now is chatter (Leo 2026-11-15, on that toast:
-            // "the styling for that + this is just kinda awkward").
             try await client.record(.decline(source: source))
+            outcome.notice = ClassicImportPreviewStrings.notImported
+            owner.classicImportNotice = outcome.notice
             return outcome
         case .unanswered:
             outcome.confirmed = false
