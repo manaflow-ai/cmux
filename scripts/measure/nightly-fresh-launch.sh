@@ -93,7 +93,9 @@ build_ab() {
   head="$(git rev-parse HEAD)"
   # The launches below run after the checkout is back at HEAD: base's tree only builds.
   if [[ -n "$base" ]]; then
-    git cat-file -e "$base^{commit}" 2>/dev/null || git fetch --quiet --depth 1 origin "$base" || { echo "NFL cannot fetch base $base" >&2; exit 3; }
+    local depth=()
+    [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1) # a full clone stays full
+    git cat-file -e "$base^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$base" || { echo "NFL cannot fetch base $base" >&2; exit 3; }
     git -c advice.detachedHead=false checkout --quiet --detach "$base" || exit 3
     build_dmg "$out" base "$config"; rc=$?
     git -c advice.detachedHead=false checkout --quiet --detach "$head" || exit 3
