@@ -387,6 +387,10 @@ mod tests {
                 Some(false),
             ),
             ("WARNING: REVOKED HOST KEY DETECTED!\nHost key verification failed.", Some(false)),
+            (
+                "Host key ED25519 SHA256:example revoked by file /tmp/revoked_keys\nHost key verification failed.",
+                Some(false),
+            ),
             ("Permission denied (publickey).", Some(false)),
             ("Connection refused", Some(false)),
         ] {

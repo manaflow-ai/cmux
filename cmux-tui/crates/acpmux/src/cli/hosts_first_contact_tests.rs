@@ -173,7 +173,25 @@ fn first_contact_real_ssh_records_only_unknown_keys() {
     }
     assert!(f.run(&probe).is_err());
     assert_eq!(f.stored(), revoked_record);
+
+    // RevokedHostKeys emits a different diagnostic from known_hosts' @revoked
+    // marker. Both must keep candidates rejected and give revocation advice.
+    std::fs::write(&f.known, &recorded).unwrap();
+    let revoked_keys = f._dir.path().join("revoked_keys");
+    std::fs::write(&revoked_keys, public).unwrap();
+    let config = std::fs::read_to_string(&f.client).unwrap();
+    std::fs::write(&f.client, format!("{config}\n RevokedHostKeys {}\n", revoked_keys.display()))
+        .unwrap();
+    for accept in [false, true] {
+        let revoked = f.contact(accept).expect_err("revocation-file key must be rejected");
+        assert!(revoked.contains("revoked by file"), "{revoked}");
+        assert_eq!(SshFailure::of(&revoked), SshFailure::HostKeyRevoked, "{revoked}");
+        assert_eq!(f.stored(), recorded);
+    }
+    let revoked = f.run(&probe).expect_err("probe must reject revocation-file key");
+    assert_eq!(SshFailure::of(&revoked), SshFailure::HostKeyRevoked, "{revoked}");
+    assert_eq!(f.stored(), recorded);
     eprintln!(
-        "PASS first_contact_real_ssh: unknown/probe/accept/reconnect/changed/revoked; stored keys preserved"
+        "PASS first_contact_real_ssh: unknown/probe/accept/reconnect/changed/revoked/revocation-file; stored keys preserved"
     );
 }

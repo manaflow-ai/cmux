@@ -338,7 +338,7 @@ impl SshFailure {
         let s = stderr.to_ascii_lowercase();
         let any = |needles: &[&str]| needles.iter().any(|n| s.contains(n));
         // ssh prints the host key warning before anything else it reports.
-        if any(&["revoked host key", "host key is revoked"]) {
+        if any(&["revoked host key", "host key is revoked", "revoked by file"]) {
             Self::HostKeyRevoked
         } else if any(&["remote host identification has changed"]) {
             Self::HostKeyChanged

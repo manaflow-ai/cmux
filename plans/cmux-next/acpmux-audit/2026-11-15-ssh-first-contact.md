@@ -5,6 +5,7 @@ leaves the existing optional `ssh_ok` field absent, so Add Machine can select it
 explicit Add action can record the first key. The background probe forces strict checking
 and disables host-key updates. Changed and revoked keys stay rejected; revoked-key
 recovery asks the owner to replace the key rather than suggesting first-contact acceptance.
+Both `known_hosts`'s `@revoked` marker and `RevokedHostKeys` file diagnostics use that recovery.
 
 This runs only in the bounded candidate CLI probe and enrollment reach check. The existing
 32-host limit and eight concurrent probes are unchanged; no daemon request path, timer,
