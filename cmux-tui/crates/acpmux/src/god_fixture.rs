@@ -213,7 +213,7 @@ pub fn peer_row(peer: &str, index: usize, keys: usize) -> Value {
 
 /// One chat's records: `messages` messages in turns of four (the prompt, a tool call, its output,
 /// the answer), the output padded so the log is about `bytes`. Returns the bytes and the last seq.
-fn append_log(
+pub(crate) fn append_log(
     store: &dyn crate::store::Store,
     id: &str,
     messages: usize,

@@ -6,11 +6,13 @@
 //! - a chat tab the cmux app shows in a Cloud VM's workspace (its `snapshot.get` topology: the
 //!   tab's `agent_session`, its workspace's `machine`) gets the prompt on that VM, as `cmux chat
 //!   --on vm:…` sends its first one (cloud_start_chat.rs), and `--wait` prints the reply;
+//! - a `HOST/NAME` session (what `cmux chat --on MACHINE` answers for a joined machine) goes
+//!   to acpmux as `acpmux send HOST/NAME`, which reaches it through the mesh hub (or a peer link);
 //! - any other session is this machine's: `cmux agents chat send SESSION`, which says when no
 //!   chat has that id.
 //!
-//! `--on here|vm:ID|NAME` names the place instead, without the lookup. `cmux chat send --to …`
-//! stays the message to a Chief, a person or a group (chief/chat_scope.rs).
+//! `--on here|vm:ID|NAME|MACHINE|joined:ID` names the place instead, without the lookup.
+//! `cmux chat send --to …` stays the message to a Chief, a person or a group (chief/chat_scope.rs).
 //!
 //! `--wait` waits for the turn and prints its reply here as on a Cloud VM (agents/turn.rs here).
 //! `cmux chat read SESSION` and `cmux chat wait SESSION`, with a chat's session id (a UUID, or
@@ -26,21 +28,27 @@ use serde_json::{Value, json};
 
 use super::agents::turn::{self, Begin};
 use super::chat_start;
+use super::chat_start::joined::{self, JoinedMachine};
 use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 pub(super) const USAGE: &str = "\
-usage: cmux chat send [SESSION|last] [--on here|vm:ID|NAME] [-w] [--timeout DURATION] [--json] TEXT
-       cmux chat --resume SESSION [--on here|vm:ID|NAME] [-w] [--timeout DURATION] [--json] TEXT
+usage: cmux chat send [SESSION|last] [--on here|vm:ID|NAME|MACHINE] [-w] [--timeout DURATION]
+                      [--json] TEXT
+       cmux chat --resume SESSION [--on here|vm:ID|NAME|MACHINE] [-w] [--timeout DURATION]
+                      [--json] TEXT
 
 Sends the next prompt to the chat SESSION (the session_id `cmux chat` answered), wherever it
-runs: here, or on the Cloud VM whose workspace in the cmux app shows it. TEXT `-` reads stdin.
+runs: here, on the Cloud VM whose workspace in the cmux app shows it, or on a joined machine
+(SESSION is HOST/NAME there). TEXT `-` reads stdin.
 Without SESSION (or with `last`) it goes to the last chat this terminal started or sent to:
   cmux chat --on vm:new 'Run the tests'
   cmux chat send -w 'Now fix the failing one'
 
-  --on TARGET        Where the chat runs, when the app does not show it: here or vm:ID|NAME
-  -w, --wait         Wait for the turn to end and print the reply
+  --on TARGET        Where the chat runs, when the app does not show it: here, vm:ID|NAME,
+                     or a joined machine by its name or joined:ID
+  -w, --wait         Wait for the turn to end and print the reply (here or on a Cloud VM;
+                     a joined machine's reply is `cmux acp last HOST/NAME`)
   --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
                      default 15m, at most 4h)
 
@@ -92,6 +100,8 @@ pub(super) enum Parsed {
 pub(super) enum Place {
     Here,
     Vm(String),
+    /// A `HOST/NAME` acpmux reaches (a joined machine's chat, through the mesh hub).
+    Acp(String),
 }
 
 /// `Some(exit code)` when `args` is a send to a session: `chat send SESSION …` (no `--to`) or
@@ -125,17 +135,31 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             send.on = last.vm.map(|vm| format!("vm:{vm}"));
         }
     }
-    let place = locate(
+    let place = locate_with(
         &send.session,
         send.on.as_deref(),
         || topology(&global),
         || cloud_start_chat::app_machines(&global),
+        |on| {
+            joined::resolve(
+                on,
+                joined::Sources { hub: joined::hub_peers, rows: || joined::account_rows(&global) },
+            )
+        },
     );
     Some(match place {
         Ok(Place::Here) => {
             let code = here(&global, &send);
             if code == 0 {
                 super::last_chat::remember(&send.session, None);
+            }
+            code
+        }
+        Ok(Place::Acp(target)) => {
+            let code = on_joined(&global, &send, &target);
+            if code == 0 {
+                // HOST/NAME: `last` finds it again through acpmux, no VM to record.
+                super::last_chat::remember(&target, None);
             }
             code
         }
@@ -406,7 +430,8 @@ fn set(slot: &mut Option<String>, value: String, what: &str) -> Result<(), Usage
     Ok(())
 }
 
-/// Where chat `session` runs: `on` when given, else the workspace the app shows its tab in.
+/// [`locate_with`] with no joined machine for `--on` (`chat cd`, which goes to a Cloud chat
+/// only; a `HOST/NAME` session is still [`Place::Acp`]).
 pub(super) fn locate<T, L>(
     session: &str,
     on: Option<&str>,
@@ -417,14 +442,49 @@ where
     T: FnOnce() -> Result<Value, Value>,
     L: FnOnce() -> Result<Value, Value>,
 {
+    locate_with(session, on, topology, listed, |_| None)
+}
+
+/// Where chat `session` runs: `on` when given (a joined machine is `joined`'s answer for it),
+/// else `HOST/NAME`'s acpmux, else the workspace the app shows its tab in.
+pub(super) fn locate_with<T, L, J>(
+    session: &str,
+    on: Option<&str>,
+    topology: T,
+    listed: L,
+    joined: J,
+) -> Result<Place, Value>
+where
+    T: FnOnce() -> Result<Value, Value>,
+    L: FnOnce() -> Result<Value, Value>,
+    J: FnOnce(&str) -> Option<Result<JoinedMachine, Value>>,
+{
     match on {
         Some("here") => return Ok(Place::Here),
         Some(on) => {
             let Some(vm) = on.strip_prefix("vm:").filter(|vm| *vm != "new") else {
+                let reserved = matches!(on, "cloud" | "vm" | "vm:new");
+                if let Some(found) = (!reserved).then(|| joined(on)).flatten() {
+                    let machine = found?;
+                    return match session.split_once('/') {
+                        None => Ok(Place::Acp(format!("{}/{session}", machine.host))),
+                        Some((host, _)) if host.eq_ignore_ascii_case(&machine.host) => {
+                            Ok(Place::Acp(session.to_owned()))
+                        }
+                        // `--on` was checked, so the session's own machine must be the one it
+                        // names: never a check of one machine and a send to another.
+                        Some((host, _)) => Err(refusal(
+                            "chat_target.mismatch",
+                            format!("{session} runs on {host}, but --on {on} is {}", machine.host),
+                            "leave out --on: the session id names its machine",
+                            json!({"session_id": session, "on": on, "host": machine.host}),
+                        )),
+                    };
+                }
                 return Err(refusal(
                     "chat_target.no_route",
                     format!(
-                        "a prompt to a running chat goes --on here or --on vm:ID|NAME, not {on}"
+                        "a prompt to a running chat goes --on here, vm:ID|NAME or a joined machine, not {on}"
                     ),
                     "leave out --on: the session id finds its chat",
                     json!({"on": on}),
@@ -442,6 +502,18 @@ where
             };
         }
         None => {}
+    }
+    // HOST/NAME: a chat on another machine, which acpmux routes (never an app tab's id). HOST
+    // gets the start's account check (`joined::resolve`, one check for both): a revoked machine,
+    // or one the hub lists that the account's list could not vouch for, gets no prompt. An
+    // offline one still does (the hub keeps it), and a HOST no joined machine names is a peer's.
+    if let Some((host, _)) = session.split_once('/') {
+        if let Some(Err(error)) = joined(host)
+            && error.get("code").and_then(Value::as_str) != Some("chat_target.unavailable")
+        {
+            return Err(error);
+        }
+        return Ok(Place::Acp(session.to_owned()));
     }
     // No app (CI, a headless agent): only this machine's chats are reachable.
     let Ok(topology) = topology() else { return Ok(Place::Here) };
@@ -513,6 +585,34 @@ fn here(global: &GlobalArgs, send: &Send) -> i32 {
     let mut words = chat_start::global_words(global);
     words.extend(["agents", "chat", "send", &send.session, "--", &send.text].map(str::to_owned));
     super::agents::run_if_requested(&words).unwrap_or(2)
+}
+
+/// `acpmux send HOST/NAME` with the prompt: through the hub for a joined machine, whose answer
+/// is the hub's receipt; the reply is `cmux acp last HOST/NAME`.
+fn on_joined(global: &GlobalArgs, send: &Send, target: &str) -> i32 {
+    if send.wait || send.timeout.is_some() {
+        return usage_failure(
+            &UsageError::new(format!(
+                "--wait and --timeout wait for a chat here or on a Cloud VM; read this chat's reply with `cmux acp last {target}`"
+            )),
+            global.output,
+        );
+    }
+    match joined::send(target, &send.text) {
+        Ok(receipt) => {
+            let answer = json!({"session_id": target, "prompt": receipt,
+                                "next": {"read": format!("cmux acp last {target}")}});
+            match global.output {
+                OutputMode::Human => {
+                    println!("sent to {target}; read the reply: cmux acp last {target}");
+                    0
+                }
+                OutputMode::Quiet => 0,
+                _ => super::wire::print_local_success(&answer, global.output),
+            }
+        }
+        Err(error) => joined::fail(global, error),
+    }
 }
 
 /// A refusal whose message and `details.next` say what to run next.

@@ -13,7 +13,7 @@ use crate::guard::{managed_key_for_path, managed_key_for_removal};
 use crate::jsonc::{self, JsoncError};
 use crate::keypath::{RESERVED_SHORTCUT_KEYS, dotted};
 use crate::refusal::Refusal;
-use crate::schema::{Row, accepts, retired_reason};
+use crate::schema::{Row, accepts, replaced_by_row, retired_keys, retired_reason};
 use crate::value::{canonical, is_empty_object, value_at};
 
 fn not_a_write() -> Refusal {
@@ -204,13 +204,25 @@ fn set_text(
             || state.team.defaults.contains_key(&row.key)
             || UNSET_IS_NOT_DEFAULT.contains(&row.key.as_str());
         if row.default.clone().map(canonical).as_ref() == Some(&value) && !below {
-            return remove_pruning(source.to_string(), &path);
+            return remove_pruning(without_replaced(source.to_string(), &path)?, &path);
         }
     }
     if row.is_none() {
         check_row_overlap(state, &path)?;
     }
-    jsonc::set(source, &path, &value).map_err(unreadable)
+    let text = without_replaced(source.to_string(), &path)?;
+    jsonc::set(&text, &path, &value).map_err(unreadable)
+}
+
+/// `text` without the retired key the row at `path` replaced, so the old key
+/// never applies behind a write or reset of the row (`schema::retired`).
+fn without_replaced(text: String, path: &[String]) -> Result<String, Refusal> {
+    let Some(replaced) = replaced_by_row(path) else { return Ok(text) };
+    let root = jsonc::parse(&text).map_err(unreadable)?;
+    if value_at(&root, &replaced.old).is_none() {
+        return Ok(text);
+    }
+    remove_pruning(text, &replaced.old)
 }
 
 /// Keys whose reader fills an unset key with something other than the row's default, so a written
@@ -251,10 +263,11 @@ fn reset_text(
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
     // A retired key may be removed from an old file (pruning like a row).
+    let text = without_replaced(source.to_string(), &path)?;
     if row.is_some() || retired_reason(&path).is_some() {
-        remove_pruning(source.to_string(), &path)
+        remove_pruning(text, &path)
     } else {
-        jsonc::remove(source, &path).map_err(unreadable)
+        jsonc::remove(&text, &path).map_err(unreadable)
     }
 }
 
@@ -280,6 +293,14 @@ fn reset_all_text(state: &State, meta: &WriteMeta) -> Result<String, Refusal> {
             continue;
         }
         text = remove_pruning(text, &row.path)?;
+    }
+    // Retired keys go too, as in Swift `resetAllSettings`: an old key a row
+    // replaced would apply again behind the reset.
+    for (key, _) in retired_keys() {
+        let path: Vec<String> = key.split('.').map(str::to_string).collect();
+        if removable(path.as_slice()) && !managed.contains_key(key) {
+            text = remove_pruning(text, &path)?;
+        }
     }
     let bindings = parts(&["shortcuts", "bindings"]);
     if removable(bindings.as_slice()) {

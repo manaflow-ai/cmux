@@ -272,7 +272,7 @@ fn agent_in(named: bool, env: impl Fn(&str) -> Option<String>) -> bool {
 }
 
 /// It runs in an acpmux session that its caller token proves to the daemon.
-fn in_session(env: impl Fn(&str) -> Option<String>) -> bool {
+pub(crate) fn in_session(env: impl Fn(&str) -> Option<String>) -> bool {
     let set = |key: &str| env(key).is_some_and(|v| !v.trim().is_empty());
     set("ACPMUX_SESSION_ID") && set(crate::hub::person::CALLER_TOKEN_ENV)
 }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::wire::{ListKey, Page, PageResult};
+use crate::wire::{Page, PageKey, PageResult};
 use acpmux_book::index::MAX_INDEX_RECORD_BYTES;
 use serde_json::value::RawValue;
 
@@ -8,7 +8,21 @@ use serde_json::value::RawValue;
 const MAX_WIRE_ROW_BYTES: usize = 6 * MAX_INDEX_RECORD_BYTES;
 
 impl Hub {
-    pub(super) fn keyed_page(&self, request: &Page, keys: &[ListKey]) -> Result<Frame, HubError> {
+    /// `peer`: the rows go out in peer form, and only this machine's rows are read (a peer's
+    /// keys are all `local`: `peer_page_shape`), so the provider never reads another machine's.
+    pub(super) fn keyed_page(
+        &self,
+        request: &Page,
+        keys: &[PageKey],
+        peer: bool,
+    ) -> Result<Frame, HubError> {
+        let keys = keys
+            .iter()
+            .map(|key| {
+                let PageKey::Summary(key) = key else { return Err(HubError::InvalidPage) };
+                Ok(key)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let max = request.max_bytes as usize;
         let mut reply = PageResult::<Box<RawValue>> {
             sid: request.sid.clone(),
@@ -35,13 +49,16 @@ impl Hub {
             + 64;
         let index = self.snapshot();
         let provider = self.page_provider.lock().ok().and_then(|slot| slot.clone());
-        for (position, (key, key_bytes)) in keys.iter().zip(&key_sizes).enumerate() {
+        for (position, (key, key_bytes)) in keys.iter().copied().zip(&key_sizes).enumerate() {
             // Do not read a row and then put its key back in rest. Reserve the
             // largest valid row before the lookup, except the first lookup:
             // that either makes progress or returns a named invalid-page error.
             if position != 0 && used + MAX_WIRE_ROW_BYTES > max {
-                reply.rest.extend(keys.iter().skip(position).cloned());
+                reply.rest.extend(keys.iter().skip(position).copied().cloned());
                 break;
+            }
+            if peer && key.origin != "local" {
+                return Err(HubError::InvalidPage);
             }
             let row_key = book_key(key).row;
             let row = match index.get_row(&row_key) {
@@ -51,14 +68,18 @@ impl Hub {
                 }
             };
             if let Some(row) = row {
-                let raw =
-                    serde_json::value::to_raw_value(row.as_ref()).map_err(FrameError::Encode)?;
+                let raw = if peer {
+                    serde_json::value::to_raw_value(&PeerRow(row.as_ref()))
+                } else {
+                    serde_json::value::to_raw_value(row.as_ref())
+                }
+                .map_err(FrameError::Encode)?;
                 used = used - key_bytes + raw.get().len() + 1;
                 reply.rows.push(raw);
                 if used > max {
                     // The conservative metadata reserve can exceed the exact
                     // frame size. Refuse only if this first answer truly fails.
-                    reply.rest.extend(keys.iter().skip(position + 1).cloned());
+                    reply.rest.extend(keys.iter().skip(position + 1).copied().cloned());
                     let frame = Frame::json(FrameKind::Page, &reply)?;
                     return if frame.encoded_len() <= max {
                         Ok(frame)

@@ -32,4 +32,16 @@ import Testing
         #expect(tags["tui_version"] == "0.1.0")
         #expect(tags["tui_build"] == nil)
     }
+
+    /// A Chief panic may quote chat text (a string slice panic prints the string): only its
+    /// location, process and backtrace are sent.
+    @Test func aChiefPanicSendsNoMessageText() throws {
+        let data = try line(["message": "byte index 5 is not a char boundary; it is inside 'é' of `please fix the login bug`",
+                             "location": "src/brain/turns.rs:10:5", "process": "optchat-chief"])
+        let event = try #require(OwnerPanicForwarder.event(fromLine: data, source: .chief))
+        let sent = [event.message?.formatted ?? ""] + (event.exceptions ?? []).map { $0.value ?? "" }
+        #expect(sent.allSatisfy { !$0.contains("login bug") }, "\(sent)")
+        #expect(event.tags?["process"] == "optchat-chief")
+        #expect(event.fingerprint == ["chief-panic", "src/brain/turns.rs:10:5"])
+    }
 }

@@ -42,6 +42,10 @@
 .nt-row-favicon{border-radius:4px;box-shadow:none;object-fit:contain}
 .nt-row-title{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis}
 .nt-row-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+/* The ranked sections' headers (screenModel sectionHeader): a quiet label over its rows, its text on
+   the rows' title column so the eye runs down one edge; never an option (role presentation), so the
+   arrows and the pointer pass over it. */
+.nt-section{box-sizing:border-box;display:flex;align-items:center;padding-block:var(--ds-space-2) var(--ds-space-1);line-height:1.2;padding-inline:var(--ui-row-padding-inline);overflow:hidden;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap;text-overflow:ellipsis;cursor:default;user-select:none}
 .nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);opacity:0}
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
@@ -494,20 +498,20 @@
   height: calc(var(--acpmux-chip-glyph) * 13 / 16);
   border-radius: calc(var(--acpmux-chip-glyph) * 13 / 16 * 3 / 16);
 }
-/* The tray's chips (folder, computer) draw their open and pressed fill 1 pt lower and their content 1 pt higher
-   inside it, so the content stays put and the fill centers on it: the button centers its text's line box, ascender
-   to baseline, and a lowercase name's ink sits low in that box, so the fill read 1 pt high (Lucas 2026-11-14). */
+/* The tray's chips are a flex row with align-items: center, so the mark, the name and the chevron share the line
+   box's center and the fill centers on them. A project's name is lowercase, whose ink sits low in that line box, so
+   its picture drops by a share of the name's font size, the same proportion at every density; the folder and the
+   laptop beside "No folder" and "This Mac" center by flex (Lucas 2026-11-14: the laptop sat under "This Mac" at
+   Compact). A fixed 1 pt tuned at Default overshot at Compact. */
 .nt-above .acpmux-location-button {
-  --acpmux-location-fill-drop: 1px;
-  top: var(--acpmux-location-fill-drop);
-  padding-top: 0;
-  padding-bottom: calc(2 * var(--acpmux-location-fill-drop));
+  --acpmux-location-mark-drop: 0.08;
 }
-/* A tray chip's leading mark (the folder, the laptop, a project's picture or mark) sits 1 pt under the label's line
-   box, where a lowercase name's ink sits, so the marks and the names share one line (Lucas 2026-11-14: "the
-   folder/project image ... needs to drop by 1pt", "make sure the laptop icon is aligned"). */
-.nt-above .acpmux-location-button > :is(.ui-ghost-icon, .acpmux-project-badge):first-child {
-  translate: 0 1px;
+/* Codex's tray centers its chips by flex alone (Lucas 2026-11-14: "the codex minimal looks good with the tray"). */
+.nt-composer[data-composer-look="codex"] .nt-above .acpmux-location-button {
+  --acpmux-location-mark-drop: 0;
+}
+.nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
+  translate: 0 calc(var(--text-control, 13px) * var(--acpmux-location-mark-drop));
 }
 /* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child {
@@ -570,6 +574,12 @@
   padding-inline-start: calc(
     var(--nt-composer-inset) + (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2 -
       var(--ui-popup-padding, 4px)
+  );
+}
+.nt-popover .nt-rows > .nt-section {
+  padding-inline-start: calc(
+    var(--nt-composer-inset) + (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2 -
+      var(--ui-popup-padding, 4px) + var(--acpmux-composer-glyph, 16px) + var(--ds-space-2)
   );
 }
 /* A project's picture centers where the folder glyph does: the ghost button's leading padding (its inset less its
@@ -783,6 +793,56 @@
 .nt-above .acpmux-composer-strip {
   flex: 1 1 0;
   min-width: 0;
+}
+/* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
+   Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
+   changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
+   all look the same to me"). pad, the shipped arm, is the bare text above: no rule here.
+   - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
+     --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
+     steps back out by the inset, so its glyphs stay on the column. */
+.nt-composer[data-icon-column="tray"] {
+  --nt-tray-inset: var(--ds-space-2);
+  --nt-tray-tuck: calc(var(--ds-space-3) + 6px);
+}
+.nt-composer[data-icon-column="tray"] .nt-box { z-index: var(--layer-raised, 1); }
+.nt-composer[data-icon-column="tray"] .nt-above {
+  position: relative;
+  z-index: var(--layer-base, 0);
+  margin: 0 var(--nt-tray-inset) calc(-1 * var(--nt-tray-tuck));
+  padding: var(--ds-space-1) 0 var(--nt-tray-tuck);
+  border-radius: var(--nt-box-radius) var(--nt-box-radius) 0 0;
+  background: var(--acpmux-composer-tray);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
+}
+:root .nt-screen .nt-composer[data-icon-column="tray"] .nt-above .acpmux-composer-strip {
+  margin-inline: calc(-1 * var(--nt-tray-inset));
+}
+/* - pills: every chip, over the box and under it, is a filled capsule with a hairline rim. Fill and
+     rim only, so no glyph moves off the column. */
+.nt-composer[data-icon-column="pills"] :is(
+    .nt-above .acpmux-location-button,
+    .nt-foot .acpmux-access-trigger,
+    .nt-foot .acpmux-model .acpmux-picker-button,
+    .nt-foot .acpmux-effort .acpmux-picker-button
+  ) {
+  border-radius: var(--ds-radius-control);
+  background: var(--acpmux-pill-fill);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);
+}
+/* - icons: the chips drop their names and chevrons, leaving a bare column of glyphs. The names stay
+     in the accessibility tree (clipped to nothing, not display: none), so the buttons keep their names. */
+.nt-composer[data-icon-column="icons"] :is(.nt-above .acpmux-location-label, .nt-foot .acpmux-mode-text) {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nt-composer[data-icon-column="icons"] :is(
+    .nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child),
+    .nt-foot .acpmux-access-trigger > .acpmux-icon:last-child:not(:first-child)
+  ) {
+  display: none;
 }
 /* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it. */
 :root[data-top-strip] .nt-above {

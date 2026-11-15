@@ -4,7 +4,7 @@
 usage: ios_store_identity.py <CmuxMobileApp.app>
 
 Run it on the AppStore build the App Review gate makes (ios-review-gate.yml,
-artifact review-gate-path-appstore) or any exported IPA's Payload/*.app.
+artifact review-gate-path-appstore-<device>) or any exported IPA's Payload/*.app.
 
 The public App Store app must never say NEXT where a customer can see it: the
 home screen name, the names of its extensions, and the permission prompts, in

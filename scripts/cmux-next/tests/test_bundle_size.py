@@ -280,6 +280,36 @@ def test_tree_without_a_symbol_map_has_no_language_split(tmp: Path) -> None:
     assert "code_by_language" not in json.loads(out.read_text())
 
 
+def test_breakdown_puts_every_file_in_one_category(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Resources/bin/cmux").write_bytes(macho(text=4000, unwind=1000, symbols=10, strsize=40))
+    (app / "Contents/Resources/bin/cmux-mobile-host").write_bytes(macho(text=900, unwind=100, symbols=1, strsize=4))
+    write(app, "Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)", 70)
+    write(app, "Contents/Frameworks/WebRTC.framework/Versions/A/WebRTC", 80)
+    write(app, "Contents/Helpers/cmux-remote-browser-host.app/Contents/Info.plist", 5)
+    write(app, "Contents/Resources/CmuxNext_CmuxNextPages.bundle/home.html", 2048)
+    write(app, "Contents/Resources/markdown-viewer/index.js", 2048)  # identical to home.html
+    write(app, "Contents/Resources/fr.lproj/Localizable.strings", 300)
+    write(app, "Contents/Resources/Extensions/ublock/js/a.js", 30)
+    out = tmp / "b.json"
+    r = run("breakdown", str(app), "--json", str(out), "--jobs", "2")
+    assert r.returncode == 0, r.stderr
+    b = json.loads(out.read_text())
+    cats = {c["key"]: c["bytes"] for c in b["categories"]}
+    assert cats["cef"] == 3100 + 70, cats
+    assert cats["cmux_tui"] == len((app / "Contents/Resources/bin/cmux").read_bytes()), cats
+    assert cats["swift_app"] == 1000, cats
+    assert cats["other_executables"] == len((app / "Contents/Resources/bin/cmux-mobile-host").read_bytes()) + 5, cats
+    assert cats["other_frameworks"] == 80, cats
+    assert cats["webviews"] == 4096, cats
+    assert cats["assets"] == 330, cats
+    assert sum(cats.values()) == b["app_bytes"], (cats, b["app_bytes"])
+    assert b["symbols_bytes"] == 10 * 16 + 40 + 16 + 4, b
+    assert b["unwind_bytes"] == 1100, b
+    assert b["duplicate_extra_bytes"] == 2048, b
+    assert "| CEF (Chromium framework and its helper apps) |" in r.stdout, r.stdout
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

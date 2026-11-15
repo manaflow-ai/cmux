@@ -31,7 +31,10 @@ impl Hub {
         let mut top = Vec::new();
         let (mut turns, mut processes) = (0, 0);
         let mut heavy = None;
-        for s in self.sessions() {
+        // The live sessions only, newest first as before: a close ends a session's agent, its
+        // turn and (with the harness, `Hub::processes_lost`) its running processes, so a closed
+        // one adds nothing here.
+        for s in self.indexed_live_sessions() {
             let info = s.turn();
             let turn = usize::from(info.is_some());
             let running = self.running_processes_read(&s);

@@ -312,6 +312,15 @@ class Inputs(unittest.TestCase):
         self.assertEqual(got["worst_ratio"], 1.25)
         self.assertEqual(qr.god_vs_small(None, "no input given")["why"], "no input given")
 
+    def test_god_vs_small_uses_home_status_for_v2_rows(self):
+        got = qr.god_vs_small({"rows": [
+            {"name": "bounded-ok", "small_p95": 10, "god_p95": 30, "status": "ok"},
+            {"name": "god-max-red", "small_p95": 10, "god_p95": 10, "status": "red",
+             "reason": "god p95 exceeds absolute maximum"},
+            {"name": "degenerate", "small_p95": 10, "god_p95": 13},
+        ]}, None)
+        self.assertEqual(got["failing"], ["god-max-red", "degenerate"])
+
     def test_god_vs_small_keeps_skipped_rows_in_markdown(self):
         r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
         r["god_vs_small"] = qr.god_vs_small({"rows": [
@@ -327,6 +336,15 @@ class Inputs(unittest.TestCase):
         self.assertIn("v2.pr01.measure", md)
         self.assertIn("v2.pr03.measure", md)
         self.assertIn("PR 1 not landed", md)
+
+    def test_god_vs_small_keeps_failed_rows_in_markdown(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "status": "failed", "reason": "the gate did not report a measure"},
+        ]}, None)
+        md = qr.render_markdown(r, public=False)
+        self.assertIn("v2.pr01.measure", md)
+        self.assertIn("the gate did not report a measure", md)
 
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)
@@ -508,6 +526,100 @@ class CIHealth(unittest.TestCase):
         self.assertIsNone(r["ci_health"]["green_share"])
         self.assertIn("n/a (no --ci-branches given)", qr.headline(r)["CI flake rate"])
         self.assertNotIn("### CI health", qr.render_markdown(r, public=False))
+
+
+def journey(surface, at, cells, missing=()):
+    return {"schema": 1, "surface": surface, "generated_at": at, "build": "abc", "run_url": f"https://ci/{surface}",
+            "cells": cells, "missing_accounts": list(missing)}
+
+
+class FirstUserJourney(unittest.TestCase):
+    WEB = journey("web", "2026-11-10T05:00:00Z", [
+        {"cell": "claude/working", "harness": "claude", "state": "working", "outcome": "pass", "steps": 40, "reds": []},
+        {"cell": "codex/expired", "harness": "codex", "state": "expired", "outcome": "red", "steps": 31, "reds": [
+            {"rule": "raw-error-code", "where": "chat", "step": "send", "detail": "HTTP 429 | usage_limit_reached"},
+            {"rule": "error-without-next-step", "where": "chat", "step": "send", "detail": "no button"}]},
+        {"cell": "cursor/expired", "harness": "cursor", "state": "expired", "outcome": "needs-account", "steps": 0}],
+        missing=["cursor"])
+
+    def write(self, d, name, doc):
+        path = os.path.join(d, name)
+        with open(path, "w") as f:
+            json.dump(doc, f)
+        return path
+
+    def test_counts_cells_and_groups_reds_by_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "web.json", self.WEB)], T)
+        web = got["surfaces"]["web"]
+        self.assertEqual((web["cells"], web["pass"], web["red"], web["needs_account"], web["steps"]), (3, 1, 1, 1, 71))
+        self.assertEqual(web["reds_by_rule"], {"error-without-next-step": 1, "raw-error-code": 1})
+        self.assertEqual((got["cells"], got["red_cells"], got["reds"]), (3, 1, 2))
+        self.assertEqual(web["missing_accounts"], ["cursor"])
+
+    def test_stale_and_missing_surfaces_say_why_and_count_nothing(self):
+        old = journey("ios", "2026-11-07T00:00:00Z", [{"cell": "ios/onboarding", "outcome": "red", "reds": [{"rule": "dead-button"}]}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "web.json", self.WEB), self.write(d, "ios.json", old),
+                                         os.path.join(d, "mac.json")], T)
+        self.assertIn("stale", got["surfaces"]["ios"]["why"])
+        self.assertIn("does not exist", got["surfaces"]["input3"]["why"])
+        self.assertEqual(got["red_cells"], 1, "only the fresh web surface counts")
+        self.assertEqual(qr.first_user_journey([], T)["why"], "no input given")
+
+    def test_report_markdown_history_and_public_detail(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                                journey_paths=[self.write(d, "web.json", self.WEB)])
+        self.assertEqual(qr.headline(r)["First-user journey"], "1 red of 3 cells, 2 reds (web 1/3)")
+        private, public = qr.render_markdown(r, public=False), qr.render_markdown(r, public=True)
+        self.assertIn("### First-user journey", public)
+        self.assertIn("`cursor`", public)
+        self.assertIn("HTTP 429 / usage_limit_reached", private, "a red's detail cannot break the table")
+        self.assertNotIn("HTTP 429", public, "red details stay in the private sticky")
+        row = qr.history_row(r)
+        self.assertEqual((row["journey_red"], row["journey_cells"]), (1, 3))
+        self.assertIn("| 1/3 |", qr.sticky_body(r, "md", ""))
+        pub = json.dumps(qr.public_report(r))
+        for private in ("HTTP 429", "codex/expired", "https://ci/web"):
+            self.assertNotIn(private, pub, "the public JSON carries counts only")
+        self.assertIn("https://ci/web", private)
+        self.assertNotIn("https://ci/web", public)
+
+    def test_odd_shapes_count_nothing_wrong_and_never_crash(self):
+        odd = journey(["web"], "2026-11-10T05:00:00Z", [
+            {"cell": "x", "outcome": "pass", "steps": True}, "not a cell"])
+        odd["missing_accounts"] = "cursor"
+        dup = journey("web", "2026-11-10T05:00:00Z", [{"cell": "y", "outcome": "red", "reds": [{"rule": "dead-button"}]}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "a.json", self.WEB), self.write(d, "b.json", odd),
+                                         self.write(d, "c.json", dup)], T)
+        self.assertEqual(sorted(got["surfaces"]), ["input2", "input3", "web"], "a bad or repeated surface never overwrites")
+        self.assertEqual((got["surfaces"]["input2"]["steps"], got["surfaces"]["input2"]["missing_accounts"]), (0, []))
+
+    def test_a_non_text_stamp_or_reds_value_costs_that_surface_never_the_report(self):
+        stamp = journey("web", 1, [{"cell": "x", "outcome": "pass"}])
+        reds = journey("ios", "2026-11-10T05:00:00Z", [{"cell": "y", "outcome": "red", "reds": 1}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "a.json", stamp), self.write(d, "b.json", reds)], T)
+            r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                                journey_paths=[self.write(d, "c.json", stamp)])
+        self.assertEqual(got["surfaces"]["web"]["why"], "the results have no generated_at")
+        self.assertEqual((got["surfaces"]["ios"]["red"], got["surfaces"]["ios"]["reds_by_rule"]), (1, {}))
+        self.assertIn("n/a", qr.headline(r)["First-user journey"])
+
+    def test_fetch_takes_the_newest_run_that_kept_the_artifact(self):
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"databaseId": 9}, {"databaseId": 8}]), stderr="")
+            return subprocess.CompletedProcess(cmd, 0 if cmd[3] == "8" else 1, stdout="", stderr="no artifact")
+        self.assertEqual(qr.fetch_journey("o/r", "w.yml", "first-user-journey-web", "/tmp/x", run=run), "8")
+        with self.assertRaises(qr.SourceError):
+            qr.fetch_journey("o/r", "w.yml", "a", "/tmp/x", run=lambda cmd, **kw: subprocess.CompletedProcess(
+                cmd, 0, stdout="[]", stderr=""))
 
 
 class NightlySpeed(unittest.TestCase):

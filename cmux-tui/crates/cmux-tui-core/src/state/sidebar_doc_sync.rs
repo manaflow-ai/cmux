@@ -36,8 +36,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use cmux_layout_reducer::sidebar_doc::migrate::LegacyWorkspace;
 use cmux_layout_reducer::sidebar_doc::reduce::{self, Applied, Batch};
 use cmux_layout_reducer::sidebar_doc::{
-    Body, Doc, GroupPatch, Item, ItemId, Op, PINNED_SECTION_ID, Patch, Section, SectionPlace,
-    Target, WorkspaceRef, group_item_id, machine_section_id,
+    Body, Doc, GroupPatch, Item, ItemId, ItemPatch, Op, PINNED_SECTION_ID, Patch, Section,
+    SectionPlace, Target, WorkspaceRef, group_item_id, machine_section_id,
 };
 
 use super::sidebar_doc_legacy::mint_item_id;
@@ -662,6 +662,58 @@ pub(crate) fn close_workspaces(
         let mut batch = Batch::new(doc);
         for id in items {
             try_apply(&mut batch, Op::ItemDelete { id });
+        }
+        let applied = batch.finish();
+        commit_applied(transaction, previous_revision, doc.revision, &applied)
+    })
+}
+
+/// Delete Space into another space: everything the deleted space owned in the
+/// document (a group by its `profile`; a Pinned link, tab or app by its
+/// `room`) moves to `to` in the delete's own commit. The app used to send
+/// this as a second change after the delete answered, planned from records
+/// that could already be stale, and the reducer refused it (Leo, 2026-11-14:
+/// "the daemon shouldn't even refuse those").
+pub(crate) fn move_room_items(
+    transaction: &Transaction<'_>,
+    from: &str,
+    to: &str,
+) -> anyhow::Result<()> {
+    if !super::store::state_tables_ready(transaction)? || !store::is_migrated(transaction)? {
+        return Ok(());
+    }
+    store::with_doc_mut(transaction, |doc| {
+        let previous_revision = doc.revision;
+        let mut owned: Vec<&Item> = doc
+            .items_unordered()
+            .filter(|item| match &item.body {
+                Body::Group { profile, .. } => profile.as_deref() == Some(from),
+                Body::Url { .. } | Body::Tab { .. } | Body::App { .. } => {
+                    item.extra.get("room").and_then(serde_json::Value::as_str) == Some(from)
+                }
+                _ => false,
+            })
+            .collect();
+        owned.sort_by(|a, b| a.id.cmp(&b.id));
+        let ops: Vec<Op> = owned
+            .into_iter()
+            .map(|item| match item.body {
+                Body::Group { .. } => Op::GroupUpdate {
+                    id: item.id.clone(),
+                    patch: GroupPatch {
+                        profile: Patch::Set(to.to_string()),
+                        ..GroupPatch::default()
+                    },
+                },
+                _ => Op::ItemUpdate {
+                    id: item.id.clone(),
+                    patch: ItemPatch { room: Patch::Set(to.to_string()), ..ItemPatch::default() },
+                },
+            })
+            .collect();
+        let mut batch = Batch::new(doc);
+        for op in ops {
+            try_apply(&mut batch, op);
         }
         let applied = batch.finish();
         commit_applied(transaction, previous_revision, doc.revision, &applied)

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -8,10 +9,36 @@ import UIKit
 @MainActor
 public final class TerminalTabHost {
     public let model: TerminalModel
-    private(set) lazy var controller = TerminalViewController(model: model, chrome: .embedded)
+    private(set) lazy var controller: TerminalViewController = {
+        let controller = TerminalViewController(model: self.model, chrome: .embedded)
+        self.controllerMade = true
+        if let place = self.handedPlace {
+            self.handedPlace = nil
+            controller.restoreScrollPlace(place)
+        }
+        return controller
+    }()
+    /// The page's controller exists (a host only ever shown as a grid card has none).
+    private var controllerMade = false
+    /// A place handed over before the controller was made.
+    private var handedPlace: TerminalScrollPlace?
 
     public init(model: TerminalModel) {
         self.model = model
+    }
+
+    /// Where the reader is in the scrollback, kept by the tab when the warm
+    /// set cools this host; nil while following the prompt or in a
+    /// full-screen app.
+    public func scrollPlace() -> TerminalScrollPlace? {
+        controllerMade ? controller.scrollPlace() : handedPlace
+    }
+
+    /// The tab's previous host kept the reader's place: this host's first
+    /// attach asks for the history above it and its replay puts the reader back.
+    public func restoreScrollPlace(_ place: TerminalScrollPlace) {
+        model.session.requestHistoryRows(place.rowsFromEnd)
+        if controllerMade { controller.restoreScrollPlace(place) } else { handedPlace = place }
     }
 
     /// The tab grid is about to show this tab's card.
@@ -127,7 +154,8 @@ public struct TerminalTabCard: View {
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                Color(uiColor: CmuxMobileGhosttyApp.background)
+                Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
+                    ?? CmuxMobileGhosttyApp.background)
                 let started = model.controller?.started == true
                 let content = TerminalCardContent.choose(sessionStarted: started,
                                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),

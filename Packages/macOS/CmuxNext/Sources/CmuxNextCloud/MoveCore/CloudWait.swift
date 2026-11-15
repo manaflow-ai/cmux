@@ -113,6 +113,22 @@ public struct CloudWait {
         return connected() ? nil : failure() ?? deadline
     }
 
+    /// Waits for the app's first machine list (an app just launched loads it after sign-in) the way
+    /// cmux-cloud-start-core's `list_wait` paces it, the same wait as `cmux cloud start-chat`'s: `read` reads
+    /// the list, and the wait pauses until it is `loaded` or Rust's pace is up, then asks again. A list still
+    /// unread when Rust ends the wait is the caller's to refuse. Only the host loop; the rule is Rust's.
+    public static func firstList(loaded: @escaping @MainActor @Sendable () -> Bool, signedIn: @MainActor () -> Bool,
+                                 read: @MainActor () async -> Void) async {
+        if !loaded() { await read() }
+        let clock = ContinuousClock(), began = clock.now
+        // wakeup-allow: each pass waits Rust's pace (an observation that ends once the list loads); Rust ends it within LIST_LOAD_WAIT
+        while !Task.isCancelled, case .pause(let ms, let readAfter) = CloudStartCore().listWait(
+            elapsedMs: Int(began.duration(to: clock.now) / .milliseconds(1)), loaded: loaded(), signedIn: signedIn()) {
+            _ = await holds(within: .milliseconds(ms), until: loaded)
+            if readAfter, !loaded() { await read() }
+        }
+    }
+
     private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         for await ready in ObservationStream({ condition() }) where ready { return true }
         return false

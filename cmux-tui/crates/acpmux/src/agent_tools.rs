@@ -235,6 +235,13 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
+    // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
+    // docs/design/next-rich-output.md). The deck template is a file the agent copies.
+    ("cmux-rich-output/SKILL.md", include_str!("../skills/cmux-rich-output/SKILL.md")),
+    (
+        "cmux-rich-output/templates/deck.html",
+        include_str!("../skills/cmux-rich-output/templates/deck.html"),
+    ),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
@@ -320,6 +327,10 @@ pub struct Inputs {
     /// Sessions get GitHub's own MCP server through the team's cmux GitHub connection
     /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens.
     pub github: bool,
+    /// The `desktop-lease` binary when [`DESKTOP_LEASE_ENV`] names one (default off):
+    /// sessions get [`DESKTOP_LEASE_SERVER`], computer use on a leased desktop the host's
+    /// pool suspends while the model thinks (crates/desktop-lease, cmuxterm-hq#8741).
+    pub desktop_lease: Option<PathBuf>,
 }
 
 /// The acpmux command word of the helper v2 bridge (`acpmux cua-mcp`).
@@ -340,6 +351,15 @@ pub const OFFER_TOOLS_ENV: &str = "ACPMUX_OFFER_TOOLS";
 /// instructions come after its cache mark, so each extra server is
 /// uncached input on every turn.
 pub const SERVERS_ENV: &str = "ACPMUX_AGENT_TOOL_SERVERS";
+/// Opt in to leased desktops: the path of a `desktop-lease` binary. Unset (the default)
+/// gives sessions no such server. Its pool socket comes from `DESKTOP_LEASE_SOCKET` when set.
+pub const DESKTOP_LEASE_ENV: &str = "ACPMUX_DESKTOP_LEASE";
+/// The leased-desktop server's name (`desktop-lease mcp`).
+pub const DESKTOP_LEASE_SERVER: &str = "cmux-desktop";
+/// The lease owner the leased-desktop server reads: the session id, so a session's slots
+/// are its own and go back when it ends.
+const DESKTOP_LEASE_OWNER_ENV: &str = "DESKTOP_LEASE_OWNER";
+const DESKTOP_LEASE_SOCKET_ENV: &str = "DESKTOP_LEASE_SOCKET";
 
 impl Inputs {
     pub fn current() -> Self {
@@ -362,6 +382,7 @@ impl Inputs {
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
             github: crate::github_mcp::available(),
+            desktop_lease: var(DESKTOP_LEASE_ENV).map(PathBuf::from).filter(|p| is_executable(p)),
         }
     }
 }
@@ -596,7 +617,9 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
     resolve_gated(inputs, cua_helper::installed, || {
-        crate::cli::cloud_join::require_joined_consent("control").is_ok()
+        computer_use_allowed(crate::cli::cloud_join::local_computer_use_kept, || {
+            crate::cli::cloud_join::require_joined_consent("control").is_ok()
+        })
     })
 }
 
@@ -614,6 +637,14 @@ fn resolve_gated(
         tools.servers.retain(|server| server.name != "cmux-cua");
     }
     tools
+}
+
+/// Whether this daemon's own sessions get computer use (a remote-origin session gets no tools,
+/// [`left_out`]): on a joined machine only with local control consent, unless only signing in
+/// joined it (`kept`), which never takes the Mac's own tools away. `consent` is asked only then:
+/// it records a refusal.
+fn computer_use_allowed(kept: impl FnOnce() -> bool, consent: impl FnOnce() -> bool) -> bool {
+    kept() || consent()
 }
 
 fn resolve_with_cua_helper(
@@ -762,6 +793,20 @@ fn resolve_with_cua_helper(
             )],
         });
     }
+    if let Some(lease) = &inputs.desktop_lease {
+        // Leased desktops (`desktop-lease mcp`): `for_session` names the owner.
+        servers.push(McpServer {
+            name: DESKTOP_LEASE_SERVER.into(),
+            command: lease.clone(),
+            args: vec!["mcp".into()],
+            env: std::env::var(DESKTOP_LEASE_SOCKET_ENV)
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|s| (DESKTOP_LEASE_SOCKET_ENV.to_owned(), s))
+                .into_iter()
+                .collect(),
+        });
+    }
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
@@ -902,6 +947,10 @@ impl AgentTools {
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
+            }
+            if server.name == DESKTOP_LEASE_SERVER {
+                server.env.retain(|(k, _)| k != DESKTOP_LEASE_OWNER_ENV);
+                server.env.push((DESKTOP_LEASE_OWNER_ENV.to_owned(), session_id.to_owned()));
             }
             let session_env = match server.name.as_str() {
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
@@ -1174,7 +1223,6 @@ fn shared_helper(servers: &[McpServer]) -> Option<Value> {
 /// file first, then renamed, so claude never reads half a config).
 #[cfg(unix)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
-    use std::io::Write;
     // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`),
     // and the file goes through the folder this daemon holds (`home_fs`): a home replaced after
     // the check never gets it.
@@ -1182,21 +1230,8 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     crate::home_fs::create_dir_all(dir, 0o700)?;
     crate::home_fs::set_mode(dir, 0o700)?;
-    let tmp = dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
-    let written = (|| -> std::io::Result<()> {
-        let mut f = crate::home_fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        crate::home_fs::rename(&tmp, path)
-    })();
-    if written.is_err() {
-        let _ = crate::home_fs::remove_file(&tmp);
-    }
-    Ok(written?)
+    // The copy of a writer stopped before its rename is removed by the next write.
+    crate::config::write_atomic_checked(path, bytes)
 }
 /// Windows: the folder and the file owner-only (`owner_only.rs`).
 #[cfg(windows)]

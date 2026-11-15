@@ -102,8 +102,9 @@ import Testing
         store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
         let shown = try #require(store.workspace(id: "ws-cmux"))
         #expect(store.openingTab(for: shown)?.id == "t-zsh")
+        // The tab left on screen in this launch comes before the top-left (WorkspaceReentryTests).
         store.noteOpened(tabID: "t-docs", in: ws.id)
-        #expect(store.openingTab(for: shown)?.id == "t-zsh")
+        #expect(store.openingTab(for: shown)?.id == "t-docs")
         store.requestOpen(tabID: "t-claude", in: ws.id)
         #expect(store.openingTab(for: shown)?.id == "t-claude")
     }

@@ -48,3 +48,17 @@ fn the_binary_holds_the_stamp_as_one_string() {
         "the acpmux-standalone binary does not contain `{line}` as one string"
     );
 }
+
+/// A host's install script reads `acpmux-commit-time=<secs>;` out of the
+/// installed and the pushed binary to refuse a move back to an older commit
+/// (acpmux `cli/hosts.rs`), so the shipped binary carries it as one string.
+#[test]
+fn the_binary_holds_the_commit_time_stamp() {
+    let bytes = std::fs::read(binary()).unwrap();
+    let stamp = acpmux_build_id::COMMIT_STAMP.as_bytes();
+    assert!(
+        bytes.windows(stamp.len()).any(|w| w == stamp),
+        "the acpmux-standalone binary does not contain `{}`",
+        acpmux_build_id::COMMIT_STAMP
+    );
+}

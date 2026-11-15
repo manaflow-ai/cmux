@@ -615,10 +615,17 @@ def cmd_start(args) -> int:
         if state and state.get("token") == token and state.get("ready"):
             break
         if sup.poll() is not None:
+            try:
+                os.killpg(sup.pid, signal.SIGKILL)  # what it left in its group (cmux#41767 review F1)
+            except (ProcessLookupError, PermissionError):
+                pass
             return fail("the supervisor ended at once (exit %s); see %s" % (sup.returncode, log.name))
         time.sleep(0.05)
     else:
-        sup.terminate()
+        try:
+            os.killpg(sup.pid, signal.SIGTERM)  # the supervisor this run started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
         return fail("the supervisor was not ready in 20 s; stopped")
     safe_print(json.dumps({k: state[k] for k in (
         "pid", "owner", "watch_pid", "shape", "threads", "procs", "cores", "threads_per_core", "max_seconds", "qos",

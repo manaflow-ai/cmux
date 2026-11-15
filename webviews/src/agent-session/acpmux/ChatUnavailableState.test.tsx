@@ -76,7 +76,7 @@ test("an offline chat shows nothing until the drop has lasted past the threshold
         machine="remote"
         onRemove={() => undefined}
         onReconnect={() => undefined}
-        noteDelayMs={40}
+        offlineDelayMs={40}
       />,
     );
   });
@@ -84,6 +84,31 @@ test("an offline chat shows nothing until the drop has lasted past the threshold
   expect(container.textContent).toBe("");
   await act(async () => void jest.advanceTimersByTime(39));
   expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
+  await act(async () => void jest.advanceTimersByTime(1));
+  expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
+  expect(container.textContent).toContain("Reconnecting…");
+});
+
+test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, then Reconnecting… once", async () => {
+  // Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". Before, the state
+  // showed 1.5 s into any drop, which a redial after a dead ssh link (6 s to notice, then a login)
+  // always outlasts.
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+      />,
+    );
+  });
+  await act(async () => void jest.advanceTimersByTime(9_999));
+  expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
+  expect(container.textContent).toBe("");
   await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
   expect(container.textContent).toContain("Reconnecting…");

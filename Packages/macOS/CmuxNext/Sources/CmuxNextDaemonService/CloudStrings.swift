@@ -1,3 +1,4 @@
+import CmuxNextCloud
 public import CmuxNextDaemon
 public import Foundation
 
@@ -196,4 +197,19 @@ public nonisolated enum CloudUpgradeReason: Equatable, Sendable {
     case atLimit(Int)
     /// The classic link's 402 for the plan's shared vCPU and memory pool, which counts only running machines.
     case pool
+}
+
+public extension CloudStrings {
+    /// A Keychain call on one of cmux's own items that Rust's deadline ended (cmux-cloud-config `keychain`), as the
+    /// local ``KeychainTimedOut`` or as the credential relay's refusal back through the Cloud app server (its
+    /// `details.keychain`): the item as Keychain Access lists it, the seconds waited and the next step. Nil for any
+    /// other error.
+    nonisolated static func keychainTimedOut(_ error: any Error) -> String? {
+        let stall = (error as? KeychainTimedOut)?.stall ?? (error as? CloudAppOpFailure).flatMap { KeychainStall(details: $0.details) }
+        guard let stall else { return nil }
+        return String(format: String(localized: "cloud.error.keychainTimedOut",
+                                     defaultValue: "The Keychain didn't answer for \"%1$@\" (account %2$@) within %3$lld s. Unlock it or allow cmux access, then try again.",
+                                     table: "Cloud", bundle: .module),
+                      stall.service, stall.account, Int64(stall.seconds))
+    }
 }

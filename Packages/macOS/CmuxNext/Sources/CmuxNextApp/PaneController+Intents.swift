@@ -421,22 +421,67 @@ extension PaneController {
             // Building the menu selects nothing and moves no focus (#24913: the selection's focus
             // move made a Chromium page window key inside the right-click). The rows act on the
             // right-clicked tab, or on the selection it is one of (`AppActionContext.actionTabs`).
-            return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
-                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
-                                registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil, machineID: daemon.machineID).themeRows(in: view.themeScope.fullStrength)
+            let menu = Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
+                                    sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
+                                    registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil, machineID: daemon.machineID)
+            if selection.count <= 1 { prependOwnRows(to: menu, tab: id.rawValue, model: tab(id)) }
+            return menu.themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
                                             entries: TabGroupPinMenu.entries(saved: saved, registry: registry), customize: true).themeRows(in: view.themeScope.fullStrength)
         case .emptyStrip:
-            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu).
-            return registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
-                .themeRows(in: view.themeScope.fullStrength)
+            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu), with what the pane's "…"
+            // offered that it lacks (PaneToolbar.tabBarMenuRows) above its More.
+            let menu = registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
+            Self.insert(view.toolbar?.tabBarMenuRows() ?? [], into: menu)
+            return menu.themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
             return registry.makePaneCreationMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
                 .themeRows(in: view.themeScope.fullStrength)
         }
+    }
+
+    /// The right-clicked tab's own first rows: Toggle Terminal and Chat on half of a terminal and chat pair (the
+    /// pane toolbar's toggle is gone, user 2026-11-13), and on the selected tab the shown content's own rows (the
+    /// docked Home's Chief Actions), which the pane's "…" listed first.
+    private func prependOwnRows(to menu: NSMenu, tab id: String, model: TabModel?) {
+        let pair = model.map { TerminalChatHandler.offersToggle(on: $0, services: services) } ?? false
+        let toggle = pair ? Self.terminalChatRows(tab: id, registry: services.registry, machineID: daemon.machineID) : []
+        let content = stripModel.selectedID?.rawValue == id ? view.toolbar?.contentRows() ?? [] : []
+        Self.prepend(toggle + content, to: menu)
+    }
+
+    /// Toggle Terminal and Chat's row for tab `id`, running the action on that tab as its key does on the focused one.
+    static func terminalChatRows(tab id: String, registry: ActionRegistry, machineID: String?) -> [NSMenuItem] {
+        let menu = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: id), entries: [.action(terminalChatToggle)],
+                                            machineID: machineID)
+        let rows = menu.items
+        menu.removeAllItems()
+        return rows
+    }
+
+    /// Puts `rows` first in `menu`, a separator after them.
+    static func prepend(_ rows: [NSMenuItem], to menu: NSMenu) {
+        guard !rows.isEmpty else { return }
+        if !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
+        for (index, row) in rows.enumerated() { menu.insertItem(row, at: index) }
+    }
+
+    /// Toggle Terminal and Chat (`palette.toggleTerminalChat`): the tab right-click's row runs it, as its key does.
+    static let terminalChatToggle: ActionID = "palette.toggleTerminalChat"
+
+    /// Puts `sections` into the tab bar's `menu`, each between separators, just above its trailing More submenu
+    /// (``ActionRegistry/makeTabStripMenu(target:machineID:)``), else at its end.
+    static func insert(_ sections: [[NSMenuItem]], into menu: NSMenu) {
+        let endsWithMore = menu.items.last.map { $0.submenu != nil && $0.title == MenuFolder.more.title } ?? false
+        var index = endsWithMore ? menu.items.count - 1 : menu.items.count
+        for section in sections where !section.isEmpty {
+            if index > 0, !menu.items[index - 1].isSeparatorItem { menu.insertItem(.separator(), at: index); index += 1 }
+            for row in section { menu.insertItem(row, at: index); index += 1 }
+        }
+        if endsWithMore, index > 0, !menu.items[index - 1].isSeparatorItem { menu.insertItem(.separator(), at: index) }
     }
 }

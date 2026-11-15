@@ -11,6 +11,9 @@
 // What does not count, so a correct page scores 0:
 //   - a box that has not yet held still for `REST_FRAMES` frames: an entrance animation, a row
 //     still mounting. Once it rested, any later move counts (the composer gap that jumps on load).
+//     A box a keyframe animation is moving (its own or an ancestor's, `animating`) has not rested
+//     either: on a loaded runner an entrance can hold its first frame for a few frames before it
+//     plays (the file search palette's ui-enter rise read as a 2.5 px shift, #40937);
 //     A step starts on a settled page, so its first frame's boxes have rested (`restedAtStart`);
 //   - the step's target, its ancestors and descendants (the tool row that expands), and while that
 //     row opens at the very bottom (`BOTTOM_FOLD`), everything inside it: it rises as one;
@@ -31,7 +34,16 @@ export type Box = { x: number; y: number; width: number; height: number };
  * One tracked box in one frame. `after` is true when it follows the step's target in document order;
  * `before` when it precedes a target whose row is opening at the bottom of its transcript (`BOTTOM_FOLD`).
  */
-export type BoxSample = { box: Box; label: string; targeted?: boolean; after?: boolean; before?: boolean };
+export type BoxSample = {
+  box: Box;
+  label: string;
+  targeted?: boolean;
+  after?: boolean;
+  before?: boolean;
+  /** A keyframe animation on it or an ancestor is running or about to start: its moves are that
+   *  animation's, not a shift, and it has not rested. */
+  animating?: boolean;
+};
 export type BoxFrame = Map<number, BoxSample>;
 
 export type BoxMove = { label: string; frame: number; dx: number; dy: number };
@@ -146,6 +158,10 @@ export function scoreBoxFrames(
       const dy = now.box.y - was.box.y;
       const moved = Math.abs(dx) > MOVE_SLACK || Math.abs(dy) > MOVE_SLACK;
       const rested = (still.get(id) ?? 0) >= REST_FRAMES;
+      if (now.animating || was.animating) {
+        still.set(id, 0);
+        continue;
+      }
       if (!moved) {
         still.set(id, (still.get(id) ?? 0) + 1);
         continue;
@@ -256,6 +272,7 @@ export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[]
   // The row opening at the very bottom moves as one: what it holds (a batch's message rows) rises
   // with its toggle and the text above, so it is the target's as much as the toggle's line is.
   const targets = targetList(target).map((each) => ({ each, folding: bottomFoldOf(each) }));
+  const moving = animatedElements(doc);
   for (const element of new Set([...doc.querySelectorAll(TRACK_SELECTOR), ...extra])) {
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
@@ -278,9 +295,34 @@ export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[]
       targeted,
       after,
       before,
+      animating: moving.size > 0 && inMotion(element, moving),
     });
   }
   return frame;
+}
+
+/** Keyframe properties that move a box without a layout change. */
+const MOVING_PROPERTIES = new Set(["transform", "translate", "scale", "rotate"]);
+
+/** The elements a keyframe animation (a CSSAnimation, not a transition, which can carry a real
+ *  shift) is moving, running or waiting to start: an entrance rise. A shimmer or fade moves nothing
+ *  and leaves its box judged as before. */
+function animatedElements(doc: Document): Set<Element> {
+  const moving = new Set<Element>();
+  for (const animation of doc.getAnimations?.() ?? []) {
+    if (animation.playState === "finished" || animation.playState === "idle") continue;
+    if (!("animationName" in animation)) continue;
+    const effect = animation.effect as KeyframeEffect | null;
+    if (!effect?.target) continue;
+    const moves = effect.getKeyframes().some((frame) => Object.keys(frame).some((key) => MOVING_PROPERTIES.has(key)));
+    if (moves) moving.add(effect.target);
+  }
+  return moving;
+}
+
+function inMotion(element: Element, moving: Set<Element>): boolean {
+  for (let node: Element | null = element; node; node = node.parentElement) if (moving.has(node)) return true;
+  return false;
 }
 
 /** Most frames one tracker keeps (about 33 s at 60 Hz); a longer run scores its first frames. */

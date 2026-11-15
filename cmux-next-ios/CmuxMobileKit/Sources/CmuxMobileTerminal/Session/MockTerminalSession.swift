@@ -1,5 +1,6 @@
 // DEBUG and Demo builds only: mock content is never compiled into Production.
 #if DEBUG
+import CmuxMobileTransport
 import Foundation
 
 /// A terminal that needs no Mac: a tiny shell with a line editor, scripted
@@ -105,7 +106,10 @@ public final class MockTerminalSession: TerminalSession {
     // MARK: Output
 
     private func write(_ text: String) {
-        handler?(.output(Data(text.utf8)))
+        let data = Data(text.utf8)
+        // No link in mock mode: the shell's output is what the transport would deliver.
+        ReceivedByteCount.shared.add(data.count)
+        handler?(.output(data))
     }
 
     private func setAlternate(_ on: Bool, program name: String) {

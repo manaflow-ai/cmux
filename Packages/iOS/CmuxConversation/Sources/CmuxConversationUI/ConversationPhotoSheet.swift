@@ -113,12 +113,14 @@ final class ConversationPhotoSheetController: UIViewController, PHPickerViewCont
         view.insertSubview(picker.view, belowSubview: grabberStrip)
         picker.didMove(toParent: self)
         self.picker = picker
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) { picker.view.alpha = 1 }
     }
 
     private func hidePicker() {
         guard let picker else { return }
         self.picker = nil
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) {
             picker.view.alpha = 0
         } completion: { _ in
