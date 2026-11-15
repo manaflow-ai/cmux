@@ -640,6 +640,36 @@ def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     return (label, tuple(jobs[:room])) if room > 0 else ("", ())
 
 
+def light_rerun_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
+                      owned: Sequence[str] = ()) -> tuple[str, tuple[str, ...]]:
+    """(the light minis' side label, the LIGHT_FIT_JOBS its idle runners take on the rescue's re-run), else ("", ()).
+
+    Leo, 2026-11-15: "you can decide on best routing for stuff". On 2026-11-15 from 01:10Z, 32 jobs queued on
+    glaeda-side-std-xcode-26.6 (generated files, the fast tier, the app scheme compile) while no std side runner
+    was idle, and stayed there after light side runners freed: light_spill_route() places only attempt 1, and
+    a queued job keeps its label. The rescue now cancels such a run and re-runs its placement once a light side
+    runner is idle (owned_pool_rescue.light_wait()), and this is that re-run's light spill: each job of
+    LIGHT_FIT_JOBS that runs in this attempt (CASCADE_RUNS) and that no idle std side runner took (`owned`)
+    takes an idle light side runner, one per runner, before the cascade.
+
+    LIGHT_FIT_JOBS is measured, not guessed (.github/runners.json `light_fit`: the jobs that ran on the 16 GiB
+    light minis and passed there as often as on the 48 GiB std minis). The rest (the scheme and Release compiles,
+    the swift test) never take a light runner. As light_spill_route(): never while a nightly or release job
+    waits on the light family, and an unread or stale snapshot or unread runners place nothing.
+    """
+    if runners is None or not cascade.bot_rerun(env):
+        return "", ()
+    label = light_side_label((env.get("SIDE_LABEL") or "").strip())
+    fit = set((env.get("LIGHT_FIT_JOBS") or "").split())
+    runs = (env.get("CASCADE_RUNS") or "").split() if "CASCADE_RUNS" in env else None
+    jobs = [job for job in (env.get("JOBS") or "").split()
+            if job in fit and job not in owned and (runs is None or job in runs)]
+    if not label or not jobs:
+        return "", ()
+    room = _light_room(label, runners, seen)
+    return (label, tuple(jobs[:room])) if room > 0 else ("", ())
+
+
 def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, tuple[str, ...]]:
     """(FRESH_LABEL, the FRESH_JOBS it takes) while its online runners are idle for them, else ("", ()).
 
@@ -824,6 +854,8 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     runs-on gives a re-run. With no gateway the build-fleet compiles skip, so their Mac fallbacks cascade.
     The GUI jobs follow the routing order, as on attempt 1: gui_runner and session_runner (and the free
     labels) name only a GUI or session runner idle now, else gui_overflow names the Blacksmith leg.
+    The measured light-fit jobs no idle std side runner took take an idle light side runner (light_runner and
+    light_jobs, light_rerun_route()) before the cascade: the re-run the rescue's light move asks for.
 
     Idle minis are counted on SIDE_LABEL itself: a re-run's cascade jobs fall back to
     that exact label, never to side_route()'s wider class. A FEAT_BRANCH
@@ -851,6 +883,12 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     free_gui = free_gui_route_label(label, runners)
     free_session = free_session_route_label(label, runners)
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    # The measured light-fit jobs no idle std side runner took: an idle light side runner before the cascade
+    # (light_rerun_route(), the rescue's light move).
+    light, light_jobs = light_rerun_route(env, runners, seen, owned)
+    if light_jobs:
+        env = without_jobs(env, light_jobs)
+        why += f"; no idle std side runner for {', '.join(light_jobs)}, so they take idle light `{light}`"
     # Runners read: the jobs past `owned` have no idle mini, so the cascade's overflow may take them.
     placed = cascade.place(env, owned, live, waiting, seen, saturated=runners is not None,
                            route_wait=route_wait(label, runners, seen))
@@ -868,6 +906,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
                          f"gui_runner={free_gui}\nsession_runner={free_session}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"gui_overflow={overflow}\n"
+                         f"light_runner={light}\nlight_jobs={delimited(light_jobs)}\n"
                          f"watch={'false' if fallback and not owned else 'true'}\n")
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
