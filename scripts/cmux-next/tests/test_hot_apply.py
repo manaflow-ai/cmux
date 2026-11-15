@@ -746,6 +746,7 @@ class OtherSessions(unittest.TestCase):
         self.want = hashlib.sha256(b"new").hexdigest()
         self.pids = {self.APP_SOCK: 100, self.CHIEF_SOCK: 200}
         self.restarted, self.restart_works, self.surfaces, self.state_dirs = [], True, [], []
+        self.exes = {}
         test = self
 
         class Swapper:
@@ -753,7 +754,7 @@ class OtherSessions(unittest.TestCase):
                 self.socket = socket
 
             def owner(self, _cli, timeout=60):
-                return (test.pids[self.socket], test.target) if self.socket in test.pids else None
+                return (test.pids[self.socket], test.exes.get(self.socket, test.target)) if self.socket in test.pids else None
 
             @staticmethod
             def app_file(exe):
@@ -807,6 +808,20 @@ class OtherSessions(unittest.TestCase):
 
     def swap(self, sessions):
         return self.hot.swap_cmux(self.target.parents[3], self.new, self.want, None, self.tmp / "state", sessions)
+
+    def test_a_daemon_on_a_retired_copy_of_the_app_is_left_and_the_live_one_takes_the_swap(self):
+        # Leo's NIGHTLY, 2026-11-15: cmux-app.sock's daemon outlived an update and ran the copy the updater
+        # moved to nightly-update/backup/retired, so the apply refused ("not this app's") and changed nothing.
+        retired_sock = "/tmp/cmux-app.sock"
+        self.pids[retired_sock] = 300
+        self.exes[retired_sock] = self.tmp / "retired/cmux NIGHTLY.app/Contents/Resources/bin/cmux"
+        self.hot.find_sockets = lambda app, cli: [retired_sock, self.APP_SOCK, self.CHIEF_SOCK]
+        step = self.swap(False)
+        self.assertEqual(step["socket"], self.APP_SOCK)
+        self.assertEqual((step["old_pid"], step["new_pid"]), (100, 101))
+        self.assertEqual([one["socket"] for one in step["left_on_retired_copy"]], [retired_sock])
+        self.assertEqual(step["left_on_old_build"], [self.CHIEF_SOCK])
+        self.assertEqual(self.pids[retired_sock], 300)
 
     def test_not_asked_names_the_chief_s_daemon_and_leaves_it(self):
         step = self.swap(False)

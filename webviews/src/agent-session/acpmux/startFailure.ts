@@ -1,7 +1,7 @@
 import { failureCopy, failureKind } from "./failureCopy";
 import type { Translate } from "./i18n";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
-import { startRefusalAction } from "./startRefusal";
+import { SIGN_IN_REQUIRED, startRefusalAction } from "./startRefusal";
 
 /// The start-failed card's words (SwitchNotice.tsx): one plain sentence, the agent's raw words for
 /// Details, and Install when the agent is not on the machine and cmux knows how to install it
@@ -37,8 +37,9 @@ function writtenForPeople(text: string): boolean {
 
 export function startFailureView(
   t: Translate,
-  switching: { harness: string; name: string; error?: string; code?: string },
+  switching: { harness: string; name: string; error?: string; code?: string; signInExpired?: true },
 ): StartFailureView {
+  if (switching.code === SIGN_IN_REQUIRED) return signInView(t, switching);
   // The switch's own stand-in for no words ("unknown error") says nothing worth a Details.
   const words = switching.error?.trim();
   const raw = words && words !== t("switch.unknownError") ? words : undefined;
@@ -65,4 +66,17 @@ export function startFailureView(
       ? t("turn.failure.spawnFailed", { harness: switching.name })
       : failureCopy(t, raw, { name: switching.name, harness: switching.harness }, switching.code);
   return { sentence, detail: raw };
+}
+
+/// A start whose agent is not signed in on the machine (hq#11225): the agent by name, the expired
+/// sign-in said as one, and the agent's own words (or the host's) under Details. Sign in is the
+/// card's action (startRefusal.ts), so the sentence names only the cause.
+function signInView(t: Translate, switching: { name: string; error?: string; signInExpired?: true }): StartFailureView {
+  const agent = switching.name.trim();
+  const sentence = !agent
+    ? t("switch.signInRequiredUnnamed")
+    : t(switching.signInExpired ? "switch.signInExpired" : "switch.signInRequired", { agent });
+  const words = switching.error?.trim();
+  const detail = words && words !== t("switch.unknownError") && words !== sentence ? words : undefined;
+  return detail ? { sentence, detail } : { sentence };
 }

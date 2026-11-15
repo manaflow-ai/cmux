@@ -2355,6 +2355,534 @@
     "tour.startFailed": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذّر البدء: {reason}"}},"bs":{"stringUnit":{"state":"translated","value":"Nije pokrenuto: {reason}"}},"da":{"stringUnit":{"state":"translated","value":"Kunne ikke starte: {reason}"}},"de":{"stringUnit":{"state":"translated","value":"Start fehlgeschlagen: {reason}"}},"en":{"stringUnit":{"state":"translated","value":"Couldn’t start: {reason}"}},"es":{"stringUnit":{"state":"translated","value":"No se pudo empezar: {reason}"}},"fr":{"stringUnit":{"state":"translated","value":"Impossible de démarrer : {reason}"}},"it":{"stringUnit":{"state":"translated","value":"Impossibile avviare: {reason}"}},"ja":{"stringUnit":{"state":"translated","value":"開始できませんでした: {reason}"}},"km":{"stringUnit":{"state":"translated","value":"មិនអាចចាប់ផ្តើមបាន៖ {reason}"}},"ko":{"stringUnit":{"state":"translated","value":"시작하지 못했습니다: {reason}"}},"nb":{"stringUnit":{"state":"translated","value":"Kunne ikke starte: {reason}"}},"pl":{"stringUnit":{"state":"translated","value":"Nie udało się rozpocząć: {reason}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Não foi possível iniciar: {reason}"}},"ru":{"stringUnit":{"state":"translated","value":"Не удалось начать: {reason}"}},"th":{"stringUnit":{"state":"translated","value":"เริ่มไม่ได้: {reason}"}},"tr":{"stringUnit":{"state":"translated","value":"Başlatılamadı: {reason}"}},"uk":{"stringUnit":{"state":"translated","value":"Не вдалося почати: {reason}"}},"vi":{"stringUnit":{"state":"translated","value":"Không thể bắt đầu: {reason}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法开始：{reason}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無法開始：{reason}"}}}},
     "tour.startFailedUnknown": {"comment":"Agent pane: the repo tour (repoTour/)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لم تبدأ المحادثة."}},"bs":{"stringUnit":{"state":"translated","value":"Razgovor nije pokrenut."}},"da":{"stringUnit":{"state":"translated","value":"Chatten startede ikke."}},"de":{"stringUnit":{"state":"translated","value":"Der Chat wurde nicht gestartet."}},"en":{"stringUnit":{"state":"translated","value":"The chat didn’t start."}},"es":{"stringUnit":{"state":"translated","value":"El chat no empezó."}},"fr":{"stringUnit":{"state":"translated","value":"Le chat n’a pas démarré."}},"it":{"stringUnit":{"state":"translated","value":"La chat non è partita."}},"ja":{"stringUnit":{"state":"translated","value":"チャットが開始されませんでした。"}},"km":{"stringUnit":{"state":"translated","value":"ការជជែកមិនបានចាប់ផ្តើមទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"채팅이 시작되지 않았습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Chatten startet ikke."}},"pl":{"stringUnit":{"state":"translated","value":"Czat się nie rozpoczął."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O chat não foi iniciado."}},"ru":{"stringUnit":{"state":"translated","value":"Чат не запустился."}},"th":{"stringUnit":{"state":"translated","value":"แชทไม่ได้เริ่ม"}},"tr":{"stringUnit":{"state":"translated","value":"Sohbet başlamadı."}},"uk":{"stringUnit":{"state":"translated","value":"Чат не запустився."}},"vi":{"stringUnit":{"state":"translated","value":"Cuộc trò chuyện chưa bắt đầu."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"聊天未开始。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"聊天未開始。"}}}},
     "switch.notInstalled": {"comment":"Agent pane: a chat's agent did not start because its CLI is not on the machine. {agent} is the agent's name (Claude Code).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{agent} غير مثبّت على هذا الجهاز."}},"bs":{"stringUnit":{"state":"needs_review","value":"{agent} nije instaliran na ovom računaru."}},"da":{"stringUnit":{"state":"needs_review","value":"{agent} er ikke installeret på denne maskine."}},"de":{"stringUnit":{"state":"needs_review","value":"{agent} ist auf diesem Gerät nicht installiert."}},"en":{"stringUnit":{"state":"translated","value":"{agent} isn't installed on this machine."}},"es":{"stringUnit":{"state":"needs_review","value":"{agent} no está instalado en esta máquina."}},"fr":{"stringUnit":{"state":"needs_review","value":"{agent} n'est pas installé sur cette machine."}},"it":{"stringUnit":{"state":"needs_review","value":"{agent} non è installato su questa macchina."}},"ja":{"stringUnit":{"state":"translated","value":"このマシンには {agent} がインストールされていません。"}},"km":{"stringUnit":{"state":"needs_review","value":"{agent} មិនទាន់បានដំឡើងនៅលើម៉ាស៊ីននេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 컴퓨터에 {agent}이(가) 설치되어 있지 않습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"{agent} er ikke installert på denne maskinen."}},"pl":{"stringUnit":{"state":"needs_review","value":"{agent} nie jest zainstalowany na tym komputerze."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{agent} não está instalado nesta máquina."}},"ru":{"stringUnit":{"state":"needs_review","value":"{agent} не установлен на этом компьютере."}},"th":{"stringUnit":{"state":"needs_review","value":"ยังไม่ได้ติดตั้ง {agent} ในเครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"{agent} bu makinede yüklü değil."}},"uk":{"stringUnit":{"state":"needs_review","value":"{agent} не встановлено на цьому комп’ютері."}},"vi":{"stringUnit":{"state":"needs_review","value":"{agent} chưa được cài trên máy này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台机器上没有安装 {agent}。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台機器上沒有安裝 {agent}。"}}}},
+    "switch.signInRequired": {
+      "comment": "Agent pane: a chat's agent did not start because it is not signed in on the chat's machine. {agent} is the agent's name (Cursor).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} غير مسجّل الدخول على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} nije prijavljen na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} er ikke logget ind på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} ist auf diesem Gerät nicht angemeldet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} isn't signed in on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} no tiene la sesión iniciada en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} n'est pas connecté sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} non ha eseguito l'accesso su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンでは {agent} にサインインしていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} មិនទាន់បានចូលគណនីនៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서 {agent}에 로그인되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} er ikke logget på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} nie jest zalogowany na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} não está conectado nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} не выполнил вход на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} ยังไม่ได้ลงชื่อเข้าใช้ในเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} bu makinede oturum açmamış."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} не ввійшов на цьому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} chưa đăng nhập trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 尚未在这台机器上登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 尚未在這台機器上登入。"
+          }
+        }
+      }
+    },
+    "switch.signInExpired": {
+      "comment": "Agent pane: a chat's agent did not start because its sign-in on the chat's machine expired. {agent} is the agent's name (Grok).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتهت صلاحية تسجيل دخول {agent} على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijava za {agent} je istekla na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login for {agent} er udløbet på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Anmeldung von {agent} ist auf diesem Gerät abgelaufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent}'s sign-in expired on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sesión de {agent} caducó en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connexion de {agent} a expiré sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'accesso di {agent} è scaduto su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンでの {agent} のサインインが期限切れです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចូលគណនី {agent} បានផុតកំណត់នៅលើម៉ាស៊ីននេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서 {agent} 로그인이 만료되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Påloggingen for {agent} er utløpt på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logowanie {agent} wygasło na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O login do {agent} expirou nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Срок входа {agent} на этом компьютере истёк."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การลงชื่อเข้าใช้ {agent} ในเครื่องนี้หมดอายุแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} oturumunun bu makinedeki süresi doldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термін входу {agent} на цьому комп’ютері сплив."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên đăng nhập {agent} trên máy này đã hết hạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 在这台机器上的登录已过期。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 在這台機器上的登入已過期。"
+          }
+        }
+      }
+    },
+    "switch.signInRequiredUnnamed": {
+      "comment": "Agent pane: a chat's agent, whose name is unknown, did not start because it is not signed in on the chat's machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الوكيل غير مسجّل الدخول على هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj agent nije prijavljen na ovom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agent er ikke logget ind på denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Agent ist auf diesem Gerät nicht angemeldet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent isn't signed in on this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente no tiene la sesión iniciada en esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet agent n'est pas connecté sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo agente non ha eseguito l'accesso su questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンではこのエージェントにサインインしていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារនេះមិនទាន់បានចូលគណនីនៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서 이 에이전트에 로그인되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agenten er ikke logget på denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten agent nie jest zalogowany na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente não está conectado nesta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот агент не выполнил вход на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์นี้ยังไม่ได้ลงชื่อเข้าใช้ในเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajan bu makinede oturum açmamış."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей агент не ввійшов на цьому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử này chưa đăng nhập trên máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理尚未在这台机器上登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理尚未在這台機器上登入。"
+          }
+        }
+      }
+    },
+    "switch.signInElsewhere": {
+      "comment": "Agent pane: under 'Cursor isn't signed in on this machine.' for a chat on another machine where cmux can't run the sign-in: what to do. 'This machine' is the chat's machine, as in the line above. Retry is the card's button.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل دخوله على هذا الجهاز، ثم اضغط إعادة المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite ga na ovom računaru, pa Pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log den ind på denne maskine, og vælg derefter Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde ihn auf diesem Gerät an und wähle dann Erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign it in on this machine, then Retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia su sesión en esta máquina y luego pulsa Reintentar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-le sur cette machine, puis Réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esegui l'accesso su questa macchina, poi Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンでサインインしてから、再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនីវានៅលើម៉ាស៊ីននេះ រួចសាកល្បងម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에서 로그인한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg den på denne maskinen, og velg deretter Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj go na tym komputerze, a potem kliknij Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conecte-o nesta máquina e depois toque em Tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выполните вход на этом компьютере, затем нажмите «Повторить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ในเครื่องนี้ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makinede oturum açın, ardından Yeniden dene'ye basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть на цьому комп’ютері, потім натисніть «Повторити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập trên máy này, rồi Thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请在这台机器上登录，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請在這台機器上登入，然後重試。"
+          }
+        }
+      }
+    },
     "switch.action.install": {"comment":"Agent pane: the start-failed card's button that runs the agent's installer in a terminal tab.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تثبيت"}},"bs":{"stringUnit":{"state":"needs_review","value":"Instaliraj"}},"da":{"stringUnit":{"state":"needs_review","value":"Installér"}},"de":{"stringUnit":{"state":"needs_review","value":"Installieren"}},"en":{"stringUnit":{"state":"translated","value":"Install"}},"es":{"stringUnit":{"state":"needs_review","value":"Instalar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Installer"}},"it":{"stringUnit":{"state":"needs_review","value":"Installa"}},"ja":{"stringUnit":{"state":"translated","value":"インストール"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំឡើង"}},"ko":{"stringUnit":{"state":"needs_review","value":"설치"}},"nb":{"stringUnit":{"state":"needs_review","value":"Installer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zainstaluj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Instalar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Установить"}},"th":{"stringUnit":{"state":"needs_review","value":"ติดตั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yükle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Встановити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cài đặt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"安装"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"安裝"}}}},
     "harness.updateFailedShort": {"comment":"Agent pane: an agent CLI update failed; the updater's own words are under Details. {agent} is the agent's name.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر تحديث {agent}."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije moguće ažurirati {agent}."}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke opdatere {agent}."}},"de":{"stringUnit":{"state":"needs_review","value":"{agent} konnte nicht aktualisiert werden."}},"en":{"stringUnit":{"state":"translated","value":"Couldn't update {agent}."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo actualizar {agent}."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de mettre à jour {agent}."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile aggiornare {agent}."}},"ja":{"stringUnit":{"state":"translated","value":"{agent} をアップデートできませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចធ្វើបច្ចុប្បន្នភាព {agent} បានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{agent}을(를) 업데이트할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke oppdatere {agent}."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się zaktualizować {agent}."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível atualizar {agent}."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось обновить {agent}."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถอัปเดต {agent} ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"{agent} güncellenemedi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося оновити {agent}."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể cập nhật {agent}."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法更新 {agent}。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法更新 {agent}。"}}}},
     "harness.restartFailedShort": {"comment":"Agent pane: restarting the chat on the updated agent failed; the host's words are under Details.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّرت إعادة تشغيل الدردشة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije moguće ponovo pokrenuti razgovor."}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke genstarte chatten."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Chat konnte nicht neu gestartet werden."}},"en":{"stringUnit":{"state":"translated","value":"Couldn't restart the chat."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo reiniciar el chat."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de redémarrer la conversation."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile riavviare la chat."}},"ja":{"stringUnit":{"state":"translated","value":"チャットを再起動できませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចចាប់ផ្តើមការជជែកឡើងវិញបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅을 다시 시작할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke starte chatten på nytt."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się ponownie uruchomić czatu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível reiniciar o chat."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось перезапустить чат."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถเริ่มแชทใหม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet yeniden başlatılamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося перезапустити чат."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể khởi động lại cuộc trò chuyện."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法重新启动聊天。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法重新啟動聊天。"}}}},
@@ -4513,6 +5041,138 @@
       }
     },
     "switch.action.shareWithMe": {"comment":"Agent pane: a teammate's Cloud machine refused the chat; grant yourself chats on it (team admins)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Share with Me"}},"ar":{"stringUnit":{"state":"needs_review","value":"شاركه معي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Podijeli sa mnom"}},"da":{"stringUnit":{"state":"needs_review","value":"Del med mig"}},"de":{"stringUnit":{"state":"needs_review","value":"Mit mir teilen"}},"es":{"stringUnit":{"state":"needs_review","value":"Compartir conmigo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Partager avec moi"}},"it":{"stringUnit":{"state":"needs_review","value":"Condividi con me"}},"ja":{"stringUnit":{"state":"needs_review","value":"自分と共有"}},"km":{"stringUnit":{"state":"needs_review","value":"ចែករំលែកជាមួយខ្ញុំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"나와 공유"}},"nb":{"stringUnit":{"state":"needs_review","value":"Del med meg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Udostępnij mi"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Compartilhar comigo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Поделиться со мной"}},"th":{"stringUnit":{"state":"needs_review","value":"แชร์ให้ฉัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Benimle paylaş"}},"uk":{"stringUnit":{"state":"needs_review","value":"Поділитися зі мною"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chia sẻ với tôi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"与我共享"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"與我共享"}}}},
+    "switch.action.signInTo": {
+      "comment": "Agent pane, a refused start's card: the button that runs the agent's sign-in in a terminal tab of this Mac. No ellipsis: it runs at once, as Install does. {harness} is the agent's name (Cursor).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى {harness}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavi se na {harness}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på {harness}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei {harness} anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to {harness}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en {harness}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à {harness}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a {harness}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} にサインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលគណនី {harness}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness}에 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på {harness}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do {harness}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar no {harness}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войти в {harness}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ {harness}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} oturumu aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійти в {harness}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập vào {harness}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 {harness}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 {harness}"
+          }
+        }
+      }
+    },
     "switch.action.askOwner": {"comment":"Agent pane: copy a request asking the machine's owner to share it","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ask the Owner"}},"ar":{"stringUnit":{"state":"needs_review","value":"اطلب من المالك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pitaj vlasnika"}},"da":{"stringUnit":{"state":"needs_review","value":"Spørg ejeren"}},"de":{"stringUnit":{"state":"needs_review","value":"Besitzer fragen"}},"es":{"stringUnit":{"state":"needs_review","value":"Pedir al propietario"}},"fr":{"stringUnit":{"state":"needs_review","value":"Demander au propriétaire"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiedi al proprietario"}},"ja":{"stringUnit":{"state":"needs_review","value":"オーナーに依頼"}},"km":{"stringUnit":{"state":"needs_review","value":"សួរម្ចាស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"소유자에게 요청"}},"nb":{"stringUnit":{"state":"needs_review","value":"Spør eieren"}},"pl":{"stringUnit":{"state":"needs_review","value":"Poproś właściciela"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pedir ao dono"}},"ru":{"stringUnit":{"state":"needs_review","value":"Попросить владельца"}},"th":{"stringUnit":{"state":"needs_review","value":"ขอจากเจ้าของ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sahibine sor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Попросити власника"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hỏi chủ sở hữu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请求所有者"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請求擁有者"}}}},
     "switch.share.forbidden": {"comment":"Agent pane: Share with Me was refused because the person is neither the machine's creator nor a team admin","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only the machine's creator or a team admin can share it. Ask the owner to share it with you."}},"ar":{"stringUnit":{"state":"needs_review","value":"لا يمكن مشاركة الجهاز إلا لمنشئه أو لمسؤول الفريق. اطلب من المالك مشاركته معك."}},"bs":{"stringUnit":{"state":"needs_review","value":"Mašinu može podijeliti samo njen kreator ili administrator tima. Zamolite vlasnika da je podijeli s vama."}},"da":{"stringUnit":{"state":"needs_review","value":"Kun maskinens opretter eller en teamadministrator kan dele den. Bed ejeren om at dele den med dig."}},"de":{"stringUnit":{"state":"needs_review","value":"Nur wer die Maschine erstellt hat oder ein Team-Admin kann sie teilen. Bitte den Besitzer, sie mit dir zu teilen."}},"es":{"stringUnit":{"state":"needs_review","value":"Solo quien creó la máquina o un administrador del equipo puede compartirla. Pide al propietario que la comparta contigo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Seul le créateur de la machine ou un administrateur de l'équipe peut la partager. Demandez au propriétaire de la partager avec vous."}},"it":{"stringUnit":{"state":"needs_review","value":"Solo chi ha creato la macchina o un amministratore del team può condividerla. Chiedi al proprietario di condividerla con te."}},"ja":{"stringUnit":{"state":"needs_review","value":"このマシンを共有できるのは作成者かチーム管理者だけです。オーナーに共有を依頼してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មានតែអ្នកបង្កើតម៉ាស៊ីន ឬអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះដែលអាចចែករំលែកវាបាន។ សូមស្នើម្ចាស់ឱ្យចែករំលែកវាជាមួយអ្នក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 기기는 만든 사람이나 팀 관리자만 공유할 수 있습니다. 소유자에게 공유를 요청하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Bare den som opprettet maskinen eller en teamadministrator kan dele den. Be eieren om å dele den med deg."}},"pl":{"stringUnit":{"state":"needs_review","value":"Maszynę może udostępnić tylko jej twórca lub administrator zespołu. Poproś właściciela, aby ci ją udostępnił."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Só quem criou a máquina ou um administrador da equipe pode compartilhá-la. Peça ao dono para compartilhá-la com você."}},"ru":{"stringUnit":{"state":"needs_review","value":"Поделиться машиной может только её создатель или администратор команды. Попросите владельца поделиться ею с вами."}},"th":{"stringUnit":{"state":"needs_review","value":"มีเพียงผู้สร้างเครื่องหรือผู้ดูแลทีมเท่านั้นที่แชร์เครื่องนี้ได้ ขอให้เจ้าของแชร์ให้คุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makineyi yalnızca onu oluşturan kişi veya bir ekip yöneticisi paylaşabilir. Sahibinden makineyi sizinle paylaşmasını isteyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Поділитися машиною може лише її творець або адміністратор команди. Попросіть власника поділитися нею з вами."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chỉ người tạo máy hoặc quản trị viên nhóm mới chia sẻ được máy này. Hãy nhờ chủ sở hữu chia sẻ với bạn."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"只有这台机器的创建者或团队管理员可以共享它。请让所有者与你共享。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"只有這台機器的建立者或團隊管理員可以共享它。請擁有者與你共享。"}}}},
     "switch.share.private": {"comment":"Agent pane: the machine is private (only its creator starts chats on it), so it cannot be shared","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This machine is private, so only its creator can start chats on it."}},"ar":{"stringUnit":{"state":"needs_review","value":"هذا الجهاز خاص، لذا لا يمكن إلا لمنشئه بدء المحادثات عليه."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ova mašina je privatna, pa samo njen kreator može pokretati razgovore na njoj."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne maskine er privat, så kun dens opretter kan starte chats på den."}},"de":{"stringUnit":{"state":"needs_review","value":"Diese Maschine ist privat, daher kann nur ihr Ersteller dort Chats starten."}},"es":{"stringUnit":{"state":"needs_review","value":"Esta máquina es privada, así que solo quien la creó puede iniciar chats en ella."}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette machine est privée : seul son créateur peut y démarrer des discussions."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa macchina è privata, quindi solo chi l'ha creata può avviarvi chat."}},"ja":{"stringUnit":{"state":"needs_review","value":"このマシンは非公開のため、チャットを開始できるのは作成者だけです。"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ាស៊ីននេះជាឯកជន ដូច្នេះមានតែអ្នកបង្កើតប៉ុណ្ណោះដែលអាចចាប់ផ្ដើមការជជែកនៅលើវាបាន។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 기기는 비공개라서 만든 사람만 채팅을 시작할 수 있습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne maskinen er privat, så bare den som opprettet den kan starte chatter på den."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ta maszyna jest prywatna, więc czaty może na niej rozpoczynać tylko jej twórca."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Esta máquina é privada, então só quem a criou pode iniciar chats nela."}},"ru":{"stringUnit":{"state":"needs_review","value":"Эта машина приватная, поэтому чаты на ней может начинать только её создатель."}},"th":{"stringUnit":{"state":"needs_review","value":"เครื่องนี้เป็นแบบส่วนตัว จึงมีเพียงผู้สร้างเท่านั้นที่เริ่มแชทบนเครื่องนี้ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu makine özel, bu yüzden üzerinde yalnızca onu oluşturan kişi sohbet başlatabilir."}},"uk":{"stringUnit":{"state":"needs_review","value":"Ця машина приватна, тому чати на ній може починати лише її творець."}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy này ở chế độ riêng tư nên chỉ người tạo mới bắt đầu trò chuyện trên đó được."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台机器是私有的，因此只有其创建者可以在上面开始聊天。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台機器是私人的，因此只有其建立者可以在上面開始聊天。"}}}},

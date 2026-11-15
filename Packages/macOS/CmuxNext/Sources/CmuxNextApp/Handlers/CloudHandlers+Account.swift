@@ -364,7 +364,7 @@ extension CloudHandlers {
             // has not started.
             bootstrap: { creation, session in
                 let machine = CloudMachineBootstrap.Machine(api: cloud.machineAPI.pinningTeam(creation.request.team), machineID: session.machineID)
-                await CloudCreationFlow.startBootstrap(creation, on: machine)
+                await CloudCreationFlow.startBootstrap(creation, on: machine) { _ = await session.linkUp(within: CloudStartSession.connectWait) }
             }
         )
     }

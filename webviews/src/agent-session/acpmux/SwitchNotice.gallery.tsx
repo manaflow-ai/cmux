@@ -2,20 +2,104 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
+import { type CloudSignIn, type LoginAgent, LoginStepError } from "./cloudAgentLogin";
+import { ErrorDetails } from "./conversation/ErrorDetails";
+import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
+import { startFailureView } from "./startFailure";
 import { SwitchNotice } from "./SwitchNotice";
 
 /// `share`: how the fixture's Share with Me answers (a team admin's share, or the creator-or-admin refusal).
-type Props = { error: string; code?: string; share?: "shared" | "forbidden" };
+/// `harness`/`name`: the agent that did not start (Claude Code unless named). `signIn`: how a sign-in
+/// refusal's Sign in runs here: the machine's own card (a chat elsewhere whose acpmux signs it in),
+/// a terminal login (a chat on this Mac), or none (a chat elsewhere with no sign-in for it).
+/// `alternative`: a design not shipped, kept to compare (hq#11225).
+type Props = {
+  error: string;
+  code?: string;
+  share?: "shared" | "forbidden";
+  harness?: LoginAgent;
+  name?: string;
+  signIn?: "card" | "terminal" | "none";
+  signInExpired?: true;
+  alternative?: "compact" | "two-step";
+};
 
-function GallerySwitchNotice({ error, code, share }: Props) {
+/// The machine's sign-in for the gallery: a page and a code (Grok), a page (Cursor), a key (Gemini).
+/// Nothing leaves the gallery.
+function gallerySignIn(agent: LoginAgent): CloudSignIn {
+  return {
+    agent,
+    start: async () => {
+      if (agent === "gemini") throw new LoginStepError("unsupported");
+      if (agent === "grok")
+        return { loginId: "gallery", url: "https://accounts.x.ai/device", userCode: "WDJB-MJHT", needsCode: false };
+      return { loginId: "gallery", url: "https://cursor.com/loginDeepControl?challenge=gallery", needsCode: false };
+    },
+    open: () => {},
+    openOnMachine: async () => true,
+    finish: () => new Promise<boolean>(() => {}),
+    apiKey: async () => true,
+    gateway: async () => true,
+    cancel: () => {},
+    reserve: async () => undefined,
+    resend: async () => {},
+  };
+}
+
+/// Not shipped: one muted line with Sign in as a link and the agent's words under Details. Quiet,
+/// but the cause and its fix share a line that wraps at narrow widths, and Retry is gone.
+function CompactAlternative({ name, error }: { name: string; error: string }) {
+  const t = useT();
+  const view = startFailureView(t, { harness: "cursor", name, error, code: "agent_session.sign_in_required" });
+  return (
+    <div className="acpmux-host-error acpmux-switch-failed" role="alert">
+      <div className="acpmux-host-error-card">
+        <p className="acpmux-host-error-message">
+          {view.sentence}{" "}
+          <button type="button" className="cv-turn-error__offer-link">
+            {t("picker.signInTo", { harness: name })}
+          </button>
+        </p>
+        {view.detail && <ErrorDetails text={view.detail} className="acpmux-host-error-details" />}
+      </div>
+    </div>
+  );
+}
+
+function GallerySwitchNotice({ error, code, share, harness, name, signIn, signInExpired, alternative }: Props) {
   const [ran, setRan] = useState<string>();
+  const [opened, setOpened] = useState(false);
+  const agent = name ?? "Claude Code";
+  if (alternative === "compact")
+    return (
+      <div className="acpmux-shell" data-switch-notice-fixture>
+        <CompactAlternative name={agent} error={error} />
+      </div>
+    );
+  // Not shipped: Sign in first, and only its click shows the machine's sign-in card (two clicks to the
+  // provider's page where the shipped card takes one).
+  const twoStep = alternative === "two-step" && !opened;
+  const elsewhere = signIn === "card" || signIn === "none";
   return (
     <div className="acpmux-shell" data-switch-notice-fixture data-ran={ran}>
       <SwitchNotice
-        switching={{ harness: "claude", name: "Claude Code", phase: "failed", error, ...(code && { code }) }}
+        switching={{
+          harness: harness ?? "claude",
+          name: agent,
+          phase: "failed",
+          error,
+          ...(code && { code }),
+          ...(signInExpired && { signInExpired }),
+        }}
         onRetry={() => setRan("retry")}
-        onAction={(action) => setRan(action)}
+        onAction={(action) => {
+          setRan(action);
+          if (twoStep) setOpened(true);
+        }}
+        installs={!elsewhere || twoStep}
+        runsLogin={signIn === "terminal" || twoStep}
+        {...(signIn === "card" && harness && !twoStep && { agentSignIn: gallerySignIn(harness) })}
         {...(share && {
           share: {
             machine: "build-box",
@@ -39,6 +123,12 @@ const shareRefused: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Share with Me" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Ask the Owner" }) !== null);
 };
+
+/// The agents' own words for a missing sign-in (cmux-tui acpmux recovery.rs `start_sign_in`).
+const CURSOR_WORDS = "Authentication required";
+const GEMINI_WORDS = "API key missing";
+const GROK_WORDS = "agent process closed (grok): Authentication required";
+const SIGN_IN = "agent_session.sign_in_required";
 
 export default componentEntry<Props>({
   id: "agent-pane.switch-notice",
@@ -77,6 +167,62 @@ export default componentEntry<Props>({
         code: "app.folder_needed",
       },
       note: "No folder and no work folder on the machine (an older cmux-tui): Choose Folder… beside Retry.",
+    },
+    "sign-in-cursor-cloud": {
+      props: { error: CURSOR_WORDS, code: SIGN_IN, harness: "cursor", name: "Cursor", signIn: "card" },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Sign in to Cursor" });
+      },
+      note: "Shipped (hq#11225). Cursor not signed in on a Cloud machine: the cause by name, the machine's own sign-in card leading (Sign in to Cursor opens its page there), Retry beside it, the agent's words under Details.",
+    },
+    "sign-in-grok-cloud": {
+      props: { error: GROK_WORDS, code: SIGN_IN, harness: "grok", name: "Grok", signIn: "card" },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Sign in to Grok" });
+        await ctx.waitFor(() => ctx.find({ selector: "[data-testid=cloud-signin-code]" }) !== null);
+      },
+      note: "Shipped. Grok's device sign-in in the card: its code to enter on the page, then Retry starts Grok signed in.",
+    },
+    "sign-in-gemini-cloud": {
+      props: { error: GEMINI_WORDS, code: SIGN_IN, harness: "gemini", name: "Gemini CLI", signIn: "card" },
+      note: "Shipped. Gemini takes a key only: Use an API key is the card's one sign-in button.",
+    },
+    "sign-in-cursor-expired": {
+      props: {
+        error: CURSOR_WORDS,
+        code: SIGN_IN,
+        harness: "cursor",
+        name: "Cursor",
+        signIn: "card",
+        signInExpired: true,
+      },
+      note: "Shipped. An expired sign-in says it expired, with the same sign-in.",
+    },
+    "sign-in-cursor-this-mac": {
+      props: { error: CURSOR_WORDS, code: SIGN_IN, harness: "cursor", name: "Cursor", signIn: "terminal" },
+      note: "Shipped. A chat on this Mac: Sign in to Cursor runs its login in a terminal tab, as the sign-in notice does; then Retry.",
+    },
+    "sign-in-cursor-no-machine-sign-in": {
+      props: { error: CURSOR_WORDS, code: SIGN_IN, harness: "cursor", name: "Cursor", signIn: "none" },
+      note: "Shipped. A machine with no sign-in for the agent (a new chat with no session there yet, an older cmux): the cause, where to sign in, and Retry. Never a login on this Mac.",
+    },
+    "sign-in-alternative-compact": {
+      props: { error: CURSOR_WORDS, harness: "cursor", name: "Cursor", alternative: "compact" },
+      note: "Alternative, not shipped: one line with Sign in as a link. Rejected: no Retry after signing in, and the link wraps under the sentence at narrow widths.",
+    },
+    "sign-in-alternative-two-step": {
+      props: {
+        error: CURSOR_WORDS,
+        code: SIGN_IN,
+        harness: "cursor",
+        name: "Cursor",
+        signIn: "card",
+        alternative: "two-step",
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Sign in to Cursor" });
+      },
+      note: "Alternative, not shipped: a plain Sign in button that only then shows the machine's sign-in card. Rejected: two clicks to the provider's page where the shipped card takes one.",
     },
     plain: {
       props: { error: "build-box did not start the agent in time. Try again." },
