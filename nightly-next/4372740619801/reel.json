@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4372740619801",
+  "notes": "notes/4372740619801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43795,
+      "title": "chaos probe: say why a stalled chat stalled before its verdict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43530,
+      "title": "feat(cmux-rd): share a Linux desktop with cmux on a Mac (linux-host); serve picks the capture backend",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43695,
+      "title": "Agent chat: the rich-output skill shows Google Slides and Figma live, edits Slides only through the person's own connection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43793,
+      "title": "hot-apply ffi: reopen the app through launchd where open fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43640,
+      "title": "Cloud start: the cmux router and pi agents start or fail named (hq#11225)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43321,
+      "title": "Hover cards: a hidden sidebar stops only its own window's cards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43401,
+      "title": "notifications.banners and notifications.open: read and click the app's banners from a release build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43768,
+      "title": "cmux NEXT hover-instant bench: real mouse moves through the Computer Use app's own grant",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43771,
+      "title": "cmux-platform production logs: a dispatch-only, exact-id Workers Logs read to the private HQ store",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43762,
+      "title": "fix(next): explain offline screen sharing devices (carries #43404)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43724,
+      "title": "ci: Team-signed darwin tree builds, so Rust hot-apply reaches a NIGHTLY",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43704,
+      "title": "cloud copy: make a copy's new folders many to a round trip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43759,
+      "title": "Screenshots: a color blend no longer refuses a masked capture",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
