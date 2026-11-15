@@ -1718,11 +1718,15 @@ impl ConnectionError {
     pub fn is_retryable_carrier_failure(&self) -> bool {
         match self {
             Self::Provider(error) => error.is_retryable_carrier_failure(),
-            Self::Crypto(CryptoError::LinkError(LinkError::Closed | LinkError::Transport(_)))
+            Self::Crypto(CryptoError::LinkError(
+                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
+            ))
             | Self::Crypto(CryptoError::UnexpectedEof)
             | Self::Crypto(CryptoError::HandshakeTimeout { .. })
-            | Self::Link(LinkError::Closed | LinkError::Transport(_))
-            | Self::Session(SessionError::Link(LinkError::Closed | LinkError::Transport(_)))
+            | Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
+            | Self::Session(SessionError::Link(
+                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
+            ))
             | Self::Session(SessionError::LinkMessage(_))
             | Self::Session(SessionError::SchedulerClosed)
             | Self::ReconnectAttemptTimedOut { .. } => true,
