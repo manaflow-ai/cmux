@@ -127,13 +127,14 @@ test("a burst of finished turns sends one repair read at a time, and the merged 
     for (let turn = 1; turn <= TURNS; turn += 1) internals.checkFinishedTurn(CHAT, seqOf(turn, 3));
     await flush();
     const outAtOnce = held.length;
+    // One per turn was up to the request budget's 48 at once, with the rest queued behind it.
+    expect(outAtOnce).toBe(1);
     for (let answered = 0; held.length > 0 && answered < TURNS * 4; answered += 1) {
       held.shift()!();
       await flush();
     }
     console.error(`[turn-repair] ${TURNS} finished turns: ${reads.length} reads, ${outAtOnce} out at once`);
     // One read for the first turn, one for every turn that ended while it was out.
-    expect(outAtOnce).toBe(1);
     expect(reads.length).toBeLessThanOrEqual(2);
     // The merged read starts where the first turn's ends, so it covers every later turn.
     expect(reads[1]?.afterSeq).toBe(seqOf(1, 3));
