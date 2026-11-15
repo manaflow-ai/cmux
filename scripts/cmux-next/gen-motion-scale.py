@@ -64,6 +64,11 @@ def load():
     send = data["send"]
     assert set(send) == {"ms", "ease", "for"} and isinstance(send["ms"], int), send
     assert len(send["ease"]) == 4 and 0 <= send["ease"][0] <= 1 and 0 <= send["ease"][2] <= 1, send
+    sweep = data["sweep"]
+    assert set(sweep) == {"ease", "for"}, sweep
+    assert len(sweep["ease"]) == 4 and all(0 <= value <= 1 for value in sweep["ease"]), sweep
+    # Never one constant speed: it speeds up out of its start and slows into its end.
+    assert sweep["ease"][0] > 0 and sweep["ease"][2] < 1, "the sweep eases in and out"
     return data
 
 
@@ -93,6 +98,8 @@ def css_block(data):
     lines.append("  /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */")
     lines.append("  --cmux-motion-settle: %sms;" % settle_ms)
     lines.append("  --cmux-ease-settle: %s;" % bezier(data, data["settle"]["bezier"]))
+    lines.append("  /* One pass of a shimmer's band: it speeds up, then slows down. */")
+    lines.append("  --cmux-ease-sweep: %s;" % bezier(data, data["sweep"]["ease"]))
     lines.append("  /* One turn of every spinner (`cmux-spin`); not a transition. */")
     lines.append("  --cmux-spinner-period: %sms;" % data["spinner"]["ms"])
     lines += ["}", END]
@@ -150,6 +157,11 @@ export const MOTION_SETTLE = "{settle}";
 /** How long the settle runs (ms, `--cmux-motion-settle`): measured, not a step of the scale. */
 export const MOTION_SETTLE_MS = {settle_ms};
 
+/**
+ * One pass of a shimmer's band (`--cmux-ease-sweep`): {sweep_for}.
+ */
+export const MOTION_EASE_SWEEP = "{sweep}";
+
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = {spinner};
 """.format(send_for=data["send"]["for"], send_ms=data["send"]["ms"], send_ease=bezier(data, data["send"]["ease"]),
@@ -157,7 +169,7 @@ export const SPINNER_PERIOD_MS = {spinner};
            src=SOURCE, steps=steps, ease=bezier(data), spring=spring_linear(data),
            spring_for=data["spring"]["for"], spring_step=data["spring"]["step"], spinner=data["spinner"]["ms"],
            settle=bezier(data, data["settle"]["bezier"]), settle_for=data["settle"]["for"],
-           settle_ms=data["settle"]["ms"])
+           settle_ms=data["settle"]["ms"], sweep=bezier(data, data["sweep"]["ease"]), sweep_for=data["sweep"]["for"])
 
 
 def swift(data):
@@ -186,11 +198,15 @@ public nonisolated struct MotionScale: Sendable {{
     /// Anything entering eases out: the control points of the curve.
     public static let easeOut: (Float, Float, Float, Float) = ({ease})
 
+    /// One pass of a shimmer's band, speeding up then slowing down: the control points of the curve.
+    public static let sweepEase: (Float, Float, Float, Float) = ({sweep})
+
     /// One turn of every spinner (`MotionLoop.spinner`'s default); a loop, not a step of the scale.
     public static let spinnerPeriod: TimeInterval = {spinner}
 }}
 """.format(src=SOURCE, steps=steps, all=", ".join(step["name"] for step in data["steps"]),
-           ceiling=data["steps"][-1]["name"], ease=ease, spinner="%g" % (data["spinner"]["ms"] / 1000))
+           ceiling=data["steps"][-1]["name"], ease=ease,
+           sweep=", ".join("%g" % value for value in data["sweep"]["ease"]),spinner="%g" % (data["spinner"]["ms"] / 1000))
 
 
 # The value line of `motion.loops.spinner` in design-tokens.json, rewritten in place so the rest of

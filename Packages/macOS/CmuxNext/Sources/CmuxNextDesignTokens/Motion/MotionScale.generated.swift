@@ -26,6 +26,9 @@ public nonisolated struct MotionScale: Sendable {
     /// Anything entering eases out: the control points of the curve.
     public static let easeOut: (Float, Float, Float, Float) = (0, 0, 0.58, 1)
 
+    /// One pass of a shimmer's band, speeding up then slowing down: the control points of the curve.
+    public static let sweepEase: (Float, Float, Float, Float) = (0.42, 0, 0.58, 1)
+
     /// One turn of every spinner (`MotionLoop.spinner`'s default); a loop, not a step of the scale.
     public static let spinnerPeriod: TimeInterval = 2
 }

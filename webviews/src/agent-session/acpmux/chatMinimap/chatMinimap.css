@@ -89,7 +89,7 @@
   inset: 0;
   background: linear-gradient(transparent, color-mix(in srgb, var(--agent-text) 24%, transparent), transparent);
   transform: translateY(-100%);
-  animation: acpmux-chat-minimap-shimmer 1.6s ease-in-out infinite;
+  animation: acpmux-chat-minimap-shimmer 1.6s var(--cmux-ease-sweep, ease-in-out) infinite;
 }
 @keyframes acpmux-chat-minimap-shimmer {
   to {

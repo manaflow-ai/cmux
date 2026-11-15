@@ -8,6 +8,10 @@
 
 :root {
   --cv-shimmer-sweep-duration: 1s;
+  /* One pass speeds up out of the left edge and slows into the right, never one constant speed
+     (Leo, 2026-11-08, "Glimmer pacing": "i know there's some accel/decel aka easing"). The motion
+     scale's sweep curve (schemas/motion-scale), the ease-in-out the Home shimmers already run. */
+  --cv-shimmer-sweep-ease: var(--cmux-ease-sweep, cubic-bezier(0.42, 0, 0.58, 1));
   /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts), on the one fold
      curve every web fold shares, the settle (--cmux-ease-settle over --cmux-motion-settle, schemas/motion-scale):
      a strong ease-out that starts at full speed and decelerates into its end, never past it (Leo,
@@ -3001,7 +3005,9 @@ pre.cv-math-source {
 
 
 /* Codex's loading text is a one-second sweep, not a stretched infinite loop. The cadence
-   controller starts a pass every four seconds and leaves only the base text between passes. */
+   controller starts a pass every four seconds and leaves only the base text between passes. Each
+   pass eases in and out (--cv-shimmer-sweep-ease); the band and its lit copy share the curve, so
+   the lit words still hold still under the moving stripe at every frame. */
 @keyframes cmux-cadenced-shimmer-band {
   from { transform: translateX(-50%); }
   to { transform: translateX(125%); }
@@ -3014,12 +3020,12 @@ pre.cv-math-source {
   .cv-shimmer__band.is-shimmer-active,
   .cv-row-shimmer.is-shimmer-active > .cv-row-shimmer__band {
     /* motion-allow: decorative loading sweep, 1s every 4s; runs only while visible and motion is allowed. */
-    animation: cmux-cadenced-shimmer-band var(--cv-shimmer-sweep-duration) steps(48, end) 1;
+    animation: cmux-cadenced-shimmer-band var(--cv-shimmer-sweep-duration) var(--cv-shimmer-sweep-ease) 1;
   }
   .cv-shimmer__band.is-shimmer-active > .cv-shimmer__lit,
   .cv-row-shimmer.is-shimmer-active > .cv-row-shimmer__band > .cv-row-shimmer__lit {
     /* motion-allow: decorative loading sweep, 1s every 4s; runs only while visible and motion is allowed. */
-    animation: cmux-cadenced-shimmer-lit var(--cv-shimmer-sweep-duration) steps(48, end) 1;
+    animation: cmux-cadenced-shimmer-lit var(--cv-shimmer-sweep-duration) var(--cv-shimmer-sweep-ease) 1;
   }
 }
 
@@ -3193,7 +3199,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) var(--cmux-ease-sweep, ease-in-out) infinite;
   }
   /* Marks with their own color (edit counts, a failed count) keep it inside the band. */
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]

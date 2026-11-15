@@ -718,6 +718,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
   --cmux-motion-settle: 180ms;
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  /* One pass of a shimmer's band: it speeds up, then slows down. */
+  --cmux-ease-sweep: cubic-bezier(0.42, 0, 0.58, 1);
   /* One turn of every spinner (`cmux-spin`); not a transition. */
   --cmux-spinner-period: 2000ms;
 }

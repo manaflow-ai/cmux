@@ -1,5 +1,5 @@
 {
-  "$comment": "The one motion duration scale of cmux NEXT (Leo 2026-10-20: \"animations all around are a bit slow\"). Every timed fade and every structural move ends within one of these steps; anything entering eases out, and a selection that travels may ride the one spring, and a fold that grows or shrinks settles on the settle curve (the spring a CSS linear() easing; the native side keeps its own spring physics, so the Swift copy has no spring). scripts/cmux-next/gen-motion-scale.py writes the Swift (MotionScale.generated.swift), CSS (--cmux-motion-<step> in webviews/src/pages/shared/desktop.css) and TypeScript (webviews/src/motion/scale.generated.ts) copies. Loops (spinners, breathing) and hover-intent delays are not transitions and stay off the scale; the one exception is `spinner`, the period every spinner turns at, which it also writes as --cmux-spinner-period (CSS), SPINNER_PERIOD_MS (TypeScript), MotionScale.spinnerPeriod (Swift) and design-tokens.json motion.loops.spinner (Rust).",
+  "$comment": "The one motion duration scale of cmux NEXT (Leo 2026-10-20: \"animations all around are a bit slow\"). Every timed fade and every structural move ends within one of these steps; anything entering eases out, and a selection that travels may ride the one spring, a fold that grows or shrinks settles on the settle curve, and a shimmer's pass sweeps on the sweep curve (the spring a CSS linear() easing; the native side keeps its own spring physics, so the Swift copy has no spring). scripts/cmux-next/gen-motion-scale.py writes the Swift (MotionScale.generated.swift), CSS (--cmux-motion-<step> in webviews/src/pages/shared/desktop.css) and TypeScript (webviews/src/motion/scale.generated.ts) copies. Loops (spinners, breathing) and hover-intent delays are not transitions and stay off the scale; the one exception is `spinner`, the period every spinner turns at, which it also writes as --cmux-spinner-period (CSS), SPINNER_PERIOD_MS (TypeScript), MotionScale.spinnerPeriod (Swift) and design-tokens.json motion.loops.spinner (Rust).",
   "steps": [
     { "name": "quick", "ms": 80, "for": "hover and pressed fills, focus rings, anything leaving (a popup, a notice, a row)" },
     { "name": "micro", "ms": 120, "for": "small things arriving: a fade in, a popup opening, a chip, a tooltip" },
@@ -16,6 +16,10 @@
     "for": "a prompt the reader sends lands at once: its room, its bubble and the thread are in their places in the frame the composer empties, with no flight, rise, ride, tuck or fade (Leo 2026-11-11: \"that slow settle animation is just so bad. Like, just do it.\"); 0 at every ui.animationSpeed"
   },
   "easeOut": [0, 0, 0.58, 1],
+  "sweep": {
+    "ease": [0.42, 0, 0.58, 1],
+    "for": "one pass of a shimmer's band across its words (the live line, a running tool row): it speeds up out of the start and slows into the end, never one constant speed (Leo 2026-11-08 on the glimmer pacing: i know there's some accel/decel aka easing); the ease-in-out the Home shimmers already sweep on (CAMediaTimingFunction easeInEaseOut)"
+  },
   "spring": {
     "step": "large",
     "for": "a selection or view that travels to where it lands and stops there, never past it (a sliding tab indicator, the chat switch; Lawrence: no bounce in any motion); run over its step (large, 240 ms) it is at its end by 55% (about 130 ms) and stays there",

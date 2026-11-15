@@ -1,0 +1,25 @@
+.shimmer-pacing {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 24px;
+  color: var(--cv-text);
+  font-family: var(--cv-font, var(--font-ui));
+}
+/* The stage stacks its lines in flow; the transcript places each one itself. */
+.shimmer-pacing .acpmux-row {
+  position: relative;
+  left: auto;
+  right: auto;
+  min-height: 0;
+  padding-bottom: 12px;
+}
+/* Curves kept to compare against the shipped ease-in-out. */
+.shimmer-pacing[data-look="linear"] {
+  --cv-shimmer-sweep-ease: steps(48, end);
+}
+.shimmer-pacing[data-look="strong"] {
+  --cv-shimmer-sweep-ease: cubic-bezier(0.65, 0, 0.35, 1);
+}
+.shimmer-pacing[data-look="settle"] {
+  --cv-shimmer-sweep-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}

@@ -481,7 +481,7 @@
     color-mix(in srgb, currentColor 12%, transparent);
 }
 :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-note-bar {
-  animation: wn-note-bar var(--cmux-shimmer-period, 2.8s) linear infinite;
+  animation: wn-note-bar var(--cmux-shimmer-period, 2.8s) var(--cmux-ease-sweep, ease-in-out) infinite;
 }
 @keyframes wn-note-bar {
   from { background-position: 100% 0, 0 0; }
