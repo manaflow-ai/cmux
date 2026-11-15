@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43676241330",
+  "recorded_at": "2026-11-15T04:31:03Z",
+  "reason": "cmux-tui 6262a6ea5645 changes the image's cmux-tui (pinned 502310855209)",
+  "dry_run": false,
+  "cmux_tui": "6262a6ea5645aedad6e1953a73c65fde81908ea4",
+  "fixes": [
+    {
+      "sha": "6262a6ea5645aedad6e1953a73c65fde81908ea4",
+      "mergedAt": "2026-11-15T04:03:58Z",
+      "subject": "acpmux v2 3b: catchup_peak_rss gates the actor's bytes held; the row is measured (#43397)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T04:31:03Z",
+    "snapshot_id": "sh-cc9fb661a03d495f8c7470585e52f6d6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43676241330): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bde11566b732466c3dd1870d14986f860a31e76c",
+    "image": "cloud-native-auto-6262a6ea-43676241330-1",
+    "revision": "ci-43676241330-1",
+    "at": "2026-11-15T04:31:03Z"
+  },
+  "rolled_back": false
+}
