@@ -67,8 +67,20 @@ def problems() -> list[str]:
     if "secrets." in text or "environment" in drop:
         bad.append(f"{DROP} must hold no secret or environment")
     steps = drop.get("steps") or []
-    if not any(NAME in str(s.get("run", "")) and f"/runs/$GITHUB_RUN_ID/" in str(s.get("run", "")) for s in steps):
+    script = "\n".join(str(s.get("run", "")) for s in steps)
+    if not (NAME in script and "/runs/$GITHUB_RUN_ID/artifacts" in script):
         bad.append(f"{DROP} must list {NAME} of this run only (runs/$GITHUB_RUN_ID)")
+    # needs.*.result reads a failed continue-on-error job as success; the jobs API has the real conclusion.
+    soft = sorted(n for n, j in jobs.items() if n != DROP and j.get("continue-on-error"))
+    check = script.find("/attempts/$GITHUB_RUN_ATTEMPT/jobs")
+    if soft and (check < 0 or check > script.find("-X DELETE")):
+        bad.append(f"{DROP} must read this attempt's jobs before the delete: {soft} are continue-on-error, so"
+                   " needs.*.result shows their failure as success")
+    if f'.name != "{drop.get("name")}"' not in script:
+        bad.append(f"{DROP}'s jobs filter must leave out its own name ({drop.get('name')!r}) exactly")
+    for word in ('.conclusion != "success"', '.conclusion != "skipped"', "exit 0"):
+        if word not in script:
+            bad.append(f"{DROP}'s jobs check lacks {word!r}")
     # A reader in another workflow or script would lose the artifact: the name lives in this workflow only.
     for path in sorted((ROOT / ".github").rglob("*.y*ml")) + sorted((ROOT / "scripts").rglob("*")):
         if path == WORKFLOW or not path.is_file() or path.suffix not in (".yml", ".yaml", ".py", ".sh", ".js", ".ts"):

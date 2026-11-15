@@ -1697,7 +1697,7 @@ jobs:
   # keeps an artifact at least a day, so retention alone does not bound a busy handoff. It needs every other job,
   # so it starts only after the last reader ends. A run with a failed or cancelled job keeps the artifact for its
   # re-run (and the 3 days still expire it). continue-on-error, like supersede: a failed delete never fails the
-  # run, which would make the dispatcher hand the source over again. Two API calls; no secrets, no checkout.
+  # run, which would make the dispatcher hand the source over again. Three API calls; no secrets, no checkout.
   drop-signed-handoff:
     name: Delete the signed app handoff once its readers are done
     needs: [sign, supersede, runner, verify, publish, tip-dmg-build, rcodesign, tip-dmg, tip, tip-deltas]
@@ -1713,6 +1713,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # needs.*.result reads a failed continue-on-error job (tip-dmg-build, supersede) as success, and the owned
+          # pool rescue (scripts/ci/owned_pool_rescue.py) or a person re-runs such a job, which downloads the
+          # artifact again. The jobs API has each job's real conclusion: keep it unless every other job of this
+          # attempt succeeded or was skipped.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.name != "Delete the signed app handoff once its readers are done")
+              | select(.conclusion != "success" and .conclusion != "skipped") | "\(.name): \(.conclusion // .status)"' \
+            > unclean.txt
+          if [[ -s unclean.txt ]]; then
+            echo "keeping cmux-next-dev-daily-signed for a re-run; jobs not clean:"; cat unclean.txt
+            exit 0
+          fi
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=cmux-next-dev-daily-signed&per_page=10" \
             --jq '.artifacts[] | "\(.id) \(.size_in_bytes)"' > artifacts.txt
           [[ -s artifacts.txt ]] || { echo "no cmux-next-dev-daily-signed artifact in this run"; exit 0; }
