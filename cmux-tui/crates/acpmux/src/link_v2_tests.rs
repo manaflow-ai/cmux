@@ -503,7 +503,10 @@ async fn each_refusal_arrives_as_an_error_and_a_claimed_role_changes_nothing() {
         json!({"method":"sub","params":{"sid":"c","stream":"list","view":"live","filter":{"origin":"c"}}}),
         json!({"method":"sub","params":{"sid":"c","stream":"list","view":"live",
             "anchor":{"key":{"lastActivity":1,"chatId":"a","origin":"local"},"side":"after"}}}),
-        json!({"method":"page","params":{"sid":"live","stream":"list","view":"all"}}),
+        json!({"method":"page","params":{"sid":"live","stream":"list","view":"all",
+            "filter":{"origin":"c"}}}),
+        json!({"method":"page","params":{"sid":"x","stream":"list",
+            "keys":[{"lastActivity":1,"chatId":"a","origin":"c"}]}}),
         json!({"method":"page","params":{"sid":"live","stream":"chat:a","view":"live"}}),
         json!({"method":"page","params":{"sid":"live","stream":"list","view":"live",
             "filter":{"origin":"c"}}}),
@@ -518,6 +521,20 @@ async fn each_refusal_arrives_as_an_error_and_a_claimed_role_changes_nothing() {
             error["message"].as_str().unwrap().contains("not allowed on a peer link"),
             "{error}"
         );
+    }
+    // Decision 266: a page of `all` or of local keys, with no sub, answers this machine's rows.
+    let allowed = [
+        json!({"method":"page","params":{"sid":"x","stream":"list","view":"all"}}),
+        json!({"method":"page","params":{"sid":"x","stream":"list",
+            "keys":[{"lastActivity":10,"chatId":"a","origin":"local"}]}}),
+    ];
+    for request in &allowed {
+        wire.send(request_frame(request.clone())).await;
+        let (kind, page) = wire.frame(&mut v1).await;
+        assert_eq!(kind, 4, "{request} -> {page}");
+        let ids: Vec<_> =
+            page["rows"].as_array().unwrap().iter().map(|row| &row["chatId"]).collect();
+        assert_eq!(ids, [&json!("a")], "{page}");
     }
     assert!(v1.is_empty(), "no v1 line answered a frame: {v1:?}");
 }
