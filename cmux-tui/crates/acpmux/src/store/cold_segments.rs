@@ -94,6 +94,22 @@ impl SegmentFile {
             Self::Cold(_) => None,
         }
     }
+
+    /// The segment's length in raw bytes.
+    pub(crate) fn len(&self) -> std::io::Result<u64> {
+        match self {
+            Self::Local(file) => Ok(file.metadata()?.len()),
+            Self::Cold(cold) => Ok(cold.index.raw_len),
+        }
+    }
+
+    /// The file's metadata: the archive's for a cold segment (its identity, never its length).
+    pub(crate) fn metadata(&self) -> std::io::Result<std::fs::Metadata> {
+        match self {
+            Self::Local(file) => file.metadata(),
+            Self::Cold(cold) => cold.file.metadata(),
+        }
+    }
 }
 
 impl Read for SegmentFile {
@@ -334,4 +350,75 @@ fn move_cold(session: &Path, index: u32) -> Result<()> {
 
 fn hex(digest: &[u8]) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(seq: u64) -> EventRecord {
+        let pad = "x".repeat((seq as usize * 37) % 900);
+        EventRecord {
+            seq,
+            at: seq,
+            dir: "in".into(),
+            kind: "agent_message_chunk".into(),
+            msg: serde_json::json!({"text": format!("{seq} {pad}")}),
+            host_seq: None,
+        }
+    }
+
+    /// Sealed segments moved cold read back through the store as they were: every record by a
+    /// forward scan, and pages from the end (`scan_back`, the paging read) the same as before.
+    #[test]
+    fn cold_segments_page_back_as_before() {
+        let home = std::env::temp_dir().join(format!("acpmux-coldseg-{}", uuid::Uuid::now_v7()));
+        let store = LocalStore::new(home.join("sessions"), 256 * 1024).unwrap();
+        let total = 6000u64;
+        for seq in 1..=total {
+            store.append("c", &record(seq)).unwrap();
+        }
+        store.close_log("c");
+        let pages = |store: &LocalStore| {
+            let mut out = Vec::new();
+            let mut before = u64::MAX;
+            loop {
+                let mut page = Vec::new();
+                store
+                    .scan_back("c", 0, before, &|_, _| false, &mut |rec| {
+                        page.push(rec);
+                        page.len() < 400
+                    })
+                    .unwrap();
+                let Some(last) = page.last() else { break };
+                before = last.seq;
+                out.push(page);
+            }
+            out
+        };
+        let local = pages(&store);
+        let segs = store.segment_files("c").unwrap();
+        assert!(segs.len() > 4, "{} segments", segs.len());
+        let dir = store.dir("c");
+        for (index, _) in &segs[..segs.len() - 1] {
+            move_cold(&dir, *index).unwrap();
+        }
+        let listed = store.segment_files("c").unwrap();
+        assert_eq!(listed.len(), segs.len());
+        assert!(
+            listed[..listed.len() - 1]
+                .iter()
+                .all(|(_, p)| p.extension().is_some_and(|e| e == "zst"))
+        );
+        let mut all = Vec::new();
+        store
+            .scan("c", 0, &mut |rec| {
+                all.push(rec);
+                true
+            })
+            .unwrap();
+        assert_eq!(all, (1..=total).map(record).collect::<Vec<_>>());
+        assert_eq!(pages(&store), local);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

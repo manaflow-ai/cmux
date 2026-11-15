@@ -162,7 +162,7 @@ pub(super) fn offset_of_seq<F: Read + std::io::Seek + ?Sized>(
     file: &mut F,
     before: u64,
 ) -> Result<u64> {
-    use std::io::{Seek, SeekFrom};
+    use std::io::SeekFrom;
     const PROBE: usize = 64 * 1024;
     let len = file.seek(SeekFrom::End(0))?;
     let mut buf = vec![0u8; PROBE];
@@ -241,7 +241,7 @@ pub(super) fn for_each_line_rev_between<F: Read + std::io::Seek + ?Sized>(
     end: u64,
     visit: &mut dyn FnMut(&[u8]) -> bool,
 ) -> Result<()> {
-    use std::io::{Seek, SeekFrom};
+    use std::io::SeekFrom;
     const BLOCK: u64 = 64 * 1024;
     let floor = start;
     let mut end = file.seek(SeekFrom::End(0))?.min(end);
