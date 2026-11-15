@@ -482,8 +482,8 @@ extension VoiceCallFailure {
         case .keyMissing, .keyRejected: LiveCallText.failKeyDetail
         case let .quota(message), let .modelUnavailable(message), let .refused(message), let .network(message): message
         case .dropped: LiveCallText.failDroppedDetail
-        case let .server(status, requestID):
-            [LiveCallText.failServerDetail(status: status), requestID.map(LiveCallText.requestID)]
+        case let .server(_, requestID):
+            [LiveCallText.failServerDetail, requestID.map(LiveCallText.requestID)]
                 .compactMap { $0 }.joined(separator: "\n")
         }
     }

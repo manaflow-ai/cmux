@@ -38,9 +38,19 @@ async fn reconciliation_removes_a_stale_disk_row_after_a_damaged_frame() {
     let receiver =
         hub.subscribe_replay(&acpmux_core::wire::Sub::new("walk", "list"), index.seq()).unwrap();
     let v2 = V2::new(hub, writer);
-    reconcile(&v1, &v2, &TeeState::default()).await;
-    v2.hub.close();
-    v2.take_writer().unwrap().run().await.unwrap();
+    // Reconciliation waits for snapshot hydration, which the writer advances.
+    let (written, reconciled) = tokio::join!(v2.take_writer().unwrap().run(), async {
+        // timeout: Bound this test's hydration wait, then close and drain its writer.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            reconcile(&v1, &v2, &TeeState::default()),
+        )
+        .await;
+        v2.hub.close();
+        result
+    });
+    written.unwrap();
+    reconciled.unwrap();
 
     let snapshot = v2.hub.snapshot();
     for id in ["first", "damaged"] {

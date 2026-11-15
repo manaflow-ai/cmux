@@ -4,6 +4,7 @@
 // pasteboard. Keys belong to the app's key dispatcher; the page handles none itself.
 import { useSyncExternalStore, type FormEvent } from "react";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import {
   filterExceptions,
   filterPasskeys,
@@ -69,6 +70,9 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   const disconnected = snap.connection === "disconnected";
+  // A lost link keeps the list on screen and says so only once it lasts (ui/lasting.ts): a daemon
+  // restart drops it for a few seconds, and the person has nothing to do (Leo, 2026-11-14).
+  const downLasting = useLasting(disconnected);
   const passwords = groupBySite(filterPasswords(snap.passwords, snap.text), snap.sort);
   const passkeys = sortPasskeys(filterPasskeys(snap.passkeys, snap.text));
   const exceptions = sortExceptions(filterExceptions(snap.exceptions, snap.text));
@@ -184,10 +188,13 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
       </header>
       {notice}
       <div className="pw-scroll">
-        {disconnected ? (
+        {downLasting ? (
           <p className="pw-empty pw-disconnected">{t("passwords.page.disconnected")}</p>
         ) : snap.loading ? (
           <p className="pw-empty">{t("passwords.page.loading")}</p>
+        ) : disconnected && !snap.passwords.length && !snap.passkeys.length && !snap.exceptions.length ? (
+          // Nothing read yet and the link is down: nothing to draw, and no false "No passwords" either.
+          <p className="pw-empty" />
         ) : (
           <>
             <section className="pw-section" aria-labelledby="pw-passwords">

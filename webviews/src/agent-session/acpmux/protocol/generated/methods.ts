@@ -113,6 +113,7 @@ import type {
   SeenDone,
   SeenParams,
   ViewDone,
+  ReleaseToWatchParams,
 } from "./types";
 
 /** Client to daemon requests. */
@@ -156,6 +157,7 @@ export interface AcpmuxRequests {
   "_acpmux/view": { params: ViewParams; result: ViewDone };
   "_acpmux/typing": { params: TypingParams; result: Done };
   "_acpmux/markUnread": { params: MarkUnreadParams; result: Done };
+  "_acpmux/markRead": { params: SessionRef; result: Done };
   "_acpmux/seen": { params: SeenParams; result: SeenDone };
   "_acpmux/watch": { params: WatchParams; result: SessionsResult };
   "_acpmux/rename": { params: unknown; result: unknown };
@@ -237,6 +239,7 @@ export interface AcpmuxRequests {
   "_acpmux/kill": { params: KillParams; result: unknown };
   "_acpmux/keep": { params: unknown; result: unknown };
   "_acpmux/watch_take_over": { params: WatchTakeOverParams; result: unknown };
+  "_acpmux/release_to_watch": { params: ReleaseToWatchParams; result: unknown };
   "_acpmux/archive": { params: ArchiveParams; result: unknown };
   "_acpmux/side": { params: SideParams; result: unknown };
   "_acpmux/btw": { params: BtwParams; result: unknown };
@@ -311,6 +314,7 @@ export interface AcpmuxRequests {
   "_acpmux/inbox_reply": { params: unknown; result: unknown };
   "_acpmux/person_enroll": { params: unknown; result: unknown };
   "_acpmux/computer_use_enroll": { params: unknown; result: unknown };
+  "_acpmux/computer_use_endpoint": { params: unknown; result: unknown };
   "_acpmux/person_prove": { params: unknown; result: unknown };
   "_acpmux/person_holds": { params: unknown; result: unknown };
   "_acpmux/approvers": { params: unknown; result: unknown };
@@ -416,6 +420,9 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_set": { params: unknown; result: unknown };
   "_acpmux/machine_consent_get": { params: unknown; result: unknown };
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
+  "_acpmux/machine_enroll": { params: unknown; result: unknown };
+  "_acpmux/machine_leave_if_auto": { params: unknown; result: unknown };
+  "_acpmux/machine_signed_in": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.attach": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.detach": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.rekey": { params: unknown; result: unknown };
@@ -515,6 +522,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/view", kind: "request", acp: false, typed: true },
   { name: "_acpmux/typing", kind: "request", acp: false, typed: true },
   { name: "_acpmux/markUnread", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/markRead", kind: "request", acp: false, typed: true },
   { name: "_acpmux/seen", kind: "request", acp: false, typed: true },
   { name: "_acpmux/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
@@ -597,6 +605,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/kill", kind: "request", acp: false, typed: true },
   { name: "_acpmux/keep", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_take_over", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/release_to_watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/archive", kind: "request", acp: false, typed: true },
   { name: "_acpmux/side", kind: "request", acp: false, typed: true },
   { name: "_acpmux/btw", kind: "request", acp: false, typed: true },
@@ -673,6 +682,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/inbox_reply", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/computer_use_enroll", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/computer_use_endpoint", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_prove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_holds", kind: "request", acp: false, typed: false },
   { name: "_acpmux/approvers", kind: "request", acp: false, typed: false },
@@ -781,6 +791,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_enroll", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_leave_if_auto", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_signed_in", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.attach", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.detach", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.rekey", kind: "request", acp: false, typed: false },

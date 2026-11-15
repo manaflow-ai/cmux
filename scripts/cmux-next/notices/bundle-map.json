@@ -3,8 +3,8 @@
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
-      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (Release merges Iroh.framework's Rust code here: rustc 1.91.0 std), Sparkle client",
-      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
+      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), CCmuxAppFFI (static Rust: cmux-tui/crates/cmux-app-ffi, the prebuilt xcframework of app-ffi-pin.json; rustc std of cmux-tui's toolchain), Sparkle client",
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
     },
     {
       "path": "Contents/Frameworks/Sparkle.framework/*",
@@ -20,11 +20,6 @@
       "path": "Contents/Frameworks/MediaRemoteAdapter.framework/*",
       "what": "ungive/mediaremote-adapter (BSD-3-Clause, vendor/mediaremote-adapter) for Now Playing; loaded by /usr/bin/perl, not linked (scripts/cmux-next/bundle-mediaremote-adapter.sh)",
       "notices": ["section:manual-mediaremote-adapter-now-playing"]
-    },
-    {
-      "path": "Contents/Frameworks/Iroh.framework/*",
-      "what": "iroh-ffi (Rust), manaflow-ai/iroh-ffi at the Package.resolved revision; in Release a stub, its code is merged into Contents/MacOS/cmux (a Mach-O that names rustc std paths without rust-std fails)",
-      "notices": ["section:rust-iroh-ffi", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Frameworks/WebRTC.framework/*",

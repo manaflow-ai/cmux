@@ -137,7 +137,9 @@
   top: calc(100% + 4px);
   left: var(--ds-space-1);
   z-index: var(--layer-raised);
-  width: 250px;
+  /* Its frame follows Text Size as the names in it do (--ui-px, ui/popupSurface.css). */
+  width: calc(250 * var(--ui-px, 1px));
+  max-width: var(--available-width, calc(100vw - 24px));
   overflow: hidden;
   border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
   background: color-mix(in srgb, var(--agent-text) 5%, var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)));
@@ -146,6 +148,7 @@
 .acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-3); }
 .acpmux-cols-card-who { display: flex; flex-direction: column; min-width: 0; }
 .acpmux-cols-card-name { color: var(--agent-text); font-weight: 600; }
+.acpmux-cols-card-who > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-cols-card-who .acpmux-cols-detail { font-size: var(--text-caption); }
 .acpmux-cols-card-list { padding: var(--ds-space-1); }
 /* The other accounts scroll inside the card: a long list never runs past the window. */

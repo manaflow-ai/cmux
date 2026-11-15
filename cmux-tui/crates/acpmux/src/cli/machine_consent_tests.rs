@@ -94,11 +94,11 @@ fn redirected_parent_is_refused_even_when_authority_does_not_exist() {
 fn existing_marker_retries_file_and_parent_durability() {
     use std::cell::RefCell;
     let (_dir, a, _) = fixture();
-    let first = a.enroll_with_sync(|_| anyhow::bail!("injected interrupted flush"));
+    let first = a.enroll_with_sync(false, |_| anyhow::bail!("injected interrupted flush"));
     assert!(first.is_err());
     assert!(a.root.join("enrolled.json").exists());
     let seen = RefCell::new(Vec::new());
-    a.enroll_with_sync(|path| {
+    a.enroll_with_sync(false, |path| {
         seen.borrow_mut().push(path.to_owned());
         Ok(())
     })
@@ -106,4 +106,75 @@ fn existing_marker_retries_file_and_parent_durability() {
     let mut expected = vec![a.root.join("enrolled.json")];
     expected.extend(a.root.ancestors().take(3).map(Path::to_owned));
     assert_eq!(*seen.borrow(), expected);
+}
+
+#[test]
+fn a_sign_in_join_requires_consent_from_elsewhere_and_keeps_the_macs_own_computer_use() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    // What reaches this Mac from elsewhere still needs the consent.
+    assert_eq!(b.status()["consentRequired"], true);
+    assert_eq!(b.status()["consent"]["control"], "none");
+    // The Mac's own sessions keep computer use, on every tag.
+    assert!(a.required_only_by_sign_in() && b.required_only_by_sign_in());
+    // Signing in again changes nothing.
+    b.enroll_as(true).unwrap();
+    assert!(a.required_only_by_sign_in());
+    // A consent the person set (granted or taken back) is theirs: the gate is as it always was.
+    a.set("control", false).unwrap();
+    assert!(!a.required_only_by_sign_in());
+}
+#[test]
+fn any_other_join_makes_the_requirement_the_one_it_always_was() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    b.enroll().unwrap();
+    assert!(!a.required_only_by_sign_in());
+    // A later sign-in never turns it back.
+    a.enroll_as(true).unwrap();
+    assert!(!b.required_only_by_sign_in());
+    // Never enrolled: nothing is required, so nothing is kept by sign-in either.
+    let (_dir, fresh, _) = fixture();
+    assert!(!fresh.required_only_by_sign_in());
+    assert_eq!(fresh.status()["consentRequired"], false);
+}
+
+#[test]
+fn after_a_sign_in_join_a_local_computer_use_call_passes_and_one_from_elsewhere_does_not() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    // The Mac's own Computer Use (the app's helper): a screenshot and a click pass the bridge's
+    // check and the helper's, on every tag.
+    for authority in [&a, &b] {
+        let local = authority.status_for(true);
+        assert_eq!(local["consentRequired"], false, "{local}");
+        assert_eq!(local["localComputerUse"], "keptBySignIn");
+        assert!(crate::cua_v2::require_tool_consent(true, &local).is_ok());
+        assert!(crate::cua_v2::require_tool_consent(false, &local).is_ok());
+    }
+    // What reaches this Mac from elsewhere (a hand, the hub) still needs the consent.
+    let elsewhere = a.status_for(false);
+    assert_eq!(elsewhere, a.status());
+    assert_eq!(elsewhere["consentRequired"], true);
+    let refused = crate::cua_v2::require_tool_consent(true, &elsewhere).unwrap_err();
+    assert_eq!(refused.to_string(), crate::cli::cloud_join::CONSENT_REQUIRED);
+    // A consent the person set is theirs: the local use is gated by it, as it always was.
+    a.set("screen", true).unwrap();
+    let local = a.status_for(true);
+    assert_eq!(local["consentRequired"], true);
+    assert!(crate::cua_v2::require_tool_consent(true, &local).is_ok());
+    assert!(crate::cua_v2::require_tool_consent(false, &local).is_err());
+}
+
+#[test]
+fn a_join_the_person_made_gates_the_macs_own_computer_use_as_before() {
+    let (_dir, a, _b) = fixture();
+    a.enroll().unwrap();
+    let local = a.status_for(true);
+    assert_eq!(local["consentRequired"], true);
+    assert!(local.get("localComputerUse").is_none());
+    assert!(crate::cua_v2::require_tool_consent(true, &local).is_err());
+    // Never joined: nothing is required either way.
+    let (_dir, fresh, _) = fixture();
+    assert_eq!(fresh.status_for(true), fresh.status());
 }

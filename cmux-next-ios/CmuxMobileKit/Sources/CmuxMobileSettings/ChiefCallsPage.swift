@@ -94,6 +94,7 @@ struct ChiefCallsPage: View {
         .settingsPage("Chief Calls")
         .confirmationDialog("Remove your OpenAI API key?", isPresented: $confirmsRemove, titleVisibility: .visible) {
             Button("Remove Key", role: .destructive) { keys.remove() }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Chief calls stop working on this iPhone until you add a key again.")
         }

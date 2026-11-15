@@ -16,6 +16,7 @@ import { useT } from "./i18n";
 import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
+import { acpmuxPerf } from "./perf";
 
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
@@ -43,6 +44,7 @@ export function ComposerPlusMenu({
   onSlash,
   onOpen,
 }: ComposerPlusMenuProps) {
+  acpmuxPerf.render("composer:plus");
   const t = useT();
   // A picked row's action can change the rows (an attached screenshot takes away Run on several
   // agents): the closing menu keeps the rows it was picked from, so none drops out under the

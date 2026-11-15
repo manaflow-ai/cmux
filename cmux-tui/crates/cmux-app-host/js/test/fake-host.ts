@@ -86,8 +86,22 @@ export class FakeHost {
         const body = JSON.parse(json)
         host.paletteResults.set(reqId, { ok, body })
         host.onPaletteDone?.(reqId, ok, body)
+      },
+      // The native host answers from chrono-tz (src/vm.rs zone_json); this one from Intl,
+      // with the same JSON shape. Delete it to exercise the runtime's own Intl fallback.
+      zone(name: string, atMs: number) {
+        try {
+          const f = new Intl.DateTimeFormat("en-US", { timeZone: name, timeZoneName: "longOffset" })
+          const gmt = f.formatToParts(new Date(atMs)).find((p) => p.type === "timeZoneName")?.value ?? "GMT"
+          const m = /GMT([+-])(\d{2}):(\d{2})/.exec(gmt)
+          const offsetMinutes = m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0
+          const abbreviation = new Intl.DateTimeFormat("en-US", { timeZone: name, timeZoneName: "short" }).formatToParts(new Date(atMs)).find((p) => p.type === "timeZoneName")?.value ?? ""
+          return JSON.stringify({ offsetMinutes, abbreviation })
+        } catch {
+          return JSON.stringify({ error: `${name} is not an IANA time zone` })
+        }
       }
-    }
+    } as Record<string, unknown>
     this.ctx = vm.createContext({ __cmuxAppNative: native, queueMicrotask })
     vm.runInContext(runtimeSource, this.ctx)
     if (appSource) vm.runInContext(appSource, this.ctx)
