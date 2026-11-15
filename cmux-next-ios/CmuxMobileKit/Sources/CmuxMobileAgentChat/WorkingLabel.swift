@@ -38,12 +38,10 @@ public struct WorkingLabel: View {
                             .contentTransition(.numericText())
                     }
                 }
+                .onAppear { shown = true }
+                .onDisappear { shown = false }
             }
         }
-        // On the row, which always draws its text: the time draws nothing for its first 5 s, and
-        // a parked row reused for a new turn then never appeared again and never ticked.
-        .onAppear { shown = true }
-        .onDisappear { shown = false }
         .accessibilityElement(children: .combine)
     }
 
