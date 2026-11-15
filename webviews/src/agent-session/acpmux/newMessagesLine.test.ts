@@ -44,7 +44,7 @@ test("the count is the replies, tool runs and messages after the line; status ro
       rows("user", "assistant", SINCE_DIVIDER, "activity", "assistant", "turnSummary", "notice", "user", "recap"),
       SINCE_DIVIDER,
     ),
-  ).toBe(4);
+  ).toBe(3);
   // Straight after the person's own message, nothing new yet.
   expect(countNewMessages(rows("user", SINCE_DIVIDER), SINCE_DIVIDER)).toBe(0);
   // No line in the rows: no count.
