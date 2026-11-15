@@ -266,7 +266,8 @@ fn a_past_key_is_refused_at_every_other_door() {
 }
 
 /// A hub whose rows are read from a sorted snapshot, as `rows` (activity, origin, chat id)
-/// list them, and its local chat ids in the keys' order.
+/// list them, and its local chat ids in the keys' order. Local rows are closed; other
+/// machines' rows are live, since a snapshot holds another origin's rows only while live.
 fn snapshot_hub(rows: &[(u64, &str, String)]) -> (Hub, Vec<String>, tempfile::TempDir) {
     use acpmux_book::index::{DiskSnapshot, SortedSnapshot};
     let mut index = SummaryIndex::new();
@@ -274,7 +275,7 @@ fn snapshot_hub(rows: &[(u64, &str, String)]) -> (Hub, Vec<String>, tempfile::Te
     for (seq, (at, origin, id)) in rows.iter().enumerate() {
         let mut summary = Summary::new(id.clone());
         summary.origin = (*origin).to_owned();
-        summary.state = "closed".into();
+        summary.state = if *origin == "local" { "closed" } else { "running" }.into();
         summary.title = "a row of fixed width".into();
         summary.last_activity = *at;
         if *origin == "local" {
@@ -292,7 +293,9 @@ fn snapshot_hub(rows: &[(u64, &str, String)]) -> (Hub, Vec<String>, tempfile::Te
 
 /// An `all` page on `side` from `from` whose budget holds 20 of these rows.
 fn budget_page(side: PageSide, from: Option<ListKey>) -> Page {
+    // As wide as the tests' local rows: a four-digit activity time.
     let mut row = Summary::new("b-00000".to_owned());
+    row.last_activity = 1_000;
     row.state = "closed".into();
     row.title = "a row of fixed width".into();
     let mut page = all_page(side, from, None);
