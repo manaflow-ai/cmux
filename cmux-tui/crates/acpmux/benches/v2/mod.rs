@@ -240,8 +240,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3b",
         name: "v2.pr03b.catchup_peak_rss",
-        done_when: "The god chat caught up from nothing over the v1 source: peak RSS within 1.2x of small (one catch-up nobody measures runs before both sides, stretches of the same length, malloc_trim(0) before the baseline), one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives.",
-        measured: false,
+        done_when: "The god chat caught up from nothing over the v1 source: the most bytes the actor's thread holds at once (the test allocator's count, over its first chunk's, in any stretch of the same length or at the end) within 1.2x of small, after one catch-up nobody measures; one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives. Resident size's rise is printed, not gated: glibc's held free pages and rows.idx's page cache move it.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -799,6 +799,15 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "6c",
+        name: "v2.pr06.page_store_text",
+        done_when: "p95 for the page's row store to take one batch holding one text op on an open row whose body is 200 KB, within 1.2x of one whose body is 1 KB.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "6c",
         name: "v2.pr06.page_store_held",
         done_when: "The rows and row bytes the page's row store holds after paging through a chat of 20,000 rows against one of 200: at the store's cap or under it.",
         measured: false,
@@ -923,13 +932,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         ratio_all: None,
         god_max: None,
     },
+    // Best round, with every sample's p95 beside it: a round is 20 runs over a socket (about
+    // 0.6 ms each), and a shared runner's one slow round is not the list's.
     GateRow {
         pr: "7c",
         name: "v2.pr07c.update_plan_wall",
-        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, best p95 of five rounds 1.2x, every sample's p95 2x.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {

@@ -45,6 +45,8 @@ pub(crate) mod overlay;
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
+#[path = "peer_network.rs"]
+pub(crate) mod network;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -419,6 +421,10 @@ pub struct Peer {
     stop_signal: Notify,
     /// Broadcasts explicit stop/replacement to callers waiting for a reconnect.
     stop_changed: tokio::sync::watch::Sender<bool>,
+    /// This computer's network changes (`peer_network.rs`), read only by `run`'s task: a live link
+    /// is probed at once, a backoff wait ends at once. One receiver for the peer's life, so a change
+    /// made while a link was being dialed still reaches it.
+    network: StdMutex<tokio::sync::watch::Receiver<u64>>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the

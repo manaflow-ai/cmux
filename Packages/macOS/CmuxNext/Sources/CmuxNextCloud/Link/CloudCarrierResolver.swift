@@ -145,8 +145,8 @@ public actor CloudCarrierServe {
         // task-owner: ends with the supervisor's stderr and its exit
         Task { [weak self, lines = process.stderrLines] in
             for await line in lines { await self?.received(line, from: process) }
-            _ = await process.waitForExit()
-            await self?.exited(process)
+            let status = await process.waitForExit()
+            await self?.exited(process, status: status)
         }
         return process
     }
@@ -197,14 +197,24 @@ public actor CloudCarrierServe {
         }
     }
 
-    private func exited(_ process: ChildProcess) {
+    private func exited(_ process: ChildProcess, status: Int32) {
         guard process === supervisor else { return }
         supervisor = nil
         if let held { connector.streams?.release(held) }
         held = nil
         answer = nil
-        refusal = stopped ? Self.closed : Self.exited
-        finish(.failure(stopped ? Self.closed : Self.exited))
+        let ended = stopped ? Self.closed : Self.supervisorExited(status: status, stderr: process.stderrText)
+        refusal = ended
+        finish(.failure(ended))
+    }
+
+    /// The supervisor itself exited: its status and its last stderr line that is not one of its JSON lines
+    /// (a usage refusal, a panic), so the link's end tells it apart from the serve child's exit.
+    static func supervisorExited(status: Int32, stderr: String) -> CloudLinkError {
+        let last = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty && !$0.hasPrefix("{") }
+        let reason = "cmux carrier supervise exited with status \(status)"
+        return .helperNotRunning(reason: last.map { "\(reason); its last stderr line: \($0.prefix(300))" } ?? reason)
     }
 
     private func finish(_ result: Result<String, CloudLinkError>) {
