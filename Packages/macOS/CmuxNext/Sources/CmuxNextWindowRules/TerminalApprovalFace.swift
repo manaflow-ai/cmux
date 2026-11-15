@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 
 /// A pair's terminal as its approval (``TerminalChatApproving``) reads it: the daemon's agent state for the
 /// tab, its viewport's text and its keys, over the tab's daemon connection (the terminal may be hidden).
