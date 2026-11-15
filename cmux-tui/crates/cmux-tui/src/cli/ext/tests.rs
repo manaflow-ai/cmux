@@ -407,7 +407,7 @@ impl FakeDaemon {
         let dir = cmux_unix_socket::short_test_dir("cmux-ext");
         let socket = dir.path().join("daemon.sock");
         let listener = UnixListener::bind(&socket).unwrap();
-        let clients: Arc<Mutex<Vec<UnixStream>>> = Arc::default();
+        let clients: Arc<Mutex<Vec<Writer>>> = Arc::default();
         let requests: Arc<Mutex<Vec<Value>>> = Arc::default();
         std::fs::create_dir_all(local_dir).unwrap();
         let (watch_clients, watch_app) = (clients.clone(), app.to_string());
@@ -417,8 +417,8 @@ impl FakeDaemon {
                 return;
             }
             let line = json!({"event": "apps-changed", "transaction": "local-reload", "app": watch_app});
-            for client in watch_clients.lock().unwrap().iter_mut() {
-                let _ = writeln!(client, "{line}");
+            for client in watch_clients.lock().unwrap().iter() {
+                let _ = send_line(client, &line);
             }
         })
         .unwrap();
@@ -427,10 +427,11 @@ impl FakeDaemon {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
-                clients.lock().unwrap().push(stream.try_clone().unwrap());
+                let writer: Writer = Arc::new(Mutex::new(stream.try_clone().unwrap()));
+                clients.lock().unwrap().push(writer.clone());
                 let (local, app, seen) = (local.clone(), app.clone(), seen.clone());
                 std::thread::spawn(move || {
-                    serve(stream, &local, &app, (installed, hosting), &seen);
+                    serve(stream, &writer, &local, &app, (installed, hosting), &seen);
                 });
             }
         });
@@ -443,14 +444,26 @@ impl FakeDaemon {
     }
 }
 
+/// One client's socket, written by its `serve` thread and the folder watch.
+type Writer = Arc<Mutex<UnixStream>>;
+
+/// Writes `value` as one line in one `write_all` under the client's lock, so
+/// the watch's `apps-changed` never lands inside a reply. (Two unlocked
+/// `writeln!`s interleave serde_json's small writes; the client then drops the
+/// torn line and its call waits out `REQUEST_DEADLINE`.)
+fn send_line(writer: &Writer, value: &Value) -> std::io::Result<()> {
+    let line = format!("{value}\n");
+    writer.lock().unwrap().write_all(line.as_bytes())
+}
+
 fn serve(
     stream: UnixStream,
+    writer: &Writer,
     local: &Path,
     app: &str,
     (installed, hosting): (bool, bool),
     seen: &Mutex<Vec<Value>>,
 ) {
-    let mut writer = stream.try_clone().unwrap();
     let name = app.trim_start_matches("local/");
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { return };
@@ -522,7 +535,7 @@ fn serve(
             _ => out.push(reply(json!({}))),
         }
         for value in out {
-            if writeln!(writer, "{value}").is_err() {
+            if send_line(writer, &value).is_err() {
                 return;
             }
         }
