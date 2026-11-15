@@ -12,6 +12,11 @@ import Testing
 /// keep the TCC and Device Hub edges behind the same closures the guide uses in production.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct CmuxRemoteSharingSetupTests {
+    @Test func remoteCliConfirmationBudgetOutlastsTheOldTimeout() {
+        #expect(CmuxRemoteActionEnvironment.confirmationTimeout == .seconds(600))
+        #expect(CmuxRemoteActionEnvironment.confirmationTimeout > .seconds(130))
+    }
+
     @MainActor final class Fixture {
         var permissions: (screen: Bool, control: Bool)
         var answers: [String]

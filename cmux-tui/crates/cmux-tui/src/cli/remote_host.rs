@@ -16,7 +16,12 @@ use super::{GlobalArgs, parse_globals, raw};
 const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|access|stop>\n\ncmux Remote holds the macOS grants for standalone Computer Use and Screen Sharing workers. An attached NEXT app hosts Mac Screen and guides its own permissions; share and stop prefer the app, then use the worker only when the app is absent.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant may restart)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a worker grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux)\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
 
 /// How long the person may take to answer cmux's confirmation sheet.
-const CONFIRM_TIMEOUT: Duration = Duration::from_secs(130);
+///
+/// Keep this longer than the old 130-second transport limit. The app owns the
+/// dialog continuation and cancels it when its matching control deadline ends;
+/// using the same human-scale budget on both sides keeps a late Allow from
+/// being discarded while the CLI has already reported a timeout.
+const CONFIRM_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Handles `cmux remote-host` before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -190,4 +195,16 @@ fn app_action_or_daemon(
 
 fn app_transport_absent(error: &Value) -> bool {
     matches!(error.get("code").and_then(Value::as_str), Some("app.not_found" | "app.unreachable"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CONFIRM_TIMEOUT;
+    use std::time::Duration;
+
+    #[test]
+    fn share_confirmation_keeps_the_dialog_open_past_the_old_cli_timeout() {
+        assert_eq!(CONFIRM_TIMEOUT, Duration::from_secs(600));
+        assert!(CONFIRM_TIMEOUT > Duration::from_secs(130));
+    }
 }

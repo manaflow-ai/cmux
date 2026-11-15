@@ -30,6 +30,11 @@ public struct CmuxRemoteActionEnvironment {
 /// confirms it on a cmux dialog, then this app's hub session (the full one) makes it.
 @MainActor
 extension CmuxRemoteActionEnvironment {
+    /// The person-confirmation budget shared with `cmux remote-host share on`.
+    /// It must outlast the CLI transport's startup margin so a late Allow still
+    /// reaches the waiting request instead of being cancelled at the old 130 s.
+    static let confirmationTimeout: Duration = .seconds(600)
+
     public func bind(into registry: ActionRegistry) {
         let environment = self
         let remote = environment.remote
@@ -119,7 +124,7 @@ extension CmuxRemoteActionEnvironment {
                     try await Self.applyAccess(device: device, scope: scope, hub: hub)
                     return ["ok": true]
                 }
-            }.withDeadline(.fixed(.seconds(130))),
+            }.withDeadline(.fixed(Self.confirmationTimeout)),
         ]
     }
 
