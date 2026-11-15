@@ -5707,7 +5707,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
             if outcome == "resume":
                 result = resume_rerun(client, target, now=clock, sleep=rescue_sleep, log=log, every_job=reason == "all",
                                       only_job=int(reason[4:]) if reason.startswith("job:") else None,
-                                      side_label=side_label, deadline=deadline)
+                                      side_label=side_label)
                 log(result)
                 return outcome, reason, held, "done"
             if outcome != "stalled":
