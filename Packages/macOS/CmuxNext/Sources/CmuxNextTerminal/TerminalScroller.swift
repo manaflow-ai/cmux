@@ -16,7 +16,7 @@ import CmuxNextDesign
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so the
 /// knob tracks the scrollback as any scroll view's does.
 @MainActor
-final class TerminalScroller: NSScrollView {
+final class TerminalScroller: OverlayScrollView {
     private let document = TerminalScrollerDocument()
     private var applying = false
     private var shown: TerminalScrollbar?
@@ -71,12 +71,6 @@ final class TerminalScroller: NSScrollView {
         MainActor.assumeIsolated {
             if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
         }
-    }
-
-    /// Pinned to ``SystemScrollers/nativeStyle``, AppKit's own reset on a setting change included.
-    override var scrollerStyle: NSScroller.Style {
-        get { super.scrollerStyle }
-        set { super.scrollerStyle = SystemScrollers.nativeStyle }
     }
 
     private func apply(_ style: NSScroller.Style) {
