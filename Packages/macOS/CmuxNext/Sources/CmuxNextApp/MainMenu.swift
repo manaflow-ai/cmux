@@ -68,7 +68,7 @@ enum MainMenu {
     /// a new catalog placement cannot silently reintroduce menu overload.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
         .app: [
-            "about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
+            "about", "openSettings", "customize.open", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
             "quitEndSessions", "quitEndEverything",
         ],
         .file: [
