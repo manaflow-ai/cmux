@@ -3515,6 +3515,10 @@ export class AcpmuxDirectClient {
   private following = true;
   /// How many records the chat holds when it next tries to shed inside a turn (`apply`, `HELD_RETRY`).
   private shedRetryAt = 0;
+  /// The seq of the record that opened the running turn (its prompt, or its `turn_started` with none open): a turn
+  /// shorter than `HELD_KEPT` records sheds at its `turn_result`, not on the count (`apply`). Undefined when it
+  /// opened outside what is held (an attach to a running turn).
+  private turnOpenedSeq?: number;
   /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
   private nativeSeed?: { seq: number; before: number; mark?: string };
   /// Where the next older native page ends, once one was read, for the held transcript
@@ -5057,6 +5061,7 @@ export class AcpmuxDirectClient {
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
+    this.turnOpenedSeq = undefined;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -7632,8 +7637,14 @@ export class AcpmuxDirectClient {
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
-    } else if (this.events.length > HELD_RECORDS && this.events.length >= this.shedRetryAt) {
-      // A turn that does not end (a coordinator's) sheds on the count alone; one that could not shed now
+    } else if (
+      this.events.length > HELD_RECORDS &&
+      this.events.length >= this.shedRetryAt &&
+      this.turnRunning() &&
+      !(this.turnOpenedSeq !== undefined && event.seq - this.turnOpenedSeq <= HELD_KEPT)
+    ) {
+      // A turn that does not end (a coordinator's) sheds on the count alone once it alone is longer than
+      // `HELD_KEPT` records; a shorter one sheds at its `turn_result`, as every turn did. One that could not shed now
       // (scrolled up, paging, a gap) tries again `HELD_RETRY` records later, so a refused shed costs O(1) a record.
       this.shedOlderHeld();
       if (this.events.length > HELD_RECORDS) this.shedRetryAt = this.events.length + HELD_RETRY;
@@ -9544,6 +9555,7 @@ export class AcpmuxDirectClient {
         if (!this.turnOpen) {
           this.turnStartedAtMs = undefined;
           this.turnPromptAtMs = event.at;
+          this.turnOpenedSeq = event.seq;
         }
         this.turnOpen = true;
       } else if (event.kind === "stopping") {
@@ -9565,6 +9577,7 @@ export class AcpmuxDirectClient {
         // A prompt opens its turn (user_message); one opening with none open, and naming no turn, is
         // a turn the agent started on its own, never the turn before's.
         const agentStarted = !this.turnOpen && startedTurnId === undefined;
+        if (!this.turnOpen) this.turnOpenedSeq = event.seq;
         this.stoppingOpens(event);
         this.stopSeesTurnOpen(event, startedTurnId, agentStarted);
         if (this.stoppingTurn && startedTurnId !== undefined && startedTurnId !== this.stoppingTurn.turnId) {
