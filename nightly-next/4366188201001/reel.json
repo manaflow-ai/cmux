@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4366188201001",
+  "notes": "notes/4366188201001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43332,
+      "title": "Cloud storefront: the plan's Loading… waits 1 s, as the page's first read does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43316,
+      "title": "Home Channels/Messages: a shown page finds its restarted daemon within 2 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43285,
+      "title": "Cloud carrier: serve lifecycle as a Rust state machine (carrier supervise)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42426,
+      "title": "Redesign Cloud connection gates with human targets",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41027,
+      "title": "Cloud chat proof: the agent account's Claude login is cached for the run and copied, so a Claude chat replies in CI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43230,
+      "title": "acpmux: agent holder step 1, an agent host crash no longer cuts the turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43367,
+      "title": "crash_ratchet: a relative --repo no longer counts #[path] test modules as code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43299,
+      "title": "acpmux: the recorded v1 answer holds only what the app's v1 source reads",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
