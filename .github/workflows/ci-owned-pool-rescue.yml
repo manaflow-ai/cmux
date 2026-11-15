@@ -98,6 +98,11 @@ on:
         required: false
         default: "0"
         type: string
+      rerun:
+        description: 1 to re-run run_id's failed and cancelled jobs as cmux-bot (cancelling it first if it still waits), so its Mac jobs are placed again
+        required: false
+        default: "0"
+        type: string
 
 permissions: {}
 
@@ -219,4 +224,7 @@ jobs:
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
           LATE_PLACEMENT: ${{ inputs.late }}
+          # 1 with run_id: re-run that run's failed and cancelled jobs as cmux-bot, cancelling it first if it still
+          # waits, so its Mac jobs are placed again (owned_pool_rescue.rerun_named()).
+          RERUN: ${{ inputs.rerun }}
         run: python3 scripts/ci/owned_pool_rescue.py
