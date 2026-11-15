@@ -21,6 +21,15 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
   Before sending, `crash_scrub` runs the same rules as the scrubber above on the panic message, location and
   backtrace, and `seeded_secrets_never_leave_in_a_panic_event` seeds them the same way.
 
+- The Chief (`optchat-chief`, the host behind Home's Chief chat) sends anonymous product events to PostHog
+  (`us.i.posthog.com`): turns, subagents, latency, token counts, cost, error classes and activation milestones, as
+  closed tokens and numbers. It never sends message, reply, task or report text, tool arguments, error messages,
+  paths, URLs, names or ids other than a random install id, and IP geolocation is off. The same switches turn it
+  off: `sendAnonymousTelemetry` in the app, `app.sendAnonymousTelemetry: false` in `cmux-next.json`, the
+  `DisableTelemetry` policy, `DO_NOT_TRACK=1` or `CMUX_CHIEF_ANALYTICS=off`; turning it off deletes the events still
+  waiting. Its panics go to the crash reporting host through the app, scrubbed as above. The event list:
+  [chief-product-analytics.md](posthog/chief-product-analytics.md).
+
 Hang reports go to cmux.com only after you agree to send them, and the app never asks while telemetry is off.
 
 ## Usage patterns (local only)

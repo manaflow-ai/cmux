@@ -53,6 +53,23 @@ public final class OwnerPanicForwarder: Sendable {
         stateRoot.appending(path: "owner-panics-\(session).jsonl")
     }
 
+    /// A forwarder of `log` whose read offset is `<stateDirectory>/<stateName>`, already started.
+    /// - Parameters:
+    ///   - log: The panic log to read.
+    ///   - stateDirectory: The app's run-marker directory.
+    ///   - stateName: The offset file's name (one per log).
+    ///   - sends: The user's telemetry choice.
+    ///   - source: Which process wrote `log`.
+    /// - Returns: The started forwarder; keep it for the app's lifetime.
+    public static func started(log: URL, stateDirectory: URL, stateName: String, sends: Bool,
+                               source: RustPanicSource = .owner) -> OwnerPanicForwarder {
+        let forwarder = OwnerPanicForwarder(
+            log: log, stateFile: stateDirectory.appending(path: stateName, directoryHint: .notDirectory),
+            sends: sends, source: source)
+        forwarder.start()
+        return forwarder
+    }
+
     /// Reads now and each time the state root changes, off the main thread.
     public func start() {
         queue.async { [self] in

@@ -136,10 +136,38 @@ public nonisolated struct HomeBrainHost: Sendable {
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
-        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
+        for key in ["USER", "TMPDIR", "MUX_HARNESS", "DO_NOT_TRACK"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
+        variables.merge(Self.analyticsEnvironment(bundle: .main, defaults: .standard)) { $1 }
         return variables
+    }
+
+    /// What the Chief's product analytics read from the app
+    /// (docs/posthog/chief-product-analytics.md): the person's
+    /// `sendAnonymousTelemetry` choice (on until turned off, the crash
+    /// reporter's rule), this build's channel and version.
+    static func analyticsEnvironment(bundle: Bundle, defaults: UserDefaults) -> [String: String] {
+        var variables: [String: String] = [:]
+        if defaults.object(forKey: "sendAnonymousTelemetry") != nil, !defaults.bool(forKey: "sendAnonymousTelemetry") {
+            variables["CMUX_CHIEF_ANALYTICS"] = "off"
+        }
+        variables["CMUX_CHIEF_APP_CHANNEL"] = analyticsChannel(bundleID: bundle.bundleIdentifier)
+        let info = bundle.infoDictionary ?? [:]
+        if let version = info["CFBundleShortVersionString"] as? String {
+            variables["CMUX_CHIEF_APP_VERSION"] = version
+        }
+        return variables
+    }
+
+    /// `stable`, `nightly`, `rc` or `dev` from the bundle id (`com.cmuxterm.app[.nightly|.rc|.debug.<tag>]`).
+    static func analyticsChannel(bundleID: String?) -> String {
+        guard let id = bundleID, id.hasPrefix("com.cmuxterm.app") else { return "dev" }
+        let rest = id.dropFirst("com.cmuxterm.app".count)
+        if rest.isEmpty { return "stable" }
+        if rest == ".nightly" { return "nightly" }
+        if rest == ".rc" { return "rc" }
+        return "dev"
     }
 
     /// The app's bundled CLI first (so `cmux` in the mux's shell is this build's), then the

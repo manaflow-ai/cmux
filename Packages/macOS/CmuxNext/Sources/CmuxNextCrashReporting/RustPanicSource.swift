@@ -37,6 +37,17 @@ public struct RustPanicSource: Sendable, Equatable {
     public static let acpmux = RustPanicSource(process: "acpmux", fingerprintPrefix: "acpmux-panic",
                                                crashSource: "acpmux_panic_log", label: "acpmux daemon panic")
 
+    /// The Chief host (`optchat-chief`, `<mux home>/optchat/panics.jsonl`).
+    public static let chief = RustPanicSource(process: "optchat-chief", fingerprintPrefix: "chief-panic",
+                                              crashSource: "chief_panic_log", label: "Chief host panic")
+
+    /// The Chief host's panic log under its mux home.
+    /// - Parameter muxHome: The Chief's mux home (`HomeBrainHost.muxHome(tag:)`).
+    /// - Returns: `<muxHome>/optchat/panics.jsonl`.
+    public static func chiefLog(muxHome: URL) -> URL {
+        muxHome.appending(path: "optchat/panics.jsonl", directoryHint: .notDirectory)
+    }
+
     /// The acpmux daemon's panic log under its home (`ACPMUX_HOME`).
     /// - Parameter acpmuxHome: The daemon's `ACPMUX_HOME`.
     /// - Returns: `<acpmuxHome>/panics.jsonl`.
