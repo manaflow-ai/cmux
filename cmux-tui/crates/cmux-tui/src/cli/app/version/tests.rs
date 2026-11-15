@@ -69,6 +69,8 @@ fn the_report_names_the_customize_layers_that_are_on() {
     std::fs::create_dir_all(&layer_dir).unwrap();
     std::fs::write(layer_dir.join("manifest.json"), "{}").unwrap();
     let layer = CodeLayer {
+        kind: Default::default(),
+        source: String::new(),
         repo: "manaflow-ai/cmux".to_owned(),
         pr: 43496,
         title: "probe".to_owned(),
