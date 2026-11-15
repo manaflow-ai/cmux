@@ -175,6 +175,9 @@ pub enum CopyStep {
     Next,
     /// The machine's cmux-tui is older than the copy needs.
     Outdated,
+    /// The folder is past the copy's size limits (`copy.too_large`): nothing was sent, and the
+    /// person may grant it ("Copy anyway") and copy again on the same machine.
+    TooLarge { message: String },
     /// Any other refusal, as the copy said it.
     Failed { message: String },
 }
@@ -188,6 +191,9 @@ pub fn copy_step(answer: &CopyAnswer, last: bool) -> CopyStep {
     match answer.error_code.as_deref() {
         Some("fs.permission_denied") if !last => CopyStep::Next,
         Some("machine_outdated") => CopyStep::Outdated,
+        Some("copy.too_large") => {
+            CopyStep::TooLarge { message: answer.error.clone().unwrap_or_default() }
+        }
         _ => CopyStep::Failed {
             message: answer.error.clone().or_else(|| answer.error_code.clone()).unwrap_or_default(),
         },

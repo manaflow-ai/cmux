@@ -378,6 +378,15 @@ fn each_verb_carries_its_arguments() {
             "{ledger}"
         );
     }
+    // "Copy anyway": a full count, then a grant of what it found.
+    assert_eq!(
+        call(json!({"verb": "copy-measure", "local": "/l"})).args,
+        ["link", "copy-grant", "measure", "/l"]
+    );
+    assert_eq!(
+        call(json!({"verb": "copy-grant", "local": "/l", "bytes": 93_000_000_000_u64, "files": 1_200_000})).args,
+        ["link", "copy-grant", "record", "/l", "--bytes", "93000000000", "--files", "1200000"]
+    );
     let strand =
         call(json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}));
     assert_eq!(
@@ -400,6 +409,19 @@ fn each_verb_carries_its_arguments() {
             .unwrap(),
         "--or-copy"
     );
+}
+
+/// `link copy-grant`'s numbers reach the app whole; a refused count keeps its code.
+#[test]
+fn a_copy_grant_answer_is_its_object() {
+    let counted = "{\"ok\":true,\"bytes\":93000000000,\"files\":1200000,\"git_bytes\":0}";
+    let reply =
+        read(Reading::Object, &output(counted, "{\"counted_bytes\":1,\"counted_files\":1}\n", 0));
+    assert_eq!(reply["answer"]["ok"], json!(true));
+    assert_eq!(reply["object"]["bytes"], json!(93_000_000_000_u64));
+    let failed = "{\"ok\":false,\"error\":\"cannot open /x\",\"error_code\":\"copy.grant_failed\"}";
+    let reply = read(Reading::Object, &output(failed, "", 1));
+    assert_eq!(reply["answer"]["errorCode"], json!("copy.grant_failed"));
 }
 
 #[test]

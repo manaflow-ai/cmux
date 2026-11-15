@@ -115,6 +115,11 @@ fn the_folder_is_copied_under_the_first_work_root_the_machine_allows() {
         CopyStep::Failed { message: "fs.permission_denied".into() }
     );
     assert_eq!(copy_step(&answer(false, Some("machine_outdated"), None), true), CopyStep::Outdated);
+    // Too big to copy: its own step (the app offers "Copy anyway"), never the next work root.
+    assert_eq!(
+        copy_step(&answer(false, Some("copy.too_large"), Some("~/big is too big")), false),
+        CopyStep::TooLarge { message: "~/big is too big".into() }
+    );
     assert_eq!(
         copy_step(&answer(false, None, None), true),
         CopyStep::Failed { message: String::new() },

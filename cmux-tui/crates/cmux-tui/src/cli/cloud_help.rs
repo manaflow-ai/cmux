@@ -553,7 +553,9 @@ older name; both run the same start.
                      --cwd. The same command again on the same machine
                      reuses the finished copy.
   --allow-large      Copy --from-folder even past 20 GB or 500,000 files
-                     (the files the copy sends), which are refused without it
+                     (the files the copy sends), which are refused without it:
+                     counts the folder and lets its copies send that much,
+                     plus 1 GB or 10% and 10,000 files or 10%, for a day
   --login pass|machine|none
                      The agent's login there: yours from this Mac, the
                      machine's own, or none (default: the machine's login or

@@ -456,6 +456,18 @@ pub enum Call {
     StartChatImport {
         entries: String,
     },
+    /// `link copy-grant measure`: counts what a copy of `local` sends, to the end, for the
+    /// person's "Copy anyway" (read as [`Reading::Object`]; progress lines on stderr).
+    CopyMeasure {
+        local: String,
+    },
+    /// `link copy-grant record`: lets copies of `local` send `bytes` in `files` (what the person
+    /// was shown), plus the margin, for a day (read as [`Reading::Object`]).
+    CopyGrant {
+        local: String,
+        bytes: u64,
+        files: u64,
+    },
     /// `link start-chat preflight --local FOLDER`: whether a start may copy `local` at all, asked
     /// before any machine or lease is made for it.
     StartChatPreflight {
@@ -693,6 +705,20 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::StartChatImport { entries } => {
             ledger(words(&["link", "start-chat", "import", "--entries", entries]))
         }
+        Call::CopyMeasure { local } => plain(words(&["link", "copy-grant", "measure", local])),
+        Call::CopyGrant { local, bytes, files } => {
+            let (bytes, files) = (bytes.to_string(), files.to_string());
+            plain(words(&[
+                "link",
+                "copy-grant",
+                "record",
+                local,
+                "--bytes",
+                &bytes,
+                "--files",
+                &files,
+            ]))
+        }
         // The count stops at the copy's limits (seconds on a huge folder); past this the start goes on
         // and the copy's own count refuses it.
         Call::StartChatPreflight { local } => Invocation {
@@ -788,6 +814,8 @@ pub enum Reading {
     StartChatTrust,
     /// The answer object itself, else a bad answer's.
     Reservation,
+    /// The answer object itself, else a bad answer's (`link copy-grant`'s numbers).
+    Object,
 }
 
 /// A run's output read as `reading` says: the answer, and the plan, the copy or the object.
@@ -819,7 +847,7 @@ pub fn read(reading: Reading, output: &Output) -> Value {
             reply.insert("answer".into(), to_value(&answer));
             reply.insert("trust".into(), to_value(&trust));
         }
-        Reading::Reservation => {
+        Reading::Reservation | Reading::Object => {
             reply.insert("answer".into(), to_value(&answer));
             let object = object.unwrap_or_else(|| {
                 let mut bad = Map::new();
