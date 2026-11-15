@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43751146890",
+  "recorded_at": "2026-11-15T19:27:51Z",
+  "reason": "cmux-tui 72e7b0364a11 changes the image's cmux-tui (pinned 46dfc13c88e5)",
+  "dry_run": false,
+  "cmux_tui": "72e7b0364a1176b65462ca59c3275ba8e4c200f7",
+  "fixes": [
+    {
+      "sha": "72e7b0364a1176b65462ca59c3275ba8e4c200f7",
+      "mergedAt": "2026-11-15T10:56:59-08:00",
+      "subject": "acpmux v2 gates: one row file and one gate-line file per design-doc row (#43779)"
+    },
+    {
+      "sha": "7bbdae67b2dc3346f13da1a5824c4f2f21edf8b4",
+      "mergedAt": "2026-11-15T10:51:08-08:00",
+      "subject": "cmux-tui-core: a new worktree's setup starts only in the git folder that its repository keeps for it, and a setup keeps the folders that it opened (#43712)"
+    },
+    {
+      "sha": "195bf0b7da481fff12caccf848c301ea1aacc393",
+      "mergedAt": "2026-11-15T10:47:11-08:00",
+      "subject": "Daemon start log: name 5 parts of the `mux.build` step (#43869)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T19:27:51Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
