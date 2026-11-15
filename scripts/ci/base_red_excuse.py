@@ -2173,14 +2173,15 @@ SETUP_ONLY_STEPS = {
         # build.zig.zon, the reviewed versions from toolchains.json and the Zig SDK's build.zig.zon, the tarball's
         # sha256 from zig-tarballs.sha256), the prebuilt GhosttyKit for the pinned ghostty submodule
         # (download-prebuilt-ghosttykit.sh, else ensure-ghosttykit.sh: the checksum manifest, the archive validator,
-        # ghostty.h, ensure-metal-toolchain.sh) and Homebrew's axe, under the selected Xcode. No app, worker or test
-        # code.
+        # ghostty.h, ensure-metal-toolchain.sh) and AXe (install-axe-ci.sh), under the selected Xcode. No app, worker or
+        # test code.
         "Install build prerequisites": (
             "scripts/install-zig-ci.sh", "scripts/ghostty-zig-version.sh", "scripts/ci/zig-tarballs.sha256",
             "cmux-tui/build-support/notices/toolchains/toolchains.json", "cmux-tui/bindings/zig/build.zig.zon",
             "scripts/download-prebuilt-ghosttykit.sh", "scripts/ensure-ghosttykit.sh",
             "scripts/ghosttykit-checksums.txt", "scripts/validate-xcframework-archive.py",
-            "scripts/ensure-metal-toolchain.sh", "ghostty.h", "ghostty", "ghostty-next", ".gitmodules", *XCODE_PINS),
+            "scripts/ensure-metal-toolchain.sh", "ghostty.h", "ghostty", "ghostty-next", ".gitmodules",
+            "scripts/install-axe-ci.sh", *XCODE_PINS),
         # Picks the runner's Xcode from the pins (toolchain setup).
         "Select Xcode": ("scripts/select-ci-xcode.sh", *XCODE_PINS),
         # xcrun and xcodebuild only, of the selected Xcode: the runner's simulator runtime (toolchain setup).
