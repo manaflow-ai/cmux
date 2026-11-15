@@ -16,10 +16,23 @@ run_group() {
   printf 'v2 gate group %s: %d seconds\n' "$name" "$((SECONDS - started))"
 }
 
+# A filter that fails after writing its rows: every line its run appended gets
+# "gate_failed":true, and the v2 home reads those rows red with their numbers.
 run() {
+  local before=0
+  [[ -f $V2_GATE_OUT ]] && before=$(wc -l <"$V2_GATE_OUT")
   if ! "$@"; then
     failed=1
+    mark_failed "$before"
   fi
+}
+
+mark_failed() {
+  local marked
+  [[ -f $V2_GATE_OUT ]] && marked=$(mktemp) || return 0
+  sed "$(($1 + 1)),\$ s/}[[:space:]]*\$/,\"gate_failed\":true}/" "$V2_GATE_OUT" >"$marked" \
+    && cat "$marked" >"$V2_GATE_OUT"
+  rm -f "$marked"
 }
 
 run_book() {
@@ -90,6 +103,9 @@ core_gates() {
   run_core pr08_mirror_local_row
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
+  run_core v2_pr03a_source_read_bounds
+  run_core folders_serving_release_gates
+  run_core folders_tail_release_gates
 }
 run_group acpmux-core core_gates
 
@@ -101,9 +117,10 @@ acpmux_lib_gates() {
   run_acpmux_lib live_view_gate
   run_acpmux_lib keyed_page_gate
   run_acpmux_lib sidebar_mirror_connect_gate
-  run_acpmux_lib hub_row_submit_gate
   run_acpmux_lib v2_pr08_reconnect_30
   run_acpmux_lib v2_pr08_fanout_30
+  run_acpmux_lib v2_pr08_dial_resume
+  run_acpmux_lib v2_pr08_edition_walk
   run_acpmux_lib v2_pr03b_tee_append_added
   run_acpmux_lib v2_pr03b_append_on_off
   run_acpmux_lib v2_pr03b_catchup_ack

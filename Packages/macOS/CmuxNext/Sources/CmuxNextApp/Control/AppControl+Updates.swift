@@ -87,8 +87,8 @@ extension AppControl {
                     throw ControlError.invalidParams("debug.update_surfaces: no active window")
                 }
                 switch call.params["action"]?.stringValue ?? "show-popover" {
-                case "show-popover":
-                    return .value(.object(sidebar.debugShowUpdateHighlights().mapValues { JSONValue.string($0) }))
+                case "show-popover": return .value(.object(sidebar.debugShowUpdateHighlights().mapValues { JSONValue.string($0) }))
+                case "card-point", "pull-request-badge": return .value(.object(sidebar.debugHoverTimingProbe(call.params["action"]?.stringValue ?? "", workspace: call.params["workspace"]?.stringValue, off: call.params["off"]?.boolValue == true).mapValues { JSONValue.string($0) }))
                 case "state":
                     var state = sidebar.debugUpdateSurfaceState().mapValues { JSONValue.string($0) }
                     state["sidebarWebViews"] = .number(Double(Self.webViewCount(in: sidebar)))
