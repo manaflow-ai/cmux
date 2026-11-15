@@ -2370,7 +2370,10 @@ struct WorkspaceTabPage: View {
 
     /// A terminal tab's terminal face.
     private func terminalPage(_ tab: WorkspaceTab, _ workspace: Workspace) -> some View {
-        source.terminal.page(for: tab, in: workspace, context: terminalContext)
+        // The Chat | Terminal control floats over the terminal's top trailing corner: the
+        // terminal puts its grid chip below it.
+        let reserve = source.pairFaces(tab, in: workspace).offered ? TerminalChatToggleControl.pageReserve : 0
+        return source.terminal.page(for: tab, in: workspace, context: terminalContext(topTrailingReserve: reserve))
             .overlay {
                 // The Mac's dead-tab overlay: the shell ended; its button restarts it.
                 if tab.hasEndedShell {
@@ -2394,13 +2397,14 @@ struct WorkspaceTabPage: View {
         return max(insets.bottom, pageHeight - top) + 12
     }
 
-    private var terminalContext: TerminalTabContext {
+    private func terminalContext(topTrailingReserve: CGFloat) -> TerminalTabContext {
         let context = context
         let tabID = tabID
         return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
-                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
+                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } },
+                                  topTrailingReserve: topTrailingReserve)
     }
 }
 

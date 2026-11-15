@@ -151,5 +151,14 @@ struct TerminalChatToggleTests {
             #expect(source.terminalChatItems(tab, in: workspace).isEmpty)
         }
     }
+
+    /// The page reserve the chat face starts below and the terminal face puts its grid chip
+    /// below (`TerminalTabContext.topTrailingReserve`; HostGridNoteCornerTests checks the chip
+    /// against this frame): the control's top padding, its height and a 6 pt gap.
+    @Test func theControlsPageReserveEndsSixPointsBelowIt() {
+        #expect(TerminalChatToggleControl.height == 38)
+        #expect(TerminalChatToggleControl.pageReserve == TerminalChatToggleControl.topPadding + 38 + 6)
+        #expect(TerminalChatToggleControl.pageReserve == 52)
+    }
 }
 #endif

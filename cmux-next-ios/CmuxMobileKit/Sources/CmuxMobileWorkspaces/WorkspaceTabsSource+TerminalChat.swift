@@ -205,7 +205,7 @@ struct ChatTerminalToggle: View {
             TerminalChatToggleControl(showsChat: true, chatEnabled: faces.chatEnabled, terminalEnabled: faces.terminalEnabled) { chat in
                 source.swapTerminalChat(tab.id, to: chat ? .chat : .terminal)
             }
-            .padding(.top, topInset + 8)
+            .padding(.top, topInset + TerminalChatToggleControl.topPadding)
             .padding(.trailing, 12)
         }
     }
@@ -243,12 +243,24 @@ struct TerminalChatToggleControl: View {
     var terminalEnabled = true
     let select: (_ chat: Bool) -> Void
 
+    /// A segment's height, and the glass around the segments.
+    static let segmentHeight: CGFloat = 32
+    static let capsulePadding: CGFloat = 3
+    /// The control's height (38 pt).
+    static let height = segmentHeight + 2 * capsulePadding
+    /// Its distance below the page's top inset.
+    static let topPadding: CGFloat = 8
+    /// What the control takes below the page's top inset, with a 6 pt gap under it (52 pt): the
+    /// chat face starts its transcript there and the terminal face its grid chip
+    /// (`TerminalTabContext.topTrailingReserve`), so neither is drawn under the control.
+    static let pageReserve = topPadding + height + 6
+
     var body: some View {
         HStack(spacing: 2) {
             segment(chat: true, symbol: "bubble.left", label: "Chat", enabled: chatEnabled)
             segment(chat: false, symbol: "terminal", label: "Terminal", enabled: terminalEnabled)
         }
-        .padding(3)
+        .padding(Self.capsulePadding)
         .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Toggle Terminal and Chat")
@@ -262,7 +274,7 @@ struct TerminalChatToggleControl: View {
                 .font(.body.weight(lit ? .semibold : .regular))
                 .foregroundStyle(lit ? Color.primary : Color.secondary)
                 .opacity(enabled || lit ? 1 : 0.4)
-                .frame(width: 40, height: 32)
+                .frame(width: 40, height: Self.segmentHeight)
                 .background(lit ? Color.primary.opacity(0.12) : .clear, in: .capsule)
                 .contentShape(.capsule)
         }
@@ -294,7 +306,7 @@ struct TerminalChatPage<Terminal: View>: View {
                 if let chatSession {
                     AgentChatTranscript(
                         store: source.terminalChatStore(tab, in: workspace, chatSession: chatSession, faces: faces),
-                        surface: source.surface("\(tab.id)#chat"), topInset: topInset + 52, onUserScroll: reportScroll)
+                        surface: source.surface("\(tab.id)#chat"), topInset: topInset + TerminalChatToggleControl.pageReserve, onUserScroll: reportScroll)
                         .background(Color.cmuxMobileBackground)
                 } else {
                     CmuxSpinner(label: Text("Opening chat…"))
@@ -309,7 +321,7 @@ struct TerminalChatPage<Terminal: View>: View {
                                           terminalEnabled: faces.terminalEnabled) { chat in
                     source.swapTerminalChat(tab.id, to: chat ? .chat : .terminal)
                 }
-                .padding(.top, topInset + 8)
+                .padding(.top, topInset + TerminalChatToggleControl.topPadding)
                 .padding(.trailing, 12)
             }
         }

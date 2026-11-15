@@ -48,6 +48,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Embedded: what TabsKit's status bar area (top) and toolbar (bottom,
     /// up to 8 pt above the capsule) cover.
     private var embeddedInsets = UIEdgeInsets.zero
+    /// Embedded: points below `embeddedInsets.top` a control floating at the page's top
+    /// trailing corner takes (the Chat | Terminal control); the grid chip goes below it.
+    private var topTrailingReserve: CGFloat = 0
     /// Stack bottom <= the chrome's resting line (safe area or toolbar).
     private var stackRestingLimit: NSLayoutConstraint!
     private var tuiTop: NSLayoutConstraint!
@@ -856,6 +859,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.layoutIfNeeded()
         settleKeyboardLift()
         view.setNeedsLayout()
+    }
+
+    /// Embedded: a control now floats over (or left) the page's top trailing corner, `reserve`
+    /// points below the top inset; the grid chip moves below it.
+    func setTopTrailingReserve(_ reserve: CGFloat) {
+        guard chrome == .embedded, reserve != topTrailingReserve else { return }
+        topTrailingReserve = reserve
+        positionHostGridNote()
     }
 
     /// Top of the content area (under the navigation bar or the status bar).
@@ -3417,6 +3428,17 @@ enum HostGridNoteSpot: Equatable {
     case letterbox(gridHeight: CGFloat, offset: CGFloat)
     /// The compact chip of this size in the terminal area's top-trailing corner.
     case corner(CGSize)
+
+    /// The corner chip's frame: `sidePadding` in from the trailing edge, 4 pt below the terminal
+    /// area's top, or `topTrailingReserve` below it when a control floats in that corner (the
+    /// Chat | Terminal control, whose reserve ends 6 pt under it), so the chip that says why the
+    /// grid is narrow is never under that control. The embedded area's top (status bar or TUI
+    /// clip) is the page's top inset, which the control is placed from too.
+    static func cornerFrame(size: CGSize, viewWidth: CGFloat, sidePadding: CGFloat, areaTop: CGFloat,
+                            topTrailingReserve: CGFloat) -> CGRect {
+        CGRect(x: viewWidth - sidePadding - size.width, y: areaTop + max(4, topTrailingReserve),
+               width: size.width, height: size.height)
+    }
 }
 
 /// Who owns the chrome around the terminal (see `TerminalViewController`).
@@ -3577,7 +3599,9 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         case .none:
             break
         case .corner(let size):
-            frame = CGRect(x: view.bounds.width - Self.sidePadding - size.width, y: areaTop + 4, width: size.width, height: size.height)
+            // Below a control floating in the corner (hidden, as any spot, when the area is too short).
+            frame = HostGridNoteSpot.cornerFrame(size: size, viewWidth: view.bounds.width, sidePadding: Self.sidePadding,
+                                                 areaTop: areaTop, topTrailingReserve: topTrailingReserve)
         case .letterbox(let gridHeight, let offset):
             let gridBottom: CGFloat?
             if model.isTUI {

@@ -77,16 +77,21 @@ public struct TerminalTabPage: View {
     let insets: EdgeInsets
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
+    /// Points below `insets.top` a control floating at the page's top trailing corner takes
+    /// (`TerminalTabContext.topTrailingReserve`): the Mac's grid chip goes below it.
+    let topTrailingReserve: CGFloat
 
-    public init(host: TerminalTabHost, insets: EdgeInsets, isInteractive: Bool) {
+    public init(host: TerminalTabHost, insets: EdgeInsets, isInteractive: Bool, topTrailingReserve: CGFloat = 0) {
         self.host = host
         self.insets = insets
         self.isInteractive = isInteractive
+        self.topTrailingReserve = topTrailingReserve
     }
 
     public var body: some View {
         @Bindable var model = host.model
-        EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
+        EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive,
+                                       topTrailingReserve: topTrailingReserve)
             // Zoomed into the grid or mid-swipe, the page is a picture: its
             // composer and key bar are not controls then (R4-3).
             .accessibilityHidden(!isInteractive)
@@ -245,6 +250,7 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
     let host: TerminalTabHost
     let insets: EdgeInsets
     let isInteractive: Bool
+    let topTrailingReserve: CGFloat
 
     func makeUIViewController(context: Context) -> TerminalViewController {
         let controller = host.controller
@@ -260,6 +266,7 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: TerminalViewController, context: Context) {
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
+        controller.setTopTrailingReserve(topTrailingReserve)
         // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
         // `accessibilityHidden` does not reach a representable's UIKit views,
         // so its composer, Return and Scroll to bottom stayed exposed and took

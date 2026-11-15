@@ -18,14 +18,20 @@ public struct TerminalTabContext {
     /// a cmux browser tab beside the terminal, in the same
     /// workspace (the Mac's Cmd-click). Nil where no workspace can open one.
     public var openLink: (@MainActor (URL) -> Void)?
+    /// Points below `safeAreaInsets.top` that a control floating at the page's top trailing
+    /// corner takes (the Chat | Terminal control, `TerminalChatToggleControl.pageReserve`), so
+    /// what the terminal draws in that corner (the Mac's grid chip) goes below it. 0: none.
+    public var topTrailingReserve: CGFloat
 
     public init(safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool,
-                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil) {
+                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil,
+                topTrailingReserve: CGFloat = 0) {
         self.safeAreaInsets = safeAreaInsets
         self.isInteractive = isInteractive
         self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
         self.openLink = openLink
+        self.topTrailingReserve = topTrailingReserve
     }
 }
 
