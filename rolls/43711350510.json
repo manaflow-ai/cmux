@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43711350510",
+  "recorded_at": "2026-11-15T12:07:12Z",
+  "reason": "cmux-tui e870e5c06973 changes the image's cmux-tui (pinned da0edaeb5a09)",
+  "dry_run": false,
+  "cmux_tui": "e870e5c0697311379733b36e7b24b45073de571b",
+  "fixes": [
+    {
+      "sha": "e870e5c0697311379733b36e7b24b45073de571b",
+      "mergedAt": "2026-11-15T03:39:53-08:00",
+      "subject": "acpmux: config --set never writes a config the daemon refuses, and the hub carrier runs on the node key alone (#43671)"
+    },
+    {
+      "sha": "4f4b0d861c532644e65ac8d7e4c35c3733c98ad4",
+      "mergedAt": "2026-11-15T03:38:25-08:00",
+      "subject": "cmux-journal: typed drafts sync once a second, and a turn's acks share a sync (#43693)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T12:07:12Z",
+    "snapshot_id": "sh-4bcac735ade749c285806536cf46da87",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43711350510): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b92a433b862735a01159e145191c6ee35d516a58",
+    "image": "cloud-native-auto-e870e5c0-43711350510-1",
+    "revision": "ci-43711350510-1",
+    "at": "2026-11-15T12:07:12Z"
+  },
+  "rolled_back": false
+}
