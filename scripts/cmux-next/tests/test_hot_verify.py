@@ -326,9 +326,14 @@ class ControlSocketTest(unittest.TestCase):
             self.assertEqual(hv.control_socket(4242, sock), sock)
             self.assertIsNone(hv.control_socket(4243, sock))  # another app's socket at that path
 
-    def test_named_socket_not_there_yet(self):
+    def test_no_socket_at_the_named_path_falls_back_to_the_scan(self):
+        # An app older than CMUX_NEXT_SOCKET_PATH never makes the named socket; it puts one by its key hash.
+        from unittest import mock
         with tempfile.TemporaryDirectory(prefix="hv-") as d:
-            self.assertIsNone(hv.control_socket(4242, os.path.join(d, "missing.sock")))
+            hashed = os.path.join(d, "cmux-abc.sock")
+            self.serve(hashed, 4242)
+            with mock.patch("glob.glob", lambda pattern: [hashed] if pattern.startswith("/tmp/") else []):
+                self.assertEqual(hv.control_socket(4242, os.path.join(d, "missing.sock")), hashed)
 
 
 if __name__ == "__main__":

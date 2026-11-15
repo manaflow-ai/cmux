@@ -506,8 +506,9 @@ def control_socket(pid: int, named: str | None = None) -> str | None:
     """The copy's control socket: the one side-instance.sh named (NAMED) when it answers system.identify with
     PID; else, for a copy made before it named one, each cmux socket is asked and the one that answers with PID
     is it (scripts/measure/hot-apply-nightly.py)."""
-    if named:
-        return named if os.path.exists(named) and rpc(named, "system.identify", timeout=5).get("pid") == pid else None
+    if named and os.path.exists(named):
+        return named if rpc(named, "system.identify", timeout=5).get("pid") == pid else None
+    # No socket at the named path: an app older than CMUX_NEXT_SOCKET_PATH puts it by its key hash, so scan.
     import glob
     import pwd
     homes = dict.fromkeys([os.path.expanduser("~"), pwd.getpwuid(os.getuid()).pw_dir])
