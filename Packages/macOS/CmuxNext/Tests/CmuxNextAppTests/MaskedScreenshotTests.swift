@@ -426,9 +426,10 @@ import WebKit
         let transition = CATransition()
         transition.type = .push
         transition.duration = 60
-        page.add(transition, forKey: "test.push")
+        // Core Animation files every transition under kCATransition, whatever key it is added with.
+        page.add(transition, forKey: kCATransition)
         #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a push transition slides the page")
-        page.removeAnimation(forKey: "test.push")
+        page.removeAnimation(forKey: kCATransition)
         #expect(ScreenshotMask.read(fixture.window, rules: .app).isSettled)
     }
 

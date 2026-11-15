@@ -47,6 +47,7 @@ mod codex_wrapper;
 mod config;
 mod daemon_build;
 mod headless;
+mod heap_profile;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
@@ -1825,6 +1826,8 @@ fn warm_seeded_deps(folder: &Path) {
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
 pub fn main() -> std::process::ExitCode {
+    // A measurement build's heap profile (`dhat-heap`); nothing otherwise.
+    heap_profile::start();
     // The browser host and the app host are this binary under their own names
     // (links beside bin/cmux). They run before anything else here: the app
     // host sandboxes itself while it is the only thread, and neither takes

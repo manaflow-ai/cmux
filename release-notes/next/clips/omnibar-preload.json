@@ -1,0 +1,12 @@
+{
+  "caption": "Type a page you open often in the address bar and press Return: it is already loaded.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 3},
+    {"title": "Open a page from the address bar", "rpc": {"method": "debug.omnibar_type", "params": {"text": "iana.org/domains/reserved", "commit": true}}, "wait": 2, "clip": true},
+    {"title": "Back to the first page", "rpc": {"method": "debug.omnibar_type", "params": {"text": "example.com", "commit": true}}, "wait": 2, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.19, 0, 0.62, 0.42]
+}
