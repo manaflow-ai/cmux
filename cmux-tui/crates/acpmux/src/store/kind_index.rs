@@ -428,9 +428,12 @@ impl LocalStore {
         if let Some(stamp) = &stamp
             && let Some(memo) = self.kind_memo.get(id, index, stamp)
             && (memo.parsed || !scan.strict)
+            && memo.copy == kind_memo::copy_stamp(&self.kind_index_path(id, index))
         {
             return self.scan_memo(id, index, path, file, stamp, &memo, scan, visit);
         }
+        // Before the read: a copy changed after it reads again on the next scan.
+        let copy_before = kind_memo::copy_stamp(&self.kind_index_path(id, index));
         let (mut copy, from, mut parsed) = match stamp
             .as_ref()
             .and_then(|s| self.read_kind_index(id, index, s))
@@ -459,6 +462,8 @@ impl LocalStore {
         let len = from.saturating_add(covered);
         // What the copy on disk covers once this scan saved it, or did not.
         let mut disk = had_copy.then_some((from, copied));
+        // This scan wrote the copy (or tried to): the memo keeps the copy's stamp after it.
+        let mut wrote = false;
         if !had_copy || covered >= COPY_AFTER {
             let (old, new) = lines.split_at(copied.min(lines.len()));
             let added = had_copy
@@ -468,6 +473,7 @@ impl LocalStore {
                         tracing::debug!(session = %id, segment = index, "adding to the log's kind index failed: {e}");
                         false
                     });
+            wrote = true;
             if added {
                 disk = Some((len, lines.len()));
             } else {
@@ -489,7 +495,12 @@ impl LocalStore {
             lines_hash: fnv_on(FNV_START, saved),
         });
         entries.extend(kind_memo::entries(past));
-        let memo = kind_memo::SegmentMemo::new(stamp.id, len, parsed, disk, entries);
+        let mut memo = kind_memo::SegmentMemo::new(stamp.id, len, parsed, disk, entries);
+        memo.copy = if wrote {
+            kind_memo::copy_stamp(&self.kind_index_path(id, index))
+        } else {
+            copy_before
+        };
         self.kind_memo.put(id, index, memo);
         Ok(true)
     }
@@ -543,6 +554,7 @@ impl LocalStore {
         next.push(kind_memo::entries(&lines));
         if next.len.saturating_sub(next.disk.map_or(0, |d| d.len)) >= COPY_AFTER {
             self.save_memo_copy(id, index, stamp, &mut next);
+            next.copy = kind_memo::copy_stamp(&self.kind_index_path(id, index));
         }
         self.kind_memo.put(id, index, next);
         Ok(true)

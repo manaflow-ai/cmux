@@ -525,7 +525,9 @@ fn a_segment_replaced_after_a_scan_is_read_again() {
 fn ledger_scan_resume_pass_bench() {
     let root = root();
     let store = LocalStore::new(root.clone(), 8 << 20).unwrap();
-    let (chats, turns) = (64u64, 300u64);
+    let chats: u64 =
+        std::env::var("ACPMUX_LEDGER_BENCH_CHATS").ok().and_then(|v| v.parse().ok()).unwrap_or(64);
+    let turns = 300u64;
     for chat in 0..chats {
         let id = format!("c{chat}");
         let mut seq = 0;

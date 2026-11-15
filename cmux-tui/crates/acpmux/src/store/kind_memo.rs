@@ -83,6 +83,27 @@ pub(super) struct Disk {
     pub(super) lines_hash: u64,
 }
 
+/// A copy file's inode, length and change time: one `stat`, no read.
+pub(super) type CopyStamp = (u64, u64, i128);
+
+/// The copy file at `path`'s [`CopyStamp`]; None when there is none.
+pub(super) fn copy_stamp(path: &Path) -> Option<CopyStamp> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| i128::try_from(d.as_nanos()).unwrap_or(i128::MAX));
+    #[cfg(unix)]
+    let ino = {
+        use std::os::unix::fs::MetadataExt;
+        meta.ino()
+    };
+    #[cfg(not(unix))]
+    let ino = 0;
+    Some((ino, meta.len(), modified))
+}
+
 /// One segment's indexed lines, oldest first.
 #[derive(Clone)]
 pub(super) struct SegmentMemo {
@@ -93,6 +114,10 @@ pub(super) struct SegmentMemo {
     pub(super) parsed: bool,
     /// None when no copy on disk is known to match.
     pub(super) disk: Option<Disk>,
+    /// The copy file as last read or written ([`CopyStamp`]): a memo whose copy changed since
+    /// (made again, cut, deleted by a cold park or a repair, another daemon's) is read past, and
+    /// the copy read again, as a scan without a memo reads it.
+    pub(super) copy: Option<CopyStamp>,
     /// Runs of entries, merged as a binary counter merges: a few runs, each entry's pointer
     /// copied O(log n) times over the memo's life, never its bytes.
     runs: Vec<Arc<[Arc<Entry>]>>,
@@ -107,7 +132,7 @@ impl SegmentMemo {
         disk: Option<Disk>,
         entries: Vec<Arc<Entry>>,
     ) -> Self {
-        let mut memo = Self { file, len, parsed, disk, runs: Vec::new(), bytes: 0 };
+        let mut memo = Self { file, len, parsed, disk, copy: None, runs: Vec::new(), bytes: 0 };
         memo.push(entries);
         memo
     }
