@@ -82,7 +82,14 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
       record(
         "in",
         "tool_call",
-        update({ sessionUpdate: "tool_call", toolCallId: id, title: "ls", kind: "execute", status: "in_progress", rawInput: { command: "ls" } }),
+        update({
+          sessionUpdate: "tool_call",
+          toolCallId: id,
+          title: "ls",
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { command: "ls" },
+        }),
       );
       record(
         "in",
@@ -211,6 +218,7 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
       () =>
         new Promise<void>((done) => {
           let frames = 0;
+          // raf-read: counts frames to let the transcript settle; the rows are read after it, not in it.
           const tick = () => (++frames >= 30 ? done() : requestAnimationFrame(tick));
           requestAnimationFrame(tick);
         }),
@@ -226,58 +234,62 @@ await requireBrowserLane("agent-pane-long-chat-width-overlap.test.ts", async () 
   ] as { label: string; paged: boolean; open: number; reload?: number }[];
   for (const [name] of engines)
     for (const scenario of cases)
-    test(`${name}: ${scenario.label}: no row draws over another as the reader scrolls`, async () => {
-      paged = scenario.paged;
-      const page = await browsers
-        .get(name)!
-        .newPage({ viewport: { width: scenario.open, height: 900 }, deviceScaleFactor: 2 });
-      const { port } = vite!.httpServer!.address() as { port: number };
-      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
-      await page.getByText(`Closing ${TURNS - 1}.`).waitFor({ timeout: 60_000 });
-      await settle(page);
-      if (scenario.reload !== undefined) {
-        // Read to the first turn, page by page, so the chat is held whole.
-        for (let step = 0; step < 80; step++) {
-          if (await page.getByText("Task 0: check the placement").count()) break;
-          await page.evaluate(() => {
-            document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
-          });
-          await settle(page);
-        }
-        // fixed-wait: the chat held whole saves its prompts' places in idle time (PROMPT_TOPS_QUIET_MS).
-        await page.waitForTimeout(2500);
-        await page.setViewportSize({ width: scenario.reload, height: 900 });
-        await page.reload();
+      test(`${name}: ${scenario.label}: no row draws over another as the reader scrolls`, async () => {
+        paged = scenario.paged;
+        const page = await browsers
+          .get(name)!
+          .newPage({ viewport: { width: scenario.open, height: 900 }, deviceScaleFactor: 2 });
+        const { port } = vite!.httpServer!.address() as { port: number };
+        const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+        await page.goto(
+          `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
+        );
         await page.getByText(`Closing ${TURNS - 1}.`).waitFor({ timeout: 60_000 });
         await settle(page);
-      }
-      const found: Crossing[] = [];
-      const check = async (stop: string) => {
-        await settle(page);
-        const { out, mounted } = await crossings(page, stop);
-        expect(mounted).toBeGreaterThan(1);
-        found.push(...out);
-      };
-      await check("wide, at the latest row");
-      await page.setViewportSize({ width: 620, height: 900 });
-      await check("narrowed, at the latest row");
-      await page.mouse.move(300, 400);
-      for (let step = 1; step <= (scenario.paged ? 14 : 6); step++) {
-        await page.mouse.wheel(0, -1400);
-        await check(`narrowed, scrolled up ${step}`);
-      }
-      for (const share of [0.5, 0.2, 0.8]) {
-        await page.evaluate((share) => {
-          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) * share;
-        }, share);
-        await check(`narrowed, jumped to ${share}`);
-        await page.mouse.wheel(0, 900);
-        await check(`narrowed, jumped to ${share} and scrolled down`);
-      }
-      console.log(`WIDTH_OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: scenario.label, crossings: found.slice(0, 12), total: found.length })}`);
-      await page.close();
-      expect(found.slice(0, 6)).toEqual([]);
-    });
+        if (scenario.reload !== undefined) {
+          // Read to the first turn, page by page, so the chat is held whole.
+          for (let step = 0; step < 80; step++) {
+            if (await page.getByText("Task 0: check the placement").count()) break;
+            await page.evaluate(() => {
+              document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
+            });
+            await settle(page);
+          }
+          // fixed-wait: the chat held whole saves its prompts' places in idle time (PROMPT_TOPS_QUIET_MS).
+          await page.waitForTimeout(2500);
+          await page.setViewportSize({ width: scenario.reload, height: 900 });
+          await page.reload();
+          await page.getByText(`Closing ${TURNS - 1}.`).waitFor({ timeout: 60_000 });
+          await settle(page);
+        }
+        const found: Crossing[] = [];
+        const check = async (stop: string) => {
+          await settle(page);
+          const { out, mounted } = await crossings(page, stop);
+          expect(mounted).toBeGreaterThan(1);
+          found.push(...out);
+        };
+        await check("wide, at the latest row");
+        await page.setViewportSize({ width: 620, height: 900 });
+        await check("narrowed, at the latest row");
+        await page.mouse.move(300, 400);
+        for (let step = 1; step <= (scenario.paged ? 14 : 6); step++) {
+          await page.mouse.wheel(0, -1400);
+          await check(`narrowed, scrolled up ${step}`);
+        }
+        for (const share of [0.5, 0.2, 0.8]) {
+          await page.evaluate((share) => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) * share;
+          }, share);
+          await check(`narrowed, jumped to ${share}`);
+          await page.mouse.wheel(0, 900);
+          await check(`narrowed, jumped to ${share} and scrolled down`);
+        }
+        console.log(
+          `WIDTH_OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: scenario.label, crossings: found.slice(0, 12), total: found.length })}`,
+        );
+        await page.close();
+        expect(found.slice(0, 6)).toEqual([]);
+      });
 });
