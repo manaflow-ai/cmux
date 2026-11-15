@@ -401,10 +401,15 @@ fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
     let compact = recipes.iter().find(|recipe| recipe["name"] == "compact-sidebar").unwrap();
     let path = compact["path"].as_str().unwrap().to_owned();
     assert_eq!(compact["try"], format!("cmux customize use '{path}'"));
-    let used =
-        execute(&customize, Request::Use { source: path }, "cli", 2_000, &super::ask::NoChat)
-            .ok()
-            .unwrap();
+    let used = execute(
+        &customize,
+        Request::Use { source: path, watch: false },
+        "cli",
+        2_000,
+        &super::ask::NoChat,
+    )
+    .ok()
+    .unwrap();
     assert_eq!(used.json()["profile"], "compact-sidebar");
     let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
     assert!(settings.contains("sidebarRowHeight"), "{settings}");
