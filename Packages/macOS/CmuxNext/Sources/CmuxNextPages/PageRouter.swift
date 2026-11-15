@@ -305,7 +305,7 @@ public final class PageRouter {
     }
 
     /// The commands a page that still loads gets once it listens (``publishCommand(_:arguments:now:)``).
-    nonisolated static let heldUntilReady: Set<String> = []
+    nonisolated static let heldUntilReady: Set<String> = ["find", "focusSearch"]
     /// How long a held command waits for its page: past it, a page that never loaded in time
     /// (a crash, a hang) does not open Find long after the press.
     public nonisolated static let heldCommandLifetime: TimeInterval = 10
