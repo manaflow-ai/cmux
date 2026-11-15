@@ -154,22 +154,29 @@ async fn restored_idle_subsessions_start_no_agent_until_opened_or_sent_to() {
         "reading {n} restored idle sub-sessions started their agents"
     );
 
-    // A person opens one: its agent starts, and only its.
+    // A person opens one: an earlier daemon hibernated it, so the open alone starts nothing
+    // (`hub/idle.rs` `wake_for`).
     let mut person = daemon.rpc().await;
     person.call("_acpmux/attach", json!({"sessionId": ids[0], "limit": 0, "visible": true})).await;
-    until("opening a sub-session did not start its agent", async || {
-        spawns(&spawn_log) == before_restart + 1
-    })
-    .await;
-    // A send to another starts its agent and is answered.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(
+        spawns(&spawn_log),
+        before_restart,
+        "opening a restored idle sub-session started its agent"
+    );
+    // A send starts its agent, and only its.
     person
         .call(
             "session/prompt",
             json!({"sessionId": ids[1], "prompt": [{"type": "text", "text": "again"}]}),
         )
         .await;
+    until("a send to a sub-session did not start its agent", async || {
+        spawns(&spawn_log) == before_restart + 1
+    })
+    .await;
     tokio::time::sleep(Duration::from_secs(1)).await;
-    assert_eq!(spawns(&spawn_log), before_restart + 2, "an open and a send start one agent each");
+    assert_eq!(spawns(&spawn_log), before_restart + 1, "a send starts one agent");
 }
 
 /// CPU seconds `ps` shows for `pid` (`[[dd-]hh:]mm:ss`), or None once it ended.
