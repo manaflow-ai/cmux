@@ -71,25 +71,21 @@ pub(crate) fn find_high(data: &[u8], from: usize) -> usize {
     find(data, from, |word| word & HIGH != 0, |byte| byte >= 0x80)
 }
 
-/// CSI finals no tracker acts on (cursor motion, erase, insert/delete,
-/// scroll, SGR, ...). Excluded on purpose: modes (h l), save/restore (s r),
+/// Whether `byte` is a CSI final no tracker acts on (cursor motion, erase,
+/// insert/delete, scroll, SGR, ...): `@ABCDEFGHIJKLMPSTXZ` and
+/// `` `abdefgm ``. Excluded on purpose: modes (h l), save/restore (s r),
 /// soft reset and DECRQM (p), DECSCUSR (q), reports and queries (c n t u x).
-const INERT_CSI_FINALS: &[u8] = b"@ABCDEFGHIJKLMPSTXZ`abdefgm";
-
-/// [`INERT_CSI_FINALS`] as a byte-indexed table: one load per CSI, not a
-/// search of the list.
-const INERT_CSI_FINAL: [bool; 256] = {
-    let mut table = [false; 256];
-    let mut index = 0;
-    while index < INERT_CSI_FINALS.len() {
-        table[INERT_CSI_FINALS[index] as usize] = true;
-        index += 1;
-    }
-    table
-};
+/// One range test per CSI; a test holds it equal to that list.
+#[inline(always)]
+fn is_inert_csi_final(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'@'..=b'M' | b'P' | b'S' | b'T' | b'X' | b'Z' | b'`' | b'a' | b'b' | b'd'..=b'g' | b'm'
+    )
+}
 
 /// Length of the complete inert CSI sequence at `data[at..]` (`ESC [`,
-/// parameters from `0-9 ; :` only, then a final in [`INERT_CSI_FINALS`]),
+/// parameters from `0-9 ; :` only, then a final [`is_inert_csi_final`] accepts),
 /// or 0 when the bytes there are not one.
 #[inline]
 fn inert_csi_len(data: &[u8], at: usize) -> usize {
@@ -101,7 +97,7 @@ fn inert_csi_len(data: &[u8], at: usize) -> usize {
         end += 1;
     }
     match data.get(end) {
-        Some(&fin) if INERT_CSI_FINAL[usize::from(fin)] => end + 1 - at,
+        Some(&fin) if is_inert_csi_final(fin) => end + 1 - at,
         _ => 0,
     }
 }
@@ -192,6 +188,15 @@ fn neutral_run_end_by_escape(data: &[u8], from: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const INERT_CSI_FINALS: &[u8] = b"@ABCDEFGHIJKLMPSTXZ`abdefgm";
+
+    #[test]
+    fn the_inert_final_test_is_the_list() {
+        for byte in 0..=u8::MAX {
+            assert_eq!(is_inert_csi_final(byte), INERT_CSI_FINALS.contains(&byte), "{byte:#04x}");
+        }
+    }
 
     /// The byte walk the ESC-to-ESC form replaces.
     fn walk(data: &[u8], from: usize) -> usize {
