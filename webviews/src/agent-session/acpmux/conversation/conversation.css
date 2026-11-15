@@ -383,6 +383,15 @@
   line-height: 1.4;
   pointer-events: none;
 }
+/* One line in the corner, never broken over the play glyph; a bubble too narrow for it clear of the
+   glyph drops it (composer/videoLengthFit.ts; Leo, 2026-11-11: "this preview, the time is on the
+   wrong place ... we should never be able to see this"). */
+.cv-user__video-length {
+  white-space: nowrap;
+}
+[data-length-clipped] > .cv-user__video-length {
+  display: none;
+}
 /* A video nothing can play (Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop
    up anymore :("): it says so over its whole tile, in the play glyph's place, on the length's scrim. */
 .cv-user__video-unplayable {
@@ -3833,6 +3842,7 @@ button.cv-video-frames__frame:focus-visible {
   font-variant-numeric: tabular-nums;
   line-height: 16px;
   letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
   pointer-events: none;
 }
 
@@ -7990,6 +8000,36 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--cv-text-muted);
+}
+
+/* Every time and duration label in the chat is one line: a reply's or a prompt's time, a Worked for
+   or a command's time, a subagent's or a background task's (Leo, 2026-11-14: "these times are still
+   bad and going to next lines!", of a sent video's "0:01" broken into "0:0" over "1"; the video
+   lengths themselves are composer/videoLengthFit.ts's, #41494). Each is a short run of tabular
+   digits that never breaks; test/time-labels-one-line.test.ts finds every such class in the chat's
+   CSS and fails on one no rule keeps on one line. */
+.cv-turn-time,
+.cv-user__time,
+.cv-time-hover,
+.cv-worked__time,
+.cv-worked__label-time,
+.cv-command__time,
+.cv-activity__time,
+.cv-waterfall__time,
+.cv-agentmsg__time,
+.cv-subagent__time,
+.cv-subagents__time,
+.cv-subagent-done__time,
+.cv-shimmer__lit-time,
+.acpmux-running-tray__time,
+.acpmux-agent-line__time,
+.acpmux-done-mark__time,
+.acpmux-bg__time,
+.acpmux-bg-card__time,
+.acpmux-agents-list__time,
+.acpmux-queued-video-time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* A prompt's pending note starts where its bubble's text starts (Leo, 2026-11-14: "this is

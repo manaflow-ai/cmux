@@ -675,6 +675,16 @@ FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
 )
+# A route whose owned fallback is itself behind the macOS Blacksmith switch.
+# The fork branch still wins before the fallback; reduce the whole expression
+# to that branch so the detector does not mistake the guarded owner route for
+# an unguarded fork path.
+FORK_WRAPPED_GUARDED_POOL_READ = re.compile(
+    r"\((github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && 'blacksmith-[^']+') \|\| "
+    r"\(vars\.CI_BLACKSMITH_MACOS != 'on' && vars\.CI_SIDE_LANE_RUNNER \|\| "
+    r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)\)"
+)
 
 
 def fork_pull_request_gate_error(
@@ -693,6 +703,7 @@ def fork_pull_request_gate_error(
     """
     if not selector.search(line):
         return None
+    line = FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line)
     line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
     try:
         outside = EXPRESSION.sub("", line)

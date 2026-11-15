@@ -179,6 +179,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/remote.pipe",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -1410,6 +1416,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/computer_use_endpoint",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_prove",
       "params": true,
       "result": true
@@ -2098,6 +2110,18 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_consent_refused",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_routes",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_route_probe",
       "params": true,
       "result": true
     },

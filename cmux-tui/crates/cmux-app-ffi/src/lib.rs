@@ -30,10 +30,14 @@
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
 
+//! `agent_client` is the no-I/O agent list client (acpmux-client,
+//! include/acpmux_client.h); the app owns and drives its byte connection.
+
 pub mod hover;
 pub mod motion;
 pub mod terminal_selection;
 
+pub use acpmux_client::ffi as agent_client;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
 pub use cmux_cookie_sync::ffi as cookie_sync;

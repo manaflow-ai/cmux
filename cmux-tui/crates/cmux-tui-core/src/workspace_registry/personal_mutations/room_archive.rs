@@ -20,7 +20,11 @@ use super::super::personal_store::{
 /// The rooms that show workspace `key` of `session` (data-model.md 3.2, the
 /// rule of the app's `RoomMembership`): its pin, else every room that
 /// follows its session, else `default`.
-fn rooms_of(connection: &Connection, session: &str, key: &str) -> anyhow::Result<Vec<String>> {
+pub(crate) fn rooms_of(
+    connection: &Connection,
+    session: &str,
+    key: &str,
+) -> anyhow::Result<Vec<String>> {
     let pinned = connection
         .prepare(
             "SELECT profile_id FROM profile_pins WHERE session_id = ?1 AND workspace_key = ?2",

@@ -1209,7 +1209,7 @@ tree_published() {
 probe_checkout_tree() {
   local key legacy publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}"
   local base_key="" source="" state="" reason="" recheck="${CMUX_TUI_TREE_RECHECK_SECONDS:-20}" superseded=""
-  local fetch_key="" resolved="" publisher_unknown=""
+  local fetch_key="" resolved="" publisher_unknown="" head_sha=""
   key="$(tree_key HEAD)"
   legacy="$(legacy_tree_key HEAD)"
   [[ "$legacy" == "$key" ]] && legacy=""
@@ -1239,6 +1239,16 @@ probe_checkout_tree() {
     fi
   elif base_key="$(pull_request_base_key 2>/dev/null)" && [[ "$base_key" == "$key" ]]; then
     source="commit:$(git -C "$repo_root" rev-parse HEAD^1)"
+  elif [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] && head_sha="$(git -C "$repo_root" rev-parse --verify -q HEAD^2)" \
+      && [[ "$(tree_key "$head_sha" 2>/dev/null)" == "$key" ]] \
+      && [[ "$(artifacts_runs_state_or_limited "$head_sha")" != none ]]; then
+    # A same-repository pull request whose merge keeps its head's tree: the
+    # head's push publishes it. Read from git, so no API listing (which can
+    # fail under the fetch budget or the rate limit) decides the publisher.
+    # Only when that push has an artifacts run: a definite `none` (a publish
+    # that main starts instead) falls through to the same-key search below,
+    # as before #43406 (pin-cmux-tui-probe.test.sh case (d)).
+    source="commit:$head_sha"
   elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch \
       || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
       && ! tree_published "$key" "$legacy"; then
@@ -1279,7 +1289,16 @@ probe_checkout_tree() {
         state=failed
       fi ;;
     none)
-      if [[ -z "$source" && -n "$publisher_unknown" ]]; then
+      if [[ -z "$source" && -n "$publisher_unknown" && "${GITHUB_EVENT_NAME:-}" == pull_request ]]; then
+        # SAME_TREE_STATUS_NEVER_SILENT: this merge tree is neither the base's nor
+        # the head's (both checked above, from git), and no run builds a pull
+        # request's merge. A deferral here leaves a wait marker no publish
+        # ends, and the PR's required same-tree status never posts
+        # (2026-11-14: cmux#43400 tree a9c19390, cmux#43027 tree afcdb2bb).
+        # Red and retryable instead.
+        state=failed
+        reason="tree $key is this pull request's own merge of a base whose cmux-tui source moved: neither the base's nor the head's push publishes it, and the active cmux-tui artifacts runs could not all be compared with it in time. Update the branch (gh pr update-branch) so its merge tree is the tree its push publishes"
+      elif [[ -z "$source" && -n "$publisher_unknown" ]]; then
         # Fails open: the active runs could not all be compared in time, so a
         # same-tree publisher may exist. Deferred leaves the wait marker (and a
         # DEV run's dev-daily-tree-wait polls) instead of reporting a red.

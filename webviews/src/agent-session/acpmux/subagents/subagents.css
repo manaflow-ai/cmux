@@ -1125,6 +1125,8 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agent-card__name {
   color: var(--agent-text, var(--cmux-text));
+  /* The title is emphasized (overlay-surfaces.md, "Tooltip hierarchy and placement"). */
+  font-weight: var(--weight-emphasis);
   overflow-wrap: anywhere;
 }
 .acpmux-agent-card__state,
@@ -1223,6 +1225,20 @@ button.cv-subagent > :last-child {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+/* Its latest output (what it does now, else the last line it said: SubagentPreview.tsx), between
+   its state and its task: the text ink under the emphasized name, two lines at most. */
+.acpmux-agent-card__latest {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--agent-text, var(--cmux-text));
+}
+/* A chip's preview (SubagentPreview.tsx) keeps the task to its first two lines. */
+.acpmux-subagent-preview .acpmux-agent-card__task {
+  -webkit-line-clamp: 2;
 }
 
 /* ---------- Where a subagent ended (SubagentDoneLine.tsx) ---------- */

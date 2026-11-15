@@ -15338,6 +15338,137 @@
         }
       }
     },
+    "handlers.refusal.agentReferenceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this agent session isn't available to you: it isn't on this Mac or a machine paired with it"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "diese Agent-Sitzung ist für dich nicht verfügbar: Sie ist weder auf diesem Mac noch auf einem damit gekoppelten Rechner"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cette session d’agent ne vous est pas accessible : elle n’est ni sur ce Mac ni sur une machine jumelée avec lui"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة الوكيل هذه غير متاحة لك: ليست على جهاز Mac هذا ولا على جهاز مقترن به"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta sesión de agente no está disponible para ti: no está en este Mac ni en un equipo vinculado a él"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你無法使用此代理工作階段：它不在這台 Mac 或與其配對的機器上"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你无法使用此代理会话：它不在这台 Mac 或与其配对的机器上"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트 세션은 사용할 수 없습니다: 이 Mac이나 페어링된 컴퓨터에 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントセッションは利用できません: この Mac にも、ペアリングされたマシンにもありません"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ova sesija agenta vam nije dostupna: nije na ovom Macu niti na uređaju uparenom s njim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne agentsession er ikke tilgængelig for dig: den er hverken på denne Mac eller på en maskine, der er parret med den"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "questa sessione dell’agente non è disponibile per te: non è su questo Mac né su una macchina abbinata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គភ្នាក់ងារនេះមិនអាចប្រើបានសម្រាប់អ្នកទេ៖ វាមិននៅលើ Mac នេះ ឬម៉ាស៊ីនដែលបានផ្គូផ្គងជាមួយវាទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne agentøkten er ikke tilgjengelig for deg: den er verken på denne Macen eller på en maskin som er paret med den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ta sesja agenta jest dla ciebie niedostępna: nie ma jej na tym Macu ani na sparowanym z nim komputerze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta sessão de agente não está disponível para você: ela não está neste Mac nem em uma máquina pareada com ele"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "этот сеанс агента вам недоступен: его нет ни на этом Mac, ни на связанном с ним компьютере"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันเอเจนต์นี้ไม่พร้อมใช้งานสำหรับคุณ: ไม่ได้อยู่บน Mac เครื่องนี้หรือเครื่องที่จับคู่ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu ajan oturumu size açık değil: bu Mac'te ya da onunla eşlenmiş bir makinede değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "цей сеанс агента вам недоступний: його немає ні на цьому Mac, ні на пов’язаному з ним комп’ютері"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "phiên tác tử này không khả dụng với bạn: nó không có trên máy Mac này hay máy được ghép đôi với nó"
+          }
+        }
+      }
+    },
     "handlers.refusal.linkItemNotFound": {
       "extractionState": "manual",
       "localizations": {

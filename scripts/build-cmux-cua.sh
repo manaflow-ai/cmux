@@ -520,7 +520,12 @@ for arch in "${ARCHS[@]}"; do
   target_dir="$BUILD_SOURCE/.cmux-cargo-target/xcode-$CUA_TOOLCHAIN_KEY"
   cargo_status=0
   for cargo_attempt in 1 2 3; do
-    if CARGO_TARGET_DIR="$target_dir" \
+    # The pinned workspace has no release profile, so Cargo's default (no LTO, 16 codegen units) shipped a
+    # larger helper than the app's other Rust binaries. Fat LTO with one unit, as build-mobile-host.sh and
+    # cmux-tui use (CMUX-570, bundle size); Cargo rebuilds when the profile changes.
+    if CARGO_PROFILE_RELEASE_LTO=fat \
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+      CARGO_TARGET_DIR="$target_dir" \
       CARGO_NET_RETRY="${CARGO_NET_RETRY:-5}" \
       CARGO_HTTP_MULTIPLEXING="${CARGO_HTTP_MULTIPLEXING:-false}" \
       cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target" \

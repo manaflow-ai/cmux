@@ -227,6 +227,9 @@ export class LoginStepError extends Error {
 type LoginOptions = {
   connected: boolean;
   machineID: string | undefined;
+  /// The chat runs on another machine than this Mac (chatMachine.ts): a Cloud one or the person's own
+  /// (a peer, or the machine the app's wire reaches). Its agent signs in there, as a Cloud chat's does.
+  elsewhere?: boolean;
   sessionId: string | undefined;
   harness: string | undefined;
   supported: boolean;
@@ -238,11 +241,13 @@ type LoginOptions = {
   currentClient: () => LoginClient | undefined;
 };
 
-/// The sign-in a Cloud chat's sign-in failure offers, or undefined where there is none: a chat
-/// not connected, not on a Cloud machine, not Claude, Codex, Gemini or Grok, or on an acpmux that
-/// does not advertise `agent_login`.
+/// The sign-in a sign-in failure offers for a chat on another machine, a Cloud one or the person's
+/// own (Leo 2026-11-14: "and how are the ergonomics of cmux remote tho esp in the gui?"; an own
+/// machine's chat opened a terminal with the login command instead), or undefined where there is
+/// none: a chat not connected, on this Mac, not one of ``LOGIN_AGENTS``, or on an acpmux that does
+/// not advertise `agent_login`. Each step names the chat, so acpmux runs it on the chat's machine.
 export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined {
-  return options.machineID ? agentLogin(options) : undefined;
+  return options.machineID || options.elsewhere ? agentLogin(options) : undefined;
 }
 
 /// Use an API key for a chat on this Mac whose built-in Claude Code or Codex is not signed in (Leo
@@ -250,11 +255,11 @@ export function cloudAgentLogin(options: LoginOptions): CloudSignIn | undefined 
 /// their own api key"). acpmux saves the key where the agent's own CLI reads it (Claude's
 /// `settings.json` `env.ANTHROPIC_API_KEY`, `codex login --with-api-key`) and restarts the chat on it.
 /// Only the built-in `claude` and `codex` harnesses: a route (`claude-cr`, `claude-sr`) sets its own
-/// key and endpoint, which a saved key would never reach. Undefined for a Cloud chat (its card is
-/// ``cloudAgentLogin``'s).
+/// key and endpoint, which a saved key would never reach. Undefined for a chat on another machine
+/// (its card is ``cloudAgentLogin``'s).
 export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined {
   const harness = options.harness?.split("/").pop();
-  if (options.machineID || (harness !== "claude" && harness !== "codex")) return undefined;
+  if (options.machineID || options.elsewhere || (harness !== "claude" && harness !== "codex")) return undefined;
   return agentLogin(options);
 }
 

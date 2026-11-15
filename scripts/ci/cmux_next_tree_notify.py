@@ -132,13 +132,31 @@ REQUEST_TIMEOUT_S = 30
 RequestTimeout = deadline_http.RequestTimeout
 
 
+def rate_limited(status: int, headers: dict[str, str], payload: bytes) -> bool:
+    """A refusal on a spent rate limit (github_quota_client.quota_wait's test, without its wait)."""
+    if status not in (403, 429):
+        return False
+    lowered = {str(name).lower(): value for name, value in (headers or {}).items()}
+    return (status == 429 or lowered.get("x-ratelimit-remaining") == "0" or bool(lowered.get("retry-after"))
+            or b"rate limit" in (payload or b"").lower())
+
+
 class GitHub:
     # Every call's whole-request bound (deadline_http.request); a test sets a fraction of a second.
     timeout: float = REQUEST_TIMEOUT_S
 
-    def __init__(self, token: str, api_url: str = "https://api.github.com"):
+    def __init__(self, token: str, api_url: str = "https://api.github.com", spare: str = ""):
         self.token = token
+        # SPARE_TOKEN_SWITCH (lw#5184): a second token with its own budget (the cmux-bot App's). The first call
+        # refused on a spent rate limit moves every later call to it, once, with no sleep (this client never
+        # sleeps: github_token_polling.py). On 2026-11-14 23:41Z run 43652238618's publish read its markers
+        # with a spent github.token, the notify ended in a warning, and cmux#43194's same-tree run was never
+        # dispatched.
+        self.spare = spare if spare and spare != token else ""
         self.api_url = api_url.rstrip("/")
+        # The last answer, (status, payload, headers): a caller that may wait out a rate limit (the same-tree
+        # status post) reads its Retry-After or x-ratelimit-reset here. This client itself never sleeps.
+        self.last: tuple[int, bytes, dict[str, str]] = (0, b"", {})
 
     def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
         """One call, with its response headers. RequestTimeout past self.timeout."""
@@ -153,7 +171,13 @@ class GitHub:
         return deadline_http.request(request, self.timeout)
 
     def _request(self, method: str, url: str, body: dict | None = None):
-        status, payload, _ = self._send(method, url, body)
+        status, payload, headers = self._send(method, url, body)
+        if self.spare and rate_limited(status, headers, payload):
+            print(f"::notice title=tree notify token::{method} {url.removeprefix(self.api_url + '/')} was refused "
+                  f"on a spent rate limit (HTTP {status}); the notify continues on the spare token")
+            self.token, self.spare = self.spare, ""
+            status, payload, headers = self._send(method, url, body)
+        self.last = (status, payload, headers)
         return status, payload
 
     def get(self, path: str):
@@ -438,8 +462,10 @@ def cancel_superseded_same_tree(api: Api, repo: str, branch: str, head: str,
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
            fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0,
-           quota_only: Callable[[], bool] = lambda: False) -> int:
-    """Dispatches same-tree runs for the markers of <key>; returns how many."""
+           quota_only: Callable[[], bool] = lambda: False, unstarted: list | None = None) -> int:
+    """Dispatches same-tree runs for the markers of <key>; returns how many. UNSTARTED, when given, collects the
+    runs whose marker was left in place by a GitHub error (not by a decision): the notify must be made again."""
+    unstarted = [] if unstarted is None else unstarted
     if state == "failed" and completion_attests(fetch_completion(key), key):
         log(f"tree {key}: its completion.json is published, so the tree is ready whatever the "
             f"reporting run's conclusion; starting the tree jobs (ready)")
@@ -522,6 +548,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             current = is_current(api, repo, marker, pull)
         except RuntimeError as error:
             log(f"::warning::run {run_id}: could not check whether it is current: {error}")
+            unstarted.append(run_id)
             continue
         if not current:
             log(f"run {run_id} ({marker['origin']} {marker['status_sha'][:12]}) was superseded; nothing to start")
@@ -538,9 +565,13 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
                     log(f"::warning::run {run_id}: could not cancel the superseded same-tree runs on {branch}: {error}")
             continue
         if marker["origin"] == "pull_request" and state == "failed":
-            log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
-                f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
-            continue
+            # STATUS_FROM_OUTSIDE (cmux#43368): a notice alone left the pull request's required status absent
+            # forever. The failed same-tree run creates no pin ref (its same-tree-cmux-tui skips a pull request);
+            # its reporter posts the tiers red with this reason. The marker stays: a later trusted publication
+            # of the key still dispatches the ready tree jobs.
+            log(f"::notice title=same-tree cmux-tui unavailable::run {run_id} ({marker['status_sha'][:12]}): "
+                f"tree {key} is unavailable; no pin ref is created, the tiers are reported red. Re-run after a "
+                "trusted publication.")
         if state == "failed" and marker.get("reported"):
             log(f"run {run_id}: its same-tree run {marker.get('reported_run') or '?'} already reported tree {key} "
                 f"red; not dispatched again (a publication of the key starts it)")
@@ -595,25 +626,116 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
             log(f"run {run_id}: dispatch on {ref} refused (HTTP {status})")
         else:
             log(f"::warning::run {run_id}: no ref accepted the same-tree dispatch; its tree jobs did not start")
+            unstarted.append(run_id)
     log(f"tree {key}: {len(artifacts)} marker(s), {dispatched} same-tree run(s) started ({state})")
     return dispatched
+
+
+# NOTIFY_NEVER_LOST (lw#5184): a ready notify that GitHub refused, whole or for one marker, leaves its key in an
+# artifact of this name (pending.json: {"key", "state"}); artifact uploads spend no REST quota. Every
+# feat-cmux-next push's sweep-commit-manifests job reads the artifacts of this one name (sweep_pending), makes the
+# notify again for each key whose tree is published, and deletes the record once it went through. A miss is then
+# at most one push late, never a same-tree run nothing will dispatch (cmux#43194 at 688722a2: the publish's notify
+# was refused with HTTP 403 and only warned; merge_hold held the pull request for hours).
+PENDING_ARTIFACT = "cmux-next-tree-notify-pending"
+
+
+def write_pending(path: str, key: str, state: str, why: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"key": key, "state": state, "why": why[:500]}, handle)
+
+
+def read_pending(api: Api, artifact: dict) -> dict | None:
+    """The validated pending record of an artifact, or None."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(api.download(artifact["archive_download_url"]))) as archive:
+            record = json.loads(archive.read("pending.json"))
+    except (KeyError, ValueError, zipfile.BadZipFile, RuntimeError, OSError):
+        return None
+    if not isinstance(record, dict) or not SHA.match(str(record.get("key", ""))) or record.get("state") != "ready":
+        return None
+    return record
+
+
+def sweep_pending(api: Api, repo: str, log: Callable[[str], None] = print,
+                  fetch_completion: Callable[[str], object | None] = fetch_completion,
+                  make: Callable[..., int] | None = None) -> list[str]:
+    """Make again every ready notify a refused publish left (PENDING_ARTIFACT); returns the keys still pending.
+    Only a same-repository run's record counts, and only for a tree whose completion.json is published: a record
+    starts nothing a publish would not."""
+    make = make or notify
+    listing = api.get(f"repos/{repo}/actions/artifacts?name={PENDING_ARTIFACT}&per_page=100")
+    records: dict[str, list[dict]] = {}
+    for artifact in listing.get("artifacts", []) if isinstance(listing, dict) else []:
+        if not isinstance(artifact, dict) or artifact.get("expired") or not from_same_repository(artifact):
+            continue
+        record = read_pending(api, artifact)
+        if record is None:
+            log(f"pending record {artifact.get('id')} is not one a publish wrote; ignored")
+            continue
+        records.setdefault(record["key"], []).append(artifact)
+    left = []
+    for key, artifacts in records.items():
+        if not completion_attests(fetch_completion(key), key):
+            log(f"tree {key}: pending, but its completion.json does not attest it; left for a later sweep")
+            left.append(key)
+            continue
+        unstarted: list = []
+        try:
+            started = make(api, repo=repo, key=key, state="ready", log=log, unstarted=unstarted,
+                             reason=f"tree {key} is published ({TREE_BASE}/{key}/completion.json); its publish's "
+                                    f"notify was refused, and the feat-cmux-next sweep made it again")
+        except (RuntimeError, OSError, ValueError) as error:
+            log(f"::warning::tree {key}: the pending notify was refused again ({error}); the next sweep retries")
+            left.append(key)
+            continue
+        if unstarted:
+            log(f"::warning::tree {key}: runs {unstarted} are still not started; the next sweep retries")
+            left.append(key)
+            continue
+        log(f"tree {key}: the pending notify went through ({started} same-tree run(s) started)")
+        for artifact in artifacts:
+            api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+    return left
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--key", required=True)
-    parser.add_argument("--state", choices=("ready", "failed"), required=True)
+    parser.add_argument("--key")
+    parser.add_argument("--state", choices=("ready", "failed"))
     parser.add_argument("--reason", default="")
+    parser.add_argument("--pending-file", default="",
+                        help="where a ready notify GitHub refused writes its pending record (NOTIFY_NEVER_LOST)")
+    parser.add_argument("--sweep-pending", action="store_true",
+                        help="make again the ready notifies refused publishes left (PENDING_ARTIFACT)")
     args = parser.parse_args(argv)
-    if not SHA.match(args.key):
-        print(f"::warning::not a tree key: {args.key!r}")
-        return 0
     token = os.environ.get("GH_TOKEN", "")
     if not token:
         print("::warning::no GH_TOKEN; cannot start the deferred cmux-next tree jobs")
+        return 1 if args.sweep_pending else 0
+    api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ.get("GH_TOKEN_SPARE", ""))
+    if args.sweep_pending:
+        try:
+            left = sweep_pending(api, args.repo)
+        except (RuntimeError, OSError, ValueError) as error:
+            print(f"::error title=tree notify sweep::could not read the pending notifies: {error}")
+            return 1
+        if left:
+            print(f"::warning title=tree notify sweep::still pending: {', '.join(left)}")
         return 0
-    api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
+    if not args.key or not args.state:
+        parser.error("--key and --state are required without --sweep-pending")
+    if not SHA.match(args.key):
+        print(f"::warning::not a tree key: {args.key!r}")
+        return 0
+
+    def pending(why: str) -> None:
+        if args.pending_file and args.state == "ready":
+            write_pending(args.pending_file, args.key, args.state, why)
+            print(f"::warning title=tree notify pending::tree {args.key}: {why}; recorded as {PENDING_ARTIFACT}, "
+                  f"and the next feat-cmux-next push's sweep makes the notify again")
     try:
         # This script runs inside the artifacts run that reports: that run is no publisher to wait on.
         own_run = os.environ.get("GITHUB_RUN_ID", "")
@@ -638,10 +760,14 @@ def main(argv: list[str]) -> int:
                 print(f"::warning::could not read run {run_id}'s jobs for the quota check: {error}")
                 return False
 
+        unstarted: list = []
         notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason,
-               exclude_run=run_id, quota_only=safe_quota_only)
+               exclude_run=run_id, quota_only=safe_quota_only, unstarted=unstarted)
+        if unstarted:
+            pending(f"runs {unstarted} were not started (GitHub refused a read or the dispatch)")
     except (RuntimeError, OSError, ValueError) as error:
         print(f"::warning::could not start the deferred cmux-next tree jobs for tree {args.key}: {error}")
+        pending(f"the notify was refused: {error}")
     return 0
 
 

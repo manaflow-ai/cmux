@@ -3,7 +3,8 @@
 //! conversion, the codec seam (module `codec`: [`VideoEncoder`], [`VideoDecoder`]
 //! and each codec's framing; [`H264Encoder`] is the encoder trait's older name),
 //! and OpenH264 under the binary rule in [`openh264`]. x264 (GPL) stays in the cmux-rd host binary and never enters
-//! this crate; macOS hosts use VideoToolbox (module `videotoolbox`, macOS only).
+//! this crate; macOS hosts use VideoToolbox (module `videotoolbox`, macOS only) and Windows
+//! has Media Foundation (module `mediafoundation`, Windows only).
 
 mod codec;
 mod picture;
@@ -21,6 +22,10 @@ pub mod dynlib;
 
 #[cfg(target_os = "macos")]
 pub mod videotoolbox;
+
+/// Media Foundation H.264: the GPU's hardware MFT or Windows' software one (Windows only).
+#[cfg(windows)]
+pub mod mediafoundation;
 
 /// The encoder trait's name from before VP9 and AV1 (every H.264 source still uses it).
 pub use codec::VideoEncoder as H264Encoder;
