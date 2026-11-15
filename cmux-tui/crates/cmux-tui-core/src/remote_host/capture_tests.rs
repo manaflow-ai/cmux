@@ -163,7 +163,7 @@ impl MockHost {
                         } else {
                             "remote_exit_unverified"
                         });
-                        if refused.iter().any(|refused| *refused == method) {
+                        if refused.contains(&method) {
                             result = json!({"code": "remote_lease_mismatch", "lease_bound": true});
                         }
                         result
