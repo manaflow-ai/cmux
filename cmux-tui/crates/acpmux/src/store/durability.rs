@@ -8,7 +8,8 @@
 //! journal writes in its next batch: a line that shows the change waits for that write (a kill
 //! -9 of every process then keeps it). They are appended as kept records
 //! (`cmux_journal::Journal::append_kept`), which the journal syncs in its idle time (500 ms with no
-//! record: longer than the gap between two typed keys, so typing costs about one sync a second
+//! record: longer than the gap between two typed keys, so typing costs about two syncs a second, a
+//! barrier and a full one,
 //! rather than one per key, cmuxterm-hq#11322), with the next acknowledged batch (a send), or the
 //! stream sync delay (1 s) later, whichever
 //! comes first; so an OS crash or a power loss takes back at most that last second of drafts and

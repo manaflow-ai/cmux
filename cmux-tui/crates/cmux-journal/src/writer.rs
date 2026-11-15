@@ -45,7 +45,10 @@
 //! the last sync that held an acked record is written at once and synced when that window ends,
 //! with whatever came meanwhile. A turn's end and the next prompt append about ten acked records
 //! within two milliseconds; each used to get a sync of its own (cmuxterm-hq#11322). The first
-//! acked batch after a quiet time is synced at once, so a prompt or a click waits for no window.
+//! acked batch after a quiet time is synced at once, so a prompt or a click waits for no window,
+//! and so is a sync a waiter asked for (`wait_durable`), so a chain of waits pays none per hop.
+//! The window runs from the start of the last acked sync: on a slow disk the records that came
+//! during it wait for no window after it.
 //!
 //! The thread sleeps on a condition variable while nothing is owed. It sets a timer only while
 //! written stream or kept records wait for their sync, synced records for their full sync, or a
@@ -140,8 +143,11 @@ pub(crate) struct Writer {
     full_durable: Lsn,
     /// When a barrier sync first made records durable that no full sync covers yet.
     unfull_since: Option<Instant>,
-    /// When the last sync that held an acked record ended ([module docs](self)).
-    acked_synced_at: Option<Instant>,
+    /// When the last sync that held an acked record started ([module docs](self)).
+    acked_sync_started: Option<Instant>,
+    /// A waiter asked for the sync of what is held ([`crate::Journal::wait_durable`]): it waits
+    /// for no group window.
+    sync_asked: bool,
     retry_at: Option<Instant>,
     backoff: Duration,
 }
@@ -176,7 +182,8 @@ impl Writer {
             durable,
             full_durable: durable,
             unfull_since: None,
-            acked_synced_at: None,
+            acked_sync_started: None,
+            sync_asked: false,
             retry_at: None,
             backoff,
         }
@@ -284,6 +291,7 @@ impl Writer {
             return false;
         }
         self.retained_ack = true;
+        self.sync_asked = true;
         true
     }
 
@@ -310,8 +318,13 @@ impl Writer {
         self.retained_ack && self.written == self.retained.len() && self.ack_window_over(now)
     }
 
+    /// No acked sync started within the group window, or a waiter asked for the sync: a chain
+    /// of waits (each one asks once the one before it is durable) pays no window per hop.
     fn ack_window_over(&self, now: Instant) -> bool {
-        self.acked_synced_at.is_none_or(|at| passed(at, self.shared.config.ack_group_window, now))
+        self.sync_asked
+            || self
+                .acked_sync_started
+                .is_none_or(|at| passed(at, self.shared.config.ack_group_window, now))
     }
 
     /// Synced records waited out the full-sync interval.
@@ -334,7 +347,7 @@ impl Writer {
             None
         };
         let acked = if written && self.retained_ack {
-            self.acked_synced_at.and_then(|at| at.checked_add(config.ack_group_window))
+            self.acked_sync_started.and_then(|at| at.checked_add(config.ack_group_window))
         } else {
             None
         };
@@ -415,6 +428,9 @@ impl Writer {
 
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
         let Some(active) = self.active.as_mut() else { return Err(no_segment()) };
+        // The group window runs from the sync's start: on a slow disk, the acked records that
+        // come during a sync share the next one anyway, which then waits for no window.
+        let started = Instant::now();
         active.file.sync(level)?;
         self.marker_unsynced = false;
         let now = Instant::now();
@@ -437,10 +453,11 @@ impl Writer {
             }
         }
         if self.retained_ack {
-            self.acked_synced_at = Some(now);
+            self.acked_sync_started = Some(started);
         }
         self.retained.clear();
         self.retained_ack = false;
+        self.sync_asked = false;
         self.retained_kept = false;
         self.written = 0;
         self.unsynced_since = None;

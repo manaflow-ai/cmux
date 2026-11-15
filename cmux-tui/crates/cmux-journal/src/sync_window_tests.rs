@@ -71,7 +71,7 @@ fn written(journal: &Journal, lsn: Lsn) {
 }
 
 /// A person types 30 keys, one every 50 ms (1.5 s), each answered once written. The drafts share
-/// about one sync a second; the last one is synced within a second of its key, and a kill of
+/// about one sync a second (and the full sync after it); the last one is synced within a second of its key, and a kill of
 /// every process keeps every key a reply answered.
 #[test]
 fn drafts_typed_a_key_every_50_ms_share_a_sync_a_second() {

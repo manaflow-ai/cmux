@@ -29,7 +29,8 @@
 //!   once no record came for [`Config::kept_sync_quiet`], or with the next acked batch, or after
 //!   the stream sync delay, whichever comes first. So the next acked batch (a prompt) syncs only
 //!   its own records, not a burst of kept ones before it, and a person typing (a key every 100
-//!   to 300 ms, each one a kept record) costs about one sync a second, not one per key.
+//!   to 300 ms, each one a kept record) is synced about once a second (and fully once more within
+//!   `full_sync_interval`), not once per key.
 //!
 //! Sync levels ([`SyncLevel`]): an acked batch is synced with `F_BARRIERFSYNC` on macOS
 //! (`fdatasync` on Linux, `FlushFileBuffers` on Windows), so an acknowledged change survives a
@@ -150,10 +151,11 @@ pub struct Config {
     /// types, so typing is synced once a [`Config::stream_sync_delay`], not once per key
     /// (cmuxterm-hq#11322: 10 ms synced every key, about 24,000 syncs an hour).
     pub kept_sync_quiet: Duration,
-    /// How long after an acked batch's sync the next acked batch waits before its own sync, so
-    /// the records that arrive in that time share it. An acked batch after a quiet time (no acked
-    /// sync for this long) is synced at once. It bounds the wait an acknowledged change adds to
-    /// its reply; a reply still waits for its record's sync.
+    /// How long after an acked batch's sync started the next acked batch waits before its own
+    /// sync, so the records that arrive in that time share it. An acked batch after a quiet time
+    /// (no acked sync for this long), and one a waiter asked for ([`Journal::wait_durable`]), is
+    /// synced at once. It bounds the wait an acknowledged change adds to its reply; a reply still
+    /// waits for its record's sync.
     pub ack_group_window: Duration,
     /// After a failed write or sync, the first and the longest wait before the writer tries again.
     pub retry_min: Duration,
