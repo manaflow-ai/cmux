@@ -23,15 +23,9 @@ public enum CMUXBuildSpaceState: Sendable, Hashable {
     public init(devBuild: Bool, devTag: String?) {
         let raw = devTag?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let tag = raw.hasPrefix("$(") ? "" : raw
-        if tag.isEmpty {
-            self = devBuild ? .misconfiguredDev(reason: "it has no tag") : .nightly
-        } else if let space = CMUXBuildSpace(devTag: tag) {
-            self = .dev(space)
-        } else if CMUXBuildSpace.slug(tag) == nil {
-            self = .misconfiguredDev(reason: "its tag \"\(tag)\" has no letter or digit")
-        } else {
-            self = .misconfiguredDev(reason: "its tag is longer than \(CMUXBuildSpace.maxSlugLength) characters")
-        }
+        // Red scaffold: fails open to nightly, as before (the fix decides misconfigured dev builds).
+        _ = devBuild
+        self = CMUXBuildSpace(devTag: tag).map(Self.dev) ?? .nightly
     }
 
     /// The dev build's space; nil for nightly and for a misconfigured dev build.
@@ -45,9 +39,7 @@ public enum CMUXBuildSpaceState: Sendable, Hashable {
     }
 
     /// Throws ``CMUXBuildSpaceError`` for a misconfigured dev build; returns for nightly and a tagged dev build.
-    public func check() throws {
-        if let refusal { throw refusal }
-    }
+    public func check() throws {}
 
     /// Adds the header to `request` (an HTTP request or a WebSocket upgrade) for a dev build, nothing for nightly;
     /// throws for a misconfigured dev build, so the request is never sent.
