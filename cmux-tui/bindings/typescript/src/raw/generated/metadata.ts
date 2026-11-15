@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1b93fe599f104b67189581466f707dfcde72b8c0b236f5c5305219b4b03907bb. */
+/* cmux-tui mux protocol 12, IR 7ab2cf47a11ad8ae79e2cb4a3aacbf380093b8eeb6f9219f30dc4e49124eab24. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1b93fe599f104b67189581466f707dfcde72b8c0b236f5c5305219b4b03907bb" as const;
+export const SDK_IR_SHA256 = "7ab2cf47a11ad8ae79e2cb4a3aacbf380093b8eeb6f9219f30dc4e49124eab24" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1342,7 +1342,7 @@ export const COMMAND_METADATA = {
   "device-setup": {
     "authority": "local-admin",
     "since": 12,
-    "capability": null,
+    "capability": "device-setup-v1",
     "fields": {},
     "stream": {
       "event_names": [

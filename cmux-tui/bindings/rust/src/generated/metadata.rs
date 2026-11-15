@@ -1,12 +1,12 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1b93fe599f104b67189581466f707dfcde72b8c0b236f5c5305219b4b03907bb.
+// cmux-tui mux protocol 12, IR 7ab2cf47a11ad8ae79e2cb4a3aacbf380093b8eeb6f9219f30dc4e49124eab24.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "1b93fe599f104b67189581466f707dfcde72b8c0b236f5c5305219b4b03907bb";
+pub const SDK_IR_SHA256: &str = "7ab2cf47a11ad8ae79e2cb4a3aacbf380093b8eeb6f9219f30dc4e49124eab24";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
@@ -1029,7 +1029,7 @@ pub const DETACH_CLIENT_METADATA: CommandMetadata = CommandMetadata {
 pub const DEVICE_SETUP_METADATA: CommandMetadata = CommandMetadata {
     name: "device-setup",
     since: 12,
-    capability: None,
+    capability: Some("device-setup-v1"),
     authority: "local-admin",
     stream: Some(StreamMetadata { kind: "subscribe", terminal_event: None }),
 };

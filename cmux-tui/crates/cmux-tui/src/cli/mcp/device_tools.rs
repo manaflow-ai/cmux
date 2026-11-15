@@ -81,8 +81,11 @@ pub(super) fn call(name: &str, arguments: &Map<String, Value>) -> Option<Value> 
     Some(match crate::devices::setup::run_json_lines(&words) {
         Ok((ok, lines, error)) => {
             let mut value = json!({"ok": ok, "lines": lines});
-            if !ok && !error.is_empty() {
-                value["error"] = json!(error);
+            if !ok
+                && !error.is_empty()
+                && let Some(fields) = value.as_object_mut()
+            {
+                fields.insert("error".into(), json!(error));
             }
             success(value, true)
         }

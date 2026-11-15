@@ -26247,7 +26247,7 @@
   "device-setup": {
    "authority": "local-admin",
    "since": 12,
-   "capability": null,
+   "capability": "device-setup-v1",
    "request": {
     "kind": "object",
     "fields": {

@@ -72,4 +72,13 @@ mod tests {
                    "state": "ok", "detail": "NIGHTLY 2100 is current", "fix": ""})
         );
     }
+
+    #[test]
+    fn identify_lists_device_setup_v1_once_a_runner_is_installed() {
+        device_setup::on_device_setup(device_setup::tests::fake);
+        assert!(
+            super::super::capabilities::advertised_capabilities(false)
+                .contains(&device_setup::CAPABILITY)
+        );
+    }
 }

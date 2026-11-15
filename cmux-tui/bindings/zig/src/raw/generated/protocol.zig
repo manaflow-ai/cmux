@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1b93fe599f104b67189581466f707dfcde72b8c0b236f5c5305219b4b03907bb";
+pub const ir_sha256 = "7ab2cf47a11ad8ae79e2cb4a3aacbf380093b8eeb6f9219f30dc4e49124eab24";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6385,7 +6385,7 @@ pub fn deviceSetup(client: anytype, request: DeviceSetupRequest) !client_runtime
             .name = "device-setup",
             .authority = "local-admin",
             .since = 12,
-            .capability = null,
+            .capability = "device-setup-v1",
         },
         request,
         null,
@@ -12610,7 +12610,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "delete-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "device-setup", .authority = "local-admin", .since = 12, .capability = null, .stream = "subscribe" },
+    .{ .name = "device-setup", .authority = "local-admin", .since = 12, .capability = "device-setup-v1", .stream = "subscribe" },
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "feed-local-handoff-abort", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-handoff-begin", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },

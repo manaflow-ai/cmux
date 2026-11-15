@@ -397,10 +397,10 @@ fn agents_line(state: StepState, detail: String, fix: &str) -> Line {
 /// the Mac is set up either way.
 pub(crate) fn allow_answer(answer: Result<Value, Value>) -> Line {
     match answer {
-        Ok(value) if value["agents_may_share"].as_bool() == Some(true) => {
+        Ok(value) if value.get("agents_may_share").and_then(Value::as_bool) == Some(true) => {
             agents_line(StepState::Changed, format!("\"{AGENTS_POLICY}\" is on"), "")
         }
-        Ok(value) if value["declined"].as_bool() == Some(true) => agents_line(
+        Ok(value) if value.get("declined").and_then(Value::as_bool) == Some(true) => agents_line(
             StepState::Warn,
             format!("\"{AGENTS_POLICY}\" stays off: you said no in cmux"),
             "",
@@ -411,8 +411,8 @@ pub(crate) fn allow_answer(answer: Result<Value, Value>) -> Line {
             "",
         ),
         Err(error) => {
-            let code = error["code"].as_str().unwrap_or("");
-            let message = error["message"].as_str().unwrap_or("");
+            let code = error.get("code").and_then(Value::as_str).unwrap_or("");
+            let message = error.get("message").and_then(Value::as_str).unwrap_or("");
             if code == "method_not_found"
                 || (code == "invalid_params" && message.starts_with("action must be"))
             {
@@ -776,7 +776,9 @@ pub(crate) fn sign_in_step(
         let who = serde_json::from_str::<Value>(&answer)
             .ok()
             .and_then(|v| {
-                ["email", "login", "user"].iter().find_map(|k| v[*k].as_str().map(str::to_owned))
+                ["email", "login", "user"]
+                    .iter()
+                    .find_map(|k| v.get(*k).and_then(Value::as_str).map(str::to_owned))
             })
             .unwrap_or_else(|| "someone".into());
         return (StepState::Ok, format!("signed in as {who}"), String::new());
@@ -832,32 +834,31 @@ fn share_step(name: &str, remote: &dyn Remote, dry_run: bool) -> Outcome {
         );
     };
     // `cmux remote-host status --json` prints the daemon's data, maybe in an `{ok, data}` envelope.
-    let status =
-        if status.get("data").is_some_and(Value::is_object) { &status["data"] } else { &status };
-    let host = &status["host"];
+    let status = status.get("data").filter(|d| d.is_object()).unwrap_or(&status);
+    let host = status.get("host").unwrap_or(&Value::Null);
     let shared = ["shared", "sharing", "on"]
         .iter()
-        .find_map(|key| host["screen"][*key].as_bool())
-        .or_else(|| status["screen"]["shared"].as_bool());
+        .find_map(|key| host.get("screen").and_then(|s| s.get(*key)).and_then(Value::as_bool))
+        .or_else(|| status.pointer("/screen/shared").and_then(Value::as_bool));
     let sharing = match shared {
         Some(true) => "Share This Mac is on",
         Some(false) => "Share This Mac is off",
         None => "Share This Mac: unknown",
     };
-    let permissions = &host["permissions"];
+    let permissions = host.get("permissions").unwrap_or(&Value::Null);
     if permissions.is_null() {
         return (
             StepState::Warn,
             format!(
                 "{sharing}; cmux Remote did not report its grants ({})",
-                status["state"].as_str().unwrap_or("not running")
+                status.get("state").and_then(Value::as_str).unwrap_or("not running")
             ),
             String::new(),
         );
     }
     let missing: Vec<(&str, &str)> = GRANTS
         .iter()
-        .filter(|(key, _, _)| permissions[*key].as_bool() != Some(true))
+        .filter(|(key, _, _)| permissions.get(*key).and_then(Value::as_bool) != Some(true))
         .map(|(_, arg, title)| (*arg, *title))
         .collect();
     if missing.is_empty() {
@@ -889,13 +890,14 @@ fn share_step(name: &str, remote: &dyn Remote, dry_run: bool) -> Outcome {
 /// The ssh destination of a device: its acpmux peer's `ssh://` URL, else a Host of the ssh
 /// config with its name. Err names why there is none.
 pub(crate) fn route(device: &Device, sources: &Sources) -> Result<String, String> {
-    let peers = sources.peers["peers"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let peers =
+        sources.peers.get("peers").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
     for via in &device.via {
         let Via::Peer { name } = via else { continue };
         let url = peers
             .iter()
-            .find(|p| p["name"].as_str() == Some(name.as_str()))
-            .and_then(|p| p["url"].as_str())
+            .find(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str()))
+            .and_then(|p| p.get("url").and_then(Value::as_str))
             .unwrap_or_default();
         if url.starts_with("ssh://") {
             return acpmux::peer::ssh_target(url)
@@ -991,17 +993,20 @@ impl Asking for ThisMachine {
         }
         serde_json::from_slice::<Value>(&out.stdout)
             .ok()
-            .and_then(|v| v["code"].as_str().map(str::to_owned))
+            .and_then(|v| v.get("code").and_then(Value::as_str).map(str::to_owned))
             .filter(|code| !code.is_empty() && !code.contains(['\n', '\r']))
             .ok_or_else(|| AskError::Failed("the sign-in handoff printed no code".into()))
     }
 
     fn agents_allowed(&self) -> Result<bool, AskError> {
         let value = local_json(&["remote-host", "agents", "status", "--json"])?;
-        let value = if value["data"].is_object() { &value["data"] } else { &value };
-        ["allowed", "on", "enabled"].iter().find_map(|key| value[*key].as_bool()).ok_or_else(|| {
-            AskError::Failed("`cmux remote-host agents status` said no state".into())
-        })
+        let value = value.get("data").filter(|d| d.is_object()).unwrap_or(&value);
+        ["allowed", "on", "enabled"]
+            .iter()
+            .find_map(|key| value.get(*key).and_then(Value::as_bool))
+            .ok_or_else(|| {
+                AskError::Failed("`cmux remote-host agents status` said no state".into())
+            })
     }
 
     #[cfg(unix)]

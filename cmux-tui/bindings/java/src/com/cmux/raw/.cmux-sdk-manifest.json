@@ -772,8 +772,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "4988fa7a50e76398b714497f8ee5ecc6dc807f28088420936310663f32bc5ddf",
-      "size": 83498
+      "sha256": "332ff7553ea2303352aad56152391a27bff357742cf0a2f7e6162b7b3494689d",
+      "size": 83511
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -2217,7 +2217,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4c2c81b9e2ecbfa7b4151af7c025fdd3ec30f7ad45065637ba65bc4945e4a735",
+      "sha256": "861470045813660e4c921972147972637ff51ea4bb8fbcf913547473c2cbc69a",
       "size": 8078
     },
     {
@@ -3717,7 +3717,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "1b93fe599f104b67189581466f707dfcde72b8c0b236f5c5305219b4b03907bb",
+  "ir_sha256": "7ab2cf47a11ad8ae79e2cb4a3aacbf380093b8eeb6f9219f30dc4e49124eab24",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
