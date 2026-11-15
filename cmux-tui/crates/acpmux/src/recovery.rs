@@ -142,7 +142,7 @@ pub const AGENT_DATA: &str = "agentData";
 /// own data that is not an object (grok 1.0.77 answers `session/new` with "Authentication
 /// required" and the string data "no auth method id provided") moves under [`AGENT_DATA`], so
 /// typing never fails for the shape of what the agent sent. Returns whether it moved it.
-fn object_data(e: &mut RpcError) -> bool {
+pub(crate) fn object_data(e: &mut RpcError) -> bool {
     match e.data.take() {
         Some(Value::Object(data)) => {
             e.data = Some(Value::Object(data));
