@@ -20,6 +20,7 @@ pub mod ffi;
 pub mod json;
 pub mod model;
 pub mod palette;
+pub mod request;
 pub mod strings;
 pub mod tables;
 pub mod text;
