@@ -25,7 +25,16 @@ ROOT = HERE.parent.parent.parent
 
 
 def git(root: str, *args: str) -> str:
-    return subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, text=True).stdout
+    # The environment make_repository gives git: no GIT_* of the caller and no global config, so a runner's
+    # config (fsmonitor, maintenance) starts nothing that still writes in the scratch folder when it is removed.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(cells._GIT_ENV)
+    return subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, text=True, env=env).stdout
+
+
+def read_json(path: str):
+    with open(path) as handle:
+        return json.load(handle)
 
 
 class Repository(unittest.TestCase):
@@ -224,7 +233,7 @@ class Summary(unittest.TestCase):
                     json.dump(data, handle)
             out = subprocess.run([sys.executable, "-I", "-c", program, runs, "1", "1:large:rest,1:none:rest"],
                                  check=True, capture_output=True, text=True).stdout
-            summary = json.load(open(os.path.join(scratch, "summary.json")))
+            summary = read_json(os.path.join(scratch, "summary.json"))
         lines = out.splitlines()
         self.assertIn("IDLE-AB window base 1 cell 1:large:rest measure_s 60 focus True focus_after True "
                       "reads_expected 15 scroll_events None scroll_errors None", lines)
@@ -288,7 +297,7 @@ class Summary(unittest.TestCase):
                     json.dump({"samples": [{"label": "idle-2", "kinds": {"app": {"cpu_pct": 1.0, "wakeups_per_s": wakes}}}]}, handle)
             out = subprocess.run([sys.executable, "-I", "-c", program, runs, "1", ""],
                                  check=True, capture_output=True, text=True).stdout
-            summary = json.load(open(os.path.join(scratch, "summary.json")))
+            summary = read_json(os.path.join(scratch, "summary.json"))
         self.assertEqual(out.splitlines(), [
             "IDLE-AB run base 1 chats 1 kind app wakeups_per_s 4.0 cpu_pct 1.0",
             "IDLE-AB run head 1 chats 1 kind app wakeups_per_s 3.0 cpu_pct 1.0",
