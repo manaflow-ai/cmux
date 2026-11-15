@@ -1299,7 +1299,8 @@ async fn hub_carrier_pipe_bulk_layers() {
     let tcp = Arc::new(cmux_remote::provider::OsTcpDialer);
     let client = connect_over(&fixture, &identity, true, tcp.clone()).await;
     let daemon_client = within("the tcp connect", fixture.accepted.recv()).await.unwrap();
-    eprintln!("LAYER remote-over-tcp {:?}", bulk_down(&client, &daemon_client, TOTAL).await);
+    let result = bulk_down(&client, &daemon_client, TOTAL).await;
+    eprintln!("LAYER remote-over-tcp {result:?} generation {}", client.snapshot().await.generation);
     let _ = client.close().await;
 
     // A server that sends TOTAL bytes and closes.
@@ -1349,5 +1350,9 @@ async fn hub_carrier_pipe_bulk_layers() {
 
     let client = connect_through_pipe(&fixture, &identity, false).await;
     let daemon_client = within("the pipe connect", fixture.accepted.recv()).await.unwrap();
-    eprintln!("LAYER remote-over-pipe {:?}", bulk_down(&client, &daemon_client, TOTAL).await);
+    let result = bulk_down(&client, &daemon_client, TOTAL).await;
+    eprintln!(
+        "LAYER remote-over-pipe {result:?} generation {}",
+        client.snapshot().await.generation
+    );
 }
