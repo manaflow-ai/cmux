@@ -143,7 +143,10 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         while pending.count < Self.maxUndeliveredBytes {
             guard let change = deferredChange ?? client.nextChange() else { return }
             let separator = pending.isEmpty ? 0 : 1
-            guard pending.count + separator + change.count <= Self.maxUndeliveredBytes else {
+            let fits = pending.count + separator + change.count <= Self.maxUndeliveredBytes
+            // A single change is allowed to exceed the cap; combining it with
+            // another change is never allowed to do so.
+            guard fits || (pending.isEmpty && separator == 0) else {
                 deferredChange = change
                 return
             }
