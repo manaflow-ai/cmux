@@ -162,6 +162,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
     private var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
+    /// The prewarm's finished lookup, kept for the next handshake (CMUX-571): a restored chat's page
+    /// asked a second after the prewarm found the daemon, and paid the whole lookup again before its
+    /// chat could draw. One handshake takes it, only while fresh (``AcpmuxPrewarmedEndpoint``); a
+    /// restart drops it, and a page whose connect fails asks again with a full lookup.
+    private var prewarmed = AcpmuxPrewarmedEndpoint()
+    /// Runs one lookup; nil: ``findOrStart(_:daemons:startsDaemon:owned:heal:startOwner:approver:)``
+    /// (a recorder in tests).
+    private let lookup: (@Sendable (AcpmuxEnvironment, Bool) async throws -> AcpmuxWebEndpoint)?
     /// False for a daemon this app does not own (the Chief home's, which the
     /// Chief host starts): every handshake then only looks, as a reconnect
     /// does. It never stops, hands off or starts that daemon, so a subagent
@@ -209,6 +217,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.startOwner = startOwner
         self.daemons = daemons
         self.peerApprover = peerApprover
+        self.lookup = nil
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
@@ -227,7 +236,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                   enrollComputerUse: { await AcpmuxComputerUse.enroll($0) }, peerApprover: peerApprover)
     }
 
-    /// `enrollComputerUse` sends the Computer Use endpoint (a recorder in tests).
+    /// `enrollComputerUse` sends the Computer Use endpoint and `lookup` runs one lookup with the
+    /// environment and whether it may start a daemon (recorders in tests; nil: the real lookup).
     init(daemons: AcpmuxLocalDaemons, resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
          computerUse: @escaping @Sendable () -> [String: String] = { [:] },
          offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
@@ -236,7 +246,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
              (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
          },
          daemonReady: (@Sendable (String) async -> Void)? = nil,
-         enrollComputerUse: @escaping @Sendable (AcpmuxEnvironment) async -> Void, peerApprover: AgentPanePeerApprover? = nil) {
+         enrollComputerUse: @escaping @Sendable (AcpmuxEnvironment) async -> Void, peerApprover: AgentPanePeerApprover? = nil,
+         lookup: (@Sendable (AcpmuxEnvironment, Bool) async throws -> AcpmuxWebEndpoint)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
         self.offersSessionTools = offersSessionTools
@@ -249,6 +260,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.startOwner = nil
         self.daemons = daemons
         self.peerApprover = peerApprover
+        self.lookup = lookup
     }
 
     /// The Computer Use endpoint changed (`ComputerUseHelperDaemon.onEndpointChange`: a replaced
@@ -407,12 +419,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
         let (startOwner, approver, daemons) = (startOwner, peerApprover, daemons)
-        let daemonReady = daemonReady
+        let (daemonReady, lookup) = (daemonReady, lookup)
         // The lookup itself tells `daemonReady`, so a caller that stops waiting (its cancel) never
         // skips it for the others.
         let task = Task {
-            let endpoint = try await Self.findOrStart(environment, daemons: daemons, startsDaemon: startsDaemon, owned: owned,
-                                                      heal: heal, startOwner: startOwner, approver: approver)
+            let endpoint = if let lookup { try await lookup(environment, startsDaemon) } else {
+                try await Self.findOrStart(environment, daemons: daemons, startsDaemon: startsDaemon, owned: owned,
+                                           heal: heal, startOwner: startOwner, approver: approver)
+            }
             Self.markLookup("lookup_end", owned: owned)
             await daemonReady(daemonSocket)
             return endpoint
