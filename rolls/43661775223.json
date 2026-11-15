@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43661775223",
+  "recorded_at": "2026-11-15T01:21:51Z",
+  "reason": "cmux-tui 3897b68962bd changes the image's cmux-tui (pinned 8be35fc0ccda)",
+  "dry_run": false,
+  "cmux_tui": "3897b68962bd62e0181a070afbf1a53113767dba",
+  "fixes": [
+    {
+      "sha": "3897b68962bd62e0181a070afbf1a53113767dba",
+      "mergedAt": "2026-11-14T16:50:05-08:00",
+      "subject": "acpmux: agent holder step 1, an agent host crash no longer cuts the turn (#43230)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T01:21:51Z",
+    "snapshot_id": "sh-d5211ada2939497d865078bc3a7fe42c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43661775223): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ae00f49ccfdcd304a12acddfd0d091c77cd1bbd9",
+    "image": "cloud-native-auto-3897b689-43661775223-1",
+    "revision": "ci-43661775223-1",
+    "at": "2026-11-15T01:21:51Z"
+  },
+  "rolled_back": false
+}
