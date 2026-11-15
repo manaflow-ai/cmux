@@ -245,12 +245,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.firstFrame.open()
             }
         }
-        // Once the first terminal frame is drawn, the palette panel is made at the next idle moment, so the first
-        // open costs what later opens cost (a launcher panel opens in one frame), without delaying that frame.
-        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' page, so the first Set Icon and dialog open warm.
-        launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare() } }
-        }
+        // Once the first terminal frame is drawn, the palette panel (native, no web page) is made at the next idle moment, so the first
+        // open costs what later opens cost (a launcher panel opens in one frame), without delaying that frame. The icon picker and the group
+        // editor (WebKit overlay pages, ~60 MB of processes at Home) wait for the first menu, where every Set Icon and Rename Group is.
+        launchSettle.whenSettled { [palette = services.palette] in Self.preparePalette(palette, step: 0) }
+        services.keyRouter.menuPickKeys.tracking.onFirstMenu { [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
@@ -317,11 +316,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.armBackstop(after: .seconds(3))
     }
 
-    /// One palette warm-up step per idle moment (`PaletteController.prepare`), then `done`.
-    private static func preparePalette(_ palette: PaletteController?, step: Int, done: @escaping @MainActor () -> Void) {
+    /// One palette warm-up step per idle moment (`PaletteController.prepare`).
+    private static func preparePalette(_ palette: PaletteController?, step: Int) {
         IdleOnce.schedule {
-            guard let palette, palette.prepare(step: step) else { return done() }
-            preparePalette(palette, step: step + 1, done: done)
+            guard let palette, palette.prepare(step: step) else { return }
+            preparePalette(palette, step: step + 1)
         }
     }
 
