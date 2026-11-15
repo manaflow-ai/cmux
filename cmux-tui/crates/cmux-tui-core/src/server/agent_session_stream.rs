@@ -22,6 +22,7 @@ pub(super) fn connect_and_attach(
     let sessions = &mux.control_clients.agent_sessions;
     let release = |sessions: &AgentSessions| sessions.lock().reserved.remove(&(client, surface));
     let newest_first = params.get("afterSeq").is_none() || params.get("beforeSeq").is_some();
+    let filtered = params.get("kinds").is_some();
     let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
     let reader_slot = slot.clone();
     let reader_mux = Arc::downgrade(&mux);
@@ -123,7 +124,7 @@ pub(super) fn connect_and_attach(
         writer: writer.clone(),
         outbound,
         calls: AtomicUsize::new(0),
-        ordered_stream: params.get("kinds").is_none() && page.get("peer").is_none(),
+        ordered_stream: !filtered && page.get("peer").is_none(),
         next_stream_seq: AtomicU64::new(
             page.get("lastSeq").and_then(Value::as_u64).map_or(0, |last| last.saturating_add(1)),
         ),
