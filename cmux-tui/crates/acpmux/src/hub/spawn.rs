@@ -326,13 +326,24 @@ impl Hub {
             let broker = false;
             let inputs =
                 crate::codex_cloud_auth::Inputs { root: &root, home: &home, var: &var, broker };
-            if let Some(reason) =
-                crate::codex_cloud_auth::own_reason(&inputs, crate::codex_cloud_auth::host_resolves)
-                    .await
+            match crate::codex_cloud_auth::own_reason(
+                &inputs,
+                crate::codex_cloud_auth::host_resolves,
+            )
+            .await
             {
-                tracing::info!(session = %meta.id, reason, "codex on this Cloud machine uses its own sign-in");
-                let cmux_config = inputs.cmux_config();
-                crate::codex_cloud_auth::apply(&mut p.argv, &mut p.env, &var, cmux_config);
+                Some(reason) => {
+                    tracing::info!(session = %meta.id, reason, "codex on this Cloud machine uses its own sign-in");
+                    let cmux_config = inputs.cmux_config();
+                    crate::codex_cloud_auth::apply(&mut p.argv, &mut p.env, &var, cmux_config);
+                }
+                // Team mode: the provider's key in the launch env itself, since a remote-origin
+                // chat gets no login env to carry it.
+                None => {
+                    if crate::codex_cloud_auth::apply_team(&mut p.env, &inputs) {
+                        tracing::info!(session = %meta.id, "codex on this Cloud machine uses the team's model plane");
+                    }
+                }
             }
         }
         // Claude on a cmux Cloud machine: the model-plane pair the image's launcher puts back in
@@ -598,3 +609,7 @@ pub fn expand_env_value(
 #[cfg(test)]
 #[path = "spawn_claude_cloud_tests.rs"]
 mod claude_cloud_tests;
+
+#[cfg(test)]
+#[path = "spawn_codex_cloud_tests.rs"]
+mod codex_cloud_tests;
