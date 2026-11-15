@@ -539,7 +539,10 @@ fn enable_menu_item(
     })?;
     // Short reads; the item keeps them while the scope is open (the caller
     // presses it), and gets the long timeout back on every exit.
-    let short = item.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, super::ax::MESSAGE_TIMEOUT_SECONDS);
+    let short = item.timeout_until_drop(
+        super::activation::AX_TIMEOUT_IN_SCOPE,
+        super::ax::MESSAGE_TIMEOUT_SECONDS,
+    );
     // Only an AXEnabled read as true counts (unreadable: not enabled).
     if key.wait_until(super::activation::VALIDATE_WAIT, &|| item.bool("AXEnabled") == Some(true)) {
         return Ok((key, short));
@@ -939,8 +942,15 @@ pub(super) fn press_keys(
                 if let Some(key) = key_in_app(d, &t) {
                     // Every AX read inside the scope is short; restored on
                     // every exit.
-                    let _short: Vec<_> =
-                        first.iter().map(|(el, _)| el.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, super::ax::MESSAGE_TIMEOUT_SECONDS)).collect();
+                    let _short: Vec<_> = first
+                        .iter()
+                        .map(|(el, _)| {
+                            el.timeout_until_drop(
+                                super::activation::AX_TIMEOUT_IN_SCOPE,
+                                super::ax::MESSAGE_TIMEOUT_SECONDS,
+                            )
+                        })
+                        .collect();
                     // Only an AXEnabled read as true counts (unreadable: no).
                     if key.wait_until(super::activation::VALIDATE_WAIT, &|| {
                         first.iter().any(|(el, _)| el.bool("AXEnabled") == Some(true))
@@ -1009,7 +1019,12 @@ pub(super) fn press_keys(
         match roles::decide_chord(&facts) {
             roles::ChordAction::PressItem(i) => {
                 let el = &items[i].0;
-                let _short = primed.as_ref().map(|_| el.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, super::ax::MESSAGE_TIMEOUT_SECONDS));
+                let _short = primed.as_ref().map(|_| {
+                    el.timeout_until_drop(
+                        super::activation::AX_TIMEOUT_IN_SCOPE,
+                        super::ax::MESSAGE_TIMEOUT_SECONDS,
+                    )
+                });
                 if let Some(key) = primed.as_ref()
                     && let Err(why) = roles::primed_press(
                         key.live(),
@@ -1162,7 +1177,11 @@ fn prime_block_of(
     scope: Option<&super::activation::KeyInApp<'static>>,
 ) -> Option<&'static str> {
     // Short reads; the item keeps the timeout it had (short inside a scope).
-    let restore = if scope.is_some() { super::activation::AX_TIMEOUT_IN_SCOPE } else { super::ax::MESSAGE_TIMEOUT_SECONDS };
+    let restore = if scope.is_some() {
+        super::activation::AX_TIMEOUT_IN_SCOPE
+    } else {
+        super::ax::MESSAGE_TIMEOUT_SECONDS
+    };
     let _short = item.timeout_until_drop(super::activation::AX_TIMEOUT_IN_SCOPE, restore);
     let live = || scope.is_none_or(|k| k.live());
     let mut ancestors = Vec::new();
