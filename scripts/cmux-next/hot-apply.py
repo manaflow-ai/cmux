@@ -7,6 +7,7 @@
     hot-apply.py prefetch SHA [--app APP | --base COMMIT] [--repo DIR]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
+    hot-apply.py live-from SHA [--repo DIR] [--max N]
 
 Leo, 2026-11-06: "how much of this needs a nightly versus, like, us being able to do the hot swap
 thing?" This puts the parts of a merged commit that need no app build into the app that runs now,
@@ -475,6 +476,42 @@ def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None
         return _plan(repo, app, sha, branch, base)
 
 
+LIVE_FROM_MAX = 400  # a NIGHTLY is at most a day of merges behind feat-cmux-next
+
+
+def pins_daemon(repo: Path, commit: str) -> list[str]:
+    """The paths of COMMIT's own change (against its first parent) that tie the daemon to the app: Rust
+    the app links through FFI. `plan` holds the Rust part back for exactly these; Swift, resources and
+    web left for a nightly do not stop it. A root commit pins it."""
+    parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
+    if not SHA.fullmatch(parent or ""):
+        return [f"{commit} has no parent here"]
+    files = live_apply.classify_range(str(repo), parent, commit)["files"]
+    # The same files `plan` checks: its daemon part, with cmux-tui's own native sources moved onto it.
+    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if NATIVE_IN_TUI.match(p)]
+    return linked_rust(repo, sorted(set(rust)))
+
+
+def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
+    """Every commit whose app can take SHA's daemon build live, newest first: SHA, then its first parents
+    back to the newest commit whose own change pins the daemon to the app (pins_daemon; included: an app
+    built there links that change).
+    At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
+    signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
+        out["live_from"].append(commit)
+        if paths := pins_daemon(repo, commit):
+            out["floor"], out["floor_paths"] = commit, paths[:20]
+            break
+    return out
+
+
+def command_live_from(args) -> int:
+    print(json.dumps(live_from(Path(args.repo), args.sha, args.max)))
+    return 0
+
+
 def abi_at(repo: Path, commit: str) -> int | None:
     """The web ABI of COMMIT's tree (--base: no app to read it from)."""
     try:
@@ -753,21 +790,54 @@ def find_sockets(app: Path, cli: Path) -> list[str]:
     hung, found = [], []
     for pid in app_pids(app, DAEMON_NAMES):
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
-        for name in sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}):
-            try:
-                status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
-                                        capture_output=True, text=True, timeout=10)
-            except subprocess.TimeoutExpired:
-                hung.append(name)
-                continue
-            if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
-                found.append(name)
-                break
+        names = sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")})
+        name, unanswered = first_status(cli, names, pid)
+        if name:
+            found.append(name)
+        else:
+            hung.extend(unanswered)
     # The app's own session must answer: a hung one is not passed over for another session's.
     if hung and (not found or any(Path(name).name.startswith("cmux-app") for name in hung)):
         raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
                            f"from {app} is not known; nothing changed (--socket names it)")
     return sorted(found, key=lambda name: not Path(name).name.startswith("cmux-app"))
+
+
+def first_status(cli: Path, names: list[str], pid: str, timeout: float = 10) -> tuple[str | None, list[str]]:
+    """The first of NAMES whose `server status` names PID, every name asked at once; and, when none does, the
+    names that never answered in `timeout` seconds. A daemon holds unix sockets that are not its server too
+    (a Chief's holds one that never answers): asked one at a time, each cost the full timeout before the
+    daemon's own socket was reached (find took 10.4 s at cmux 7a6e6fb with a Chief running, 0.1 s without).
+    Each ask is its own `subprocess.run` with the timeout, which ends its child; one still running when an
+    answer wins is left to that timeout on its daemon thread."""
+    import queue
+    import threading
+    answers: queue.Queue = queue.Queue()
+
+    def ask(name: str) -> None:
+        try:
+            out = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"], capture_output=True,
+                                 text=True, timeout=timeout).stdout
+            answers.put((name, bool(re.search(rf'"pid"\s*:\s*{pid}\b', out or ""))))
+        except subprocess.TimeoutExpired:
+            answers.put((name, None))
+        except OSError:
+            answers.put((name, False))
+
+    for name in names:
+        threading.Thread(target=ask, args=(name,), daemon=True).start()
+    pending, hung, deadline = set(names), [], time.monotonic() + timeout + 1
+    while pending:
+        try:
+            name, hit = answers.get(timeout=max(0.0, deadline - time.monotonic()))
+        except queue.Empty:
+            break
+        pending.discard(name)
+        if hit:
+            return name, []
+        if hit is None:
+            hung.append(name)
+    return None, sorted(hung + list(pending))
 
 
 def find_socket(app: Path, cli: Path) -> str | None:
@@ -790,7 +860,10 @@ def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict
         with PHASES("find"):
             before = swapper.owner(target, timeout=10)
         with PHASES("reload"):
-            ran = subprocess.run([str(target), "--socket", name, "--json", "server", "restart"],
+            # The cmux-tui surface keeps `server` for the daemon's lifecycle in every build (the nightly's too, for
+            # the rollback); on `cmux`, `server` is the machine server and refuses --socket (cmux 7a6e6fb, a Chief's).
+            surface = target.with_name("cmux-tui") if target.with_name("cmux-tui").exists() else target
+            ran = subprocess.run([str(surface), "--socket", name, "--json", "server", "restart"],
                                  capture_output=True, text=True, timeout=180)
             now = swapper.owner(target, timeout=30)
         step = {"socket": name, "old_pid": before[0] if before else None, "new_pid": now[0] if now else None,
@@ -1395,6 +1468,10 @@ def main(argv=None) -> int:
     p.add_argument("sha")
     p.add_argument("--repo", default=str(ROOT))
     p.add_argument("--web-key", help="SHA's web source key, when the caller has it (else computed here)")
+    p = sub.add_parser("live-from", help="the app commits that can take SHA's daemon build live (JSON)")
+    p.add_argument("sha")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--max", type=int, default=LIVE_FROM_MAX)
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
@@ -1407,8 +1484,8 @@ def main(argv=None) -> int:
             return 2
     try:
         return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "keys": command_keys,
-                "rollback": command_rollback,
-                "status": command_status}[args.command](args)
+                "rollback": command_rollback, "status": command_status,
+                "live-from": command_live_from}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)
         return 3
