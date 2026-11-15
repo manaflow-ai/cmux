@@ -3101,3 +3101,11 @@ vars.MACOS_RUNNER_26 || <pool>)`, in cmux-next.yml (runs-on, `CMUX_NEXT_RUNNER`,
 cmux-next-batch.yml and cmux-next-terminal.yml's bot re-run fallback. `tests/test_ci_next_macos_cascade.py`
 `RerunPastTheAttemptCap` evaluates every route of every workflow with an attempt cap at bot attempts 2 to 6, placement re-run or carried,
 and refuses a Blacksmith macOS label for a route attempt 1 serves with an owned one.
+
+## note-351
+
+The same off-switch contract applies to every workflow, including auxiliary simulator and parity jobs. A new
+macOS job must select an owned sim-first or side route before its Blacksmith overflow, and must not spell a
+Blacksmith macOS label directly in `runs-on`. `BlacksmithMacosOffSwitch.test_every_blacksmith_macos_job_is_behind_the_off_switch`
+scans every workflow file and evaluates each route expression; add a regression case when a new picker shape is
+introduced so a direct label cannot return silently during a later attempt.

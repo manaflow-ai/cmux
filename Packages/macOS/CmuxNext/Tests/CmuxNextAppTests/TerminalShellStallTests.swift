@@ -158,6 +158,35 @@ import Testing
         #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
     }
 
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A daemon restart, a
+    /// handoff or a drop that heals within 10 s puts no "Reconnecting…" mark on any pane: the pane keeps
+    /// its last screen and comes back by itself. The mark showed at 5 s on every visible pane.
+    @Test func aReconnectThatHealsWithinTenSecondsShowsNoMark() async throws {
+        #expect(TerminalStatusBanner.reconnectingRevealDelay >= 10)
+        let clock = ManualClock()
+        let view = TerminalHostView(clock: clock)
+        view.showStatus(.connected)
+        view.showStatus(.disconnected(.connectionLost, reconnecting: true))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(9_900))
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(view.statusText == nil, "a reconnect under 10 s shows nothing")
+        view.showStatus(.connected)
+        #expect(view.statusText == nil)
+        #expect(!view.statusLabelWaits)
+
+        // The daemon's own word that it re-adopts the shell waits as long.
+        view.showShellStall(.reconnecting)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(9_900))
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(view.statusText == nil, "a re-adoption under 10 s shows nothing")
+        // One that lasts shows, once.
+        clock.advance(by: .milliseconds(100))
+        try await Self.until { view.statusText != nil }
+        #expect(view.statusText == "Reconnecting to the shell…")
+    }
+
     /// "Restoring…" turning into a reconnecting stall keeps the longer wait from the same start: the label
     /// shows when the clock reaches the start plus the longer delay, not that delay after the change.
     @Test func aLongerWaitKeepsItsStart() async throws {

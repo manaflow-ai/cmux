@@ -430,10 +430,6 @@ path = "tests/test_merge_xcstrings.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_mobile_attach_prefers_iroh.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_mobile_stability_soak_attach_contract.py"
 lane = "legacy"
 
