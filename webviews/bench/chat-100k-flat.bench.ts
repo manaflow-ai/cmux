@@ -25,7 +25,6 @@
 // http: page and in a worker on cmux-page:, does no work here.
 //   bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]
 // Linux only (it reads /proc).
-/// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
