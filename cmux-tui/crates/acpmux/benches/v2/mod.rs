@@ -541,8 +541,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "5c",
         name: "v2.pr05c.replay_append",
-        done_when: "Writer append p95 during a full ring replay stays within 1.2x of append with no replay.",
-        measured: false,
+        done_when: "Writer append p95 beside a full replay of its own ring stays within 1.2x of append beside the same replay of another hub's ring; the probe prints both against no replay.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -1548,6 +1548,148 @@ mod tests {
                 reached.extend(callers);
             }
         }
+
+        /// `from` and every function of this source that one of them calls, and so on: the
+        /// functions a row's line can be written through.
+        fn called_from(&self, from: HashSet<String>) -> HashSet<String> {
+            let mut called = from;
+            loop {
+                let bodies: Vec<&str> = self
+                    .functions
+                    .iter()
+                    .filter(|(function, _, _)| called.contains(function))
+                    .flat_map(|(_, first, last)| self.lines[*first + 1..=*last].iter().copied())
+                    .collect();
+                let more: Vec<String> = self
+                    .functions
+                    .iter()
+                    .map(|(function, _, _)| function)
+                    .filter(|function| {
+                        let call = regex::Regex::new(&format!(r"\b{function}\(")).unwrap();
+                        !called.contains(*function) && bodies.iter().any(|line| call.is_match(line))
+                    })
+                    .cloned()
+                    .collect();
+                if more.is_empty() {
+                    return called;
+                }
+                called.extend(more);
+            }
+        }
+
+        /// Whether one of `functions` calls [`acpmux_book::gate_rounds::report`].
+        fn reports_rounds(&self, functions: &HashSet<String>) -> bool {
+            self.functions.iter().filter(|(function, _, _)| functions.contains(function)).any(
+                |(_, first, last)| {
+                    self.lines[*first..=*last]
+                        .iter()
+                        .any(|line| line.contains("gate_rounds::report("))
+                },
+            )
+        }
+    }
+
+    /// Rows a source with `god_p95_all` in it names and that compare no rounds: one measure a
+    /// side, or no `god_p95_all` of their own (the source's line format holds it for others).
+    const NO_ROUNDS: &[(&str, &str)] = &[
+        ("v2.pr05e.random_replay", "a fixed count of checks, no god_p95_all"),
+        ("v2.pr05e.cold_continuation", "one byte count a side, no god_p95_all"),
+        ("v2.pr05f.equal_entry", "a count of operations, 0 at both sizes"),
+        ("v2.pr05d.origin_state_ops", "one count of operations a side"),
+        ("v2.pr05d.removed_origin_batch", "one count of operations a side"),
+        ("v2.pr05c.replay_frame", "one replay's largest frame a side"),
+        ("v2.pr05c.replay_open_hold", "one round, against an absolute bound"),
+        ("v2.pr05c.single_encode", "one count of encodes a side"),
+        ("v2.pr05c.walk_rss", "a diagnostic line that names the row, no measure"),
+    ];
+
+    /// Best-of-rounds rows whose gate source an open pull request changes: they move onto
+    /// `gate_rounds` after it lands, and leave this list then.
+    const ROUNDS_WAIT_ON_ANOTHER_PR: &[&str] = &[
+        // cmux#43039: acpmux-client/src/lib.rs.
+        "v2.pr04b.mirror_v1_rows",
+        // cmux#43553: acpmux-core/src/chat/stream/gates_tests.rs.
+        "v2.pr03c.first_window",
+        "v2.pr03c.resume_missed",
+        "v2.pr03c.subscribed_rss",
+        "v2.pr03c.append_behind_page",
+        "v2.pr03c.queue_window",
+        "v2.pr03c.prompt_blob_next",
+        "v2.pr04.chat_stopped_reader",
+        // cmux#43438 and cmux#43403: acpmux-core/src/hub.rs.
+        "v2.pr05.first_list_window",
+        "v2.pr05.summary_change",
+        // cmux#43403: acpmux-core/src/hub/mirror_gates.rs.
+        "v2.pr08.mirror_apply",
+        "v2.pr08.mirror_local_row",
+        "v2.pr08.mirror_local_row_thirty",
+    ];
+
+    /// A gate that keeps the best of several rounds hides a round that did different work from
+    /// the rest (cmux#43438's replay append read 0.995x on rounds that returned early). A source
+    /// that writes `god_p95_all` for a row calls `gate_rounds::report` on the way to that line:
+    /// in a function that reaches the row's name ([`Source::reaches`]) or one those call.
+    #[test]
+    fn a_best_of_rounds_row_reports_its_rounds() {
+        let registry_home = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/v2_gate_home.rs");
+        let mut files: Vec<PathBuf> =
+            names_in_sources().into_iter().map(|(_, file)| file).collect();
+        files.sort();
+        files.dedup();
+        let mut checked = 0;
+        let mut silent = Vec::new();
+        for file in files.iter().filter(|file| **file != registry_home) {
+            let text = fs::read_to_string(file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            if !text.contains("god_p95_all") {
+                continue;
+            }
+            let source = Source::read(&text);
+            for row in GATE_ROWS {
+                let reached = source.reaches(row.name);
+                if reached.is_empty() {
+                    continue;
+                }
+                checked += 1;
+                let exempt = NO_ROUNDS.iter().any(|(name, _)| *name == row.name)
+                    || ROUNDS_WAIT_ON_ANOTHER_PR.contains(&row.name);
+                if !exempt && !source.reports_rounds(&source.called_from(reached)) {
+                    silent.push(format!("{} in {file:?}", row.name));
+                }
+            }
+        }
+        assert!(checked >= 20, "the scan read too few rows that write god_p95_all: {checked}");
+        assert!(
+            silent.is_empty(),
+            "these rows write god_p95_all and no function on the way to their line calls \
+             gate_rounds::report, so a round that did different work stays hidden: {silent:#?}"
+        );
+    }
+
+    #[test]
+    fn a_row_reports_its_rounds_through_the_functions_it_calls() {
+        let text = [
+            "fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>]) {",
+            "    gate_rounds::report(name, &[(\"small\", small), (\"god\", god)]);",
+            "    line(name, \"god_p95_all\");",
+            "}",
+            "",
+            "fn measure(name: &str) {",
+            "    emit(name, &small, &god);",
+            "}",
+            "",
+            "fn first_gate() {",
+            "    measure(\"v2.pr99.through_two\");",
+            "}",
+            "",
+            "fn second_gate() {",
+            "    line(\"v2.pr99.silent\", \"god_p95_all\");",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        let reports = |row: &str| source.reports_rounds(&source.called_from(source.reaches(row)));
+        assert!(reports("v2.pr99.through_two"));
+        assert!(!reports("v2.pr99.silent"));
     }
 
     /// A row is marked measured only when the nightly can write it. The nightly starts the gate
