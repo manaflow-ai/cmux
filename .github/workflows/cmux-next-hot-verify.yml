@@ -263,6 +263,11 @@ jobs:
           ref: ${{ needs.target.outputs.head }}
           persist-credentials: false
           filter: blob:none
+          # The key script and its inputs list; the key itself reads git trees, which blob:none keeps.
+          sparse-checkout: |
+            /scripts/ci/cmux_tui_tree_key.py
+            /scripts/cmux-next/cmux-tui-tree-inputs.txt
+          sparse-checkout-cone-mode: false
       - name: Wait for the head's cmux-tui tree
         env:
           HEAD_SHA: ${{ needs.target.outputs.head }}
