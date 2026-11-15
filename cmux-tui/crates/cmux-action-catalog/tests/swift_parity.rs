@@ -21,12 +21,13 @@ fn repo() -> PathBuf {
 
 /// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
 /// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
-/// these rows with the re-pin, which takes them off this list (#38644, #41954, and the first
-/// catalog request rows).
+/// these rows with the re-pin, which takes them off this list (#38644, #41954, and the catalog
+/// request rows).
 const AWAITING_REPIN: &[&str] = &[
     "terminal.fixLastCommand",
     "terminal.sendLastOutputToChat",
     "terminal.sendSelectionToChat",
+    "workspace.unpinFromSpace",
     "history.removeSite",
     "closed.clear",
     "closed.delete",

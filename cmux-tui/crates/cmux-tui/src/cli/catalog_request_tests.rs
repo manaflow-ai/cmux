@@ -28,6 +28,11 @@ fn cases() -> Vec<Case> {
             values: vec![("argument:closed", json!("cl_1"))],
         },
         Case { id: "errors.clear", argv: &["errors", "clear"], values: vec![] },
+        Case {
+            id: "workspace.unpinFromSpace",
+            argv: &["room", "unpin", "--workspace", "ws_00000000000000000000000000000004"],
+            values: vec![("target:workspace", json!("ws_00000000000000000000000000000004"))],
+        },
     ]
 }
 
