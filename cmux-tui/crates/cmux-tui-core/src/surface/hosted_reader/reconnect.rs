@@ -256,7 +256,7 @@ impl HostedReader {
                 self.applied_color_overrides = replacement_snapshot.colors;
                 self.applied_color_revision = term.color_revision();
                 self.applied_cursor_activity = term.cursor_activity().ok();
-                pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+                let frame = AttachFrame::ResizedWithColors {
                     cols: replacement_snapshot.cols,
                     rows: replacement_snapshot.rows,
                     replay: replacement_snapshot.replay.into(),
@@ -264,7 +264,9 @@ impl HostedReader {
                     kitty_state: replacement_snapshot.kitty_state,
                     colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
                     pending_sequence: Arc::from([]),
-                });
+                    history_rows_omitted: None,
+                };
+                pty.broadcast_resized_locked(&mut term, frame);
                 pty.stream_progress.notify_reconnect();
                 pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
             };

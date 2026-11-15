@@ -154,6 +154,9 @@ class GitHub:
         # dispatched.
         self.spare = spare if spare and spare != token else ""
         self.api_url = api_url.rstrip("/")
+        # The last answer, (status, payload, headers): a caller that may wait out a rate limit (the same-tree
+        # status post) reads its Retry-After or x-ratelimit-reset here. This client itself never sleeps.
+        self.last: tuple[int, bytes, dict[str, str]] = (0, b"", {})
 
     def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
         """One call, with its response headers. RequestTimeout past self.timeout."""
@@ -174,6 +177,7 @@ class GitHub:
                   f"on a spent rate limit (HTTP {status}); the notify continues on the spare token")
             self.token, self.spare = self.spare, ""
             status, payload, headers = self._send(method, url, body)
+        self.last = (status, payload, headers)
         return status, payload
 
     def get(self, path: str):

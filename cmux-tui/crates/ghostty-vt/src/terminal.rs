@@ -28,6 +28,9 @@ use vt_boundary::*;
 
 mod replay_rows;
 
+mod window_replay;
+pub use window_replay::VtReplayWindow;
+
 mod settled_replay;
 
 mod alternate_replay;
@@ -60,6 +63,9 @@ mod active_text;
 mod logical_text;
 
 mod clear_history;
+
+mod command_output;
+pub use command_output::CommandOutput;
 
 mod program_status;
 pub use program_status::{
@@ -3305,6 +3311,10 @@ mod prompt_clear_tests;
 #[cfg(test)]
 #[path = "alternate_replay_tests.rs"]
 mod alternate_replay_tests;
+
+#[cfg(test)]
+#[path = "window_replay_tests.rs"]
+mod window_replay_tests;
 
 #[path = "terminal_history.rs"]
 mod history;

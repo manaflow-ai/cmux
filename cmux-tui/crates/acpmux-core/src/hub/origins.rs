@@ -1,4 +1,5 @@
 //! Origin ownership and the bounded end of an origin's life.
+use super::mirror::TakeoverTurn;
 use super::*;
 use std::collections::VecDeque;
 
@@ -207,6 +208,7 @@ impl HubWriter {
             return Ok(());
         }
         REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
+        self.origins_refused.fetch_add(1, Ordering::Release);
         Err(HubError::OriginLimit)
     }
 
@@ -243,15 +245,22 @@ impl HubWriter {
 
     pub fn takeover(&mut self, origin: &str, source: Source) -> Result<(), HubError> {
         validate_takeover(origin, source)?;
-        self.admit_origin(origin)?;
+        if let Err(error) = self.admit_origin(origin) {
+            // Counted, so a dialer waiting on this takeover sees it end.
+            self.mirror.counters.note_takeover(origin, TakeoverTurn::Refused);
+            return Err(error);
+        }
         if self.holds_origin(origin) {
-            return self.hold_update(
+            let held = self.hold_update(
                 UpdateKey::Source(origin.into()),
                 PendingUpdate::Takeover { origin: origin.into(), source },
             );
+            self.mirror.counters.note_takeover(origin, TakeoverTurn::Held);
+            return held;
         }
         // Even a takeover by the owner starts a walk: its mark goes off now.
         self.write_mark_off(origin);
+        self.mirror.counters.note_takeover(origin, TakeoverTurn::Applied);
         if self.sources.load().get(origin) == Some(&source) {
             self.origins.ended.remove(origin);
             return Ok(());

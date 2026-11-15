@@ -38,8 +38,9 @@ enum DebugNewTab {
             // Clicks Open Tabs row `index` of the focused split page (cx-jfo7), as a person does.
             let index = params["index"]?.intValue ?? 0
             return await field(params, services, before: "document.querySelectorAll('.nt-open-tab')[\(index)]?.click();")
-        case "bench_close", "bench_bang", "bench_open":
+        case "bench_close", "bench_bang", "bench_open", "bench_settings":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            if params["action"]?.stringValue == "bench_settings" { return await DebugNewTabBench.settings(controller, services) }
             if params["action"]?.stringValue == "bench_close" { return await DebugNewTabBench.close(params, controller, services) }
             return params["action"]?.stringValue == "bench_open" ? await DebugNewTabBench.open(params, controller, services) : await DebugNewTabBench.bang(params, controller, services)
         case "bench_create":

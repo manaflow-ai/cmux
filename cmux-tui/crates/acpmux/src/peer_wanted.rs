@@ -156,13 +156,16 @@ impl Peer {
     pub(super) async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
         let started = Instant::now();
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
+        // After a refused ssh login no ask shortens the wait: a chat that keeps asking would
+        // otherwise send the remote one refused login a second (`Backoff::login_refused`).
+        let heed_asks = !self.login_refused.load(std::sync::atomic::Ordering::SeqCst);
         let mut watch = SleepWatch::now();
         loop {
             // Listening before the read: an ask between the two still wakes this wait.
             let asked = self.wanted.asked.notified();
             tokio::pin!(asked);
             asked.as_mut().enable();
-            let deadline = started + if self.is_wanted() { wanted } else { delay };
+            let deadline = started + if heed_asks && self.is_wanted() { wanted } else { delay };
             if Instant::now() >= deadline {
                 return BackoffWait::Done;
             }
@@ -174,7 +177,7 @@ impl Peer {
                         return BackoffWait::Woke;
                     }
                 }
-                () = &mut asked => {
+                () = &mut asked, if heed_asks => {
                     // A client asks now: the next attempt goes at once, at most once per
                     // `WANTED_CAP`, so asks that keep coming (a person typing) get one attempt
                     // per cap, not one per ask.

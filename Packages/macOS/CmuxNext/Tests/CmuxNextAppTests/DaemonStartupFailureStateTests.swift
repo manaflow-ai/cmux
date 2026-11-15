@@ -84,16 +84,39 @@ struct DaemonStartupFailureStateTests {
         #expect(!store.dropGrace.isActive, "only a connection that was up starts the drop grace")
     }
 
-    /// One list's "Connecting…" label waits out the grace; a connected or local machine is never held.
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". This Mac's header drew a
+    /// spinner from the first frame of every daemon restart, handoff and launch connect (with more than one
+    /// machine listed). It now waits out the same 10 s grace as one list's "Connecting…" label: a connect that
+    /// heals within it draws nothing, one that lasts draws the spinner, and a connected Mac never waits.
+    @Test func thisMacsHeaderDrawsNoSpinnerForAConnectUnderTheGrace() async {
+        let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
+        let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connecting)), nodes: [])
+        await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
+            grace.onEnd = { ended.resume() }
+            let held = grace.holdingConnectingLabels([local])
+            let machine = try? #require(held.first?.machine)
+            #expect(machine?.holdsStatusLabel == true)
+            #expect(machine.map { SectionHeaderRowView.tone(SectionHeaderRowView.drawn($0), hostGroup: false) } == .some(nil), "no spinner within the grace")
+        }
+        grace.onEnd = nil
+        let lasting = try? #require(grace.holdingConnectingLabels([local]).first?.machine)
+        #expect(lasting.map { SectionHeaderRowView.tone(SectionHeaderRowView.drawn($0), hostGroup: false) } == .working, "a lasting connect draws the spinner")
+        let connected = SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connected)
+        #expect(SectionHeaderRowView.tone(connected, hostGroup: false) == nil)
+    }
+
+    /// One list's "Connecting…" label waits out the grace; a connected machine is never held.
     @Test func theConnectingLabelWaitsOutTheGrace() async {
         let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
         let connecting = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-a"), name: "A", kind: .cloud, status: .connecting)), nodes: [])
         let connected = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-b"), name: "B", kind: .cloud, status: .connected)), nodes: [])
         let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connecting)), nodes: [])
+        // Two waits run (A and This Mac): the continuation resumes when both ended, once.
+        var ends = 0
         await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
-            grace.onEnd = { ended.resume() }
+            grace.onEnd = { ends += 1; if ends == 2 { ended.resume() } }
             let held = grace.holdingConnectingLabels([connecting, connected, local])
-            #expect(held.map { $0.machine?.holdsStatusLabel } == [true, false, false])
+            #expect(held.map { $0.machine?.holdsStatusLabel } == [true, false, true])
         }
         grace.onEnd = nil
         #expect(grace.holdingConnectingLabels([connecting]).first?.machine?.holdsStatusLabel == false, "a lasting connect still says so")

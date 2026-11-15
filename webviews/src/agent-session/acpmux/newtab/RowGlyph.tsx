@@ -19,6 +19,8 @@ const NAMES: Record<GlyphKind, string> = {
   inProfile: "browser.toolbar.profile",
   profile: "browserprofile.badge",
   newProfile: "action.add",
+  chat: "agent.chat",
+  launch: "folder",
   // A tab's or closed item's kind.
   terminal: "terminal",
   browser: "browser",

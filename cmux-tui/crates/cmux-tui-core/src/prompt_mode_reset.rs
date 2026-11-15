@@ -82,11 +82,19 @@ impl ShellMarks {
     pub(crate) fn joined_midway() -> Self {
         Self { running: true, ..Self::default() }
     }
+
+    /// The title tracker, for a caller that rewrites the titles in its own
+    /// scan of the output ([`write_rewritten_output`]).
+    pub(crate) fn titles_mut(&mut self) -> &mut crate::terminal_title::TitleTracker {
+        &mut self.titles
+    }
 }
 
 /// Write `data` to `term`, resetting a dead program's modes right before
 /// each prompt mark the shell prints at its prompt. Returns the bytes the
-/// terminal parsed, resets included, for mirrors and attach taps.
+/// terminal parsed, resets included, for mirrors and attach taps. The output
+/// paths call [`write_rewritten_output`] after their one shared scan.
+#[cfg(test)]
 pub(crate) fn write_output<'a>(
     term: &mut Terminal,
     data: &'a [u8],
@@ -95,6 +103,17 @@ pub(crate) fn write_output<'a>(
     // A title pop or an OSC 1 icon name becomes the OSC 2 that applies it,
     // here, so this terminal and every mirror fed the parsed bytes agree.
     let data = marks.titles.rewrite(data);
+    write_rewritten_output(term, data, marks)
+}
+
+/// [`write_output`] for `data` whose titles the caller already rewrote with
+/// [`ShellMarks::titles_mut`] (the host parser's one shared output scan,
+/// `TerminalMetadata::observe_output_rewriting_titles`).
+pub(crate) fn write_rewritten_output<'a>(
+    term: &mut Terminal,
+    data: Cow<'a, [u8]>,
+    marks: &mut ShellMarks,
+) -> Cow<'a, [u8]> {
     let data = if marks.held.is_empty() {
         data
     } else {

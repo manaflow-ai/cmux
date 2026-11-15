@@ -291,6 +291,18 @@ impl Customize {
         // that merged into the same settings text would each write theirs
         // and the later one would drop the other's keys, in no generation.
         let _lock = self.store().lock()?;
+        self.preview_profile_locked(profile, origin, now_ms)
+    }
+
+    /// [`Customize::preview_profile`] for a caller that holds the store's
+    /// lock and goes on under it (a try-on applies what this wrote).
+    pub(crate) fn preview_profile_locked(
+        &self,
+        profile: &Profile,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Begun, Error> {
+        self.check_profile(profile)?;
         let schema = Schema::embedded();
         let mut files: BTreeMap<String, Vec<u8>> = profile
             .files
