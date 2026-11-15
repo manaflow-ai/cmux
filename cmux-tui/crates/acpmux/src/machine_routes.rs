@@ -70,7 +70,7 @@ struct Route {
 impl Drop for Route {
     fn drop(&mut self) {
         self.task.abort();
-        let _ = std::fs::remove_file(&self.socket);
+        let _ = crate::home_fs::remove_file(&self.socket);
     }
 }
 

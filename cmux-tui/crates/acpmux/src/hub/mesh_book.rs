@@ -176,6 +176,13 @@ impl Hub {
         self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines.get(key).cloned()
     }
 
+    /// Each of this person's other machines the book lists: `(daemonId, host)`.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn mesh_book_machines(&self) -> Vec<(String, String)> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        book.machines.iter().map(|(key, host)| (key.clone(), host.clone())).collect()
+    }
+
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and
     /// the shared list is rebuilt once (`list_guard.rs`). Empty when the relay stops.
     pub(crate) fn set_mesh_book(&self, hosts: BTreeMap<String, u64>, sessions: Vec<BookSession>) {
