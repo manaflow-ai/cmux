@@ -27,6 +27,10 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var occlusionRects: [CGRect] = []
     /// Every DevTools call, in order.
     public private(set) var calls: [(method: String, params: [String: any Sendable])] = []
+    /// The most calls ``startDevTools(_:params:)`` had sent and not yet answered at once: above 1 when the host
+    /// sends calls back to back instead of waiting for each answer.
+    public private(set) var mostUnanswered = 0
+    private var unanswered = 0
     /// Deadlines requested by long-lived DevTools calls.
     public private(set) var devToolsTimeouts: [Duration] = []
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -75,6 +79,23 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
         defer { onCall?() }
+        return reply(method, params: params)
+    }
+
+    /// Records the call now, in the caller's turn, as an ordered send does, and answers it when its result is
+    /// awaited. ``mostUnanswered`` counts how many such calls were out at once.
+    public func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String {
+        calls.append((method, params))
+        unanswered += 1
+        mostUnanswered = max(mostUnanswered, unanswered)
+        return { [self] in
+            unanswered -= 1
+            defer { onCall?() }
+            return reply(method, params: params)
+        }
+    }
+
+    private func reply(_ method: String, params: [String: any Sendable]) -> String {
         if let answered = answer?(method, params) { return answered }
         if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {

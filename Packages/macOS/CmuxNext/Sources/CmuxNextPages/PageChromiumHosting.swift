@@ -117,6 +117,10 @@ public protocol PageChromiumPage: AnyObject {
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
     /// Runs a bounded long-lived evaluation (a DEBUG DOM waiter) beyond the ordinary short-call deadline.
     func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String
+    /// Sends a DevTools protocol method now, after every call started before it, and returns the wait for its
+    /// JSON result. Calls started one after another go out back to back, not one round trip each (the page's
+    /// setup, CMUX-571).
+    func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Posts native AppKit input to this page, in view points from its top-left. False when no page window is shown.
     func debugPress(at point: NSPoint) -> Bool
@@ -190,6 +194,11 @@ extension PageChromiumPage {
     /// Hosts without a separate deadline use their ordinary DevTools transport.
     public func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String {
         try await devTools(method, params: params)
+    }
+
+    /// Hosts without an ordered send run the call when its result is awaited, one after another.
+    public func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String {
+        { try await self.devTools(method, params: params) }
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

@@ -265,6 +265,13 @@ extension CEFTab {
         return try await runtime.devTools(browserID, method: method, payload: params, timeout: timeout)
     }
 
+    /// Sends a DevTools protocol method now, in this tab's call order, and returns the wait for its result: calls
+    /// started one after another go out back to back instead of one round trip each (an app page's setup).
+    public func startDevTools(method: String, params: [String: any Sendable]) -> @MainActor @Sendable () async throws -> String {
+        guard let browserID, !isClosed else { return { throw BrowserTabError.closed } }
+        return runtime.startDevTools(browserID, method: method, payload: params)
+    }
+
     // MARK: Find
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
