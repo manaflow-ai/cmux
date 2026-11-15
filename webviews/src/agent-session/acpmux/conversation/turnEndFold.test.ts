@@ -119,7 +119,9 @@ test("folded work stays between the header and final answer while they move", as
   };
   const frames = new Map<HTMLElement, Keyframe[]>();
   proto.animate = function (keyframes) {
-    frames.set(this, keyframes as Keyframe[]);
+    // A copy also plays its cover clip after its motion (turnEndFold.ts `clipped`): keep the motion.
+    const next = keyframes as Keyframe[];
+    if (!frames.has(this) || next.some((frame) => frame.translate !== undefined)) frames.set(this, next);
     return { cancel() {}, finish() {} } as Animation;
   };
   const draw = (id: string, kind: string, top: number, height: number) => {
