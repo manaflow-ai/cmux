@@ -1697,6 +1697,8 @@ jobs:
             bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
             [concurrency]
             scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+            # Heavy and blocking work on the main actor, ratcheted (plans/cmux-next/main-thread-guarantee-DESIGN.md).
+            python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
             [overlay-glass]
             python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
             [checks-structure]
