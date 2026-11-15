@@ -364,6 +364,8 @@ public final class AgentPaneModel {
     /// terminal no longer shows that dialog.
     @ObservationIgnored public internal(set) var terminalApproval: AgentPaneTerminalApproval?
     @ObservationIgnored public var onTerminalApproval: (@MainActor (AgentPaneTerminalApproval.Pick) async -> Bool)?
+    /// The App's watch of the paired terminal that reads that dialog: the chat owns it, so it ends with the chat.
+    @ObservationIgnored public var terminalApprovalWatch: AnyObject?
     /// The chat's live preview card (``AgentPaneComputerUsePreview``), and the App's answer to a click on it (its session).
     @ObservationIgnored public internal(set) var computerUsePreview: AgentPaneComputerUsePreview?
     @ObservationIgnored public var onComputerUsePreview: (@MainActor (_ session: String, _ action: AgentPaneComputerUsePreview.Action) -> Void)?
