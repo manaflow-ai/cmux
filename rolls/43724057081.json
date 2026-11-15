@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43724057081",
+  "recorded_at": "2026-11-15T14:31:01Z",
+  "reason": "cmux-tui 9b3849a59448 changes the image's cmux-tui (pinned 73fc4b35c7de)",
+  "dry_run": false,
+  "cmux_tui": "9b3849a59448df79132f1e001c4520398f3e3bce",
+  "fixes": [
+    {
+      "sha": "9b3849a59448df79132f1e001c4520398f3e3bce",
+      "mergedAt": "2026-11-15T06:06:56-08:00",
+      "subject": "cmux-host updater: the Cloud report says whether a flip's build stayed (settled: updated or rolled_back) (#43757)"
+    },
+    {
+      "sha": "e931a6596165956f686c32406f3ae17d57715907",
+      "mergedAt": "2026-11-15T06:02:11-08:00",
+      "subject": "cmux-tui: the Rust SDK reads each member of a column dock and the client transport `remote`, so a pass of the screen detector does not end"
+    },
+    {
+      "sha": "4524ac983c421c1ab9fde75c189ad57fbd0dca1d",
+      "mergedAt": "2026-11-15T05:57:03-08:00",
+      "subject": "fix: preserve session search replies across log rollover (#43756)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T14:31:01Z",
+    "snapshot_id": "sh-8485a36a169849f384581c43ea02cb6c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43724057081): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8c515cc5409751ba59e47d189b0c48a6b3635487",
+    "image": "cloud-native-auto-9b3849a5-43724057081-1",
+    "revision": "ci-43724057081-1",
+    "at": "2026-11-15T14:31:01Z"
+  },
+  "rolled_back": false
+}
