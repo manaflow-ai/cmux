@@ -168,6 +168,14 @@ pub enum PeerNotice {
     },
 }
 
+impl PeerNotice {
+    /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
+    pub(crate) fn list_bytes(&self) -> Option<u64> {
+        let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
+        Some(rows.iter().map(|row| row.len() as u64).sum())
+    }
+}
+
 #[cfg(any(test, feature = "test-support"))]
 impl PeerNotice {
     /// A list of `rows`, each sent as its text, as a link sends it.

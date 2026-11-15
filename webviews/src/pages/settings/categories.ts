@@ -39,6 +39,7 @@ export const CATEGORY_CARDS = [
   "personalization",
   "sharedLinks",
   "tailnet",
+  "keys",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
