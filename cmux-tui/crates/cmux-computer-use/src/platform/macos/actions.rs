@@ -1314,8 +1314,8 @@ const FOCUS_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// Whether typing into web content may fall back to a value write when the
 /// focus guard cannot prove focus, read before the focus write without
-/// moving anything (no scroll): never in the person's app (the value would
-/// change under their caret), never text with control characters (Enter,
+/// moving anything (no scroll): in the person's app only where their caret
+/// is not (checked in the input lock at the write), never text with control characters (Enter,
 /// Tab: those are keys, and no keys are sent this way), and only a plain
 /// text input ([`roles::web_value_gate_but_view`]): never a password field,
 /// a rich editor, a text area, or a tiny or hidden proxy (a terminal's or a
@@ -1327,11 +1327,7 @@ fn web_value_eligible(
     el: &Ax,
     text: &str,
 ) -> Result<roles::WebField, &'static str> {
-    if d.is_persons_app(t) {
-        return Err(
-            "this web field could not be focused for keys in the background, and it is in the app the person is using, where its value is never written; use delivery foreground",
-        );
-    }
+    let _ = d;
     if text.chars().any(char::is_control) {
         return Err(
             "this web field could not be focused for keys in the background, and the text has Enter, Tab or other keys, which are never typed into its value; send the plain text, then press the keys with delivery foreground",
@@ -1372,6 +1368,7 @@ fn web_value_write(
         .map_err(|why| DesktopError::Unsupported(why.into()))?;
     // Read, decided and written inside the app's input lock; the value
     // and selection are read again right before the write.
+    let persons = d.is_persons_app(t);
     let written = ax_unprimed(t.window.pid, || -> Option<WebWrite> {
         let before = readback::Known::value(el)?;
         let range = el.try_selected_range().ok()??;
@@ -1390,6 +1387,10 @@ fn web_value_write(
         let again = readback::Known::value(el)?;
         if again.get() != before.get() || el.try_selected_range().ok()?? != range {
             return Some(WebWrite::Changed);
+        }
+        // In the person's app: only where their caret is not (fail closed).
+        if persons && !roles::caret_allows_write(persons_caret(t, el)) {
+            return Some(WebWrite::CaretOnTarget);
         }
         // Safari writes a text field's AXValue into whichever field holds
         // the page's focus: only while this one does.
@@ -1430,6 +1431,9 @@ fn web_value_write(
             return nothing("the field's selection lies outside its value, so nothing was written");
         }
         WebWrite::NotFocused => return nothing(WEB_NOT_FOCUSED),
+        WebWrite::CaretOnTarget => {
+            return Err(DesktopError::Unsupported(roles::CARET_ON_TARGET.into()));
+        }
     };
     if let Some(e) = error
         && roles::write_not_applied(e)
@@ -1483,6 +1487,8 @@ enum WebWrite {
     OutOfRange,
     /// The field did not hold the page's focus: nothing written.
     NotFocused,
+    /// The person's caret is on the field (or unread): nothing written.
+    CaretOnTarget,
 }
 
 /// The note when a web field does not hold its page's focus at the write.
@@ -1524,6 +1530,42 @@ fn kept_page_focus(el: &Ax) -> bool {
         .and_then(|a| a.try_element("AXFocusedUIElement").ok().flatten())
         .map(|f| f.same(el));
     roles::kept_focus(own, area)
+}
+
+/// Where the person's caret is relative to `el` in `t`'s app, read
+/// strictly ([`roles::Caret`]): the app's AXFocusedUIElement, and whether
+/// it is `el`, an ancestor of it, or inside it. Called inside the input
+/// lock right before a write.
+fn persons_caret(t: &Target, el: &Ax) -> roles::Caret {
+    let Some(app) = Ax::application(t.window.pid) else { return roles::Caret::Unread };
+    let Ok(Some(focused)) = app.try_element("AXFocusedUIElement") else {
+        return roles::Caret::Unread;
+    };
+    let within = |inner: &Ax, outer: &Ax| -> Option<bool> {
+        let mut current = inner.clone();
+        for _ in 0..64 {
+            if current.same(outer) {
+                return Some(true);
+            }
+            match current.try_element("AXParent").ok()? {
+                Some(parent) => current = parent,
+                None => return Some(false),
+            }
+        }
+        None
+    };
+    if focused.same(el) {
+        return roles::Caret::OnTarget;
+    }
+    // A focused window or application holds no caret; another container of
+    // the field may hold it on the field.
+    let Ok(Some(role)) = focused.try_string("AXRole") else { return roles::Caret::Unread };
+    match (within(el, &focused), within(&focused, el)) {
+        (Some(true), _) if !roles::container_holds_caret(&role) => roles::Caret::Elsewhere,
+        (Some(true), _) | (_, Some(true)) => roles::Caret::OnTarget,
+        (Some(false), Some(false)) => roles::Caret::Elsewhere,
+        _ => roles::Caret::Unread,
+    }
 }
 
 /// The nearest AXWebArea above `el`, if the walk finds one.
@@ -1767,14 +1809,19 @@ fn ax_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<Option<
             0.0,
         ))
     };
-    // The whole value is replaced: never under the person's caret, and
-    // inside the app's input lock.
-    if d.is_persons_app(t) {
-        return Err(DesktopError::Unsupported(
-            "this field takes text only by replacing its whole value, and it is in the app the person is using, where that would change it under their caret; use set_value or delivery foreground".into(),
-        ));
-    }
-    let error = ax_unprimed(t.window.pid, || el.set("AXValue", &value).err())?;
+    // The whole value is replaced, inside the app's input lock: in the
+    // person's app only when their caret is elsewhere (read right before
+    // the write; fail closed).
+    let persons = d.is_persons_app(t);
+    let written = ax_unprimed(t.window.pid, || {
+        if persons && !roles::caret_allows_write(persons_caret(t, el)) {
+            return None;
+        }
+        Some(el.set("AXValue", &value).err())
+    })?;
+    let Some(error) = written else {
+        return Err(DesktopError::Unsupported(roles::CARET_ON_TARGET.into()));
+    };
     // An error that does not say the write was refused may have come after
     // it applied: delivered, never keys after it.
     if let Some(e) = error

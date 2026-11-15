@@ -2927,6 +2927,19 @@ fn web_typing_tries_keys_before_the_value_route() {
     assert_eq!(roles::web_typing(false, Err("textarea")), roles::WebTyping::Refuse("textarea"));
 }
 
+/// #13742: a targeted write into a field of the person's app only where
+/// their caret is not; on it, around it, or unread: refused.
+#[test]
+fn a_targeted_write_in_the_persons_app_needs_their_caret_elsewhere() {
+    assert!(roles::caret_allows_write(roles::Caret::Elsewhere));
+    assert!(!roles::caret_allows_write(roles::Caret::OnTarget));
+    assert!(!roles::caret_allows_write(roles::Caret::Unread), "fail closed");
+    assert!(!roles::container_holds_caret("AXWindow"), "a focused window holds no caret");
+    assert!(!roles::container_holds_caret("AXApplication"));
+    assert!(roles::container_holds_caret("AXWebArea"), "the caret is in a field inside it");
+    assert!(roles::container_holds_caret("AXGroup"));
+}
+
 /// After a web value write: confirmed only while the field still holds the
 /// page's focus (its own, and the web area's focused element where read).
 #[test]

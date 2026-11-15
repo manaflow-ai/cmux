@@ -478,6 +478,38 @@ pub fn web_typing(focused: bool, eligible: Result<(), &'static str>) -> WebTypin
     }
 }
 
+/// Where the person's caret is relative to a field a targeted write goes
+/// into, in the app the person is using (#13742: targeted writes into a
+/// field that is not where the person's caret is stay allowed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Caret {
+    /// The app's focused element is another element, unrelated to the field.
+    Elsewhere,
+    /// The focused element is the field, contains it, or lies inside it.
+    OnTarget,
+    /// The app's focused element could not be read.
+    Unread,
+}
+
+/// Whether a focused element that contains the field may hold the
+/// person's caret on it: a web area, a group or a scroll area may (the caret
+/// sits in a field inside it); a window or the application itself is focused
+/// when no element in it has the caret (live: a fixture window on macOS
+/// 27.0.1 reports its window as the focused element).
+pub fn container_holds_caret(role: &str) -> bool {
+    !matches!(role, "AXWindow" | "AXApplication")
+}
+
+/// Whether a targeted value write may go into a field of the person's app:
+/// only when their caret is elsewhere (an unreadable one fails closed).
+pub fn caret_allows_write(caret: Caret) -> bool {
+    caret == Caret::Elsewhere
+}
+
+/// The refusal when the person's caret is on (or cannot be told apart
+/// from) the field.
+pub const CARET_ON_TARGET: &str = "this field is where the person's caret is in the app they are using (or their focus could not be read), so its value is not written; use delivery foreground";
+
 /// Whether a web field still held the page's focus after a value write:
 /// its own AXFocused read true, and the web area's focused element, where
 /// it could be read, is the field. Otherwise the write may have gone into
