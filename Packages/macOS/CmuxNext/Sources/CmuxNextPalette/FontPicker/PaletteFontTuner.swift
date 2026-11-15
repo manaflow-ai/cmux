@@ -1,6 +1,6 @@
 import CmuxNextDesign
 import Foundation
-import Observation
+public import Observation
 
 /// The font picker's state: which surface it sets a font for (``PaletteFontTarget``), the family the
 /// highlight is on, and the size and line height the sliders hold. Every change previews the whole
