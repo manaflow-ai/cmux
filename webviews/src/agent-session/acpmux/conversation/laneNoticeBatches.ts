@@ -1,5 +1,5 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
-import { noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { PrefixFilter } from "./prefixFlatMap";
 import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
 import {
   laneNotice,
@@ -508,8 +508,6 @@ export function projectInboxRows(
     } else projected.push(row);
   }
   offsets.push(projected.length);
-  // The passes after this one start past the rows kept from the last projection.
-  noteKeptPrefix(projected, held.rows, heldOffsets[reusedRows]!);
   deliveredInboxCache.set(rows, { rows: projected, offsets });
   return projected;
 }

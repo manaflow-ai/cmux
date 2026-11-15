@@ -1,4 +1,4 @@
-import { keptPrefix, noteKeptPrefix, PrefixFilter, PrefixFlatCache } from "../conversation/prefixFlatMap";
+import { keptPrefix, PrefixFilter, PrefixFlatCache } from "../conversation/prefixFlatMap";
 import { turnCopyParts } from "../conversation/turnCopy";
 import type { Folds } from "../conversation/viewFolds";
 import { turnWork } from "../conversation/waterfallSpans";
@@ -144,17 +144,10 @@ export function runningGroups(rows: readonly AcpmuxRow[], views: Record<string, 
 }
 
 /// ``withSubagentRows`` with what it was drawn from, for the next snapshot to build on.
-export type SubagentRows = {
-  source: readonly AcpmuxRow[];
-  grouped: boolean;
-  rows: AcpmuxRow[];
-  /// The folds `rows` were drawn under: the next snapshot keeps their drawn prefix only under the same.
-  expanded?: Folds;
-};
+export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; rows: AcpmuxRow[] };
 
 /// ``withSubagentRows``, building on `previous`: in a chat without subagent groups, only the rows
-/// after the first that differs from `previous.source` (by object) can bring one; in a chat with
-/// them, the rows drawn for the kept rows are the last snapshot's.
+/// after the first that differs from `previous.source` (by object) can bring one.
 export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, previous?: SubagentRows): SubagentRows {
   if (previous && !previous.grouped) {
     const shared = previous.source;
@@ -163,12 +156,8 @@ export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, pr
     for (let index = from; index < rows.length && !grouped; index += 1) grouped = isSubagentGroup(rows[index]!);
     if (!grouped) return { source: rows, grouped, rows: rows as AcpmuxRow[] };
   }
-  const out = withSubagentRows(
-    rows,
-    expanded,
-    previous?.grouped && previous.expanded === expanded ? previous : undefined,
-  );
-  return { source: rows, grouped: out !== rows, rows: out, expanded };
+  const out = withSubagentRows(rows, expanded);
+  return { source: rows, grouped: out !== rows, rows: out };
 }
 
 /// A group row as drawn, open or closed, by the row's object: a group an update did not change is
@@ -201,45 +190,20 @@ function drawnGroup(row: AcpmuxRow, expanded: Folds): readonly AcpmuxRow[] {
 /// An open group's subagents as rows below it, one line each, so every line keeps a fixed
 /// height. Each carries its place in the list (`status`: only, first, middle or last) for the
 /// list's border. A group's version records whether it is open.
-export function withSubagentRows(
-  rows: readonly AcpmuxRow[],
-  expanded: Folds,
-  previous?: { source: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[] },
-): AcpmuxRow[] {
+export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   // The groups that list their subagents (a run group's card stays as it is), from a pass that
   // reads only the rows a snapshot changed (conversation/prefixFlatMap.ts). None: the rows as they
   // are, so the next snapshot builds on them (subagentRowsFrom) instead of copying every row.
   const listed = listedGroups.read(rows).from;
   if (listed.length === 0) return rows as AcpmuxRow[];
-  let out: AcpmuxRow[] = [];
+  const out: AcpmuxRow[] = [];
   let next = 0;
-  let first = 0;
-  let keptDrawn = 0;
-  if (previous) {
-    // The rows before the first one the snapshot changed are the same objects, under the same folds
-    // (subagentRowsFrom), so their drawn rows are the last pass's (`drawnGroup` keeps a group's by its
-    // row and fold): one copy of them, not a push per row of the chat on every streamed update (the
-    // god chat's subagent chains made each token copy its 35,000 rows one at a time).
-    const kept = keptPrefix(previous.source, rows);
-    let drawnAt = kept;
-    while (first < listed.length && listed[first]! < kept) {
-      drawnAt += drawnGroup(rows[listed[first]!]!, expanded).length - 1;
-      first += 1;
-    }
-    if (drawnAt <= previous.rows.length) {
-      out = previous.rows.slice(0, drawnAt);
-      next = kept;
-      keptDrawn = drawnAt;
-    } else first = 0;
-  }
-  for (const index of listed.slice(first)) {
+  for (const index of listed) {
     for (; next < index; next += 1) out.push(rows[next]!);
     next = index + 1;
     for (const each of drawnGroup(rows[index]!, expanded)) out.push(each);
   }
   for (; next < rows.length; next += 1) out.push(rows[next]!);
-  // The passes after this one (the transcript's) start past the kept rows with no walk.
-  if (previous && keptDrawn > 0) noteKeptPrefix(out, previous.rows, keptDrawn);
   return out;
 }
 const listedGroups = new PrefixFilter<AcpmuxRow>((row) => isSubagentGroup(row) && !isRunGroup(row), 6);

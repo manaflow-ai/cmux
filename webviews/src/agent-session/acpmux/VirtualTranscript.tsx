@@ -14,7 +14,6 @@ import React, {
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
-import { keptPrefix } from "./conversation/prefixFlatMap";
 import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
@@ -2674,9 +2673,8 @@ function TranscriptView({
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
     const previous = knownFor.current ?? [];
-    // The client and the shaping passes say how many leading rows they kept (prefixFlatMap.ts): no
-    // walk over a long chat's rows on each streamed update.
-    const from = keptPrefix(previous, rows);
+    let from = 0;
+    while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
     rowsChange.current = { base: previous, rows, from };
     // A page of older history lands above the first row that was already there (a date divider
     // moves up to the page's first turn, so the first known row, not the first row): those rows never

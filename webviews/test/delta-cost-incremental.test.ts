@@ -3,13 +3,7 @@
 // update cost more as the transcript grew, 1.9x and 2.9x from 50 to 5,000 rows).
 import { expect, test } from "bun:test";
 import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
-import {
-  keptPrefix,
-  noteKeptPrefix,
-  prefixWalks,
-  PrefixFlatCache,
-  prefixFlatMap,
-} from "../src/agent-session/acpmux/conversation/prefixFlatMap";
+import { keptPrefix, PrefixFlatCache, prefixFlatMap } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
 import { rowPresence, type RowPresenceHints } from "../src/agent-session/acpmux/conversation/rowPresence";
 import { withoutQuietThoughts } from "../src/agent-session/acpmux/conversation/thoughts";
 import {
@@ -381,42 +375,4 @@ test("the prefix passes hold no rows of a chat that closed", async () => {
     Bun.gc(true);
   }
   expect(closed.filter((ref) => ref.deref() !== undefined).length).toBe(0);
-});
-
-// A god chat's subagent chains (bench/godFixture.ts) made the two subagent passes rebuild every row on
-// each streamed update: the tray's done lines (runningTray.ts `withSubagentLines`) and the open groups'
-// lists (subagentRows.ts `subagentRowsFrom`) pushed the chat's 35,000 rows one at a time per token, so
-// a token cost more the longer the chat (transcript_replay.god.long.token_ms 1.3x the small chat's).
-// Each keeps the rows it drew for the rows the update kept, says so to the next pass, and answers what
-// a whole pass answers.
-test("the subagent passes keep the rows they drew for the rows an update kept", async () => {
-  const { subagentRowsFrom, withSubagentRows } = await import("../src/agent-session/acpmux/subagents/subagentRows");
-  const { withSubagentLines } = await import("../src/agent-session/acpmux/subagents/runningTray");
-  const history = mixedHistory(4000);
-  const ids = (rows: readonly AcpmuxRow[]) => rows.map((each) => [each.id, each.kind]);
-  const open = new Set(history.filter((each) => each.kind === "subagents").map((each) => each.id));
-  const lines = new Map();
-  let source = [...history, row("live", { text: "x" })];
-  let drawn = withSubagentLines(source, lines);
-  let listed = subagentRowsFrom(drawn, open);
-  for (const text of ["x y", "x y z"]) {
-    // The client says how many leading rows a snapshot kept (direct.ts `OrderedRows.sorted`).
-    const next = [...history, row("live", { text })];
-    noteKeptPrefix(next, source, history.length);
-    const walks = prefixWalks.rows;
-    const nextDrawn = withSubagentLines(next, lines);
-    const nextListed = subagentRowsFrom(nextDrawn, open, listed);
-    // Each pass told the next how much it kept: no walk over the chat to find it.
-    expect(prefixWalks.rows - walks, "rows walked to find the kept prefix").toBe(0);
-    expect(keptPrefix(drawn, nextDrawn)).toBeGreaterThanOrEqual(history.length);
-    expect(keptPrefix(listed.rows, nextListed.rows)).toBeGreaterThanOrEqual(history.length);
-    // And the rows are a whole pass's.
-    const whole = withSubagentLines(
-      next.map((each) => ({ ...each })),
-      new Map(),
-    );
-    expect(ids(nextDrawn)).toEqual(ids(whole));
-    expect(ids(nextListed.rows)).toEqual(ids(withSubagentRows(nextDrawn, open)));
-    [source, drawn, listed] = [next, nextDrawn, nextListed];
-  }
 });
