@@ -563,7 +563,44 @@ fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
 #[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
-    pub summary: Value,
+    pub summary: RemoteSummary,
+}
+
+/// A peer row an event announces. The hub's event channel holds each event until every receiver
+/// has read it, up to its capacity while one connection lags, so a whole list's announcements share
+/// the table's packed rows and each connection parses one as it sends it. A row held parsed was
+/// about ten times its text: 115 MB for one restarted peer of 4,000 rows (the churn lab,
+/// `tests/god_daemon.rs`).
+#[derive(Debug, Clone)]
+pub enum RemoteSummary {
+    /// A summary already built as a tree (a single change, a purge, a stale mark).
+    Value(Value),
+    /// The row as the table keeps it, shared.
+    Row(Arc<RemoteSession>),
+}
+
+impl RemoteSummary {
+    /// The row as JSON: a copy of the tree, or the packed row parsed.
+    pub fn value(&self) -> Value {
+        match self {
+            Self::Value(v) => v.clone(),
+            Self::Row(row) => row.summary.value(),
+        }
+    }
+
+    /// Its `sessionId`, with no parse.
+    pub fn session_id(&self) -> Option<&str> {
+        match self {
+            Self::Value(v) => v.get("sessionId").and_then(Value::as_str),
+            Self::Row(row) => row.summary.session_id(),
+        }
+    }
+}
+
+impl From<Value> for RemoteSummary {
+    fn from(v: Value) -> Self {
+        Self::Value(v)
+    }
 }
 
 impl RemoteRef {
