@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43735105363",
+  "recorded_at": "2026-11-15T16:34:22Z",
+  "reason": "cmux-tui 62926a4991af changes the image's cmux-tui (pinned 721ab36d6fef)",
+  "dry_run": false,
+  "cmux_tui": "62926a4991af23730ef0b1bad7d5e50380615191",
+  "fixes": [
+    {
+      "sha": "62926a4991af23730ef0b1bad7d5e50380615191",
+      "mergedAt": "2026-11-15T08:06:07-08:00",
+      "subject": "cmux-tui: remote-host stop and share off go to the worker until step B (#43675)"
+    },
+    {
+      "sha": "7afd96ea3ff865d94ec8961af42f6c6d39a1bb99",
+      "mergedAt": "2026-11-15T08:04:41-08:00",
+      "subject": "test(workflows): restore cancellation state after ACP fixture reload (#34021) (#43792)"
+    },
+    {
+      "sha": "fe790d60ab2e8bda127918233e298ec4c3a5f8c2",
+      "mergedAt": "2026-11-15T08:04:12-08:00",
+      "subject": "acpmux v2: the gates' counted proxy gives back each sample's connections (#43741)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T16:34:22Z",
+    "snapshot_id": "sh-fc07e153717e48d19d1da7a7b2855837",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43735105363): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "00d7e74ad3da372c7ff592e23a6b7f48180be357",
+    "image": "cloud-native-auto-62926a49-43735105363-1",
+    "revision": "ci-43735105363-1",
+    "at": "2026-11-15T16:34:22Z"
+  },
+  "rolled_back": false
+}
