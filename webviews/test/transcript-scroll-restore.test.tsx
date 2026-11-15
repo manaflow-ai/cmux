@@ -178,8 +178,14 @@ test("following stopping and starting is reported at once apart from the settled
       expect(following.length).toBe(1);
       expect(rows.some((row) => row.id === following[0]?.rowId)).toBe(true);
     });
-    // Back at the latest message: following starts again, and that reaches the host as no place.
+    // Back at the latest message, a key at the end follows again: that reaches the host at once as
+    // no place, before any scroll settles.
     await scrollAndRest(scroller(), latest, anchors);
+    const before = following.length;
+    await act(
+      async () => void scroller().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true })),
+    );
+    expect(following.length).toBe(before + 1);
     expect(following.at(-1)).toBeNull();
   } finally {
     await act(async () => root.unmount());
