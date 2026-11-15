@@ -110,7 +110,7 @@ public struct ComposerDictationTextMerger: Sendable {
             // A cumulative result can include a finalized phrase whose own
             // result had no segment timing. A final replaces that committed
             // phrase; a partial keeps it and contributes only its new tail.
-            let allMatches = phraseMatches(in: transcript)
+            let allMatches = phraseMatches(in: transcript, startTime: startTime)
             let untimedFinalMatches = allMatches.filter { match in
                 let phrase = phrases[match.index]
                 return phrase.isFinal && phrase.endTime == nil
@@ -124,7 +124,7 @@ public struct ComposerDictationTextMerger: Sendable {
             // committed untimed phrases stay in their original order.
             for (index, phrase) in phrases.enumerated() {
                 if let endTime = phrase.endTime {
-                    if endTime > startTime {
+                    if endTime > startTime && (isUtteranceFinal || !phrase.isFinal) {
                         removedIndices.insert(index)
                     }
                 } else if !phrase.isFinal {
@@ -199,11 +199,14 @@ public struct ComposerDictationTextMerger: Sendable {
         }
     }
 
-    private func phraseMatches(in transcript: String) -> [PhraseMatch] {
+    private func phraseMatches(in transcript: String, startTime: Double) -> [PhraseMatch] {
         let candidate = String(transcript.drop(while: \.isWhitespace))
         var searchStart = candidate.startIndex
         var matches: [PhraseMatch] = []
         for (index, phrase) in phrases.enumerated() {
+            if let endTime = phrase.endTime, endTime <= startTime {
+                continue
+            }
             guard let range = phraseRange(
                 for: phrase.text,
                 in: candidate,

@@ -188,7 +188,7 @@ import Testing
         _ = merger.merged(base: "", transcript: "new", startTime: nil, endTime: nil,
                           isUtteranceFinal: true)
         #expect(merger.merged(base: "", transcript: "new C", startTime: 0, endTime: 3)
-            == "new C")
+            == "old new C")
     }
 
     @Test func cumulativePartialWithPunctuationKeepsAdjacency() {
