@@ -62,15 +62,40 @@ fn unsigned() -> ShareApproval {
 /// The target writes its decision to its own host audit log.
 #[test]
 fn target_writes_the_decision_to_its_audit_log() {
+    struct Grant(bool);
+    impl SameAccountGrant for Grant {
+        fn covers(&self, _asker: &acpmux::share_approval::Asker<'_>) -> bool {
+            self.0
+        }
+    }
+    struct Keys(String);
+    impl AskerKeys for Keys {
+        fn signing_key(&self, device: &str) -> Option<String> {
+            (device == ASKER).then(|| self.0.clone())
+        }
+    }
+    let key = DeviceKey::new();
+    let keys = Keys(key.public());
+    let approval = key.sign(unsigned());
+    let target = Target { device: TARGET, account: ACCOUNT, now: NOW };
     let dir = tempfile::tempdir().unwrap();
-    let approval = unsigned();
-    let decision = Err(Refused { code: "share.not_granted", message: "no".into() });
-    super::super::audit::append_in(dir.path(), &target_entry(&approval, &decision)).unwrap();
+    let write = |entry: &Value| super::super::audit::append_in(dir.path(), entry).unwrap();
+    let mut seen = HashSet::new();
+    let refused = admit_and_record(&approval, &target, &Grant(false), &keys, &mut seen, write);
+    assert_eq!(refused.unwrap_err().code, "share.not_granted");
+    let admitted = admit_and_record(&approval, &target, &Grant(true), &keys, &mut seen, write);
+    assert_eq!(admitted, Ok(()));
     let text = std::fs::read_to_string(dir.path().join(super::super::audit::FILE)).unwrap();
-    let line: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
-    assert_eq!(line["event"], "remote_host.share_refused");
-    assert_eq!(line["confirmed_by"], ACCOUNT);
-    assert!(line["ts"].is_string());
+    let lines: Vec<Value> = text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0]["event"], "remote_host.share_refused");
+    assert_eq!(lines[0]["code"], "share.not_granted");
+    assert_eq!(lines[1]["event"], "remote_host.share_admitted");
+    for line in &lines {
+        assert_eq!(line["confirmed_by"], ACCOUNT);
+        assert_eq!(line["confirmed_on"], ASKER);
+        assert!(line["ts"].is_string());
+    }
 }
 
 /// Counts deliveries; answers like the target would.
