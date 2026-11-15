@@ -122,7 +122,8 @@
       "reason": "keep: acpmux's own agent-session CLI for scripts and other agents (dispatch, briefs, stdio, peers); a person starts and finds chats with the palette's New Agent Chat and Search Agent Chats"
     },
     {
-      "verb": "acp desktop"
+      "verb": "acp desktop",
+      "reason": "keep: acpmux's agent-session CLI: an agent wires the cmux MCP server into the Claude desktop app, Claude Code and Codex, the setup `cmux setup mcp` runs"
     },
     {
       "verb": "acp dispatch",
@@ -189,7 +190,8 @@
       "reason": "keep: acpmux's own agent-session CLI for scripts and other agents (dispatch, briefs, stdio, peers); a person starts and finds chats with the palette's New Agent Chat and Search Agent Chats"
     },
     {
-      "verb": "acp race"
+      "verb": "acp race",
+      "reason": "keep: acpmux's agent-session CLI: an agent starts a race from its own authenticated session and reads the reviewer's result"
     },
     {
       "verb": "acp register",
@@ -447,10 +449,12 @@
       "reason": "keep: a read (what `app try` has live)"
     },
     {
-      "verb": "app try"
+      "verb": "app try",
+      "reason": "keep: a developer tool: runs a pull request's or commit's cmux build in this app to test a change to cmux itself"
     },
     {
-      "verb": "app undo"
+      "verb": "app undo",
+      "reason": "keep: a developer tool: puts back what `app try` replaced"
     },
     {
       "verb": "attach",
@@ -693,10 +697,12 @@
       "reason": "keep: attached-client plumbing (sizing, cell pixels, labels, detach) the TUI and the app's renderer drive"
     },
     {
-      "verb": "closed clear"
+      "verb": "closed clear",
+      "palette": "history.clear"
     },
     {
-      "verb": "closed delete"
+      "verb": "closed delete",
+      "reason": "keep: deletes closed groups by the ids `closed list` prints; a person removes a closed item in Show History (history.show)"
     },
     {
       "verb": "closed list",
@@ -763,7 +769,8 @@
       "palette": "customize.open"
     },
     {
-      "verb": "customize apply"
+      "verb": "customize apply",
+      "reason": "keep: a person runs it as `/customize apply` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "customize brief",
@@ -778,14 +785,16 @@
       "reason": "keep: a read (the preview as text)"
     },
     {
-      "verb": "customize discard"
+      "verb": "customize discard",
+      "reason": "keep: a person runs it as `/customize discard` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "customize generations",
       "reason": "keep: a read (every generation, newest first)"
     },
     {
-      "verb": "customize keep"
+      "verb": "customize keep",
+      "reason": "keep: a person runs it as `/customize keep` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "customize library",
@@ -806,13 +815,16 @@
       "reason": "keep: a read (the saved profiles)"
     },
     {
-      "verb": "customize revert"
+      "verb": "customize revert",
+      "reason": "keep: a person runs it as `/customize revert` in the chat Customize… (customize.open) opens"
     },
     {
-      "verb": "customize rollback"
+      "verb": "customize rollback",
+      "reason": "keep: a person runs it as `/customize rollback` in the chat Customize… (customize.open) opens"
     },
     {
-      "verb": "customize save"
+      "verb": "customize save",
+      "reason": "keep: a person runs it as `/customize save` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "customize schema",
@@ -823,10 +835,12 @@
       "reason": "keep: a read (what one generation changed)"
     },
     {
-      "verb": "customize try"
+      "verb": "customize try",
+      "reason": "keep: a person runs it as `/customize try` in the chat Customize… (customize.open) opens"
     },
     {
-      "verb": "customize use"
+      "verb": "customize use",
+      "reason": "keep: a person runs it as `/customize use` in the chat Customize… (customize.open) opens"
     },
     {
       "verb": "daemon ensure",
@@ -899,7 +913,8 @@
       "reason": "keep: a read for scripts and agents (the app's error journal); the app shows the same state on screen"
     },
     {
-      "verb": "errors clear"
+      "verb": "errors clear",
+      "reason": "keep: clears entries of the error journal `cmux errors` reads, for agents and scripts diagnosing the app"
     },
     {
       "verb": "events",
@@ -1014,7 +1029,8 @@
       "palette": "git.worktree.remove"
     },
     {
-      "verb": "git worktree setup"
+      "verb": "git worktree setup",
+      "reason": "keep: a read for scripts and agents (a new worktree's setup state and log)"
     },
     {
       "verb": "github credential erase",
@@ -1777,7 +1793,8 @@
       "palette": "machine.add"
     },
     {
-      "verb": "setup mcp"
+      "verb": "setup mcp",
+      "reason": "keep: setup an agent runs for the person (`cmux setup`, from an agent): gives Claude Code and Codex outside cmux the cmux MCP server"
     },
     {
       "verb": "setup notifications",
@@ -1788,10 +1805,12 @@
       "reason": "keep: a read for scripts and agents (setup checks); the app shows the same state on screen"
     },
     {
-      "verb": "setup tailnet"
+      "verb": "setup tailnet",
+      "reason": "keep: setup an agent runs for the person (`cmux setup`, from an agent): serves this machine to the person's other machines over Tailscale"
     },
     {
-      "verb": "setup trust"
+      "verb": "setup trust",
+      "reason": "keep: setup an agent runs for the person (`cmux setup`, from an agent): records the person's trust for a folder"
     },
     {
       "verb": "skill show",
