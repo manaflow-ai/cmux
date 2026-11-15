@@ -478,8 +478,10 @@ fn click_point(
         return Ok(out);
     }
     let route = d.pointer_route(t, spec.delivery)?;
+    let front = d.is_persons_app(t);
     unprimed(route, |p| {
-        input::click(p, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)
+        let flags = keymap::flags(&spec.modifiers);
+        input::click(p, at, spec.button, spec.count, flags, spec.gap, front)
     })?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
 }
@@ -1752,7 +1754,8 @@ pub(super) fn drag(
         }
     }
     let route = d.pointer_route(&t, delivery)?;
-    unprimed(route, |p| input::drag(p, from, to, button))?;
+    let front = d.is_persons_app(&t);
+    unprimed(route, |p| input::drag(p, from, to, button, front))?;
     Ok(ActionOutcome::delivered(route.name()).at(to))
 }
 

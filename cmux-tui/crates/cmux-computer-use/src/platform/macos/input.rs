@@ -10,11 +10,17 @@
 //! fields (91, 92) AppKit and WebKit drop it (macOS 26.6: TextEdit, Safari,
 //! Finder and System Settings scrolled once both were set).
 //!
-//! Mouse buttons are not addressed that way on purpose. A press that lands
-//! in an AppKit window of a background app makes the app order that window
-//! front (TextEdit, Notes: the focus guard saw the window above the
-//! person's and lowered it again), so a press is posted with the
-//! window-under-pointer fields only, as before. Clicks on controls and list
+//! Mouse buttons are not addressed that way in a background app on
+//! purpose. A press that lands in an AppKit window of a background app
+//! makes the app order that window front (TextEdit, Notes: the focus guard
+//! saw the window above the person's and lowered it again), so a press is
+//! posted with the window-under-pointer fields only, as before. In the
+//! front app a press must be addressed: one without the window number goes
+//! to the app at the point's coordinates read as if in its menu bar
+//! (macOS 26.6: a left click at window point (12, 94) of TextEdit, and at
+//! (30, 102) of the truth fixture, opened the Apple menu instead of placing
+//! the caret; 27.0.1 dropped it). There is nothing to raise in the front
+//! app, so it is addressed ([`roles::address_press`]). Clicks on controls and list
 //! rows go through accessibility instead (`actions::ax_click_at`), which
 //! raises nothing. Foreground delivery posts at the HID tap, except key
 //! chords while an app is denied, which go to the raised target's process
@@ -198,7 +204,10 @@ fn mouse_event(src: &Cf, ty: u32, at: Point, button: Button, flags: u64) -> DRes
     Ok(e)
 }
 
-/// `count` clicks (1: single, 2: double, ...) of `button` at `at`.
+/// `count` clicks (1: single, 2: double, ...) of `button` at `at`;
+/// `front`: the target app is the front app (the press is addressed to
+/// its window; see the module notes).
+#[allow(clippy::too_many_arguments)] // each argument is one fact of the click
 pub fn click(
     p: &Posting,
     at: Point,
@@ -206,11 +215,11 @@ pub fn click(
     count: u8,
     flags: u64,
     gap: std::time::Duration,
+    front: bool,
 ) -> DResult<()> {
     let route = p.route();
     let src = source()?;
-    // Presses are not window-addressed (see the module notes).
-    let aim = None;
+    let aim = if roles::address_press(front) { Aim::of(route) } else { None };
     let paced = matches!(route, Route::Pid { .. });
     let (down, up, _) = button_events(button);
     post_mouse(route, aim, &mouse_event(&src, MOUSE_MOVED, at, Button::Left, flags)?, at);
@@ -233,11 +242,11 @@ pub fn click(
     Ok(())
 }
 
-pub fn drag(p: &Posting, from: Point, to: Point, button: Button) -> DResult<()> {
+/// A drag from `from` to `to`; `front` as in [`click`].
+pub fn drag(p: &Posting, from: Point, to: Point, button: Button, front: bool) -> DResult<()> {
     let route = p.route();
     let src = source()?;
-    // Presses are not window-addressed (see the module notes).
-    let aim = None;
+    let aim = if roles::address_press(front) { Aim::of(route) } else { None };
     let (down, up, dragged) = button_events(button);
     post_mouse(route, aim, &mouse_event(&src, MOUSE_MOVED, from, Button::Left, 0)?, from);
     let press = |ty, at| -> DResult<Cf> {

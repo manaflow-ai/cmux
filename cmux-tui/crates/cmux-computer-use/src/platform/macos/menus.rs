@@ -1169,8 +1169,9 @@ impl MacDesktop {
         let before = menu_window_ids();
         let start = Instant::now();
         let route = Route::Pid { pid, window: t.window.id };
+        let front = super::frontmost_pid() == Some(pid);
         super::activation::post_unprimed(route, |p| {
-            input::click(p, at, Button::Right, 1, 0, Duration::ZERO)
+            input::click(p, at, Button::Right, 1, 0, Duration::ZERO, front)
         })
         .unwrap_or_else(|| {
             Err(DesktopError::Unsupported(super::activation::PRIMED_KEYS_REFUSAL.into()))

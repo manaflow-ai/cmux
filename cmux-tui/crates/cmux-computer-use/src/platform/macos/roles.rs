@@ -126,6 +126,14 @@ pub fn slider_tolerance(min: f64, max: f64) -> f64 {
     ((max - min) * 0.02).max(f64::EPSILON)
 }
 
+/// Whether a posted mouse press names its window (field 51 and its point
+/// in the window): only in the front app. There an unaddressed press is
+/// read as if in the menu bar (macOS 26.6 opened the Apple menu); in a
+/// background app an addressed press would order its window front.
+pub fn address_press(target_is_front_app: bool) -> bool {
+    target_is_front_app
+}
+
 /// Command-A alone: Select All.
 pub fn is_select_all(combo: &crate::keys::KeyCombo) -> bool {
     combo.modifiers == [crate::keys::Modifier::Meta]

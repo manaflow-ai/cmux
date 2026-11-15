@@ -2461,3 +2461,13 @@ fn a_slider_tolerance_follows_its_range_and_circular_ones_are_left_alone() {
     assert!(!roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 200.0, height: 20.0 }));
     assert!(!roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 20.0, height: 120.0 }));
 }
+
+/// A posted press names its window only in the front app: there an
+/// unaddressed left click at TextEdit's window point (12, 94) opened the
+/// Apple menu on macOS 26.6 (truth matrix, foreground scene); in a
+/// background app an addressed press orders its window front.
+#[test]
+fn a_press_is_addressed_only_in_the_front_app() {
+    assert!(roles::address_press(true));
+    assert!(!roles::address_press(false));
+}
