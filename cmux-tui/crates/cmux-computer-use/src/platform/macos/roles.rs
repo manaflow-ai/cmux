@@ -302,6 +302,68 @@ pub fn insert_at(before: &str, text: &str, location: isize, length: isize) -> Op
     String::from_utf16(&out).ok()
 }
 
+/// What the web value route reads of a field ([`web_value_gate`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WebField {
+    pub text_input: bool,
+    pub secure: bool,
+    /// Children other than plain text runs (a rich editor).
+    pub rich: bool,
+    pub width: f64,
+    pub height: f64,
+    /// Its frame overlaps its window.
+    pub on_screen: bool,
+    pub hidden: bool,
+    /// It exposes a length limit (not applied by a value write).
+    pub limited: bool,
+    pub center: Point,
+}
+
+/// The refusal when a web field's facts cannot be read.
+pub const WEB_FIELD_UNREAD: &str = "this web field could not be read well enough to write its value safely, so nothing was written; try again";
+
+/// The smallest a field may be, wide and high, for its value to be its
+/// content: input helpers of terminals and code editors are styled 1 pt or
+/// hidden (WebKit pads a 1x1 textarea to 12x6 pt), and a text field one can
+/// read is taller than 10 pt.
+pub const WEB_FIELD_MIN: f64 = 10.0;
+
+/// Whether a web text element holds rich content, from its role and its
+/// children's roles: an AXTextField never does; an AXTextArea is a native
+/// textarea when its children are exactly one AXGroup (or none), else a
+/// contenteditable (text runs, formatting).
+pub fn web_rich(role: &str, kid_roles: &[String]) -> bool {
+    match role {
+        "AXTextField" | "AXSearchField" => false,
+        "AXTextArea" => !(kid_roles.is_empty() || kid_roles == ["AXGroup"]),
+        _ => true,
+    }
+}
+
+/// Whether the web value route may write into a field: a plain text input
+/// or text area, not a password field (writing would replace it with what
+/// it shows), not a rich editor, not tiny, off screen or hidden (an input
+/// helper, whose value is not the content).
+pub fn web_value_gate(f: Option<&WebField>) -> Result<(), &'static str> {
+    let Some(f) = f else { return Err(WEB_FIELD_UNREAD) };
+    if f.secure {
+        return Err(
+            "this is a password field; its value is never written this way, because what it shows is not its text. Use delivery foreground",
+        );
+    }
+    if !f.text_input || f.rich {
+        return Err(
+            "this web element is not a plain text field (a rich editor or another control), so its value is not written this way; use delivery foreground",
+        );
+    }
+    if f.width < WEB_FIELD_MIN || f.height < WEB_FIELD_MIN || !f.on_screen || f.hidden {
+        return Err(
+            "this web field is tiny, off screen or hidden (an editor's input helper, whose value is not its content), so its value is not written this way; use delivery foreground",
+        );
+    }
+    Ok(())
+}
+
 /// How a posted press is aimed, from the two readings of the front app
 /// taken right before the post.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

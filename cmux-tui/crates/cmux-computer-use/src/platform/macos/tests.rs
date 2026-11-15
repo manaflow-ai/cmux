@@ -2818,3 +2818,58 @@ fn web_typing_inserts_into_the_value_at_the_selection() {
     assert_eq!(roles::insert_at("ab", "Z", 3, 0), None, "past the end");
     assert_eq!(roles::insert_at("ab", "Z", -1, 0), None);
 }
+
+/// Review of 1d54907 (1, 2): the web value route writes only into a plain,
+/// visible text field: never a password field, a rich editor, another
+/// control, a tiny, off-screen or hidden input helper, or an unread one.
+#[test]
+#[allow(clippy::redundant_clone)] // each case starts from the same field
+fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
+    let plain = roles::WebField {
+        text_input: true,
+        secure: false,
+        rich: false,
+        width: 200.0,
+        height: 22.0,
+        on_screen: true,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    assert!(roles::web_value_gate(Some(&plain)).is_ok());
+    let not = |f: roles::WebField| roles::web_value_gate(Some(&f)).is_err();
+    assert!(not(roles::WebField { secure: true, ..plain.clone() }), "password");
+    assert!(not(roles::WebField { rich: true, ..plain.clone() }), "contenteditable");
+    assert!(not(roles::WebField { text_input: false, ..plain.clone() }), "another control");
+    assert!(not(roles::WebField { width: 1.0, height: 1.0, ..plain.clone() }), "xterm-like helper");
+    assert!(not(roles::WebField { on_screen: false, ..plain.clone() }), "off screen");
+    assert!(not(roles::WebField { hidden: true, ..plain.clone() }), "hidden");
+    assert!(roles::web_value_gate(None).is_err(), "unread");
+}
+
+/// Live in Safari (macOS 27.0.1): an <input> has no children, a native
+/// <textarea> one AXGroup child, a contenteditable its text runs; and a 1x1
+/// textarea is padded to 12x6 pt.
+#[test]
+fn a_contenteditable_is_rich_and_a_textarea_is_not() {
+    let roles = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert!(!roles::web_rich("AXTextField", &roles(&[])));
+    assert!(!roles::web_rich("AXTextField", &roles(&["AXGroup"])));
+    assert!(!roles::web_rich("AXTextArea", &roles(&["AXGroup"])), "a textarea");
+    assert!(!roles::web_rich("AXTextArea", &roles(&[])));
+    assert!(roles::web_rich("AXTextArea", &roles(&["AXStaticText"])), "contenteditable");
+    assert!(roles::web_rich("AXTextArea", &roles(&["AXStaticText", "AXGroup"])));
+    assert!(roles::web_rich("AXGroup", &roles(&[])));
+    let proxy = roles::WebField {
+        text_input: true,
+        secure: false,
+        rich: false,
+        width: 12.0,
+        height: 6.0,
+        on_screen: true,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    assert!(roles::web_value_gate(Some(&proxy)).is_err(), "a padded 1x1 helper");
+}

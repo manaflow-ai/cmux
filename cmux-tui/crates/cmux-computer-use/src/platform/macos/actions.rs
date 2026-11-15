@@ -50,7 +50,8 @@ fn outcome_after(
     let baseline = before.as_ref().filter(|b| !b.get().is_empty());
     let mut out = match (baseline, &after) {
         (Some(b), Some(a))
-            if readback::wanted_reached(b.get(), a, &wanted, Some(0.0)) && a != b.get() =>
+            if readback::wanted_reached(b.get(), a, &wanted, readback::tolerance_for(el, 0.0))
+                && a != b.get() =>
         {
             let mut out = ActionOutcome::confirmed(route);
             out.expect = d.expect(Some(readback::Check::value_from(el, b, wanted, 0.0)));
@@ -203,15 +204,19 @@ impl MacDesktop {
         // Count the windows keys could go to instead: standard, not minimized.
         // Apps keep hidden helper windows (Safari lists 8 with one visible),
         // and counting those refused keys to an app's only real window.
-        let windows = app
-            .windows()
-            .iter()
-            .filter(|w| {
-                w.string("AXSubrole").as_deref() == Some("AXStandardWindow")
-                    && w.bool("AXMinimized") != Some(true)
-            })
-            .count();
-        let target_is_standard = win.string("AXSubrole").as_deref() == Some("AXStandardWindow");
+        // Read strictly: a window that cannot be read may be the key one.
+        let mut windows = 0;
+        for w in app.try_elements("AXWindows").map_err(|_| focus_unread(t))? {
+            let standard = w.try_string("AXSubrole").map_err(|_| focus_unread(t))?.as_deref()
+                == Some("AXStandardWindow");
+            let minimized = w.try_bool("AXMinimized").map_err(|_| focus_unread(t))? == Some(true);
+            if standard && !minimized {
+                windows += 1;
+            }
+        }
+        let target_is_standard =
+            win.try_string("AXSubrole").map_err(|_| focus_unread(t))?.as_deref()
+                == Some("AXStandardWindow");
         // Keys go to the key window. When the target is not it, send them only
         // if the app has no key window that could take them instead: none, or
         // one that is minimized or hidden. A dialog or panel as key window (a
@@ -1314,38 +1319,87 @@ const FOCUS_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 /// refused: those are keys, and no keys are sent this way. An unreadable
 /// value or selection writes nothing.
 fn web_value_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<ActionOutcome> {
-    if text.chars().any(char::is_control) {
-        return Err(DesktopError::Unsupported(
-            "this web field could not be focused for keys, and the text has Enter, Tab or other keys, which are never typed into its value; send the plain text, then press the keys with delivery foreground".into(),
-        ));
+    let refuse = |why: &str| Err(DesktopError::Unsupported(why.into()));
+    // Never in the person's app: the value would change under their caret.
+    if d.is_persons_app(t) {
+        return refuse(
+            "this web field is in the app the person is using; writing its value would change it under their caret. Use delivery foreground",
+        );
     }
+    if text.chars().any(char::is_control) {
+        return refuse(
+            "this web field could not be focused for keys, and the text has Enter, Tab or other keys, which are never typed into its value; send the plain text, then press the keys with delivery foreground",
+        );
+    }
+    // Only a plain text input or text area, read strictly; never a
+    // password field (writing would replace it with what the field shows)
+    // and never a rich editor, a tiny or hidden proxy element (a terminal's
+    // or a code editor's input helper), whose value is not the content.
+    let field = web_field(el, &t.window.frame);
+    if let Err(why) = roles::web_value_gate(field.as_ref()) {
+        return refuse(why);
+    }
+    let Some(field) = field else { return refuse(roles::WEB_FIELD_UNREAD) };
     let unread = || {
         let mut out = ActionOutcome::delivered("ax_web_value");
         out.note = "the web field's value or selection could not be read, so nothing was written and no keys were posted".into();
         Ok(out)
     };
-    if !el.settable("AXValue") {
-        return unread();
+    if text.is_empty() {
+        let mut out = ActionOutcome::delivered("ax_web_value");
+        out.note = "no text to write".into();
+        return Ok(out);
     }
-    let (Some(before), Ok(Some(range))) = (readback::Known::value(el), el.try_selected_range())
-    else {
-        return unread();
+    // Read, decided and written inside the app's input lock; the value
+    // and selection are read again right before the write.
+    let written = ax_unprimed(t.window.pid, || -> Option<WebWrite> {
+        let before = readback::Known::value(el)?;
+        let range = el.try_selected_range().ok()??;
+        let Some(new_value) = roles::insert_at(before.get(), text, range.location, range.length)
+        else {
+            return Some(WebWrite::OutOfRange);
+        };
+        let cf = Cf::string(&new_value)?;
+        let check = readback::Check::value_from(
+            el,
+            &before,
+            readback::Wanted::from_request(new_value.clone()),
+            0.0,
+        );
+        // Changed since the first read: nothing written.
+        let again = readback::Known::value(el)?;
+        if again.get() != before.get() || el.try_selected_range().ok()?? != range {
+            return Some(WebWrite::Changed);
+        }
+        if el.set("AXValue", &cf).is_err() {
+            return Some(WebWrite::Failed);
+        }
+        let caret = super::sys::CFRange {
+            location: range.location + text.encode_utf16().count() as isize,
+            length: 0,
+        };
+        let _ = el.set_selected_range(caret);
+        Some(WebWrite::Done { new_value, check, at: range.location })
+    })?;
+    let Some(written) = written else { return unread() };
+    let (new_value, check, at) = match written {
+        WebWrite::Done { new_value, check, at } => (new_value, check, at),
+        WebWrite::Changed => {
+            let mut out = ActionOutcome::delivered("ax_web_value");
+            out.note =
+                "the field changed while it was read, so nothing was written; try again".into();
+            return Ok(out);
+        }
+        WebWrite::Failed => {
+            return Err(DesktopError::Failed("the web field refused the value write".into()));
+        }
+        WebWrite::OutOfRange => {
+            let mut out = ActionOutcome::delivered("ax_web_value");
+            out.note =
+                "the field's selection lies outside its value, so nothing was written".into();
+            return Ok(out);
+        }
     };
-    let Some(new_value) = roles::insert_at(before.get(), text, range.location, range.length) else {
-        return unread();
-    };
-    let caret = super::sys::CFRange {
-        location: range.location + text.encode_utf16().count() as isize,
-        length: 0,
-    };
-    let check = readback::Check::value_from(
-        el,
-        &before,
-        readback::Wanted::from_request(new_value.clone()),
-        0.0,
-    );
-    let Some(cf) = Cf::string(&new_value) else { return unread() };
-    gated_value_write(d, t, el, &cf, caret)?;
     let read = el.try_value_text().ok().flatten();
     let mut out = if read.as_deref() == Some(new_value.as_str()) {
         ActionOutcome::confirmed("ax_web_value")
@@ -1353,30 +1407,64 @@ fn web_value_insert(d: &MacDesktop, t: &Target, el: &Ax, text: &str) -> DResult<
         ActionOutcome::delivered("ax_web_value")
     }
     .showing("text");
-    out.note = "web content: the text was written into the field's value through accessibility, with no keystrokes, so the page's key handlers did not run".into();
-    out.expect = d.expect(Some(check));
-    if let Some(frame) = el.frame() {
-        out = out.at(roles::center(&frame));
+    // macOS 27.0.1, Safari: the value write fires the page's input events
+    // (not change, which comes when the field loses focus); length limits
+    // and input masks do not apply to it.
+    let mut note = format!(
+        "web content: the text was written into the field's value at position {at} (its selection then) through accessibility, with no keystrokes, so the page's key handlers did not run (its input event did)"
+    );
+    if field.limited {
+        note.push_str("; the field has a length limit or pattern, which was not applied");
     }
+    out.note = note;
+    out.expect = d.expect(Some(check));
+    out = out.at(field.center);
     Ok(out)
 }
 
-/// Writes `value` into `el` and then its caret, under the app's input lock
-/// (never inside another session's scope).
-fn gated_value_write(
-    d: &MacDesktop,
-    t: &Target,
-    el: &Ax,
-    value: &Cf,
-    caret: super::sys::CFRange,
-) -> DResult<()> {
-    let _ = d;
-    ax_unprimed(t.window.pid, || {
-        el.set("AXValue", value).map_err(|e| ax_error(e, "writing the value"))?;
-        // The caret after the text; a field that refuses it keeps the value.
-        let _ = el.set_selected_range(caret);
-        Ok::<(), DesktopError>(())
-    })?
+/// What the web value write came to (inside the input lock).
+enum WebWrite {
+    Done {
+        new_value: String,
+        check: readback::Check,
+        at: isize,
+    },
+    /// The value or selection changed between the reads: nothing written.
+    Changed,
+    Failed,
+    /// The selection lies outside the value: nothing written.
+    OutOfRange,
+}
+
+/// The facts the web value route is gated on ([`roles::web_value_gate`]),
+/// read strictly; `None` when a read failed.
+fn web_field(el: &Ax, window: &Rect) -> Option<roles::WebField> {
+    let role = el.try_string("AXRole").ok()??;
+    let subrole = el.try_string("AXSubrole").ok()?;
+    let frame = el.frame()?;
+    // Rich content (macOS 27.0.1, Safari): an <input> (AXTextField) never
+    // holds any; a native <textarea> (AXTextArea) has exactly one AXGroup
+    // child, a contenteditable AXTextArea has its text runs and formatting
+    // as children instead.
+    let mut kid_roles = Vec::new();
+    for c in el.try_elements("AXChildren").ok()? {
+        kid_roles.push(c.try_string("AXRole").ok()?.unwrap_or_else(String::new));
+    }
+    let rich = roles::web_rich(&role, &kid_roles);
+    let hidden = el.try_bool("AXHidden").ok()?.unwrap_or(false);
+    // A length limit, where the web content exposes one.
+    let limited = matches!(el.try_number("AXMaxLength"), Ok(Some(n)) if n > 0.0);
+    Some(roles::WebField {
+        text_input: roles::is_text_input(&role),
+        secure: roles::is_secure(&role, subrole.as_deref()),
+        rich,
+        width: frame.width,
+        height: frame.height,
+        on_screen: frame.intersects(window),
+        hidden,
+        limited,
+        center: roles::center(&frame),
+    })
 }
 
 /// The facts the focus guard reads before the focus write.
