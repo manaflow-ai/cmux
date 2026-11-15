@@ -129,17 +129,20 @@ import Testing
         let router = makeReleaseRouter(services)
         let desktop = services.notifications.desktop
         var opened: [(String, UInt64?)] = []
-        desktop.onOpen = { id, surface in opened.append((id, surface)) }
-        desktop.post(id: "turn-1", title: "Claude finished", body: "", surface: 9, workspace: nil, defaultSound: false)
+        desktop.onOpenTab = { id, surface in opened.append((id, surface)) }
+        var clicks = 0
+        desktop.onOpen = { _, _ in clicks += 1 }
+        desktop.post(id: "cmux-notification-9", title: "Claude finished", body: "", surface: 9, workspace: nil, defaultSound: false)
 
         // A caller-named surface is ignored: the banner's own surface is the one opened.
         let answer = try await router.handle(ControlRequest(id: "1", method: "notifications.open",
-                                                            params: ["id": .string("turn-1"), "surface": .number(1)])).get()
-        #expect(answer.objectValue?["opened"] == .string("turn-1"), "\(answer)")
+                                                            params: ["id": .string("cmux-notification-9"), "surface": .number(1)])).get()
+        #expect(answer.objectValue?["opened"] == .string("cmux-notification-9"), "\(answer)")
         #expect(answer.objectValue?["surface"] == .number(9), "\(answer)")
         #expect(opened.count == 1)
-        #expect(opened.first?.0 == "turn-1")
+        #expect(opened.first?.0 == "cmux-notification-9")
         #expect(opened.first?.1 == 9)
+        #expect(clicks == 0, "a script's open ran the whole click route (a page's handler, a special banner's route)")
         withExtendedLifetime(services) {}
     }
 
@@ -149,7 +152,8 @@ import Testing
         let desktop = services.notifications.desktop
         var opened = 0
         desktop.onOpen = { _, _ in opened += 1 }
-        desktop.post(id: "turn-1", title: "Claude finished", body: "", surface: 9, workspace: nil, defaultSound: false)
+        desktop.onOpenTab = { _, _ in opened += 1 }
+        desktop.post(id: "cmux-notification-9", title: "Claude finished", body: "", surface: 9, workspace: nil, defaultSound: false)
 
         for params: [String: JSONValue] in [["id": .string("no-such-banner")], [:]] {
             let result = await router.handle(ControlRequest(id: "1", method: "notifications.open", params: params))
@@ -172,6 +176,7 @@ import Testing
         let desktop = services.notifications.desktop
         var opened = 0, passkeys = 0
         desktop.onOpen = { _, _ in opened += 1 }
+        desktop.onOpenTab = { _, _ in opened += 1 }
         services.notifications.onPasskeyBanner = { _ in passkeys += 1 }
         let special = ["cmux-passkey-\(UUID().uuidString)", "cmux-attention.tab_1", "handoff.1", "sandbox-run.1"]
         for id in special {

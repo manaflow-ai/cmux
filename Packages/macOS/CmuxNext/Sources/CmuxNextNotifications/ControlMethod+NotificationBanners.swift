@@ -5,13 +5,14 @@ import Foundation
 /// `notifications.banners`: the banners this app asked for, newest last (the bounded
 /// `DesktopNotifier.posted`), as `{banners: [{id, title, subtitle, body, surface, reply, approval,
 /// category}], authorization}`. A read: it moves no focus. An incognito window's banner is listed as
-/// it showed, naming nothing of the window (`DesktopNotifier.post`).
+/// it showed, naming nothing of the window, its surface included (`DesktopNotifier.post`).
 ///
-/// `notifications.open {"id": <banner id>}`: runs that banner's click (`DesktopNotifier.open`) on the
-/// banner's own surface, never one the caller names, and answers `{opened, surface}`; an id no listed
-/// banner has is `not_found` and runs nothing. It is an explicit focus-intent command
-/// (skills/cmux-socket-policy): like the person's click on the banner, it shows the banner's tab and
-/// moves in-app focus there.
+/// `notifications.open {"id": <banner id>}`: shows a tab banner's own surface, as its click does
+/// (`DesktopNotifier.openTab`), never one the caller names, and answers `{opened, surface}`; an id no
+/// listed banner has is `not_found` and runs nothing. Only a daemon notification's banner opens: any
+/// other (passkey, iPhone pairing, attention, Runs) acts on the person's own click and is
+/// `person_required`, and a web page's banner runs none of the page's click handler. It is an
+/// explicit focus-intent command (skills/cmux-socket-policy): it shows the tab and moves in-app focus there.
 ///
 /// Both are served by release builds (not `debug.*`), so a probe can check a Nightly from outside:
 /// one banner per agent turn, and its click opens the chat (`cmux notification banners|open`).
@@ -41,8 +42,16 @@ extension ControlMethod {
                         table: "NotificationsPanel", bundle: .module), id)
                     throw ControlError(code: "not_found", message: message, data: ["id": .string(id)])
                 }
-                notifier.open(id: banner.id, surface: banner.surface)
-                return .value(["opened": .string(banner.id), "surface": banner.surface.map { .number(Double($0)) } ?? .null])
+                // A passkey, pairing, attention or Run banner's click acts on the person's intent (a passkey's
+                // starts a WebAuthn ceremony: agent-browser-passkey-DESIGN.md), so a script opens only a tab's.
+                guard banner.id.hasPrefix(DesktopNotifier.tabBannerPrefix) else {
+                    let message = String(format: String(localized: "notifications.control.openPersonOnly",
+                        defaultValue: "Banner %@ opens only on your click in macOS; notifications.open opens a tab's banner",
+                        table: "NotificationsPanel", bundle: .module), id)
+                    throw ControlError(code: "person_required", message: message, data: ["id": .string(id)])
+                }
+                notifier.openTab(id: banner.id, surface: banner.surface)
+                return .value(["opened": .string(banner.id), "surface": banner.listedSurface])
             },
         ]
     }
@@ -55,9 +64,14 @@ extension DesktopNotifier.Posted {
         [
             "id": .string(id), "title": .string(title),
             "subtitle": subtitle.map(JSONValue.string) ?? .null, "body": .string(body),
-            "surface": surface.map { .number(Double($0)) } ?? .null,
+            "surface": listedSurface,
             "reply": .bool(reply), "approval": .bool(approval),
             "category": category.map(JSONValue.string) ?? .null,
         ]
+    }
+
+    /// The banner's surface as the lists show it: none for an incognito window's banner.
+    var listedSurface: JSONValue {
+        incognito ? .null : surface.map { .number(Double($0)) } ?? .null
     }
 }

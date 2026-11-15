@@ -526,6 +526,137 @@
           }
         }
       }
+    },
+    "notifications.control.openPersonOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ opens only on your click in macOS; notifications.open opens a tab's banner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُفتح الإشعار %@ بنقرتك في macOS فقط؛ يفتح notifications.open إشعار علامة تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ se otvara samo vašim klikom u macOS-u; notifications.open otvara banner kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ åbnes kun med dit klik i macOS; notifications.open åbner en fanes banner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ öffnet sich nur durch deinen Klick in macOS; notifications.open öffnet das Banner eines Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El aviso %@ solo se abre con tu clic en macOS; notifications.open abre el aviso de una pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La bannière %@ ne s’ouvre que sur votre clic dans macOS ; notifications.open ouvre la bannière d’un onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il banner %@ si apre solo con il tuo clic in macOS; notifications.open apre il banner di una scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バナー %@ は macOS でのあなたのクリックでのみ開きます。notifications.open はタブのバナーを開きます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បដា %@ បើកតែដោយការចុចរបស់អ្នកក្នុង macOS ប៉ុណ្ណោះ; notifications.open បើកបដារបស់ផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배너 %@은(는) macOS에서 직접 클릭해야만 열립니다. notifications.open은 탭의 배너를 엽니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner %@ åpnes bare med ditt klikk i macOS; notifications.open åpner en fanes banner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baner %@ otwiera się tylko po Twoim kliknięciu w macOS; notifications.open otwiera baner karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O banner %@ só abre com o seu clique no macOS; notifications.open abre o banner de uma aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Баннер %@ открывается только вашим щелчком в macOS; notifications.open открывает баннер вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบนเนอร์ %@ เปิดได้ด้วยการคลิกของคุณใน macOS เท่านั้น notifications.open เปิดแบนเนอร์ของแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bildirimi yalnızca macOS'te sizin tıklamanızla açılır; notifications.open bir sekmenin bildirimini açar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Банер %@ відкривається лише вашим клацанням у macOS; notifications.open відкриває банер вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biểu ngữ %@ chỉ mở khi bạn bấm trong macOS; notifications.open mở biểu ngữ của một tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "横幅 %@ 只能由你在 macOS 中点按打开；notifications.open 打开的是标签页的横幅"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "橫幅 %@ 只能由你在 macOS 中點按開啟；notifications.open 開啟的是分頁的橫幅"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

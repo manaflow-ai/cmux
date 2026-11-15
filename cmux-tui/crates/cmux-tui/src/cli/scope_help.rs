@@ -55,10 +55,11 @@ notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
 
 banners and open ask the cmux app, not the session. banners lists the macOS
 banners the app asked for, newest last, as JSON {banners: [{id, title,
-subtitle, body, surface, reply, approval, category}], authorization}; it
-moves no focus. open runs one banner's click, as the person's click does: it
-shows that banner's tab and moves the app's focus there, then answers
-{opened, surface}. An id banners does not list is not_found and opens nothing.
+subtitle, body, reply, approval, category, ...}], authorization}, each with
+the app's number for the tab it opens; it moves no focus. open runs one
+banner's click, as the person's click does: it shows that banner's tab and
+moves the app's focus there, then answers {opened, ...} with that tab's
+number. An id banners does not list is not_found and opens nothing.
 ";
 
 pub(super) const ATTENTION_HELP: &str = "\

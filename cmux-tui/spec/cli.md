@@ -899,11 +899,15 @@ eviction is complete.
 `notification banners` and `notification open <banner-id>` ask the cmux app
 (its `notifications.banners` and `notifications.open` methods), not the
 daemon. `banners` lists the macOS banners the app asked for, newest last and
-bounded: `{banners: [{id, title, subtitle, body, surface, reply, approval,
-category}], authorization}`, an incognito window's banner as it showed. It
-moves no focus. `open` runs that banner's click on the banner's own tab (never
-a caller-chosen one), so it moves the app's focus there, and answers `{opened,
-surface}`; an id the app does not list is `not_found` and opens nothing. Release
+bounded: `{banners: [{id, title, subtitle, body, reply, approval, category,
+…}], authorization}`, each with the app's number for the tab it opens (none
+for an incognito window's banner, listed as it showed). It moves no focus.
+`open` shows that banner's own tab (never a caller-chosen one), as a click on
+it does, so it moves the app's focus there, and answers `{opened, …}`; an id
+the app does not list is `not_found` and opens nothing. Only a tab's banner
+opens, and a web page's banner runs none of the page's click handler: a
+passkey, pairing, attention or Run banner acts on the person's own click, so
+opening one is `person_required`. Release
 builds serve both, so a probe can check a Nightly's banners from outside the app.
 
 `terminal <selector> output read` returns a bounded plain-text window of the
