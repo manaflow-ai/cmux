@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43688849690",
+  "recorded_at": "2026-11-15T07:18:48Z",
+  "reason": "cmux-tui e186827856d1 changes the image's cmux-tui (pinned 35fb9cda58c7)",
+  "dry_run": false,
+  "cmux_tui": "e186827856d1309c343371d5d1417f99f2a0614b",
+  "fixes": [
+    {
+      "sha": "e186827856d1309c343371d5d1417f99f2a0614b",
+      "mergedAt": "2026-11-14T22:55:42-08:00",
+      "subject": "acpmux: a deleted chat leaves no agent or files behind (#43480)"
+    },
+    {
+      "sha": "7d563c1927f6d2f8a386e9ee33fbe7a754331d53",
+      "mergedAt": "2026-11-14T22:38:30-08:00",
+      "subject": "cmux app try <PR|branch|sha>, undo, status: another commit's cmux in this app, live when it fits (#43540)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T07:18:48Z",
+    "snapshot_id": "sh-a99a600277644f5287d272ae342e8c78",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43688849690): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "486ba37808e41104f36899aff62c57dbc9317693",
+    "image": "cloud-native-auto-e1868278-43688849690-1",
+    "revision": "ci-43688849690-1",
+    "at": "2026-11-15T07:18:48Z"
+  },
+  "rolled_back": false
+}
