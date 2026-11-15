@@ -3127,3 +3127,9 @@ failed tree posts `same-tree cmux-tui unavailable: <reason>` unless same-tree-cm
 handed the tree over. A post GitHub refuses three times is the reporter's red. Pattern page: cmuxterm-hq
 `docs/handbook/status-posted-by-the-job-it-reports.md`; detector:
 `tests/test_cmux_next_same_tree_status_never_silent.py` `test_no_status_is_posted_from_inside_the_job_it_reports`.
+
+SAME_TREE_STATUS_SPARE_TOKEN (hq#11150): each reporter also mints a cmux-bot App token (statuses: write) and
+passes it as GH_TOKEN_SPARE. github.token shares one hourly budget with every workflow run in the repository; on
+2026-11-15 ~750 queued runs had spent it, and run 43660624788's post got HTTP 403 three times over. The first
+rate-limited call moves to the App token, which has its own budget. The App key is a repository secret, so the
+reporters run in the secrets-only `ci-routing-agent` environment off pull_request events, like compile-status.
