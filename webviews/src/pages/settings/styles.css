@@ -2507,6 +2507,7 @@ button.menu-disclosure {
 
 .library-tile .library-order {
   align-self: flex-end;
+}
 
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
    One row under "No settings match.", a hover fill on its own box like a result row, the words
