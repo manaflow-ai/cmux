@@ -22,8 +22,30 @@ extension PaletteModel {
 
     /// The palette closed. Pages that ran no closing command revert their
     /// preview; a later reopen on the same page previews again.
+    ///
+    /// A hidden page reads nothing more: a read that still runs ends here, and a read left for after
+    /// the frame does not start. A list that is not complete would else be read again each few seconds
+    /// behind the hidden palette (`AsyncPaletteProvider.rereading`). Such a page loads again when it
+    /// shows again (``didShowAgain()``, or a pop to it).
     public func didHide() {
-        for state in stack.reversed() { leave(state) }
+        for load in deferredLoads { load.state.needsLoad = true }
+        deferredLoads = []
+        for state in stack.reversed() {
+            if state.liveReads > 0 {
+                state.cancelReads()
+                state.needsLoad = true
+                // The reads that ended give no rows: the page waits for none, until it loads again.
+                state.pendingProviders = []
+                if state === current { isLoading = state.answersQuery }
+            }
+            leave(state)
+        }
+    }
+
+    /// The palette shows again on the page it hid on (a refused command's notice): a page whose
+    /// reads the hide ended reads again. Its rows stay until the new ones come.
+    public func didShowAgain() {
+        if current?.needsLoad == true { reload() }
     }
 
     func leave(_ state: PageState) {

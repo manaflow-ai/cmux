@@ -2,6 +2,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextCloudUI
+import CmuxNextDaemonService
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSettings
@@ -71,9 +73,43 @@ enum PaletteSourcesBridge {
         let profiles = BrowserProfileTargetSource(services: services, next: windows)
         let screens = ScreenTargetSource(services: services, next: profiles)
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
-        let sections = SidebarSectionTargetSource(services: services, next: spaces)
+        let sections = SidebarSectionTargetSource(document: { [weak services] in services?.sidebarLayout.document ?? SidebarLayoutDocument(sections: []) },
+            workspacesTitle: SidebarSectionStrings.workspacesSection, untitledTitle: SidebarSectionStrings.untitledSection, next: spaces)
         let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
-        return agentChatTargets(AgentChatDestinations(services: services), next: groups)
+        let sidebarApps = RefreshingPaletteTargetSource(kind: .sidebarItem,
+            actions: Set(services.registry.descriptors.filter { $0.paletteTargetSource == "sidebarApps" }.map(\.id)),
+            next: groups, read: { sections.appTargets() })
+        var bookmarkTargets: any PaletteTargetSource = sidebarApps
+        let bookmarkSources: [String?] = [nil, "bookmarks", "bookmarkFolders"]
+        for source in bookmarkSources {
+            let actions = Set(services.registry.descriptors.filter { $0.paletteTarget == .bookmark && $0.paletteTargetSource == source }.map(\.id))
+            bookmarkTargets = RefreshingPaletteTargetSource(kind: .bookmark, actions: actions, next: bookmarkTargets,
+                                                            read: { profiles.bookmarks(source: source) })
+        }
+        let descriptors = services.registry.descriptors.filter { $0.paletteTarget == .machine }
+        let all = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == nil }.map(\.id)),
+                                                next: bookmarkTargets, read: { windows.machines(includeDisconnected: true) })
+        let remote = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "remote" }.map(\.id)),
+                                                   next: all, read: { windows.machines(includeDisconnected: true).filter { $0.id != MachineRegistry.localID } })
+        let remoteGroups = RefreshingPaletteTargetSource(kind: .machine, actions: ["remote.removeGroup"], next: remote) { [weak services] in
+            guard let services, let store = services.sidebarDoc.activeStore else { return [] }
+            return windows.machines(includeDisconnected: true).filter {
+                guard let session = services.machines.anyDaemon(machine: $0.id)?.store.registryID else { return false }
+                return store.records.sections["sec_m_\(session)"]?.hostGroup == true
+            }
+        }
+        let ssh = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "ssh" }.map(\.id)), next: remoteGroups) { [weak services] in
+            guard let services else { return [] }
+            let rows = services.machines.ssh.map { PaletteTargetOption(id: $0.machineID, title: $0.host.label, symbol: "server.rack") }
+            guard rows.isEmpty, let title = services.registry.title(for: "machine.add") else { return rows }
+            return [PaletteTargetOption(id: "add-machine", title: title, symbol: "plus", recovery: PaletteTargetRecovery(action: "machine.add", title: title))]
+        }
+        let cloud = CloudPaletteTargetSource(
+            actions: Set(descriptors.filter { $0.paletteTargetSource == "cloud" }.map(\.id)), next: ssh,
+            machines: { [weak services] in services?.machines.cloud.map(\.machine) ?? [] },
+            refresh: { [weak services] in _ = await services?.cloud.refresh() },
+            ask: { CloudHandlerRules().ask("cloud_handler_palette_targets", $0) })
+        return agentChatTargets(AgentChatDestinations(services: services), next: cloud)
     }
 
     static func agentChatTargets(_ destinations: AgentChatDestinations, next: any PaletteTargetSource) -> any PaletteTargetSource {
@@ -92,6 +128,7 @@ enum PaletteSourcesBridge {
     static func capturedTargets(_ services: AppServices) -> [ActionTargetRef] {
         guard let window = services.windows.active else { return [] }
         var refs: [ActionTargetRef] = []
+        refs.append(ActionTargetRef(kind: .machine, id: window.state.machineID))
         if let pane = window.focusedPane {
             if let selected = pane.stripModel.selectedID {
                 if let group = pane.tab(selected)?.tabGroup { refs.append(ActionTargetRef(kind: .tabGroup, id: group.rawValue)) }
@@ -163,11 +200,11 @@ enum PaletteSourcesBridge {
             daemon.send("rename-workspace") { connection in _ = try await connection.renameWorkspace(key, to: title) }
         }
 
+        /// The row's "Close Workspace" is an entrypoint of `closeWorkspace`, as the sidebar row's close button
+        /// (`SidebarBridge+Intents`): the row leaves and the selection moves in this turn (`WorkspaceCloseFlow`), a
+        /// running program is asked about, and the action's own target reason refuses Home (`HomeRules`).
         func closeWorkspace(id: String) {
-            guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
-            guard !HomeRules.isHome(workspace) else { return services.registry.refuse(RefusalStrings.homeNotClosable) }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon) }
+            services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id))
         }
     }
 

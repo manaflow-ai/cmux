@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73. */
+/* cmux-tui mux protocol 12, IR dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5. */
 
 
 import type * as T from "./types.js";
@@ -65,7 +65,9 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "expected_generation"?: (string) | null;
   "expected_terminal_id"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
+  "output_coalesce_ms"?: (number) | null;
   "replay_history_rows"?: (number) | null;
+  "replay_history_start"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -221,6 +223,15 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface CancelCreatingInputRequest extends CmuxRequestBase {
+  cmd: "cancel-creating-input";
+  "terminal_id": string;
+}
+export type CancelCreatingInputResult = {
+  "cancelled": boolean;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
@@ -1076,6 +1087,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "argv"?: (Array<string>) | null;
   "cols"?: (number) | null;
   "command"?: (string) | null;
+  /** Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace. */
+  "create_workspace"?: boolean;
   "cwd"?: (string) | null;
   "detached"?: boolean;
   "env"?: (Record<string, string>) | null;
@@ -1090,6 +1103,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
+  /** The name of the workspace create_workspace makes. */
+  "workspace_name"?: (string) | null;
 }
 export type CreateTerminalResult = T.TerminalPlacement;
 
@@ -1098,6 +1113,8 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   cmd: "create-workspace";
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
+  /** The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply. */
+  "first_tab"?: (T.WorkspaceFirstTab) | null;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
@@ -1475,6 +1492,8 @@ export type ListWorkspaceGroupsResult = T.JsonValue;
 /** Protocol v5; authority: control. */
 export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
+  "known"?: (T.ListWorkspacesKnown) | null;
+  "limit"?: (bigint) | null;
 }
 export type ListWorkspacesResult = T.Tree;
 
@@ -1778,6 +1797,8 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
   "url": string;
+  /** Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split. */
+  "workspace"?: (T.Id) | null;
 }
 export type NewFrontendBrowserTabResult = T.JsonValue;
 
@@ -3036,6 +3057,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | CancelCreatingInputRequest
   | ChiefInspectRequest
   | ChiefWorkRequest
   | ClearHistoryRequest
@@ -3477,6 +3499,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "cancel-creating-input": {
+    request: CancelCreatingInputRequest;
+    result: CancelCreatingInputResult;
+    authority: "control";
+    since: 12;
+    capability: "creating-input-cancel-v1";
     stream: null;
   };
   "chief-inspect": {

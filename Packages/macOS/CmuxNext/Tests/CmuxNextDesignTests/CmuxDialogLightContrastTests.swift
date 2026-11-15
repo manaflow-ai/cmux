@@ -6,7 +6,7 @@ import Testing
 import CmuxNextDesignTokens
 
 /// cx-ujp: a cmux dialog in a light theme drew low-contrast text. The overlay page draws the dialog
-/// card now (webviews/src/pages/overlay/dialog); these guard the button looks every native card
+/// card now (``CmuxDialogView``); these guard the button looks every native card
 /// (`CmuxDialogButtonView`) still draws: each ink reads on the card, light and dark, and a focused
 /// button's ring sits outside its fill, unclipped, at 3:1.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CmuxDialogLightContrastTests {
@@ -50,6 +50,21 @@ import CmuxNextDesignTokens
             // cannot lower their contrast.
             #expect(CmuxDialogButtonLook(role: .default, tokens: tokens).fill.alpha == 1)
             #expect(CmuxDialogButtonLook(role: .destructive, tokens: tokens, filledDestructive: true).fill.alpha == 1)
+        }
+    }
+
+    /// A filled destructive button (the close question's Close) is white on red in every theme and state, as macOS
+    /// draws one (Aziz 2026-11-13: "the black on red looks bad it must be white on red"); light themes drew black.
+    @Test func aFilledDestructiveButtonIsWhiteOnRed() {
+        let accented = ThemeInput(background: ThemeRGB(hex: 0x1F2430), foreground: ThemeRGB(hex: 0xCBCCC6))
+        for input in [Self.light, Self.dark, accented] {
+            let tokens = ThemeTokens.derive(from: input)
+            for state in CmuxDialogButtonLook.State.allCases {
+                let look = CmuxDialogButtonLook(role: .destructive, tokens: tokens, state: state)
+                #expect(look.title == ThemeRGB(red: 1, green: 1, blue: 1), "\(state) title \(look.title) on \(look.fill)")
+                #expect(look.fill.red > look.fill.green * 1.5 && look.fill.red > look.fill.blue * 1.5, "\(state) fill \(look.fill) is not red")
+                #expect(look.title.contrast(with: look.fill) >= 4.5)
+            }
         }
     }
 

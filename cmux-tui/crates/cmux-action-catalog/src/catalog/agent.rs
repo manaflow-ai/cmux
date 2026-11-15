@@ -296,6 +296,22 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.captureScreenshotToChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.captureScreenshotToChat", "Capture Screenshot to Chat"),
+        description: Some("Picks a region of the screen with the system's picker and puts the screenshot into the focused agent chat's composer (else a new chat's) as an unsent draft. Its system-wide key works while another app is in front once app.captureScreenshotGlobalHotKey is on."),
+        keywords: &["screenshot", "capture", "screen", "region", "image", "picture", "attach", "chat", "agent", "global", "hotkey", "hot key"],
+        default_shortcut: Some(Shortcut { key: "s", modifiers: CTRL | OPT | CMD }),
+        category: "agents",
+        symbol: "camera.viewfinder",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action palette-capture-screenshot-to-chat",
+        is_person_only: true,
+        is_global_hot_key: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.addHarness",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.addHarness", "Integrate a Harness with an Agent…"),
@@ -317,6 +333,17 @@ pub static ACTIONS: &[Action] = &[
         symbol: "chart.bar.xaxis",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action stats-show",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentBoard.show",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentBoard.show", "Show Agent Board"),
+        keywords: &["agent board", "board", "work tracking", "ledger", "evidence", "decisions", "permutations", "agents"],
+        category: "agents",
+        symbol: "square.grid.3x3.topleft.filled",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action agent-board-show",
         ..Action::DEFAULT
     },
     Action {
@@ -604,6 +631,17 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         requires: &["terminalFocused"],
         cli_name: "agent open-terminal-as-chat",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "palette.toggleTerminalChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.toggleTerminalChat", "Toggle Terminal and Chat"),
+        keywords: &["agent", "chat", "terminal", "gui", "swap", "switch"],
+        category: "agents",
+        symbol: "arrow.left.arrow.right",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "agent toggle-terminal-chat",
         ..Action::DEFAULT
     },
     Action {

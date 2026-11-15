@@ -13,13 +13,18 @@ import MessagesLabHome
 /// target the app no longer has shows "Closed". It reads the models and never changes them.
 final class HomeLinkPreviewProvider: HomeLinkPreviewing {
     private weak var services: AppServices?
-    init(services: AppServices?) {
+    /// Lines a card shows at most.
+    nonisolated static let maxLines = 6
+    /// Bytes of a file read for its first lines.
+    nonisolated static let fileBytes = 4096
+
+    init(services: AppServices) {
         self.services = services
     }
 
     func preview(for url: URL, kind: HomeLinkChipKind) -> HomeLinkPreview {
-        if url.isFileURL { return .file(url, kind: kind) }
-        if url.scheme == "https" { return .gitHub(url, kind: kind) }
+        if url.isFileURL { return filePreview(url, kind: kind) }
+        if url.scheme == "https" { return gitHubPreview(url, kind: kind) }
         guard let services,
               let link = CmuxAppLinks.link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost) else {
             return closed(kind, url.lastPathComponent)
@@ -33,7 +38,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             let titles = TabTitleResolver(services: services)
             return HomeLinkPreview(kind: .workspace, title: workspace.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
                                    status: HomeLinkPreviewStrings.open, statusTone: .success,
-                                   lines: tabs.prefix(HomeLinkPreview.maxLines).map { titles.title($0) })
+                                   lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
         case .pane(let id):
             guard let pane = services.pane(id: id), let tab = pane.tabs.first else { return closed(kind, id) }
             return tabPreview(tab, pane: pane, services: services)
@@ -60,7 +65,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             let titles = TabTitleResolver(services: services)
             return HomeLinkPreview(kind: .workspace, title: open.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
                                    status: HomeLinkPreviewStrings.open, statusTone: .success,
-                                   lines: tabs.prefix(HomeLinkPreview.maxLines).map { titles.title($0) })
+                                   lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
         case .legacyWorkspace, .legacyPane, .legacySurface: return closed(kind, url.lastPathComponent)
         }
     }
@@ -70,7 +75,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
         if url.isFileURL {
             let path = url.standardizedFileURL.path, kind = preview.kind
             // task-owner: one bounded read off the main thread; the card awaits it
-            let lines = await Task.detached(priority: .userInitiated) { HomeLinkPreview.firstLines(path, folder: kind == .folder) }.value
+            let lines = await Task.detached(priority: .userInitiated) { Self.firstLines(path, folder: kind == .folder) }.value
             if let lines { out.lines = lines; out.monospaced = kind == .code } else { out.status = HomeLinkPreviewStrings.closed; out.statusTone = .danger }
             return out
         }
@@ -86,7 +91,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             guard let connection = services.machines.daemon(forTab: tab).connection,
                   let screen = try? await connection.request(ReadScreenRequest(surface: tab.surface), timeout: .seconds(2)) else { return out }
             let lines = screen.text.components(separatedBy: "\n").map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
-            out.lines = Array(lines.filter { !$0.isEmpty }.suffix(HomeLinkPreview.maxLines))
+            out.lines = Array(lines.filter { !$0.isEmpty }.suffix(Self.maxLines))
             out.monospaced = true
         case .browser:
             let image = await services.previews.previewImage(for: TabID(tab.id), maxPixelSize: CGSize(width: 600, height: 300))
@@ -106,15 +111,15 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             kind = .session
         } else if tab.page == "markdown" {
             kind = .markdown
-            place = tab.pageRoute.map(HomeLinkPreview.abbreviated) ?? place
+            place = tab.pageRoute.map(Self.abbreviated) ?? place
         } else if tab.page == "editor" {
             kind = .file
-            place = tab.pageRoute.map(HomeLinkPreview.abbreviated) ?? place
+            place = tab.pageRoute.map(Self.abbreviated) ?? place
         } else {
             switch tab.kind {
             case .pty, .remoteTerminal:
                 kind = .terminal
-                if let cwd = tab.cwd { place = [place, HomeLinkPreview.abbreviated(cwd)].compactMap { $0 }.joined(separator: " · ") }
+                if let cwd = tab.cwd { place = [place, Self.abbreviated(cwd)].compactMap { $0 }.joined(separator: " · ") }
             case .browser:
                 kind = .browser
                 place = tab.url ?? place
@@ -126,8 +131,42 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
                                status: HomeLinkPreviewStrings.open, statusTone: .success)
     }
 
+    private func filePreview(_ url: URL, kind: HomeLinkChipKind) -> HomeLinkPreview {
+        let path = url.standardizedFileURL.path
+        return HomeLinkPreview(kind: kind, title: (path as NSString).lastPathComponent,
+                               place: Self.abbreviated((path as NSString).deletingLastPathComponent))
+    }
+
+    private func gitHubPreview(_ url: URL, kind: HomeLinkChipKind) -> HomeLinkPreview {
+        let parts = url.path.split(separator: "/").map(String.init)
+        let repo = parts.prefix(2).joined(separator: "/")
+        let id = parts.last ?? ""
+        let title = kind == .commit ? String(id.prefix(10)) : kind == .run ? id : "#" + id
+        return HomeLinkPreview(kind: kind, title: title, place: repo)
+    }
+
     private func closed(_ kind: HomeLinkChipKind, _ id: String) -> HomeLinkPreview {
         HomeLinkPreview(kind: kind, title: id, status: HomeLinkPreviewStrings.closed, statusTone: .danger)
+    }
+
+    /// `path` with the home folder as `~`.
+    nonisolated static func abbreviated(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+    }
+
+    /// A file's first non-empty lines (or a folder's first names); nil when it is gone.
+    nonisolated static func firstLines(_ path: String, folder: Bool) -> [String]? {
+        if folder {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
+            return Array(names.filter { !$0.hasPrefix(".") }.sorted().prefix(maxLines))
+        }
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: fileBytes)) ?? Data()
+        let text = String(decoding: data, as: UTF8.self)
+        guard !text.contains("\u{0}") else { return [] }
+        return Array(text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(maxLines))
     }
 }
 

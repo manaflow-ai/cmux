@@ -9,6 +9,7 @@ import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -90,13 +91,9 @@ setBookmarkTransport({
   },
 });
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -126,10 +123,16 @@ async function mount(prompts: number) {
     ),
   );
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const scrolled = () => act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+  // The minimap places its band in the frame after a scroll event, as a browser runs it.
+  const scrolled = () =>
+    act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+    });
   await act(async () => {
     scroller.scrollTop = 0;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
   });
   return { root, scroller, scrolled, unmount: () => act(async () => root.unmount()) };
 }
@@ -414,6 +417,7 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
     await act(async () => {
       view.scroller.scrollTop = 500;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     expect(list.scrollTop).toBe(240);
   } finally {
@@ -587,10 +591,12 @@ test("a rail browsed in one chat follows the reader again in the next chat the t
     await act(async () => {
       view.scroller.scrollTop = 5000;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     await act(async () => {
       view.scroller.scrollTop = 0;
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     expect(list().scrollTop).toBe(0);
   } finally {

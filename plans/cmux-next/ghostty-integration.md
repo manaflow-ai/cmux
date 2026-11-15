@@ -424,7 +424,9 @@ rows measured before it lands, or the lead must write why not in the PR.
 
 Pins: the fork branches of #40153 (`a0975fd8c`) and of #40169 (`a0e665d4f`) both start at `b3a5ebfdf` and neither
 has the other's commits; `c31377f1a` (#40174) has #40169's commits and not #40153's. The second of them to land needs
-a fork branch that has both, and a new pin: a pin PR must not drop what an earlier pin PR landed.
+a fork branch that has both, and a new pin: a pin PR must not drop what an earlier pin PR landed. `b37a94dfe`
+(`release/cmux-gi-land-1-cell-guard`) = `c370b103a` + the two commits of fork PR #91 (a frame with no built cells runs
+no cell pass; cmux f14); it has no commit of #40174.
 
 ## 6. Baseline
 

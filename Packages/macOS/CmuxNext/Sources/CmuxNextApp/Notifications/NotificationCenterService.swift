@@ -24,15 +24,13 @@ final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
     var preferences = NotificationPreferences()
     /// A dismissal belongs to one daemon session, never another machine with the same IDs.
-    struct HighlightKey: Hashable {
-        let machine: String
-        let session: String?
-        let id: String
-    }
+    typealias HighlightKey = NotificationOwnerKey
 
     /// Newest notification / manual-mark generation dismissed for each owning resource.
     var dismissedHighlights: [HighlightKey: UInt64] = [:]
     var dismissedMarks: [HighlightKey: UInt64] = [:]
+    /// The agent requests whose ring the person hid (going in, Dismiss Highlight), kept by request, not tab model.
+    let ringHides = AttentionRingHides()
     /// The Needs you banners of tabs an agent marked (`AttentionBanners`; this service is its host).
     @ObservationIgnored private(set) lazy var attention = AttentionBanners(host: self)
     @ObservationIgnored weak var services: AppServices?
@@ -425,7 +423,7 @@ final class NotificationCenterService {
         // daemon's) hides it too, by its generation; only the owner's clear needs the id.
         // Opening it (jump to unread, a banner) goes into the tab as a click does.
         guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) else { return }
-        tab.attentionRingHiddenThrough = tab.attentionGeneration
+        hideAttentionRing(of: tab)
     }
 
     /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread

@@ -54,7 +54,11 @@ jobs:
             scripts/ci/cmux_next_base_tier.py
             scripts/ci/cmux_next_tree_notify.py
             scripts/ci/github_quota_client.py
+            scripts/ci/deadline_http.py
             .github/workflows/cmux-next.yml
+            scripts/ci/cmux_tui_tree_handoff.py
+            scripts/ci/cmux_tui_tree_takeover.py
+            scripts/ci/gh_pages.py
           sparse-checkout-cone-mode: false
 
       # The kick lists runs and their jobs, dispatches cmux-next.yml and cancels superseded base tier

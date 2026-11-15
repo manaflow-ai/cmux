@@ -19,7 +19,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "sparkles",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 221).folder("connection")], ..SurfacePlan::DEFAULT },
-        arguments: &[args::AGENT_3, args::NAME_6.optional(), args::CWD_3.optional(), args::FROM_FOLDER, args::LOGIN.optional()],
+        arguments: &[args::AGENT_3, args::NAME_6.optional(), args::CWD_3.optional(), args::FROM_FOLDER, args::LOGIN.optional(), args::MODEL.optional()],
         targets: &["machine"],
         cli_name: "cloud start-session",
         waits_for_person: true,

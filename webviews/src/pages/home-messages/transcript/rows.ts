@@ -14,9 +14,7 @@
 // - Others typing show one typing bubble at the end; a participant whose reply is streaming shows
 //   that reply as its bubble instead.
 // - Gaps are Messages' measured ones (points, drawn as CSS pixels).
-import { PENDING_PREFIX, partShows, partText, pendingMessages, threadOf } from "../../home-channels/model";
-import { isApprovalCard } from "../cards/approval/approval";
-import { fallbackHeight } from "../cards/widget/widgetModel";
+import { PENDING_PREFIX, pendingMessages, threadOf } from "../../home-channels/model";
 import type { HomeDraft } from "../../home-channels/drafts";
 import type { PendingSend } from "../../home-channels/store";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomePart, HomeReaction } from "../../home-channels/types";
@@ -26,10 +24,10 @@ export const GROUP_GAP_MS = 60_000;
 /** A time label heads a message more than an hour after the one above (`RowBuilder.separatorGap`, macOS 27). */
 export const SEPARATOR_GAP_MS = 60 * 60_000;
 
-/** Another participant's read cursor: the newest seq they read, and when (where the owner says). */
+/** Another participant's read cursor: the newest seq they read, and when. */
 export interface ReadCursor {
   seq: number;
-  at?: number;
+  at: number;
 }
 
 /** My message's delivery: sending (pending), failed (pending, the owner refused or never answered),
@@ -38,7 +36,7 @@ export type Delivery =
   | { state: "sending" }
   | { state: "failed" }
   | { state: "delivered" }
-  | { state: "read"; at?: number };
+  | { state: "read"; at: number };
 
 /** What the rows derive from (the view reads only these). */
 export interface TranscriptData {
@@ -57,11 +55,6 @@ export interface TranscriptData {
   /** Older messages exist before the first one: the top row loads them. */
   hasOlder?: boolean;
   loadingOlder?: boolean;
-  /** Replies under each message (`timelineReplyCounts`, or a thread's `branchReplyCounts`): an
-   * "N Replies" row under it opens them. */
-  replyCounts?: ReadonlyMap<string, number>;
-  /** The rows are an open thread's: every count of 1 or more shows (a branch to drill into). */
-  threadMode?: boolean;
 }
 
 interface RowBase {
@@ -92,13 +85,10 @@ export type TranscriptRow =
       markdown: boolean;
       /** A running reply, still growing. */
       streaming?: boolean;
-      /** The part is a local Chief's permission card (Allow and Deny). */
-      approval?: boolean;
     })
-  | (RowBase & { kind: "label"; outgoing: boolean; label: "edited" | "notDelivered" | "notKept" })
+  | (RowBase & { kind: "label"; outgoing: boolean; label: "edited" | "notDelivered" })
   | (RowBase & { kind: "unsent"; outgoing: boolean })
   | (RowBase & { kind: "receipt"; receipt: "read" | "delivered"; at?: number })
-  | (RowBase & { kind: "replies"; root: string; count: number; outgoing: boolean; indent: boolean })
   | (RowBase & { kind: "typing"; participants: readonly string[] });
 
 /** The id prefix of a running reply's message. */
@@ -119,14 +109,13 @@ export function deliveryOf(
   message: HomeMessage,
   me: string,
   failed: ReadonlySet<string>,
-  readers: readonly ({ id: string } & ReadCursor)[],
+  readers: readonly { id: string; seq: number; at: number }[],
 ): Delivery | undefined {
   if (message.author !== me) return undefined;
   if (message.id.startsWith(PENDING_PREFIX))
     return failed.has(message.id.slice(PENDING_PREFIX.length)) ? { state: "failed" } : { state: "sending" };
   const reader = readers.find((cursor) => cursor.seq >= message.seq);
-  if (!reader) return { state: "delivered" };
-  return reader.at === undefined ? { state: "read" } : { state: "read", at: reader.at };
+  return reader ? { state: "read", at: reader.at } : { state: "delivered" };
 }
 
 /** Which of my messages carry a receipt (`receiptTargets`): my newest read one, and my newest delivered
@@ -135,7 +124,7 @@ export function receiptTargets(
   messages: readonly HomeMessage[],
   deliveries: ReadonlyMap<string, Delivery>,
 ): Map<string, { receipt: "read" | "delivered"; at?: number }> {
-  let read: { index: number; id: string; at?: number } | undefined;
+  let read: { index: number; id: string; at: number } | undefined;
   let delivered: { index: number; id: string } | undefined;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
@@ -143,13 +132,13 @@ export function receiptTargets(
     const delivery = deliveries.get(message.id);
     if (!delivery) continue;
     if (delivery.state === "read") {
-      read = { index, id: message.id, ...(delivery.at === undefined ? {} : { at: delivery.at }) };
+      read = { index, id: message.id, at: delivery.at };
       break;
     }
     if (delivery.state === "delivered" && !delivered) delivered = { index, id: message.id };
   }
   const out = new Map<string, { receipt: "read" | "delivered"; at?: number }>();
-  if (read) out.set(read.id, read.at === undefined ? { receipt: "read" } : { receipt: "read", at: read.at });
+  if (read) out.set(read.id, { receipt: "read", at: read.at });
   if (delivered && delivered.index > (read?.index ?? -1)) out.set(delivered.id, { receipt: "delivered" });
   return out;
 }
@@ -218,15 +207,9 @@ interface RowInputs {
   threadPrev?: string;
   threadSelf?: string;
   threadNext?: string;
-  /** My pending send the app refused to keep (too large): it says so, as it would be lost on quit. */
-  unkept?: boolean;
-  /** The "N Replies" row's count (undefined: none shows). */
-  replies?: number;
 }
 
 const INPUT_KEYS = [
-  "unkept",
-  "replies",
   "prev",
   "next",
   "above",
@@ -246,17 +229,9 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
   cache?.use(me, conversation);
   const people = new Map(conversation.participants.map((person) => [person.id, person]));
   const group = conversation.kind === "group";
-  // A message with nothing to read (a Chief turn's done marker: a work part with no preview) is no
-  // row (Swift `HomeMapping.message` marks it deleted); its seq still moves the read cursor.
-  const messages = orderedMessages(data, now).filter(
-    (message) => message.retracted || message.parts.length === 0 || message.parts.some(partShows),
-  );
+  const messages = orderedMessages(data, now);
   const failed = new Set((data.pending ?? []).filter((entry) => entry.failed).map((entry) => entry.key));
-  const unkept = new Set(
-    (data.pending ?? []).filter((entry) => entry.unkept).map((entry) => `${PENDING_PREFIX}${entry.key}`),
-  );
-  // The transcript's own cursors (with times) where given, else the owner's on the conversation.
-  const readers = readersOf(data.readCursors ?? data.conversation.readCursors, me);
+  const readers = readersOf(data.readCursors, me);
   const deliveries = new Map<string, Delivery>();
   for (const message of messages) {
     if (message.author !== me) continue;
@@ -299,8 +274,6 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
       threadPrev: thread(prev),
       threadSelf: thread(message),
       threadNext: thread(next),
-      unkept: unkept.has(message.id) || undefined,
-      replies: repliesLabel(data, message, next),
     };
     const kept = cache?.get(message, inputs);
     if (kept) {
@@ -343,7 +316,6 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
       // Text parts are a bubble each; a run of attachments is one row of media.
       const chunks: { index: number; parts: HomePart[] }[] = [];
       message.parts.forEach((part, partIndex) => {
-        if (!partShows(part)) return;
         const open = chunks.at(-1);
         if (!isTextLike(part) && open && !isTextLike(open.parts[0]!)) open.parts.push(part);
         else chunks.push({ index: partIndex, parts: [part] });
@@ -358,7 +330,6 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
         // A tapback badge takes 27.5 over its part (a thread change above it is 5 less).
         if (reactions.length) partGap = (partGap >= 32 ? partGap - 5 : partGap) + 27.5;
         const final = chunkIndex === chunks.length - 1;
-        const head = chunk.parts[0]!;
         own.push({
           kind: "bubble",
           key: `part:${message.id}:${chunk.index}`,
@@ -374,23 +345,11 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
           reactions,
           markdown,
           streaming: message.id.startsWith(STREAM_PREFIX) || undefined,
-          approval: (head.type === "question" && isApprovalCard(head, message, conversation)) || undefined,
         });
       });
       if (message.editedAt) own.push({ kind: "label", key: `edited:${message.id}`, gap: 1, outgoing, label: "edited" });
       if (delivery?.state === "failed")
         own.push({ kind: "label", key: `failed:${message.id}`, gap: 1, outgoing, label: "notDelivered" });
-      if (inputs.unkept) own.push({ kind: "label", key: `unkept:${message.id}`, gap: 1, outgoing, label: "notKept" });
-      if (inputs.replies !== undefined)
-        own.push({
-          kind: "replies",
-          key: `replies:${message.id}`,
-          gap: 0,
-          root: message.id,
-          count: inputs.replies,
-          outgoing,
-          indent: group && !outgoing,
-        });
       if (receipt) own.push({ kind: "receipt", key: `receipt:${message.id}`, gap: 0, ...receipt });
     }
     cache?.set(message, inputs, own);
@@ -427,19 +386,14 @@ export function estimateRow(row: TranscriptRow): number {
       return row.gap + 16;
     case "receipt":
       return 16;
-    case "replies":
-      return 22;
     case "typing":
       return row.gap + 35;
     case "bubble": {
       const part = row.parts[0];
       if (part?.type === "attachment") return row.gap + 160 * Math.min(row.parts.length, 2);
-      if (part?.type === "link_preview") return row.gap + (part.image ? 220 : 56);
-      if (part?.type === "location") return row.gap + 56;
-      if (part?.type === "widget") return row.gap + fallbackHeight(part.fallback);
-      const text = part ? partText(part) : "";
+      const text = part && "text" in part ? part.text : "";
       const lines = text.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 48)), 0);
-      return row.gap + 16 + 18 * Math.min(lines, 400) + (row.approval ? 36 : 0);
+      return row.gap + 16 + 18 * Math.min(lines, 400);
     }
   }
 }
@@ -447,40 +401,4 @@ export function estimateRow(row: TranscriptRow): number {
 /** The participant ids the typing row names, as the a11y line reads them. */
 export function typingNames(participants: readonly string[], people: ReadonlyMap<string, HomeParticipant>): string[] {
   return participants.map((id) => people.get(id)?.name ?? id);
-}
-
-/** The count an "N Replies" row under `message` shows, or undefined (RowBuilder's rule): in the
- * timeline a root with 2 or more replies, or 1 that is not right under it; in a thread every
- * message with a reply under it (the caller leaves out the root and the branch's top). */
-export function repliesLabel(
-  data: Pick<TranscriptData, "replyCounts" | "threadMode">,
-  message: HomeMessage,
-  next: HomeMessage | undefined,
-): number | undefined {
-  const count = data.replyCounts?.get(message.id);
-  if (!count || message.retracted) return undefined;
-  if (data.threadMode) return count;
-  if (threadOf(message)) return undefined;
-  // One reply right under its root shows as the thread itself, with no label.
-  if (count >= 2) return count;
-  return next && threadOf(next) === message.id ? undefined : count;
-}
-
-/** Each loaded root's live replies, counted over the loaded messages; the owner's count wins when
- * it has one (`threadStats`: replies outside the window too). O(messages). */
-export function timelineReplyCounts(
-  messages: readonly HomeMessage[],
-  stats?: ReadonlyMap<string, { replyCount: number }>,
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const message of messages) {
-    const root = threadOf(message);
-    if (root && !message.retracted) counts.set(root, (counts.get(root) ?? 0) + 1);
-  }
-  if (stats)
-    for (const message of messages) {
-      const owned = stats.get(message.id)?.replyCount;
-      if (owned !== undefined && !threadOf(message)) counts.set(message.id, Math.max(0, owned));
-    }
-  return counts;
 }

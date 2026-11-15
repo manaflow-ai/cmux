@@ -252,10 +252,10 @@ pub(super) fn verbs(scope: &str, help: &str) -> Vec<String> {
     let mut found = rows(help);
     let prefix = format!("cmux {scope} ");
     for line in help.lines() {
-        let Some(at) = line.find(&prefix) else { continue };
+        let Some((_, after)) = line.split_once(prefix.as_str()) else { continue };
         // `cmux vm ls | status | pause [NAME]` names three verbs: words joined by `|`.
         let mut joined = true;
-        for token in line[at + prefix.len()..].split_whitespace() {
+        for token in after.split_whitespace() {
             if token == "|" {
                 joined = true;
                 continue;

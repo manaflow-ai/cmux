@@ -78,11 +78,11 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
 
 def cmux_remote(repo: Path) -> str:
     """The remote whose fetch URL is manaflow-ai/cmux; origin wins a tie, then the first by name."""
+    # Each remote's URL by name, not `git remote -v`: a partial clone adds a "[blob:none]" word to its lines.
     matches: set[str] = set()
-    for line in git(repo, "remote", "-v").splitlines():
-        parts = line.split()
-        if len(parts) == 3 and parts[2] == "(fetch)" and CMUX_REMOTE_RE.search(parts[1]):
-            matches.add(parts[0])
+    for name in git(repo, "remote").splitlines():
+        if CMUX_REMOTE_RE.search(git(repo, "remote", "get-url", name)):
+            matches.add(name)
     if not matches:
         raise MergeMainError("no git remote points at github.com/manaflow-ai/cmux; add one or pass --remote")
     return "origin" if "origin" in matches else sorted(matches)[0]
@@ -183,7 +183,7 @@ def rerun_on_base(repo: Path, failures: list[GuardFailure], base: str, command: 
     try:
         git(repo, "worktree", "add", "--detach", "--quiet", str(tree_path), base)
         results_path = parent / "base.json"
-        # --keep-going: a stateful group keeps every step (select_steps), and
+        # --keep-going: a stateful group keeps its state-handing earlier steps (select_steps), and
         # an unrelated earlier step failing on main must not hide the one asked about.
         args = [*command, "--root", str(tree_path), "--no-stamp", "--keep-going", "--json", str(results_path)]
         for group in sorted({item.group or item.job for item in failures}):

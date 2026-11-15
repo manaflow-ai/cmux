@@ -1213,8 +1213,116 @@
             }
           }
         },
-        "description": "Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off (revokeVmPublicEgress does) and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Allow a VM's public egress"
+      },
+      "delete": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.revokeVmPublicEgress",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmPublicEgress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmPublicEgress"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke a VM's public egress. Requires the vm:network scope. Stops an existing VM reaching the public Internet, live: deletes every rule whose source is exactly this VM (or a create's inline rule) and whose destination is the whole public Internet, then reads the rules again and answers 503 unless none is left. Idempotent: a VM without such a rule changes nothing. It never deletes a narrower rule, an HTTPS proxy (the VM keeps those) or a shared-network rule. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Revoke a VM's public egress"
       }
     },
     "/v1/vms/{vmId}": {

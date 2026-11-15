@@ -29,7 +29,7 @@ import { CREATE_SEND_GRACE_MS, type IdempotencyProgress, type ForkCaptureProgres
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
-import { allowVmPublicEgress, getVmPublicEgress } from "./public-egress.ts";
+import { allowVmPublicEgress, getVmPublicEgress, revokeVmPublicEgress } from "./public-egress.ts";
 import { VmImageList } from "../api/images.ts";
 import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
@@ -748,6 +748,9 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
     .handle("getVmPublicEgress", ({ path }) => getVmPublicEgress(path.vmId))
     .handle("allowVmPublicEgress", ({ path }) =>
       audited("vm.public_egress.allow", auditableVmId(path.vmId), allowVmPublicEgress(path.vmId), (receipt) => receipt.id),
+    )
+    .handle("revokeVmPublicEgress", ({ path }) =>
+      audited("vm.public_egress.revoke", auditableVmId(path.vmId), revokeVmPublicEgress(path.vmId), (receipt) => receipt.id),
     )
     .handle("startVm", ({ path }) =>
       audited(

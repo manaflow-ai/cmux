@@ -71,7 +71,7 @@ impl Hub {
         if self.clone_of().is_none() {
             return;
         }
-        if let Err(e) = std::fs::rename(home.join(MARKER), home.join(DONE))
+        if let Err(e) = crate::home_fs::rename(home.join(MARKER), home.join(DONE))
             && e.kind() != std::io::ErrorKind::NotFound
         {
             tracing::warn!("clone marker not retired: {e}");

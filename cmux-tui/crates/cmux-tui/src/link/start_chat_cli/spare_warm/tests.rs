@@ -3,6 +3,17 @@ use base64::Engine as _;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// `run_reporting` with no login report: what each warm, claim and ready test asks.
+pub(super) fn run(
+    flags: &Flags,
+    state: &Path,
+    now_ms: u64,
+    stdin: &mut dyn std::io::BufRead,
+    transport: Transport<'_>,
+) -> Option<Value> {
+    run_reporting(flags, state, now_ms, stdin, transport, &|_, _, _, _| {})
+}
+
 const MACHINE: &str = "vm_0123456789abcdefghij";
 const TEAM: &str = "team_0123456789abcdef0123";
 
@@ -113,7 +124,11 @@ fn a_personal_warm_is_its_personal_team_and_a_guest_gets_no_copy() {
         },
     )
     .unwrap();
-    assert_eq!((guest["fresh"].clone(), guest.get("copy")), (json!(true), None));
+    assert_eq!((guest["fresh"].clone(), guest.get("copy")), (json!(false), None));
+    assert_eq!(guest["in_flight"], true);
+    let active = read(dir.path()).copies;
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].account, "user_a");
     // Within the gap the record answers: no call, no second copy.
     let again = warm("owner", 1_060_000);
     assert_eq!((again["fresh"].clone(), again.get("copy")), (json!(false), None));
@@ -193,7 +208,7 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
         json!({"ok": true, "machine": null, "fresh": false, "reason": "spare.none"})
     );
     let refused_ = |_: &Request, _: &str, _: &str| {
-        Err(PlatformCallError::Status { status: 403, code: "auth.forbidden" })
+        Err(PlatformCallError::Status { status: 403, code: "auth.forbidden", facts: None })
     };
     let answer = warm(r#"{"account":"u"}"#, &input, &refused_);
     assert_eq!(
@@ -208,7 +223,7 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
 fn no_spare_and_errors_are_attempts_the_gap_throttles() {
     for answer in [
         Ok(json!({"machine": null, "reason": "spare.none"})),
-        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable" }),
+        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None }),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let calls = Cell::new(0_usize);
@@ -413,6 +428,49 @@ fn no_call(_: &Request, _: &str, _: &str) -> Result<Value, PlatformCallError> {
 }
 
 #[test]
+fn a_late_copy_completion_cannot_finish_a_newer_warm_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    let call = |mut request: Value, now| {
+        request["scope"] = serde_json::to_value(scope()).unwrap();
+        request["currentScope"] = request["scope"].clone();
+        run(
+            &flags(&request.to_string()),
+            dir.path(),
+            now,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &no_call,
+        )
+        .unwrap()
+    };
+    let first = call(json!({"account": "user_a", "claimed": MACHINE}), 1_000_000);
+    let generation = first["copy"]["generation"].clone();
+    call(json!({"account": "user_a", "abandoned": MACHINE, "generation": generation}), 1_000_100);
+    let second = call(json!({"account": "user_a", "claimed": MACHINE}), 1_000_200);
+    assert_ne!(generation, second["copy"]["generation"]);
+    call(json!({"account": "user_a", "installed": MACHINE, "generation": generation}), 1_000_300);
+    assert!(copy_in_flight(dir.path(), MACHINE, 1_000_400));
+    assert_eq!(
+        receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope()), 1_000_400)["installed"],
+        false
+    );
+}
+
+#[test]
+fn an_unsolicited_install_completion_is_not_a_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let request = json!({"account": "user_a", "installed": MACHINE});
+    run(
+        &flags(&request.to_string()),
+        dir.path(),
+        1_000_000,
+        &mut stdin(Some(TEAM)).as_bytes(),
+        &no_call,
+    )
+    .unwrap();
+    assert_eq!(receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_100)["installed"], false);
+}
+
+#[test]
 fn a_claimed_machine_gets_its_own_copy_once_and_no_platform_call() {
     let dir = tempfile::tempdir().unwrap();
     let call = |request: &str, now| {
@@ -438,8 +496,8 @@ fn a_claimed_machine_gets_its_own_copy_once_and_no_platform_call() {
     assert_eq!((after.get("copy"), after["in_flight"].clone()), (None, json!(false)));
     // An abandoned copy (account switch) is copied again on the next claim.
     let abandoned = format!(r#"{{"account":"user_a","abandoned":"{MACHINE}"}}"#);
-    assert_eq!(call(&abandoned, 1_000_600)["abandoned"], json!(true));
-    assert_eq!(call(&claimed(MACHINE), 1_000_700)["copy"]["machine"], json!(MACHINE));
+    assert_eq!(call(&abandoned, 1_000_600)["abandoned"], json!(false));
+    assert!(call(&claimed(MACHINE), 1_000_700).get("copy").is_none());
     // Another machine is its own copy, even within the gap.
     assert_eq!(call(&claimed(OTHER), 1_000_800)["copy"]["machine"], json!(OTHER));
 }
@@ -559,76 +617,172 @@ fn a_warm_that_answers_a_machine_a_reserve_already_copies_onto_gives_no_second_c
     assert_eq!((warm["machine"].clone(), warm.get("copy")), (json!(MACHINE), None));
 }
 
-#[test]
-fn an_installed_warm_copy_is_the_starts_login_receipt() {
-    let dir = tempfile::tempdir().unwrap();
-    let call = |request: &str, now| {
-        run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &owner).unwrap()
-    };
-    let asked = |account: &str, machine: &str, provider: &str, now| {
-        receipt(dir.path(), account, machine, provider, now)["installed"] == json!(true)
-    };
-    assert_eq!(call(r#"{"account":"user_a"}"#, 1_000_000)["copy"]["machine"], json!(MACHINE));
-    // The copy is still in flight: no receipt yet, so the start checks as before (and waits on it).
-    assert!(!asked("user_a", MACHINE, "claude", 1_000_100));
-    // A copy that ended without installing is no receipt.
-    let finished = format!(r#"{{"account":"user_a","finished":"{MACHINE}"}}"#);
-    assert_eq!(call(&finished, 1_000_200)["finished"], json!(true));
-    assert!(!asked("user_a", MACHINE, "claude", 1_000_300));
-    // The App reports it installed: that ends the copy, and a Claude start onto it skips its login check.
-    let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
-    assert_eq!(call(&installed, 1_000_400), json!({"ok": true, "finished": true}));
-    assert!(!copy_in_flight(dir.path(), MACHINE, 1_000_500));
-    assert!(asked("user_a", MACHINE, "claude", 1_000_500));
-    // Only that account, that machine, the copied provider, and within the receipt's life.
-    assert!(!asked("user_b", MACHINE, "claude", 1_000_500));
-    assert!(!asked("user_a", "vm_ffffffffffffffffffff", "claude", 1_000_500));
-    assert!(!asked("user_a", MACHINE, "codex", 1_000_500));
-    assert!(!asked("", MACHINE, "claude", 1_000_500));
-    assert!(asked("user_a", MACHINE, "claude", 1_000_400 + RECEIPT_MS - 1));
-    assert!(!asked("user_a", MACHINE, "claude", 1_000_400 + RECEIPT_MS));
+fn scope() -> ReceiptScope {
+    ReceiptScope {
+        platform: "https://staging.example".into(),
+        team: TEAM.into(),
+        install: "inst_a".into(),
+        credential: "fingerprint-a".into(),
+    }
+}
+
+fn scoped_call(dir: &Path, mut request: Value, now: u64, scope: &ReceiptScope) -> Value {
+    request["scope"] = serde_json::to_value(scope).unwrap();
+    request["currentScope"] = request["scope"].clone();
+    run(&flags(&request.to_string()), dir, now, &mut stdin(Some(TEAM)).as_bytes(), &owner).unwrap()
 }
 
 #[test]
-fn a_newer_copy_in_flight_holds_the_receipt_until_it_ends() {
+fn installed_and_verified_warms_are_scoped_receipts() {
+    for outcome in ["installed", "verified"] {
+        let dir = tempfile::tempdir().unwrap();
+        let scope = scope();
+        let first = scoped_call(dir.path(), json!({"account":"user_a"}), 1_000_000, &scope);
+        let generation = first["copy"]["generation"].clone();
+        let proof = |account, machine, provider, scope: &ReceiptScope, now| {
+            receipt_scoped(dir.path(), account, machine, provider, Some(scope), now)["installed"]
+                == true
+        };
+        assert!(!proof("user_a", MACHINE, "claude", &scope, 1_000_100));
+        let mut end = json!({"account":"user_a", "generation":generation});
+        end[outcome] = json!(MACHINE);
+        assert_eq!(scoped_call(dir.path(), end, 1_000_200, &scope)["finished"], true);
+        assert!(proof("user_a", MACHINE, "claude", &scope, 1_000_300));
+        assert!(!proof("user_b", MACHINE, "claude", &scope, 1_000_300));
+        assert!(!proof("user_a", "vm_ffffffffffffffffffff", "claude", &scope, 1_000_300));
+        assert!(!proof("user_a", MACHINE, "codex", &scope, 1_000_300));
+        assert!(!proof("user_a", MACHINE, "claude", &scope, 1_000_199));
+        assert!(!proof("user_a", MACHINE, "claude", &scope, 1_000_200 + RECEIPT_MS));
+        for changed in [
+            ReceiptScope { platform: "https://production.example".into(), ..scope.clone() },
+            ReceiptScope { team: "team_other".into(), ..scope.clone() },
+            ReceiptScope { install: "inst_rebound".into(), ..scope.clone() },
+            ReceiptScope { credential: "rotated".into(), ..scope.clone() },
+        ] {
+            assert!(!proof("user_a", MACHINE, "claude", &changed, 1_000_300));
+        }
+        assert_eq!(receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_300)["installed"], false);
+    }
+}
+
+#[test]
+fn a_new_attempt_invalidates_proof_even_when_it_fails_or_never_finishes() {
+    for outcome in ["finished", "abandoned", "lost"] {
+        let dir = tempfile::tempdir().unwrap();
+        let scope = scope();
+        let first = scoped_call(dir.path(), json!({"account":"user_a"}), 1_000_000, &scope);
+        scoped_call(
+            dir.path(),
+            json!({"account":"user_a", "installed":MACHINE,
+            "generation":first["copy"]["generation"]}),
+            1_000_100,
+            &scope,
+        );
+        assert_eq!(
+            receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope), 1_000_200)["installed"],
+            true
+        );
+        let second = scoped_call(dir.path(), json!({"account":"user_a"}), 1_130_000, &scope);
+        assert!(second.get("copy").is_some());
+        if outcome != "lost" {
+            let mut end = json!({"account":"user_a", "generation":second["copy"]["generation"]});
+            end[outcome] = json!(MACHINE);
+            scoped_call(dir.path(), end, 1_130_100, &scope);
+        }
+        assert_eq!(
+            receipt_scoped(
+                dir.path(),
+                "user_a",
+                MACHINE,
+                "claude",
+                Some(&scope),
+                1_130_000 + COPY_BUDGET_MS
+            )["installed"],
+            false
+        );
+    }
+}
+
+#[test]
+fn credential_rotation_during_copy_cannot_mint_a_receipt() {
     let dir = tempfile::tempdir().unwrap();
-    let call = |request: &str, now| {
-        run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &no_call).unwrap()
-    };
-    let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
-    call(&installed, 1_000_000);
+    let scope = scope();
+    let first = scoped_call(dir.path(), json!({"account":"user_a"}), 1_000_000, &scope);
+    let request = json!({"account":"user_a", "installed":MACHINE,
+        "generation":first["copy"]["generation"], "scope":scope,
+        "currentScope":ReceiptScope { credential:"rotated".into(), ..scope.clone() }});
+    let end = run(
+        &flags(&request.to_string()),
+        dir.path(),
+        1_000_100,
+        &mut stdin(Some(TEAM)).as_bytes(),
+        &no_call,
+    )
+    .unwrap();
+    assert_eq!(end["finished"], true);
+    assert!(!copy_in_flight(dir.path(), MACHINE, 1_000_200));
     assert_eq!(
-        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_100)["installed"],
-        json!(true)
-    );
-    // An abandoned copy re-answered by a claim: in flight again, so no receipt while it runs.
-    assert!(call(&claimed(MACHINE), 1_000_200).get("copy").is_some());
-    assert_eq!(
-        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_300)["installed"],
-        json!(false)
-    );
-    // Reported installed again: one receipt, renewed.
-    call(&installed, 1_000_400);
-    assert_eq!(read(dir.path()).installed.len(), 1);
-    assert_eq!(read(dir.path()).installed[0].at, 1_000_400);
-    assert_eq!(
-        receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_500)["installed"],
-        json!(true)
+        receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope), 1_000_200)["installed"],
+        false
     );
 }
 
 #[test]
-fn a_receipt_question_goes_through_the_cli_with_no_credential() {
+fn a_scoped_receipt_question_goes_through_the_cli_without_guest_or_platform_io() {
     let dir = tempfile::tempdir().unwrap();
-    let ledger = dir.path().join("ledger.json");
-    let installed = format!(r#"{{"account":"user_a","installed":"{MACHINE}"}}"#);
-    run(&flags(&installed), dir.path(), now_ms(), &mut stdin(Some(TEAM)).as_bytes(), &no_call)
-        .unwrap();
-    let ask = format!(
-        r#"{{"account":"user_a","loginReceipt":{{"machine":"{MACHINE}","provider":"claude"}}}}"#
+    let scope = scope();
+    let at = now_ms();
+    let first = scoped_call(dir.path(), json!({"account":"user_a"}), at, &scope);
+    // owner's fixture expires before real now; a claimed registration has no platform dependency.
+    let first = if first.get("copy").is_some() {
+        first
+    } else {
+        scoped_call(dir.path(), json!({"account":"user_a", "claimed":MACHINE}), at, &scope)
+    };
+    scoped_call(
+        dir.path(),
+        json!({"account":"user_a", "verified":MACHINE,
+        "generation":first["copy"]["generation"]}),
+        at,
+        &scope,
     );
+    let ask = json!({"account":"user_a", "scope":scope,
+        "loginReceipt":{"machine":MACHINE,"provider":"claude"}});
     assert_eq!(
-        cli("warm-spare", &flags(&ask), &ledger),
-        Some(json!({"ok": true, "installed": true}))
+        cli("warm-spare", &flags(&ask.to_string()), &dir.path().join("ledger.json")),
+        Some(json!({"ok":true,"installed":true}))
     );
+}
+
+#[test]
+fn a_changed_scope_waits_for_the_existing_guest_writer() {
+    for claimed in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let original = scope();
+        let changed = ReceiptScope { credential: "rotated".into(), ..original.clone() };
+        let first = scoped_call(dir.path(), json!({"account":"user_a"}), 1_000_000, &original);
+        let mut request = json!({"account":"user_a"});
+        if claimed {
+            request["claimed"] = json!(MACHINE);
+        }
+        let waiting = scoped_call(dir.path(), request, 1_000_100, &changed);
+        assert!(waiting.get("copy").is_none());
+        assert_eq!(waiting["in_flight"], true);
+        assert_eq!(read(dir.path()).copies.len(), 1);
+        scoped_call(
+            dir.path(),
+            json!({"account":"user_a", "finished":MACHINE,
+            "generation":first["copy"]["generation"]}),
+            1_000_200,
+            &original,
+        );
+        let next = scoped_call(
+            dir.path(),
+            json!({"account":"user_a", "claimed":MACHINE}),
+            1_000_300,
+            &changed,
+        );
+        assert!(next.get("copy").is_some());
+        assert_ne!(next["copy"]["generation"], first["copy"]["generation"]);
+    }
 }

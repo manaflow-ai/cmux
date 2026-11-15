@@ -81,6 +81,8 @@ mod prompt_delivery;
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_provenance_app_pane.rs"]
+mod prompt_provenance_app_pane;
 #[path = "hub_integration/prompt_supersede.rs"]
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
@@ -97,12 +99,17 @@ mod questions;
 mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[cfg(unix)]
+#[path = "hub_integration/resume_here_ask.rs"]
+mod resume_here_ask;
 #[path = "hub_integration/run_parent.rs"]
 mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
 mod seen;
+#[path = "hub_integration/send_burst.rs"]
+mod send_burst;
 #[path = "hub_integration/session_offers.rs"]
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]

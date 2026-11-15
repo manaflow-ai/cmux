@@ -107,7 +107,7 @@ MARKS = [
     ("dfl.settings", "dfl: settings and control"),
     ("dfl.menu", "dfl: main menu"),
     ("daemon.binary_resolved", "daemon binary resolved"),
-    ("launch_snapshot_applied", "cached layout read (launch snapshot)"),
+    ("launch_snapshot_applied", "cached layout applied (launch snapshot)"),
     ("dfl.daemon_cloud_updater", "dfl: daemon, cloud, updater"),
     ("dfl.first_window_hooks", "dfl: first window hooks"),
     ("dfl.home_history", "dfl: home, bookmarks, history"),

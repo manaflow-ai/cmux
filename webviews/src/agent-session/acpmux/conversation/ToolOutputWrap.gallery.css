@@ -1,0 +1,22 @@
+/* The looks compared in ToolOutputWrap.gallery.tsx; by-shape is what conversation.css ships. */
+.tool-output-wrap-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4);
+}
+/* Every output wraps, a table too. */
+.tool-output-wrap-gallery[data-wrap-look="always"] :is(.cv-shell__body, .cv-tool-output),
+.tool-output-wrap-gallery[data-wrap-look="always"] :is(.cv-shell__body, .cv-tool-output) .cv-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-output-wrap-gallery[data-wrap-look="always"] :is(.cv-shell__body, .cv-tool-output) .cv-line {
+  padding-inline-start: 2ch;
+  text-indent: -2ch;
+}
+/* By shape, no hanging indent. */
+.tool-output-wrap-gallery[data-wrap-look="flush"] :is(.cv-shell__body, .cv-tool-output)[data-wrap="true"] .cv-line {
+  padding-inline-start: 0;
+  text-indent: 0;
+}

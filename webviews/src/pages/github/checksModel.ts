@@ -93,12 +93,18 @@ export function dashboardSummary(jobs: readonly DashboardJob[], now: number): Da
   return { passed, failed, running, queued, total, progress: total ? (passed + failed) / total : 1, eta };
 }
 
-/** Seconds since `job` started (to its end when it ended), 0 when it has not. */
+/**
+ * Seconds since `job` started (to its end when it ended), 0 when it has not. Only a running job counts
+ * up to `now`: a finished job with no end time (a commit status such as `cmux-next/fast-gates`, which
+ * GitHub dates only by when it was posted) has no known duration, 0. Counting it to `now` showed a
+ * two-minute gate as "22m 57s" and growing in the panel (Leo, 2026-11-11: "how can "fast gates" be 23+
+ * minutes and growing").
+ */
 export function elapsed(job: DashboardJob, now: number): number {
   const start = Date.parse(job.startedAt);
   if (!Number.isFinite(start)) return 0;
-  const end = job.completedAt ? Date.parse(job.completedAt) : now;
-  return Math.max(0, ((Number.isFinite(end) ? end : now) - start) / 1000);
+  const end = job.completedAt ? Date.parse(job.completedAt) : job.state === "running" ? now : start;
+  return Math.max(0, ((Number.isFinite(end) ? end : start) - start) / 1000);
 }
 
 /** `seconds` as `1h 4m`, `4m 12s` or `12s`, each unit in `locale`'s narrow form. */

@@ -107,9 +107,6 @@
       "default",
       "cards"
     ],
-    "tabs.newTabWidgets.greeting": [
-      true
-    ],
     "ui.animations.newWorkspace": [
       false
     ],

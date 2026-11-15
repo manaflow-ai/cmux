@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73";
+inline constexpr std::string_view kProtocolIrSha256 = "dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -115,6 +115,7 @@ struct LayoutUndoResult;
 struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
+struct ListWorkspacesKnown;
 struct LivePane;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
@@ -165,6 +166,9 @@ struct Screen;
 struct SelectionPane;
 struct SelectionScreen;
 struct SendExpectAgent;
+struct ServerStatsCommandConnections;
+struct ServerStatsCommandRow;
+struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
 struct ServerStatsDiskFile;
@@ -175,6 +179,8 @@ struct ServerStatsDiskSegmentKind;
 struct ServerStatsDiskSegments;
 struct ServerStatsHistogram;
 struct ServerStatsHookQueue;
+struct ServerStatsJournalFollower;
+struct ServerStatsJournalFollowers;
 struct ServerStatsJournalWriter;
 struct ServerStatsLockDetail;
 struct ServerStatsLockHolder;
@@ -257,6 +263,7 @@ struct ViewportPaneWidthResult;
 struct VtStateResult;
 struct WaitForResult;
 struct Workspace;
+struct WorkspaceFirstTab;
 struct WorkspaceMutationResult;
 struct ZoomPaneResult;
 struct AckTabNotificationsRequest;
@@ -280,6 +287,8 @@ struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
+struct CancelCreatingInputRequest;
+struct CancelCreatingInputResult;
 struct ChiefInspectRequest;
 struct ChiefInspectResult;
 struct ChiefWorkRequest;
@@ -668,6 +677,7 @@ struct ResizedEvent;
 struct ScreenAddedEvent;
 struct ScreenChangedEvent;
 struct ScreenClosedEvent;
+struct ScreenDeviceChangedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
 struct SelectionChangedEvent;
@@ -719,6 +729,7 @@ enum class TabKind;
 struct TerminalExitOutcomeExit;
 struct TerminalExitOutcomeSignal;
 struct TerminalExitOutcomeUnknown;
+struct WorkspaceFirstTabBrowser;
 enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
 enum class BrowserMouseRequestKind;
@@ -940,7 +951,9 @@ struct AttachSurfaceRequest {
     Field<std::string> expected_generation{};
     Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
+    Field<std::uint32_t> output_coalesce_ms{};
     Field<std::uint32_t> replay_history_rows{};
+    Field<std::uint64_t> replay_history_start{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
     std::optional<bool> snapshot_images{};
@@ -1230,6 +1243,16 @@ struct BrowserWheelRequest {
     double x_px{};
     double y_px{};
     friend bool operator==(const BrowserWheelRequest&, const BrowserWheelRequest&) = default;
+};
+
+struct CancelCreatingInputRequest {
+    std::string terminal_id{};
+    friend bool operator==(const CancelCreatingInputRequest&, const CancelCreatingInputRequest&) = default;
+};
+
+struct CancelCreatingInputResult {
+    bool cancelled{};
+    friend bool operator==(const CancelCreatingInputResult&, const CancelCreatingInputResult&) = default;
 };
 
 struct CellPixelFailure {
@@ -2724,6 +2747,7 @@ struct CreateTerminalRequest {
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
+    std::optional<bool> create_workspace{};
     Field<std::string> cwd{};
     std::optional<bool> detached{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
@@ -2738,6 +2762,7 @@ struct CreateTerminalRequest {
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     Field<Id> workspace{};
+    Field<std::string> workspace_name{};
     friend bool operator==(const CreateTerminalRequest&, const CreateTerminalRequest&) = default;
 };
 
@@ -2750,9 +2775,30 @@ struct CreateWorkspaceGroupRequest {
     friend bool operator==(const CreateWorkspaceGroupRequest&, const CreateWorkspaceGroupRequest&) = default;
 };
 
+struct WorkspaceFirstTabBrowser {
+    std::optional<bool> activate{};
+    Field<std::uint16_t> cols{};
+    std::string engine{};
+    Field<std::string> favicon_url{};
+    Field<std::string> idempotency_key{};
+    Field<std::string> owner{};
+    Field<std::string> profile_id{};
+    Field<std::uint16_t> rows{};
+    Field<std::string> title{};
+    std::string url{};
+    friend bool operator==(const WorkspaceFirstTabBrowser&, const WorkspaceFirstTabBrowser&) = default;
+};
+
+struct WorkspaceFirstTab {
+    using Variant = std::variant<WorkspaceFirstTabBrowser>;
+    Variant value{};
+    friend bool operator==(const WorkspaceFirstTab&, const WorkspaceFirstTab&) = default;
+};
+
 struct CreateWorkspaceRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
+    Field<WorkspaceFirstTab> first_tab{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> name{};
@@ -3369,13 +3415,16 @@ struct IdentifyResult {
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_device{};
     std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
     std::optional<MachinePlatform> machine_platform{};
+    std::optional<std::string> machine_symbol{};
     Field<std::uint32_t> min_api_revision{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
@@ -3691,7 +3740,19 @@ struct ListWorkspaceGroupsRequest {
     friend bool operator==(const ListWorkspaceGroupsRequest&, const ListWorkspaceGroupsRequest&) = default;
 };
 
+struct ListWorkspacesKnown {
+    Field<std::string> generation{};
+    Field<std::uint64_t> pane_revision{};
+    Field<std::string> registry_id{};
+    Field<std::uint64_t> terminal_revision{};
+    Field<std::string> tree_revision{};
+    Field<std::uint64_t> workspace_revision{};
+    friend bool operator==(const ListWorkspacesKnown&, const ListWorkspacesKnown&) = default;
+};
+
 struct ListWorkspacesRequest {
+    Field<ListWorkspacesKnown> known{};
+    Field<std::uint64_t> limit{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
 };
 
@@ -4107,6 +4168,7 @@ struct NewFrontendBrowserTabRequest {
     Field<ConversationTabSplit> split{};
     Field<std::string> title{};
     std::string url{};
+    Field<Id> workspace{};
     friend bool operator==(const NewFrontendBrowserTabRequest&, const NewFrontendBrowserTabRequest&) = default;
 };
 
@@ -4820,6 +4882,7 @@ struct ResizedEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     std::optional<Base64> data{};
+    std::optional<std::uint64_t> history_rows_omitted{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::optional<Base64> replay{};
@@ -4954,6 +5017,11 @@ struct ScreenClosedEvent {
     friend bool operator==(const ScreenClosedEvent&, const ScreenClosedEvent&) = default;
 };
 
+struct ScreenDeviceChangedEvent {
+    std::optional<std::string> screen_device_id{};
+    friend bool operator==(const ScreenDeviceChangedEvent&, const ScreenDeviceChangedEvent&) = default;
+};
+
 struct ScreenRenamedEvent {
     Screen entity{};
     Id screen{};
@@ -5043,6 +5111,32 @@ struct SendRequest {
 struct SendResult {
     std::optional<bool> queued{};
     friend bool operator==(const SendResult&, const SendResult&) = default;
+};
+
+struct ServerStatsCommandConnections {
+    std::uint64_t accepted{};
+    std::string kind{};
+    std::uint64_t refused{};
+    friend bool operator==(const ServerStatsCommandConnections&, const ServerStatsCommandConnections&) = default;
+};
+
+struct ServerStatsCommandRow {
+    std::uint64_t count{};
+    std::vector<std::uint64_t> hist{};
+    std::string kind{};
+    std::uint64_t max_ns{};
+    std::string name{};
+    std::uint64_t total_ns{};
+    friend bool operator==(const ServerStatsCommandRow&, const ServerStatsCommandRow&) = default;
+};
+
+struct ServerStatsCommands {
+    std::vector<ServerStatsCommandConnections> connections{};
+    std::vector<std::uint64_t> hist_bounds_ns{};
+    std::uint64_t name_limit{};
+    std::uint64_t names{};
+    std::vector<ServerStatsCommandRow> rows{};
+    friend bool operator==(const ServerStatsCommands&, const ServerStatsCommands&) = default;
 };
 
 struct ServerStatsConnections {
@@ -5139,6 +5233,29 @@ struct ServerStatsHookQueue {
     std::uint64_t reset_dropped_events{};
     std::uint64_t undeliverable_events{};
     friend bool operator==(const ServerStatsHookQueue&, const ServerStatsHookQueue&) = default;
+};
+
+struct ServerStatsJournalFollower {
+    std::uint64_t client{};
+    std::uint64_t connected_ms{};
+    bool keeps_hook_rows{};
+    bool keeps_report_rows{};
+    std::vector<std::string> kinds{};
+    std::optional<std::uint64_t> left_ms{};
+    std::optional<std::string> max_sensitivity{};
+    bool remote{};
+    std::string stream_id{};
+    friend bool operator==(const ServerStatsJournalFollower&, const ServerStatsJournalFollower&) = default;
+};
+
+struct ServerStatsJournalFollowers {
+    std::vector<ServerStatsJournalFollower> followers{};
+    std::uint64_t grace_ms{};
+    bool hook_rows_kept{};
+    std::optional<bool> journal_hook_keeps_rows{};
+    std::uint64_t keep_all_ms{};
+    bool report_rows_kept{};
+    friend bool operator==(const ServerStatsJournalFollowers&, const ServerStatsJournalFollowers&) = default;
 };
 
 enum class ServerStatsWriterPhase {
@@ -5268,9 +5385,11 @@ struct ServerStatsWritePath {
 };
 
 struct ServerStatsResult {
+    std::optional<ServerStatsCommands> commands{};
     ServerStatsConnections connections{};
     std::optional<ServerStatsDisk> disk{};
     std::optional<ServerStatsHookQueue> hook_queue{};
+    std::optional<ServerStatsJournalFollowers> journal_followers{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLocks> locks{};
     ServerStatsRegistryLock registry_lock{};
@@ -6121,6 +6240,9 @@ struct Tree {
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
     std::optional<std::uint64_t> terminal_revision{};
+    std::optional<std::uint64_t> total{};
+    std::optional<std::string> tree_revision{};
+    std::optional<bool> unchanged{};
     std::optional<std::uint64_t> workspace_revision{};
     std::vector<Workspace> workspaces{};
     friend bool operator==(const Tree&, const Tree&) = default;
@@ -6306,6 +6428,7 @@ struct VtStateEvent {
     std::uint16_t cols{};
     Base64 data{};
     std::optional<std::uint64_t> history_rows_omitted{};
+    std::optional<std::uint64_t> history_rows_skipped{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};
@@ -6396,6 +6519,7 @@ struct WorkspaceMovedEvent {
 struct WorkspaceMutationResult {
     std::optional<bool> changed{};
     std::optional<std::vector<std::string>> closed_ids{};
+    std::optional<JsonValue> first_tab{};
     std::string generation{};
     std::uint64_t index{};
     std::string key{};
@@ -7043,6 +7167,12 @@ struct Codec<ListTerminalsResult> {
 };
 
 template <>
+struct Codec<ListWorkspacesKnown> {
+    static Result<Json> encode(const ListWorkspacesKnown& value);
+    static Result<ListWorkspacesKnown> decode(const Json& value);
+};
+
+template <>
 struct Codec<LivePane> {
     static Result<Json> encode(const LivePane& value);
     static Result<LivePane> decode(const Json& value);
@@ -7343,6 +7473,24 @@ struct Codec<SendExpectAgent> {
 };
 
 template <>
+struct Codec<ServerStatsCommandConnections> {
+    static Result<Json> encode(const ServerStatsCommandConnections& value);
+    static Result<ServerStatsCommandConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommandRow> {
+    static Result<Json> encode(const ServerStatsCommandRow& value);
+    static Result<ServerStatsCommandRow> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommands> {
+    static Result<Json> encode(const ServerStatsCommands& value);
+    static Result<ServerStatsCommands> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsConnections> {
     static Result<Json> encode(const ServerStatsConnections& value);
     static Result<ServerStatsConnections> decode(const Json& value);
@@ -7400,6 +7548,18 @@ template <>
 struct Codec<ServerStatsHookQueue> {
     static Result<Json> encode(const ServerStatsHookQueue& value);
     static Result<ServerStatsHookQueue> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollower> {
+    static Result<Json> encode(const ServerStatsJournalFollower& value);
+    static Result<ServerStatsJournalFollower> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollowers> {
+    static Result<Json> encode(const ServerStatsJournalFollowers& value);
+    static Result<ServerStatsJournalFollowers> decode(const Json& value);
 };
 
 template <>
@@ -7895,6 +8055,12 @@ struct Codec<Workspace> {
 };
 
 template <>
+struct Codec<WorkspaceFirstTab> {
+    static Result<Json> encode(const WorkspaceFirstTab& value);
+    static Result<WorkspaceFirstTab> decode(const Json& value);
+};
+
+template <>
 struct Codec<WorkspaceMutationResult> {
     static Result<Json> encode(const WorkspaceMutationResult& value);
     static Result<WorkspaceMutationResult> decode(const Json& value);
@@ -8030,6 +8196,18 @@ template <>
 struct Codec<BrowserWheelGuardedRequest> {
     static Result<Json> encode(const BrowserWheelGuardedRequest& value);
     static Result<BrowserWheelGuardedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelCreatingInputRequest> {
+    static Result<Json> encode(const CancelCreatingInputRequest& value);
+    static Result<CancelCreatingInputRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelCreatingInputResult> {
+    static Result<Json> encode(const CancelCreatingInputResult& value);
+    static Result<CancelCreatingInputResult> decode(const Json& value);
 };
 
 template <>
@@ -10361,6 +10539,12 @@ struct Codec<ScreenClosedEvent> {
 };
 
 template <>
+struct Codec<ScreenDeviceChangedEvent> {
+    static Result<Json> encode(const ScreenDeviceChangedEvent& value);
+    static Result<ScreenDeviceChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<ScreenRenamedEvent> {
     static Result<Json> encode(const ScreenRenamedEvent& value);
     static Result<ScreenRenamedEvent> decode(const Json& value);
@@ -10664,6 +10848,12 @@ template <>
 struct Codec<TerminalExitOutcomeUnknown> {
     static Result<Json> encode(const TerminalExitOutcomeUnknown& value);
     static Result<TerminalExitOutcomeUnknown> decode(const Json& value);
+};
+
+template <>
+struct Codec<WorkspaceFirstTabBrowser> {
+    static Result<Json> encode(const WorkspaceFirstTabBrowser& value);
+    static Result<WorkspaceFirstTabBrowser> decode(const Json& value);
 };
 
 template <>

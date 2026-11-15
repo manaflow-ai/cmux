@@ -12,6 +12,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ci_process_tree import terminate  # noqa: E402
+import os
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 
 def main() -> int:
@@ -56,7 +66,7 @@ def main() -> int:
     except subprocess.TimeoutExpired:
         # Interactive broker arguments may contain private routing details.
         description = command[0] if args.foreground else shlex.join(command)
-        print(
+        safe_print(
             f"::error::command timed out after {args.timeout_seconds}s: {description}",
             file=sys.stderr,
             flush=True,

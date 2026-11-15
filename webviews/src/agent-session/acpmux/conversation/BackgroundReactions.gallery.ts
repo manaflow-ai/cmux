@@ -10,6 +10,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxBackgroundCause, AcpmuxBackgroundReaction, AcpmuxRow } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 import { backgroundReactionLook } from "./backgroundReaction.experiment";
 
 /// A background turn's line as acpmux's records leave it: weighed by `cause`, its mark on the call
@@ -175,7 +176,11 @@ export default agentPaneEntry({
     "weighed-hover": {
       note: "The background turn's line under the pointer: its words light all the way through, as a tool row's do (Leo, 2026-11-09).",
       snapshot: chat(weighedChat),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+      play: async (ctx) => {
+        // The line look's line (backgroundTurnLook.experiment.ts); the inline look draws none.
+        if (!drawsBackgroundTurnLines()) return;
+        await ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" });
+      },
     },
     "call-opened": {
       note: "The suite's call opened: its output alone; the agent's replies to its end stay its own messages under it (Leo, 2026-11-09).",

@@ -151,9 +151,9 @@ final class FocusEffectApplier: FocusEffectApplying {
                 resignPaneResponder(in: window)
                 return
             }
-            // The page keeps the keyboard where the person put it inside it; from outside, its
-            // message box takes it (the page's own `home.messages.focusComposer`).
-            if !responder(of: window, isInside: view) { view.focusPrimaryInput() }
+            // Inside Home the keyboard stays only on a visible text input, or a transcript
+            // text selection; the pane itself or a header button moves it to the box.
+            _ = TabContent.conversation(view).landKeyboardInPrimaryInput(in: window)
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.

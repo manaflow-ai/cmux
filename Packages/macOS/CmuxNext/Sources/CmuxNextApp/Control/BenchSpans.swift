@@ -12,10 +12,10 @@ enum BenchSpans {
         var milliseconds: Double
     }
 
+    static let capacity = 512
     #if DEBUG || CMUX_BENCH_HOOKS
     private static var origin: ContinuousClock.Instant?
     private(set) static var spans: [Span] = []
-    static let capacity = 512
     #endif
 
     /// Starts recording (a bench began).

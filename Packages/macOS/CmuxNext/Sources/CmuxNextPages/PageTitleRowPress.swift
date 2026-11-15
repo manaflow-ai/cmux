@@ -8,8 +8,10 @@ import WebKit
 /// window's title row over its top, and a press on the row's background there moves the window,
 /// like the sidebar header beside it. AppKit cannot see the page's controls (a Chromium page is
 /// even a child window), so the page reports the press: a document script tells the host about a
-/// left press that starts a drag (moved 3 CSS px), or a double-click, on anything but a control in
-/// its top 96 CSS px (the row at any page zoom down to 0.5). The page never sees the mouse-up of a
+/// left press that starts a drag (moved 3 CSS px) on anything but a control, saying whether it was on
+/// content (text, media), or a double-click in its top 96 CSS px (the row at any page zoom down to 0.5).
+/// In a window that moves by its background (the floating Chief's, ``WindowMovesByBackground``) a drag
+/// on empty space anywhere moves it. The page never sees the mouse-up of a
 /// press the window took, so the host clears any selection the press began once the drag ends. The host checks the point is in the window's top row of a top page
 /// (``TitleRowHostView/takesTitleRowPress(from:atWindowPoint:)``) and moves the window, or runs
 /// the title bar's double-click action. A press on a control, below the row, or in a pane tab
@@ -22,17 +24,20 @@ enum PageTitleRowPress {
         enum Kind: String, Sendable { case drag, double }
         let kind: Kind
         let point: CGPoint
+        /// The press was on the page's content (text, a picture), not its empty space.
+        let onContent: Bool
 
-        init(kind: Kind, point: CGPoint) {
+        init(kind: Kind, point: CGPoint, onContent: Bool = false) {
             self.kind = kind
             self.point = point
+            self.onContent = onContent
         }
 
         init?(_ body: Any) {
             guard let object = body as? [String: Any], let kind = (object["kind"] as? String).flatMap(Kind.init(rawValue:)),
                   let x = (object["x"] as? NSNumber)?.doubleValue, let y = (object["y"] as? NSNumber)?.doubleValue,
                   x.isFinite, y.isFinite else { return nil }
-            self.init(kind: kind, point: CGPoint(x: x, y: y))
+            self.init(kind: kind, point: CGPoint(x: x, y: y), onContent: (object["content"] as? Bool) ?? false)
         }
     }
 
@@ -49,20 +54,35 @@ enum PageTitleRowPress {
         '[role="link"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], ' +
         '[role="slider"], [role="textbox"], [contenteditable=""], [contenteditable="true"], ' +
         '[tabindex]:not([tabindex="-1"]), [data-no-drag]';
+      const media = 'img, video, canvas, svg, iframe, picture';
+      // Text under the point: a press there selects it.
+      const onText = (x, y) => {
+        const range = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+        const node = range ? range.startContainer : null;
+        if (!node || node.nodeType !== 3 || !node.textContent.trim()) return false;
+        const whole = document.createRange();
+        whole.selectNodeContents(node);
+        for (const r of whole.getClientRects()) {
+          if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return true;
+        }
+        return false;
+      };
       let press = null;
       addEventListener("mousedown", (event) => {
         press = null;
-        if (event.button !== 0 || event.clientY >= 96 || event.metaKey || event.ctrlKey) return;
+        if (event.button !== 0 || event.metaKey || event.ctrlKey) return;
         const target = event.target;
         if (!(target instanceof Element) || target.closest(controls) !== null) return;
-        if (event.detail === 2) { post({ kind: "double", x: event.clientX, y: event.clientY }); return; }
-        press = { x: event.clientX, y: event.clientY };
+        const row = event.clientY < 96;
+        if (row && event.detail === 2) { post({ kind: "double", x: event.clientX, y: event.clientY }); return; }
+        const content = target.closest(media) !== null || onText(event.clientX, event.clientY);
+        press = { x: event.clientX, y: event.clientY, content: content };
       }, true);
       addEventListener("mousemove", (event) => {
         if (press === null) return;
         if ((event.buttons & 1) === 0) { press = null; return; }
         if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 3) return;
-        post({ kind: "drag", x: press.x, y: press.y });
+        post({ kind: "drag", x: press.x, y: press.y, content: press.content });
         press = null;
       }, true);
       addEventListener("mouseup", () => { press = null; }, true);
@@ -101,9 +121,12 @@ extension PageWebView: TitleRowSelfHandling {
         return convert(CGPoint(x: point.x * zoom, y: isFlipped ? y : bounds.height - y), to: nil)
     }
 
-    /// Whether the window takes `report` (a top page's title row), without acting on it.
+    /// Whether the window takes `report`, without acting on it: a press on a top page's title row, or a drag on the
+    /// empty space anywhere on a page in a window that moves by its background (``WindowMovesByBackground``).
     func takesTitleRowPress(_ report: PageTitleRowPress.Report) -> Bool {
-        TitleRowHostView.takesTitleRowPress(from: self, atWindowPoint: windowPoint(forPagePoint: report.point))
+        if window is any WindowMovesByBackground { return report.kind == .drag && !report.onContent }
+        // The title row moves the window from its text too (a top page's heading), as before.
+        return TitleRowHostView.takesTitleRowPress(from: self, atWindowPoint: windowPoint(forPagePoint: report.point))
     }
 
     /// A press the page reported on its title row (``PageTitleRowPress``): moves the window while

@@ -1,5 +1,6 @@
 // l10n-allow-file: clipboard regression fixtures.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { htmlMarkdown } from "../richClipboard";
 import { menuPartRef } from "./menuParts";
@@ -24,8 +25,12 @@ beforeAll(() => {
   menuPartRef({ code: "if ready:\n    run()\n", codeLanguage: "python" })(doc.getElementById("card"));
 });
 
-afterAll(() => {
-  for (const [key, value] of saved) scope[key] = value;
+afterAll(async () => {
+  await settleReact();
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
 });
 
 test("three messages copy headings, lists and shadow-rendered code without transcript controls", () => {

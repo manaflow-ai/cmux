@@ -1,19 +1,23 @@
-// The turn-end fold's clock grows when a later pass finds a move too long for it (turnEndFold.ts
-// `turnEndFoldMs`: a long move runs longer so no frame moves more than 0.6 of a line). When it grows
-// after a frame has painted, every row and copy goes on from where it was drawn, never from the
+// The turn-end fold's clock starts again when a later pass finds a move too long for its curve
+// (turnEndFold.ts `turnEndFoldTiming`: a long move flattens the curve, never past the settle's 180 ms,
+// so it never crawls; Leo, 2026-11-11: "it should not be slow"). When it starts again after a frame
+// has painted, every row and copy goes on from where it was drawn, never from the
 // swap's places: a row the growth did not move keeps going one way, and a copy that has started to
 // fade never comes back up (review of #40350: a restart from the swap's places drew an unchanged row
 // 10.5 px back and brightened a fading copy from 0.737 to 1).
 //
 // The page is the transcript's shape without the pane: rows placed by `top` in a thread, as the
-// virtualizer places them. The fold plays on its first pass's moves (the copies tuck 70 px: 272 ms);
-// two painted frames into the fold one row below is placed 274 px lower, as rows the virtualizer mounts move
-// the rows under them, a move that needs the longest clock (720 ms), and the clock grows.
+// virtualizer places them. The fold plays on its first pass's moves (the copies tuck 70 px); two
+// painted frames into the fold one row below is placed 274 px lower, as rows the virtualizer mounts
+// move the rows under them, a move the settle's curve moves too fast, and the clock starts again on a
+// curve flattened toward the straight line. c itself then moves 274 px in 180 ms, and each of its
+// frames stays under the two thirds of a line no transition's frame may move
+// (turn-transition-jumps.test.ts; review of #40350, F1).
 //
 // The page runs on the frames' own clock (support/frames120.ts `clock: "frames"`, browser/frameClock.ts):
 // each frame comes exactly one 120 Hz slot after the last, however late the host draws it, so the
-// growth lands two frames (16.7 ms) into the fold, inside its growth window, on every run. On the wall
-// clock one dropped frame moved it past the window and the clock did not grow (review of #40350, F2).
+// change lands two frames (16.7 ms) into the fold, inside its window, on every run. On the wall clock
+// one dropped frame moved it past the window and the clock did not start again (review of #40350, F2).
 //
 // chrome-headless-shell with BeginFrame control; CI fails the file when it cannot draw on the test's
 // clock (requireBrowserLane).
@@ -23,6 +27,11 @@ import os from "node:os";
 import path from "node:path";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+
+/// A line at the chat's default size (chatDisplay.ts), and the most a transition moves in one 120 Hz
+/// frame (turn-transition-jumps.test.ts `MAX_TRANSITION_PX`).
+const LINE_PX = 22.75;
+const MAX_TRANSITION_PX = (2 / 3) * LINE_PX;
 
 await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () => {
   setDefaultTimeout(60_000);
@@ -122,18 +131,19 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
           const copy = thread.querySelector<HTMLElement>(".acpmux-row--fold-ghost");
           const b = thread.querySelector<HTMLElement>('[data-row-id="b"]')!;
           const c = thread.querySelector<HTMLElement>('[data-row-id="c"]')!;
-          const samples: { t: number; b: number; ink: number }[] = [];
+          const samples: { t: number; b: number; c: number; ink: number }[] = [];
           const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
           for (let index = 0; index < 120; index++) {
             await frame();
             samples.push({
               t: performance.now(),
               b: b.getBoundingClientRect().top,
+              c: c.getBoundingClientRect().top,
               ink: copy ? Number.parseFloat(getComputedStyle(copy).opacity) : 0,
             });
             // Frames painted with the fold under way (b drawn part way up, the copies part faded), still
             // inside the growth window (two 120 Hz frames after the first): c is placed 274 px lower, and
-            // the clock grows. Grown at the first frame, nothing has moved yet to be drawn back.
+            // the clock starts again. Started again at the first frame, nothing has moved yet to be drawn back.
             if (index === 2) c.style.top = "344px";
           }
           return { samples, copy: Boolean(copy) };
@@ -155,14 +165,24 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
       );
       expect(back).toEqual([]);
       expect(samples.at(-1)!.b).toBeCloseTo(34, 1);
-      // The clock grew: b still moves past 200 ms (on the first pass's 272 ms it rests at about 170 ms).
+      // The clock started again two frames in: b still moves past the first clock's 180 ms, and rests
+      // one settle after the restart, never on a longer clock (before: 720 ms for this move).
       const moving = samples.filter((sample) => sample.b > 34.02).at(-1)!;
-      expect(moving.t - samples[0]!.t).toBeGreaterThan(200);
+      expect(moving.t - samples[0]!.t).toBeGreaterThan(180);
+      expect(moving.t - samples[0]!.t).toBeLessThan(180 + 25);
       // The copy of the work only ever fades.
       const brightened = samples
         .map((sample, index) => ({ index, step: index ? sample.ink - samples[index - 1]!.ink : 0 }))
         .filter(({ step }) => step > 0.005);
       expect(brightened).toEqual([]);
+      // c, placed 274 px lower after frame 2, slides there on the restarted clock: from the first frame after
+      // the growth on, no frame moves it more than the bound.
+      const cSteps = samples
+        .map((sample, index) => ({ index, step: index >= 3 ? Math.abs(sample.c - samples[index - 1]!.c) : 0 }))
+        .filter(({ step }) => step > MAX_TRANSITION_PX);
+      console.log(`turn-end clock growth: c ${samples.map((s) => s.c.toFixed(2)).join(" ")}`);
+      expect(cSteps).toEqual([]);
+      expect(samples.at(-1)!.c).toBeCloseTo(344, 1);
     } finally {
       await frames.close();
     }

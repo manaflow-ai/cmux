@@ -28,7 +28,7 @@
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-3);
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   color: var(--ds-color-fg);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
@@ -42,12 +42,12 @@
 .ui-btn[data-size="sm"] {
   height: var(--ds-control-compact);
   padding-inline: var(--ds-space-2);
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--ds-radius-control);
 }
 .ui-btn[data-size="lg"] {
   height: var(--ds-control-primary);
   padding-inline: var(--ds-space-4);
-  border-radius: var(--ds-radius-lg);
+  border-radius: var(--ds-radius-control);
 }
 .ui-btn[data-icon] {
   width: var(--ds-control-row);
@@ -117,6 +117,21 @@
 }
 .ui-btn[data-disabled] {
   opacity: 0.4;
+}
+
+/* ui.css's dialog button spacing and keycap, at no specificity so ui.css and the rule below still win:
+   the agent pane loads no ui.css, and a DialogButton there with no button class of its own drew its key
+   jammed on the label at full size ("Cancel⎋"; Leo, 2026-11-11: "the weird symbol after cancel?"). */
+:where(.ui-dialog-button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+:where(.ui-keyhint) {
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  opacity: 0.6;
 }
 
 /* A dialog button's keycap (ui/DialogButton) in a shared button: caption size in the button's own ink,
@@ -286,7 +301,7 @@
   gap: var(--ds-space-2);
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-3);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   color: var(--ds-color-muted);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);

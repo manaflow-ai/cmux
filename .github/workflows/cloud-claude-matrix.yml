@@ -72,4 +72,4 @@ jobs:
           name: cloud-claude-matrix
           path: ${{ runner.temp }}/cloud-claude-matrix
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3

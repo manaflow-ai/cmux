@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,8 +28,14 @@ def workflow(name: str) -> dict:
 
 def environment_name(job: dict) -> object:
     """A job's environment name, whether it is written plain or as {name, deployment: false}."""
-    environment = job.get("environment")
-    return environment.get("name") if isinstance(environment, dict) else environment
+    return (workflow_jobs.resolve(job).environment or {}).get("name")
+
+
+def runs_on_text(job: dict) -> str:
+    """Every runs-on a job's matrix cells write, one per line; a matrix nothing resolves fails."""
+    cells = workflow_jobs.runs_on_cells(job)
+    assert cells is not None, f"runs-on reads a matrix value nothing resolves: {job.get('name')}"
+    return "\n".join(cells)
 
 
 def run_text(job: dict) -> str:
@@ -50,7 +60,7 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
     for name, job_name, environment, runner in cases:
         job = workflow(name)["jobs"][job_name]
         assert environment_name(job) == environment, f"{name} secrets need {environment}"
-        assert job.get("runs-on") == runner, f"{name} must use its declared ephemeral pool"
+        assert workflow_jobs.runs_on_cells(job) == [runner], f"{name} must use its declared ephemeral pool"
         assert "fromJSON(vars.RUNNER_POOLS)." in runner
 
     shared_secret_readers = (
@@ -90,9 +100,8 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
         if "workflow_dispatch" not in (document.get("on") or {}):
             continue
         for job_name, job in (document.get("jobs") or {}).items():
-            rendered = yaml.dump(job)
-            names = set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", rendered)) - {"GITHUB_TOKEN"}
-            inherited = job.get("secrets") == "inherit"
+            names = workflow_jobs.secret_names(job) - {"GITHUB_TOKEN"}
+            inherited = workflow_jobs.resolve(job).inherits_secrets
             if not names and not inherited:
                 continue
             checked += 1
@@ -103,12 +112,12 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
                 # passed secrets must, so the environment's branch policy still bounds who gets them.
                 callee = yaml.load((ROOT / uses[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
                 for callee_name, callee_job in (callee.get("jobs") or {}).items():
-                    if set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", yaml.dump(callee_job))) - {"GITHUB_TOKEN"}:
-                        assert callee_job.get("environment"), (
+                    if workflow_jobs.secret_names(callee_job) - {"GITHUB_TOKEN"}:
+                        assert workflow_jobs.resolve(callee_job).environment, (
                             f"{path.name} {job_name} passes secrets to {uses} {callee_name}, which has no environment"
                         )
                 continue
-            assert job.get("environment"), (
+            assert workflow_jobs.resolve(job).environment, (
                 f"{path.name} {job_name} can receive external credentials without an environment"
             )
     assert checked >= 50, "dispatchable credential consumers were not comprehensively inspected"
@@ -123,7 +132,7 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
         ("test-ios.yml", "runner", "ci-routing-agent", True),
     )
     for name, job_name, trusted_environment, has_merge_group in secretless_pr_jobs:
-        environment = workflow(name)["jobs"][job_name].get("environment", "")
+        environment = environment_name(workflow(name)["jobs"][job_name]) or ""
         assert trusted_environment in environment
         assert "pull_request" in environment and f"'{trusted_environment}' || ''" in environment, (
             f"{name} {job_name} exposes an environment credential to PR code"
@@ -133,23 +142,24 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
 
 
 def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> None:
-    jobs = workflow("cloud-vm-dogfood.yml")["jobs"]
+    dogfood = workflow("cloud-vm-dogfood.yml")
+    jobs = dogfood["jobs"]
     smoke = jobs["public-installer-smoke"]
     installer = jobs["installer"]
     journey = jobs["journey"]
 
-    assert smoke.get("environment") is None
-    assert "secrets." not in yaml.dump(smoke)
-    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", smoke["runs-on"]))
+    assert workflow_jobs.resolve(smoke).environment is None
+    assert not workflow_jobs.secret_names(smoke)
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", runs_on_text(smoke)))
     assert "https://cmux.com/tui/install.sh" in run_text(smoke)
     assert "CMUX_TUI_INSTALL_MS" in run_text(smoke)
     assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in smoke["steps"])
 
-    assert installer.get("environment") is None
+    assert workflow_jobs.resolve(installer).environment is None
     assert installer.get("needs") == "public-installer-smoke"
     assert (installer.get("permissions") or {}).get("attestations") == "read"
-    assert "secrets." not in yaml.dump(installer)
-    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", installer["runs-on"]))
+    assert not workflow_jobs.secret_names(installer)
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", runs_on_text(installer)))
     installer_script = run_text(installer)
     assert "gh attestation verify" in installer_script
     assert "--source-ref refs/heads/main" in installer_script
@@ -162,17 +172,17 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
     assert journey.get("needs") == "installer"
     # NEXT Cloud: the cmux VM API's own environments, never classic cloud-vm-*.
-    assert journey.get("environment") == "cmux-vm-${{ inputs.target }}"
+    assert workflow_jobs.resolve(journey).environment == {"name": "cmux-vm-${{ inputs.target }}"}
     assert "/api/vm" not in yaml.dump(journey)
     assert "scripts/cmux-next/cloud-vm-dogfood-journey.ts" in run_text(journey)
-    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", journey["runs-on"]))
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", runs_on_text(journey)))
     assert "STACK_SECRET_SERVER_KEY" not in yaml.dump(journey)
-    assert "CMUX_VM_SMOKE_API_KEY" not in (journey.get("env") or {})
+    assert "CMUX_VM_SMOKE_API_KEY" not in workflow_jobs.effective_env(dogfood, journey)
     assert any("actions/download-artifact@" in str(step.get("uses", "")) for step in journey["steps"])
     assert "CMUX_TUI_INSTALL_MS" in run_text(journey)
     secret_steps = [
         step for step in journey["steps"]
-        if any("secrets." in str(value) and "!= ''" not in str(value) for value in (step.get("env") or {}).values())
+        if any(workflow_jobs.secret_names(value) and "!= ''" not in str(value) for value in (step.get("env") or {}).values())
     ]
     assert len(secret_steps) == 1
     assert secret_steps[0].get("name") == "Journey"
@@ -184,16 +194,16 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     assert image_promote.get("permissions") == {"contents": "read", "actions": "read"}
     # production promotes in its own environment; dev keeps the dev one. The gate job that runs
     # first for production names no environment (a job naming a missing one would create it).
-    assert image_promote["jobs"]["promote"].get("environment") == (
-        "${{ inputs.channel == 'production' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
-    )
-    assert "environment" not in image_promote["jobs"]["prod-gate"]
+    assert workflow_jobs.resolve(image_promote["jobs"]["promote"]).environment == {
+        "name": "${{ inputs.channel == 'production' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
+    }
+    assert workflow_jobs.resolve(image_promote["jobs"]["prod-gate"]).environment is None
     image_bake = workflow("cloud-vm-image-bake.yml")
     assert image_bake.get("permissions") == {"contents": "read"}
-    assert image_bake["jobs"]["bake"].get("environment") == (
-        "${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
-    )
-    assert "environment" not in image_bake["jobs"]["prod-gate"]
+    assert workflow_jobs.resolve(image_bake["jobs"]["bake"]).environment == {
+        "name": "${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
+    }
+    assert workflow_jobs.resolve(image_bake["jobs"]["prod-gate"]).environment is None
 
     backend_jobs = workflow("backend.yml")["jobs"]
     for job_name in ("migrations-development", "preview", "preview-cleanup"):
@@ -205,17 +215,17 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     assert "secrets" not in docs_caller["nightly"]
     assert "secrets" not in docs_caller["release"]
     docs_deploy = workflow("docs-deploy-reusable.yml")["jobs"]["deploy"]
-    assert docs_deploy.get("environment") == "docs-${{ inputs.channel }}"
+    assert workflow_jobs.resolve(docs_deploy).environment == {"name": "docs-${{ inputs.channel }}"}
     docs_run = run_text(docs_deploy)
     for secret in ("VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "VERCEL_TOKEN"):
         assert secret in yaml.dump(docs_deploy)
     assert "secrets.vercel_" not in yaml.dump(docs_deploy)
 
     namespace = workflow("namespace-autofix.yml")["jobs"]["autofix"]
-    assert namespace.get("environment") == {"name": "ci-routing-agent", "deployment": "false"}
+    assert workflow_jobs.resolve(namespace).environment == {"name": "ci-routing-agent", "deployment": "false"}
 
     pr_autofix = workflow("cmux-next-pr-autofix.yml")["jobs"]["push"]
-    assert pr_autofix.get("environment") == {"name": "cmux-pr-autofix", "deployment": "false"}
+    assert workflow_jobs.resolve(pr_autofix).environment == {"name": "cmux-pr-autofix", "deployment": "false"}
     assert "github.event_name != 'pull_request'" in pr_autofix.get("if", ""), (
         "the protected App job must skip PR refs before environment evaluation"
     )

@@ -93,4 +93,12 @@ export class TenantLimitsObject extends DurableObject {
   unlock(key: string, holder: string): Promise<void> {
     return this.ledger.unlock(key, holder);
   }
+
+  lockUnlessCovered(key: string, holder: string, leaseMs: number, nowMs: number, coverageKey: string, need: number): Promise<"taken" | "busy" | "covered"> {
+    return this.ledger.lockUnlessCovered(key, holder, leaseMs, nowMs, coverageKey, need);
+  }
+
+  coverageWant(key: string): Promise<number> { return this.ledger.coverageWant(key); }
+  coverageWanted(key: string): Promise<number> { return this.ledger.coverageWanted(key); }
+  coverageApplied(key: string, upTo: number): Promise<void> { return this.ledger.coverageApplied(key, upTo); }
 }

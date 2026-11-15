@@ -12,7 +12,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-import git_fixture_env  # disables git auto maintenance
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -129,6 +135,17 @@ class BaseMergeWarningTests(unittest.TestCase):
         self.env["GH_EXIT"] = "1"
         done = self.pre_push(self.merge_base())
         self.assertEqual((done.returncode, done.stderr), (0, ""))
+
+    def test_github_unreadable_is_asked_once_per_push(self):
+        # cmux#41715 review: a down or signed-out gh cost its 15 s limit once per pushed branch with a base merge.
+        self.env["GH_EXIT"] = "1"
+        merge = self.merge_base()
+        lines = "".join(f"refs/heads/{branch} {merge} refs/heads/{branch} {self.old_head}\n"
+                        for branch in ("topic", "topic-2", "topic-3"))
+        done = subprocess.run(["python3", "-I", str(WARNING), "--pre-push", "--repo", str(self.repo)],
+                              input=lines, env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        self.assertEqual(len(self.gh_log.read_text().splitlines()), 1, self.gh_log.read_text())
 
     def test_update_branch_while_checks_run_adds_context_without_blocking(self):
         done = self.claude_hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/22801/update-branch")

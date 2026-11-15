@@ -21,7 +21,8 @@ export type CmuxCommand = SlashCommand & {
     | "status"
     | "cd"
     | "resume"
-    | "login";
+    | "login"
+    | "customize";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -146,6 +147,16 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     source: "cmux",
     action: "login",
   },
+  // Customize cmux by asking (customizeCommand.ts): the chat's agent changes the real settings,
+  // themes and views while the person watches, then they apply, refine or discard.
+  {
+    name: "customize",
+    description: "",
+    descriptionKey: "composer.slashCustomize",
+    hint: "<change>",
+    source: "cmux",
+    action: "customize",
+  },
 ];
 
 /// Harnesses commonly expose these, but not every adapter advertises them through ACP. Keep a
@@ -224,6 +235,18 @@ export function continueTargets<T extends HarnessTarget>(
   );
 }
 
+/// The harnesses a started chat's model menu can switch to (forkHold.ts, App.tsx `chat.switchModel`):
+/// every one but the chat's own that can run here, another account or launch profile of its own
+/// family too, since a switch forks the chat in place rather than handing it off (Leo 2026-11-11:
+/// "across any and all conditions of workspaces/folders/models/provides/harnesses").
+export function switchTargets<T extends HarnessTarget>(
+  catalog: readonly (T & { pickable?: boolean; unavailable?: string })[],
+  currentHarness: string | undefined,
+): T[] {
+  if (!currentHarness) return [];
+  return catalog.filter((target) => target.id !== currentHarness && target.pickable !== false && !target.unavailable);
+}
+
 /** Resolves the target typed after `/continue` by id or its visible catalog name. */
 export function resolveHarnessTarget(
   value: string | undefined,
@@ -285,6 +308,10 @@ export function cmuxCommandRefusal(
     inCloud?: boolean;
     /// This pane can open New Cloud Chat for a started chat's `--on cloud` (not Quick Chat).
     cloudStart?: boolean;
+    /// No chat has started and Cloud or Sandboxed is picked for it (there is no chat to read a host
+    /// from yet), or the chat runs on another machine of the person's: either way the prompt
+    /// would not act on this machine's own files.
+    startsElsewhere?: boolean;
   },
 ): StringKey | undefined {
   const placed = PLACED_ACTIONS.has(command.action) ? commandPlace(typedArgs) : undefined;
@@ -313,6 +340,10 @@ export function cmuxCommandRefusal(
     case "resume":
     case "login":
       return undefined;
+    case "customize":
+      // The agent edits this machine's cmux: a chat on a Cloud machine would change that machine's,
+      // and so would the chat a New Tab with Cloud or Sandboxed picked is about to start.
+      return state.inCloud || state.startsElsewhere ? "composer.cmuxCustomizeHere" : undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "cd":

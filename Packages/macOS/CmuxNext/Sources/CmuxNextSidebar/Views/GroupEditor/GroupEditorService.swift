@@ -4,8 +4,8 @@ public import CmuxNextPages
 import CmuxNextWakeups
 
 /// Draws the sidebar's workspace group editor (``SidebarGroupEditorSurface``): the React page
-/// webviews/src/pages/group-editor in one warm glass panel, made once (at an idle moment after launch or
-/// at the first open) and kept for every later open, like the icon picker.
+/// webviews/src/pages/group-editor in one warm glass panel, made once (at the first menu, the first hover over
+/// a group header, or the first open; never at launch) and kept for every later open, like the icon picker.
 ///
 /// Group editors are menus and open at once, fully drawn (#26400, #27056). While closed the panel stays
 /// ordered in over its window with its card transparent and click-through, so the page keeps painting
@@ -216,7 +216,7 @@ final class GroupEditorPanel: ActiveAppKeyPanel {
 
     init(content: NSView, width: CGFloat) {
         let size = NSSize(width: width, height: GroupEditorService.firstHeight)
-        card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        card = Glass.makeMenuPanel(content: content)
         super.init(contentRect: PopupStyle.standard.windowFrame(forCard: NSRect(origin: .zero, size: size)),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isReleasedWhenClosed = false

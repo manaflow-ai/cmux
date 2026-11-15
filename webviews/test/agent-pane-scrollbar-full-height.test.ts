@@ -26,6 +26,10 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () => {
+  /// Pins the composer dock to its push arm (composer/dockMotion.experiment.ts): these cases measure the
+  /// rows riding the composer's growth, which the overlay arm (the default) leaves still under the card
+  /// by design (test/agent-pane-composer-dock-motion.test.ts measures both arms).
+  const pushDock = () => localStorage.setItem("cmux.experiments", JSON.stringify({ "composer-dock-motion": "push" }));
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -126,8 +130,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await daemon?.stop(true);
   });
 
-  async function open(): Promise<Page> {
+  async function open(look?: "push"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    if (look === "push") await page.addInitScript(pushDock);
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -229,7 +234,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   });
 
   test("a composer that grows keeps the followed end above it on every frame", async () => {
-    const page = await open();
+    const page = await open("push");
     const before = await measure(page);
     await page.locator(".acpmux-md").click();
     await page.evaluate(() => {
@@ -321,7 +326,10 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       return frames;
     });
     const grown = await measure(page);
-    expect(grown.cardHeight - before.cardHeight).toBeGreaterThan(80);
+    // The card grew by several lines (60 px, as the other growing cases here hold it). In the Codex
+    // look, the default since cmux#42247, this prompt grows the card from 96 to 176 px, exactly the
+    // 80 px that a bound of "more than 80" read as red on every run.
+    expect(grown.cardHeight - before.cardHeight).toBeGreaterThan(60);
     // No painted frame moved the offset, or changed the scroller's height or its content's, which
     // move and resize the scrollbar's thumb.
     expect(frames.length).toBeGreaterThan(5);
@@ -433,7 +441,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // The same for a reader at the latest row: growing the composer line by line and shrinking it
   // back, every painted frame keeps the view at its end with the last row above the card.
   test("a composer that grows and shrinks keeps a followed view at its end on every frame", async () => {
-    const page = await open();
+    const page = await open("push");
     await page.locator(".acpmux-md").click();
     await page.evaluate(() => {
       const frames: { rowAboveCard: number; fromEnd: number; cardHeight: number }[] = [];
@@ -667,7 +675,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // the composer make the scrollbar jump"). Before: each line grew the room under the last row, so
   // the offset was written to the new end and the overlay thumb showed and shrank on every line.
   test("a composer that grows and shrinks at the latest row keeps the scrollbar still on every frame", async () => {
-    const page = await open();
+    const page = await open("push");
     await page.locator(".acpmux-md").click();
     const before = await measure(page);
     expect({ fromEnd: before.fromEnd, lastIsLatest: before.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
@@ -836,7 +844,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   test("a transcript about a screen tall keeps its first row in reach while the composer grows", async () => {
     const short = await papercutPane(() => browser!, { turns: 3, running: false });
     try {
-      const page = await short.open();
+      const page = await short.open(undefined, async (page) => {
+        await page.addInitScript(pushDock);
+      });
       await installPaintedFrames(page);
       // Size the view so the transcript is 2-3px taller than it: the chat opens at its latest row.
       // The view shrinks or grows to that, whichever the transcript's measured height asks for: three

@@ -171,6 +171,29 @@ pub fn accept_error_needs_backoff(error: &io::Error) -> bool {
     )
 }
 
+/// True when a failed `accept` can pass on a later try, so the loop waits
+/// and accepts again: a signal, a peer that went away, a timeout, or
+/// descriptor or buffer exhaustion. Any other error ends the listener.
+pub fn accept_error_is_transient(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::Interrupted
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::TimedOut
+    ) || matches!(
+        error.raw_os_error(),
+        Some(libc::EMFILE) | Some(libc::ENFILE) | Some(libc::ENOBUFS) | Some(libc::ENOMEM)
+    )
+}
+
+/// The wait before accepting again after `error`, from `backoff`; `None`
+/// when the error ends the listener ([`accept_error_is_transient`]).
+pub fn accept_retry_delay(backoff: &mut Backoff, error: &io::Error) -> Option<Duration> {
+    accept_error_is_transient(error).then(|| backoff.next_delay())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +299,22 @@ mod tests {
         assert!(accept_error_needs_backoff(&io::Error::from_raw_os_error(libc::ENFILE)));
         assert!(!accept_error_needs_backoff(&io::Error::from(io::ErrorKind::Interrupted)));
         assert!(!accept_error_needs_backoff(&io::Error::from(io::ErrorKind::PermissionDenied)));
+    }
+
+    #[test]
+    fn a_transient_accept_error_waits_doubling_and_any_other_ends_the_listener() {
+        let mut backoff =
+            Backoff::new(Duration::from_millis(10), Duration::from_millis(250)).with_jitter(0.0);
+        let emfile = io::Error::from_raw_os_error(libc::EMFILE);
+        let delays: Vec<_> = (0..6)
+            .map(|_| accept_retry_delay(&mut backoff, &emfile).unwrap().as_millis())
+            .collect();
+        assert_eq!(delays, vec![10, 20, 40, 80, 160, 250]);
+        backoff.reset();
+        let aborted = io::Error::from(io::ErrorKind::ConnectionAborted);
+        assert_eq!(accept_retry_delay(&mut backoff, &aborted), Some(Duration::from_millis(10)));
+        let invalid = io::Error::from_raw_os_error(libc::EINVAL);
+        assert_eq!(accept_retry_delay(&mut backoff, &invalid), None);
+        assert_eq!(backoff.attempts(), 1, "a fatal error takes no step");
     }
 }

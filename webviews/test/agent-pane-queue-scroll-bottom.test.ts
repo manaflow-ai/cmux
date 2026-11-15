@@ -32,6 +32,10 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
+  /// Pins the composer dock to its push arm (composer/dockMotion.experiment.ts): these cases measure the
+  /// rows riding the composer's growth, which the overlay arm (the default) leaves still under the card
+  /// by design (test/agent-pane-composer-dock-motion.test.ts measures both arms).
+  const pushDock = () => localStorage.setItem("cmux.experiments", JSON.stringify({ "composer-dock-motion": "push" }));
   setDefaultTimeout(300_000);
   const engines: [string, BrowserType][] = [];
   for (const engine of [
@@ -224,10 +228,11 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
     page.locator(".acpmux-composer-box [contenteditable=true], .acpmux-composer-box textarea").first();
 
   /// Opens the chat at its latest row and notes where the last row rests over the stack there.
-  async function open(name: string) {
+  async function open(name: string, look?: "push") {
     // 980px: the 88px side gutters this suite had at 900px beside the old 720px column, so a point 8px
     // left of the composer is the transcript's, clear of the thread rail at the pane's edge.
     const page = await browsers.get(name)!.newPage({ viewport: { width: 980, height: 700 } });
+    if (look === "push") await page.addInitScript(pushDock);
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -312,7 +317,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
       }
 
       test("a prompt the fold hides, run elsewhere, leaves no room as the stack shrinks, opens and closes", async () => {
-        const { page, rest } = await open(name);
+        const { page, rest } = await open(name, "push");
         await prompt(page).click();
         await page.keyboard.type("Check the parser");
         await page.keyboard.press("Shift+Enter");
@@ -381,7 +386,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
       });
 
       test("a new line in the composer leaves the transcript's distance from its end as it was", async () => {
-        const { page, rest } = await open(name);
+        const { page, rest } = await open(name, "push");
         await prompt(page).click();
         await page.keyboard.type("Check the parser");
         await settle(page);

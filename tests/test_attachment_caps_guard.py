@@ -157,6 +157,7 @@ class AttachmentCapsGuardTests(unittest.TestCase):
         paths = (
             "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
             "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
         )
         for relative in paths:
             with self.subTest(path=relative):

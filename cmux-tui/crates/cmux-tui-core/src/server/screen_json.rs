@@ -15,6 +15,10 @@ pub(super) fn screen_json(
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
     let presentation = notifications.presentation.screens.screen(screen.public_id.as_str());
+    let panes = pane_ids
+        .iter()
+        .map(|id| pane_json(state, *id, short_ids, notifications))
+        .collect::<Vec<_>>();
     let mut value = json!({
         "id": screen.id,
         "resource_id": screen.public_id,
@@ -25,8 +29,9 @@ pub(super) fn screen_json(
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "group": group,
         "active": active,
-        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
     });
+    // Moved, not copied: `json!` serializes an expression into a new value (see `pane_json`).
+    value.insert("panes", Value::Array(panes));
     if let (Value::Object(value), Value::Object(layout)) =
         (&mut value, screen_layout_json(screen, &state.resource_indexes.split_ids))
     {

@@ -22,6 +22,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelsProgress,
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
@@ -30,6 +31,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type CustomizeTryOn,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -84,6 +86,8 @@ export type MockOptions = {
   themeOverrides?: ThemeOverride[];
   /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
   devicesJoin?: DevicesJoinState;
+  /** A customization being tried on (`cmux customize try`); absent: none. */
+  tryOn?: CustomizeTryOn;
 };
 
 /** This Mac joined to a team with the one-line join, both consent switches off. */
@@ -202,6 +206,8 @@ export class MockSettingsProvider {
   private connected: boolean;
   private museumArt: MuseumArtResult[];
   readonly workspaceBackgrounds = new Map<string, WorkspaceBackground>();
+  /** Holds `cmux.settings.host.lists` until it settles: a test's host that answers after the values. */
+  holdHost: Promise<void> | null = null;
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -218,6 +224,7 @@ export class MockSettingsProvider {
     this.failing = options.failing ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
+    this.tryOn = options.tryOn ?? null;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
@@ -242,7 +249,10 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
-      "cmux.settings.host.lists": () => this.host,
+      "cmux.settings.host.lists": async () => {
+        if (this.holdHost) await this.holdHost;
+        return this.host;
+      },
       "cmux.settings.accounts.state": () => this.accountsState(),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
@@ -318,13 +328,15 @@ export class MockSettingsProvider {
         if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
         return { ...this.channels, switch: this.channelSwitch };
       },
-      "cmux.settings.channels.go_back": (params) => {
+      "cmux.settings.channels.go_back": async (params) => {
         this.wentBack = params.build as string;
+        if (this.switchHold) await this.switchHold;
         return {};
       },
-      "cmux.settings.channels.switch_build": (params) => {
-        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
+      "cmux.settings.channels.switch_build": async (params) => {
         this.switchedTo = params.build as string;
+        if (this.switchHold) await this.switchHold;
+        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
         return {};
       },
       "cmux.settings.channels.update_machine": (params) => {
@@ -475,6 +487,10 @@ export class MockSettingsProvider {
         return { files };
       },
       "cmux.settings.theme.overrides.open": () => ({}),
+      "cmux.settings.theme.file.open": () => {
+        if (this.themeFileRefusal) throw new ProtocolError("cmux.settings.theme.file_failed", this.themeFileRefusal);
+        return {};
+      },
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
@@ -548,6 +564,13 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
+      "cmux.settings.customize.run": (params) => {
+        const verb = String((params as { verb?: unknown }).verb ?? "");
+        if (verb === "status") return { try_on: this.tryOn };
+        this.customizeVerbs.push(verb);
+        this.tryOn = null;
+        return { settled: [] };
+      },
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
@@ -671,6 +694,7 @@ export class MockSettingsProvider {
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
       "cmux.settings.environments.run",
+      "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.shares.revoke",
       "cmux.settings.tailnet.state",
@@ -735,6 +759,7 @@ export class MockSettingsProvider {
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
+    provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -748,6 +773,11 @@ export class MockSettingsProvider {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
   }
+
+  /** What `cmux customize` is trying on; Keep and Revert Now end it. */
+  tryOn: CustomizeTryOn | null = null;
+  /** Every try-on verb the page ran but status, in order (tests). */
+  customizeVerbs: string[] = [];
 
   /** Settings > Privacy and Security > Shared Links as this Mac's daemon answers it: a guest link with
    * a guest in it, an invite share, and an ended link the card leaves out. */
@@ -1032,6 +1062,17 @@ export class MockSettingsProvider {
     if (this.channels) this.channels = { ...this.channels, machines };
     for (const ctx of this.machinesChanged) ctx.emit(machines ?? null);
   }
+  private readonly switchChanged = new Set<EventSourceContext>();
+
+  /** Moves the running Switch or Go Back to its next stage (null: it ended) and tells the page,
+   * like the app's push; a later read of the card answers it too. */
+  setSwitchProgress(progress: ChannelsProgress | null): void {
+    if (this.channels) this.channels = { ...this.channels, progress };
+    for (const ctx of this.switchChanged) ctx.emit(progress);
+  }
+  /** Holds every Switch and Go Back reply until it resolves, as a host that answers only once
+   * the switch ends would; null: they answer at once. */
+  switchHold: Promise<void> | null = null;
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
@@ -1040,6 +1081,8 @@ export class MockSettingsProvider {
   switchedTo: string | null = null;
   /** The host's refusal of every Switch; null: Switch runs. */
   switchRefusal: string | null = null;
+  /** Why Open Theme File's export failed (the CLI's last stderr line); null: the file opens. */
+  themeFileRefusal: string | null = null;
   /** The machines the card's Update buttons asked for, in order. */
   updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */

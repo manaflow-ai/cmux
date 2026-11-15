@@ -8,6 +8,7 @@ import { Window } from "happy-dom";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -49,12 +50,9 @@ Object.assign(scope, replacements);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const LIGHT = {

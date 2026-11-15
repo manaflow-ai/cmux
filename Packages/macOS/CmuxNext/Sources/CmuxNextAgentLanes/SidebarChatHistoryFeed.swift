@@ -31,10 +31,15 @@ public final class SidebarChatHistoryFeed {
     /// Follows the live tab list (which tabs, never their fields) while the history shows.
     private var listTask: Task<Void, Never>?
     /// One observation per live tab of the chat it shows (main-thread-scheduling.md section 3, O6): a tab's change
-    /// re-reads that tab only, never every live tab.
+    /// re-reads that tab only, never every live tab, and arrives as one change (`ObservedItems.Change`): the joined
+    /// set is updated for that tab's chat before and now, with no pass over the live tabs (the person's session has
+    /// 1600 of them).
     private var observed: ObservedItems<TabModel, LiveChat>?
     /// The live tabs listed now.
     private var listed: [TabModel] = []
+    /// By chat: how many live tabs show it. Right while each tab is listed once (the store's are): a tab listed two
+    /// times has one observation and two counts until the next change of the list.
+    private var holders: [String: Int] = [:]
     /// The chats the live tabs show, joined: what the history reads.
     private let joined = JoinedLiveChats()
 
@@ -61,7 +66,7 @@ public final class SidebarChatHistoryFeed {
         let pinned = windows.window(Self.pinnedWindow)
         let joined = joined
         observed = ObservedItems(item: { tab in LiveChat(chat: Self.liveChat(tab, lanes: lanes, localHost: localHost)) },
-                                 same: { $0 == $1 }, changed: { [weak self] in self?.settle() })
+                                 same: { $0 == $1 }, changedItem: { [weak self] change in self?.itemChanged(change) })
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         listTask = Task { [weak self] in
             for await trigger in ObservationStream({ () -> ObservationTrigger<[TabModel]?> in
@@ -71,11 +76,12 @@ public final class SidebarChatHistoryFeed {
                 guard let tabs = trigger.value else {
                     observed?.cancelAll()
                     listed = []
+                    holders = [:]
                     if joined.live != nil { joined.live = nil }
                     continue
                 }
                 listed = tabs
-                settle()
+                listChanged()
             }
         }
         // task-owner: the app (one feed for the app's life); event-driven (Observation). One value
@@ -100,12 +106,34 @@ public final class SidebarChatHistoryFeed {
         }
     }
 
-    /// The live tabs' chats now: only tabs new to the list are read (their own observations keep the
-    /// rest); the joined set is written only when it changed.
-    private func settle() {
+    /// The live tab list changed: the live tabs' chats now. Only tabs new to the list are read (their own
+    /// observations keep the rest), but every live tab is visited, so this runs for a list change only. The
+    /// joined set is written only when it changed.
+    private func listChanged() {
         guard let observed else { return }
-        let live = Set(observed.items(for: listed, id: { "\(ObjectIdentifier($0))" }).compactMap(\.chat))
+        holders = [:]
+        for chat in observed.items(for: listed, id: { "\(ObjectIdentifier($0))" }).compactMap(\.chat) {
+            holders[chat, default: 0] += 1
+        }
+        let live = Set(holders.keys)
         if joined.live != live { joined.live = live }
+    }
+
+    /// One live tab's chat changed: the chat it showed leaves the joined set when no other tab shows it, and the
+    /// chat it shows now joins when no tab showed it. No other tab is visited. What still follows the count of open
+    /// chats after such a change: Earlier's spec, which names them all for acpmux (``Inputs/earlierSpec``).
+    private func itemChanged(_ change: ObservedItems<TabModel, LiveChat>.Change) {
+        let chats = [change.old.chat, change.new.chat].compactMap { $0 }
+        ObservationWork.visited(chats.count, "SidebarChatHistoryFeed.join")
+        if let chat = change.old.chat, let count = holders[chat] {
+            holders[chat] = count > 1 ? count - 1 : nil
+            if count == 1 { joined.live?.remove(chat) }
+        }
+        if let chat = change.new.chat {
+            let count = holders[chat] ?? 0
+            holders[chat] = count + 1
+            if count == 0 { joined.live?.insert(chat) }
+        }
     }
 
     /// The history's inputs and its state from them and the windows' rows.

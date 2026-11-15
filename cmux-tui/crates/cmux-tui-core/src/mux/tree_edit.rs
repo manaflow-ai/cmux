@@ -253,9 +253,9 @@ pub(super) fn resolve_workspace_index(
     if id.is_none() && key.is_none() {
         anyhow::bail!("workspace or key is required");
     }
-    let by_id = id.and_then(|id| state.workspaces.iter().position(|workspace| workspace.id == id));
-    let by_key =
-        key.and_then(|key| state.workspaces.iter().position(|workspace| workspace.key == key));
+    // By the state's own indexes: a scan of every workspace for each request grew with the session.
+    let by_id = id.and_then(|id| state.workspace_index(id));
+    let by_key = key.and_then(|key| state.workspace_index_by_key(key));
     match (id, key, by_id, by_key) {
         (Some(id), _, None, _) => anyhow::bail!("unknown workspace {id}"),
         (_, Some(key), _, None) => anyhow::bail!("unknown workspace key {key}"),
@@ -319,6 +319,7 @@ pub(super) fn close_surface_delta(
             entity,
             workspace_revision: None,
             transaction: None,
+            mutation: None,
         });
     }
     close_pane_delta(state, notifications, pane_id)
@@ -347,6 +348,7 @@ pub(super) fn close_pane_delta(
             entity,
             workspace_revision: None,
             transaction: None,
+            mutation: None,
         });
     }
     close_screen_delta(state, notifications, screen.id)
@@ -373,6 +375,7 @@ pub(super) fn close_screen_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -398,6 +401,7 @@ pub(super) fn close_workspace_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -648,6 +652,14 @@ pub(super) fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId)
     }
 }
 
+/// The index of a pane's active tab after the tab at `removed` left it to another pane, with
+/// `remaining` tabs left: the same tab stays active unless it is the one that left, when its
+/// left neighbor (or the new first tab) is. The live move and its durable plan
+/// (`resource_topology/pane_tab_moves.rs`) both use it, so the stored pane names the live one.
+pub(super) fn active_after_tab_left(active: usize, removed: usize, remaining: usize) -> usize {
+    if remaining > 0 && active >= removed && active > 0 { active - 1 } else { active }
+}
+
 pub(super) fn move_tab_in_state(
     mux: &Mux,
     state: &mut State,
@@ -690,9 +702,7 @@ pub(super) fn move_tab_in_state(
             return (false, false);
         };
         source.tabs.remove(old_idx);
-        if !source.tabs.is_empty() && source.active_tab >= old_idx && source.active_tab > 0 {
-            source.active_tab -= 1;
-        }
+        source.active_tab = active_after_tab_left(source.active_tab, old_idx, source.tabs.len());
     }
 
     let topology_changed = state.panes.get(&source_pane).is_some_and(|pane| pane.tabs.is_empty());

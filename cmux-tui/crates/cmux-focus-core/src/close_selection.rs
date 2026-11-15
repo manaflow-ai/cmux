@@ -31,10 +31,16 @@
 //! Ids are compared by identity only (the app's strings, or the integers its
 //! C ABI maps them to). One `Openers` may hold the relations of many strips:
 //! each call names its strip by its items.
+//!
+//! [`windows::WindowCloseSelection`] is the whole state of the workspaces of
+//! every window: these relations, the creates a window waits for, and the
+//! window of each relation.
 
 use crate::close_focus::{self, TabRelations};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+
+pub mod windows;
 
 /// How long an opener relation lives (R2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

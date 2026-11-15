@@ -11,7 +11,7 @@ extension ActionRegistry {
     func makeChoicesItem(for descriptor: ActionDescriptor, target: ActionTargetRef?, in context: ActionContext,
                          arguments: [String: ActionValue] = [:]) -> NSMenuItem? {
         guard let title = title(for: descriptor.id), let action = action(for: descriptor.id),
-              Self.isAvailable(descriptor, in: context), action.isEnabled(),
+              Self.isAvailable(descriptor, in: context, debugActionsOffered: debugActions.offeredToPerson), action.isEnabled(),
               let (argument, cases, current) = ActionTargetChoices.resolve(descriptor, target: target, in: self)
         else { return nil }
         let trailer = choiceTrailer(for: descriptor.id, target: target, in: context)
@@ -67,7 +67,7 @@ extension ActionRegistry {
     /// target; nil when the choices have none or it is not bound and enabled here.
     private func choiceTrailer(for id: ActionID, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
         guard let trailerID = ContextMenuEssentials.choiceTrailers[id], let descriptor = descriptor(for: trailerID),
-              Self.isAvailable(descriptor, in: context), action(for: trailerID)?.isEnabled() == true,
+              Self.isAvailable(descriptor, in: context, debugActionsOffered: debugActions.offeredToPerson), action(for: trailerID)?.isEnabled() == true,
               let item = makeMenuItem(for: trailerID) else { return nil }
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []

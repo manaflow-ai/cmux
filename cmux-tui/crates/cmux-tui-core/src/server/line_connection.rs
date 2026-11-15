@@ -20,6 +20,32 @@ pub(super) fn handle_connection_with_permit(
     );
 }
 
+/// The daemon end of a line connection, read only once the socket says a
+/// read will not block ([`transport::Stream::wait_readable`]).
+pub(super) struct LineSocket {
+    stream: Box<dyn transport::Stream>,
+    /// What the waits keep between reads (a kqueue on macOS), closed with
+    /// the reader.
+    waiter: transport::ReadWaiter,
+}
+
+impl LineSocket {
+    pub(super) fn new(stream: Box<dyn transport::Stream>) -> Self {
+        Self { stream, waiter: transport::ReadWaiter::new() }
+    }
+
+    pub(super) fn stream(&self) -> &dyn transport::Stream {
+        &*self.stream
+    }
+}
+
+impl Read for LineSocket {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.stream.wait_readable(&mut self.waiter)?;
+        self.stream.read(buffer)
+    }
+}
+
 /// One JSON line per message. `admission` sees every line before anything
 /// parses or dispatches it, and may answer it instead (the remote entry).
 pub(super) fn serve_line_connection(
@@ -32,14 +58,22 @@ pub(super) fn serve_line_connection(
 ) {
     let Ok(mut write_half) = stream.try_clone_box() else { return };
     let Ok(control) = write_half.try_clone_box() else { return };
+    // Every descriptor of the daemon's end: `stream` (this reader),
+    // `write_half` (the writer thread) and `control` (the sink, for a kick).
+    // All three close before this returns, also while a clone of `writer`
+    // lives on elsewhere: a peer blocked in a read sees the end only then.
+    let control = SinkControl::unix(control);
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return;
     }
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
-        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
         render_service,
     );
+    if let Some(permit) = &connection_permit {
+        writer.long.attach(permit);
+    }
     let writer_outbound = outbound;
     let writer_close = writer.clone();
     let Ok(writer_thread) =
@@ -58,6 +92,7 @@ pub(super) fn serve_line_connection(
         })
     else {
         writer.close();
+        control.close();
         return;
     };
     let peer_key = stream.peer_process_key();
@@ -66,12 +101,24 @@ pub(super) fn serve_line_connection(
     // plugin as a client (orphan_shutdown.rs).
     let owner_plugin = orphan_shutdown::is_owner_plugin_peer(&mux, peer_key.as_deref());
     let client = mux.control_clients.register_classified(transport, writer.clone(), owner_plugin);
-    origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
+    let peer_kind = origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
+    // The connection is accepted: counted under what the daemon knows of its peer now
+    // (`server-stats` section `commands`); `set-client-info` can say more later.
+    writer.kind.registered(
+        mux.connection_stats().commands(),
+        match transport {
+            _ if owner_plugin => crate::diagnostics::ClientKind::Plugin,
+            ClientTransport::Remote => crate::diagnostics::ClientKind::Remote,
+            ClientTransport::WebSocket => crate::diagnostics::ClientKind::WebSocket,
+            ClientTransport::Unix => peer_kind,
+        },
+    );
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.
         disconnect_client(&mux, client, false);
         let _ = writer_thread.join();
+        control.close();
         return;
     }
     let mut hello = client_hello::HelloGate::new(transport);
@@ -79,7 +126,7 @@ pub(super) fn serve_line_connection(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
     ));
-    let mut reader = BufReader::new(stream);
+    let mut reader = BufReader::new(LineSocket::new(stream));
     let mut drain_accepted = true;
     #[cfg(unix)]
     let mut first_line_done = false;
@@ -122,23 +169,44 @@ pub(super) fn serve_line_connection(
             }
             None => {
                 let peer = || {
-                    let stream = reader.get_ref();
+                    let stream = reader.get_ref().stream();
                     client_hello::Peer {
                         key: stream.peer_process_key(),
                         token: stream.peer_token(),
                     }
                 };
-                match hello.observe(&mux, client, &line, peer) {
-                    Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => handle_connection_frame(
-                        &mux,
-                        client,
-                        transport,
-                        &line,
-                        &writer,
-                        &surface_scheduler,
-                    ),
-                }
+                // A handler that panics on this reader ends the connection
+                // through the normal close below (its registration, writer
+                // and queued requests go) instead of unwinding past it.
+                let handled =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        match hello.observe(&mux, client, &line, peer) {
+                            Some(reply) => writer.send_control(&reply).is_ok(),
+                            None => {
+                                #[cfg(test)]
+                                connection_scheduler::panic_seam::check(
+                                    &mux,
+                                    client,
+                                    connection_scheduler::panic_seam::Site::Reader,
+                                );
+                                handle_connection_frame(
+                                    &mux,
+                                    client,
+                                    transport,
+                                    &line,
+                                    &writer,
+                                    &surface_scheduler,
+                                )
+                            }
+                        }
+                    }));
+                handled.unwrap_or_else(|_| {
+                    eprintln!(
+                        "cmux-tui: a request on connection {client} panicked; closing the \
+                         connection"
+                    );
+                    false
+                })
             }
         };
         zeroize_string(&mut line);
@@ -155,10 +223,27 @@ pub(super) fn serve_line_connection(
     }
     if drain_accepted {
         surface_scheduler.finish_and_wait();
+        // A client that only ended its writes still reads: the git requests
+        // it sent answer before it closes. One that closed its whole end reads
+        // nothing, so nothing waits for it (server/git_lane.rs). Asked once.
+        if !reader.get_ref().stream().peer_gone() {
+            git_lane::GitLane::drain(&mux, client, &writer);
+        }
     } else {
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     }
+    // Nobody reads a reply now: the reads that still wait start no git.
+    mux.control_clients.git_lane.abandon(client);
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
+    control.close();
     drop(connection_permit);
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "line_connection_close_tests.rs"]
+mod close_tests;
+
+#[cfg(all(test, unix))]
+#[path = "line_connection_read_tests.rs"]
+mod read_tests;

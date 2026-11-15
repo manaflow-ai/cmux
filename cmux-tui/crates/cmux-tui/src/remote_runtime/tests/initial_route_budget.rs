@@ -16,9 +16,11 @@ const ROUTE_HANG_GUARD: Duration = Duration::from_secs(30);
 /// The budget of the stalled route: the runtime's own attempt timer.
 const STALLED_ROUTE_BUDGET: Duration = Duration::from_millis(20);
 
-/// The runtime route attempt, with one attempt budget per route index.
+/// The runtime route attempt, with one attempt budget per route index. It
+/// records each failed route's error text by route index.
 struct PerRouteBudgetAttempt<'a> {
     attempts: Vec<RuntimeInitialRouteAttempt<'a>>,
+    failures: Vec<(usize, String)>,
 }
 
 #[async_trait]
@@ -36,7 +38,14 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for PerRouteBudgetAtte
         index: usize,
         request: ConnectRequest,
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
-        self.attempts[index].connect(index, request).await
+        let result = self.attempts[index].connect(index, request).await;
+        if let Err(
+            InitialRouteAttemptError::Route { error, .. } | InitialRouteAttemptError::Fatal(error),
+        ) = &result
+        {
+            self.failures.push((index, format!("{error:#}")));
+        }
+        result
     }
 }
 
@@ -66,8 +75,9 @@ async fn select_stalled_then_unix(
             RuntimeInitialRouteAttempt { options: &stalled, shutdown: shutdown_rx.clone() },
             RuntimeInitialRouteAttempt { options: &unix, shutdown: shutdown_rx },
         ],
+        failures: Vec::new(),
     };
-    tokio::time::timeout(
+    let selected = tokio::time::timeout(
         ROUTE_HANG_GUARD,
         select_initial_route(
             &stalled.routes,
@@ -80,7 +90,21 @@ async fn select_stalled_then_unix(
     )
     .await
     .expect("a stalled route monopolized initial route selection")
-    .expect("the next initial route did not connect")
+    .expect("the next initial route did not connect");
+    // The stalled route must fail on its own 20 ms attempt timer, not on any
+    // other fixed deadline below the Unix route's hang guard.
+    let (index, error) = attempt.failures.first().expect("the stalled route did not fail");
+    assert_eq!(*index, 0, "the first failure is not the stalled route's: {:?}", attempt.failures);
+    assert!(
+        error.contains("timed out after 20ms"),
+        "the stalled route did not fail on its 20 ms attempt timer: {error}"
+    );
+    assert!(
+        attempt.failures.iter().all(|(index, _)| *index == 0),
+        "the Unix route failed: {:?}",
+        attempt.failures
+    );
+    selected
 }
 
 #[tokio::test]

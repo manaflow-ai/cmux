@@ -104,6 +104,11 @@ pub(super) struct KittyImageBudgetState {
     /// Terminals a respawn wave will add whose surface ids are not known yet
     /// ([`KittyImageWaveExpectation`]).
     pub(super) expected_in_wave: usize,
+    /// Surviving terminals a start will adopt whose adoptions have not named
+    /// their surface ids yet ([`KittyImageAdoptionExpectation`]). Kept apart
+    /// from `expected_in_wave`: the end of a respawn wave gives back all of
+    /// that one, and must not give back the adoptions' shares with it.
+    pub(super) expected_adoptions: usize,
     pub(super) capacity: usize,
     pub(super) worker_running: bool,
     pub(super) expansion_in_flight: bool,
@@ -116,6 +121,7 @@ impl KittyImageBudgetState {
         owners
             .saturating_add(self.expected.len())
             .saturating_add(self.expected_in_wave)
+            .saturating_add(self.expected_adoptions)
             .min(KITTY_IMAGE_BUDGET_OWNER_LIMIT)
     }
 }
@@ -200,6 +206,36 @@ impl Drop for KittyImageWaveExpectation {
     fn drop(&mut self) {
         if let Some(mux) = self.mux.upgrade() {
             mux.forget_kitty_image_expectation(None, usize::MAX);
+        }
+    }
+}
+
+/// One surviving terminal a start will adopt, counted when its adoption is
+/// scheduled, so before the first adoption reserves. Without it the first
+/// adoption to reserve was alone and took the whole budget, and every later
+/// one waited for it to connect to its host and shrink: up to the
+/// reservation timeout, and then it started with Kitty graphics off.
+/// [`Self::name`] turns it into the expectation of the surface id the
+/// adoption reserves with; dropped unnamed (the adoption was given up or
+/// waits for a retry), it gives its share back.
+pub(crate) struct KittyImageAdoptionExpectation {
+    pub(super) mux: Weak<Mux>,
+}
+
+impl KittyImageAdoptionExpectation {
+    /// The adoption reserves as `slot`: the share it was counted for becomes
+    /// that slot's, in one budget step (the bucket does not change).
+    pub(crate) fn name(mut self, slot: SurfaceId) -> Option<KittyImageSurfaceExpectation> {
+        // Taken out, so the drop of `self` gives nothing back.
+        let mux = std::mem::take(&mut self.mux);
+        mux.upgrade().map(|owner| owner.name_kitty_image_adoption(slot))
+    }
+}
+
+impl Drop for KittyImageAdoptionExpectation {
+    fn drop(&mut self) {
+        if let Some(mux) = self.mux.upgrade() {
+            mux.forget_kitty_image_adoption();
         }
     }
 }

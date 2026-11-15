@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-// App health (design/app-health.md): the indicator in three treatments, each in the same seven
+// App health (design/app-health.md): the indicator in three treatments (where it sits in the sidebar
+// footer row and why it moves nothing there: AppHealthFooterRow.gallery.tsx), each in the same seven
 // states, with the popover it opens drawn under it. A: the sidebar footer's dot and line (shipped);
 // B: the titlebar's trailing dot, its line a tooltip; C: an inline pill with the worst part's
 // Repair. Healthy renders nothing in every treatment.
@@ -102,7 +103,7 @@ const STATES: Record<string, { note: string; snapshot: HealthSnapshot }> = {
     },
   },
   "restoring-slow": {
-    note: "Slow, still making progress: never repaired by force.",
+    note: "Slow, still making progress: never repaired by force. The indicator shows nothing for a slow part (ui.app-health.footer-row); the popover lists it.",
     snapshot: {
       worst: "slow",
       parts: [
@@ -118,7 +119,7 @@ const STATES: Record<string, { note: string; snapshot: HealthSnapshot }> = {
     },
   },
   "oversize-data": {
-    note: "Workspace data past 8 GB: a warning, no button.",
+    note: "Workspace data past 8 GB: a warning in the popover, no button; the indicator shows nothing for it.",
     snapshot: {
       worst: "slow",
       parts: [

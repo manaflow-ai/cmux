@@ -5,11 +5,23 @@
 // a chip that opens into the band. Leo, 2026-11-07: "the composer hat can become a dual thing where
 // you can go through it and, like, click left and right through things and be able to answer things
 // as they come".
+// Its × (Leo, 2026-11-11: "there's no close button :("): three ways to show it, all with Escape.
+// Shipped: on hover, in a room it keeps at rest (dismiss-hover). Compared: always shown
+// (dismiss-always), and over the band's corner in no room of its own (dismiss-corner), which covers
+// the pager and is why the × keeps a room.
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { hatQuestionsLook } from "./hatQuestions.experiment";
 
-type Props = { count?: number; look?: "band" | "line" | "chip" };
+type Props = {
+  count?: number;
+  look?: "band" | "line" | "chip";
+  child?: boolean;
+  replyLook?: "below" | "inline" | "reveal";
+  refuse?: boolean;
+  dismissLook?: "hover" | "always" | "corner";
+  first?: "child";
+};
 
 const prompt = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-hat-questions__prompt")?.textContent ?? "";
 const position = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-hat-questions__position")?.textContent ?? "";
@@ -36,6 +48,14 @@ export const hatQuestionsScript = [
     },
   },
   {
+    name: "the × puts the shown question away",
+    run: async (ctx: PlayContext) => {
+      const before = prompt(ctx);
+      await ctx.click({ selector: ".acpmux-hat-questions__dismiss" });
+      await ctx.waitFor(() => prompt(ctx) !== before);
+    },
+  },
+  {
     name: "a reply typed in the composer withdraws the chat's own question",
     run: async (ctx: PlayContext) => {
       await ctx.type("Use passkeys, and keep API keys for the CLI", { selector: "[data-stage-composer]" });
@@ -45,6 +65,19 @@ export const hatQuestionsScript = [
   },
 ];
 
+// A started chat's question answered in the hat (Leo, 2026-11-10: "this is unusable to respond to i
+// necessarily have to open... this is bad ui"): More shows the whole question, then a typed answer
+// goes with Send and the question leaves.
+const childPlay = async (ctx: PlayContext) => {
+  await ctx.click({ selector: ".acpmux-hat-questions__more" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-hat-questions__prompt[data-whole]")));
+  const reveal = ctx.document.querySelector(".acpmux-hat-questions__reply") === null;
+  if (reveal) await ctx.click({ selector: ".acpmux-hat-questions__quiet" });
+  await ctx.type("Remove the older one only", { selector: ".acpmux-hat-questions__field" });
+  await ctx.click({ selector: ".acpmux-hat-questions__send" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-hat-questions__prompt") === null);
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.hat-questions",
   title: "Composer hat: the agent's questions",
@@ -52,7 +85,9 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/question/HatQuestions.tsx"],
   load: () => import("../../../gallery/fixtures/HatQuestionsStage").then((module) => module.HatQuestionsStage),
   pane: true,
-  height: 300,
+  // Tall enough for the dock (`.acpmux-dock` max-height leaves the transcript 140 px) to hold the
+  // band whole: at 300 the band was clipped under the composer.
+  height: 520,
   experiment: { definition: hatQuestionsLook, script: hatQuestionsScript },
   variants: {
     one: {
@@ -70,6 +105,43 @@ export default componentEntry<Props>({
     chip: {
       note: "The chip arm, folded: the yellow mark and 1 of 3, centred over the composer.",
       props: { look: "chip" },
+    },
+    "started-chat": {
+      note: "Picked. A started chat's question answered in place: who asks and what about on the first line, the whole question under it (two lines, then More), its choices with the recommended one marked, and a reply field with Send on its own line under them. Open Chat stays for the rest.",
+      props: { child: true, replyLook: "below" },
+    },
+    "started-chat-inline": {
+      note: "The reply field at the end of the choices' line: one line shorter, but the field gets what the choices leave, and wraps under them on a narrow pane.",
+      props: { child: true, replyLook: "inline" },
+    },
+    "started-chat-reveal": {
+      note: "The reply field behind a quiet Reply button: the shortest band, one more click to type an answer.",
+      props: { child: true, replyLook: "reveal" },
+    },
+    "started-chat-refused": {
+      note: "The host refused the answer (another computer's chat, a click too old): the band says so and takes input again.",
+      props: { child: true, replyLook: "below", refuse: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-hat-questions__answer" });
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-hat-questions__failed")));
+      },
+    },
+    "started-chat-play": {
+      note: "More shows the whole question; a typed answer goes with Send, and the question leaves the hat.",
+      props: { child: true, replyLook: "below" },
+      play: childPlay,
+    },
+    "dismiss-hover": {
+      note: "Shipped: a started chat's question, its name on a line of its own and the question under it, and the × at the head's end, faded in on hover or focus in a room it keeps at rest, so nothing moves. Escape puts it away too.",
+      props: { first: "child" },
+    },
+    "dismiss-always": {
+      note: "The × always shown, in the same room: findable at a glance, one more mark at rest.",
+      props: { first: "child", dismissLook: "always" },
+    },
+    "dismiss-corner": {
+      note: "The × over the band's top corner, in no room of its own: it sits on the pager and the text runs under it. Rejected.",
+      props: { first: "child", dismissLook: "corner" },
     },
     play: {
       note: "Step to the tagged ask, answer it with a click, then type a reply that withdraws the chat's own question.",

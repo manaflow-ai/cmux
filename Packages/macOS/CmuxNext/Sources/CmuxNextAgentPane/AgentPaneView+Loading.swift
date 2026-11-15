@@ -43,6 +43,8 @@ public final class AgentPaneLoadingView: NSView {
     /// page that handshakes and then truly hangs holds a spinner for this long after it spoke.
     static let aliveChecks = 3
     private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
+    /// Which mark delay is the live one: each ``showMarkLater()`` and each ``hideMark()`` starts a new turn.
+    private(set) var markTurn = 0
     private let paintTimer = DemandTimer(owner: "agentPane.paintCheck")
     private var onGiveUp: (@MainActor () -> Void)?
     /// Whether the page's bridge is up: it answered the handshake, so it speaks for itself.
@@ -56,6 +58,10 @@ public final class AgentPaneLoadingView: NSView {
     private var leaving = false
     #if DEBUG || CMUX_BENCH_HOOKS
     var isLeaving: Bool { leaving }
+    /// Whether the give-up (``giveUpWhenSeenUnpainted(_:)``) is still armed.
+    var awaitsGiveUp: Bool { onGiveUp != nil }
+    /// Whether the mark's delay runs: a timer that will wake the main thread and put the mark in this view.
+    var markIsPending: Bool { markTimer.isScheduled }
     #endif
     /// Whether the page was asked to fade in when this left, nil until it has. The decision, not
     /// what was drawn of it: with motion off a fade and no fade both end in one frame, so this is
@@ -94,10 +100,27 @@ public final class AgentPaneLoadingView: NSView {
     /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
     /// the indicator sets its own `isHidden` from its config whenever it refreshes.
     func showMarkLater() {
-        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in
-            guard let self else { return }
-            addSubview(indicator)
-        }
+        markTurn += 1
+        let turn = markTurn
+        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in self?.markDelayEnded(turn) }
+    }
+
+    /// The delay that ``showMarkLater()`` started as `turn` ended. The timer claims its fire off the main
+    /// thread and then hops here, so the cover can hide, leave or start a new delay in between: only the
+    /// newest delay, with no ``hideMark()`` after it, puts the mark in.
+    func markDelayEnded(_ turn: Int) {
+        guard turn == markTurn else { return }
+        addSubview(indicator)
+    }
+
+    /// Shows or hides this cover, and its mark with it. A cover nobody sees (a New Tab page's, a chat's
+    /// over its saved picture) has no mark and no delay: its timer woke the main thread 0.8 s after the
+    /// pane was made to put a mark in a hidden view, and AppKit invalidates the window's cursor rects at
+    /// each `addSubview` (3 hidden covers did it inside one key resize of a split with a browser pane).
+    /// Shown again, the delay starts from that moment, so the mark never pops up with the cover.
+    func setShown(_ shown: Bool) {
+        isHidden = !shown
+        if shown { showMarkLater() } else { hideMark() }
     }
 
     /// Runs `giveUp` once the pane has been seen unpainted at ``silentChecks`` checks in a row, or
@@ -145,6 +168,7 @@ public final class AgentPaneLoadingView: NSView {
     }
 
     func hideMark() {
+        markTurn += 1
         markTimer.cancel()
         indicator.removeFromSuperview()
     }
@@ -206,7 +230,7 @@ extension AgentPaneView {
     /// frame, and the pane stays clear above it. No effect once the page has painted.
     public var showsLoadingState: Bool {
         get { loadingView.superview != nil && !loadingView.isHidden }
-        set { if !model.hasPainted { loadingView.isHidden = !newValue } }
+        set { if !model.hasPainted { loadingView.setShown(newValue) } }
     }
 
     /// Shows the loading state over a page that has not painted; the page's first frame ends it.
@@ -249,7 +273,8 @@ extension AgentPaneView {
         let replacesSavedFrame = loadingView.isHidden && model.pageReportedPaint
         loadingView.leave(over: pageContent,
                           fades: !replacesSavedFrame && Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
-                                                                       fromKeptTail: model.paintedFromKeptTail))
+                                                                       fromKeptTail: model.paintedFromKeptTail,
+                                                                       settled: model.paintedSettled))
     }
 
     /// Whether the page fades in over the loading state or simply shows.
@@ -260,8 +285,14 @@ extension AgentPaneView {
     /// fade over them is softness on the one open that is instant — "instant if cached" (Leo
     /// 2026-10-20). A New Tab page, and a page a pane holds hidden for its swap, show in one frame
     /// as they did before.
-    static func pageFades(hasNewTab: Bool, isVisible: Bool, fromKeptTail: Bool) -> Bool {
-        !hasNewTab && isVisible && !fromKeptTail
+    ///
+    /// A chat whose first frame was its settled view (`pane.painted {settled: true}`, hq#9655 stage
+    /// 1) shows in one step too: the hold ends on "snapshot drawn", and that frame is the chat as it
+    /// stands, so there is nothing left to soften in. The give-up checks (``AgentPaneLoadingView``'s
+    /// ``AgentPaneLoadingView/silentChecks`` and ``AgentPaneLoadingView/aliveChecks``) stay only as the
+    /// safety net for a page that never reports; leaving cancels them.
+    static func pageFades(hasNewTab: Bool, isVisible: Bool, fromKeptTail: Bool, settled: Bool = false) -> Bool {
+        !hasNewTab && isVisible && !fromKeptTail && !settled
     }
 
     func themeLoadingState(_ tokens: ThemeTokens) {

@@ -19,6 +19,8 @@ extension TabStripView {
             needsLayout = true
         }
         onMovedInWindow?()
+        // The flush corner's tab row reads the strip's place in the window: report a move (a canvas pan).
+        reportCornerLead()
     }
 
     /// Tabs are vertically centered in whatever height the strip gets; in a minimal window's top row

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import Foundation
 import os
 
@@ -161,6 +162,8 @@ extension CEFRuntime {
                 CEFEventTrace.record(browser, event)
                 #endif
                 tab.handle(event)
+            } else if let browser = event.browserID, orphans.keepEarly(event, browser: browser) {
+                // A tab a page opened, before cmux adopted it: its tab replays this (`adoptChromiumTab`).
             } else if let browser = event.browserID, event.isLoadEvent {
                 // A load event of a browser no tab owns is dropped: the trace says so (lead on STATUS 8457).
                 BrowserLifecycleTrace.shared.record(BrowserTabID(rawValue: "browser-\(browser)"), "cef-load-event-without-tab")
@@ -175,7 +178,18 @@ extension CEFRuntime {
     /// which Chromium would dispatch from the Chromium toolbar cmux hides.
     func routeKey(_ event: NSEvent, browser: Int32) -> Bool {
         guard event.type == .keyDown, let tab = tabsByBrowser[browser] else { return false }
-        // A paste is about to reach the page: a cmux page records it first (`pagePasted`).
+        // A paste is about to reach the page: a cmux page records it first (`pagePasted`). A picture
+        // the pasteboard holds as TIFF only gets its PNG first, off the main thread, and the same key
+        // goes on once it is there: Chromium's own TIFF to PNG encode held the page 300 ms and more
+        // for a 5K screenshot (#41016). It goes on only where it was pressed: the person who moved
+        // to another window or field meanwhile does not get the paste there.
+        if Self.isPaste(event), tab.pagePasted != nil, let window = event.window {
+            let responder = window.firstResponder
+            if pastedImagePNG.hold(resume: { _ in
+                guard window.isKeyWindow, window.firstResponder === responder else { return }
+                NSApp.sendEvent(event)
+            }) { return true }
+        }
         if Self.isPaste(event) { tab.pagePasted?() }
         if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router = tab.keyRouter,
            router.browserTab(tab, keyEquivalent: event) == .handledByHost {
@@ -247,7 +261,6 @@ extension CEFRuntime {
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
-        swipeNavigation.start()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
         accessibility.attached(browser)
@@ -437,7 +450,7 @@ extension CEFRuntime {
 extension CEFShimEvent {
     var browserID: Int32? {
         switch self {
-        case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
+        case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _, _),
              .loadStart(let b, _, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
              .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),

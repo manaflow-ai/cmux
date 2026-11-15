@@ -47,6 +47,7 @@ extension AgentPaneView {
     struct ChromiumMove {
         /// The page's size where it waited.
         let parkedSize: CGSize
+        let requiresFrame: Bool
         /// Tells the page's window to follow its view.
         let moved: @MainActor () -> Void
     }
@@ -73,9 +74,10 @@ extension AgentPaneView {
     /// the window, at the size its pane rests at, until it drew a frame there and the pane is at that size, so no
     /// frame at the old size or at a size of the pane's spring shows. `moved` runs
     /// each time the page changes place (by default: its window follows, ``PageWebView/chromiumWindowMoved()``).
-    public func placeMovedChromiumPage(moved: (@MainActor () -> Void)? = nil) {
+    public func placeMovedChromiumPage(requiringFrame: Bool = false, moved: (@MainActor () -> Void)? = nil) {
+        if requiringFrame, chromiumMoveWait != nil { return }
         let follow = moved ?? { [weak self] in self?.page?.chromiumWindowMoved() }
-        chromiumMove = ChromiumMove(parkedSize: pageContent.frame.size, moved: follow)
+        chromiumMove = ChromiumMove(parkedSize: pageContent.frame.size, requiresFrame: requiringFrame, moved: follow)
         needsLayout = true
     }
 
@@ -119,9 +121,9 @@ extension AgentPaneView {
             }
             return
         }
-        guard let move = chromiumMove, window != nil, frame.width > 0, frame.height > 0, page != nil else { return }
+        guard let move = chromiumMove, window != nil, frame.width > 0, frame.height > 0, page?.showsChromium == true else { return }
         chromiumMove = nil
-        let drawn = Self.near(rest.size, move.parkedSize, within: 0.5)
+        let drawn = !move.requiresFrame && Self.near(rest.size, move.parkedSize, within: 0.5)
         guard !(drawn && landed) else {
             pageContent.layoutSubtreeIfNeeded()
             move.moved()
@@ -160,8 +162,14 @@ extension AgentPaneView {
             guard let self, let wait, chromiumMoveWait === wait, wait.size == size else { return }
             // Still on its spring: the page keeps its one size outside the window and shows in the layout the pane
             // lands in (``placeChromiumMove(at:)``), not at a size of the spring.
-            let frame = topBar.contentFrame(in: bounds)
-            guard Self.near(frame.size, restingFrame(of: frame).size, within: 0.5) else {
+            let frame = topBar.pageFrame(in: bounds)
+            let rest = restingFrame(of: frame)
+            // The pane can resize before its next layout retargets this wait. Its old-size answer cannot reveal it.
+            guard Self.near(wait.size, rest.size, within: 1) else {
+                needsLayout = true
+                return
+            }
+            guard Self.near(frame.size, rest.size, within: 0.5) else {
                 wait.drewAtRest = true
                 return
             }
@@ -176,7 +184,7 @@ extension AgentPaneView {
         wait.deadline.cancel()
         guard holdsPageAway else { return }
         holdsPageAway = false
-        pageContent.frame = topBar.contentFrame(in: bounds)
+        pageContent.frame = topBar.pageFrame(in: bounds)
         applyNativeRects() // the tab row's holes, taken while it was away, follow it back
         pageContent.layoutSubtreeIfNeeded()
         wait.move.moved()

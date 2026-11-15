@@ -78,6 +78,9 @@ extension ActionDescriptor {
     nonisolated public var paletteFamily: PaletteFamily? { Self.paletteFamilyByMember[id] }
 
     nonisolated public var paletteTier: PaletteTier {
+        // Debug-only rows ("Debug: <name>", Internal Developer Mode) share one tier, so they keep the
+        // catalog's order: last, sorted by name (ActionCatalog `withDebugActionsLast`).
+        if isDebugOnly { return .niche }
         if Self.paletteDailyActions.contains(id) { return .daily }
         if Self.paletteNicheActions.contains(id) || paletteFamily != nil { return .niche }
         return .standard

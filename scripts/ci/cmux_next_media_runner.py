@@ -39,6 +39,15 @@ none idle, or runners that cannot be read, it picks nothing, so the job is
 skipped rather than queued: a queued self-hosted job waits up to a day, and
 the nightly's publication waits on it.
 
+--gui-only (with --idle-now: the autofix workflows' Mac action exports) takes only an
+idle gui runner, never the session label: those jobs need the logged-in session
+the gui runners hold, and a session label held jobs for hours with its runners
+online and busy (cmux#24295). With none idle the job takes Blacksmith macOS
+instead of queueing on an owned label nothing moves it off: on 2026-11-10 the
+office minis were dark all day, every base autofix Mac export queued on the gui
+label until the rescue cancelled it without a re-run (feat-cmux-next had moved),
+and feat-cmux-next's settings export stayed stale from 14:21Z.
+
 Writes `runs_on` (a label, or "") and `reason` to $GITHUB_OUTPUT, and prints them.
 """
 
@@ -106,8 +115,9 @@ def pick(*, same_repo: bool, owned: str | None, owned_slots: str | None,
 
 
 def pick_idle(*, same_repo: bool, owned: str | None, pr_xcode_app: str | None,
-              runners: list[dict] | None) -> tuple[str, str]:
-    """(label, reason) for a job that must not queue: an owned session runner idle now, else a gui one."""
+              runners: list[dict] | None, gui_only: bool = False) -> tuple[str, str]:
+    """(label, reason) for a job that must not queue: an owned session runner idle now, else a gui one
+    (with `gui_only`, only a gui one)."""
     if not same_repo:
         return "", "a fork head never runs on an owned Mac"
     if (owned or "").strip() != "1":
@@ -117,13 +127,14 @@ def pick_idle(*, same_repo: bool, owned: str | None, pr_xcode_app: str | None,
         return "", f"no owned pool for the lane's Xcode pin ({pr_xcode_app or 'unset'})"
     if runners is None:
         return "", "the owned runners could not be read, so no idle session runner is known"
-    for role in (pr_runner_pool.session_label, pr_runner_pool.gui_label):
+    roles = (pr_runner_pool.gui_label,) if gui_only else (pr_runner_pool.session_label, pr_runner_pool.gui_label)
+    for role in roles:
         for pool in pools:
             label = role(pool)
             free = pr_runner_pool.live_owned_free(runners, [label])[label] if label else 0
             if free > 0:
                 return label, f"{free} idle runner(s) carry {label} now"
-    return "", "no owned session or gui runner is idle now"
+    return "", "no owned gui runner is idle now" if gui_only else "no owned session or gui runner is idle now"
 
 
 def read_runners(token: str, repo: str) -> list[dict] | None:
@@ -144,7 +155,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force-mac", action="store_true", help="tour on a Mac whatever changed")
     parser.add_argument("--idle-now", action="store_true",
                         help="only a runner idle now (runners read with ROUTE_TOKEN), else none")
+    parser.add_argument("--gui-only", action="store_true",
+                        help="with --idle-now: an idle gui runner only, never the session label")
     args = parser.parse_args(argv)
+    if args.gui_only and not args.idle_now:
+        parser.error("--gui-only needs --idle-now")
     skip = None if args.force_mac else scope_reason(read_paths(args.paths_file))
     if args.idle_now:
         label, reason = pick_idle(
@@ -152,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
             owned=os.environ.get("POOL_OWNED"),
             pr_xcode_app=os.environ.get("PR_XCODE_APP"),
             runners=read_runners(os.environ.get("ROUTE_TOKEN", ""), os.environ.get("GITHUB_REPOSITORY", "")),
+            gui_only=args.gui_only,
         )
     elif skip:
         label, reason = "", skip

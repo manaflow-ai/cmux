@@ -12,7 +12,7 @@ struct HomeAgentGlances {
     let services: AppServices
 
     /// The user's agents for the empty Chief conversation's glance
-    /// (the Messages page's first run), machine by machine in each store's workspace order:
+    /// (`HomeFirstRunView`), machine by machine in each store's workspace order:
     /// agent chat tabs, and terminals whose agent reported through a hook
     /// while the terminal lives. A chat still on its New Tab page is not an
     /// agent yet. Title and status come from `TabItemMapping`, the tab
@@ -49,15 +49,14 @@ struct HomeAgentGlances {
 
 extension HomeAgentGlances {
     /// Only mirror reads: no new PR queries, timers or hidden-conversation work.
-    /// The starter prompts' facts (the page's `starterPrompts`): workspaces, working and failed agents, open PRs.
-    func starters(agents: [HomeAgentGlance], badges: [WorkspaceID: SidebarPullRequestBadge]) -> [String: [String]] {
+    func starters(agents: [HomeAgentGlance], badges: [WorkspaceID: SidebarPullRequestBadge]) -> HomeStarterContext {
         let workspaces = services.machines.allWorkspaces.map { $0.0 }.filter { $0.kind != "home" && !$0.isProvisional }
         let requests = workspaces.flatMap { badges[WorkspaceID($0.id)]?.items ?? [] }
             .filter { $0.state != .closed && $0.state != .merged }
-        return ["workspaces": workspaces.map(\.displayName),
-                "working": agents.filter { $0.status == .working }.map(\.title),
-                "failures": agents.filter { $0.status == .failed }.map(\.title)
-                    + requests.filter { $0.state == .failing }.map { "\($0.repository)#\($0.number)" },
-                "pullRequests": requests.map { "\($0.repository)#\($0.number)" }]
+        return HomeStarterContext(workspaces: workspaces.map(\.displayName),
+                                  working: agents.filter { $0.status == .working }.map(\.title),
+                                  failures: agents.filter { $0.status == .failed }.map(\.title)
+                                    + requests.filter { $0.state == .failing }.map { "\($0.repository)#\($0.number)" },
+                                  pullRequests: requests.map { "\($0.repository)#\($0.number)" })
     }
 }

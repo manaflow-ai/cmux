@@ -383,8 +383,11 @@
 }
 /* Only its title chip opens the task's chat and lights (AgentTag.css); the line never does, and its
    chevron lights with the chip (Leo, 2026-11-05: "subagents need to have their clickable bit be
-   highlighted instead of the whole line click"). */
-.acpmux-task-received-line:has(.cv-agent-tag.is-open:is(:hover, :focus-visible)) > :last-child {
+   highlighted instead of the whole line click"). A sibling rule with the chevron named, not
+   `.acpmux-task-received-line:has(...) > :last-child`: a `:has()` rule whose subject is any element
+   restyled the whole pane on every `:has()` change anywhere in it, several times in each send's frames
+   (Leo, 2026-11-11: "It doesn't move at 120 hertz"; test/css-invalidation-scope.test.ts). */
+.acpmux-task-received-line > .cv-agent-tag.is-open:is(:hover, :focus-visible) ~ svg[data-icon] {
   color: var(--agent-text);
 }
 /* The title as the sender's chip: the theme's text at a low strength over glass. A title that opens

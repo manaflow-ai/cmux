@@ -1,7 +1,7 @@
 // An in-memory `cmux.stats.summary` provider for the browser dev loop (`/stats/?mock`) and the
 // gallery: a deterministic few weeks of agent work, shaped like acpmux's `_acpmux/stats` answer.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { StatsOps, type DayStats, type StatsSummary } from "./types";
+import { StatsOps, type DayStats, type StatsSummary, type UsagePatterns } from "./types";
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -9,17 +9,52 @@ const HOUR_MS = 3_600_000;
 /** `busy` is a working machine; `empty` has no sessions in range yet. */
 export type MockStatsKind = "busy" | "empty";
 
+/** The usage patterns a mock answer carries: `on` with counts, `off` (the default setting), or none (an older acpmux). */
+export type MockUsageKind = "on" | "off" | "none";
+
+export function mockUsagePatterns(kind: MockUsageKind, until: number): UsagePatterns | undefined {
+  if (kind === "none") return undefined;
+  if (kind === "off")
+    return { enabled: false, rollup: { since: 0, updated: 0, counts: {}, days: {}, hours: [], peaks: {} } };
+  return {
+    enabled: true,
+    rollup: {
+      since: until - 21 * DAY_MS,
+      updated: until,
+      counts: {
+        "agent-chat": { claude: 212, codex: 96, opencode: 9 },
+        "agent-prompt": { claude: 1840, codex: 702, opencode: 41 },
+        tokens: { input: 18_200_000, output: 2_410_000, "cache-read": 402_000_000 },
+        layout: { "split-right": 318, "split-down": 77 },
+        command: { "new-browser-tab": 640, "new-tab": 512, split: 395, "select-tab": 4120, "send-keys": 220 },
+        operation: { "tab.focus": 3880, "pane.split": 0, "workspace.create": 61, "tab.create_browser": 410 },
+        connection: { unix: 940, ws: 210, remote: 14 },
+        "acpmux-connection": { app: 300, local: 1200, peer: 22 },
+        machine: { a1b2c3d4e5f6: 40, "0f1e2d3c4b5a": 12, "9a8b7c6d5e4f": 3 },
+        client: { "cmux-next": 280, cli: 900 },
+      },
+      days: {},
+      hours: [],
+      peaks: { "connections.open": 17 },
+    },
+  };
+}
+
 export class MockStatsProvider implements PageClient {
   constructor(
     private readonly kind: MockStatsKind = "busy",
     private readonly failure?: { code: string; message: string },
+    private readonly usage: MockUsageKind = "on",
   ) {}
 
   async call<R>(op: string, params: unknown): Promise<R> {
     if (this.failure) throw pageError(this.failure.code, this.failure.message);
     if (op !== StatsOps.summary) throw pageError("cmux.op.unknown", op);
     const { days = 84, tzOffsetMinutes = 0 } = (params ?? {}) as { days?: number; tzOffsetMinutes?: number };
-    return mockSummary(this.kind, days, tzOffsetMinutes, Date.now()) as R;
+    const until = Date.now();
+    const summary = mockSummary(this.kind, days, tzOffsetMinutes, until);
+    const usagePatterns = mockUsagePatterns(this.usage, until);
+    return (usagePatterns ? { ...summary, usagePatterns } : summary) as R;
   }
 
   async subscribe(): Promise<() => void> {

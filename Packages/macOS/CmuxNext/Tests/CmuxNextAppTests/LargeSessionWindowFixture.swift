@@ -109,6 +109,11 @@ enum LargeSessionWindowFixture {
 
     /// Runs `body` on a whole window of a session of `size` (its store), then closes it.
     static func withWindow<T>(_ size: SessionFixtureSize, _ body: @MainActor (DaemonStore) async throws -> T) async throws -> T {
+        try await withController(size) { store, _ in try await body(store) }
+    }
+
+    /// `withWindow(_:_:)` for a test that acts on the window: `body` also gets its controller (and so its `services`).
+    static func withController<T>(_ size: SessionFixtureSize, _ body: @MainActor (DaemonStore, WindowController) async throws -> T) async throws -> T {
         try #require(size.mixFaults.isEmpty, "fixture: the \(size.rawValue) mix is wrong: \(size.mixFaults)")
         let workspaces = size.workspaces
         _ = NSApplication.shared
@@ -128,6 +133,6 @@ enum LargeSessionWindowFixture {
         content.contentView.layoutSubtreeIfNeeded()
         await drainMain()
         try #require(store.workspaces.count == workspaces, "fixture: \(store.workspaces.count) workspaces, not \(workspaces)")
-        return try await body(store)
+        return try await body(store, controller)
     }
 }

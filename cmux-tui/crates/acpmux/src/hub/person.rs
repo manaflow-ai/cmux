@@ -370,6 +370,10 @@ pub struct Answerer<'a> {
     pub(crate) fence: Option<&'a crate::agent::Fence>,
     /// The person who answered (`author.rs`), recorded in `answeredBy`: it proves nothing.
     pub author: Option<&'a crate::author::Author>,
+    /// The paired device whose credential the answering connection presented
+    /// (`server/remote_guard.rs` `sending_device`), from the handshake only: what D13 reads
+    /// (`Hub::local_claude_refusal`).
+    pub device: Option<&'a str>,
 }
 
 impl<'a> Answerer<'a> {
@@ -388,7 +392,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver, ancestor: None, fence: None, author: None }
+        Self { person, decision, approver, ancestor: None, fence: None, author: None, device: None }
     }
 }
 
@@ -1143,7 +1147,10 @@ impl Hub {
                 else {
                     return Ok(());
                 };
-                let family = crate::web_modes::family_of(&s.meta());
+                // The family whose modes the configured harness offers: a launcher profile of
+                // Claude Code (`claude-sr2`) asks in Claude's `default` and `plan` too; an agent
+                // that only names itself Claude Code does not (`Hub::trusted_mode_family`).
+                let family = self.trusted_mode_family(&s.meta());
                 if remote_authenticated && self.any_mode_for_web(&s.meta()) {
                     return Ok(());
                 }

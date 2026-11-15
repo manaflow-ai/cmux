@@ -200,11 +200,19 @@ impl Hub {
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("title-events", async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Turns may have ended unheard: every idle chat is asked again, which does
+                    // nothing for one that needs no title (rework stage 3, E4).
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        let Some(hub) = hub.upgrade() else { return };
+                        for session in hub.lagged_reader("title-events", n) {
+                            hub.title_after_turn(&session);
+                        }
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => return,
                 };
                 let rec = &ev.record;
@@ -317,7 +325,10 @@ impl Hub {
             return Some(cmd);
         }
         // The chat's own Claude Code: the sign-in and route its turn just used.
-        let profile = cfg.harnesses.get(harness)?;
+        // A copy: the lock is let go before the login shell's environment is awaited below (up
+        // to a few seconds cold), or a config writer queued behind it would stall every reader,
+        // `_acpmux/status` too (ask-64cfa32e34).
+        let profile = cfg.harnesses.get(harness)?.clone();
         if profile.kind != crate::config::HarnessKind::ClaudeStdio {
             return None;
         }
@@ -344,9 +355,10 @@ impl Hub {
             ]
             .map(str::to_owned),
         );
+        drop(cfg);
         match crate::agent::harness_command_ready(
             harness,
-            profile,
+            &profile,
             &cwd,
             Some((program, args)),
             None,

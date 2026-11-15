@@ -221,7 +221,7 @@ public struct AgentPaneCloudAsker: Sendable {
     /// The dialog button standing in for the card's link.
     public static let linkButton = "open"
 
-    /// The cmux dialog a question shows as where no card holds it (the Debug menu's dialog gallery too).
+    /// The cmux dialog a question shows as where no card holds it (the debug dialog gallery too).
     public static func spec(_ question: AgentPaneCloudAsk) -> CmuxDialogSpec {
         var buttons = question.buttons.map { button in
             CmuxDialogButton(id: button.id, title: button.title,

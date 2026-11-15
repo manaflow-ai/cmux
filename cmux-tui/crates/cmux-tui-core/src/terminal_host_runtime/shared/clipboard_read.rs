@@ -32,7 +32,7 @@
 //! a request, or a cancel when the host withdrew it or the connection ended.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -251,6 +251,9 @@ pub(crate) struct ClipboardReadState {
     pub(crate) owners: Vec<ClipboardOwner>,
     pub(crate) open: Option<OpenClipboardRead>,
     pub(crate) ended: bool,
+    /// The timeout worker runs. It starts with the first read that opens,
+    /// so a terminal that never reads the clipboard has no thread for it.
+    pub(crate) timer_running: bool,
 }
 
 pub(crate) struct ClipboardReadsShared {
@@ -265,6 +268,8 @@ pub(crate) struct ClipboardReads {
     pub(crate) shared: Arc<ClipboardReadsShared>,
     /// Reads the terminal reported during the current `vt_write`.
     pub(crate) queued: Arc<Mutex<Vec<ClipboardReadRequest>>>,
+    /// The host whose open reads time out ([`Self::bind_timer`]).
+    timer_host: OnceLock<Weak<HostShared>>,
 }
 
 impl ClipboardReads {
@@ -276,6 +281,7 @@ impl ClipboardReads {
                 clock,
             }),
             queued: Arc::new(Mutex::new(Vec::new())),
+            timer_host: OnceLock::new(),
         }
     }
 
@@ -315,6 +321,9 @@ impl ClipboardReads {
     pub(crate) fn open(&self, request: ClipboardReadRequest, broadcast_lock: &Mutex<()>) -> bool {
         let mut state = lock(&self.shared.state);
         if state.ended || state.open.is_some() {
+            return false;
+        }
+        if state.owners.is_empty() || !self.ensure_timer(&mut state) {
             return false;
         }
         let Some(owner) = state.owners.last() else { return false };
@@ -509,16 +518,47 @@ impl ControlResponses {
 }
 
 impl ClipboardReads {
-    /// Starts the timeout worker for `host` (whose broker this is). It
-    /// blocks until the earliest deadline or a state change and exits when
-    /// the terminal drains.
-    pub(crate) fn start_timer(&self, host: &Arc<HostShared>) -> std::io::Result<()> {
+    /// Binds the timeout worker to `host` (whose broker this is), before
+    /// its parser runs. The worker starts with the first read that opens.
+    pub(crate) fn bind_timer(&self, host: &Arc<HostShared>) {
+        let _ = self.timer_host.set(Arc::downgrade(host));
+    }
+
+    /// Under the state lock, before a read opens: starts the timeout worker
+    /// if it does not run yet. It blocks until the earliest deadline or a
+    /// state change and exits when the terminal drains. False when no thread
+    /// could start: the read is then refused, never left open without its
+    /// bound. A broker bound to no host (unit tests of the broker alone)
+    /// opens reads without a worker.
+    fn ensure_timer(&self, state: &mut ClipboardReadState) -> bool {
+        if state.timer_running {
+            return true;
+        }
+        let Some(host) = self.timer_host.get() else { return true };
         let shared = self.shared.clone();
-        let host = Arc::downgrade(host);
-        thread::Builder::new()
+        let host = host.clone();
+        // The worker's first step takes the state lock, which this caller
+        // holds until the read is open, so it sees the read's deadline.
+        let spawned = thread::Builder::new()
             .name("terminal-host-clipboard".into())
-            .spawn(move || shared.run_timer(&host))
-            .map(drop)
+            .spawn(move || shared.run_timer(&host));
+        match spawned {
+            Ok(_) => {
+                state.timer_running = true;
+                true
+            }
+            Err(error) => {
+                eprintln!(
+                    "terminal-host: no thread for clipboard read timeouts; refusing: {error}"
+                );
+                false
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn timer_running_for_test(&self) -> bool {
+        lock(&self.shared.state).timer_running
     }
 }
 

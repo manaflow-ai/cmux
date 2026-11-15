@@ -172,8 +172,9 @@ fn caps_read_the_four_choices_only() {
 /// The bench (Leo's rule: constant cost as things grow). A project of 30 and
 /// one of 3,000 quiet chats, with the same active rows (and a god session: 600
 /// active members), collapsed and expanded: the projection visits the same
-/// members, and its time stays within 1.2x. Prints `SIDEBAR-CAPS` lines, the
-/// numbers for the PR.
+/// members, never more than its rows plus its active members. Counted, not
+/// timed, so it holds on any runner. Prints `SIDEBAR-CAPS` lines, the numbers
+/// for the PR.
 #[test]
 fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
     let active_at = |count: u32, n: u32| -> Vec<Active> {
@@ -191,27 +192,29 @@ fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
             let large_active = active_at(3_000, actives);
             let small = project_rows(30, &small_active, &c);
             let large = project_rows(3_000, &large_active, &c);
-            let time = |count: u32, active: &[Active]| {
-                let rounds = 20_000;
-                let mut best = f64::MAX;
-                for _ in 0..5 {
-                    let start = Instant::now();
-                    for _ in 0..rounds {
-                        std::hint::black_box(project_rows(count, std::hint::black_box(active), &c));
-                    }
-                    best = best.min(start.elapsed().as_secs_f64() * 1e9 / rounds as f64);
-                }
-                best
-            };
-            let (small_ns, large_ns) = (time(30, &small_active), time(3_000, &large_active));
+            // The cost is counted, not timed: `work` is the members the projection visited. Every
+            // visited member is a returned row, so the work is at most the rows plus the active
+            // members, whatever the project's size; a walk over the hidden rows breaks this bound
+            // at 3,000 chats. Wall time on a shared runner measured noise, not this (a 1.2x timing
+            // ratio near 100 ns flaked on base).
             println!(
-                "SIDEBAR-CAPS project shape={label} revealed={revealed} chats=30 rows={} work={} ns={small_ns:.0} | chats=3000 rows={} work={} ns={large_ns:.0} ratio={:.2}",
+                "SIDEBAR-CAPS project shape={label} revealed={revealed} chats=30 rows={} work={} | chats=3000 rows={} work={}",
                 small.rows.len(),
                 small.work,
                 large.rows.len(),
                 large.work,
-                large_ns / small_ns
             );
+            for (count, out, active) in
+                [(30, &small, &small_active), (3_000, &large, &large_active)]
+            {
+                assert!(
+                    out.work as usize <= out.rows.len() + active.len(),
+                    "{label}: the projection visited {} members at {count} chats for {} rows and {} active",
+                    out.work,
+                    out.rows.len(),
+                    active.len()
+                );
+            }
             assert!(
                 f64::from(large.work) <= f64::from(small.work) * 1.2 + 1.0,
                 "{label}: the projection visited {} members at 3,000 chats, {} at 30",
@@ -221,11 +224,6 @@ fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
             assert!(
                 large.rows.len() <= small.rows.len() + 1 + revealed as usize,
                 "{label}: rows grew: {small:?} {large:?}"
-            );
-            // Wall time: the same work, so the same time; 1.2x plus 50 ns of timer noise.
-            assert!(
-                large_ns <= small_ns * 1.2 + 50.0,
-                "{label}: {large_ns:.0} ns at 3,000 vs {small_ns:.0} ns at 30"
             );
         }
     }

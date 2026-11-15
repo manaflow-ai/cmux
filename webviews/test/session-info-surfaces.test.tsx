@@ -39,6 +39,7 @@ import {
   useArtifactCoversPane,
 } from "../src/agent-session/acpmux/conversation/artifactPanelModel";
 import { chat } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -81,6 +82,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -384,7 +386,9 @@ async function mountFolderPane(width: number, opened: string[], height = 0) {
 }
 
 const projectRow = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>('ul[data-section="environment"] button.acpmux-session-info-row')!;
+  container.querySelector<HTMLButtonElement>(
+    `ul[data-section="environment"] button.acpmux-session-info-row[title="${snapshot.summary!.cwd!}"]`,
+  )!;
 
 test("over the chat, a project click opens its Files tab and the panel steps aside, still open", async () => {
   const opened: string[] = [];

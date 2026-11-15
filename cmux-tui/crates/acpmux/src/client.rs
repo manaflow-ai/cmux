@@ -23,6 +23,9 @@ pub struct Client {
     /// not inherit the app's environment, so this is how `--group` finds the
     /// matching app CLI from a plain shell.
     daemon_cli_path: std::sync::Mutex<Option<std::path::PathBuf>>,
+    /// The socket this client connected to: a list caller opens its v2 list on it
+    /// (`cli/list_read.rs`).
+    socket: std::path::PathBuf,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
     /// The stable capabilities the daemon listed at initialize (`_meta.acpmux.capabilities`).
@@ -112,6 +115,7 @@ impl Client {
             daemon_build: std::sync::Mutex::new(None),
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
+            socket: path.to_path_buf(),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             daemon_capabilities: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
@@ -146,7 +150,12 @@ impl Client {
         // declaration may be the owner's own send (`cli_caller.rs`).
         crate::cli_caller::declare(&mut meta, caller);
         hello.set("_meta", json!({"acpmux": meta}));
-        let init = client.request(method::INITIALIZE, hello).await?;
+        // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
+        let init = crate::cli::slow_notice::noted(
+            "the connection's hello",
+            client.request(method::INITIALIZE, hello),
+        )
+        .await?;
         if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
         {
             let _ = client.proven_caller_session.set(session.to_owned());
@@ -203,6 +212,11 @@ impl Client {
     /// The CLI path reported by the daemon's app launcher, if any.
     pub fn daemon_cli_path(&self) -> Option<std::path::PathBuf> {
         self.daemon_cli_path.lock_or_recover().clone()
+    }
+
+    /// The socket this client connected to.
+    pub fn socket(&self) -> &Path {
+        &self.socket
     }
 
     /// Whether the daemon listed `feature` or stable capability at initialize.
@@ -326,7 +340,14 @@ impl Client {
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
     }
 
-    async fn send_request(&self, m: &str, params: Value) -> Result<Value> {
+    async fn send_request(&self, m: &str, mut params: Value) -> Result<Value> {
+        // Every request leaves here, so none can carry this host's sender token to a daemon
+        // that would keep it: one that did not list the feature at initialize stores and
+        // forwards what it does not know (reviews of #41064 at 8cc17ed2 and 814a7eba).
+        crate::sender_token::withhold_unless(
+            &mut params,
+            self.daemon_lists(crate::sender_token::FEATURE),
+        );
         let context = format!("sending {m}");
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let key = Value::from(id).to_string();

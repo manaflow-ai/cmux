@@ -110,19 +110,24 @@ struct ChiefWire {
         let styled = mine
             ? ChiefMarkdownBold.Rendered(text: linked.text, runs: [], links: linked.links, mentions: linked.mentions)
             : ChiefMarkdownBold.render(linked.text, links: linked.links, mentions: linked.mentions)
+        // Their Markdown tables (Chief's subagent and status tables) show as
+        // columns, or as one record per row when too wide for the bubble; bold
+        // runs move with the text. My own text stays as typed here too.
+        let tabled = mine ? nil : ConversationMarkdownTables.extract(styled.text, runs: styled.runs, links: styled.links, mentions: styled.mentions)
         return ConversationMessage(
             id: id, seq: seq, clientMessageID: object["client_msg_id"] as? String, senderID: author,
             sentAt: date(object["created_at"]) ?? Date(),
-            text: styled.text,
+            text: tabled?.text ?? styled.text,
             replyToID: (object["reply_to"] as? [String: Any])?["message_id"] as? String,
             editedAt: date(object["edited_at"]),
             unsentAt: retracted,
             reactions: reactions,
             attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
-            mentions: styled.mentions,
-            textRuns: styled.runs,
-            links: styled.links
+            mentions: tabled?.mentions ?? styled.mentions,
+            textRuns: tabled?.runs ?? styled.runs,
+            links: tabled?.links ?? styled.links,
+            tables: tabled?.tables ?? []
         )
     }
 

@@ -231,6 +231,23 @@ impl Backoff {
         self.failures = 0;
     }
 
+    /// The first wait after the remote refused this computer's ssh login.
+    pub const LOGIN_REFUSED_BASE: Duration = Duration::from_secs(5 * 60);
+    /// The longest wait between refused logins.
+    pub const LOGIN_REFUSED_CAP: Duration = Duration::from_secs(60 * 60);
+
+    /// The least wait after the `refusals`-th refused ssh login in a row (1 for the first):
+    /// doubling from `LOGIN_REFUSED_BASE` to `LOGIN_REFUSED_CAP`, plus up to a fifth more with
+    /// `jitter`. A refused key does not fix itself in seconds, and each attempt counts against the
+    /// remote's limit on failed logins (a ban tool blocks an address after a few in minutes), so a
+    /// computer never redials it in a loop; an explicit reconnect still tries at once.
+    pub fn login_refused(refusals: u32, jitter: f64) -> Duration {
+        let doublings = refusals.saturating_sub(1).min(8);
+        let step =
+            Self::LOGIN_REFUSED_BASE.saturating_mul(1u32 << doublings).min(Self::LOGIN_REFUSED_CAP);
+        step + step.mul_f64(jitter.clamp(0.0, 1.0) / 5.0)
+    }
+
     /// Steps drawn since the last `reset`.
     pub fn failures(&self) -> u32 {
         self.failures
@@ -246,7 +263,9 @@ impl Backoff {
 #[derive(Debug, Clone, Copy)]
 pub struct SleepWatch {
     wall_ms: u64,
-    mono: std::time::Instant,
+    /// Tokio's monotonic clock: the OS one at run time, and the paused one in a test, so a
+    /// test that moves time does not read as a sleep.
+    mono: tokio::time::Instant,
 }
 
 impl SleepWatch {
@@ -255,18 +274,18 @@ impl SleepWatch {
     /// A gap between the clocks under this is scheduling noise, not a sleep.
     pub const SLACK: Duration = Duration::from_secs(10);
 
-    pub fn new(wall_ms: u64, mono: std::time::Instant) -> Self {
+    pub fn new(wall_ms: u64, mono: tokio::time::Instant) -> Self {
         Self { wall_ms, mono }
     }
 
     /// From the clocks now.
     pub fn now() -> Self {
-        Self::new(crate::store::now_ms(), std::time::Instant::now())
+        Self::new(crate::store::now_ms(), tokio::time::Instant::now())
     }
 
     /// How long the computer slept since the last check, when it did; the watch then counts from
     /// now either way.
-    pub fn check_at(&mut self, wall_ms: u64, mono: std::time::Instant) -> Option<Duration> {
+    pub fn check_at(&mut self, wall_ms: u64, mono: tokio::time::Instant) -> Option<Duration> {
         let wall = Duration::from_millis(wall_ms.saturating_sub(self.wall_ms));
         let awake = mono.saturating_duration_since(self.mono);
         *self = Self::new(wall_ms, mono);
@@ -276,7 +295,7 @@ impl SleepWatch {
 
     /// ``check_at`` with the clocks now.
     pub fn check(&mut self) -> Option<Duration> {
-        self.check_at(crate::store::now_ms(), std::time::Instant::now())
+        self.check_at(crate::store::now_ms(), tokio::time::Instant::now())
     }
 }
 
@@ -390,11 +409,45 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> 
 
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
 pub fn jitter() -> f64 {
+    #[cfg(test)]
+    if let Some(j) = test_jitter::next() {
+        return j;
+    }
     let mut b = [0u8; 4];
     if getrandom::fill(&mut b).is_err() {
         return 0.5;
     }
     f64::from(u32::from_le_bytes(b)) / (f64::from(u32::MAX) + 1.0)
+}
+
+/// A seeded jitter for this thread's tests, so a run replays draw for draw from its seed.
+#[cfg(test)]
+pub(crate) mod test_jitter {
+    use std::cell::Cell;
+
+    thread_local!(static STATE: Cell<Option<u64>> = const { Cell::new(None) });
+
+    /// `jitter` draws from SplitMix64 at `seed` on this thread from now on.
+    pub(crate) fn seed(seed: u64) {
+        STATE.with(|s| s.set(Some(seed)));
+    }
+
+    /// Back to the OS generator.
+    pub(crate) fn clear() {
+        STATE.with(|s| s.set(None));
+    }
+
+    pub(super) fn next() -> Option<f64> {
+        STATE.with(|s| {
+            let state = s.get()?.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            s.set(Some(state));
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^= z >> 31;
+            Some((z >> 11) as f64 / (1u64 << 53) as f64)
+        })
+    }
 }
 
 /// What `host ls` shows for a peer (`state` in `_acpmux/peers`).
@@ -441,6 +494,9 @@ impl PeerState {
         }
     }
 }
+
+/// How long a link stays down before its automatic retries park on an hourly schedule.
+pub const PARK_AFTER_MS: u64 = 24 * 60 * 60 * 1_000;
 
 /// The link's history, in wall-clock milliseconds (`store::now_ms`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -515,8 +571,7 @@ impl Link {
     /// still runs immediately; an explicit reconnect replaces the instance and also runs
     /// immediately. Existing rows and dead-link request refusal are independent of this delay.
     pub fn retry_delay(&self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
-        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
-        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= DAY_MS) {
+        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS) {
             // Small positive jitter keeps many retired hosts from retrying in lockstep.
             Duration::from_secs(3_600) + Duration::from_secs(60).mul_f64(jitter.clamp(0.0, 1.0))
         } else {
@@ -530,6 +585,21 @@ impl Link {
         self.next_retry_at = (delay >= Duration::from_secs(3_600))
             .then(|| now.saturating_add(delay.as_millis() as u64));
         delay
+    }
+
+    /// Down a day or more without a successful handshake: automatic retries are hourly
+    /// (`parked` on the wire), and a list shows it as gone quiet rather than failing.
+    pub fn parked(&self, now: u64) -> bool {
+        !self.is_ready()
+            && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
+    }
+
+    /// A parked peer's saved wait when this daemon starts, reported as `retry_at`
+    /// (`nextRetryAt`) like every later wait, so a list can say when it is tried next.
+    pub fn park_at_start(&mut self, now: u64) -> Option<Duration> {
+        let wait = self.parked_retry_wait(now)?;
+        self.retry_at = Some(now.saturating_add(wait.as_millis() as u64));
+        Some(wait)
     }
 
     pub fn parked_retry_wait(&self, now: u64) -> Option<Duration> {
@@ -672,7 +742,7 @@ mod tests {
 
     #[test]
     fn a_sleep_is_the_wall_clock_running_ahead_of_the_monotonic_one() {
-        let start = std::time::Instant::now();
+        let start = tokio::time::Instant::now();
         let mut watch = SleepWatch::new(1_000_000, start);
         // Awake: both clocks moved 5 s.
         assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(5)), None);
@@ -702,7 +772,7 @@ mod tests {
 
     #[test]
     fn a_wall_clock_set_back_is_no_sleep() {
-        let start = std::time::Instant::now();
+        let start = tokio::time::Instant::now();
         let mut watch = SleepWatch::new(2_000_000, start);
         assert_eq!(watch.check_at(1_000_000, start + Duration::from_secs(5)), None);
         assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(10)), None);
@@ -804,6 +874,28 @@ mod tests {
         link.ready(now + 2_001);
         assert_eq!(link.next_retry_at, None);
         assert_eq!(link.parked_retry_wait(now + 2_001), None);
+    }
+
+    #[test]
+    fn a_peer_parked_when_the_daemon_starts_reports_its_next_retry_and_is_parked() {
+        // 2026-11-14: four lane VMs, stopped for a week; after a daemon restart
+        // `machine ls` showed nextRetryAt null with a countdown frozen in the error text.
+        let day = PARK_AFTER_MS;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        link.schedule_retry(&mut Backoff::default(), day + 1, 0.0);
+        let mut restarted = Link::default();
+        restarted.seed_outage(link.down_since);
+        restarted.next_retry_at = link.next_retry_at;
+        let now = day + 1 + 600_000;
+        assert_eq!(restarted.park_at_start(now), Some(Duration::from_secs(3_000)));
+        assert_eq!(restarted.retry_at, Some(now + 3_000_000), "nextRetryAt is reported");
+        assert!(restarted.parked(now));
+        assert!(!restarted.parked(day - 1), "under a day down is not parked");
+        restarted.opened(now + 1);
+        restarted.ready(now + 2);
+        assert!(!restarted.parked(now + 3), "a handshake ends the parking");
+        assert_eq!(Link::default().park_at_start(now), None, "never down: nothing parked");
     }
 
     #[test]

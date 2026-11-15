@@ -9,6 +9,15 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 # Sent on the watch pipe once the supervisor saw its reload end on its own.
 RELEASED = b"released\n"
@@ -113,7 +122,7 @@ def main() -> int:
         try:
             fcntl.flock(lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print(f"==> Waiting for the active reload of tag {tag}...", flush=True)
+            safe_print(f"==> Waiting for the active reload of tag {tag}...", flush=True)
             fcntl.flock(lease.fileno(), fcntl.LOCK_EX)
 
         # Only this supervisor owns the lease. Build services and the launched

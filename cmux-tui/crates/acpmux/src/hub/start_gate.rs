@@ -366,7 +366,19 @@ impl Hub {
         bridge: bool,
         start: &StartMode,
     ) -> Result<StartGrant, RpcError> {
-        if self.web_modes().config_value_asks(family, None, Some(start.mode.as_str()))
+        // The family whose modes the configured harness offers (`Hub::trusted_mode_family`): a
+        // launcher profile of Claude Code (`claude-sr2`) asks in Claude's `default` and `plan`
+        // too; an agent that only names itself Claude Code does not.
+        let modes_of = match target {
+            LevelTarget::Request { agent, profile, folder } => {
+                crate::web_modes::trusted_mode_family(
+                    (!folder).then_some(profile),
+                    crate::config::derive_family(agent, profile),
+                )
+            }
+            LevelTarget::Session(meta) => self.trusted_mode_family(meta),
+        };
+        if self.web_modes().config_value_asks(&modes_of, None, Some(start.mode.as_str()))
             || (bridge
                 && !start.adopts
                 && super::start_mode::NARROW_MODES.contains(&start.mode.as_str()))
@@ -489,7 +501,7 @@ impl Hub {
         let caller = caller.and_then(|id| self.resolve(id).ok());
         caller.is_some_and(|s| {
             let m = s.meta();
-            let family = crate::web_modes::family_of(&m);
+            let family = self.trusted_mode_family(&m);
             self.web_modes().config_value_asks(
                 &family,
                 None,
@@ -526,9 +538,9 @@ impl Hub {
                 .and_then(Value::as_str)
                 .map(str::to_owned)
                 .or_else(|| name.and_then(|n| cfg.presets.get(n)).map(|p| p.harness.clone()));
-            harness
-                .and_then(|h| cfg.resolve_harness(&h).ok())
-                .map(|profile| crate::config::derive_family(&profile, &cfg.harnesses[&profile]))
+            harness.and_then(|h| cfg.resolve_harness(&h).ok()).map(|profile| {
+                crate::web_modes::profile_mode_family(&profile, &cfg.harnesses[&profile])
+            })
         };
         match family {
             Some(f) if self.web_modes().config_value_asks(&f, None, Some(mode)) => Ok(()),

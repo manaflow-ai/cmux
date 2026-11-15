@@ -2,6 +2,7 @@
 // (`agentPane.editedFiles.scope` session): the card at the latest edit covers every edit of the
 // session. The pane provides them, the same array until an edit row changes, so a card's memos
 // survive the snapshots of a long chat.
+import { keptPrefix } from "../conversation/prefixFlatMap";
 import { createContext } from "react";
 import { isEditCard, type AcpmuxRow } from "../model";
 
@@ -15,9 +16,7 @@ export type SessionEdits = { rows: readonly AcpmuxRow[]; at: number[]; edits: re
 /// The edit rows of `rows`. Rows before the first that differs from `previous.rows` (by object)
 /// keep their result, and `edits` stays `previous.edits` when they are the same rows.
 export function sessionEdits(rows: readonly AcpmuxRow[], previous?: SessionEdits): SessionEdits {
-  let from = 0;
-  if (previous)
-    while (from < rows.length && from < previous.rows.length && rows[from] === previous.rows[from]) from += 1;
+  const from = previous ? keptPrefix(previous.rows, rows) : 0;
   let keep = 0;
   if (previous) while (keep < previous.at.length && previous.at[keep]! < from) keep += 1;
   const at = previous ? previous.at.slice(0, keep) : [];

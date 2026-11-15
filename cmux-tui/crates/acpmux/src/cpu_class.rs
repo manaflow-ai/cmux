@@ -14,17 +14,22 @@
 //! plist parse at disk tier 3) with under 1 s of CPU, and every Chief turn failed; the same
 //! command at normal class answered in 14.5 s. So:
 //!
-//! 1. The harness starts at its starter's class (an agent host's utility clamp, `qos.rs`, or the
-//!    daemon's class) and keeps no background class it would inherit: between fork and exec it
+//! 1. The harness starts at the daemon's class (its agent host starts there too and takes no
+//!    utility clamp, `qos.rs`: a person waits on a start) and keeps no background class it would
+//!    inherit: between fork and exec it
 //!    clears one set on its starter by the starter itself (an agent host under
 //!    `ACPMUX_QOS=background`, [`start_at_normal`]), and right after the spawn the daemon clears
 //!    one that another process set ([`clear_running`]; a process cannot clear that one itself).
 //!    The exec and the harness's own start run at normal CPU class. Disk I/O stays at the
-//!    starter's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
+//!    host's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
 //! 2. Once the session's start is over (its `initialize` and `session/new` or `session/load`
 //!    answered, `hub/lifecycle.rs` `ensure_child`), the daemon puts the running harness in its
 //!    class ([`CpuClass::enter`]): `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, which
-//!    macOS allows on another process of the same user. Every process the harness starts after
+//!    macOS allows on another process of the same user. A `normal` harness goes to the agent
+//!    tier's nice instead (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority;
+//!    +5 on Linux, and its host's session group), with its whole process group in one
+//!    `setpriority(PRIO_PGRP)`: the processes it started during its start, its MCP servers and a
+//!    launcher's agent, at its own priority as under the clamp they replace. Every process the harness starts after
 //!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
 //!    started during its start keeps the class it started at: an MCP server, and the real agent
 //!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
@@ -156,15 +161,21 @@ impl CpuClass {
             .unwrap_or(default)
     }
 
-    /// Puts the running harness `pid` in this class (macOS; elsewhere nothing). Only
-    /// `Background` changes it, and only lowers. `pid` must be a harness its caller holds (a direct
-    /// child not reaped yet, or one its agent host reports alive): a pid that another process took
-    /// would be lowered instead. True when the class was set.
+    /// Puts the running harness `pid` in this class once its session's start is over, and only
+    /// lowers: its process group at the agent tier's nice value (`qos::AGENT_NICE`; on Linux its
+    /// host's session too) unless `ACPMUX_QOS=off`, then for `Background` the harness in
+    /// background class (macOS). The start itself ran at the daemon's tier (`qos.rs`). `pid` must
+    /// be a harness its caller holds (a direct child not reaped yet, or one its agent host reports
+    /// alive): a pid that another process took would be lowered instead. True when it was lowered.
     pub fn enter(self, pid: u32) -> bool {
-        if self == Self::Normal {
-            return false;
+        // Both classes leave the start's priority for the agent tier: on Linux that is all the
+        // lowering there is (it has no background class), and on macOS it takes the processes the
+        // harness started during its start (its MCP servers) with it, as the utility clamp did.
+        let tier = crate::qos::enabled() && imp::to_agent_tier(pid);
+        match self {
+            Self::Background => imp::set_background(pid, true) || tier,
+            Self::Normal => tier,
         }
-        imp::set_background(pid, true)
     }
 }
 
@@ -356,9 +367,45 @@ impl std::fmt::Display for HarnessState {
     }
 }
 
+/// Every process of the harness `pid`'s process group (it leads one: `agent_host/host.rs`,
+/// `agent/command.rs`), so the harness, the processes it started during its start (its MCP
+/// servers, a launcher's agent) and on Linux every thread of each, at [`crate::qos::AGENT_NICE`],
+/// in one call and with no process listed. Processes they start later inherit it. Never raises
+/// one: a group already at or past it is left, and an unprivileged process cannot lower a nice.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn lower_group(pid: u32) -> bool {
+    // `id_t` is the pid's own width on both platforms.
+    let group: libc::id_t = pid;
+    if group == 0 {
+        return false;
+    }
+    // `getpriority` answers -1 both for nice -1 and for an error: errno says which.
+    #[cfg(target_os = "macos")]
+    // SAFETY: the calling thread's errno.
+    let errno = || unsafe { libc::__error() };
+    #[cfg(target_os = "linux")]
+    // SAFETY: the calling thread's errno.
+    let errno = || unsafe { libc::__errno_location() };
+    // SAFETY: plain syscalls on a group its caller holds the leader of; the kernel checks that
+    // each process runs as this user. `PRIO_PGRP`'s get answers the group's lowest nice.
+    unsafe {
+        *errno() = 0;
+        let now = libc::getpriority(libc::PRIO_PGRP, group);
+        if *errno() != 0 {
+            return false;
+        }
+        now >= crate::qos::AGENT_NICE
+            || libc::setpriority(libc::PRIO_PGRP, group, crate::qos::AGENT_NICE) == 0
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use super::HarnessState;
+
+    pub(super) fn to_agent_tier(pid: u32) -> bool {
+        super::lower_group(pid)
+    }
 
     /// `PRIO_DARWIN_BG` on (`on`) or off for the process `pid`, another process of this user.
     pub(super) fn set_background(pid: u32, on: bool) -> bool {
@@ -515,6 +562,41 @@ mod imp {
         false
     }
 
+    /// The harness's process group at [`crate::qos::AGENT_NICE`] ([`super::lower_group`]), and
+    /// the session it runs in (its agent host's, which leads one: `agent_host/link.rs`) at the same
+    /// nice. Where the scheduler groups processes by session (autogroup, a process outside a CPU
+    /// cgroup), a session's share against the rest of the machine is its group's nice, not its
+    /// processes', so the group is lowered too. Never the daemon's own session (a harness it
+    /// started directly).
+    pub(super) fn to_agent_tier(pid: u32) -> bool {
+        let lowered = super::lower_group(pid);
+        let Ok(target) = libc::pid_t::try_from(pid) else { return lowered };
+        // SAFETY: getsid reads; a pid that is gone answers -1.
+        let (theirs, ours) = unsafe { (libc::getsid(target), libc::getsid(0)) };
+        if lowered && theirs > 0 && theirs != ours {
+            lower_autogroup(pid);
+        }
+        lowered
+    }
+
+    /// `/proc/<pid>/autogroup` at [`crate::qos::AGENT_NICE`], when the kernel has it and it is
+    /// lower: absent without `CONFIG_SCHED_AUTOGROUP`, and a no-op for a process in a CPU cgroup.
+    /// The kernel takes an unprivileged change at most every 100 ms across the machine (`EAGAIN`):
+    /// a start that lands in another's 100 ms keeps its group's nice, and its harness's own.
+    fn lower_autogroup(pid: u32) {
+        let path = format!("/proc/{pid}/autogroup");
+        // "/autogroup-123 nice 0"
+        let now = std::fs::read_to_string(&path).ok().and_then(|text| {
+            text.split_whitespace().last().and_then(|nice| nice.parse::<libc::c_int>().ok())
+        });
+        if now.is_none_or(|nice| nice >= crate::qos::AGENT_NICE) {
+            return;
+        }
+        if let Err(e) = std::fs::write(&path, crate::qos::AGENT_NICE.to_string()) {
+            tracing::debug!(pid, "lowering {path}: {e}");
+        }
+    }
+
     /// The one process record's fields after the parenthesized command name.
     /// The command may contain spaces, so split only after its final `)`.
     fn stat(pid: u32) -> Option<Vec<String>> {
@@ -546,6 +628,10 @@ mod imp {
     use super::HarnessState;
 
     pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
+        false
+    }
+
+    pub(super) fn to_agent_tier(_pid: u32) -> bool {
         false
     }
 

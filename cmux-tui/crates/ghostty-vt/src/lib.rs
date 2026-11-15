@@ -44,7 +44,8 @@ pub use mouse::{
 pub use render::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
-    KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
+    KittyGraphicsFrameDelta, RenderFrame, RenderRow, RenderState, StyledRun, UnderlineStyle,
+    rows_to_runs,
 };
 pub use screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
 pub use snapshot::{
@@ -60,7 +61,7 @@ pub use terminal::{
     ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState, PtyWriteFn, Rgb,
     SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
     TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
-    VtReplayTail, parse_color, parse_palette_entry,
+    VtReplayTail, VtReplayWindow, parse_color, parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

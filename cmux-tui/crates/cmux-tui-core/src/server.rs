@@ -123,6 +123,9 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[path = "server/list_workspaces_page.rs"]
+mod list_workspaces_page;
+use list_workspaces_page::*;
 #[cfg(unix)]
 mod agent_cli_intents;
 #[cfg(unix)]
@@ -134,14 +137,16 @@ mod agent_session_attach;
 #[cfg(unix)]
 mod mobile_chat;
 #[cfg(unix)]
+pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkError;
+#[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    set_link_share_app_scheme, start_link_share_bridge,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -160,6 +165,9 @@ mod input_qos;
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
+mod line_value;
+pub(crate) mod tree_reply_flight;
+pub(crate) mod tree_reply_text;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
@@ -262,6 +270,7 @@ mod tab_column;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
 pub(crate) use cmd_subscribe::TREE_SELECTION_DELTAS_CAPABILITY;
 #[cfg(test)]
@@ -292,11 +301,13 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod attach_output_coalesce;
 mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
+pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
@@ -418,6 +429,13 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
+/// `replay_history_start` with `replay_history_rows` on a bytes
+/// `attach-surface`: the `vt-state` replay holds that many history rows from
+/// that row (0: the oldest kept), then the screen, and says how many rows it
+/// left out above (`history_rows_omitted`) and between them
+/// (`history_rows_skipped`). The viewer keeps a bounded window anywhere in a
+/// long history. Its `resized` replays carry `history_rows_omitted` too.
+pub const ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY: &str = "attach-replay-history-window-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 /// A client that declares this in `set-client-info` gets the public ids
 /// (`terminal_resource_id`, `tab_id`, `pane_id`, `screen_id`,
@@ -602,6 +620,12 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
 /// restatement on `session.events` (state/placement_shift.rs).
 pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
+/// `session-live-cursor-v1`: a connection that sends it in `set-client-info`
+/// gets `live` in each `session.events` cursor, the position of the live
+/// terminal facts it has. A resume from such a cursor sends only the
+/// terminals whose live facts changed after it
+/// (server/session_event_stream.rs).
+pub const SESSION_LIVE_CURSOR_CAPABILITY: &str = "session-live-cursor-v1";
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
@@ -1073,7 +1097,11 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    ListWorkspaces,
+    /// `known` and `limit`: server/list_workspaces_page.rs.
+    ListWorkspaces {
+        known: Option<cmd_workspaces::KnownTree>,
+        limit: Option<usize>,
+    },
     GetFrontendProjection {
         frontend: String,
         scope: String,
@@ -1110,6 +1138,11 @@ enum Command {
     },
     /// `send`: write input to a terminal.
     Send(cmd_terminal_io::SendParams),
+    /// `cancel-creating-input` (`creating-input-cancel-v1`): the creator of a terminal that is
+    /// still being created drops the input queued for it; the creation goes on.
+    CancelCreatingInput {
+        terminal_id: String,
+    },
     ReadScreen {
         surface: SurfaceId,
     },
@@ -1455,6 +1488,10 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// `workspace-first-tab-v1`: the workspace's first tab, made in the
+        /// same request (`{kind: "browser", url, engine, ...}`).
+        #[serde(default)]
+        first_tab: Option<frontend_browser_history::FirstTabParams>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1493,6 +1530,13 @@ enum Command {
         /// `detached-terminals-v1`: a kept terminal with no tab.
         #[serde(default)]
         detached: bool,
+        /// `create-terminal-workspace-v1`: with `key` and a mutation id,
+        /// make the workspace first when no workspace has that key.
+        #[serde(default)]
+        create_workspace: bool,
+        /// The name of the workspace `create_workspace` makes.
+        #[serde(default)]
+        workspace_name: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2420,6 +2464,17 @@ enum Command {
         /// the whole history.
         #[serde(default)]
         replay_history_rows: Option<u32>,
+        /// Bytes mode: `output` events at most once per this many ms
+        /// (`attach-output-coalesce-v1`, declared in `set-client-info`);
+        /// omitted, one display frame; 0, one event per read. Ignored for a
+        /// connection that did not declare the capability.
+        #[serde(default)]
+        output_coalesce_ms: Option<u32>,
+        /// Bytes mode, with `replay_history_rows`: the replay holds that many
+        /// history rows from this row (0: the oldest kept), then the screen
+        /// (`attach-replay-history-window-v1`); omitted, the newest rows.
+        #[serde(default)]
+        replay_history_start: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -2652,11 +2707,49 @@ struct Response {
     error_delivery: Option<ResponseErrorDelivery>,
 }
 
+impl Response {
+    /// The reply as a JSON value, the value `serde_json::to_value` makes,
+    /// with `data` moved in: `to_value` copies it, and `data` can be the
+    /// whole tree (`list-workspaces`).
+    fn into_value(self) -> Value {
+        let Self { id, ok, data, error, error_code, error_delivery } = self;
+        let mut object = serde_json::Map::new();
+        if let Some(id) = id {
+            object.insert("id".into(), id);
+        }
+        object.insert("ok".into(), Value::Bool(ok));
+        if let Some(data) = data {
+            object.insert("data".into(), data);
+        }
+        if let Some(error) = error {
+            object.insert("error".into(), Value::String(error));
+        }
+        if let Some(error_code) = error_code {
+            object.insert("error_code".into(), Value::String(error_code));
+        }
+        if let Some(error_delivery) = error_delivery {
+            object
+                .insert("error_delivery".into(), Value::String(error_delivery.wire_name().into()));
+        }
+        Value::Object(object)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum ResponseErrorDelivery {
     KnownNotDelivered,
     Ambiguous,
+}
+
+impl ResponseErrorDelivery {
+    /// Its wire spelling (the serde name).
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::KnownNotDelivered => "known-not-delivered",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
 }
 
 impl From<ClearHistoryDelivery> for ResponseErrorDelivery {
@@ -2763,6 +2856,10 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
+/// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
+const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
+const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
@@ -2820,7 +2917,7 @@ pub use listen::{
     serve_paused, socket_start_lock_path, verify_session_socket_directory,
 };
 mod restoring;
-mod terminal_sessions;
+mod terminal_admission;
 #[cfg(all(test, unix))]
 use listen::still_at_path;
 #[cfg(test)]
@@ -2856,6 +2953,7 @@ use journal_stream::run_session_journal_stream;
 #[cfg(test)]
 use session_event_stream::run_session_event_stream;
 
+mod git_lane;
 mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
@@ -2961,15 +3059,15 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 mod tree_json;
-#[cfg(test)]
-pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::selection_changed_json;
-#[cfg(test)]
-pub(crate) use tree_json::set_entity_check_hook_for_test;
+#[cfg(all(test, unix))]
+pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+#[cfg(test)]
+pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
@@ -3013,7 +3111,8 @@ use attach_lifecycle::{
     AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
     detach_committed_attach, mark_client_attached, mark_resource_client_attached,
     rollback_failed_attach, spawn_attach_notification_stream,
-    spawn_attach_notification_stream_gated, wait_for_initial_browser_resize,
+    spawn_attach_notification_stream_coalesced, spawn_attach_notification_stream_gated,
+    wait_for_initial_browser_resize,
 };
 #[cfg(test)]
 use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
@@ -3030,18 +3129,6 @@ fn handle_command(
 
 mod command_dispatch;
 use command_dispatch::handle_command_with_cancellation;
-
-/// The `list-workspaces` reply: the tree plus the registry identity it
-/// belongs to. The launch snapshot stores the same value.
-fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
-    let notifications = mux.tree_decorations();
-    let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
-    let (registry_id, generation) = mux.registry_identity();
-    workspaces.set("registry_id", json!(registry_id));
-    workspaces.set("generation", json!(generation));
-    workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
-    Ok(workspaces)
-}
 
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
@@ -3085,6 +3172,10 @@ mod starter_exit_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/attach_output_coalesce_tests.rs"]
+mod attach_output_coalesce_tests;
 
 #[cfg(test)]
 #[path = "server/group_icon_raw_tests.rs"]
@@ -3135,8 +3226,14 @@ mod creation_burst_tests;
 mod run_public_ids_tests;
 
 #[cfg(test)]
+#[path = "server/open_persistent_bench_tests.rs"]
+mod open_persistent_bench_tests;
+
+#[cfg(test)]
 mod tests;
 
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
+#[cfg(unix)]
+mod cloud_runs;

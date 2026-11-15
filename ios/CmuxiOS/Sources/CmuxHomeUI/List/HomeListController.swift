@@ -27,6 +27,8 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
 
     let collectionView: UICollectionView
     var onSelect: (@MainActor (ConversationID) -> Void)?
+    /// Turn On (or Try Again) on the Chief card.
+    var onTurnOnChief: (@MainActor () -> Void)?
 
     private let performer: HomeRowActionPerformer
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>?
@@ -34,6 +36,7 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
     private var density: HomeListDensity = .comfortable
     private var isOnline = true
     private var updateRequired: HomeUpdateRequired?
+    private var chiefBanner: HomeChiefBanner?
     private var hasApplied = false
     private let time = HomeTimeFormatting()
 
@@ -102,8 +105,15 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         updateBanner()
     }
 
+    /// Shows, changes or clears the card for a Hosted Chief that does not answer.
+    func setChiefBanner(_ banner: HomeChiefBanner?) {
+        guard banner != chiefBanner else { return }
+        chiefBanner = banner
+        updateBanner()
+    }
+
     private var bannerState: HomeBannersView.State {
-        HomeBannersView.State(updateRequired: updateRequired, isOffline: !isOnline)
+        HomeBannersView.State(updateRequired: updateRequired, chief: chiefBanner, isOffline: !isOnline)
     }
 
     /// Re-renders timestamps (after the clock crosses a day, for example).
@@ -158,7 +168,7 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         let topOffset = -collectionView.adjustedContentInset.top
         let wasAtTop = collectionView.contentOffset.y <= topOffset + 1
         let state = bannerState
-        // Same cards, new minimum version: the header on screen re-renders in place.
+        // Same cards, new minimum version or Chief progress: the header on screen re-renders in place.
         if let kind = state.elementKind {
             for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
                 (collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? HomeBannersView)?.configure(state)
@@ -204,6 +214,7 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         }
         let bannerRegistrations = Dictionary(uniqueKeysWithValues: HomeBannersView.elementKinds.map { kind in
             (kind, UICollectionView.SupplementaryRegistration<HomeBannersView>(elementKind: kind) { [weak self] header, _, _ in
+                header.onTurnOnChief = { [weak self] in self?.onTurnOnChief?() }
                 if let state = self?.bannerState { header.configure(state) }
             })
         })

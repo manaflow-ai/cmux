@@ -9,6 +9,8 @@ mod dial;
 mod iroh;
 mod iroh_config;
 #[cfg(unix)]
+mod machine_pipe;
+#[cfg(unix)]
 pub mod overlay;
 mod relay;
 pub(crate) mod socks;
@@ -42,9 +44,14 @@ pub use iroh::{
 pub use iroh_config::{
     CMUX_IROH_ALPN, IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
 };
+#[cfg(unix)]
+pub use machine_pipe::{
+    MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
+};
 pub use relay::{
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayIncoming, RelayProvider, register_relay_daemon, register_relay_daemon_with_credentials,
+    RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
+    register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };
 pub use ssh::{

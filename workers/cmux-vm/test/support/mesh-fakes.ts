@@ -6,7 +6,7 @@
  * cover mesh calls too.
  */
 import { Effect, Layer, Option, Redacted } from "effect";
-import { MeshStore } from "../../src/db/mesh.ts";
+import { inventoryOf, MeshStore, type MeshStoreService } from "../../src/db/mesh.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { meshConfigLayer, type MeshBudgets } from "../../src/mesh/config.ts";
@@ -67,9 +67,11 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let failNextAcl = false;
   /** The per-tunnel endpoint names do not resolve. */
   let endpointDnsDown = false;
+  /** The compile's one inventory read answers through the hooked reads above, so their injections still reach it. */
+  const withInventory = (store: MeshStoreService): MeshStoreService => ({ ...store, meshInventory: inventoryOf(store) });
   const failingLayer = Layer.effect(
     MeshStore,
-    Effect.map(MeshStore, (inner) => ({
+    Effect.map(MeshStore, (inner) => withInventory({
       ...inner,
       listDevices: (tenantId: Parameters<typeof inner.listDevices>[0], meshId: string) =>
         inner.listDevices(tenantId, meshId).pipe(Effect.tap(() => Effect.sync(() => { inventoryRead?.(); }))),
@@ -149,6 +151,9 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let storeLatencyMs = 0;
   /** Mesh store calls made so far: each is one round trip on the request's one database connection. */
   let storeCalls = 0;
+  /** Calls per store method, and extra latency for one method (a stand-in for a slow apply's read). */
+  const storeCallsOf = new Map<string, number>();
+  const methodLatencyMs = new Map<string, number>();
   const latencyLayer = Layer.effect(
     MeshStore,
     Effect.map(MeshStore, (inner) => new Proxy(inner, {
@@ -157,8 +162,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         if (typeof value !== "function") return value;
         return (...args: ReadonlyArray<unknown>) => {
           storeCalls += 1;
+          if (typeof key === "string") storeCallsOf.set(key, (storeCallsOf.get(key) ?? 0) + 1);
           const run: unknown = Reflect.apply(value, target, args);
-          return storeLatencyMs > 0 && Effect.isEffect(run) ? Effect.zipRight(Effect.sleep(storeLatencyMs), run) : run;
+          const delayMs = storeLatencyMs + (typeof key === "string" ? methodLatencyMs.get(key) ?? 0 : 0);
+          return delayMs > 0 && Effect.isEffect(run) ? Effect.zipRight(Effect.sleep(delayMs), run) : run;
         };
       },
     })),
@@ -236,8 +243,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       path.startsWith("/v5/firewall/rules/") ||
       /^\/v5\/vms\/[^/]+\/networks$/u.test(path);
     if (!isMesh) return null;
-    // A VM's public egress (live-public-egress.ts) is fake-upstream.ts's: the list, and a create sourced by one VM.
+    // A VM's public egress (live-public-egress.ts) is fake-upstream.ts's: the list, a create sourced by one VM, and
+    // a delete of a rule fake-upstream.ts holds.
     if (path === "/v5/firewall/rules" && method === "GET") return null;
+    if (path.startsWith("/v5/firewall/rules/") && method === "DELETE" && !rules.has(decodeURIComponent(path.slice("/v5/firewall/rules/".length)))) return null;
     if (path === "/v5/firewall/rules" && method === "POST") {
       const peek: unknown = await request.clone().json().catch(() => null);
       const source: unknown = typeof peek === "object" && peek !== null ? Reflect.get(peek, "source") : undefined;
@@ -435,6 +444,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     delayStoreCalls(ms: number) { storeLatencyMs = ms; },
     /** How many mesh store calls have been made (each is a database round trip in production). */
     storeCallCount() { return storeCalls; },
+    /** How many calls of store method `method` have been made. */
+    storeCallCountOf(method: string) { return storeCallsOf.get(method) ?? 0; },
+    /** Delays every call of store method `method` by `ms` more (0: none). */
+    delayStoreMethod(method: string, ms: number) { methodLatencyMs.set(method, ms); },
     failNetworkCreates(status: number | null) { networkCreateStatus = status; },
     loseNetworkReplies(times: number) { networkLostReplies = times; },
     hideNetworks(on: boolean) { hideNetworks = on; },

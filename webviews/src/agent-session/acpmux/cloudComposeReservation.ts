@@ -166,6 +166,17 @@ export class CloudComposeReservation {
     return false;
   }
 
+  /// The Send that took reservation `key` was refused before the host bound it (a folder too big to copy,
+  /// `cloud_folder_too_big`): nothing will claim it, so it is given back now, and the next Send starts cold
+  /// or a new compose reserves again.
+  returned(key: string): void {
+    const attempt = this.attempt;
+    if (attempt?.key !== key || !attempt.transferred) return;
+    attempt.transferred = false;
+    attempt.abandoned = true;
+    void attempt.ready.then(() => this.release(attempt));
+  }
+
   abandon(): void {
     this.stopRelease();
     this.stopIdle();

@@ -72,7 +72,7 @@ pub fn of_call(home: &Path, session: &str, params: &Value) -> Option<Value> {
 /// Tool call `tool_use_id` ended: it names nobody any more.
 pub fn end(home: &Path, session: &str, tool_use_id: &str) {
     if let Some(path) = call_path(home, session, tool_use_id) {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
     }
 }
 
@@ -85,14 +85,14 @@ pub fn end_agent(home: &Path, session: &str, agent: &str) {
             .and_then(|text| serde_json::from_slice::<Value>(&text).ok())
             .is_some_and(|sub| sub.get("id").and_then(Value::as_str) == Some(agent));
         if theirs {
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
         }
     }
 }
 
 /// Removes `session`'s records: it closed.
 pub fn forget(home: &Path, session: &str) {
-    let _ = std::fs::remove_dir_all(session_dir(home, session));
+    let _ = crate::home_fs::remove_dir_all(session_dir(home, session));
 }
 
 #[cfg(test)]

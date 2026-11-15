@@ -67,7 +67,8 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
     // index carries its own instructions.
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
-    assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (4)"));
+    let families = exec_families(&listed["result"]["tools"][0]);
+    assert!(families.iter().any(|family| family == "cua"), "{families:?}");
     // Listed directly (every tool), each carries its server's rules.
     let all = server.list();
     let look = all.iter().find(|t| t["name"] == "cua_look").expect("cua_look is listed");
@@ -499,6 +500,7 @@ fn the_helper_v2_bridge_gets_no_cmux_rules() {
         args: Vec::new(),
         env,
         call_timeout: Duration::from_secs(1),
+        shared: None,
     };
     let legacy = spec(Vec::new());
     assert_eq!(upstream::rules(&legacy, None).as_deref(), Some(acpmux::agent_tools::CUA_RULES));
@@ -594,4 +596,208 @@ fn subagent_mcp_a_proxied_call_passes_on_the_tool_use_id_its_caller_was_named_by
     let none = "const r = await cmux.cua_meta({}); return {r};";
     let ran = call(&mut server, "cmux_exec", json!({"script": none}));
     assert_eq!(ran["structuredContent"]["result"], json!({"r": null}), "{ran}");
+}
+
+/// One process for the servers whose specs name the same `shared` launch (acpmux's own five,
+/// `acpmux tools-mcp`): each request names its server in `_meta`, each server lists and calls
+/// its own tools there, and a call that waits on one server holds no other server's call.
+#[cfg(unix)]
+#[test]
+fn servers_with_one_shared_launch_run_in_one_process() {
+    const SHARED_SERVER: &str = r#"
+import json, os, sys, threading
+with open(os.environ["STARTS"], "a") as f:
+    f.write("%d\n" % os.getpid())
+lock = threading.Lock()
+def say(m):
+    with lock:
+        print(json.dumps(m), flush=True)
+def answer(m):
+    server = ((m.get("params") or {}).get("_meta") or {}).get("cmux/server")
+    method, rid = m["method"], m["id"]
+    if method == "initialize":
+        result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                  "serverInfo": {"name": server}, "instructions": "rules of " + server}
+    elif method == "tools/list":
+        result = {"tools": [{"name": "who", "description": "of " + server, "inputSchema": {"type": "object"}},
+                            {"name": "hold", "description": "waits", "inputSchema": {"type": "object"}}]}
+    elif m["params"]["name"] == "hold":
+        import time
+        while not os.path.exists(m["params"]["arguments"]["path"]):
+            time.sleep(0.02)
+        result = {"content": [{"type": "text", "text": "held"}]}
+    else:
+        result = {"content": [{"type": "text", "text": server}]}
+    say({"jsonrpc": "2.0", "id": rid, "result": result})
+for line in sys.stdin:
+    m = json.loads(line)
+    if "id" in m:
+        threading.Thread(target=answer, args=(m,)).start()
+"#;
+    let dir = std::env::temp_dir().join(format!("cmux-mcp-shared-{}", uuid_like()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("shared.py");
+    std::fs::write(&script, SHARED_SERVER).unwrap();
+    let starts = dir.join("starts");
+    let shared = json!({"command": "python3", "args": [script], "env": {"STARTS": starts}});
+    let specs = upstream::specs(Some(
+        json!([
+            {"name": "cmux-forum", "command": "/unused", "args": ["forum-mcp"], "env": {}, "shared": shared},
+            {"name": "acpmux", "command": "/unused", "args": ["acpmux-mcp"], "env": {}, "shared": shared},
+        ])
+        .to_string()
+        .into(),
+    ));
+    assert_eq!(specs.len(), 2);
+    assert!(specs.iter().all(|s| s.shared.is_some()));
+    let mut ups: Vec<upstream::Upstream> =
+        specs.into_iter().map(|s| upstream::Upstream::new(s).with_listings(None)).collect();
+    let forum = ups[0].descriptors(&BTreeSet::new());
+    let acpmux = ups[1].descriptors(&BTreeSet::new());
+    // Each server's own tools under its own prefix, with its own rules.
+    let names = |tools: &[Value]| -> Vec<String> {
+        tools.iter().map(|t| t["name"].as_str().unwrap().to_owned()).collect()
+    };
+    assert_eq!(names(&forum), ["forum_who", "forum_hold"]);
+    assert_eq!(names(&acpmux), ["acpmux_who", "acpmux_hold"]);
+    assert!(forum[0]["description"].as_str().unwrap().contains("rules of cmux-forum"));
+    assert!(acpmux[0]["description"].as_str().unwrap().contains("rules of acpmux"));
+    // One process for both.
+    let started = std::fs::read_to_string(&starts).unwrap();
+    assert_eq!(started.lines().count(), 1, "{started}");
+    // A call that waits on one server holds no call of the other.
+    let gate = dir.join("go");
+    let (forum, acpmux) = (ups.remove(0), ups.remove(0));
+    let held = std::thread::spawn({
+        let gate = gate.clone();
+        move || {
+            let mut forum = forum;
+            forum.call("hold", json!({"path": gate}), None, None).map(|_| forum)
+        }
+    });
+    let mut acpmux = acpmux;
+    let who = acpmux.call("who", json!({}), None, None).unwrap();
+    assert_eq!(who["content"][0]["text"], "acpmux", "{who}");
+    std::fs::write(&gate, b"").unwrap();
+    let forum = held.join().unwrap().unwrap();
+    drop(forum);
+    // The process stays while a server holds it.
+    let mut acpmux = acpmux;
+    assert_eq!(acpmux.call("who", json!({}), None, None).unwrap()["content"][0]["text"], "acpmux");
+    assert_eq!(std::fs::read_to_string(&starts).unwrap().lines().count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn uuid_like() -> String {
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    format!("{}-{nanos}", std::process::id())
+}
+
+/// Whether `pid` has exited: not in the process table, or there only as a zombie or exiting
+/// (`ps` state `Z`, `X`, macOS `E`), so a probe never counts an unreaped child as running
+/// (the same reading as acpmux's `durable_agents.rs`).
+#[cfg(unix)]
+fn process_gone(pid: u32) -> bool {
+    let Ok(out) =
+        std::process::Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+    else {
+        return false;
+    };
+    let stat = String::from_utf8_lossy(&out.stdout);
+    let stat = stat.trim();
+    stat.is_empty()
+        || stat.starts_with('Z')
+        || stat.starts_with('X')
+        || (cfg!(target_os = "macos") && stat.contains('E'))
+}
+
+/// Whether `pid` exits within `within`.
+#[cfg(unix)]
+fn gone_within(pid: u32, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
+    while !process_gone(pid) {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    true
+}
+
+/// A harness keeps an idle chat's `cmux mcp serve` running for days, and that kept its
+/// computer use proxy running too: 15 `cmux-cua mcp` proxies on Leo's Mac (2026-11-14), each
+/// under a live serve no one called. A server with no call for `IDLE_STOP` ends now; its tools
+/// stay listed, and the next call starts it again.
+#[cfg(unix)]
+#[test]
+fn an_idle_servers_process_ends_and_the_next_call_starts_it_again() {
+    const IDLE: Duration = Duration::from_millis(300);
+    let mut servers: Vec<_> = (0..3).map(|_| upstream_server("cmux-cua")).collect();
+    for server in &mut servers {
+        assert_eq!(server.descriptors(&BTreeSet::new()).len(), 4, "listing starts it");
+    }
+    let pids: Vec<u32> = servers.iter().map(|s| s.pid().expect("started")).collect();
+    let running = |pids: &[u32]| pids.iter().filter(|pid| !process_gone(**pid)).count();
+    let before = running(&pids);
+    assert_eq!(before, 3);
+    let servers: Vec<_> =
+        servers.into_iter().map(|s| std::sync::Arc::new(std::sync::Mutex::new(s))).collect();
+    let watcher =
+        upstream::stop_idle(servers.iter().map(std::sync::Arc::downgrade).collect(), IDLE).unwrap();
+    for pid in &pids {
+        assert!(gone_within(*pid, Duration::from_secs(10)), "idle server {pid} still runs");
+    }
+    let after = running(&pids);
+    eprintln!("idle proxies running: before {before}, after {after}");
+    assert_eq!(after, 0);
+    // Still listed, and a call starts a new process.
+    let mut first = servers[0].lock().unwrap();
+    assert!(!first.started());
+    assert_eq!(first.descriptors(&BTreeSet::new()).len(), 4, "its tools stay listed");
+    assert!(!first.started(), "listing an idle server starts nothing");
+    let result = first.call("look", json!({"at": 2}), None, None).unwrap();
+    assert_eq!(result["content"][0]["text"], "saw {\"at\": 2}");
+    let restarted = first.pid().unwrap();
+    assert!(!pids.contains(&restarted));
+    drop(first);
+    // The watcher ends once every server is gone, and takes the restarted one's process along
+    // when that is idle again.
+    assert!(
+        gone_within(restarted, Duration::from_secs(10)),
+        "the restarted server never idled out"
+    );
+    drop(servers);
+    let start = Instant::now();
+    while !watcher.is_finished() {
+        assert!(start.elapsed() < Duration::from_secs(10), "the idle watcher outlived its servers");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A server a call holds is never ended for idling, however long the call takes.
+#[cfg(unix)]
+#[test]
+fn a_server_in_a_call_is_never_ended_as_idle() {
+    let dir = tempfile::tempdir().unwrap();
+    let gate = dir.path().join("go");
+    let mut server = upstream_server("cmux-cua");
+    server.descriptors(&BTreeSet::new());
+    let pid = server.pid().unwrap();
+    let server = std::sync::Arc::new(std::sync::Mutex::new(server));
+    let _watcher =
+        upstream::stop_idle(vec![std::sync::Arc::downgrade(&server)], Duration::from_millis(100))
+            .unwrap();
+    let held = std::thread::spawn({
+        let (server, gate) = (server.clone(), gate.clone());
+        move || server.lock().unwrap().call("hold", json!({"path": gate}), None, None)
+    });
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(!process_gone(pid), "a server in a call was ended as idle");
+    std::fs::write(&gate, b"").unwrap();
+    let result = held.join().unwrap().unwrap();
+    assert_eq!(result["content"][0]["text"], "held");
+    assert!(gone_within(pid, Duration::from_secs(10)), "idle after its call, it still runs");
+    // Ended for idling, not by the server's drop: this test still holds it.
+    assert!(!server.lock().unwrap().started());
 }

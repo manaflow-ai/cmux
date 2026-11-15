@@ -293,11 +293,16 @@ import WebKit
 
     /// App pages are masked unless checked to show nothing secret: a new page is masked by default.
     @Test func appPagesAreMaskedUnlessListedAndHomeIsMasked() {
-        #expect(!ScreenshotMask.shownAppPages.contains("cmux.home-messages"), "Home's Messages page is masked")
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.agent"))
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.passwords"))
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.home-channels"))
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.settings"))
+        #expect(ScreenshotMask.covers(HomeSidebarView(frame: .zero)))
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        let list = HomeSidebarView(frame: NSRect(x: 4, y: 4, width: 60, height: 60))
+        fixture.plain.addSubview(list)
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).regions.contains(list.convert(list.bounds, to: nil)))
     }
 
     /// The allow path: a listed app page is not covered, and the web view it holds is not covered

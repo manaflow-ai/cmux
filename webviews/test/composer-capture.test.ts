@@ -78,4 +78,26 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
     const result = await play("attach-window-cancelled");
     expect(playFailures(result.report)).toEqual([]);
   });
+
+  // Leo, 2026-11-07 (ask-b640c4d6fa): "could we also have a more native screenshot/screensharer
+  // (ergonomic one)/video recording of the app type thing/route?"
+  test("Record Screen… attaches the kept recording as a video chip", async () => {
+    const result = await play("record-screen");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("a Record Screen… closed without recording attaches nothing", async () => {
+    const result = await play("record-screen-cancelled");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("a still taken from the recording toolbar attaches as a screenshot", async () => {
+    const result = await play("record-screen-still");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("a Cloud chat offers no Record Screen…", async () => {
+    const result = await play("record-screen-cloud-chat");
+    expect(playFailures(result.report)).toEqual([]);
+  });
 });

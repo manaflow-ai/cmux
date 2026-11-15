@@ -1,0 +1,38 @@
+[package]
+name = "acpmux-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The v2 agent service core: published summaries and bounded stream frames"
+
+[features]
+default = []
+allocation-metrics = []
+
+[lints]
+workspace = true
+
+[dependencies]
+acpmux-book = { path = "../acpmux-book" }
+acpmux-client = { path = "../acpmux-client" }
+arc-swap.workspace = true
+cmux-scope.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+thiserror = "2"
+tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+# Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
+acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
+# The list helper's tests against the hub (`src/tokio_list_tests.rs`).
+acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
+serde = { workspace = true, features = ["derive"] }
+tempfile = "3"
+tokio = { version = "1.52", features = ["macros", "rt-multi-thread", "sync", "net", "time", "test-util"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc.workspace = true

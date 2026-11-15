@@ -1,7 +1,7 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
 import type { AllChatsPage } from "./allChatsListModel";
-import type { NewTabScreenActions } from "./NewTabScreen";
+import type { NewTabOpenHow, NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
 import { rememberPick } from "../lastPick";
@@ -9,6 +9,9 @@ import { translate } from "../i18n";
 import { isStartCancelled, startCancelled } from "../transportErrors";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/// `tab.open`'s `beside` for a browser pick the person asked to open as a new tab (Option-Return).
+const besideParam = (how?: NewTabOpenHow) => (how?.beside ? { beside: true } : {});
 
 export function newTabScreenActions(deps: {
   callNative: Native;
@@ -149,13 +152,15 @@ export function newTabScreenActions(deps: {
         });
     },
     savedEnvironments: savedEnvironmentHost(callNative),
-    onOpen: (url) => {
+    onOpen: (url, how) => {
       if (url.startsWith("file://"))
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
-      ignore(callNative("tab.open", { kind: "browser", text: url }));
+      // No `beside`: the host navigates this page's tab (NewTabPage.replace); `beside` opens where links go.
+      ignore(callNative("tab.open", { kind: "browser", text: url, ...besideParam(how) }));
     },
     // Open in Profile… and Open in New Profile: the same browser open, in the profile the row names.
-    onOpenInProfile: (url, id) => ignore(callNative("tab.open", { kind: "browser", text: url, profile: id })),
+    onOpenInProfile: (url, id, how) =>
+      ignore(callNative("tab.open", { kind: "browser", text: url, profile: id, ...besideParam(how) })),
     onOpenInNewProfile: (url, name) =>
       ignore(
         callNative("tab.open", {
@@ -165,7 +170,8 @@ export function newTabScreenActions(deps: {
           ...(name ? { profileName: name } : {}),
         }),
       ),
-    onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
+    onSearch: (text, how) =>
+      ignore(callNative("tab.open", { kind: "browser", text, search: true, ...besideParam(how) })),
     // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
     onShell(command) {
       deps.leave();
@@ -182,6 +188,12 @@ export function newTabScreenActions(deps: {
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     onViewChat: (key) => ignore(callNative("chats.watch", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
+    // A typed path's subfolders (launchRows.ts): names only; the host refuses protected folders.
+    completeFolder: (path) =>
+      callNative("folder.complete", { path }).then((reply) => {
+        const folders = (reply as { folders?: unknown } | undefined)?.folders;
+        return Array.isArray(folders) ? folders.filter((name): name is string => typeof name === "string") : undefined;
+      }),
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),

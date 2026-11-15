@@ -110,4 +110,143 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
       await page.close();
     });
   }
+
+  // Leo (2026-11-12): "THE PAGINATION/WHATEVER INFINITE SCROLL UP DOESN'T [...] WORK IT JUST [...]
+  // SENDS ME TO THE BOTTOM", and "IT JUST DOESN'T WORK RIGHT NOW BECAUSE OF THIS [...] 'RECONNECT'".
+  // A reconnect or a rebuild drew the chat's newest tail first (or no rows for a frame), without the
+  // older pages the reader had scrolled up through: the offset clamped to the shorter tail's end, the
+  // bottom, and nothing found the reader's row again. The reader scrolls up through N older pages and
+  // stops; replies stream on, and the pane reconnects and rebuilds again and again. The row at the top
+  // of the view never moves while it is drawn, comes back to the same place, and no painted frame
+  // shows the view at the bottom.
+  test("a reconnect or a rebuild while scrolled up keeps the reader's row and never goes to the bottom", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-older-scroll.html?latency=60&rail`);
+    await page.waitForFunction(() => document.querySelectorAll(".acpmux-row").length > 5);
+    await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
+    for (let frame = 0; frame < 10; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
+    // Up through four older pages, then stop well inside the paged-in history.
+    await page.mouse.move(450, 350);
+    const PAGES = 4;
+    for (let frame = 0; frame < 400; frame += 1) {
+      const asks = await page.evaluate(
+        () =>
+          (window as unknown as { __older: { asks: { landed?: number }[] } }).__older.asks.filter((a) => a.landed)
+            .length,
+      );
+      if (asks >= PAGES) break;
+      await page.mouse.wheel(0, -100);
+      await page.evaluate(() => window.cmuxPaintFrame());
+    }
+    for (let frame = 0; frame < 30; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
+    // The reader's row: the first one whose top is in view.
+    const anchor = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const top = scroller.getBoundingClientRect().top;
+      for (const row of document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+        const at = row.getBoundingClientRect().top - top;
+        if (at >= 0) return { id: row.dataset.rowId!, at };
+      }
+      return undefined;
+    });
+    expect(anchor).toBeDefined();
+    // Every painted frame from here: how far the view is from its end, and where the reader's row is.
+    await page.evaluate((id) => {
+      const seen: { below: number; at?: number }[] = [];
+      (window as unknown as { __frames: typeof seen }).__frames = seen;
+      window.cmuxAfterPaint(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const row = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
+        seen.push({
+          below: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+          at: row ? row.getBoundingClientRect().top - scroller.getBoundingClientRect().top : undefined,
+        });
+      });
+    }, anchor!.id);
+    const act = (what: "live" | "tail" | "empty") =>
+      page.evaluate((what) => {
+        const older = (window as unknown as { __older: { live(): void; reconnect(d: string): void } }).__older;
+        if (what === "live") older.live();
+        else older.reconnect(what);
+      }, what);
+    const frames = async (count: number) => {
+      for (let frame = 0; frame < count; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
+    };
+    for (let round = 0; round < 3; round += 1) {
+      await act("live");
+      await frames(3);
+      // A reconnect draws the newest tail; the older pages read again bring the reader's row back.
+      await act("tail");
+      await frames(2);
+      await act("live");
+      await page.waitForFunction(
+        (id) => Boolean(document.querySelector(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`)),
+        anchor!.id,
+        { timeout: 20_000 },
+      );
+      await frames(10);
+      // A rebuild draws no rows for a commit, then all of them.
+      await act("empty");
+      await frames(3);
+      await act("live");
+      await frames(5);
+    }
+    await frames(20);
+    const seen = await page.evaluate(
+      () => (window as unknown as { __frames: { below: number; at?: number }[] }).__frames,
+    );
+    const atBottom = seen.filter((frame) => frame.below <= 4).length;
+    const moved = seen.filter((frame) => frame.at !== undefined && Math.abs(frame.at - anchor!.at) > 1);
+    console.log(
+      `transcript-older-scroll reconnect: ${JSON.stringify({ frames: seen.length, atBottom, moved: moved.length, first: moved.slice(0, 4), anchor })}`,
+    );
+    expect(seen.length).toBeGreaterThan(30);
+    expect(atBottom).toBe(0);
+    expect(moved).toEqual([]);
+    expect(seen.at(-1)?.at).toBeCloseTo(anchor!.at, 0);
+    await page.close();
+  });
+
+  test("a fast first scrub does not rebound to the tail while an older page is pending", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
+    await page.addInitScript(() => {
+      (window as unknown as { __offsets: number[] }).__offsets = [];
+      addEventListener(
+        "scroll",
+        (event) => {
+          const target = event.target;
+          if (target instanceof HTMLElement && target.classList.contains("acpmux-scroll"))
+            (window as unknown as { __offsets: number[] }).__offsets.push(target.scrollTop);
+        },
+        true,
+      );
+    });
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-older-scroll.html?tail=90&prompts&latency=5000`);
+    await page.waitForFunction(() => document.querySelectorAll(".acpmux-row").length > 20);
+    await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
+    for (let frame = 0; frame < 12; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
+    await page.evaluate(() => ((window as unknown as { __offsets: number[] }).__offsets = []));
+    await page.mouse.move(450, 350);
+    const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+    // A rail-sized scrub reaches the reserve in one native step. The page remains pending long
+    // enough to expose any write that sends the reader back to the loaded tail.
+    await page.mouse.wheel(0, -100_000);
+    await page.evaluate(() => window.cmuxPaintFrame());
+    for (let frame = 0; frame < 6; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
+    const offsets = await page.evaluate(() => (window as unknown as { __offsets: number[] }).__offsets);
+    const end = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+    const min = Math.min(...offsets);
+    const minAt = offsets.indexOf(min);
+    const rebound = offsets.slice(minAt + 1).some((offset) => offset > min + 100);
+    console.log(`transcript-older-scroll fast scrub: ${JSON.stringify({ start, min, end, offsets })}`);
+    expect(offsets.length).toBeGreaterThan(0);
+    expect(rebound).toBe(false);
+    expect(end).toBeLessThanOrEqual(min + 1);
+    expect(start - end).toBeGreaterThan(500);
+    await page.close();
+  });
 });

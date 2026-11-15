@@ -90,7 +90,9 @@ final class RowBadgeView: NSView {
         states.isEmpty ? 0 : cellSide + CGFloat(states.count - 1) * step
     }
 
-    func configure(_ states: [StatusIndicatorState], look: Look) {
+    /// - Parameter settles: The row's work just finished (``WorkspaceRowBadges/settles(from:to:)``):
+    ///   each done glyph plays its one-shot settle (``StatusIndicatorView/settle()``).
+    func configure(_ states: [StatusIndicatorState], look: Look, settles: Bool = false) {
         guard states != self.states || look != self.look else { return }
         (self.states, self.look) = (states, look)
         while glyphs.count < states.count {
@@ -115,6 +117,7 @@ final class RowBadgeView: NSView {
             rings[index].isHidden = !shown || look == .plain || bare
             chips[index].isHidden = !shown || look != .stack || bare
             glyph.configure(shown ? states[index] : .idle)
+            if settles, shown, states[index] == .success { glyph.settle() }
         }
         isHidden = states.isEmpty
         needsLayout = true

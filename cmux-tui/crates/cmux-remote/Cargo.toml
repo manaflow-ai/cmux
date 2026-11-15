@@ -25,8 +25,10 @@ base64.workspace = true
 bytes.workspace = true
 cmux-pty.workspace = true
 cmux-link.workspace = true
+cmux-netwatch.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-tui-core.workspace = true
+cmux-unix-socket.workspace = true
 cmux-wg = { workspace = true, optional = true }
 diffy.workspace = true
 flate2.workspace = true
@@ -43,6 +45,8 @@ hyper-util.workspace = true
 iroh = { workspace = true, optional = true }
 libc.workspace = true
 rand_core = { version = "0.9", default-features = false }
+# The relay's own TLS trust (RelayTls); already in the graph through tokio-tungstenite.
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

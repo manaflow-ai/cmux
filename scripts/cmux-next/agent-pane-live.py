@@ -23,6 +23,7 @@ each with p50/p95/p99/max:
 The HEADLINE is the WORST arm (a missed run first, else the highest p95, then the highest max), printed as
 `HEADLINE agent-pane/switch pick_to_ready_ms = <arm> arm ...`; the warm arm alone never stands for the bench."""
 import glob, json, os, plistlib, re, signal, socket, subprocess, sys, time
+import tempfile
 
 import argparse
 _parser = argparse.ArgumentParser()
@@ -63,7 +64,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown, pty_count
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 HOME_ACP = os.path.join(OUT, "acpmux-home")
-ACP_SOCKET = f"/tmp/hqnt-acp-{os.getpid()}.sock"
+ACP_SOCKET = os.path.join(tempfile.mkdtemp(prefix="hqnt-", dir="/tmp"), "acp.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
 
 def rpc(method, params=None, timeout=60):
     try:

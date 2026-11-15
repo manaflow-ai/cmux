@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
 export type MuseumArtResult = {
@@ -838,6 +839,22 @@ export type TailnetState = {
   error?: string;
 };
 
+/** A customization being tried on (`cmux customize try`; cmux-customize `try_on.rs`): applied now,
+ * back to generation `revert_to` by itself at `expires_ms` unless the person keeps it. */
+export type CustomizeTryOn = {
+  generation: number;
+  revert_to: number | null;
+  started_ms: number;
+  expires_ms: number;
+  /** What is tried on, in one line (the profile, or what was asked for). */
+  label: string;
+  origin: string;
+};
+
+/** `cmux --json customize status|keep|revert` as the host answers it: a status carries `try_on`; a
+ * refusal is the CLI's error envelope (`code`, `message`). */
+export type CustomizeAnswer = { try_on?: CustomizeTryOn | null; code?: string; message?: string };
+
 /** Settings > Privacy and Security > Shared Links (`cmux.settings.shares.list`): this Mac's daemon's
  * chat shares as `agent-session-share-list` answers them (cmux-tui server/agent_session_shares.rs),
  * and each chat's tab title by surface number. Times are milliseconds since the epoch. */
@@ -1120,6 +1137,14 @@ export type ChannelSwitch = {
  */
 export type ChannelMachines = { title: string; lines: string[]; updates?: (string | null)[]; updateLabel?: string };
 
+/**
+ * A Switch or Go Back the host is running (`cmux.settings.channels.switch.changed`): `build` is the
+ * build it restarts into (Go Back's: the kept build), `label` the host's text for the stage it is
+ * at ("Downloading… 42%", "Checking the download…", "Restarting…"), `fraction` 0..1 while it
+ * downloads, else null.
+ */
+export type ChannelsProgress = { build: string; label: string; fraction: number | null };
+
 /** Settings > Updates' Channels card (`cmux.settings.channels.state`). */
 export type ChannelsState = {
   title: string;
@@ -1140,6 +1165,8 @@ export type ChannelsState = {
   daemon?: { title: string; value: string } | null;
   /** Other machines the app updates that cannot update in place or whose update failed, one line each. */
   machines?: ChannelMachines | null;
+  /** The switch running when the card reads; null or absent: none (older hosts send none). */
+  progress?: ChannelsProgress | null;
 };
 
 /** Every op the page calls: params and result. */
@@ -1213,6 +1240,8 @@ export type SettingsOps = {
   "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: signs the node out and closes its listeners. */
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
+  /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
+  "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
@@ -1243,6 +1272,9 @@ export type SettingsOps = {
   "cmux.settings.theme.overrides.release": [Record<string, never>, { files: number }];
   /** Native: open the file of the first `theme_overrides` line in cmux's editor, at that line. */
   "cmux.settings.theme.overrides.open": [Record<string, never>, unknown];
+  /** Native, person only: open the active theme file (`appearance.themeFile`) in the default editor;
+   * with none active the bundled `cmux theme export --save my-look --use` makes one from the current look. */
+  "cmux.settings.theme.file.open": [Record<string, never>, unknown];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
@@ -1314,6 +1346,8 @@ export type SettingsStreams = {
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
   "cmux.settings.channels.machines.changed": ChannelsState["machines"];
+  /** A Switch or Go Back moved to its next stage (null: none runs, it ended or was refused). */
+  "cmux.settings.channels.switch.changed": ChannelsProgress | null;
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
@@ -1347,7 +1381,15 @@ export type ErrorCode =
 
 const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable", "cmux.protocol.auth_refused"]);
 
-/** The error a call rejected with, as a plain record. */
+/** Refusals the host words for the person: the updater's (Go Back, Switch, Update) and a
+ * person-only action's (RefusalStrings). Any other failure shows the plain sentence. */
+export const SETTINGS_SENTENCES = {
+  "cmux.page.refused": OWNER_SENTENCE,
+  "cmux.app.user_only": OWNER_SENTENCE,
+} as const;
+
+/** The error a call rejected with, as a plain record (its `message` is for logs; the page shows
+ * `userMessage(error)`). */
 export function wireError(error: unknown): WireError {
   if (typeof error === "object" && error !== null && typeof (error as WireError).code === "string") {
     const { code, message, details } = error as WireError;

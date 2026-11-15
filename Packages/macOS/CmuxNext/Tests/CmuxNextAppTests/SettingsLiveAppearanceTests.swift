@@ -121,6 +121,30 @@ import Testing
         }
     }
 
+    @Test func interfaceSizeScalesFirstRunFontsOnlyOnceAndResetsThem() async throws {
+        try await withPage { page, _ in
+            let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
+            panel.starters.setPrompts(["Start a task"])
+            let button = try #require(panel.starters.buttons.first)
+            let originalButton = try #require(button.font).pointSize
+            let labels = [panel.hero.title, panel.hero.body, panel.switchCard.header, panel.switchCard.note, panel.intro.label]
+            let originals = try labels.map { try #require($0.font).pointSize }
+            try await call(page, "set", "appearance.metrics.chromeFontSize", .number(16))
+            // The transcript passes the live interface scale to its first-run panel.
+            panel.applyScale(Typography.userScale)
+            #expect(abs(try #require(button.font).pointSize - originalButton * Typography.userScale) < 0.01)
+            for (label, original) in zip(labels, originals) {
+                #expect(abs(try #require(label.font).pointSize - original * Typography.userScale) < 0.01)
+            }
+            try await call(page, "reset", "appearance.metrics.chromeFontSize")
+            panel.applyScale(Typography.userScale)
+            #expect(abs(try #require(button.font).pointSize - originalButton) < 0.01)
+            for (label, original) in zip(labels, originals) {
+                #expect(abs(try #require(label.font).pointSize - original) < 0.01)
+            }
+        }
+    }
+
     @Test func workingIndicatorToggleAlsoControlsTerminalTitleActivity() async throws {
         try await withPage { page, _ in
             let store = DaemonStore()

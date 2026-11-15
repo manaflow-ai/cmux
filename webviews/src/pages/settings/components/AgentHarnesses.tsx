@@ -11,9 +11,12 @@ import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../../ui/Tabs";
 import { StableLabel } from "../../../ui/StableLabel";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../../../agent-session/shared/harnessIcons";
 import { useStore } from "../context";
+import { SETTINGS_SENTENCES } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { EndpointForm } from "./EndpointForm";
 import { Icon } from "../icons";
 import { AGENTS_KEY, agentsQuery } from "../sectionQueries";
@@ -70,7 +73,7 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
     async (gesture: AgentsRun): Promise<boolean> => {
       setError(null);
       const reply = await store.runAgents(gesture);
-      if (!reply.ok) setError(reply.error.message);
+      if (!reply.ok) setError(userMessage(reply.error, SETTINGS_SENTENCES));
       const next = await store.agentsState();
       if (next) setState(next);
       return reply.ok;
@@ -423,6 +426,7 @@ function AddPanel({
 }
 
 function RegistryList({ state, run }: { state: AgentsState; run: (gesture: AgentsRun) => Promise<boolean> }) {
+  const scrollEdges = useScrollEdges();
   const [loading, setLoading] = useState(false);
   const asked = useRef(false);
   const load = useCallback(
@@ -456,7 +460,7 @@ function RegistryList({ state, run }: { state: AgentsState; run: (gesture: Agent
       {state.registry && agents.length === 0 && (
         <p className="my-1 text-[13px] text-muted">{t("settingsPage.agents.registryEmpty")}</p>
       )}
-      <div className="max-h-[320px] overflow-y-auto">
+      <div ref={scrollEdges} className="ui-scroll-edge-fade max-h-[320px] overflow-y-auto">
         {agents.map((agent) => (
           <RegistryRow key={agent.id} agent={agent} run={run} />
         ))}

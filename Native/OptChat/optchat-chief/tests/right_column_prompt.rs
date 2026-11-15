@@ -37,7 +37,7 @@ fn every_subagent_prompt_keeps_one_column_right_of_the_chat() {
             "{name}: no right-column rule"
         );
         assert!(
-            flat.contains("split --right --viewport-width 0.5"),
+            flat.contains("split --right --fit"),
             "{name}: no way to make the column"
         );
         assert!(
@@ -133,7 +133,8 @@ fn every_agent_prompt_makes_no_groups_and_pushes_without_pull_requests() {
 }
 
 /// #27712: the Chief may ask only for the user's own "Chief agents" group, and the spawn tool
-/// says the host ignores any other `Group:` value and never makes a group.
+/// says the host ignores any other `Group:` value; the only group the host makes is the collapsed
+/// "Chief's workspaces" one (Aziz, relayed 2026-11-11: two kinds of workspace, none hidden).
 #[test]
 fn the_chief_asks_only_for_chief_agents() {
     for (name, text) in prompts()
@@ -149,7 +150,10 @@ fn the_chief_asks_only_for_chief_agents() {
         spawn.contains("any other `Group:` value is ignored"),
         "{spawn}"
     );
-    assert!(spawn.contains("none is made"), "{spawn}");
+    assert!(
+        spawn.contains("joins \"Chief's workspaces\", the one group the host makes"),
+        "{spawn}"
+    );
 }
 
 #[test]

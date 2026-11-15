@@ -223,11 +223,28 @@ impl RegistryConnection {
         self.hold_unsettled(pending, settle);
     }
 
+    /// Hold the list of indeterminate receipts while `held` runs, as a drain on another thread does.
+    #[cfg(test)]
+    pub(crate) fn with_unsettled_list_held_for_test<R>(&self, held: impl FnOnce() -> R) -> R {
+        let _unsettled = self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        held()
+    }
+
+    /// True while an earlier indeterminate commit still waits for its answer or owes its state update.
+    /// A reader that holds no lock asks this before it decides to settle (the session snapshot read).
+    /// It takes no lock: it reads the count of held entries, which [`Self::hold_unsettled`] and
+    /// [`Self::take_settled_receipts`] write under the list's mutex. A thread that holds the list does not
+    /// change the answer: a drain of a prepare path gets the answers and does not settle them
+    /// ([`Self::drain_unsettled`]), so the entry is still owed.
+    pub(crate) fn owes_settlement(&self) -> bool {
+        self.unsettled_held.load(std::sync::atomic::Ordering::Acquire) != 0
+    }
+
     fn hold_unsettled(&self, pending: PendingRegistryReceipt, settle: Option<SettleState>) {
-        self.unsettled
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(UnsettledReceipt { pending, resolved: None, settle });
+        let mut unsettled =
+            self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        unsettled.push(UnsettledReceipt { pending, resolved: None, settle });
+        self.unsettled_held.store(unsettled.len(), std::sync::atomic::Ordering::Release);
     }
 
     /// Wait (bounded) until every earlier indeterminate commit has its
@@ -295,6 +312,7 @@ impl RegistryConnection {
             }
         }
         *unsettled = kept;
+        self.unsettled_held.store(unsettled.len(), std::sync::atomic::Ordering::Release);
         settled
     }
 }

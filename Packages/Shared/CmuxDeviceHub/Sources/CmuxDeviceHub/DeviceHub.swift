@@ -334,6 +334,10 @@ public final class DeviceHub {
         try await perform { try await $0.requestSession(host: host, scope: scope) }
     }
 
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        try await perform { try await $0.reattachSession(id) }
+    }
+
     /// From this device as host: answers a request.
     public func decide(_ request: SessionRequest, decision: SessionDecision, scope: SessionScope) async throws {
         _ = try await perform { try await $0.decide(session: request.id, decision: decision, scope: scope) }

@@ -11,6 +11,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { ToolRows } from "./TurnRows";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { resetTranscriptViews, setTranscriptView } from "./transcriptView";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -60,6 +61,7 @@ afterEach(async () => {
   resetTranscriptDisclosure();
   resetTranscriptViews();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -524,8 +524,8 @@
      private func renderChips() {
 -        strip.update(chips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
 +        strip.update(stripChips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
-     }
- 
++    }
++
 +    // cmux: attachments sit in the field's text at the caret (Draft+InlineMarks.swift), not in a
 +    // strip above it; the strip stays empty.
 +    private var stripChips: [Attachment] { [] }
@@ -556,8 +556,8 @@
 +        let marks = Draft.markOffsets(d.text)
 +        guard marks.count == d.attachments.count, let at = marks[checked: k] else { return nil }
 +        return at + 1
-+    }
-+
+     }
+ 
 +    /// The caret after the field's text was built again: just after a mark that came in (an
 +    /// attachment entered at the caret), else where it was (clamped).
 +    static func caretAfterRebuild(old: NSString, new: NSString, selection: NSRange, added: Int? = nil) -> NSRange {
@@ -626,3 +626,12 @@
          // no trap on a NaN or huge size (crash ratchet)
          let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
          if rep.pixelsWide != wide || rep.pixelsHigh != high,
+@@ -1126,7 +1431,7 @@
+         ctx.translateBy(x: 0, y: -(995 + dy))
+         Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
+         Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
+-        // Fitted to the lossless stills: plus 15.5 pt medium, emoji.face.grinning 15.5 pt medium.
++        // Fitted to the lossless stills: plus 15.5 pt medium, the emoji glyph (face.smiling.inverse) 15.5 pt medium.
+         let cfg = UIImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
+         if let img = UIImage(systemName: "plus", withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+             let s = img.size, c = CGPoint(x: 26, y: 1015.25 + dy)

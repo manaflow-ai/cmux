@@ -68,6 +68,11 @@ pub(crate) struct ShellMarks {
     /// The title the stream set, for the title ops libghostty-vt skips
     /// (`CSI 22/23 t`, OSC 1; `crate::terminal_title`).
     titles: crate::terminal_title::TitleTracker,
+    /// The end of the last chunk when it may begin a prompt mark (at most
+    /// [`MARK`]'s length): it is parsed with the next chunk, so a mark split
+    /// across reader chunks still gets its reset before it. An incomplete
+    /// escape sequence shows nothing, so holding it changes no screen.
+    held: Vec<u8>,
 }
 
 impl ShellMarks {
@@ -89,10 +94,36 @@ pub(crate) fn write_output<'a>(
 ) -> Cow<'a, [u8]> {
     // A title pop or an OSC 1 icon name becomes the OSC 2 that applies it,
     // here, so this terminal and every mirror fed the parsed bytes agree.
-    match marks.titles.rewrite(data) {
-        Cow::Borrowed(data) => write_marked(term, data, &mut marks.running),
-        Cow::Owned(data) => Cow::Owned(write_marked(term, &data, &mut marks.running).into_owned()),
+    let data = marks.titles.rewrite(data);
+    let data = if marks.held.is_empty() {
+        data
+    } else {
+        let mut joined = std::mem::take(&mut marks.held);
+        joined.extend_from_slice(&data);
+        Cow::Owned(joined)
+    };
+    let keep = data.len().saturating_sub(partial_mark_len(&data));
+    match data {
+        Cow::Borrowed(data) => {
+            let (body, held) = data.split_at_checked(keep).unwrap_or((data, &[]));
+            marks.held.extend_from_slice(held);
+            write_marked(term, body, &mut marks.running)
+        }
+        Cow::Owned(data) => {
+            let (body, held) = data.split_at_checked(keep).unwrap_or((&data, &[]));
+            marks.held.extend_from_slice(held);
+            Cow::Owned(write_marked(term, body, &mut marks.running).into_owned())
+        }
     }
+}
+
+/// How many bytes at the end of `data` begin a prompt mark the next chunk
+/// may complete: a proper prefix of `ESC ] 133 ;` and its letter.
+fn partial_mark_len(data: &[u8]) -> usize {
+    let tail = data.get(data.len().saturating_sub(MARK.len())..).unwrap_or_default();
+    let Some(escape) = memchr::memrchr(0x1b, tail) else { return 0 };
+    let candidate = tail.get(escape..).unwrap_or_default();
+    if MARK.starts_with(candidate) { candidate.len() } else { 0 }
 }
 
 fn write_marked<'a>(term: &mut Terminal, data: &'a [u8], running: &mut bool) -> Cow<'a, [u8]> {
@@ -151,5 +182,54 @@ fn leftover_modes(term: &Terminal) -> Vec<u8> {
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    memchr::memmem::find(haystack, needle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn terminal() -> Terminal {
+        Terminal::new(40, 4, 100, ghostty_vt::Callbacks::default()).unwrap()
+    }
+
+    /// Feeds `stream` split at `at` and returns the terminal and the bytes it parsed.
+    fn feed_split(stream: &[u8], at: usize) -> (Terminal, Vec<u8>) {
+        let mut term = terminal();
+        let mut marks = ShellMarks::default();
+        let mut parsed = Vec::new();
+        for chunk in [&stream[..at], &stream[at..]] {
+            parsed.extend_from_slice(&write_output(&mut term, chunk, &mut marks));
+        }
+        (term, parsed)
+    }
+
+    /// A dead program's mouse mode is reset at the next prompt mark wherever
+    /// the output stream splits, also inside the mark itself: a reader chunk
+    /// ends anywhere, and a mark split across two chunks used to be missed.
+    #[test]
+    fn a_prompt_mark_split_across_chunks_still_resets_modes() {
+        let stream = b"\x1b[?1000h\x1b[?25lkilled\r\n\x1b]133;A\x07$ ";
+        let (_, whole) = feed_split(stream, stream.len());
+        for at in 0..=stream.len() {
+            let (term, parsed) = feed_split(stream, at);
+            assert!(!term.mouse_tracking(), "mouse mode survived a mark split at {at}");
+            assert!(term.mode(CURSOR_VISIBLE, false), "cursor stayed hidden, split at {at}");
+            assert_eq!(parsed, whole, "parsed bytes differ for a split at {at}");
+        }
+    }
+
+    /// The keyboard modes a command left are reset at its end mark, wherever
+    /// the stream splits.
+    #[test]
+    fn a_command_end_mark_split_across_chunks_still_resets_keyboard_modes() {
+        let stream = b"\x1b]133;C\x07\x1b[?2004h\x1b[?1004hran\r\n\x1b]133;D;0\x07";
+        let (_, whole) = feed_split(stream, stream.len());
+        for at in 0..=stream.len() {
+            let (term, parsed) = feed_split(stream, at);
+            assert!(!term.mode(2004, false), "bracketed paste survived a split at {at}");
+            assert!(!term.mode(1004, false), "focus reports survived a split at {at}");
+            assert_eq!(parsed, whole, "parsed bytes differ for a split at {at}");
+        }
+    }
 }

@@ -7,10 +7,14 @@ license = "GPL-3.0-or-later"
 publish = false
 description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the cmux SDK daemon client and the Chrome cookie sync"
 
-# Own workspace, like its members: built only for the app xcframework
-# (scripts/cmux-next/build-app-ffi.sh), so cmux-tui workspace builds and
-# cmux-tui/Cargo.lock do not change.
+# The workspace of the app's C ABIs, with one Cargo.lock for all four: this
+# crate and the FFI crates it links, which name it in `package.workspace`.
+# Built only for the app xcframework (scripts/cmux-next/build-app-ffi.sh), so
+# cmux-tui workspace builds and cmux-tui/Cargo.lock do not change. One lock: a
+# dependency change in a crate they share needs one lock edit, not one per FFI
+# crate (#40883, #40898).
 [workspace]
+members = ["../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
 
 [lib]
 crate-type = ["staticlib"]
@@ -52,4 +56,5 @@ opt-level = 3
 codegen-units = 1
 debug = false
 strip = "debuginfo"
-lto = "off"
+# Machine code from rustc's own LTO: scripts/cmux-next/build-app-ffi.sh.
+lto = "fat"

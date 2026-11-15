@@ -48,7 +48,7 @@ enum SurfaceDiagnosticsReport {
                 #endif
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
-                    object["link"] = .string(Self.linkName(entry.session.model.connection))
+                    object["link"] = .string(entry.session.model.connection.diagnosticName)
                     let diagnostics = entry.session.diagnostics
                     object["snapshots"] = JSONValue(diagnostics.restoredSnapshots)
                     object["surface_swaps"] = JSONValue(diagnostics.swappedSurfaces)
@@ -109,15 +109,6 @@ enum SurfaceDiagnosticsReport {
         ]
     }
     #endif
-
-    private static func linkName(_ status: TerminalConnectionStatus) -> String {
-        switch status {
-        case .connected: "connected"
-        case .restoring: "restoring"
-        case .exited: "exited"
-        case .disconnected(let cause, let reconnecting): "disconnected:\(cause)\(reconnecting ? ":reconnecting" : "")"
-        }
-    }
 
     private static func hibernation(_ services: AppServices) -> JSONValue {
         guard let hibernation = services.cache.hibernation else { return .null }

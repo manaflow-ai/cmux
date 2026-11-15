@@ -93,9 +93,73 @@ struct PaneCloseCameraGroundTests {
         #expect(screen.rowScrolls["c1"] == nil, "SETUP: two rows still scroll after the second close")
     }
 
+    /// The time between two closes, in frames at 120 Hz, from 50 ms to past the first close's landing (about 160 ms; the
+    /// loop then closes the second pane at rest).
+    nonisolated static let gaps = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22]
+
+    /// MOTION TOKENS CLEANUP, the ground rule for any time between two last-column closes (the layout of
+    /// `twoLastColumnClosesInARowLeaveNoGroundPastTheStrip`, which closes six frames apart only). The second close finds its
+    /// neighbour, the second column, at the end of the first close's travel: a part of a point from its place to more than
+    /// twenty points. The third pane closes over that travel, however short it is, or goes at once when there is none, and
+    /// the frame before the landing shows under a point of its ground.
+    @Test(arguments: gaps) func twoLastColumnClosesAnyTimeApartLeaveNoGroundPastTheStrip(every: Int) throws {
+        let rig = Rig(ColumnCloseScrollMotionTests.columns(4, width: 0.3), focused: "p4")
+        defer { rig.close() }
+        let screen = try rig.screen
+        try #require(screen.scroll.value > 100, "SETUP: the camera does not show the fourth column (offset \(screen.scroll.value))")
+        try Self.check(rig, closing: ["p4", "p3"], every: every, vertical: false, landsWithin: 24) {
+            try #require(screen.hasMotion, "SETUP: the close does not move the strip")
+        }
+    }
+
+    /// The same closes as a key press makes them (`PaneController.closePane`: `syncWithModelForNextFrame`, which holds the
+    /// presentation for the next frame tick). The closing panes are first placed one spring step after the close's turn
+    /// decided which of them a neighbour moves over, so the two must read the neighbours at the same time: a neighbour
+    /// with a little more than half a point to go in the turn has less than that a step later.
+    @Test(arguments: gaps) func twoLastColumnClosesByKeyAnyTimeApartLeaveNoGroundPastTheStrip(every: Int) throws {
+        let rig = Rig(ColumnCloseScrollMotionTests.columns(4, width: 0.3), focused: "p4")
+        defer { rig.close() }
+        let screen = try rig.screen
+        try #require(screen.scroll.value > 100, "SETUP: the camera does not show the fourth column (offset \(screen.scroll.value))")
+        try #require(rig.root.isLive && rig.root.driver.isAttached, "SETUP: the root runs no frames, so the key's turn holds nothing")
+        try Self.check(rig, closing: ["p4", "p3"], every: every, vertical: false, landsWithin: 24, byKey: true) {
+            try #require(screen.hasMotion, "SETUP: the close does not move the strip")
+        }
+    }
+
+    /// The same for two last-row closes (the layout of `twoLastRowClosesInARowLeaveNoHole`): the second close gives the row
+    /// scroll a new target a whole row away, so the first closing pane's travel is never short.
+    @Test(arguments: gaps) func twoLastRowClosesAnyTimeApartLeaveNoGround(every: Int) throws {
+        let rig = Rig(ColumnCloseScrollMotionTests.rows([400, 400, 400, 400, 400]), focused: "p5")
+        defer { rig.close() }
+        let screen = try rig.screen
+        try #require((screen.rowScrolls["c1"]?.state.spring.value ?? 0) > 100, "SETUP: the rows do not show the fifth")
+        try Self.check(rig, closing: ["p5", "p4"], every: every, vertical: true) {
+            let after = try #require(screen.rowScrolls["c1"]?.state.spring, "SETUP: the rows stopped scrolling")
+            try #require(abs(after.target - after.value) > 0.5, "SETUP: the row scroll does not spring back (\(after.value) -> \(after.target))")
+        }
+    }
+
+    /// The same where the second last-row close makes the rows fit (the layout of
+    /// `aSecondLastRowCloseThatMakesTheRowsFitLeavesNoGround`): the row scroll goes with the second close.
+    @Test(arguments: gaps) func aSecondLastRowCloseThatMakesTheRowsFitAnyTimeApartLeavesNoGround(every: Int) throws {
+        let rig = Rig(ColumnCloseScrollMotionTests.rows([400, 400, 400, 400]), focused: "p4")
+        defer { rig.close() }
+        let screen = try rig.screen
+        try #require((screen.rowScrolls["c1"]?.state.spring.value ?? 0) > 100, "SETUP: the rows do not show the fourth")
+        try Self.check(rig, closing: ["p4", "p3"], every: every, vertical: true) {
+            let after = try #require(screen.rowScrolls["c1"]?.state.spring, "SETUP: the rows stopped scrolling at the first close")
+            try #require(abs(after.target - after.value) > 0.5, "SETUP: the row scroll does not spring back (\(after.value) -> \(after.target))")
+        }
+    }
+
     /// Closes `panes`, each `every` frames after the one before, and checks each frame along the line through the window's
     /// middle (`vertical`: top to bottom, else left to right). `moving`: the SETUP checks after the first close's turn.
-    static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, moving: () throws -> Void) throws {
+    /// `landsWithin`: the most frames from the last close to the landing (the landing waits for the closing panes' free
+    /// sides, and must not wait longer than a close takes: 24 frames are 200 ms at 120 Hz). `byKey`: each close is shown
+    /// by the next frame tick, as a key press's is (`LayoutRootView.syncWithModelForNextFrame`), not in its own turn.
+    static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, landsWithin: Int? = nil, byKey: Bool = false,
+                      moving: () throws -> Void) throws {
         let screen = try rig.screen
         let bounds = screen.convert(screen.bounds, to: nil)
         func span(_ rect: CGRect) -> (CGFloat, CGFloat) { vertical ? (rect.minY, rect.maxY) : (rect.minX, rect.maxX) }
@@ -117,12 +181,15 @@ struct PaneCloseCameraGroundTests {
         let closing = try panes.map { try #require(rig.root.context.hosts[$0], "SETUP: no host for \($0)") }
         var widths: [(frame: Int, width: CGFloat)] = []
         var lastGround: CGFloat?
+        /// The closing ground of each frame after the last close (what the failure text shows of the way to the landing).
+        var grounds: [CGFloat] = []
         /// What the last frame with a closing ground showed, for the failure text: the strip camera and each shown host.
         var lastGroundFrame = ""
-        var frames = 0
+        var frames = 0, lastClose = 0
         for (index, pane) in panes.enumerated() {
+            lastClose = frames
             _ = try #require(rig.model.showPaneClose(pane), "\(pane) did not close")
-            rig.root.syncWithModel()
+            if byKey { rig.root.syncWithModelForNextFrame() } else { rig.root.syncWithModel() }
             rig.root.layoutSubtreeIfNeeded()
             if index == 0 { try moving() }
             widths.append((frames, uncovered()))
@@ -132,7 +199,9 @@ struct PaneCloseCameraGroundTests {
                 widths.append((frames, uncovered()))
                 // What of the line only closing grounds cover: in the landing's frame it is gone at once.
                 if closing.contains(where: { $0.superview != nil && !$0.isHidden && $0.showsClosingGround }) {
-                    lastGround = uncovered(liveOnly: true) - uncovered()
+                    let ground = uncovered(liveOnly: true) - uncovered()
+                    lastGround = ground
+                    if index == panes.count - 1 { grounds.append(ground) }
                     var shown: [String] = []
                     for case let host as PaneHostView in screen.subviews where !host.isHidden && host.alphaValue > 0.01 {
                         let kind: String = host.showsClosingGround ? " closing" : ""
@@ -148,14 +217,23 @@ struct PaneCloseCameraGroundTests {
         let open = widths.filter { $0.width > max(atRest, rest) + 1 }
         #expect(frames > 3, "the close did not spring (\(frames) frames)")
         #expect(open.isEmpty, "\(open.count) frames show the shell in the window (\(atRest) pt before, \(rest) pt after): \(open.prefix(4))")
-        // At most one point. Observed at scale 1 with no spring under-damped (#40288): the last frame with a closing
-        // ground shows the third pane one point wide (x 722...723) beside the second on its place (364...716). A closing
-        // pane's free side follows its rider's travel (`ClosingPanesRules.collapse`: its distance left is its width x
-        // the rider's part left), so a rider that is a part of a point short of its place in its last frame shows as a
-        // larger part of ground. Read, not measured: the close spring was 0.95 damped until 2026-11-10 and passed its
-        // place before it rested, so the rider's travel was complete in that frame. More than a point is ground the pane
-        // kept for the landing: the failure this test is for.
-        if let lastGround { #expect(lastGround <= 1, "the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away (\(lastGroundFrame))") }
+        // Under one point, the bound before #40288. Measured at dfc699991f16 (aws-m4pro-2, macOS 27.0.1, scale 1; no spring
+        // is under-damped since #40288): two last-column closes 7 to 12 frames apart left 2, 3, 4, 7, 13 and 22 pt in the
+        // last frame, and 13 to 16 frames apart the whole pane, 352 pt. A closing pane's free side follows its rider's
+        // share of the rider's travel (`ClosingPanesRules.collapse`), so what a live pane has left when the motion lands
+        // shows on the closing pane times its size over that travel, and a rider with under half a point to go gives it
+        // no travel. The landing now waits for the closing panes' free sides as it does for the live edges, and a pane
+        // beside panes with under half a point to go goes at once (`ClosingPanes.landingMovesAClosingPane`, `hasTravel`).
+        if let lastGround {
+            let way = grounds.suffix(8).map { String(format: "%.2f", Double($0)) }.joined(separator: ", ")
+            #expect(lastGround < 1, """
+            the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away \
+            (\(lastGroundFrame); the ground of the last frames, in points: \(way))
+            """)
+        }
+        if let landsWithin {
+            #expect(frames - lastClose <= landsWithin, "the motion landed \(frames - lastClose) frames after the last close (at most \(landsWithin))")
+        }
         #expect(closing.allSatisfy { $0.superview == nil }, "a closed host is left in the tree after the landing")
     }
 }

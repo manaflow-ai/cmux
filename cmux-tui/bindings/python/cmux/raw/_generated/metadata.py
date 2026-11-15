@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73'
+IR_SHA256 = 'dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5'
 
 
 @dataclass(frozen=True)
@@ -102,7 +102,9 @@ COMMANDS = {
             'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
+            'output_coalesce_ms': CommandFieldMetadata(None, 'attach-output-coalesce-v1'),
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
+            'replay_history_start': CommandFieldMetadata(None, 'attach-replay-history-window-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -311,6 +313,17 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
             'x_px': CommandFieldMetadata(None, None),
             'y_px': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cancel-creating-input': CommandMetadata(
+        'cancel-creating-input',
+        'control',
+        12,
+        'creating-input-cancel-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'chief-inspect': CommandMetadata(
@@ -1331,6 +1344,7 @@ COMMANDS = {
             'argv': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
+            'create_workspace': CommandFieldMetadata(12, 'create-terminal-workspace-v1'),
             'cwd': CommandFieldMetadata(None, None),
             'detached': CommandFieldMetadata(12, 'detached-terminals-v1'),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
@@ -1345,6 +1359,7 @@ COMMANDS = {
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(9, None),
             'workspace': CommandFieldMetadata(None, None),
+            'workspace_name': CommandFieldMetadata(12, 'create-terminal-workspace-v1'),
         },
     ),
     'create-workspace': CommandMetadata(
@@ -1357,6 +1372,7 @@ COMMANDS = {
         {
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
+            'first_tab': CommandFieldMetadata(None, 'workspace-first-tab-v1'),
             'key': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
@@ -1891,6 +1907,8 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'known': CommandFieldMetadata(12, 'list-workspaces-known-v1'),
+            'limit': CommandFieldMetadata(12, 'list-workspaces-limit-v1'),
         },
     ),
     'machine-listening-tcp': CommandMetadata(
@@ -2299,6 +2317,7 @@ COMMANDS = {
             'split': CommandFieldMetadata(None, 'frontend-browser-tab-split-v1'),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, 'frontend-browser-tab-workspace-v1'),
         },
     ),
     'new-pane': CommandMetadata(
@@ -4115,6 +4134,7 @@ EVENTS = {
     'screen-added': EventMetadata('screen-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-changed': EventMetadata('screen-changed', 12, 'screen-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'screen-device-changed': EventMetadata('screen-device-changed', 12, 'screen-device-identity-v1', ('subscribe',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'selection-changed': EventMetadata('selection-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),

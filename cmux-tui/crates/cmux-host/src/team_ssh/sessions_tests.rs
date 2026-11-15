@@ -18,7 +18,9 @@ mod linux {
     fn fake_sshd(dir: &Path) -> Child {
         let bin = dir.join("sshd");
         if !bin.exists() {
-            std::fs::copy("/bin/sleep", &bin).expect("copy sleep");
+            // The fake sshd is copied by `cp`, not `fs::copy`: a write descriptor held here would pass to the child of any test thread that starts a process meanwhile, and exec of the copy then fails with ETXTBSY.
+            let copied = Command::new("cp").arg("/bin/sleep").arg(&bin).status().expect("cp sleep");
+            assert!(copied.success(), "cp /bin/sleep {}", bin.display());
         }
         Command::new(&bin).arg("300").spawn().expect("spawn")
     }

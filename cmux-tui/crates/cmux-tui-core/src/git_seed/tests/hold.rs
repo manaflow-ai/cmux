@@ -112,16 +112,21 @@ fn a_copy_that_ends_short_leaves_its_folder_failed() {
 fn a_hold_whose_copy_goes_quiet_expires_failed_and_a_status_read_keeps_it() {
     let home = Home::new("hold-lease");
     let service = service(&home);
+    // The leases end by the test's ticks, not the clock: a loaded machine (the full parallel
+    // --lib run) slept past a 200 ms lease between two reads and ended the kept hold.
+    service.ticked_leases.store(true, std::sync::atomic::Ordering::Relaxed);
     let kept = home.join("work/kept");
-    let job = hold(&service, &kept, json!({ "lease_ms": 200 })).unwrap();
-    // Reads closer together than the lease keep it past several leases.
+    let job = hold(&service, &kept, json!({})).unwrap();
+    // A read in every lease keeps it past several leases.
     for _ in 0..12 {
-        std::thread::sleep(Duration::from_millis(50));
         assert_eq!(status(&service, &job)["state"], "running");
+        service.lease_tick(&job);
     }
     let quiet = home.join("work/quiet");
-    let gone = hold(&service, &quiet, json!({ "lease_ms": 100 })).unwrap();
+    let gone = hold(&service, &quiet, json!({})).unwrap();
     // Only the barrier is read while the lease runs out: a status read would renew it.
+    service.lease_tick(&gone);
+    service.lease_tick(&gone);
     assert_eq!(settles(&quiet, "incomplete"), "incomplete");
     let answer = status(&service, &gone);
     assert_eq!(answer["state"], "failed", "{answer}");
@@ -222,8 +227,11 @@ fn the_hold_ops_are_framed_and_advertised_under_their_own_capability() {
 fn a_write_that_names_its_hold_lands_only_while_the_hold_runs() {
     let home = Home::new("hold-fenced-write");
     let service = service(&home);
+    // The lease ends by the test's ticks: a loaded machine took longer than a 100 ms lease to
+    // send the first write.
+    service.ticked_leases.store(true, std::sync::atomic::Ordering::Relaxed);
     let folder = home.join("work/notes");
-    let job = hold(&service, &folder, json!({ "lease_ms": 100 })).unwrap();
+    let job = hold(&service, &folder, json!({})).unwrap();
     std::fs::create_dir_all(&folder).unwrap();
     let write_one = |name: &str| {
         let request = json!({ "hold": job, "path": folder.join(name) });
@@ -236,6 +244,8 @@ fn a_write_that_names_its_hold_lands_only_while_the_hold_runs() {
     };
     assert_eq!(write_one("a.md")["ok"], true);
     // The lease runs out; a write sent before it and read after lands nowhere.
+    service.lease_tick(&job);
+    service.lease_tick(&job);
     assert_eq!(settles(&folder, "incomplete"), "incomplete");
     let late = write_one("late.md");
     assert_eq!(late["error_code"], "seed.unknown_job", "{late}");
@@ -252,8 +262,11 @@ fn a_write_that_names_its_hold_lands_only_while_the_hold_runs() {
 fn a_hold_waits_out_a_write_in_flight_before_its_lease_ends_it() {
     let home = Home::new("hold-write-in-flight");
     let service = service(&home);
+    // The lease ends by the test's ticks: a loaded machine took longer than a 100 ms lease to
+    // start the write.
+    service.ticked_leases.store(true, std::sync::atomic::Ordering::Relaxed);
     let folder = home.join("work/notes");
-    let job = hold(&service, &folder, json!({ "lease_ms": 100 })).unwrap();
+    let job = hold(&service, &folder, json!({})).unwrap();
     std::fs::create_dir_all(&folder).unwrap();
     let (started, wait_started) = std::sync::mpsc::channel();
     let (finish, wait_finish) = std::sync::mpsc::channel::<()>();
@@ -269,7 +282,9 @@ fn a_hold_waits_out_a_write_in_flight_before_its_lease_ends_it() {
             })
         });
         wait_started.recv().unwrap();
-        // Well past the lease: the hold may not end while the write is in flight.
+        // The lease runs out while the write is in flight: the hold may not end until it lands.
+        service.lease_tick(&job);
+        service.lease_tick(&job);
         std::thread::sleep(Duration::from_millis(400));
         assert_eq!(state(folder), "syncing", "the barrier stays until the write lands");
         finish.send(()).unwrap();

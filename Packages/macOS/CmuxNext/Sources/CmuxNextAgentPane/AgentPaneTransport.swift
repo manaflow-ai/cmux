@@ -10,14 +10,25 @@ import CmuxNextCompat
 ///
 /// - One connection at a time; `open` closes the previous one. Each has an id the page names.
 /// - Inbound frames queue off the main thread in a bounded queue and reach the page in batches,
-///   one bridge call per flush (``pacer``). Overflow closes the socket with
-///   ``AgentPaneTransportError/inboundOverflow``; the page then reconnects and resyncs.
+///   one bridge call per flush (``pacer``). A page that falls a full queue behind loses stream
+///   notifications, not its connection: they are shed until it catches up, and it then reads what
+///   it missed after one `_acpmux/lagged` (``AcpmuxPaneShedding``). Only frames past the ceiling
+///   close the socket with ``AgentPaneTransportError/inboundOverflow``.
 /// - Outbound sends are bounded too (``AgentPaneTransportError/outboundOverflow``).
 /// - Nothing here blocks the main thread: the socket's callbacks run on its own queue.
 @MainActor public final class AgentPaneTransport {
     public nonisolated struct Limits: Sendable {
+        /// Past these, the page is a full queue behind: stream notifications are shed until it
+        /// catches up, then it gets one `_acpmux/lagged` and reads what it missed
+        /// (``AcpmuxPaneShedding``). Replies and requests still queue.
         public var maximumQueuedFrames = 8192
         public var maximumQueuedBytes = 32 << 20
+        /// The ceiling for what still queues past the bounds above (replies, requests, observed
+        /// notifications): only past it does the socket close with
+        /// ``AgentPaneTransportError/inboundOverflow``. Above the daemon's largest frame (31 MiB),
+        /// so one whole reply never ends a connection.
+        public var ceilingQueuedFrames = 32768
+        public var ceilingQueuedBytes = 128 << 20
         public var maximumFramesPerFlush = 512
         public var maximumBytesPerFlush = 4 << 20
         public var maximumOutstandingSends = 8192
@@ -32,7 +43,7 @@ import CmuxNextCompat
     /// once the page has run it (it paces the next push).
     public var deliver: (@MainActor (AgentPaneTransportEvent, _ done: @escaping @MainActor @Sendable () -> Void) -> Void)?
     /// Runs right before anything reaches the page: a push here, a script call or a picture
-    /// (``AgentPaneView/callPageScript(_:arguments:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
+    /// (``AgentPaneView/callPageScript(_:arguments:timeout:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
     /// page that runs no script (a push's completion paces the next one).
     public var beforePageWork: (@MainActor () -> Void)?
@@ -69,6 +80,9 @@ import CmuxNextCompat
     var pendingTrustFolders: [AgentPanePromptJournal.PendingTrust] = []
     var trustDaemon: String?
     var draining = false
+    /// Batches the send line has handed over so far: ``lineDrained(quiet:limit:)`` reads a change
+    /// as the line moving.
+    var drainedBatches = 0
     /// Waiting on the send line to drain (``lineDrained(within:)``).
     var drainWaiters: [CheckedContinuation<Void, Never>] = []
     /// The user's gestures in this pane; a granting frame consumes one.
@@ -204,6 +218,22 @@ import CmuxNextCompat
     /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
     /// are refused here: the pane says so).
     public var onOtherInstall: (@MainActor (Bool) -> Void)?
+    /// Told after each local connection's person proof whether the daemon took it: false while
+    /// prompts typed here would reach the agent as an unverified sender's (the pane shows "not
+    /// verified, reconnecting identity"), true once a connection proved the person again.
+    public var onPersonProof: (@MainActor (Bool) -> Void)?
+    /// Gets this launch's person key to the daemon again (the host's full lookup: it hands off a
+    /// daemon an update replaced, then enrolls). True when the lookup finished, so a new
+    /// connection may prove; the transport then reconnects. Nil: the pane only says it is unproven.
+    public var recoverPersonProof: (@MainActor () async -> Bool)?
+    /// The waits between identity recoveries of one unproven connection (``personProofSettled``).
+    public var personRecoveryDelays: [Duration] = [.seconds(1), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
+    /// Reconnects made for the person proof since one last proved; bounded so a daemon that can
+    /// never take the key does not reconnect the pane forever.
+    var personRecoveries = 0
+    static let personRecoveryReconnects = 3
+    /// The recovery running for the current unproven connection.
+    var personRecovery: Task<Void, Never>?
     /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
     public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed
@@ -399,10 +429,10 @@ import CmuxNextCompat
         // A plan build answers the chat's plan approval or starts the plan in new worktrees: only
         // right after the person's own click, as an answer (its chat is bound above).
         if intent.method == "_acpmux/plan/build", !gestures.hasFreshAnswerGesture { return nil }
-        // A prompt held for the folder trust answer right after a new chat's start: the start took
-        // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
-        if intent.method == "session/prompt", !gestures.isAvailable,
-           let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
+        // A prompt held for the trust answer after a new chat's start takes the start's credit; a Cloud start sent from a
+        // folder pick's acceptance (#40957's too-big card) takes the pick's (``grantPicked(_:)`` spent the click). Tickets outlive both.
+        if !gestures.isAvailable, let fresh = intent.method == "session/prompt" ? startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime)
+            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
         return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
@@ -500,7 +530,14 @@ import CmuxNextCompat
             // page waits for them.
             promptRelay?.ended()
             // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
-            Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
+            // A close this host decided (an overflow, a duplicate key) is an error, so the error
+            // journal (`cmux errors`) counts it: as a notice, 1,635 overflow closes on 2026-11-11 reached
+            // no report and Leo found the reconnect loop himself (AcpmuxPaneShedding).
+            if let error = batch.closed?.error {
+                Self.logger.error("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(error.rawValue, privacy: .public)")
+            } else {
+                Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=-")
+            }
         }
         let more = batch.more && self.socket != nil
         guard let deliver else { return AgentPaneFlush(delivered: false, more: more) }

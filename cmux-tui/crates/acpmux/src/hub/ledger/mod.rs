@@ -444,12 +444,29 @@ impl Ledger {
 
     /// Shutdown (`Hub::flush`): closes the writer's queue and waits up to `within` for it to
     /// write what it holds and end. True when it ended; later lines are kept in memory only.
+    /// A writer still running is kept for [`Ledger::wait_closed`].
     pub fn close(&self, within: std::time::Duration) -> bool {
         drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
         let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() else {
             return true;
         };
-        thread.join_within(within)
+        match thread.join_within(within) {
+            Ok(()) => true,
+            Err(thread) => {
+                *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
+                false
+            }
+        }
+    }
+
+    /// Closes the writer's queue and waits for the writer to end, however long that takes:
+    /// what holds the daemon's home lock until then (`Hub::persist_for_handoff`).
+    pub fn wait_closed(&self) {
+        drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
+        let thread = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(thread) = thread {
+            thread.join();
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {

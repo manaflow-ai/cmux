@@ -34,7 +34,13 @@ import CmuxNextCompat
     /// The active team as the agent pane's `cloudMachine.list` reply names it; nil signed out or before membership loads.
     public static func paneTeam(_ auth: CloudAuth) -> AgentPaneCloudMachines.Team? {
         guard auth.isSignedIn, let row = auth.activeTeam.activeRow else { return nil }
-        return AgentPaneCloudMachines.Team(name: row.title, personal: row.kind == .personal)
+        return AgentPaneCloudMachines.Team(id: row.id, name: row.title, personal: row.kind == .personal)
+    }
+
+    /// The account's teams as the agent pane's `cloudMachine.list` reply lists them; none signed out.
+    public static func paneTeams(_ auth: CloudAuth) -> [AgentPaneCloudMachines.Team] {
+        guard auth.isSignedIn else { return [] }
+        return auth.activeTeam.rows.map { AgentPaneCloudMachines.Team(id: $0.id, name: $0.title, personal: $0.kind == .personal) }
     }
 
     /// The active team as the Machines section's Cloud header names it (`MachineSectionPageProvider` `cloudTeam`).
