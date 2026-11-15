@@ -35,7 +35,11 @@ use std::collections::BTreeMap;
 pub const VERSION: u32 = 10;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
-pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
+/// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
+/// 8 KB, held claims 4 KB, the continued notice and the cards (6 KB) came to about 34 KB, past the
+/// 32 KB this was before cards (`every_held_state_full_at_once_fits_the_translators_segment`).
+/// The book's checkpoint reads this bound too, so the two cannot drift.
+pub const MAX_TRANSLATOR_BYTES: usize = 48 * 1024;
 const MAX_QUEUE_ENTRIES: usize = crate::checkpoint::MAX_PROMPTS;
 const MAX_KEY_BYTES: usize = 256;
 
