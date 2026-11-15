@@ -165,7 +165,18 @@ pub(super) fn execute(
     Ok(match request {
         Request::List => {
             let listing = customize.library()?;
-            let human = list_lines(&listing);
+            let mut human = list_lines(&listing);
+            // An overlay put there by hand is no entry, but it is what the
+            // app shows (or refuses): say so beside "empty".
+            if let Some(words) = customize
+                .overlay(super::app_web_abi(None))
+                .filter(|overlay| !overlay.library)
+                .and_then(|overlay| overlay.words(now_ms))
+            {
+                human.push_str(&format!(
+                    "Not in the library: {words} (`cmux customize library status`)\n"
+                ));
+            }
             Answer::Library { json: json!({ "library": listing }), human }
         }
         Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
@@ -187,7 +198,7 @@ pub(super) fn execute(
         }
         Request::OffAll => recovered(customize.library_off_all(origin, now_ms)?),
         Request::Status => {
-            let layers = customize.layers();
+            let layers = customize.layers_at(super::app_web_abi(None), now_ms);
             let mut human = format!("{}\n", layers.line);
             for layer in &layers.on {
                 human.push_str(&format!("  {} ({})", layer.name, layer.kind));
@@ -204,6 +215,17 @@ pub(super) fn execute(
             }
             if let Some(overlay) = &layers.overlay {
                 human.push_str(&format!("  web-dev.json overlay: {overlay}\n"));
+            }
+            if let Some(web_dev) = layers.web_dev.as_ref().filter(|web_dev| !web_dev.library) {
+                human.push_str(
+                    "  it is not a library entry: put there by hand (web-overlay.sh install)\n",
+                );
+                if web_dev.refused {
+                    human.push_str("  the app refuses it and shows its own pages instead\n");
+                }
+                human.push_str(
+                    "  scripts/cmux-next/web-overlay.sh off   back to the app's own pages\n",
+                );
             }
             if layers.problem.is_some() || layers.stray_overlay || !layers.on.is_empty() {
                 human.push_str("  cmux customize library off --code   every pull request off\n");
@@ -535,7 +557,7 @@ mod tests {
         assert!(human.contains("library.json.unreadable-2"), "{human}");
         assert!(human.contains("cmux serves its own pages"), "{human}");
         let status = execute(&customize, Request::Status, "cli", 3).unwrap();
-        assert_eq!(status.json()["layers"]["line"], "customize: none on");
+        assert_eq!(status.json()["layers"]["line"], "customize: 0 on");
     }
 
     #[test]

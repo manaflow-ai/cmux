@@ -21,6 +21,7 @@ fn two_updates_of_one_host_never_run_at_once() {
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
         keep_newer: false,
+        allow_downgrade: false,
         caller: None,
     };
 
@@ -114,6 +115,7 @@ fn an_update_whose_lock_connection_drops_changes_nothing_more() {
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
         keep_newer: false,
+        allow_downgrade: false,
         caller: None,
     };
     let up = update_locked(&peer, &opts);
