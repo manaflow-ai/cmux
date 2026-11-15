@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43726543961",
+  "recorded_at": "2026-11-15T14:56:26Z",
+  "reason": "cmux-tui 7380b46eceb2 changes the image's cmux-tui (pinned 64821ccc5111)",
+  "dry_run": false,
+  "cmux_tui": "7380b46eceb290dc9deea13dfcfed2b60a6c082c",
+  "fixes": [
+    {
+      "sha": "7380b46eceb290dc9deea13dfcfed2b60a6c082c",
+      "mergedAt": "2026-11-15T14:34:26Z",
+      "subject": "cloud copy: make a copy's new folders many to a round trip (#43704)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T14:56:26Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
