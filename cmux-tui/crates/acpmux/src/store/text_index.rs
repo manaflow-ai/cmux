@@ -70,12 +70,13 @@ impl LocalStore {
 
     /// One segment's messages, its copy saved again when the read went far past it.
     fn text_segment(&self, id: &str, index: u32, path: &Path) -> Result<Vec<Entry>> {
-        let mut file = crate::config::private_state_file(path)?;
-        let stamp = Stamp::of(&file)?;
-        let (mut projector, from, had_copy) = match self.read_text_index(id, index, &stamp) {
-            Some((entries, len, open)) => (Projector { entries, open }, len, true),
-            None => (Projector::default(), 0, false),
-        };
+        let mut file = super::cold_segments::open_segment(path)?;
+        let stamp = file.local().map(Stamp::of).transpose()?;
+        let (mut projector, from, had_copy) =
+            match stamp.as_ref().and_then(|stamp| self.read_text_index(id, index, stamp)) {
+                Some((entries, len, open)) => (Projector { entries, open }, len, true),
+                None => (Projector::default(), 0, false),
+            };
         if from > 0 {
             std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from))?;
         }
@@ -99,8 +100,9 @@ impl LocalStore {
             }
         }
         if (!had_copy || covered >= COPY_AFTER)
+            && let Some(stamp) = stamp.as_ref()
             && let Err(e) =
-                self.write_text_index(id, index, &stamp, from.saturating_add(covered), &projector)
+                self.write_text_index(id, index, stamp, from.saturating_add(covered), &projector)
         {
             tracing::warn!(session = %id, segment = index, "saving the log's text index failed: {e}");
         }
