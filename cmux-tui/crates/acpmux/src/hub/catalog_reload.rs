@@ -28,7 +28,8 @@ impl Hub {
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
-        .map_err(|e| RpcError::invalid_params(format!("reload config: {e}")))?;
+        // With every cause (`{:#}`): the refusal's reason is the innermost one.
+        .map_err(|e| RpcError::invalid_params(format!("reload config: {e:#}")))?;
         let (harnesses, default_harness, retained) = {
             let mut current = self.config.write().await;
             let mut retained = Vec::new();
