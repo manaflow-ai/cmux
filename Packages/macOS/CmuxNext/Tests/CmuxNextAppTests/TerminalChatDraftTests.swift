@@ -110,8 +110,8 @@ struct TerminalChatDraftTests {
         await placing.swap(toTerminal: false)
         #expect(chat.text == "ship it")
         #expect(log.events == ["put", "erase"])
-        // Its characters and a little more: an extra DEL on an empty input deletes nothing.
-        #expect(terminal.sends.count == 1 && terminal.sends[0].allSatisfy { $0 == Self.del } && terminal.sends[0].count >= 7)
+        // One DEL a character, no more: a spare one would take a key still on its way.
+        #expect(terminal.sends.count == 1 && terminal.sends[0] == [UInt8](repeating: Self.del, count: 7))
     }
 
     @Test func twoDraftsAreNeverMerged() async {
@@ -156,6 +156,22 @@ struct TerminalChatDraftTests {
         chips.chips = true
         await TerminalChatPlacing(chat: chips, terminal: Terminal(log)).swap(toTerminal: true)
         #expect(chips.text == "see this" && log.events.isEmpty)
+    }
+
+    @Test func wordsTheBytesNeverSawStayPut() async {
+        // A draft from before this app attached (a relaunch, another client): the box shows more than the bytes.
+        let log = Log(), chat = Chat(log, text: "add tests"), terminal = Terminal(log, shows: "refactor auth")
+        await TerminalChatPlacing(chat: chat, terminal: terminal).swap(toTerminal: true)
+        #expect(terminal.pastes.isEmpty && chat.text == "add tests")
+        chat.text = ""
+        terminal.typed = Array(" now".utf8)
+        terminal.shows = "refactor auth now"
+        await TerminalChatPlacing(chat: chat, terminal: terminal).swap(toTerminal: false)
+        #expect(chat.text.isEmpty && terminal.sends.isEmpty && log.events.isEmpty)
+        // Several lines stay in the chat: the app cannot read whether the program brackets a paste.
+        let lines = Chat(log, text: "one\ntwo")
+        await TerminalChatPlacing(chat: lines, terminal: Terminal(log)).swap(toTerminal: true)
+        #expect(lines.text == "one\ntwo" && log.events.isEmpty)
     }
 
     @Test func noDraftAnywhereIsAPlainTabSelection() async {

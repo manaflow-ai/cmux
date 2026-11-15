@@ -1,25 +1,28 @@
 //! Toggle Terminal and Chat's draft: what the person typed and has not sent goes with the swap,
 //! both ways (Leo, 2026-11-12: two live views of one session, instant both ways). The app records
 //! every byte the terminal sends to its program (keys, IME text, pastes), the newest 16 KB, and
-//! hands them over with the chat composer's state; these rules read the input line out of those
-//! bytes and say what moves. A draft moves only into an empty input, and only when every byte
-//! since the last Enter is one these rules can follow: two drafts are never merged, and a draft
-//! the rules cannot be sure of stays where it is.
+//! hands them over with the terminal's bottom rows and the chat composer's state; these rules
+//! read the input line out of those bytes and say what moves.
+//!
+//! Two signals have to agree before anything moves. The bytes since the last Enter must be keys
+//! these rules can follow, and the harness's input box on screen must show exactly that text
+//! (or nothing, for a draft going in). The bytes alone miss what they never saw: a draft from
+//! before this app attached, keys from another client, an Enter that answered a dialog instead
+//! of sending. The screen alone cannot tell a draft from a dialog's option. A draft moves only
+//! into an empty input, so two drafts are never merged, and a draft the rules cannot be sure of
+//! stays where it is.
 
 use serde::{Deserialize, Serialize};
 
-/// How many of a draft's last characters (whitespace left out) the terminal's bottom rows must
-/// show before the draft leaves the terminal: what the harness draws in its input box. A dialog
-/// that took the keys instead draws something else, and the draft stays.
-pub const SHOWN_CHARS: usize = 24;
 /// The bottom rows of the terminal's screen that hold its input box and the hints under it.
 pub const SCREEN_ROWS: usize = 12;
-/// DEL bytes past the draft's characters: one on an empty input deletes nothing, and a character
-/// the harness draws from two (a combined emoji) takes one DEL, not two.
-pub const ERASE_SLACK: usize = 2;
 
 /// Box edges a harness draws beside its input, left out of a screen row and a draft alike.
 const EDGES: &[char] = &['│', '┃', '▌', '▎', '▏', '║'];
+/// The marks a harness draws before its input: Claude Code's `>`, Codex's `›`, `❯`.
+const PROMPT_MARKS: &[char] = &['>', '›', '❯'];
+/// A row that starts with a box rule ends the input box.
+const RULES: &[char] = &['╰', '╭', '└', '┌', '─', '━', '═'];
 
 /// The input line the typed bytes leave, after the last Enter.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +47,8 @@ pub struct ToChat {
     pub composer_empty: bool,
 }
 
-/// Going to the terminal (the chat shows): the composer's draft, the terminal's typed bytes.
+/// Going to the terminal (the chat shows): the composer's draft, the terminal's typed bytes and
+/// bottom rows.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ToTerminal {
@@ -52,6 +56,7 @@ pub struct ToTerminal {
     pub chat: Option<String>,
     pub typed: Vec<u8>,
     pub truncated: bool,
+    pub screen: String,
 }
 
 /// What a swap to the chat does with the terminal's draft.
@@ -84,10 +89,12 @@ pub fn to_chat(facts: &ToChat) -> ChatDraft {
     let Typed::Known(text) = typed_draft(&facts.typed, facts.truncated) else {
         return ChatDraft::None;
     };
-    if text.trim().is_empty() || !shown(&text, &facts.screen) {
+    if text.trim().is_empty() || shown_input(&facts.screen) != Some(squeeze(&text)) {
         return ChatDraft::None;
     }
-    let erase = text.chars().count() + ERASE_SLACK;
+    // One DEL a character, and no more: a key typed just before the swap may still be on its way,
+    // and a spare DEL would take it.
+    let erase = text.chars().count();
     ChatDraft::Carry { text, erase }
 }
 
@@ -97,20 +104,41 @@ pub fn to_terminal(facts: &ToTerminal) -> TerminalDraft {
     else {
         return TerminalDraft::None;
     };
-    match typed_draft(&facts.typed, facts.truncated) {
-        Typed::Known(typed) if typed.is_empty() => TerminalDraft::Paste { text: chat.to_string() },
-        _ => TerminalDraft::None,
+    // A new line pasted into a program that did not ask for bracketed paste sends what is before
+    // it, and the app cannot read that mode: a draft of several lines stays in the chat.
+    if chat.contains(['\n', '\r']) {
+        return TerminalDraft::None;
     }
+    let empty = matches!(typed_draft(&facts.typed, facts.truncated), Typed::Known(typed) if typed.is_empty());
+    if !empty || shown_input(&facts.screen).as_deref() != Some("") {
+        return TerminalDraft::None;
+    }
+    TerminalDraft::Paste { text: chat.to_string() }
 }
 
-/// Whether the screen's bottom rows hold the draft's last characters, whitespace and box edges
-/// left out of both (the harness wraps a long draft across rows).
-fn shown(draft: &str, screen: &str) -> bool {
-    let tail: Vec<char> = squeeze(draft).chars().collect();
-    let tail: String = tail[tail.len().saturating_sub(SHOWN_CHARS)..].iter().collect();
+/// The text the harness's input box shows, whitespace and box edges left out: the last of the
+/// bottom rows that starts with a prompt mark, after the mark, and the rows under it until a
+/// blank row or a box rule. None when no bottom row starts with a mark (a dialog without one, a
+/// shell, output still drawing).
+pub fn shown_input(screen: &str) -> Option<String> {
     let rows: Vec<&str> = screen.lines().collect();
-    let bottom = rows[rows.len().saturating_sub(SCREEN_ROWS)..].concat();
-    !tail.is_empty() && squeeze(&bottom).contains(&tail)
+    let bottom = &rows[rows.len().saturating_sub(SCREEN_ROWS)..];
+    let start = bottom.iter().rposition(|row| inner(row).starts_with(PROMPT_MARKS))?;
+    let first = inner(bottom[start]);
+    let mut text = first[first.chars().next()?.len_utf8()..].to_string();
+    for row in &bottom[start + 1..] {
+        let row = inner(row);
+        if row.is_empty() || row.starts_with(RULES) {
+            break;
+        }
+        text.push_str(row);
+    }
+    Some(squeeze(&text))
+}
+
+/// A row without the whitespace and box edges around it.
+fn inner(row: &str) -> &str {
+    row.trim_matches(|c: char| c.is_whitespace() || EDGES.contains(&c))
 }
 
 fn squeeze(text: &str) -> String {
@@ -127,6 +155,7 @@ pub fn typed_draft(bytes: &[u8], truncated: bool) -> Typed {
         at = next;
         match key {
             Key::Text(text) => line.text.push_str(&String::from_utf8_lossy(text)),
+            Key::Char(text) => line.text.push_str(&text),
             Key::Paste(text) => {
                 let text = String::from_utf8_lossy(text);
                 line.text.push_str(&text.replace("\r\n", "\n").replace('\r', "\n"));
@@ -170,6 +199,8 @@ struct Line {
 /// One key (or one report the terminal sent its program on its own) of the typed bytes.
 enum Key<'a> {
     Text(&'a [u8]),
+    /// A printable key the kitty keyboard protocol encoded.
+    Char(String),
     Paste(&'a [u8]),
     Enter,
     /// Backspace: the last character goes.
@@ -178,7 +209,8 @@ enum Key<'a> {
     Clear,
     /// Ctrl+W: the last word goes.
     Word,
-    /// A focus or mouse report, a terminal's answer to a query: no change to the input.
+    /// A focus or mouse report, a terminal's answer to a query, a key's release, a modifier key
+    /// alone: no change to the input.
     Ignored,
     Unknown,
 }
@@ -186,6 +218,15 @@ enum Key<'a> {
 const ESC: u8 = 0x1b;
 const PASTE_START: &[u8] = b"\x1b[200~";
 const PASTE_END: &[u8] = b"\x1b[201~";
+/// The kitty protocol's codes for a modifier key pressed alone (Shift, Control, Alt, Super,
+/// Hyper, Meta, left and right, ISO level 3 and 5 shift).
+const KITTY_MODIFIER_KEYS: std::ops::RangeInclusive<u32> = 57441..=57454;
+/// The kitty protocol's other functional keys (arrows, F keys, keypad): not text.
+const KITTY_FUNCTIONAL_KEYS: std::ops::RangeInclusive<u32> = 57344..=63743;
+/// Modifier bits that do not change what a key types here: Caps Lock and Num Lock.
+const LOCK_BITS: u32 = 64 | 128;
+const SHIFT: u32 = 1;
+const CTRL: u32 = 4;
 
 impl<'a> Key<'a> {
     /// The key at `at` and where the next one starts.
@@ -250,33 +291,75 @@ impl<'a> Key<'a> {
             // such prefix.
             ([b'?' | b'>' | b'=', ..], _) => Key::Ignored,
             (_, b'u') => Self::kitty(params),
-            // The end of a paste whose start is not in the bytes.
+            // A key's release in the kitty protocol (event type 3) changes nothing.
+            (_, _) if kitty_event(params) == Some(3) => Key::Ignored,
+            // Arrows, Home, End, Delete, F keys; the end of a paste whose start is not in the bytes.
             _ => Key::Unknown,
         };
         (key, end)
     }
 
-    /// A kitty keyboard protocol key, `code;modifiers u`.
+    /// A kitty keyboard protocol key, `code[:shifted[:base]][;modifiers[:event][;text]]u`.
     fn kitty(params: &[u8]) -> Key<'a> {
-        let text = std::str::from_utf8(params).unwrap_or_default();
-        let mut parts = text.split(';');
-        let code = parts.next().and_then(|code| code.split(':').next()?.parse::<u32>().ok());
-        let modifiers = match parts.next() {
-            None => Some(1),
-            Some(modifiers) => modifiers.split(':').next().and_then(|m| m.parse::<u32>().ok()),
-        };
-        if parts.next().is_some() {
+        let Ok(params) = std::str::from_utf8(params) else { return Key::Unknown };
+        let mut fields = params.split(';');
+        let mut codes = fields.next().unwrap_or_default().split(':');
+        let code = codes.next().and_then(|code| code.parse::<u32>().ok());
+        let shifted = codes.next().and_then(|code| code.parse::<u32>().ok());
+        let modifiers = fields.next().map_or(Some(1), |field| {
+            let modifiers = field.split(':').next().unwrap_or_default();
+            if modifiers.is_empty() { Some(1) } else { modifiers.parse::<u32>().ok() }
+        });
+        let text = fields.next();
+        if fields.next().is_some() {
             return Key::Unknown;
         }
+        match kitty_event(params.as_bytes()) {
+            // A press or a repeat.
+            Some(1 | 2) => {}
+            Some(3) => return Key::Ignored,
+            _ => return Key::Unknown,
+        }
+        let (Some(code), Some(modifiers)) = (code, modifiers) else { return Key::Unknown };
+        let modifiers = modifiers.saturating_sub(1) & !LOCK_BITS;
+        if KITTY_MODIFIER_KEYS.contains(&code) {
+            return Key::Ignored;
+        }
         match (code, modifiers) {
-            (Some(13), Some(1)) => Key::Enter,
-            (Some(127), Some(1)) => Key::Erase,
+            (13, 0) => Key::Enter,
+            (127 | 8, 0) => Key::Erase,
             // Ctrl+U, Ctrl+C.
-            (Some(117 | 99), Some(5)) => Key::Clear,
+            (117 | 99, CTRL) => Key::Clear,
             // Ctrl+W.
-            (Some(119), Some(5)) => Key::Word,
+            (119, CTRL) => Key::Word,
+            (_, 0 | SHIFT) if !KITTY_FUNCTIONAL_KEYS.contains(&code) => {
+                // The text the key typed: the report's own, else the key (shifted, with Shift).
+                let typed = match text {
+                    Some(text) => {
+                        Some(text.split(':').map(|code| code.parse::<u32>().ok()).collect())
+                    }
+                    None if modifiers == SHIFT => shifted.map(|code| vec![Some(code)]),
+                    None => Some(vec![Some(code)]),
+                };
+                let chars: Option<String> = typed
+                    .into_iter()
+                    .flatten()
+                    .map(|code| code.and_then(char::from_u32).filter(|c| !c.is_control()))
+                    .collect();
+                chars.filter(|chars| !chars.is_empty()).map_or(Key::Unknown, Key::Char)
+            }
             _ => Key::Unknown,
         }
+    }
+}
+
+/// The kitty protocol's event type of a key report (1 press, 2 repeat, 3 release): after a colon
+/// in its second field, 1 when it has none; None when the field does not parse.
+fn kitty_event(params: &[u8]) -> Option<u32> {
+    let params = std::str::from_utf8(params).ok()?;
+    match params.split(';').nth(1).and_then(|field| field.split_once(':')) {
+        Some((_, event)) => event.parse().ok(),
+        None => Some(1),
     }
 }
 

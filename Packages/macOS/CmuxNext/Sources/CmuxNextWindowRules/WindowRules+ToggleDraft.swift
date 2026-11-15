@@ -3,7 +3,8 @@ import Foundation
 /// Toggle Terminal and Chat's draft: the unsent draft goes with a swap, both ways (Leo,
 /// 2026-11-12: "the terminal ↔ GUI toggle is the sauce", two live views of one session, instant
 /// both ways). What moves is Rust's (cmux-window-rules `tabs::draft`): it reads the terminal's
-/// input line out of the bytes the terminal sent its program, and never merges two drafts.
+/// input line out of the bytes the terminal sent its program, moves it only when the harness's
+/// input box on screen shows exactly that, and never merges two drafts.
 extension WindowRules {
     public nonisolated struct ToChatDraft: Encodable, Equatable, Sendable {
         public var typed: [UInt8]
@@ -25,11 +26,14 @@ extension WindowRules {
         public var chat: String?
         public var typed: [UInt8]
         public var truncated: Bool
+        /// The terminal's active rows: its input box must show nothing.
+        public var screen: String
 
-        public init(chat: String?, typed: [UInt8], truncated: Bool) {
+        public init(chat: String?, typed: [UInt8], truncated: Bool, screen: String) {
             self.chat = chat
             self.typed = typed
             self.truncated = truncated
+            self.screen = screen
         }
     }
 
@@ -113,7 +117,8 @@ extension TerminalChatPlacing {
     public func carryToTerminal(by deadline: ContinuousClock.Instant) async {
         guard let chat, let terminal, chat.toggleDraftFilled, let text = await chat.toggleDraft(by: deadline) else { return }
         let typed = terminal.toggleDraftTyped
-        guard case .paste(let paste)? = rules.draftToTerminal(.init(chat: text, typed: typed.bytes, truncated: typed.truncated))
+        guard let screen = terminal.toggleDraftScreen(),
+              case .paste(let paste)? = rules.draftToTerminal(.init(chat: text, typed: typed.bytes, truncated: typed.truncated, screen: screen))
         else { return }
         terminal.toggleDraftPaste(paste)
         _ = await chat.toggleDraftTake(text, by: deadline)

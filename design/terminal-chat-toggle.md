@@ -68,12 +68,22 @@ are never merged, and only when the rules are sure of it. Otherwise it stays whe
   outside a bracketed paste. Printable text and pastes append. Backspace deletes a character, Ctrl+U and Ctrl+C
   clear, and Ctrl+W deletes a word. Focus and mouse reports and the terminal's own query answers are ignored. Any
   other key (an arrow, Tab, Esc, history, Alt) makes the line unknown, and so do bytes that start mid-line.
-- To the chat: when the line is known and not blank, the composer is empty, and the terminal's bottom rows show the
-  draft's last 24 characters, the page puts it in the composer. This check catches a dialog that took the keys.
-  Only once the composer holds it does the terminal get DELs to erase it: its character count plus two.
-- To the terminal: when the composer holds plain text (no chips, no inline tokens) and the terminal's line is known
-  and empty, the text is pasted through Ghostty's paste path (bracketed when the program asked for it). Then the
-  composer gives it up. Pasting first means a late answer leaves the draft in both views, never in neither.
+- The bytes and the screen must agree. The harness's input box is the last of the bottom 12 rows that starts with a
+  prompt mark (`>`, `›`, `❯`), plus the rows under it up to a blank row or a box rule. Whitespace and box edges are
+  left out. The bytes alone miss what they never saw: a draft from before the app attached, keys from another
+  client, or an Enter that answered a dialog instead of sending. The screen alone cannot tell a draft from a
+  dialog's option.
+- To the chat: when the line is known and not blank, the composer is empty, and the input box shows exactly that
+  line, the page puts it in the composer. Only once the composer holds it does the terminal get DELs to erase it,
+  one per character and no more, so a key still on its way is never taken.
+- To the terminal: when the composer holds plain text on one line (no chips, no inline tokens), the terminal's line
+  is known and empty, and its input box shows nothing, the text is pasted through Ghostty's paste path. Then the
+  composer gives it up. Pasting first means a late answer leaves the draft in both views, never in neither. A draft
+  of several lines stays in the chat: the app cannot read whether the program brackets a paste, and without that a
+  new line would send.
+- A harness that draws placeholder text in an empty input box gets no draft from the chat until the person has
+  typed there, because the box does not read as empty. That is the safe side of the check.
+- The recorded bytes stay in the app's memory only. They are never written to disk or logged.
 - The page reports whether the composer holds anything (`pane.composerFilled`), so the host knows without a page
   call. An empty composer with nothing typed in the terminal reads nothing, and the swap stays a plain tab
   selection. The draft moves within the same 60 ms as the place, before the reveal. A page write that arrives past

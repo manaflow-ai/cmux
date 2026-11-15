@@ -5,7 +5,7 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextTabs
 import CmuxNextTerminal
-import CmuxNextWindowRules
+public import CmuxNextWindowRules
 import Foundation
 
 /// Open Terminal as Chat (`palette.openTerminalChatView`; the palette and `cmux agent
