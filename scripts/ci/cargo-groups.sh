@@ -33,6 +33,12 @@
 # (16 + 5 x 6 = 46 instead of 36 for the six groups of a Linux musl leg), and the
 # extra ones all go to it once the short groups end. A caller's CARGO_BUILD_JOBS
 # still applies to every group.
+#
+# CARGO_GROUPS_EVERY_CORE (space-separated first binary names) gives those
+# groups every core too. A caller names a second long group with it: the darwin
+# leg's acpmux group compiled its one big crate and ThinLTO link on 4 of 16
+# cores, alone, after the short groups ended (macos-cross.sh). The group keeps
+# its place, and so its target directory and warm cache.
 set -euo pipefail
 set -o noglob # BINS entries like '?name' are names, not patterns
 
@@ -111,7 +117,10 @@ for i in "${!commands[@]}"; do
   starts+=("$(date +%s)")
   (
     export CARGO_TARGET_DIR="$dir"
-    if ((n == 1)); then export CARGO_BUILD_JOBS="$lead_jobs"; fi
+    first=${bins[i]%% *}
+    if ((n == 1)) || [[ " ${CARGO_GROUPS_EVERY_CORE:-} " == *" ${first#\?} "* ]]; then
+      export CARGO_BUILD_JOBS="$lead_jobs"
+    fi
     status=0
     bash -c "set -euo pipefail; ${commands[i]}" > "$logs/$n.log" 2>&1 || status=$?
     echo "$status $(date +%s)" > "$logs/$n.done"

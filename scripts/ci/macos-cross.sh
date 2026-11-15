@@ -326,7 +326,9 @@ cmd_all() {
     # --timings: cargo-groups.sh prints each long group's slowest and last units (compile vs
     # the fat-LTO link of the "bin" unit). It changes no output.
     local build="cargo build --release --locked --timings --target $t"
-    "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
+    # acpmux-standalone gets every core, as group 1 does: its acpmux lib and link ran on 4 of 16
+    # cores and ended this leg (644-690 s warm, runs 43751108092 and 43751227908).
+    CARGO_GROUPS_EVERY_CORE=acpmux-standalone "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
       "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
       "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \
       "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
